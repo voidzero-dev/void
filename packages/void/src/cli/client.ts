@@ -22,6 +22,8 @@ import type {
   SecurityFindingList,
   SecurityFindingQuery,
   SecurityModelChange,
+  SecurityRescanPreview,
+  SecurityRescanQueued,
   SecurityScanList,
 } from './security-api-types.ts';
 import type {
@@ -1084,6 +1086,23 @@ export class PlatformClient {
       'Failed to list security scans',
       { permission: 'deploy' },
     );
+  }
+
+  /** The rescan cost check: what a project rescan would run, queuing nothing. */
+  async previewProjectSecurityScan(projectId: string): Promise<SecurityRescanPreview> {
+    return this.security(`${projectId}/security/scans`, 'Failed to preview the security scan', {
+      method: 'POST',
+      body: { dryRun: true },
+      permission: 'settings',
+    });
+  }
+
+  async startProjectSecurityScan(projectId: string): Promise<SecurityRescanQueued> {
+    return this.security(`${projectId}/security/scans`, 'Failed to start the security scan', {
+      method: 'POST',
+      body: {},
+      permission: 'settings',
+    });
   }
 
   async setProjectSecurityModel(

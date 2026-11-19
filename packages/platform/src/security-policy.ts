@@ -77,6 +77,19 @@ export type SecurityPolicyBudgets = Readonly<{
 /** Highest USD amount a cap may be set to. */
 export const SECURITY_MAX_MONTHLY_USD = 1_000_000;
 
+/**
+ * Scheduled full sweeps (spec §20 Phase 2): every `everyDays` days the hourly job
+ * scans the live deployment of each project in scope in full, with the deeper
+ * `standard` profile. Off by default: sweeps cost money and nothing asks for them.
+ */
+export type SecuritySweeps = Readonly<{
+  on: boolean;
+  everyDays: number;
+}>;
+
+/** Allowed range of `sweeps.everyDays`. */
+export const SECURITY_SWEEP_DAYS_RANGE: SecurityLimitRange = { min: 7, max: 90, default: 30 };
+
 export type SecurityThirdPartyNotice = Readonly<{
   acceptedByUserId: string;
   /** ISO 8601 timestamp. */
@@ -105,6 +118,7 @@ export type SecurityPolicy = Readonly<{
   entitlement: SecurityEntitlement | null;
   /** "Scan before a project goes public" (spec §5.5). */
   publicGate: boolean;
+  sweeps: SecuritySweeps;
   revision: number;
 }>;
 
@@ -190,6 +204,50 @@ export function defaultSecurityBudgets(): SecurityPolicyBudgets {
   };
 }
 
+export function defaultSecuritySweeps(): SecuritySweeps {
+  return { on: false, everyDays: SECURITY_SWEEP_DAYS_RANGE.default };
+}
+
+/** `sweeps.everyDays`: a whole number of days in `SECURITY_SWEEP_DAYS_RANGE`. */
+export function parseSecuritySweepDays(value: unknown): number {
+  const range = SECURITY_SWEEP_DAYS_RANGE;
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    value < range.min ||
+    value > range.max
+  ) {
+    throw new Error(`sweeps.everyDays must be a whole number from ${range.min} to ${range.max}.`);
+  }
+  return value;
+}
+
+/**
+ * The sweep setting. A row saved before sweeps existed has none: that reads as Off.
+ * The strict parser checks the range. The lenient reader clamps the days into it and
+ * reads anything else it cannot use as Off, so bad data never starts paid scans.
+ */
+function parseSweeps(value: unknown, strict: boolean): SecuritySweeps {
+  if (value === undefined) {
+    return defaultSecuritySweeps();
+  }
+  if (strict) {
+    const input = record(value, 'sweeps');
+    return {
+      on: parseBoolean(input.on, 'sweeps.on'),
+      everyDays: parseSecuritySweepDays(input.everyDays),
+    };
+  }
+  const input =
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  const days = input.everyDays;
+  if (typeof input.on !== 'boolean' || typeof days !== 'number' || !Number.isSafeInteger(days)) {
+    return defaultSecuritySweeps();
+  }
+  const range = SECURITY_SWEEP_DAYS_RANGE;
+  return { on: input.on, everyDays: Math.min(range.max, Math.max(range.min, days)) };
+}
+
 /** The policy of an installation that never saved one: Off, nothing accepted or probed. */
 export function defaultSecurityPolicy(): SecurityPolicy {
   return {
@@ -201,6 +259,7 @@ export function defaultSecurityPolicy(): SecurityPolicy {
     budgets: defaultSecurityBudgets(),
     entitlement: null,
     publicGate: false,
+    sweeps: defaultSecuritySweeps(),
     revision: 0,
   };
 }
@@ -418,6 +477,7 @@ export function parseSecurityPolicy(value: unknown): SecurityPolicy {
     budgets: parseSecurityBudgets(input.budgets),
     entitlement: input.entitlement === null ? null : parseSecurityEntitlement(input.entitlement),
     publicGate: parseBoolean(input.publicGate, 'publicGate'),
+    sweeps: parseSweeps(input.sweeps, true),
     revision,
   };
   assertSecurityPolicyConsistent(policy);
@@ -519,6 +579,7 @@ export function readSecurityPolicy(value: unknown): SecurityPolicy {
     budgets: parseSecurityBudgets(input.budgets),
     entitlement: input.entitlement === null ? null : parseSecurityEntitlement(input.entitlement),
     publicGate: parseBoolean(input.publicGate, 'publicGate'),
+    sweeps: parseSweeps(input.sweeps, false),
     revision,
   };
   assertSecurityPolicyConsistent(policy);

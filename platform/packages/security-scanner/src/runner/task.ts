@@ -9,6 +9,14 @@ import { relativePathProblem } from './validate-findings.ts';
 export const TASK_TIERS = ['source_diff', 'built_diff', 'full'] as const;
 export type TaskTier = (typeof TASK_TIERS)[number];
 
+/**
+ * `deploy_diff`: the per-deploy profile. `standard`: scheduled full sweeps (M25), one
+ * hunt session per focus area. A profile this runner does not know runs as
+ * `deploy_diff`, so a newer API never fails an older image.
+ */
+export const TASK_PROFILES = ['deploy_diff', 'standard'] as const;
+export type TaskProfile = (typeof TASK_PROFILES)[number];
+
 export const TASK_ENGINES = [
   'void_loop',
   'agent_sdk',
@@ -29,6 +37,7 @@ export type ScanTask = {
   engine: EngineId;
   model: string;
   tier: TaskTier;
+  profile: TaskProfile;
   /** Paths relative to `/scan/input` that changed since the base (empty for `full`). */
   changedFiles: Array<string>;
   maxTurns: number;
@@ -67,6 +76,7 @@ export function parseTask(value: unknown): ScanTask {
   const model = readId(task.model, 'model');
   const tier = readOneOf(task.tier, 'tier', TASK_TIERS);
   const changedFiles = readChangedFiles(task.changed_files);
+  const profile = TASK_PROFILES.find((value) => value === task.profile) ?? 'deploy_diff';
   const limits = task.limits === undefined ? {} : task.limits;
   if (typeof limits !== 'object' || limits === null || Array.isArray(limits)) {
     throw new TaskError('limits must be an object');
@@ -78,6 +88,7 @@ export function parseTask(value: unknown): ScanTask {
     engine,
     model,
     tier,
+    profile,
     changedFiles,
     maxTurns: readLimit(maxTurns, 'limits.max_turns', TASK_LIMITS.maxTurns, 1),
     maxVerify: readLimit(maxVerify, 'limits.max_verify', TASK_LIMITS.maxVerify, 0),

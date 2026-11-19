@@ -694,6 +694,90 @@ describe('scans', () => {
   });
 });
 
+describe('project rescan (M25)', () => {
+  async function storeSnapshot(projectId: string, deploymentId: string) {
+    await env.STATIC_ASSETS_R2.put(
+      `security-scans/${projectId}/${deploymentId}/modules.json`,
+      '[]',
+    );
+  }
+
+  it('previews the cost, queues one full scan as rescan, and refuses a second', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    const deployment = await createTestDeployment(env.db, project.id);
+    await storeSnapshot(project.id, deployment.id);
+    await addScan(project.id, deployment.id);
+    const path = `/projects/${project.id}/security/scans`;
+
+    const preview = await json(
+      await call(path, people.admin.jwt, { method: 'POST', body: { dryRun: true } }),
+    );
+    expect(preview).toMatchObject({
+      dryRun: true,
+      deploymentId: deployment.id,
+      alreadyScanned: true,
+      tier: 'full',
+      model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+      thirdParty: false,
+      budget: { capUsd: null },
+    });
+    expect(typeof preview.worstCaseUsd).toBe('number');
+    expect(await env.db.select().from(securityScans)).toHaveLength(1);
+
+    const queued = await call(path, people.owner.jwt, { method: 'POST', body: {} });
+    expect(queued.status).toBe(202);
+    const body = await json(queued);
+    expect(body).toMatchObject({ ok: true, deploymentId: deployment.id, tier: 'full' });
+    const [row] = await env.db
+      .select()
+      .from(securityScans)
+      .where(eq(securityScans.id, body.scanId));
+    expect(row).toMatchObject({
+      trigger: 'rescan',
+      status: 'queued',
+      deployment_id: deployment.id,
+      input_r2_key: `security-scans/${project.id}/${deployment.id}/`,
+    });
+
+    const second = await call(path, people.admin.jwt, { method: 'POST', body: {} });
+    expect(second.status).toBe(409);
+    const refused = await json(second);
+    expect(refused.error).toBe('security_scan_in_progress');
+    // Only an operator can cancel, so the project copy does not ask for it.
+    expect(refused.message).toContain('Wait for it to end.');
+    expect(refused.message).not.toContain('cancel');
+  });
+
+  it('needs settings, a JSON body, the capability, and a scannable live deployment', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    const path = `/projects/${project.id}/security/scans`;
+    for (const role of ['collaborator', 'reader'] as const) {
+      expect((await call(path, people[role].jwt, { method: 'POST', body: {} })).status).toBe(403);
+    }
+    const off = await call(path, people.admin.jwt, { method: 'POST', body: {}, bindings: env });
+    expect(off.status).toBe(501);
+    expect((await call(path, people.admin.jwt, { method: 'POST' })).status).toBe(400);
+    expect(
+      (await call(path, people.admin.jwt, { method: 'POST', body: { dryRun: 'yes' } })).status,
+    ).toBe(400);
+
+    const none = await call(path, people.admin.jwt, { method: 'POST', body: {} });
+    expect(none.status).toBe(409);
+    expect((await json(none)).error).toBe('no_live_deployment');
+
+    await createTestDeployment(env.db, project.id);
+    const gone = await call(path, people.admin.jwt, { method: 'POST', body: {} });
+    expect((await json(gone)).error).toBe('security_input_unavailable');
+
+    await savePolicy({ mode: 'disabled' });
+    const outOfScope = await call(path, people.admin.jwt, { method: 'POST', body: {} });
+    expect((await json(outOfScope)).error).toBe('security_not_in_scope');
+    expect(await env.db.select().from(securityScans)).toHaveLength(0);
+  });
+});
+
 describe('model', () => {
   const FOREIGN = 'openai/gpt-6.1-terra';
   const notice = {
@@ -1012,6 +1096,15 @@ describe('role matrix', () => {
       }),
     },
     {
+      name: 'rescan preview',
+      allowed: ['owner', 'admin'],
+      request: (id) => ({
+        path: `/projects/${id}/security/scans`,
+        method: 'POST',
+        body: { dryRun: true },
+      }),
+    },
+    {
       name: 'page link',
       allowed: ['owner', 'admin', 'collaborator', 'reader'],
       request: (id) => ({ path: `/projects/${id}/security/page-link`, method: 'POST' }),
@@ -1024,6 +1117,11 @@ describe('role matrix', () => {
     const deployment = await createTestDeployment(env.db, project.id);
     await addScan(project.id, deployment.id);
     await addFinding(project.id, { number: 1 });
+    // The rescan preview needs the live deployment's code in storage.
+    await env.STATIC_ASSETS_R2.put(
+      `security-scans/${project.id}/${deployment.id}/modules.json`,
+      '[]',
+    );
     for (const role of ROLES) {
       // The reopen row needs a resolved finding at revision 2.
       await env.db

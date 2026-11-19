@@ -172,6 +172,24 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
   },
   {
     group: 'security',
+    action: 'backfill',
+    description:
+      'Scan every live deployment that was never scanned (asks first; it can cost real money)',
+    path: '/security/backfill',
+    method: 'POST',
+  },
+  {
+    group: 'security',
+    action: 'sweeps',
+    description: 'Turn scheduled full sweeps of every live app on or off',
+    path: '/security/policy',
+    positional: ['state'],
+    usage: ['void platform security sweeps <on|off> [--every-days <n>] [options]'],
+    values: { 'every-days': 'Days between two sweeps of one project (7 to 90, default 30)' },
+    method: 'POST',
+  },
+  {
+    group: 'security',
     action: 'cancel',
     description: 'Cancel a waiting or running scan',
     path: '/security/scans/:sid/cancel',
@@ -341,6 +359,23 @@ export function applySecurityArgs(
         throw new Error('platform: Usage: void platform security policy <disabled|public|all>.');
       }
       parsed.body = { mode };
+      return;
+    }
+    case 'sweeps': {
+      const state = parameters[0]!;
+      if (state !== 'on' && state !== 'off') {
+        throw new Error(
+          'platform: Usage: void platform security sweeps <on|off> [--every-days <n>].',
+        );
+      }
+      parsed.body = {
+        sweeps: {
+          on: state === 'on',
+          ...(values['every-days'] !== undefined
+            ? { everyDays: wholeNumber(values['every-days'], 'every-days') }
+            : {}),
+        },
+      };
       return;
     }
     case 'public-gate': {

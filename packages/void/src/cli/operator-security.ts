@@ -299,6 +299,46 @@ async function runRescan(
   io.outputMutation(result, args);
 }
 
+async function runBackfill(
+  client: OperatorClient,
+  origin: string,
+  args: OperatorArgs,
+  io: SecurityIo,
+): Promise<void> {
+  const preview = await previewOf(client, args, args.path, args.body);
+  const count = number(preview.willQueue) ?? 0;
+  if (!args.json && !args.plan) {
+    const remaining = number(preview.remaining) ?? 0;
+    const cost =
+      typeof preview.worstCaseUsd === 'number'
+        ? ` Together they can cost up to ${money(preview.worstCaseUsd)}.`
+        : '';
+    const missing = number(preview.noStoredCode) ?? 0;
+    const missingText =
+      missing > 0
+        ? `${missing} never-scanned live ${missing === 1 ? 'deployment has' : 'deployments have'} no stored code, so ${missing === 1 ? 'it cannot' : 'they cannot'} be scanned. Deploy ${missing === 1 ? 'that project' : 'those projects'} again.\n`
+        : '';
+    process.stderr.write(
+      count === 0
+        ? `${missing > 0 ? 'Nothing to backfill.' : 'Every live deployment in scope already has a scan. Nothing to backfill.'}\n${missingText}`
+        : `Scan ${count} live ${count === 1 ? 'deployment' : 'deployments'} that were never scanned?${cost}${remaining > 0 ? ` ${remaining} more wait for the next backfill.` : ''}\n${missingText}${dim('Monthly caps apply when each scan starts.')}\n`,
+    );
+  }
+  if (count === 0 && !args.plan) {
+    io.output(preview, args.json);
+    return;
+  }
+  if (!(await io.confirm(origin, preview, args))) {
+    return;
+  }
+  const result = await client.request(args.path, {
+    method: 'POST',
+    body: args.body,
+    timeoutMs: args.timeoutMs,
+  });
+  io.outputMutation(result, args);
+}
+
 async function runModel(
   client: OperatorClient,
   origin: string,
@@ -340,6 +380,7 @@ async function runMutation(
     case 'policy':
     case 'limits':
     case 'public-gate':
+    case 'sweeps':
       return changeWithRevision(client, origin, args, io, { ...args.body });
     case 'models': {
       const { acceptProviderNotice, ...fields } = args.body;
@@ -359,6 +400,8 @@ async function runMutation(
       return runModel(client, origin, args, io);
     case 'rescan':
       return runRescan(client, origin, args, io);
+    case 'backfill':
+      return runBackfill(client, origin, args, io);
     default: {
       // cancel, bypass: a preview, then the same body.
       const preview = await previewOf(client, args, args.path, args.body);

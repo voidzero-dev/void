@@ -8,6 +8,7 @@
  *     → timed_out                   ─ 24 h wait → skipped:backlog
  *   ─ ended rows still holding a reserve → released
  *   ─ raw output sweep (30 d)       ─ daily probe (entitlement older than 24 h)
+ *                                   ─ scheduled full sweeps (policy `sweeps.on`)
  *   ─ scan row retention
  *   ─ closed request retention
  *
@@ -37,6 +38,7 @@ import {
 } from './queue.ts';
 import { securityScanControllerClient, type SecurityScanController } from './scheduler.ts';
 import { securityScans } from './schema.ts';
+import { queueSecuritySweeps } from './sweeps.ts';
 
 /** Raw scan output (`findings.json`, ledger) is kept this long (D28). */
 export const SECURITY_RAW_OUTPUT_RETENTION_MS = 30 * 24 * 60 * 60_000;
@@ -78,6 +80,7 @@ export type SecurityMaintenanceReport = Readonly<{
   reservesReleased: number;
   repoked: number;
   backlogged: number;
+  sweepsQueued: number;
   rawSwept: number;
   scanRowsDeleted: number;
   requestsDeleted: number;
@@ -134,6 +137,7 @@ export async function runSecurityMaintenance(
   });
   let repoked = 0;
   let backlogged = 0;
+  let sweepsQueued = 0;
   let probed = false;
   if (policy.mode !== 'disabled') {
     repoked = await step('re-poke', 0, () => queueStalePendingSecurityScans(db, now));
@@ -141,6 +145,9 @@ export async function runSecurityMaintenance(
     if (policy.mode === 'public') {
       await step('exposure catch-up', 0, () => queueExposureCatchUpScans(env, db));
     }
+    sweepsQueued = await step('scheduled sweeps', 0, () =>
+      queueSecuritySweeps(env, db, policy, now),
+    );
     await step('poke', undefined, async () => {
       if (await hasQueuedSecurityScans(db)) {
         await deps.poke();
@@ -167,6 +174,7 @@ export async function runSecurityMaintenance(
     reservesReleased,
     repoked,
     backlogged,
+    sweepsQueued,
     rawSwept,
     scanRowsDeleted,
     requestsDeleted,

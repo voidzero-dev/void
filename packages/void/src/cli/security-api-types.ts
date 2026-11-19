@@ -143,6 +143,27 @@ export type SecurityScanList = { scans: Array<SecurityScanSummary>; nextCursor: 
 
 export type SecurityModelChange = { ok: true; model: ProjectSecurityStatus['model'] };
 
+/** `POST /projects/:id/security/scans` with `dryRun: true`: what a rescan would run. */
+export type SecurityRescanPreview = {
+  dryRun: true;
+  deploymentId: string;
+  alreadyScanned: boolean;
+  tier: string;
+  model: string | null;
+  thirdParty: boolean;
+  worstCaseUsd: number | null;
+  budget: ProjectSecurityStatus['budget'];
+};
+
+export type SecurityRescanQueued = {
+  ok: true;
+  scanId: string;
+  deploymentId: string;
+  tier: string;
+  model: string | null;
+  alreadyScanned: boolean;
+};
+
 export type SecurityBudgetChange = {
   ok: true;
   budget: NonNullable<ProjectSecurityStatus['budget']>;

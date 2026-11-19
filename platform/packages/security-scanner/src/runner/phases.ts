@@ -1,10 +1,13 @@
-// The deploy-diff profile, the same for every engine (spec §8.1): one hunt
-// session, then one fresh verify session per candidate (at most `maxVerify`).
+// Two profiles, the same for every engine (spec §8.1):
+//   deploy_diff  one hunt session, then one fresh verify session per candidate
+//                (at most `maxVerify`).
+//   standard     scheduled sweeps (M25): one hunt session per focus area over the
+//                whole app, candidates merged by fingerprint, then the same verify step.
 // "confirmed (static)" needs both the hunt trace and a separate verify session.
 
 import type { Engine, SessionOutcome, SessionSpec } from './engines/types.ts';
-import { huntPrompt, systemPrompt, verifyPrompt } from './prompts.ts';
-import { SEVERITIES, type FindingRecord, type ScanReport } from './report.ts';
+import { huntPrompt, STANDARD_HUNT_FOCUS, systemPrompt, verifyPrompt } from './prompts.ts';
+import { REPORT_LIMITS, SEVERITIES, type FindingRecord, type ScanReport } from './report.ts';
 import { outcomeStatus, type StatusFields, type StatusFile } from './status.ts';
 import type { ScanTask } from './task.ts';
 
@@ -25,6 +28,10 @@ export type PhasesOptions = {
 
 const NOT_CONFIRMED_REASON = 'The verify session did not report this candidate again.';
 
+type HuntResult =
+  | { kind: 'done'; report: ScanReport; failed: boolean }
+  | { kind: 'ended'; fields: StatusFields };
+
 export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
   const { engine, task, signal } = options;
   const system = systemPrompt();
@@ -40,20 +47,21 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
     tokensOut: 0,
   };
 
-  const run = async (spec: Omit<SessionSpec, 'system' | 'maxTurns' | 'signal'>) => {
-    const outcome = await engine.runSession({
-      ...spec,
-      system,
-      maxTurns: task.maxTurns,
-      signal,
-    });
+  const run = async (
+    spec: Omit<SessionSpec, 'system' | 'maxTurns' | 'signal'>,
+    maxTurns = task.maxTurns,
+  ) => {
+    const outcome = await engine.runSession({ ...spec, system, maxTurns, signal });
     record(result, spec, outcome);
     return outcome;
   };
 
-  const hunt = await run({ phase: 'hunt', index: 0, prompt: huntPrompt(task, options.hasMemory) });
-  if (hunt.kind !== 'submitted') {
-    return { ...result, ...outcomeStatus(hunt) };
+  const hunt =
+    task.profile === 'standard'
+      ? await standardHunt(task, options.hasMemory, run)
+      : await deployDiffHunt(task, options.hasMemory, run);
+  if (hunt.kind === 'ended') {
+    return { ...result, ...hunt.fields };
   }
 
   const { candidates, rejected } = splitCandidates(hunt.report);
@@ -62,11 +70,13 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
   const unverified = candidates.slice(task.maxVerify).map(asLead);
   const verified: Array<FindingRecord> = [];
   let verifyFailed = false;
+  // Session indexes stay unique: verify sessions follow the hunt sessions.
+  const firstVerifyIndex = result.sessions.length;
 
   for (const [position, candidate] of toVerify.entries()) {
     const outcome = await run({
       phase: 'verify',
-      index: position + 1,
+      index: firstVerifyIndex + position,
       prompt: verifyPrompt(candidate),
       check: oneRecordAtMost,
     });
@@ -88,7 +98,15 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
   }
 
   const all = [...verified, ...unverified, ...rejected];
-  if (hunt.report.run_status === 'incomplete' || verifyFailed) {
+  const findings = ordered(all);
+  // The `standard` hunts together can find more than one report holds; the file must
+  // pass the same limits, so a list that does not fit keeps only what verify confirmed.
+  if (
+    hunt.report.run_status === 'incomplete' ||
+    hunt.failed ||
+    verifyFailed ||
+    !fitsReport(findings)
+  ) {
     return {
       ...result,
       status: 'incomplete',
@@ -96,7 +114,106 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
       findings: confirmedOnly(all),
     };
   }
-  return { ...result, findings: ordered(all) };
+  return { ...result, findings };
+}
+
+/** Room left for the findings file's other fields (`schema_version`, `run_status`, `notes`). */
+const REPORT_FRAME_BYTES = 1024;
+
+/** Whether `findings` fit one findings file (`validate-findings.ts` limits). */
+export function fitsReport(findings: ReadonlyArray<FindingRecord>): boolean {
+  return (
+    findings.length <= REPORT_LIMITS.maxRecords &&
+    Buffer.byteLength(JSON.stringify(findings), 'utf8') <=
+      REPORT_LIMITS.maxBytes - REPORT_FRAME_BYTES
+  );
+}
+
+/**
+ * The focus hunts' records, one per fingerprint. Every hunt reads the same memory and
+ * keeps its fingerprints, so one issue can come back from several areas with different
+ * verdicts; the strongest is kept (confirmed, then lead, then rejected; then severity),
+ * so a rejection by one area never hides a confirmation by another.
+ */
+export function mergeHuntFindings(findings: ReadonlyArray<FindingRecord>): Array<FindingRecord> {
+  const byFingerprint = new Map<string, FindingRecord>();
+  for (const finding of findings) {
+    const kept = byFingerprint.get(finding.fingerprint);
+    if (kept === undefined || compareStrength(finding, kept) < 0) {
+      byFingerprint.set(finding.fingerprint, finding);
+    }
+  }
+  return [...byFingerprint.values()];
+}
+
+type RunSession = (
+  spec: Omit<SessionSpec, 'system' | 'maxTurns' | 'signal'>,
+  maxTurns?: number,
+) => Promise<SessionOutcome>;
+
+async function deployDiffHunt(
+  task: ScanTask,
+  hasMemory: boolean,
+  run: RunSession,
+): Promise<HuntResult> {
+  const hunt = await run({ phase: 'hunt', index: 0, prompt: huntPrompt(task, hasMemory) });
+  if (hunt.kind !== 'submitted') {
+    return { kind: 'ended', fields: outcomeStatus(hunt) };
+  }
+  return { kind: 'done', report: hunt.report, failed: false };
+}
+
+/**
+ * Hunt turns per focus session in the `standard` profile: half the session limit, so
+ * the hunts together stay near one deploy-diff hunt and leave calls for verify.
+ */
+export function standardHuntTurns(task: ScanTask): number {
+  return Math.max(1, Math.ceil(task.maxTurns / 2));
+}
+
+/**
+ * One hunt session per focus area. An unreadable report costs that area only (the scan
+ * ends incomplete); any other stop ends the scan as in the deploy-diff hunt.
+ */
+async function standardHunt(
+  task: ScanTask,
+  hasMemory: boolean,
+  run: RunSession,
+): Promise<HuntResult> {
+  const findings: Array<FindingRecord> = [];
+  let incomplete = false;
+  let failed = false;
+  let firstFailure: Extract<SessionOutcome, { kind: 'bad_output' }> | null = null;
+  let submitted = 0;
+  for (const [index, focus] of STANDARD_HUNT_FOCUS.entries()) {
+    const hunt = await run(
+      { phase: 'hunt', index, prompt: huntPrompt(task, hasMemory, focus) },
+      standardHuntTurns(task),
+    );
+    if (hunt.kind === 'bad_output') {
+      failed = true;
+      firstFailure ??= hunt;
+      continue;
+    }
+    if (hunt.kind !== 'submitted') {
+      return { kind: 'ended', fields: outcomeStatus(hunt) };
+    }
+    submitted++;
+    findings.push(...hunt.report.findings);
+    incomplete ||= hunt.report.run_status === 'incomplete';
+  }
+  if (submitted === 0 && firstFailure !== null) {
+    return { kind: 'ended', fields: outcomeStatus(firstFailure) };
+  }
+  return {
+    kind: 'done',
+    report: {
+      run_status: incomplete ? 'incomplete' : 'complete',
+      findings: mergeHuntFindings(findings),
+      notes: '',
+    },
+    failed,
+  };
 }
 
 function record(
@@ -172,8 +289,10 @@ function confirmedOnly(findings: ReadonlyArray<FindingRecord>): Array<FindingRec
 
 const VERDICT_ORDER = { confirmed: 0, needs_validation: 1, rejected: 2 } as const;
 
+function compareStrength(a: FindingRecord, b: FindingRecord): number {
+  return VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict] || rank(a) - rank(b);
+}
+
 function ordered(findings: ReadonlyArray<FindingRecord>): Array<FindingRecord> {
-  return [...findings].sort(
-    (a, b) => VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict] || rank(a) - rank(b),
-  );
+  return [...findings].sort(compareStrength);
 }

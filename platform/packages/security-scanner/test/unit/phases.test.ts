@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vite-plus/test';
 import type { Engine, SessionOutcome, SessionSpec } from '../../src/runner/engines/types.ts';
-import { runPhases, splitCandidates, verifiedRecord } from '../../src/runner/phases.ts';
+import {
+  fitsReport,
+  runPhases,
+  splitCandidates,
+  standardHuntTurns,
+  verifiedRecord,
+} from '../../src/runner/phases.ts';
+import { STANDARD_HUNT_FOCUS } from '../../src/runner/prompts.ts';
 import type { FindingRecord, ScanReport } from '../../src/runner/report.ts';
 import type { OutcomeBody } from '../../src/runner/status.ts';
 import { parseTask, type ScanTask } from '../../src/runner/task.ts';
@@ -257,7 +264,134 @@ describe('verifiedRecord', () => {
   });
 });
 
+describe('runPhases standard profile (sweeps)', () => {
+  const SWEEP: ScanTask = { ...TASK, tier: 'full', changedFiles: [], profile: 'standard' };
+
+  test('one hunt per focus area over the whole app, merged by fingerprint, then verify', async () => {
+    const engine = scriptedEngine([
+      submitted([confirmed({ fingerprint: 'auth:admin' })]),
+      // The same issue seen by a second area is verified once.
+      submitted([confirmed({ fingerprint: 'auth:admin' }), lead({ fingerprint: 'sqli:q' })]),
+      submitted([rejected({ fingerprint: 'secret:log' })]),
+      submitted([confirmed({ fingerprint: 'auth:admin' })]),
+      submitted([lead({ fingerprint: 'sqli:q' })]),
+    ]);
+    const result = await runPhases({ engine, task: SWEEP, hasMemory: false });
+    expect(result.status).toBe('succeeded');
+    expect(engine.specs.map((s) => [s.phase, s.index])).toEqual([
+      ['hunt', 0],
+      ['hunt', 1],
+      ['hunt', 2],
+      ['verify', 3],
+      ['verify', 4],
+    ]);
+    for (const [index, focus] of STANDARD_HUNT_FOCUS.entries()) {
+      expect(engine.specs[index]!.prompt).toContain(focus);
+      expect(engine.specs[index]!.prompt).toContain('whole of /scan/input');
+      expect(engine.specs[index]!.maxTurns).toBe(standardHuntTurns(SWEEP));
+    }
+    expect(standardHuntTurns(SWEEP)).toBe(20);
+    expect(engine.specs[3]!.maxTurns).toBe(40);
+    expect(result.findings.map((f) => [f.fingerprint, f.verdict])).toEqual([
+      ['auth:admin', 'confirmed'],
+      ['sqli:q', 'needs_validation'],
+      ['secret:log', 'rejected'],
+    ]);
+    expect(result.sessions).toHaveLength(5);
+  });
+
+  test('an unreadable hunt costs only its area and ends the scan incomplete', async () => {
+    const engine = scriptedEngine([
+      { kind: 'bad_output', errorKind: 'schema', message: 'bad' },
+      submitted([confirmed({ fingerprint: 'sqli:q' })]),
+      submitted([]),
+      submitted([confirmed({ fingerprint: 'sqli:q' })]),
+    ]);
+    const result = await runPhases({ engine, task: SWEEP, hasMemory: false });
+    expect(result).toMatchObject({ status: 'incomplete', reason: 'run_incomplete' });
+    expect(result.findings.map((f) => f.fingerprint)).toEqual(['sqli:q']);
+  });
+
+  test('a refusal or a cap stop in any hunt ends the scan with no findings', async () => {
+    const engine = scriptedEngine([
+      submitted([confirmed()]),
+      { kind: 'stopped', reason: 'scan_calls' },
+    ]);
+    const result = await runPhases({ engine, task: SWEEP, hasMemory: false });
+    expect(result.findings).toEqual([]);
+    expect(result.status).not.toBe('succeeded');
+    expect(engine.specs).toHaveLength(2);
+  });
+
+  test('a rejection by one area never hides a confirmation by another', async () => {
+    const engine = scriptedEngine([
+      submitted([rejected({ fingerprint: 'auth:admin' }), lead({ fingerprint: 'ssrf:a' })]),
+      submitted([confirmed({ fingerprint: 'ssrf:a', severity: 'medium' })]),
+      submitted([confirmed({ fingerprint: 'auth:admin', severity: 'critical' })]),
+      (spec) => {
+        expect(spec.prompt).toContain('auth:admin');
+        return submitted([confirmed({ fingerprint: 'x', severity: 'critical' })]);
+      },
+      submitted([confirmed({ fingerprint: 'x', severity: 'medium' })]),
+    ]);
+    const result = await runPhases({ engine, task: SWEEP, hasMemory: true });
+    expect(result.status).toBe('succeeded');
+    expect(result.findings.map((f) => [f.fingerprint, f.verdict, f.severity])).toEqual([
+      ['auth:admin', 'confirmed', 'critical'],
+      ['ssrf:a', 'confirmed', 'medium'],
+    ]);
+  });
+
+  test('more records than one report holds keep the verified ones and end incomplete', async () => {
+    const leads = (area: string) =>
+      Array.from({ length: 400 }, (_, index) => lead({ fingerprint: `${area}:${index}` }));
+    const engine = scriptedEngine([
+      submitted([confirmed({ fingerprint: 'auth:admin' }), ...leads('a').slice(1)]),
+      submitted(leads('b')),
+      submitted(leads('c')),
+      submitted([confirmed({ fingerprint: 'auth:admin' })]),
+      ...Array.from({ length: SWEEP.maxVerify - 1 }, () => submitted([])),
+    ]);
+    const result = await runPhases({ engine, task: SWEEP, hasMemory: false });
+    expect(result).toMatchObject({ status: 'incomplete', reason: 'run_incomplete' });
+    expect(result.findings.map((f) => f.fingerprint)).toEqual(['auth:admin']);
+  });
+
+  test('fitsReport follows the findings file limits', () => {
+    expect(fitsReport([record(confirmed())])).toBe(true);
+    const many = Array.from({ length: 1001 }, (_, index) =>
+      record(lead({ fingerprint: `f:${index}` })),
+    );
+    expect(fitsReport(many)).toBe(false);
+    const big = Array.from({ length: 800 }, (_, index) =>
+      record(confirmed({ fingerprint: `f:${index}`, evidence: 'x'.repeat(7000) })),
+    );
+    expect(fitsReport(big)).toBe(false);
+  });
+
+  test('every hunt unreadable fails the scan like one bad deploy-diff hunt', async () => {
+    const bad: OutcomeBody = { kind: 'bad_output', errorKind: 'schema', message: 'bad' };
+    const engine = scriptedEngine([bad, bad, bad]);
+    const result = await runPhases({ engine, task: SWEEP, hasMemory: false });
+    expect(result).toMatchObject({ status: 'failed', reason: 'bad_output', findings: [] });
+  });
+});
+
 describe('parseTask', () => {
+  test('reads the profile; a missing or unknown one is deploy_diff', () => {
+    const base = {
+      version: 1,
+      scan_id: 's',
+      attempt: 1,
+      engine: 'void_loop',
+      model: 'm',
+      tier: 'full',
+    };
+    expect(parseTask(base).profile).toBe('deploy_diff');
+    expect(parseTask({ ...base, profile: 'standard' }).profile).toBe('standard');
+    expect(parseTask({ ...base, profile: 'deep_future' }).profile).toBe('deploy_diff');
+  });
+
   test('clamps limits to the spec maximum and keeps lower ones', () => {
     const base = {
       version: 1,

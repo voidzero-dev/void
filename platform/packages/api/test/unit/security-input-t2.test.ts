@@ -478,6 +478,19 @@ describe('buildSecurityScanInput', () => {
     expect(gateNothing.notes).toContain('gate-recheck');
   });
 
+  it('asks the runner for the standard profile on a sweep only (M25)', () => {
+    const sweep = buildSecurityScanInput(
+      plan({
+        scan: { ...plan().scan, trigger: 'sweep' },
+        tier: { tier: 'full', fullReason: 'sweep' },
+      }),
+    );
+    expect(sweep.task.profile).toBe('standard');
+    expect(sweep.notes).toContain('sweep');
+    expect(parseTask(sweep.task).profile).toBe('standard');
+    expect(buildSecurityScanInput(plan()).task.profile).toBeUndefined();
+  });
+
   it('drops secret-like and registry files, and flags a mostly third-party drop', () => {
     const big = 'x'.repeat(10_000);
     const built = buildSecurityScanInput(

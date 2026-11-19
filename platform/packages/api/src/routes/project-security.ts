@@ -1,6 +1,7 @@
 import { type Context, Hono } from 'hono';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { ApiEnv } from '../env.ts';
+import { OperatorError } from '../operator/common.ts';
 import {
   ProjectAccessDeniedError,
   ProjectNotFoundError,
@@ -8,6 +9,7 @@ import {
 } from '../project-access.ts';
 import { pokeSecurityScanScheduler } from '../security/enqueue.ts';
 import { SecurityApiError } from '../security/errors.ts';
+import { previewSecurityRescan, queueSecurityRescan } from '../security/operator.ts';
 import { mintSecurityPageToken } from '../security/page-token.ts';
 import {
   commentOnSecurityFinding,
@@ -63,6 +65,13 @@ function failure(context: Context<ApiEnv>, error: unknown): Response {
     return context.json(projectAccessErrorBody(error), error.status);
   }
   if (error instanceof SecurityApiError) {
+    return context.json(
+      { error: error.code, message: error.message, ...error.details },
+      error.status,
+    );
+  }
+  // The rescan checks are shared with the operator route and throw its error type.
+  if (error instanceof OperatorError) {
     return context.json(
       { error: error.code, message: error.message, ...error.details },
       error.status,
@@ -285,6 +294,57 @@ const app = new Hono<ApiEnv>()
           securityDetailLevel(viewer(context, access.role)),
           { limit, cursor },
         ),
+      );
+    } catch (error) {
+      return failure(context, error);
+    }
+  })
+  /**
+   * Project rescan (M25): the operator rescan rule (a full scan of the live deployment,
+   * never `no changes`), for project admins. `dryRun` is the cost confirm.
+   */
+  .post('/:id/security/scans', async (context) => {
+    const projectId = context.req.param('id');
+    const access = await requireProjectRouteCapability(context, projectId, 'settings');
+    if (access instanceof Response) {
+      return access;
+    }
+    if (!capabilityOn(context)) {
+      return capabilityOff(context);
+    }
+    try {
+      const dryRun = field(await readJson(context), 'dryRun');
+      if (dryRun !== undefined && typeof dryRun !== 'boolean') {
+        throw SecurityApiError.invalid('dryRun must be true or false.');
+      }
+      const db = context.get('db');
+      if (dryRun === true) {
+        const preview = await previewSecurityRescan(context.env, db, projectId, { by: 'project' });
+        return context.json({
+          dryRun: true,
+          deploymentId: preview.target.deploymentId,
+          alreadyScanned: preview.alreadyScanned,
+          tier: preview.tier,
+          model: preview.model,
+          thirdParty: preview.thirdParty,
+          worstCaseUsd: preview.worstCaseUsd,
+          budget: preview.budget,
+        });
+      }
+      const { preview, scanId } = await queueSecurityRescan(context.env, db, projectId, {
+        by: 'project',
+      });
+      await pokeSecurityScanScheduler(context.env);
+      return context.json(
+        {
+          ok: true,
+          scanId,
+          deploymentId: preview.target.deploymentId,
+          tier: preview.tier,
+          model: preview.model,
+          alreadyScanned: preview.alreadyScanned,
+        },
+        202,
       );
     } catch (error) {
       return failure(context, error);

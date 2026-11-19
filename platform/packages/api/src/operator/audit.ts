@@ -48,6 +48,18 @@ function securityModelList(value: unknown) {
   return [...new Set(value.filter((entry) => isSecurityModelId(entry)))];
 }
 
+/** `sweeps` of a policy change: a boolean and a whole number only. */
+function securitySweepsTarget(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const { on, everyDays } = value as Record<string, unknown>;
+  return {
+    on: typeof on === 'boolean' ? on : undefined,
+    everyDays: Number.isSafeInteger(everyDays) ? everyDays : undefined,
+  };
+}
+
 /** A dollar amount or `null`; anything else is dropped from the audit target. */
 function securityUsdTarget(value: unknown): number | null | undefined {
   return value === null || (typeof value === 'number' && Number.isFinite(value))
@@ -338,7 +350,11 @@ function auditTarget(
         : undefined,
       limits,
       publicGate: typeof body.publicGate === 'boolean' ? body.publicGate : undefined,
+      sweeps: securitySweepsTarget(body.sweeps),
     });
+  }
+  if (segments[0] === 'security' && segments[1] === 'backfill' && segments.length === 2) {
+    return JSON.stringify({ installation: 'platform', backfill: true });
   }
   if (segments[0] === 'security' && segments[1] === 'budget' && segments.length === 2) {
     return JSON.stringify({

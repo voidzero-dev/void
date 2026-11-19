@@ -46,6 +46,7 @@ import {
   recheckPublicRequestBestEffort,
 } from '../security/public-gate-flow.ts';
 import { checkBypassable, parseBypassReason, publicRequestView } from '../security/public-gate.ts';
+import { previewSecurityBackfill, queueSecurityBackfill } from '../security/sweeps.ts';
 import { ZeroTrustUnavailableError } from '../zero-trust/errors.ts';
 import { operatorProjectZeroTrustState } from '../zero-trust/state.ts';
 import { dryRun, OperatorError, pagination, preview, readBody } from './common.ts';
@@ -174,6 +175,29 @@ securityOperatorRoutes.get('/security/bypasses', async (context) =>
       pagination(context),
     ),
   ),
+);
+
+/**
+ * Backfill (M25): one scan of each in-scope project whose live deployment was never
+ * scanned, queued as `trigger=backfill`. A preview is the cost check.
+ */
+securityOperatorRoutes.post(
+  '/security/backfill',
+  capabilityMiddleware('securityAudits'),
+  async (context) => {
+    const body = await readBody(context);
+    const db = context.get('db');
+    if (dryRun(body)) {
+      return context.json(
+        preview('security.backfill', 'platform', await previewSecurityBackfill(db)),
+      );
+    }
+    const result = await queueSecurityBackfill(context.env, db);
+    if (result.queued.length > 0) {
+      await pokeSecurityScanScheduler(context.env);
+    }
+    return context.json({ ok: true, ...result }, 202);
+  },
 );
 
 securityOperatorRoutes.post(

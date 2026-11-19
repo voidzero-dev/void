@@ -818,6 +818,10 @@ const HELP_TREE: HelpTree = {
           },
           { command: 'reopen <F-id>', description: 'Reopen a resolved finding with --comment' },
           { command: 'scans', description: 'Show scan history (--limit, up to 100)' },
+          {
+            command: 'scan',
+            description: 'Run a full scan of the live deployment (asks first; it costs money)',
+          },
           { command: 'model [<id> | --default]', description: 'Show or set the scan model' },
           {
             command: 'budget [--usd N | --off]',
@@ -857,6 +861,7 @@ const HELP_TREE: HelpTree = {
           },
           { command: '--usd <amount>', description: 'budget: monthly cap in dollars' },
           { command: '--off', description: 'budget: clear this project own cap' },
+          { command: '--yes', description: 'scan: start without the cost prompt' },
         ],
         examples: [
           {

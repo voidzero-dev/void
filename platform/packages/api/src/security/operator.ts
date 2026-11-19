@@ -751,14 +751,25 @@ type RescanTarget = Readonly<{
   deploymentId: string;
 }>;
 
+/** Scans queued by a person or a schedule for the live deployment, not by a deploy. */
+export type SecurityManualTrigger = 'rescan' | 'backfill' | 'sweep';
+
+export type SecurityRescanOptions = Readonly<{
+  trigger?: SecurityManualTrigger;
+  /** Who asks, for the wording of a refusal: only an operator can cancel a scan. */
+  by?: 'operator' | 'project';
+}>;
+
 /**
  * Checks everything a rescan needs and says what it would do (cost preview, edge #43).
- * Reads only. Throws an `OperatorError` for a rescan that cannot run.
+ * Reads only. Throws an `OperatorError` for a rescan that cannot run. The project
+ * route (M25) and the batch scans (backfill, sweeps) use the same checks.
  */
 export async function previewSecurityRescan(
   env: Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2'>,
   db: Db,
   projectId: string,
+  options: SecurityRescanOptions = {},
 ) {
   const [project] = await db
     .select({
@@ -821,7 +832,7 @@ export async function previewSecurityRescan(
   if (busy) {
     throw new OperatorError(
       409,
-      `${project.slug} already has a scan ${busy.status === 'running' ? 'running' : 'waiting'} (${busy.id}). Wait for it, or cancel it first.`,
+      `${project.slug} already has a scan ${busy.status === 'running' ? 'running' : 'waiting'} (${busy.id}). ${options.by === 'project' ? 'Wait for it to end.' : 'Wait for it, or cancel it first.'}`,
       'security_scan_in_progress',
       { scanId: busy.id },
     );
@@ -862,14 +873,17 @@ export async function previewSecurityRescan(
  * Queues a manual rescan of the live deployment: a full scan, never `no changes`
  * (edge #43). It waits in the queue like any scan, and the monthly caps apply when it
  * starts. Under the project lock it checks again that the deployment is still live and
- * that nothing else waits.
+ * that nothing else waits. `trigger` `backfill` and `sweep` queue the same row for
+ * the batch scans.
  */
 export async function queueSecurityRescan(
   env: Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2'>,
   db: Db,
   projectId: string,
+  options: SecurityRescanOptions = {},
 ) {
-  const preview = await previewSecurityRescan(env, db, projectId);
+  const trigger = options.trigger ?? 'rescan';
+  const preview = await previewSecurityRescan(env, db, projectId, options);
   const input = await findLiveInput(env, db, projectId, preview.target.deploymentId);
   if (!input) {
     throw new OperatorError(
@@ -926,7 +940,7 @@ export async function queueSecurityRescan(
       project_id: projectId,
       deployment_id: preview.target.deploymentId,
       status: 'queued',
-      trigger: 'rescan',
+      trigger,
       input_r2_key: input.r2Key,
       policy_mode_at_enqueue: policy.mode,
       public_at_enqueue: !isProtected,

@@ -51,12 +51,18 @@ void platform security reopen <project-id> <finding-id,...> --comment "<text>" [
 void platform security comment <project-id> <finding-id,...> "<text>" [--yes]
 void platform security scans [--project <id-or-slug>] [--status <status>] [--trigger gate]
 void platform security rescan <project-id> [--yes]
+void platform security backfill [--plan] [--yes]
+void platform security sweeps <on|off> [--every-days <n>] [--plan] [--yes]
 void platform security cancel <scan-id> [--yes]
 ```
 
 Lists show one page at a time; use `--limit` (up to 100) and `--page`. Findings list the oldest first. Name several findings with commas to change them together; they are checked before any change is made.
 
-`rescan` runs a full scan of the live deployment. It tells you which model it uses and the most it can cost, then asks before it starts. Monthly caps apply to rescans too.
+`rescan` runs a full scan of the live deployment. It tells you which model it uses and the most it can cost, then asks before it starts. Monthly caps apply to rescans too. Project admins can start the same scan with `void project security scan`.
+
+Turning security audits on scans nothing that is already live. `backfill` scans each live deployment in scope that has never been scanned, up to 50 projects at a time; run it again for the rest. `--plan` shows how many projects it reaches and the most the scans can cost. A deployment whose code is no longer stored cannot be scanned; the preview counts these, and the next deploy of each project scans it.
+
+`sweeps on` reviews every live app in full on a schedule, with a deeper review than a deploy scan: a project is swept when it has had no full scan for `--every-days` days (7 to 90, default 30). A few sweeps start each hour, so deploy scans keep moving. Projects whose live code is no longer stored are not swept until they deploy again. Sweeps are off by default; each one costs more than a deploy scan, and the monthly caps apply.
 
 ## Scan before a project goes public {#public-gate}
 

@@ -532,6 +532,11 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   if (noChanges) {
     task.no_changes = true;
   }
+  if (plan.scan.trigger === 'sweep') {
+    // A scheduled sweep runs the deeper profile (M25). An older runner ignores the field
+    // and runs its deploy-diff profile over the whole app.
+    task.profile = 'standard';
+  }
   const taskText = JSON.stringify(task);
   entries.unshift({ path: 'task.json', data: taskText });
   inputBytes += utf8Length(taskText);

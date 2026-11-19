@@ -1,7 +1,8 @@
 /**
  * Input tier, chosen at scan start (spec §7.1; first match wins):
  *
- *   rescan (operator) ───────────────────────────────────────► T3 full   (edge #43)
+ *   rescan (operator or project) ────────────────────────────► T3 full   (edge #43)
+ *   sweep (scheduled, M25) ──────────────────────────────────► T3 full, `standard` profile
  *   no succeeded scan yet ───────────────────────────────────► T3 full (first scan)
  *   base snapshot gone ──────────────────────────────────────► T3 full (no usable base)
  *   T1 source diff possible (hosted `managedBuilds`, M11) ───► T1
@@ -15,7 +16,12 @@ import type { SecurityScanTier, SecurityScanTrigger } from '../schema.ts';
  * Why a full scan: no base at all, a base that cannot be diffed against, an operator
  * rescan, or a gate scan with nothing changed and no file to re-check (edge #85).
  */
-export type SecurityFullReason = 'first_scan' | 'no_usable_base' | 'rescan' | 'gate_recheck';
+export type SecurityFullReason =
+  | 'first_scan'
+  | 'no_usable_base'
+  | 'rescan'
+  | 'sweep'
+  | 'gate_recheck';
 
 export type SecurityTierChoice = Readonly<{
   tier: SecurityScanTier;
@@ -36,6 +42,9 @@ export function chooseSecurityTier(
   if (input.trigger === 'rescan') {
     return { tier: 'full', fullReason: 'rescan' };
   }
+  if (input.trigger === 'sweep') {
+    return { tier: 'full', fullReason: 'sweep' };
+  }
   if (input.baseDeploymentId === null) {
     return { tier: 'full', fullReason: 'first_scan' };
   }
@@ -53,6 +62,7 @@ export const SECURITY_FULL_REASON_NOTES = {
   first_scan: 'first-scan',
   no_usable_base: 'no-usable-base',
   rescan: 'rescan',
+  sweep: 'sweep',
   gate_recheck: 'gate-recheck',
 } as const satisfies Record<SecurityFullReason, string>;
 
@@ -83,9 +93,11 @@ export function securityCoverageLabel(row: SecurityCoverageRow): string | null {
       ? 'first scan'
       : notes.includes(SECURITY_FULL_REASON_NOTES.rescan)
         ? 'rescan'
-        : notes.includes(SECURITY_FULL_REASON_NOTES.gate_recheck)
-          ? 're-check'
-          : 'no usable base';
+        : notes.includes(SECURITY_FULL_REASON_NOTES.sweep)
+          ? 'sweep'
+          : notes.includes(SECURITY_FULL_REASON_NOTES.gate_recheck)
+            ? 're-check'
+            : 'no usable base';
     label = `full scan (${reason})`;
   } else {
     const name = row.tier === 'source_diff' ? 'source diff' : 'built-output diff';

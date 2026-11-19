@@ -9,6 +9,7 @@ const SECURITY_ACTIONS = [
   'resolve',
   'reopen',
   'scans',
+  'scan',
   'model',
   'budget',
   'open',
@@ -42,6 +43,7 @@ export type ProjectSecurityArgs = {
   | { action: 'resolve'; ids: Array<string>; reason: SecurityResolutionReason; comment: string }
   | { action: 'reopen'; id: string; comment: string }
   | { action: 'scans'; limit: number }
+  | { action: 'scan'; yes: boolean }
   | {
       action: 'model';
       change: 'show' | 'set' | 'default';
@@ -67,6 +69,7 @@ const BOOLEAN_FLAGS = new Set([
   '--default',
   '--accept-provider-notice',
   '--off',
+  '--yes',
 ]);
 // Flags each action accepts besides `--project` and `--json`.
 const ACTION_FLAGS: Record<string, Array<string>> = {
@@ -78,6 +81,7 @@ const ACTION_FLAGS: Record<string, Array<string>> = {
   resolve: ['--reason', '--comment'],
   reopen: ['--comment'],
   scans: ['--limit'],
+  scan: ['--yes'],
   model: ['--default', '--accept-provider-notice'],
   budget: ['--usd', '--off'],
 };
@@ -281,6 +285,10 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
       }
     }
     return { ...base, json, action, limit };
+  }
+  if (action === 'scan') {
+    noPositionals();
+    return { ...base, json, action, yes: flags.has('--yes') };
   }
   if (action === 'model') {
     if (positionals.length > 1) {

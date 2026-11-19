@@ -1,4 +1,5 @@
 import { stripVTControlCharacters } from 'node:util';
+import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { isCI } from 'ci-info';
 import { getToken, openBrowser } from './auth.ts';
 import { PlatformApiError, PlatformClient } from './client.ts';
@@ -10,6 +11,7 @@ import type {
   SecurityFinding,
   SecurityFindingEvent,
   SecurityPublicRequest,
+  SecurityRescanPreview,
   SecurityScanSummary,
 } from './security-api-types.ts';
 
@@ -474,7 +476,30 @@ function noticeOf(error: unknown): { version: number; notice: Array<string> } | 
 export type ProjectSecurityDeps = {
   openUrl?: (url: string) => void;
   interactive?: boolean;
+  confirm?: (message: string) => Promise<boolean>;
 };
+
+/** The rescan cost confirm (spec §13.4 rescan rule): what it runs and what it can cost. */
+export function rescanConfirmLines(preview: SecurityRescanPreview): Array<string> {
+  const id = cleanLine(preview.deploymentId);
+  const model = cleanLine(preview.model ?? 'the scan model');
+  const cost =
+    typeof preview.worstCaseUsd === 'number'
+      ? ` It can cost up to ${usd(preview.worstCaseUsd)}.`
+      : '';
+  const lines = [
+    preview.alreadyScanned
+      ? `Live deployment ${id} was already scanned. Run a full scan with ${model}? This reviews the whole app.${cost}`
+      : `Run a full scan of live deployment ${id} with ${model}? This reviews the whole app.${cost}`,
+  ];
+  const budget = preview.budget;
+  lines.push(
+    budget && budget.capUsd !== null
+      ? `Monthly caps apply: ${usd(budget.spentUsd)} of ${usd(budget.capUsd)} spent this month.`
+      : 'Monthly caps apply when the scan starts.',
+  );
+  return lines;
+}
 
 export async function runProjectSecurityCommand(
   root: string,
@@ -617,6 +642,34 @@ export async function runProjectSecurityCommand(
       lines.push('Older scans exist. Raise --limit (up to 100) to see more.');
     }
     print(args, page, lines);
+    return;
+  }
+
+  if (args.action === 'scan') {
+    const preview = await client.previewProjectSecurityScan(projectId);
+    if (!args.yes) {
+      const interactive = deps.interactive ?? (Boolean(process.stdout.isTTY) && !isCI);
+      if (args.json || !interactive) {
+        throw new Error('project: Add --yes to start the scan without a prompt.');
+      }
+      const [question, ...rest] = rescanConfirmLines(preview);
+      console.log(['', ...rest].join('\n'));
+      const ask =
+        deps.confirm ??
+        (async (message: string) => {
+          const answer = await confirm({ message, initialValue: false });
+          return !isCancel(answer) && answer;
+        });
+      if (!(await ask(question!))) {
+        console.log('Nothing was queued.');
+        return;
+      }
+    }
+    const queued = await client.startProjectSecurityScan(projectId);
+    print(args, queued, [
+      `✓ Full scan ${cleanLine(queued.scanId)} of ${cleanLine(queued.deploymentId)} queued.`,
+      '  It waits its turn like any scan. See the result: void project security status',
+    ]);
     return;
   }
 

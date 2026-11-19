@@ -394,6 +394,112 @@ const finding = (id: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+describe('project security scan (M25)', () => {
+  const SCANS = '/projects/project_1/security/scans';
+  const preview = {
+    dryRun: true,
+    deploymentId: 'dpl_9a1d',
+    alreadyScanned: true,
+    tier: 'full',
+    model: 'anthropic/claude-opus-5.5',
+    thirdParty: true,
+    worstCaseUsd: 12,
+    budget: status.budget,
+  };
+  const queued = {
+    ok: true,
+    scanId: 'ss_new',
+    deploymentId: 'dpl_9a1d',
+    tier: 'full',
+    model: 'anthropic/claude-opus-5.5',
+    alreadyScanned: true,
+  };
+  const handlers = () => ({
+    [`POST ${SCANS}`]: (() => {
+      let posts = 0;
+      return () =>
+        ++posts === 1 ? Response.json(preview) : Response.json(queued, { status: 202 });
+    })(),
+  });
+
+  it('previews, then queues with --yes and says where the result shows', async () => {
+    const root = linked();
+    const calls = route(handlers());
+    const out = capture();
+    await run(root, ['security', 'scan', '--yes']);
+    expect(calls.map((c) => c.body)).toEqual([{ dryRun: true }, {}]);
+    const text = out.join('\n');
+    expect(text).toContain('✓ Full scan ss_new of dpl_9a1d queued.');
+    expect(text).toContain('void project security status');
+  });
+
+  it('asks first on a terminal, names the cost, and queues nothing on no', async () => {
+    const root = linked();
+    const calls = route(handlers());
+    const out = capture();
+    const asked: Array<string> = [];
+    await runProjectSecurityCommand(
+      root,
+      { subcommand: 'security', projectSlug: '', json: false, action: 'scan', yes: false },
+      {
+        interactive: true,
+        confirm: async (message) => {
+          asked.push(message);
+          return false;
+        },
+      },
+    );
+    expect(asked).toEqual([
+      'Live deployment dpl_9a1d was already scanned. Run a full scan with anthropic/claude-opus-5.5? This reviews the whole app. It can cost up to $12.00.',
+    ]);
+    expect(out.join('\n')).toContain('Monthly caps apply: $12.40 of $100.00 spent this month.');
+    expect(out.join('\n')).toContain('Nothing was queued.');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('needs --yes without a terminal or with --json', async () => {
+    const root = linked();
+    const calls = route(handlers());
+    await expect(
+      runProjectSecurityCommand(
+        root,
+        { subcommand: 'security', projectSlug: '', json: false, action: 'scan', yes: false },
+        { interactive: false },
+      ),
+    ).rejects.toThrow('Add --yes to start the scan without a prompt.');
+    await expect(run(root, ['security', 'scan', '--json'])).rejects.toThrow('Add --yes');
+    expect(calls.every((c) => (c.body as { dryRun?: boolean }).dryRun === true)).toBe(true);
+  });
+
+  it('shows the platform refusal as is', async () => {
+    const root = linked();
+    route({
+      [`POST ${SCANS}`]: () =>
+        Response.json(
+          {
+            error: 'security_scan_in_progress',
+            message: 'acme-web already has a scan waiting (ss_1). Wait for it to end.',
+          },
+          { status: 409 },
+        ),
+    });
+    await expect(run(root, ['security', 'scan', '--yes'])).rejects.toThrow(
+      'already has a scan waiting (ss_1). Wait for it to end.',
+    );
+  });
+
+  it('parses only --yes, --project and --json', () => {
+    expect(parseProjectArgs(['security', 'scan', '--yes'])).toMatchObject({
+      action: 'scan',
+      yes: true,
+    });
+    expect(() => parseProjectArgs(['security', 'scan', '--usd', '5'])).toThrow(
+      '--usd is not used with security scan',
+    );
+    expect(() => parseProjectArgs(['security', 'scan', 'dpl_1'])).toThrow('Unexpected argument');
+  });
+});
+
 describe('project security command paths', () => {
   it('lists findings, hides leads with a note and shows them with --leads', async () => {
     const root = linked();

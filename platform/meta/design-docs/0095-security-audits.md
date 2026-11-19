@@ -1426,6 +1426,68 @@ operator `security backfill --plan` (cost preview, queued as `trigger=backfill`)
 `standard` profile. Tests: `api-project-security.test.ts`, `security-sweeps.test.ts`,
 `project-security-command.test.ts`.
 
+As built (M25):
+
+```
+project admin ─ void project security scan ─► POST /projects/:id/security/scans (settings)
+operator ────── void platform security rescan ─► POST /operator/v1/projects/:id/security/scans
+                                    both ─► previewSecurityRescan / queueSecurityRescan
+operator ── security backfill ─► POST /operator/v1/security/backfill ─► trigger=backfill
+hourly job ── policy sweeps.on ─► queueSecuritySweeps ─────────────────► trigger=sweep
+backfill + sweeps: scan-candidates.ts (SQL list) ─► queueSecurityRescan per project
+```
+
+- Project rescan: same checks and the same `trigger=rescan` row as the operator rescan
+  (`security/operator.ts` gained `{ trigger, by }` options). `dryRun: true` is the cost
+  confirm (model, `worstCaseUsd`, budget). The busy refusal says "Wait for it to end." to a
+  project caller (only an operator can cancel). `OperatorError` from those checks is mapped
+  to the project error shape in `routes/project-security.ts`. CLI `void project security scan
+  [--yes]` prints the operator rescan question; `--json` and non-interactive shells need
+  `--yes`. Not recorded in `security_project_events`: that needs a new action value and a
+  migration; the scan row itself is the record.
+- Backfill (`security/sweeps.ts`): in-scope projects whose live deployment has no succeeded
+  scan and nothing waiting, owner not suspended, at most 50 per call (`remaining` says how many
+  wait; run it again). It uses the base rule (diff from the last good base; full only for a
+  first scan), not a forced full scan: an unscanned live deployment is what a deploy scan would
+  have covered. Policy Off refuses (409 `security_not_in_scope`). Audited as
+  `{installation, backfill: true}`.
+- Stored code (backfill and sweeps): the candidate SQL keeps only live deployments with
+  `bundle_stored` or a scan row whose `input_r2_key` is set (the SQL side of
+  `findLiveInput`; every snapshot writer records its key on a row). Without it a project
+  live since before audits were on is refused every run and, holding the head of the list,
+  blocks the batch. They are counted apart as `noStoredCode` (backfill preview and result,
+  printed by the CLI). The list reads 10 past the batch size and stops once the batch is
+  queued, so a refusal at queue time (R2 object lost under its row) does not take a slot.
+- Sweeps: policy `sweeps: {on, everyDays}` (7–90, default 30, off by default) in
+  `@void/platform/security-policy`. A row saved before M25 reads as off; the lenient reader
+  reads bad sweeps data as off, so it never starts paid scans. Set with
+  `void platform security sweeps <on|off> [--every-days N]` (a policy change with preview:
+  projects due now). A project is due when it has no `trigger=sweep` row (any end, so a
+  failed sweep waits for the next window, except one that never ran: `superseded` by a deploy
+  scan, or `canceled` by policy Off; an operator cancel counts) and no succeeded `tier=full`
+  scan within `everyDays`. The preview says "Turn on", "Turn off" or "Sweep interval: X → Y
+  days" for an interval-only change. The hourly job queues at most `min(10, 2 × concurrency − waiting)` a run,
+  never-swept first, only while the policy is not Off. Sweeps are `tier=full` with coverage
+  note `sweep` (label `full scan (sweep)`) and use the deployment stale-scan rule (only an
+  explicit rescan uses the started-after rule).
+- `standard` profile: the skill is still not vendored (R5), so it is our own runner profile.
+  `task.json` gets `profile: "standard"` for sweeps only. The runner runs one hunt session per
+  focus area (access, injection and bindings, exposure) over the whole app, at half the session
+  turn limit each, merges candidates by fingerprint keeping the strongest record (confirmed,
+  lead, rejected, then severity: one area's rejection never hides another's confirmation),
+  then the usual verify step (indexes stay unique: verify follows the hunts). Three hunts can
+  return more than one report holds (1000 records, 5 MB): a final list that does not fit
+  ends `incomplete` with only verified confirmed findings, instead of failing as
+  `bad_output` (the check is shared, a no-op for deploy-diff in practice). An unreadable hunt costs its area and ends `incomplete`; a
+  refusal or a cap stop in any hunt ends the scan as in deploy-diff. A runner that does not know
+  the profile runs deploy-diff; the published Engine A/C images keep doing that until they are
+  rebuilt with this runner.
+- Deviations: the plan named only three test files; also changed `phases.test.ts`,
+  `security-input-t2.test.ts`, `security-policy.test.ts` (platform package),
+  `operator-cli.test.ts` and `operator-audit.test.ts`. Docs: only the CLI reference rows and
+  pages (`cli.md`, `cli/project.md`, `cli/platform-security.md`, AGENTS.md CLI rule); the guide
+  pages stay for M36.
+
 **M26 Fallback, failure-streak emails, digest, webhooks.** Policy `fallbackToCf` (opt-in,
 never `@cf` → third party) → one `trigger=fallback` scan after refused / bad_output /
 timed_out; streak email to installation admins split by cause; weekly digest; webhook

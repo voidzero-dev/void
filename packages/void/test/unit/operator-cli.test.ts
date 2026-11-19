@@ -143,6 +143,8 @@ const SECURITY_SAMPLES: Record<string, Array<string>> = {
   model: ['p1', '--default'],
   scans: [],
   rescan: ['p1'],
+  backfill: [],
+  sweeps: ['on'],
   cancel: ['scan-1'],
   'public-gate': ['on'],
   'public-requests': [],
@@ -2024,6 +2026,15 @@ describe('platform security arguments', () => {
     expect(() => parse('limits', '--concurrency', 'many')).toThrow('whole number');
     expect(parse('public-gate', 'off').body).toEqual({ publicGate: false });
     expect(() => parse('public-gate', 'maybe')).toThrow('on|off');
+    expect(parse('sweeps', 'on', '--every-days', '14')).toMatchObject({
+      method: 'POST',
+      path: '/security/policy',
+      body: { sweeps: { on: true, everyDays: 14 } },
+    });
+    expect(parse('sweeps', 'off').body).toEqual({ sweeps: { on: false } });
+    expect(() => parse('sweeps', 'weekly')).toThrow('on|off');
+    expect(() => parse('sweeps', 'on', '--every-days', 'often')).toThrow('whole number');
+    expect(parse('backfill')).toMatchObject({ method: 'POST', path: '/security/backfill' });
   });
 
   it('reads --default as a switch for one project and as a value for the platform', () => {
@@ -2407,6 +2418,57 @@ describe('platform security commands', () => {
       'Live deployment dpl_9a1d was already scanned. Run a full scan with anthropic/claude-opus-5.5? This reviews the whole app. It can cost up to $12.00.',
     );
     expect(calls[1]).toMatchObject({ path: '/projects/p1/security/scans', body: {} });
+  });
+
+  it('asks before a backfill and says how many and the most it can cost', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.backfill',
+        target: 'platform',
+        projects: 53,
+        willQueue: 50,
+        remaining: 3,
+        worstCaseUsd: 40,
+      },
+      { ok: true, queued: [], skipped: {}, remaining: 3 },
+    ]);
+    await run('backfill', '--yes');
+    expect(out.errors()).toContain(
+      'Scan 50 live deployments that were never scanned? Together they can cost up to $40.00. 3 more wait for the next backfill.',
+    );
+    expect(calls[1]).toMatchObject({ method: 'POST', path: '/security/backfill', body: {} });
+  });
+
+  it('does not ask or queue when nothing needs a backfill', async () => {
+    const out = quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.backfill', target: 'platform', willQueue: 0 },
+    ]);
+    await run('backfill', '--yes');
+    expect(calls).toHaveLength(1);
+    expect(out.errors()).toContain('Nothing to backfill.');
+  });
+
+  it('names the never-scanned deployments whose code is no longer stored', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.backfill',
+        target: 'platform',
+        willQueue: 0,
+        noStoredCode: 2,
+      },
+    ]);
+    await run('backfill', '--yes');
+    expect(calls).toHaveLength(1);
+    expect(out.errors()).toContain('Nothing to backfill.');
+    expect(out.errors()).not.toContain('already has a scan');
+    expect(out.errors()).toContain(
+      '2 never-scanned live deployments have no stored code, so they cannot be scanned. Deploy those projects again.',
+    );
   });
 
   it('does not rescan for --plan', async () => {

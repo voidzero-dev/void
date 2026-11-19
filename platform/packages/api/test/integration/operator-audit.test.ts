@@ -468,6 +468,13 @@ test('records security policy changes as known ids and new state, nothing for pr
     bindings,
   );
   expect(accepted.status).toBe(200);
+  const sweeps = await request(
+    '/security/policy',
+    { expectedRevision: 1, sweeps: { on: true, everyDays: 14, note: 'must-not-be-audited' } },
+    bindings,
+  );
+  // The unknown sweeps field is refused; the attempt keeps only the known values.
+  expect(sweeps.status).toBe(400);
 
   const events = await env.db.select().from(operatorEvents);
   expect(events.map((event) => [event.action, JSON.parse(event.target), event.status])).toEqual(
@@ -482,6 +489,7 @@ test('records security policy changes as known ids and new state, nothing for pr
         { expectedRevision: 0, block: ['openai/gpt-6.1-sol'], limits: { concurrency: 3 } },
         'success',
       ],
+      ['security/policy', { expectedRevision: 1, sweeps: { on: true, everyDays: 14 } }, 'failed'],
     ]),
   );
   expect(JSON.stringify(events)).not.toContain('must-not-be-audited');
@@ -502,6 +510,7 @@ test('records every operator security write as ids and known values, never text'
   const calls: Array<[string, Record<string, unknown>]> = [
     ['/security/budget', { expectedRevision: 2, platformMonthlyUsd: 50, note: secret }],
     ['/security/probe', { note: secret }],
+    ['/security/backfill', { note: secret }],
     ['/security/scans/ss_one/cancel', { note: secret }],
     [
       `${base}/findings/F-3/resolve`,
@@ -527,6 +536,7 @@ test('records every operator security write as ids and known values, never text'
   expect([...targets.keys()].sort()).toEqual(calls.map(([path]) => path.replace(/^\//, '')).sort());
   expect(targets.get('security/budget')).toEqual({ expectedRevision: 2, platformMonthlyUsd: 50 });
   expect(targets.get('security/probe')).toEqual({ installation: 'platform' });
+  expect(targets.get('security/backfill')).toEqual({ installation: 'platform', backfill: true });
   expect(targets.get('security/scans/ss_one/cancel')).toEqual({ scanId: 'ss_one' });
   expect(targets.get(`projects/${project.id}/security/findings/F-3/resolve`)).toEqual({
     projectId: project.id,

@@ -67,6 +67,7 @@ Use this page as a command reference. If you are setting up a project for the fi
 | `void project rollback`           | Roll back to a previous deployment                                            |
 | `void project cancel`             | Cancel an active deployment                                                   |
 | `void project zero-trust`         | Inspect or override project Zero Trust protection, or bypass a security scan  |
+| `void project security`           | Review security findings and scans, set model and budget, start a scan        |
 | `void project purge-cache`        | Purge all cached pages (Void platform)                                        |
 | `void build logs`                 | Stream, tail, or download build logs                                          |
 | `void email status`               | Show email readiness on your own Cloudflare account (`--platform cloudflare`) |

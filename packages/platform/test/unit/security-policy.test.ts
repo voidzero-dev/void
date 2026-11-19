@@ -8,6 +8,7 @@ import {
   parseSecurityLimitsPatch,
   parseSecurityMode,
   parseSecurityPolicy,
+  parseSecuritySweepDays,
   parseSecurityUsd,
   readSecurityPolicy,
   SECURITY_ENTITLEMENT_MAX_AGE_MS,
@@ -17,6 +18,7 @@ import {
   SECURITY_MODE_LABELS,
   SECURITY_MODES,
   SECURITY_POLICY_SETTINGS_KEY,
+  SECURITY_SWEEP_DAYS_RANGE,
   type SecurityPolicy,
 } from '../../src/security-policy.ts';
 
@@ -66,6 +68,7 @@ describe('security policy defaults', () => {
       },
       entitlement: null,
       publicGate: false,
+      sweeps: { on: false, everyDays: 30 },
       revision: 0,
     });
   });
@@ -122,6 +125,7 @@ describe('security policy strict parser', () => {
       },
       entitlement: passingEntitlement,
       publicGate: true,
+      sweeps: { on: true, everyDays: 7 },
       revision: 7,
     });
     expect(parseSecurityPolicy(policy)).toEqual(policy);
@@ -352,6 +356,33 @@ describe('stored security policy written by another release', () => {
       expect(() => parseSecurityPolicy(value)).toThrow();
       expect(() => readSecurityPolicy(value)).not.toThrow();
     }
+  });
+});
+
+describe('scheduled sweeps setting (M25)', () => {
+  it('reads a row saved before sweeps existed as off', () => {
+    const { sweeps: _sweeps, ...old } = stored() as Record<string, unknown>;
+    expect(parseSecurityPolicy(old).sweeps).toEqual({ on: false, everyDays: 30 });
+    expect(readSecurityPolicy(old).sweeps).toEqual({ on: false, everyDays: 30 });
+  });
+
+  it('checks the range strictly on write and repairs on read', () => {
+    expect(SECURITY_SWEEP_DAYS_RANGE).toEqual({ min: 7, max: 90, default: 30 });
+    expect(parseSecuritySweepDays(7)).toBe(7);
+    expect(parseSecuritySweepDays(90)).toBe(90);
+    for (const days of [6, 91, 1.5, '30']) {
+      expect(() => parseSecuritySweepDays(days)).toThrow('from 7 to 90');
+    }
+    for (const sweeps of [{ on: true, everyDays: 6 }, { on: 'yes', everyDays: 30 }, 'on']) {
+      expect(() => parseSecurityPolicy(stored({ sweeps }))).toThrow('sweeps');
+    }
+    expect(readSecurityPolicy(stored({ sweeps: { on: true, everyDays: 400 } })).sweeps).toEqual({
+      on: true,
+      everyDays: 90,
+    });
+    // Bad data never starts paid scans.
+    expect(readSecurityPolicy(stored({ sweeps: { on: 'yes' } })).sweeps.on).toBe(false);
+    expect(readSecurityPolicy(stored({ sweeps: null })).sweeps.on).toBe(false);
   });
 });
 

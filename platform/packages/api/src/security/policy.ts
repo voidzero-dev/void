@@ -23,6 +23,7 @@ import {
   isSecurityMode,
   parseSecurityLimitsPatch,
   parseSecurityPolicy,
+  parseSecuritySweepDays,
   readSecurityPolicy,
   SECURITY_LIMIT_KEYS,
   SECURITY_MODE_LABELS,
@@ -32,6 +33,7 @@ import {
   type SecurityPolicy,
   type SecurityEntitlement,
   type SecurityPolicyLimits,
+  type SecuritySweeps,
   type SecurityThirdPartyNotice,
 } from '@void/platform/security-policy';
 import { and, count, eq, gte, inArray, notLike, sql, type SQL } from 'drizzle-orm';
@@ -46,6 +48,7 @@ import { lockZeroTrustConfiguration } from '../zero-trust/lock.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
 import type { SecurityProbeReport } from './probe.ts';
 import { cancelAllOpenRequests, listOpenRequestSlugs } from './public-gate.ts';
+import { countSecurityScanCandidates } from './scan-candidates.ts';
 import {
   projectSecuritySettings,
   securityPlatformSpend,
@@ -171,6 +174,8 @@ export type SecurityPolicyChangeRequest = Readonly<{
   acceptProviderNoticeVersion?: number;
   limits?: Partial<SecurityPolicyLimits>;
   publicGate?: boolean;
+  /** Scheduled full sweeps; a field left out keeps its value. */
+  sweeps?: Partial<SecuritySweeps>;
 }>;
 
 const REQUEST_KEYS = new Set([
@@ -184,6 +189,7 @@ const REQUEST_KEYS = new Set([
   'acceptProviderNoticeVersion',
   'limits',
   'publicGate',
+  'sweeps',
 ]);
 
 function requestModel(value: unknown, label: string): SecurityModelId {
@@ -279,7 +285,40 @@ export function parseSecurityPolicyChangeRequest(
     }
     request.publicGate = body.publicGate;
   }
+  if (body.sweeps !== undefined) {
+    request.sweeps = parseSweepsRequest(body.sweeps);
+  }
   return request;
+}
+
+function parseSweepsRequest(value: unknown): Partial<SecuritySweeps> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw SecurityApiError.invalid('sweeps must be an object with on and everyDays.');
+  }
+  const input = value as Record<string, unknown>;
+  const sweeps: { on?: boolean; everyDays?: number } = {};
+  for (const key of Object.keys(input)) {
+    if (key !== 'on' && key !== 'everyDays') {
+      throw SecurityApiError.invalid(`Unknown sweeps field: ${key}.`);
+    }
+  }
+  if (input.on !== undefined) {
+    if (typeof input.on !== 'boolean') {
+      throw SecurityApiError.invalid('sweeps.on must be true or false.');
+    }
+    sweeps.on = input.on;
+  }
+  if (input.everyDays !== undefined) {
+    try {
+      sweeps.everyDays = parseSecuritySweepDays(input.everyDays);
+    } catch (error) {
+      throw SecurityApiError.invalid(error instanceof Error ? error.message : 'Invalid sweeps.');
+    }
+  }
+  if (sweeps.on === undefined && sweeps.everyDays === undefined) {
+    throw SecurityApiError.invalid('sweeps needs on, everyDays or both.');
+  }
+  return sweeps;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +334,7 @@ export type SecurityPolicyChanges = Readonly<{
   limits: ReadonlyArray<Readonly<{ key: SecurityLimitKey; from: number; to: number }>>;
   publicGateOn: boolean;
   publicGateOff: boolean;
+  sweeps: Readonly<{ from: SecuritySweeps; to: SecuritySweeps }> | null;
   /** The stored row was bad data; this write replaces it. */
   repaired: boolean;
 }>;
@@ -499,6 +539,7 @@ export function proposeSecurityPolicyChange(
     entitlement: context.entitlement ?? current.entitlement,
     // Policy Off turns the gate off in the same change.
     publicGate: mode === 'disabled' ? false : (request.publicGate ?? current.publicGate),
+    sweeps: { ...current.sweeps, ...request.sweeps },
   };
   const probeApplies = probeRunsOnApply(current, mode, context);
   if (request.publicGate === true) {
@@ -524,6 +565,10 @@ export function proposeSecurityPolicyChange(
     ),
     publicGateOn: !current.publicGate && next.publicGate,
     publicGateOff: current.publicGate && !next.publicGate,
+    sweeps:
+      next.sweeps.on === current.sweeps.on && next.sweeps.everyDays === current.sweeps.everyDays
+        ? null
+        : { from: current.sweeps, to: next.sweeps },
     repaired: stored.unreadable !== null,
   };
   const changed =
@@ -535,6 +580,7 @@ export function proposeSecurityPolicyChange(
     changes.limits.length > 0 ||
     changes.publicGateOn ||
     changes.publicGateOff ||
+    changes.sweeps !== null ||
     changes.repaired;
   if (!changed) {
     throw SecurityApiError.invalid('Nothing to change: the policy already has these values.');
@@ -578,6 +624,8 @@ export type SecurityPolicyPreviewCounts = Readonly<{
   pickedBlockedAccepted: Readonly<Partial<Record<SecurityModelId, number>>>;
   /** Only with a public gate change (spec §5.5). */
   gate?: SecurityPolicyGateCounts;
+  /** Only when sweeps turn on or change: projects due for a sweep now. */
+  sweepProjects?: number;
 }>;
 
 export type SecurityPolicyGateCounts = Readonly<{
@@ -724,6 +772,33 @@ function defaultModelLines(
   ];
 }
 
+function sweepLines(
+  next: SecurityPolicy,
+  change: Readonly<{ from: SecuritySweeps; to: SecuritySweeps }>,
+  projects: number,
+): Array<string> {
+  const { from, to: sweeps } = change;
+  const interval = `Sweep interval: ${from.everyDays} → ${sweeps.everyDays} days.`;
+  if (!sweeps.on) {
+    return from.on
+      ? ['Turn off: scheduled full sweeps. Sweeps already queued still run.']
+      : [`${interval} Sweeps stay off.`];
+  }
+  const lines = from.on
+    ? [interval]
+    : [
+        `Turn on: scheduled full sweeps, every ${sweeps.everyDays} days. Each sweep reviews the whole live app with the deeper profile, so it costs more than a deploy scan.`,
+      ];
+  if (next.mode === 'disabled') {
+    lines.push('  The policy is Off, so no sweep runs until it is turned on.');
+  } else {
+    lines.push(
+      `  ${projectsText(projects)} in scope ${projects === 1 ? 'has' : 'have'} not had a full scan in the last ${sweeps.everyDays} days. The hourly job sweeps a few at a time; monthly caps apply.`,
+    );
+  }
+  return lines;
+}
+
 /** The plan preview shown before saving (`dryRun`), one string per line. */
 export function securityPolicyPreviewLines(
   current: SecurityPolicy,
@@ -784,6 +859,9 @@ export function securityPolicyPreviewLines(
   if (changes.publicGateOff && !changes.mode) {
     lines.push('Turn off: Scan before a project goes public');
     lines.push(...openRequestLines(counts));
+  }
+  if (changes.sweeps) {
+    lines.push(...sweepLines(next, changes.sweeps, counts.sweepProjects ?? 0));
   }
   return lines;
 }
@@ -936,6 +1014,17 @@ export async function securityPolicyPreviewCounts(
     pickedBlockedAccepted,
     ...(changes.publicGateOn || changes.publicGateOff
       ? { gate: await gatePreviewCounts(db, changes, protects) }
+      : {}),
+    ...(changes.sweeps?.to.on
+      ? {
+          sweepProjects: await countSecurityScanCandidates(db, {
+            kind: 'sweep',
+            mode: next.mode,
+            protects,
+            everyDays: changes.sweeps.to.everyDays,
+            now: Date.now(),
+          }),
+        }
       : {}),
   };
 }
