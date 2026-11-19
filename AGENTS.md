@@ -59,22 +59,22 @@ vp run --filter ./packages/vue typecheck # Typecheck a specific package
 
 pnpm workspaces managed through Vite+. Shared dependency versions use the **pnpm catalog** in `pnpm-workspace.yaml` (`typescript`, `vite-plus`, Vite+/Vitest aliases, `@cloudflare/workers-types`, wrangler). Make sure to run `vp install` after making package structure changes.
 
-| Package                                                      | npm name                  | Purpose                                                           |
-| ------------------------------------------------------------ | ------------------------- | ----------------------------------------------------------------- |
-| [`packages/deploy-core`](./packages/deploy-core)             | `@void/deploy-core`       | Shared deployment manifests, events, and target-neutral contracts |
-| [`packages/deploy-cloudflare`](./packages/deploy-cloudflare) | `@void/deploy-cloudflare` | Direct Cloudflare config and verified upload primitives           |
-| [`packages/edge`](./packages/edge)                           | `@void/edge`              | Shared routing, headers, and static edge runtime                  |
-| [`packages/isr`](./packages/isr)                             | `@void/isr`               | Shared ISR protocol, core logic, and direct runtime               |
-| [`packages/image`](./packages/image)                         | `@void/image`             | Image generation and Open Graph image responses                   |
-| [`packages/platform`](./packages/platform/README.md)         | `@void/platform`          | Self-hosted installation contracts and packaged platform runtime  |
-| [`packages/void`](./packages/void/AGENTS.md)                 | `void`                    | Core Vite plugin — routing, inference, migrations, CLI            |
-| [`packages/react`](./packages/react/README.md)               | `@void/react`             | React framework adapter for Pages mode (SSR, Link, useForm)       |
-| [`packages/vue`](./packages/vue/README.md)                   | `@void/vue`               | Vue framework adapter for Pages mode (SSR, Link, useForm)         |
-| [`packages/svelte`](./packages/svelte/README.md)             | `@void/svelte`            | Svelte 5 framework adapter for Pages mode (SSR, Link, useForm)    |
-| [`packages/solid`](./packages/solid/README.md)               | `@void/solid`             | SolidJS framework adapter for Pages mode (SSR, Link, useForm)     |
-| [`docs`](./docs)                                             | (private)                 | Documentation site (VitePress)                                    |
-| [`platform`](./platform/README.md)                           | (private)                 | Self-hosted platform source, routing, proxy, logs, and dashboard  |
-| `playground/*`                                               | (private)                 | local apps for testing                                            |
+| Package                                                              | npm name                      | Purpose                                                           |
+| -------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------- |
+| [`packages/deploy-core`](./packages/deploy-core)                     | `@void/deploy-core`           | Shared deployment manifests, events, and target-neutral contracts |
+| [`packages/deploy-cloudflare`](./packages/deploy-cloudflare)         | `@void/deploy-cloudflare`     | Direct Cloudflare config and verified upload primitives           |
+| [`packages/edge`](./packages/edge)                                   | `@void/edge`                  | Shared routing, headers, and static edge runtime                  |
+| [`packages/isr`](./packages/isr)                                     | `@void/isr`                   | Shared ISR protocol, core logic, and direct runtime               |
+| [`packages/image-renderer-takumi`](./packages/image-renderer-takumi) | `@void/image-renderer-takumi` | Takumi renderer for `void/image`                                  |
+| [`packages/platform`](./packages/platform/README.md)                 | `@void/platform`              | Self-hosted installation contracts and packaged platform runtime  |
+| [`packages/void`](./packages/void/AGENTS.md)                         | `void`                        | Core Vite plugin — routing, inference, migrations, CLI            |
+| [`packages/react`](./packages/react/README.md)                       | `@void/react`                 | React framework adapter for Pages mode (SSR, Link, useForm)       |
+| [`packages/vue`](./packages/vue/README.md)                           | `@void/vue`                   | Vue framework adapter for Pages mode (SSR, Link, useForm)         |
+| [`packages/svelte`](./packages/svelte/README.md)                     | `@void/svelte`                | Svelte 5 framework adapter for Pages mode (SSR, Link, useForm)    |
+| [`packages/solid`](./packages/solid/README.md)                       | `@void/solid`                 | SolidJS framework adapter for Pages mode (SSR, Link, useForm)     |
+| [`docs`](./docs)                                                     | (private)                     | Documentation site (VitePress)                                    |
+| [`platform`](./platform/README.md)                                   | (private)                     | Self-hosted platform source, routing, proxy, logs, and dashboard  |
+| `playground/*`                                                       | (private)                     | local apps for testing                                            |
 
 The platform source is part of this repository. Its workspace-only packages keep `private: true` to prevent accidental npm publication; this does not mean the platform source is private. Use `docs/guide/platform-development.md` for contributor/fork setup and `docs/guide/self-hosted-platform.md` for installation.
 

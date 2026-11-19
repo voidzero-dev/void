@@ -93,10 +93,13 @@ These Void features work identically across all targets:
 - [Custom headers](../guide/edge/headers.md) (`routing.headers`)
 - [Redirects](../guide/edge/redirects.md) (`routing.redirects`)
 - [Static site generation](../guide/ssg.md)
-- [Image generation](../guide/image-generation.md) and [Open Graph images](../guide/og-images.md) (`@void/image/generate`)
 - [Vite preview](https://vite.dev/guide/cli#vite-preview) for testing production builds locally
 
 ## What's Different
+
+### Image generation
+
+Use `void/image` with the [Takumi renderer](../guide/image-generation.md#takumi-renderer) to generate images in your server runtime.
 
 ### Environment variables
 

@@ -15,6 +15,8 @@ Once `hono` is installed in your app, you can use built-in middleware, helpers, 
 
 For [HTML templates](../reference/api/html.md), use `import { html } from 'void/html'`. This does not require installing Hono separately.
 
+For [JSX route handlers](../guide/server-routing.md#jsx-handlers), use `void/jsx` as your JSX import source.
+
 ## Built-in Middleware
 
 Use Hono's built-in middleware in your global middleware files or per-route:

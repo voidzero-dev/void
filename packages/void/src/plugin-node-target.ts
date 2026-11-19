@@ -169,10 +169,14 @@ export function nodeTargetPlugin(
       // and installed packages that import void in the dev server, Vitest and the build alike,
       // as with a workspace link.
       const ssr = {
-        noExternal: ['void', /^@void\/(?!image(?:\/|$))/, ...findVoidDependentPackages(root)],
+        noExternal: [
+          'void',
+          /^@void\/(?!image-renderer-takumi(?:\/|$))/,
+          ...findVoidDependentPackages(root),
+        ],
         // Keep the renderer's package-relative WASM loader with its installed dependencies,
         // including workspace links. Its Void imports are type-only.
-        external: ['@void/image'],
+        external: ['@void/image-renderer-takumi'],
       };
       if (command !== 'build') {
         return { ssr };

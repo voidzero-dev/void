@@ -38,7 +38,7 @@ Read the [Void documentation](https://void.cloud) online or use the Markdown gui
 
 - [Server routes](https://void.cloud/guide/server-routing), [pages](https://void.cloud/guide/pages-routing/overview), and [error components](https://void.cloud/guide/pages-routing/errors)
 - [Database](https://void.cloud/guide/database) and [type safety](https://void.cloud/guide/type-safety)
-- [Image generation](https://void.cloud/guide/image-generation) and [Open Graph images](https://void.cloud/guide/og-images) with `@void/image`
+- [Image generation](https://void.cloud/guide/image-generation) and [Open Graph images](https://void.cloud/guide/og-images) with `void/image`
 - [Deployment](https://void.cloud/guide/deployment)
 - [Framework integrations](https://void.cloud/integrations/frameworks/overview)
 - [API](https://void.cloud/reference/api) and [CLI](https://void.cloud/reference/cli) reference

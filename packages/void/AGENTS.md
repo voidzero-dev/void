@@ -167,6 +167,7 @@ Two features need extra wiring on a self-hosted `vite build && wrangler deploy` 
 
 - `void/remote` — Legacy compatibility export; generated code uses `#self/remote`.
 - `void/html` — Hono's `html`, `raw`, and `HtmlEscapedString` for HTML templates.
+- `void/jsx` — Hono JSX exports and automatic JSX runtimes.
 
 ### Route Filename Parsing Rules
 

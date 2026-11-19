@@ -4,29 +4,27 @@ outline: deep
 
 # Open Graph Images
 
-Use `OgImageResponse` from `@void/image/generate` to generate Open Graph and social preview images in a route handler. It extends [`ImageResponse`](./image-generation.md) with a default size of 1200 × 630 and a public cache lifetime of 24 hours.
+Use `OgImageResponse` from `void/image` to generate Open Graph and social preview images in a route handler. It extends [`ImageResponse`](./image-generation.md) with a default size of 1200 × 630 and a public cache lifetime of 24 hours.
 
-It draws JSX or HTML to a PNG with [Takumi](https://takumi.kane.tw/docs/), without a headless browser.
+Void renders the image to PNG with Cloudflare Browser Run.
 
 For other generated images, use `ImageResponse` from the same module.
 
 ## Setup
 
-Install alongside `void`:
+Configure the [`BROWSER` binding](./image-generation.md#setup) in `void.config.ts`.
 
-```sh
-npm install @void/image
-```
+For `.tsx` routes, follow the [TypeScript JSX setup](./image-generation.md#jsx-types).
 
 ## Usage
 
-Return an `OgImageResponse` from a [`.tsx` route](./server-routing.md#jsx-handlers):
+Return an `OgImageResponse` from a `.tsx` route using [Hono JSX](./image-generation.md#usage):
 
 ```tsx
 // routes/og/[slug].tsx
 
-import { OgImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
+import { OgImageResponse } from 'void/image';
 import { ensurePost } from '../../src/posts';
 
 export const GET = defineHandler(async (c) => {
@@ -53,16 +51,16 @@ export const GET = defineHandler(async (c) => {
 
 `GET /og/hello-world` now returns a 1200 × 630 PNG.
 
-JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template tag from `void/html` instead, as shown in [Without React](./image-generation.md#without-react).
+In a `.ts` route, use [HTML templates](./image-generation.md#html-templates) instead.
 
 ## Await rendering
 
 Use `renderOgImage(content, options?)` to await PNG bytes before creating a response. It defaults to 1200 × 630 and accepts the same dimensions and rendering options as `OgImageResponse`:
 
 ```ts
-import { renderOgImage } from '@void/image/generate';
 import { defineHandler } from 'void';
 import { html } from 'void/html';
+import { renderOgImage } from 'void/image';
 
 export const GET = defineHandler(async (c) => {
   try {
@@ -120,8 +118,8 @@ export const head = defineHead<Props>((c, props) => {
 Set `width` and `height` for a different layout. For example, generate a 2:1 image for an X large-image card:
 
 ```ts
-import { OgImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
+import { OgImageResponse } from 'void/image';
 
 export const GET = () =>
   new OgImageResponse(html`<div style="display: flex">Hello, world!</div>`, {
@@ -177,8 +175,8 @@ Updates at the same URL may take up to 24 hours to appear in caches that follow 
 Override the policy through `headers` if your images need a shorter or longer cache lifetime. For example, cache an image for one hour:
 
 ```ts
-import { OgImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
+import { OgImageResponse } from 'void/image';
 
 return new OgImageResponse(html`<div>${title}</div>`, {
   headers: { 'Cache-Control': 'public, max-age=3600' },
@@ -192,7 +190,5 @@ In `void dev`, generated image responses use `Cache-Control: no-store` so previe
 Learn more in the [Image Generation](./image-generation.md) guide:
 
 - [Fonts](./image-generation.md#fonts)
-- [Control font downloads](./image-generation.md#control-font-downloads)
 - [Cache generated images](./image-generation.md#cache-generated-images)
-- [Worker size](./image-generation.md#worker-size)
-- [Node.js, Bun, and Deno](./image-generation.md#node-js-bun-and-deno)
+- [Takumi renderer](./image-generation.md#takumi-renderer)

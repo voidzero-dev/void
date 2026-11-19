@@ -748,11 +748,8 @@ importers:
         specifier: 'catalog:'
         version: 1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)
 
-  packages/image:
+  packages/image-renderer-takumi:
     dependencies:
-      csstype:
-        specifier: ^3.2.3
-        version: 3.2.3
       takumi-js:
         specifier: ~2.20.0
         version: 2.20.0(csstype@3.2.3)(react@19.3.1)
@@ -760,9 +757,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.6
-      '@types/react':
-        specifier: ^19.3.0
-        version: 19.3.0
+      hono:
+        specifier: 'catalog:'
+        version: 4.13.19
       miniflare:
         specifier: 'catalog:'
         version: 5.20261116.0-beta(@types/node@26.6.6)
@@ -1103,6 +1100,9 @@ importers:
       '@types/proper-lockfile':
         specifier: ^4.1.4
         version: 4.1.4
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
       '@voidzero-dev/vite-plus-prompts':
         specifier: 'catalog:'
         version: 1.6.0
@@ -1638,11 +1638,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/void
 
-  playground/image-response:
+  playground/image-gen:
     dependencies:
-      '@void/image':
+      '@void/image-renderer-takumi':
         specifier: workspace:*
-        version: link:../../packages/image
+        version: link:../../packages/image-renderer-takumi
       hono:
         specifier: 'catalog:'
         version: 4.13.19
@@ -1652,6 +1652,9 @@ importers:
       react-dom:
         specifier: 'catalog:'
         version: 19.3.1(react@19.3.1)
+      void:
+        specifier: workspace:*
+        version: link:../../packages/void
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
@@ -1671,9 +1674,6 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: 1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)
-      void:
-        specifier: workspace:*
-        version: link:../../packages/void
 
   playground/kitchen-sink:
     dependencies:
