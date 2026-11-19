@@ -8,6 +8,7 @@ import {
   securityEffectiveProjectCapCents,
   securityNextSpendMonth,
   securityPlatformCapCents,
+  securityProjectCeiling,
   securityProjectCeilingCents,
   securityScanReserveNano,
   securitySpendCaps,
@@ -29,7 +30,7 @@ function budgets(overrides: Partial<SecurityPolicyBudgets> = {}): SecurityPolicy
   return { ...defaultSecurityBudgets(), ...overrides };
 }
 
-const none = { monthlyCapCents: null, capCeilingCents: null };
+const none = { monthlyCapCents: null, capCeilingCents: null, planCap: 'inherit' } as const;
 
 describe('who sets what (spec §16.2)', () => {
   // ceiling(p) = admin limit, else the default amount while project caps are on, else none;
@@ -55,7 +56,7 @@ describe('who sets what (spec §16.2)', () => {
     [
       'caps off, admin limit, own cap higher',
       budgets(),
-      { monthlyCapCents: 20_000, capCeilingCents: 15_000 },
+      { ...none, monthlyCapCents: 20_000, capCeilingCents: 15_000 },
       15_000,
       15_000,
     ],
@@ -71,6 +72,84 @@ describe('who sets what (spec §16.2)', () => {
     expect(securityEffectiveProjectCapCents(settings, policy)).toBe(effective);
   });
 
+  // M27: ceiling order is the project limit, then the plan cap, then the policy default.
+  it.each([
+    ['plan cap with project caps off', budgets(), { ...none, planCap: 5000 }, 5000, 'plan', 5000],
+    [
+      'plan cap below the default',
+      budgets({ projectCapsOn: true }),
+      { ...none, planCap: 5000 },
+      5000,
+      'plan',
+      5000,
+    ],
+    [
+      'plan cap above the default',
+      budgets({ projectCapsOn: true }),
+      { ...none, planCap: 50_000 },
+      50_000,
+      'plan',
+      50_000,
+    ],
+    [
+      'plan with no cap overrides the default',
+      budgets({ projectCapsOn: true }),
+      { ...none, planCap: 'none' as const },
+      null,
+      null,
+      null,
+    ],
+    [
+      'plan with no cap still takes the own cap',
+      budgets({ projectCapsOn: true }),
+      { ...none, planCap: 'none' as const, monthlyCapCents: 700 },
+      null,
+      null,
+      700,
+    ],
+    [
+      'project limit wins over the plan cap',
+      budgets({ projectCapsOn: true }),
+      { ...none, planCap: 5000, capCeilingCents: 20_000 },
+      20_000,
+      'project',
+      20_000,
+    ],
+    [
+      'own cap lower than the plan cap',
+      budgets(),
+      { ...none, planCap: 5000, monthlyCapCents: 1000 },
+      5000,
+      'plan',
+      1000,
+    ],
+    [
+      'a $0 plan cap = no scans',
+      budgets(),
+      { ...none, planCap: 0, monthlyCapCents: 1000 },
+      0,
+      'plan',
+      0,
+    ],
+    [
+      'inherit falls back to the default',
+      budgets({ projectCapsOn: true }),
+      none,
+      10_000,
+      'default',
+      10_000,
+    ],
+  ])('%s', (_label, policy, settings, ceiling, source, effective) => {
+    expect(securityProjectCeiling(settings, policy)).toEqual(
+      ceiling === null ? null : { cents: ceiling, source },
+    );
+    expect(securityProjectCeilingCents(settings, policy)).toBe(ceiling);
+    expect(securityEffectiveProjectCapCents(settings, policy)).toBe(effective);
+    expect(securitySpendCaps(settings, policy).projectNano).toBe(
+      effective === null ? null : effective * 10_000_000,
+    );
+  });
+
   it('turns the platform cap on and off and gives both caps in nano-dollars', () => {
     expect(securityPlatformCapCents(budgets())).toBeNull();
     expect(
@@ -78,19 +157,20 @@ describe('who sets what (spec §16.2)', () => {
     ).toBe(100_000);
     expect(
       securitySpendCaps(
-        { monthlyCapCents: 4000, capCeilingCents: null },
+        { ...none, monthlyCapCents: 4000 },
         budgets({ platformCapOn: true, platformMonthlyUsd: 1000.5 }),
       ),
     ).toEqual({ projectNano: 40_000_000_000, platformNano: 1_000_500_000_000 });
   });
 
   it('refuses a project cap above the ceiling with the operator command (edge #49)', () => {
-    expect(() => assertSecurityProjectCapAllowed(10_000, 10_000, 'acme-web')).not.toThrow();
+    const ceiling = { cents: 10_000, source: 'default' } as const;
+    expect(() => assertSecurityProjectCapAllowed(10_000, ceiling, 'acme-web')).not.toThrow();
     expect(() => assertSecurityProjectCapAllowed(15_000, null, 'acme-web')).not.toThrow();
-    expect(() => assertSecurityProjectCapAllowed(null, 10_000, 'acme-web')).not.toThrow();
+    expect(() => assertSecurityProjectCapAllowed(null, ceiling, 'acme-web')).not.toThrow();
     let error: unknown;
     try {
-      assertSecurityProjectCapAllowed(15_000, 10_000, 'acme-web');
+      assertSecurityProjectCapAllowed(15_000, ceiling, 'acme-web');
     } catch (caught) {
       error = caught;
     }
@@ -102,6 +182,14 @@ describe('who sets what (spec §16.2)', () => {
         'The platform limits each project to $100.00 / month. Ask your platform admin to raise it for acme-web: void platform security budget --project acme-web --usd 150',
       details: { ceilingUsd: 100 },
     });
+  });
+
+  it('names the plan when the ceiling comes from the plan cap (M27)', () => {
+    expect(() =>
+      assertSecurityProjectCapAllowed(15_000, { cents: 5000, source: 'plan' }, 'acme-web'),
+    ).toThrow(
+      "This project's plan limits it to $50.00 / month. Ask your platform admin to raise it for acme-web: void platform security budget --project acme-web --usd 150",
+    );
   });
 
   it('formats USD amounts for copy', () => {

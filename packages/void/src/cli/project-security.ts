@@ -58,6 +58,17 @@ function stamp(iso: string | null | undefined): string {
     : `${day(iso)}, ${new Date(time).toISOString().slice(11, 16)} UTC`;
 }
 
+/** Where a platform limit comes from (`ceilingSource`); older platforms send none. */
+function platformLimitLabel(source: 'project' | 'plan' | 'default' | null | undefined): string {
+  if (source === 'project') {
+    return 'platform limit for this project';
+  }
+  if (source === 'plan') {
+    return 'platform limit for this plan';
+  }
+  return 'platform limit for every project';
+}
+
 function duration(scan: SecurityScanSummary): string | null {
   const start = scan.startedAt ? Date.parse(scan.startedAt) : Number.NaN;
   const end = scan.finishedAt ? Date.parse(scan.finishedAt) : Number.NaN;
@@ -752,7 +763,7 @@ export async function runProjectSecurityCommand(
       const cap =
         budget.capUsd === null
           ? 'no cap'
-          : `${usd(budget.capUsd)} / month (${budget.capSource === 'own' ? 'set for this project' : 'platform limit for every project'})`;
+          : `${usd(budget.capUsd)} / month (${budget.capSource === 'own' ? 'set for this project' : platformLimitLabel(budget.ceilingSource)})`;
       print(args, { budget }, [
         `${slug} · scan budget (${month}, UTC; resets ${day(budget.resetsAt)})`,
         row('Cap', cap),

@@ -526,13 +526,22 @@ export async function loadPlansPage(context: AdminContext, path: string) {
   }
   const initialPlanDefault = initialPlanDefaultFor(context.env);
   const { readPlanAiLoggingProgress } = await import('../../ai-logging-plans.ts');
-  const [data, aiLogging] = await Promise.all([
+  const { readSecurityPlanCaps } = await import('../../security/plan-caps.ts');
+  const [data, aiLogging, securityCaps] = await Promise.all([
     readPlanCatalogWithAccounts(context.get('db'), initialPlanDefault),
     readPlanAiLoggingProgress(context.get('db'), initialPlanDefault),
+    readSecurityPlanCaps(context.get('db')),
   ]);
+  // The scan cap column and field show only while security audits are on (M27).
+  let securityAudits = false;
+  try {
+    securityAudits = getPlatformCapabilities(context.env).securityAudits;
+  } catch {
+    securityAudits = false;
+  }
   const selectedPlanId = match?.[1] ?? null;
   if (selectedPlanId && !data.catalog.plans.some((plan) => plan.id === selectedPlanId)) {
     throw new OperatorError(404, 'Plan not found.');
   }
-  return { id: path, ...data, aiLogging, selectedPlanId };
+  return { id: path, ...data, aiLogging, securityCaps, securityAudits, selectedPlanId };
 }

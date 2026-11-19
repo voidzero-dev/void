@@ -22,12 +22,14 @@ import {
   NANO_USD_PER_USD,
   securityEffectiveProjectCapCents,
   securityNextSpendMonth,
-  securityProjectCeilingCents,
+  securityProjectCeiling,
   securitySpendMonth,
+  type SecurityCeilingSource,
   type SecurityProjectCapSettings,
 } from './budget.ts';
 import { securityCoverageLabel } from './input/tier.ts';
 import { resolveSecurityScanModel } from './models.ts';
+import { readSecurityPlanCap } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import {
   projectSecuritySettings,
@@ -198,6 +200,7 @@ export async function readSecurityProjectSettings(
     caps: {
       monthlyCapCents: row?.monthlyCapCents ?? null,
       capCeilingCents: row?.capCeilingCents ?? null,
+      planCap: await readSecurityPlanCap(db, projectId),
     },
   };
 }
@@ -253,6 +256,11 @@ export type SecurityProjectBudgetView = Readonly<{
   capSource: 'own' | 'limit' | 'none';
   /** The most a project admin may set; `null` = any amount. */
   ceilingUsd: number | null;
+  /**
+   * Where `ceilingUsd` comes from: this project's limit, its plan's cap (M27) or the
+   * default for every project; `null` with no ceiling.
+   */
+  ceilingSource: SecurityCeilingSource | null;
   spentUsd: number;
   month: string;
   resetsAt: string;
@@ -272,7 +280,8 @@ export async function securityProjectBudgetView(
     .where(
       and(eq(securityProjectSpend.project_id, projectId), eq(securityProjectSpend.month, month)),
     );
-  const ceiling = securityProjectCeilingCents(caps, policy.budgets);
+  const limit = securityProjectCeiling(caps, policy.budgets);
+  const ceiling = limit?.cents ?? null;
   const effective = securityEffectiveProjectCapCents(caps, policy.budgets);
   const own = caps.monthlyCapCents;
   return {
@@ -284,6 +293,7 @@ export async function securityProjectBudgetView(
           ? 'own'
           : 'limit',
     ceilingUsd: ceiling === null ? null : ceiling / 100,
+    ceilingSource: limit?.source ?? null,
     spentUsd: (spend?.spent ?? 0) / NANO_USD_PER_USD,
     month,
     resetsAt: `${securityNextSpendMonth(month)}T00:00:00.000Z`,

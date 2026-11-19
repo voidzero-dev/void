@@ -16,6 +16,15 @@ import {
   type PlatformPlanDefinition,
 } from '@void/platform/plans';
 import {
+  formatPlanSecurityCap,
+  parsePlanSecurityCapInput,
+  planSecurityCap,
+  readPlanSecurityCaps,
+  readStoredPlanSecurityCap,
+  type PlanSecurityCaps,
+  type SecurityPlanCap,
+} from '@void/platform/security-policy';
+import {
   type CANCEL_SYMBOL,
   confirm,
   isCancel,
@@ -41,7 +50,23 @@ type Listing = {
   accounts: Array<{ planId: string; count: number }>;
   /** Plan AI logging defaults. Platforms before plan defaults do not send it. */
   aiLogging?: AiLoggingListing;
+  /** Per-plan security scan caps (cents or `null`). Platforms before them do not send it. */
+  securityCaps?: PlanSecurityCaps;
 };
+
+/** A plan's scan cap from an API answer, read leniently (bad entries read as `inherit`). */
+function securityCapOf(caps: unknown, planId: string): SecurityPlanCap {
+  return planSecurityCap(readPlanSecurityCaps(caps).caps, planId);
+}
+
+/** Refuses a plan scan cap on a platform whose API would refuse or drop it. */
+function assertPlanSecurityCapSupported(listing: Listing, body: Record<string, unknown>): void {
+  if (body.securityCap !== undefined && !listing.securityCaps) {
+    throw new Error(
+      'platform: This platform does not support plan security scan caps. Upgrade the platform first with `void platform upgrade`.',
+    );
+  }
+}
 
 const aiLoggingLabels: Record<AiLoggingMode, string> = {
   inherit: 'inherit (AI Gateway setting)',
@@ -98,9 +123,15 @@ function writePlanDiff(
   to: PlatformPlanDefinition,
   write: (line: string) => void,
   aiLogging?: Readonly<{ from: string; to: string }>,
+  securityCap?: Readonly<{ from: SecurityPlanCap; to: SecurityPlanCap }>,
 ): void {
   if (aiLogging && aiLogging.from !== aiLogging.to) {
     write(`AI Gateway logging: ${aiLogging.from} → ${aiLogging.to}`);
+  }
+  if (securityCap && securityCap.from !== securityCap.to) {
+    write(
+      `Security scan cap: ${formatPlanSecurityCap(securityCap.from)} → ${formatPlanSecurityCap(securityCap.to)}`,
+    );
   }
   if (from.buildInstanceType !== to.buildInstanceType) {
     write(`Build size: ${from.buildInstanceType} → ${to.buildInstanceType}`);
@@ -156,6 +187,12 @@ function showPreview(
     afterAiLogging
       ? { from: planAiLogging(savedAiLogging, from), to: planAiLogging(afterAiLogging, to) }
       : undefined;
+  // The dry run reads the saved caps under the plan lock; platforms before caps send none.
+  const caps = preview.securityCaps as { caps?: unknown; capsBefore?: unknown } | undefined;
+  const securityCap = (from: string, to: string) =>
+    caps
+      ? { from: securityCapOf(caps.capsBefore, from), to: securityCapOf(caps.caps, to) }
+      : undefined;
   write(`Change: ${preview.action} ${preview.target}`);
   write(`Accounts affected: ${preview.affectedAccounts}`);
   const publish = preview.aiLoggingPublish as { remaining?: unknown } | undefined;
@@ -182,6 +219,9 @@ function showPreview(
       if (afterAiLogging) {
         write(`  AI Gateway logging: ${planAiLogging(afterAiLogging, plan.id)}`);
       }
+      if (caps) {
+        write(`  Security scan cap: ${formatPlanSecurityCap(securityCapOf(caps.caps, plan.id))}`);
+      }
       continue;
     }
     if (previous.name !== plan.name) {
@@ -190,7 +230,13 @@ function showPreview(
     if (previous.archived !== plan.archived) {
       write(`${plan.id}: ${plan.archived ? 'archive for new assignments' : 'restore assignments'}`);
     }
-    writePlanDiff(previous, plan, write, aiLogging(plan.id, plan.id));
+    writePlanDiff(
+      previous,
+      plan,
+      write,
+      aiLogging(plan.id, plan.id),
+      securityCap(plan.id, plan.id),
+    );
   }
   for (const plan of before.plans) {
     if (!after.plans.some((entry) => entry.id === plan.id)) {
@@ -198,7 +244,13 @@ function showPreview(
       const replacement = after.plans.find((entry) => entry.id === preview.replacementPlanId);
       if (replacement) {
         write(`Move accounts to ${label(replacement)}`);
-        writePlanDiff(plan, replacement, write, aiLogging(plan.id, replacement.id));
+        writePlanDiff(
+          plan,
+          replacement,
+          write,
+          aiLogging(plan.id, replacement.id),
+          securityCap(plan.id, replacement.id),
+        );
       }
     }
   }
@@ -252,6 +304,7 @@ async function changesInput(
   plan?: PlatformPlanDefinition,
   listing?: Listing,
 ): Promise<Record<string, unknown>> {
+  const cap = args.securityCap === undefined ? {} : { securityCap: args.securityCap };
   if (args.file) {
     const input: unknown = JSON.parse(await readFile(args.file, 'utf8'));
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -259,14 +312,24 @@ async function changesInput(
     }
     const object = input as Record<string, unknown>;
     for (const key of Object.keys(object)) {
-      if (!['name', 'limits', 'buildInstanceType', 'allowShortSlugs', 'aiLogging'].includes(key)) {
+      if (
+        ![
+          'name',
+          'limits',
+          'buildInstanceType',
+          'allowShortSlugs',
+          'aiLogging',
+          'securityCap',
+        ].includes(key)
+      ) {
         throw new Error(
-          `platform: Unknown plan field ${key}. Use name, limits, buildInstanceType, allowShortSlugs, or aiLogging.`,
+          `platform: Unknown plan field ${key}. Use name, limits, buildInstanceType, allowShortSlugs, aiLogging, or securityCap.`,
         );
       }
     }
     try {
       parsePlanAiLoggingInput(object.aiLogging);
+      parsePlanSecurityCapInput(object.securityCap);
     } catch (error) {
       throw new Error(`platform: ${(error as Error).message}`);
     }
@@ -281,10 +344,14 @@ async function changesInput(
         : {}),
       ...(object.limits !== undefined ? { limits: parsePlanLimitsPatch(object.limits) } : {}),
       ...(args.name ? { name: parsePlanName(args.name) } : {}),
+      ...cap,
     };
   }
   if (args.name) {
-    return { name: parsePlanName(args.name) };
+    return { name: parsePlanName(args.name), ...cap };
+  }
+  if (args.action === 'set' && args.securityCap !== undefined) {
+    return cap;
   }
   if (!process.stdin.isTTY || args.json) {
     if (args.action === 'add') {
@@ -297,6 +364,7 @@ async function changesInput(
   if (args.action === 'add') {
     return {
       name: parsePlanName(value(await text({ message: 'Plan name:', initialValue: args.target }))),
+      ...cap,
     };
   }
   const field = value(
@@ -317,9 +385,20 @@ async function changesInput(
               },
             ]
           : []),
+        ...(listing?.securityCaps
+          ? [
+              {
+                value: 'securityCap',
+                label: `Security scan cap: ${formatPlanSecurityCap(securityCapOf(listing.securityCaps, plan!.id))}`,
+              },
+            ]
+          : []),
       ],
     }),
   );
+  if (field === 'securityCap') {
+    return { securityCap: await chooseSecurityCap(securityCapOf(listing!.securityCaps, plan!.id)) };
+  }
   if (field === 'aiLogging') {
     return {
       aiLogging: value(
@@ -364,6 +443,39 @@ async function changesInput(
   return { limits: parsePlanLimitsPatch({ [field]: Number(input) }) };
 }
 
+/** The interactive scan cap picker: policy default, an amount, or no cap. */
+async function chooseSecurityCap(current: SecurityPlanCap): Promise<number | 'none' | 'inherit'> {
+  const mode = value(
+    await select({
+      message: 'Monthly security scan cap for each project on this plan:',
+      initialValue: typeof current === 'number' ? 'amount' : current,
+      options: [
+        { value: 'inherit', label: 'Policy default (the default project cap, when it is on)' },
+        { value: 'amount', label: 'A monthly amount in USD' },
+        { value: 'none', label: 'No cap' },
+      ],
+    }),
+  );
+  if (mode !== 'amount') {
+    return mode as 'none' | 'inherit';
+  }
+  const input = value(
+    await text({
+      message: 'USD per project per month:',
+      initialValue: typeof current === 'number' ? String(current / 100) : '',
+      validate: (entry) => {
+        try {
+          parsePlanSecurityCapInput(entry?.trim() ? Number(entry) : Number.NaN);
+          return undefined;
+        } catch {
+          return 'Enter a USD amount with at most two decimals.';
+        }
+      },
+    }),
+  );
+  return Number(input);
+}
+
 async function apply(
   client: OperatorClient,
   path: string,
@@ -373,6 +485,7 @@ async function apply(
 ): Promise<void> {
   const { catalog } = listing;
   assertPlanAiLoggingSupported(listing, body);
+  assertPlanSecurityCapSupported(listing, body);
   if (!args.plan && !args.yes && (!process.stdin.isTTY || args.json)) {
     throw new Error(
       'platform: Configuration changes require --yes or --plan in non-interactive mode.',
@@ -592,6 +705,13 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
         }
         if (typeof result.aiLogging === 'string') {
           console.log(`AI Gateway logging: ${stripVTControlCharacters(result.aiLogging)}`);
+        }
+        const securityCap =
+          result.securityCap === 'inherit' || result.securityCap === 'none'
+            ? result.securityCap
+            : readStoredPlanSecurityCap(result.securityCap);
+        if (result.securityCap !== undefined && securityCap !== undefined) {
+          console.log(`Security scan cap: ${formatPlanSecurityCap(securityCap)}`);
         }
         const publish = result.aiLoggingPublish as
           | { complete?: boolean; remaining?: number; error?: string }

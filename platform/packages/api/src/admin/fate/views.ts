@@ -350,6 +350,8 @@ export const PlansView = view<AdminPlans>()({
   catalog: true,
   accounts: true,
   aiLogging: true,
+  securityCaps: true,
+  securityAudits: true,
   selectedPlanId: true,
 });
 export const plansRequest = (path: string) =>

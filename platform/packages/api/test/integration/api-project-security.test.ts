@@ -976,6 +976,25 @@ describe('budget', () => {
     expect(events[0]).toMatchObject({ actor_kind: 'user', actor_role: 'admin' });
   });
 
+  it('holds a project admin to the cap of the owner plan, named in the refusal (M27)', async () => {
+    await savePolicy();
+    await setPlatformSetting(env.db, 'plans:security-caps', { free: 5000 });
+    const { project, people } = await setup('acme-web');
+    const put = (monthlyUsd: number) =>
+      call(`/projects/${project.id}/security/budget`, people.admin.jwt, {
+        method: 'PUT',
+        body: { monthlyUsd },
+      });
+    const above = await put(60);
+    expect(above.status).toBe(422);
+    const refusal = await json(above);
+    expect(refusal).toMatchObject({ ceilingUsd: 50 });
+    expect(refusal.message).toMatch(/^This project's plan limits it to \$50\.00 \/ month\./);
+    const set = await put(50);
+    expect(set.status).toBe(200);
+    expect((await json(set)).budget).toMatchObject({ capUsd: 50, ceilingUsd: 50 });
+  });
+
   it('lets a project admin set any amount when no limit applies', async () => {
     await savePolicy();
     const { project, people } = await setup();

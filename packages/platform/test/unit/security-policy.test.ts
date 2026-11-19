@@ -21,6 +21,11 @@ import {
   SECURITY_POLICY_SETTINGS_KEY,
   SECURITY_SWEEP_DAYS_RANGE,
   type SecurityPolicy,
+  formatPlanSecurityCap,
+  parsePlanSecurityCapInput,
+  planSecurityCap,
+  readPlanSecurityCaps,
+  withPlanSecurityCap,
 } from '../../src/security-policy.ts';
 
 const CHECKED_AT = '2026-11-18T03:00:00.000Z';
@@ -525,5 +530,56 @@ describe('security error codes', () => {
     expect(isSecurityErrorCode('security findings unresolved')).toBe(false);
     expect(isSecurityErrorCode('security bypass invalid')).toBe(false);
     expect(isSecurityErrorCode('platform capability unavailable')).toBe(false);
+  });
+});
+
+describe('per-plan scan caps (M27)', () => {
+  it('reads a stored row leniently: bad entries inherit, a JSON null is no cap', () => {
+    expect(readPlanSecurityCaps(null)).toEqual({ caps: {}, dropped: 0 });
+    expect(readPlanSecurityCaps([5000])).toEqual({ caps: {}, dropped: 1 });
+    expect(
+      readPlanSecurityCaps({
+        pro: 5000,
+        team: null,
+        free: 0,
+        bad: -1,
+        half: 12.5,
+        Upper: 10,
+        huge: 100_000_001,
+        text: '5',
+      }),
+    ).toEqual({ caps: { pro: 5000, team: null, free: 0 }, dropped: 5 });
+    const caps = { pro: 5000, team: null };
+    expect(planSecurityCap(caps, 'pro')).toBe(5000);
+    expect(planSecurityCap(caps, 'team')).toBe('none');
+    expect(planSecurityCap(caps, 'free')).toBe('inherit');
+    expect(planSecurityCap(caps, 'constructor')).toBe('inherit');
+  });
+
+  it('parses a change and writes a new row without touching other plans', () => {
+    expect(parsePlanSecurityCapInput(undefined)).toBeUndefined();
+    expect(parsePlanSecurityCapInput(12.5)).toBe(1250);
+    expect(parsePlanSecurityCapInput(0)).toBe(0);
+    expect(parsePlanSecurityCapInput('none')).toBe('none');
+    expect(parsePlanSecurityCapInput('inherit')).toBe('inherit');
+    for (const bad of [12.345, -1, 1_000_001, '50', null, true]) {
+      expect(() => parsePlanSecurityCapInput(bad)).toThrow();
+    }
+    const caps = { pro: 5000, team: null };
+    expect(withPlanSecurityCap(caps, 'pro', 'inherit')).toEqual({ team: null });
+    expect(withPlanSecurityCap(caps, 'free', 'none')).toEqual({
+      pro: 5000,
+      team: null,
+      free: null,
+    });
+    expect(withPlanSecurityCap(caps, 'team', 700)).toEqual({ pro: 5000, team: 700 });
+    expect(caps).toEqual({ pro: 5000, team: null });
+  });
+
+  it('formats a cap for the CLI and the admin panel', () => {
+    expect(formatPlanSecurityCap(123_456)).toBe('$1,234.56 / month');
+    expect(formatPlanSecurityCap(0)).toBe('$0.00 / month');
+    expect(formatPlanSecurityCap('none')).toBe('no cap');
+    expect(formatPlanSecurityCap('inherit')).toBe('policy default');
   });
 });

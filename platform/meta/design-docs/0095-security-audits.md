@@ -1537,6 +1537,59 @@ project ceiling → plan cap → policy default. Operator `config plans` gains
 `--security-cap`; admin Plans page shows it. Tests: `security-budget.test.ts`,
 `operator-plans.test.ts`, `admin-plans.test.ts`.
 
+As built (M27):
+
+```
+plans:security-caps = { pro: 5000, lab: null }      missing plan = inherit
+                         │
+ceiling(p) = project limit (cap_ceiling_cents) ─► plan cap (cents | none) ─► policy default (caps on) ─► none
+effective(p) = lower of ceiling(p) and the project's own cap
+readers: scheduler reserve · model proxy (each call) · status/budget view · cap emails · budget PUT
+         all via securityPlanCapSql(projects.user_id)  (security/plan-caps.ts)
+```
+
+- Three states per plan: whole cents, `null` = **no cap** (stored JSON null; overrides the
+  policy default, so a plan can be uncapped while project caps are on), missing =
+  **inherit** (the policy default while project caps are on). A numeric plan cap applies
+  with project caps off too: an admin set it for that plan on purpose. A per-project limit
+  still comes first. Nothing is published: every reader looks it up through one correlated
+  subquery (`->` gives SQL `NULL` only for a missing key), so a change applies to the next
+  scan start and the next model call.
+- Shared parser in `@void/platform/security-policy` (`PLAN_SECURITY_CAPS_SETTING`,
+  `readPlanSecurityCaps`, `parsePlanSecurityCapInput`, `planSecurityCap`,
+  `withPlanSecurityCap`, `formatPlanSecurityCap`), so the CLI and API read one shape.
+  Lenient on read: a bad entry (or a non-object row) reads as `inherit` and logs
+  `[security] plan caps: ignored invalid entries`; it never blocks plan edits or scans.
+- An account on a plan missing from the catalog has no entry, so it gets the policy
+  default (AI logging uses the signup default plan instead; caps keep the simpler rule).
+  `remove` drops the removed plan's entry (accounts move to the replacement and get its
+  cap); `add` copies the source plan's cap unless `securityCap` is given; `reset` keeps it.
+- Plan API: body field `securityCap` (USD number, `"none"`, `"inherit"`) on `add` / `set`
+  only, written under the plan lock in the same transaction as the catalog (fresh read
+  through a no-op `UPDATE`). Dry run and result carry `securityCaps: {caps, capsBefore}`;
+  `GET /config/plans` returns `securityCaps`, `GET /config/plans/:id` returns `securityCap`.
+  Audit keeps `securityCap`.
+- CLI: `void platform config plans add|set <id> --security-cap <usd|none|inherit>`, file
+  field `securityCap`, interactive picker entry, preview line `Security scan cap: X → Y`,
+  `show <id>` line. Refused before any request on a platform that does not send
+  `securityCaps`.
+- Admin: Plans list column and edit field (mode selector + USD text field, cents allowed)
+  shown only while the `securityAudits` capability is on; like the AI logging selector,
+  only a changed value (against `securityCapInitial`) is sent. The review table shows the
+  change.
+- Budget view gained `ceilingSource: 'project' | 'plan' | 'default' | null`; the admin
+  project section and `void project security budget` name where the limit comes from.
+  `capSource` is unchanged (old CLIs keep working).
+- Deviations: also changed `security-policy.test.ts` (platform package),
+  `platform-plans-config.test.ts` (CLI), and the scheduler / model proxy unit fixtures
+  (`planCap`). Docs: `cli/platform-config.md`, `cli/platform-security.md` and the
+  spending caps section of the security audits guide.
+- Review fixes: both budget writers read the plan cap in their `FOR UPDATE` select
+  (`securityProjectPlanCapSql`), never a plain read Hyperdrive may cache. A refusal from
+  a plan cap says "This project's plan limits it". The Off → on policy preview says only
+  plans with a scan cap have a money limit when one does (`counts.planCapped`). The plan
+  review table shows the scan cap row only while `securityAudits` is on.
+
 **M28 GitHub `Void Security Audit` check.** Hosted only; `createCheckRun` /
 `completeCheckRun` at ingest, conclusion always `neutral`, counts + landing link; PR
 comment (counts only); `check_run:rerequested` for this name queues a project rescan

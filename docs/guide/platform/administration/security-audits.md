@@ -94,13 +94,16 @@ Every scan that does not succeed says what happened, and the next scan covers th
 The platform pays for scans, and they do not count against the plan's AI limits. Two monthly caps, both off by default, use the calendar month in UTC:
 
 - A **platform cap** that stops all scans when it is used up.
-- A **project cap**, with a default amount for every project. A project owner or administrator can set a lower cap for their own project. The most they can set is the limit you give that project, or the default when project caps are on.
+- A **project cap**, with a default amount for every project. A project owner or administrator can set a lower cap for their own project. The most they can set is the limit you give that project, else the cap of the owner's plan, else the default when project caps are on.
 
 A scan starts only if its worst case fits under both caps. A used-up cap skips scans, never deploys, and the first scan after the reset or a raise covers what was skipped. Rescans and scans before public count too. At 80% and 100% of a cap, the owner and project administrators (project cap) or platform administrators (platform cap) get one email per month.
 
 ```sh
 void platform security budget --platform-usd 500 --project-default-usd 50
+void platform config plans set pro --security-cap 200
 ```
+
+A plan cap applies to each project whose owner is on that plan, even with project caps off. `--security-cap none` gives the plan's projects no cap, and `inherit` returns it to the default.
 
 ## Emails
 

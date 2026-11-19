@@ -106,6 +106,7 @@ function candidate(
     noticeVersion: null,
     monthlyCapCents: null,
     capCeilingCents: null,
+    planCap: 'inherit',
     ...overrides,
   };
 }
@@ -331,6 +332,29 @@ describe('runSecurityScanQueue', () => {
       ['s1', 1, { status: 'skipped', reason: 'budget', errorClass: 'platform_cap' }],
     ]);
     expect(run.nextAlarm).toBeNull();
+  });
+
+  it('reserves against the plan cap with project caps off, and skips the scan it refuses (M27)', async () => {
+    const h = harness();
+    h.policy.value = onPolicy({
+      budgets: { ...defaultSecurityPolicy().budgets, platformCapOn: false, projectCapsOn: false },
+    });
+    h.reserve.mockResolvedValue({
+      ok: false,
+      cap: 'project',
+      capNano: 10_000_000_000,
+      spentNano: 10_000_000_000,
+    });
+    h.queue.candidates = [candidate('s1', 'alice', { planCap: 1000 })];
+    const run = await runSecurityScanQueue(h.deps);
+    expect(h.reserve).toHaveBeenCalledWith(
+      expect.objectContaining({ caps: { projectNano: 10_000_000_000, platformNano: null } }),
+    );
+    expect(run.started).toEqual([]);
+    expect(h.start).not.toHaveBeenCalled();
+    expect(h.ends).toEqual([
+      ['s1', 1, { status: 'skipped', reason: 'budget', errorClass: 'project_cap' }],
+    ]);
   });
 
   it('tells the cap alert which cap refused the scan, and survives its failure', async () => {

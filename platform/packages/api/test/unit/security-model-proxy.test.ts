@@ -63,6 +63,7 @@ function scanRow(overrides: Partial<SecurityModelScan> = {}): SecurityModelScan 
     projectNoticeVersion: 1,
     monthlyCapCents: null,
     capCeilingCents: null,
+    planCap: 'inherit',
     ...overrides,
   };
 }
@@ -829,6 +830,27 @@ describe('refusals before a call is sent', () => {
       runner.readProxyStopReason(response.headers.get(SECURITY_STOP_HEADER)),
     );
     expect(runner.outcomeStatus(outcome)).toMatchObject({ status: 'incomplete', reason: 'budget' });
+  });
+
+  it('holds each call against the plan cap with project caps off, and stops at it (M27)', async () => {
+    h.policy.value = onPolicy({
+      budgets: { ...defaultSecurityPolicy().budgets, platformCapOn: false, projectCapsOn: false },
+    });
+    h.scan.value = scanRow({ planCap: 1000 });
+    h.hold.mockResolvedValue({
+      ok: false,
+      reason: 'budget',
+      cap: 'project',
+      capNano: 10_000_000_000,
+      spentNano: 10_000_000_000,
+    });
+    const response = await call(h, '/v1/chat/completions', chatBody());
+    expect(h.hold).toHaveBeenCalledWith(
+      expect.objectContaining({ caps: { projectNano: 10_000_000_000, platformNano: null } }),
+    );
+    expect(response.status).toBe(429);
+    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('budget');
+    expect(h.aiRun).not.toHaveBeenCalled();
   });
 
   it('refuses unknown routes and bodies that are not JSON objects', async () => {

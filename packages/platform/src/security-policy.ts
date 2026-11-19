@@ -661,3 +661,149 @@ export function isSecurityEntitlementFresh(
   const age = now - Date.parse(entitlement.checkedAt);
   return age >= 0 && age < SECURITY_ENTITLEMENT_MAX_AGE_MS;
 }
+
+// ---------------------------------------------------------------------------
+// Per-plan scan caps (Phase 2, M27)
+// ---------------------------------------------------------------------------
+
+/**
+ * `platform_settings` key of the per-plan monthly scan caps. Kept out of
+ * `plans:catalog` (and `PlanLimits`): the saved-catalog parser needs the exact limit
+ * keys, and an older API rebuilds the catalog from known keys on every write, so a cap
+ * stored there would break deploys or be lost after a rollback (same as
+ * `plans:ai-logging`).
+ */
+export const PLAN_SECURITY_CAPS_SETTING = 'plans:security-caps';
+
+/** Plan ID -> monthly cap in whole cents, or `null` = no cap for that plan. Missing = policy default. */
+export type PlanSecurityCaps = Readonly<Record<string, number | null>>;
+
+/**
+ * One plan's cap: whole cents, `none` (no cap from the plan, even with project caps
+ * on) or `inherit` (the policy's default project cap applies while project caps are on).
+ */
+export type SecurityPlanCap = number | 'none' | 'inherit';
+
+const PLAN_KEY_MAX = 64;
+const MAX_PLAN_CAP_CENTS = SECURITY_MAX_MONTHLY_USD * 100;
+
+function isPlanSecurityCapCents(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= MAX_PLAN_CAP_CENTS
+  );
+}
+
+/** One stored entry as a plan cap; `undefined` when it is neither whole cents nor `null`. */
+export function readStoredPlanSecurityCap(entry: unknown): SecurityPlanCap | undefined {
+  if (entry === null) {
+    return 'none';
+  }
+  return isPlanSecurityCapCents(entry) ? entry : undefined;
+}
+
+/** A plan ID: a lowercase letter, then lowercase letters, digits or hyphens, at most 64. */
+function isPlanKey(key: string): boolean {
+  if (key.length === 0 || key.length > PLAN_KEY_MAX || key[0]! < 'a' || key[0]! > 'z') {
+    return false;
+  }
+  for (const char of key) {
+    const ok = (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char === '-';
+    if (!ok) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Reads a stored caps row. Lenient: an entry that is not a plan ID with whole cents or
+ * `null` is left out (that plan inherits) and counted in `dropped`, so one bad entry
+ * never stops plan edits or scans. A row that is not an object reads as empty.
+ */
+export function readPlanSecurityCaps(
+  value: unknown,
+): Readonly<{ caps: PlanSecurityCaps; dropped: number }> {
+  if (value === null || value === undefined) {
+    return { caps: {}, dropped: 0 };
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return { caps: {}, dropped: 1 };
+  }
+  const caps: Record<string, number | null> = {};
+  let dropped = 0;
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (isPlanKey(key) && (entry === null || isPlanSecurityCapCents(entry))) {
+      caps[key] = entry;
+    } else {
+      dropped++;
+    }
+  }
+  return { caps, dropped };
+}
+
+/** One stored entry (`undefined` when the plan has none) as a plan cap. */
+export function securityPlanCapOf(entry: number | null | undefined): SecurityPlanCap {
+  if (entry === undefined) {
+    return 'inherit';
+  }
+  return entry === null ? 'none' : entry;
+}
+
+/** The cap of one plan in a caps row. */
+export function planSecurityCap(caps: PlanSecurityCaps, planId: string): SecurityPlanCap {
+  return securityPlanCapOf(Object.hasOwn(caps, planId) ? caps[planId] : undefined);
+}
+
+/**
+ * Reads a plan change's `securityCap` field: a USD amount (0 to
+ * `SECURITY_MAX_MONTHLY_USD`, whole cents), `none` or `inherit`. `undefined` keeps the
+ * plan's current cap. An amount comes back in cents.
+ */
+export function parsePlanSecurityCapInput(value: unknown): SecurityPlanCap | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === 'none' || value === 'inherit') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return Math.round(parseSecurityUsd(value, 'securityCap') * 100);
+  }
+  throw new Error(
+    `securityCap must be a USD amount from 0 to ${SECURITY_MAX_MONTHLY_USD}, "none" or "inherit".`,
+  );
+}
+
+/** A caps row with one plan's cap changed; `inherit` leaves the plan out. */
+export function withPlanSecurityCap(
+  caps: PlanSecurityCaps,
+  planId: string,
+  cap: SecurityPlanCap,
+): PlanSecurityCaps {
+  const next: Record<string, number | null> = {};
+  for (const [key, entry] of Object.entries(caps)) {
+    if (key !== planId) {
+      next[key] = entry;
+    }
+  }
+  if (cap !== 'inherit') {
+    next[planId] = cap === 'none' ? null : cap;
+  }
+  return next;
+}
+
+/** `$50.00 / month`, `no cap` or `policy default`, for the CLI and the admin panel. */
+export function formatPlanSecurityCap(cap: SecurityPlanCap): string {
+  if (cap === 'inherit') {
+    return 'policy default';
+  }
+  if (cap === 'none') {
+    return 'no cap';
+  }
+  const dollars = Math.floor(cap / 100);
+  const cents = String(cap % 100).padStart(2, '0');
+  return `$${dollars.toLocaleString('en-US')}.${cents} / month`;
+}

@@ -412,6 +412,14 @@ describe('securityPolicyPreviewLines', () => {
     ]);
   });
 
+  it('says plan caps still limit spending when budgets are off (M27)', () => {
+    expect(
+      lines({}, { mode: 'all' }, { scannedProjects: 2, firstFullScan: 0, planCapped: true }).at(-1),
+    ).toBe(
+      '  Monthly scan budgets are off: only plans with a scan cap have a money limit. Set them with: void platform security budget',
+    );
+  });
+
   it('leaves the budget line out when a cap is on', () => {
     expect(
       lines(

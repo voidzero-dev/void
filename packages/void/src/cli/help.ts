@@ -340,7 +340,8 @@ const HELP_TREE: HelpTree = {
               },
               {
                 command: 'set <id>',
-                description: 'Edit a plan name, limits, build size, or AI Gateway logging default',
+                description:
+                  'Edit a plan name, limits, build size, AI Gateway logging default, or security scan cap',
               },
               {
                 command: 'reset <id>',
@@ -371,13 +372,19 @@ const HELP_TREE: HelpTree = {
               },
               {
                 command: '--file <path>',
-                description: 'Read plan settings, partial limits, and aiLogging from JSON',
+                description:
+                  'Read plan settings, partial limits, aiLogging, and securityCap from JSON',
               },
               {
                 command: '--name <name>',
                 description: 'Set the display name when adding or editing',
               },
               { command: '--copy <id>', description: 'Copy this plan when adding a new one' },
+              {
+                command: '--security-cap <usd|none|inherit>',
+                description:
+                  'Monthly security scan cap for each project on the plan (inherit = policy default)',
+              },
               {
                 command: '--replacement <id>',
                 description: 'Move accounts and any default before removing a plan',

@@ -36,7 +36,11 @@ import {
   type SecurityModelHost,
   type SecurityModelId,
 } from '@void/platform/security-models';
-import { SECURITY_ERRORS, type SecurityPolicy } from '@void/platform/security-policy';
+import {
+  SECURITY_ERRORS,
+  type SecurityPlanCap,
+  type SecurityPolicy,
+} from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import { createDb, type DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
@@ -62,6 +66,7 @@ import {
 import { judgeScanFence } from './control.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
 import { enqueueSecurityCapNotifications } from './notifications.ts';
+import { readSecurityPlanCapCell, securityPlanCapSql } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import { projectSecuritySettings, securityScans } from './schema.ts';
 
@@ -134,6 +139,8 @@ export type SecurityModelScan = Readonly<{
   projectNoticeVersion: number | null;
   monthlyCapCents: number | null;
   capCeilingCents: number | null;
+  /** The cap of the owner's plan (M27), read with the scan on every call. */
+  planCap: SecurityPlanCap;
 }>;
 
 /** The parts of a call that leave the proxy; tests replace them. */
@@ -226,6 +233,7 @@ export async function loadSecurityModelScan(
       projectNoticeVersion: projectSecuritySettings.provider_notice_version,
       monthlyCapCents: projectSecuritySettings.monthly_cap_cents,
       capCeilingCents: projectSecuritySettings.cap_ceiling_cents,
+      planCap: securityPlanCapSql(projects.user_id),
     })
     .from(securityScans)
     .innerJoin(projects, eq(projects.id, securityScans.project_id))
@@ -235,7 +243,7 @@ export async function loadSecurityModelScan(
     )
     .where(eq(securityScans.id, scanId))
     .limit(1);
-  return row;
+  return row ? { ...row, planCap: readSecurityPlanCapCell(row.planCap) } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,7 +1023,11 @@ export async function handleSecurityModelRequest(
   }
 
   const caps = securitySpendCaps(
-    { monthlyCapCents: scan.monthlyCapCents, capCeilingCents: scan.capCeilingCents },
+    {
+      monthlyCapCents: scan.monthlyCapCents,
+      capCeilingCents: scan.capCeilingCents,
+      planCap: scan.planCap,
+    },
     policy.budgets,
   );
   const hold = await deps.hold({

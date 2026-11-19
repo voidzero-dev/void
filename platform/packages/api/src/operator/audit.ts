@@ -143,6 +143,12 @@ function auditTarget(
       buildInstanceType: boundedString(body.buildInstanceType, 32),
       allowShortSlugs: typeof body.allowShortSlugs === 'boolean' ? body.allowShortSlugs : undefined,
       aiLogging: isAiLoggingMode(body.aiLogging) ? body.aiLogging : undefined,
+      securityCap:
+        body.securityCap === 'none' ||
+        body.securityCap === 'inherit' ||
+        (typeof body.securityCap === 'number' && Number.isFinite(body.securityCap))
+          ? body.securityCap
+          : undefined,
       limits,
     });
   }

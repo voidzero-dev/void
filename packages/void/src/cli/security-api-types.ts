@@ -67,6 +67,8 @@ export type ProjectSecurityStatus = {
     capUsd: number | null;
     capSource: 'own' | 'limit' | 'none';
     ceilingUsd: number | null;
+    /** Where `ceilingUsd` comes from; older platforms do not send it. */
+    ceilingSource?: 'project' | 'plan' | 'default' | null;
     spentUsd: number;
     month: string;
     resetsAt: string;

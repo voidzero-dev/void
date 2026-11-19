@@ -38,6 +38,7 @@ type ProjectSecurity = Readonly<{
     capUsd: number | null;
     capSource: string;
     ceilingUsd: number | null;
+    ceilingSource: 'project' | 'plan' | 'default' | null;
     spentUsd: number;
   }> | null;
   backlogFiles: number;
@@ -71,6 +72,13 @@ type Gate = Readonly<{ request: Readonly<{ state: string }> | null; copy: string
 function usd(value: number | null): string {
   return value === null ? 'none' : `$${value.toFixed(2)}`;
 }
+
+/** Where the per-project limit comes from (M27). */
+const CEILING_SOURCES: Readonly<Record<'project' | 'plan' | 'default', string>> = {
+  project: 'set for this project',
+  plan: "this owner's plan",
+  default: 'default for every project',
+};
 
 export function ProjectSecuritySection({
   projectId,
@@ -163,7 +171,9 @@ export function ProjectSecuritySection({
         >
           <p>
             Cap now: {usd(budget.capUsd)} ({budget.capSource}). Limit projects may not exceed:{' '}
-            {usd(budget.ceilingUsd)}. Spent this month: {usd(budget.spentUsd)}.
+            {usd(budget.ceilingUsd)}
+            {budget.ceilingSource ? ` (${CEILING_SOURCES[budget.ceilingSource]})` : ''}. Spent this
+            month: {usd(budget.spentUsd)}.
           </p>
           <FormTextInput
             label="Limit for this project (USD per month, empty to clear)"

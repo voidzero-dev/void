@@ -551,3 +551,144 @@ describe('platform config plans AI logging defaults', () => {
     expect(output()).toContain('AI logging publish pending: 4 projects remaining');
   });
 });
+
+describe('platform config plans security scan caps', () => {
+  const catalog = { ...createDefaultPlanCatalog('free'), revision: 7 };
+
+  function platform(answer: (url: string, body?: Record<string, unknown>) => unknown) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = input.toString();
+        const body = init?.body ? JSON.parse(init.body as string) : undefined;
+        calls.push({ url, body });
+        return Response.json(answer(url, body));
+      }),
+    );
+  }
+
+  function output() {
+    return vi
+      .mocked(console.log)
+      .mock.calls.map((call) => String(call[0]))
+      .join('\n');
+  }
+
+  it.each([
+    [['plans', 'set', 'pro', '--security-cap', '50'], 50],
+    [['plans', 'set', 'pro', '--security-cap', '12.50'], 12.5],
+    [['plans', 'set', 'pro', '--security-cap', 'none'], 'none'],
+    [['plans', 'add', 'team', '--copy', 'pro', '--security-cap', 'inherit'], 'inherit'],
+  ])('reads %j', (args, expected) => {
+    expect(parsePlatformPlansArgs(args).securityCap).toBe(expected);
+  });
+
+  it.each([
+    [['plans', 'set', 'pro', '--security-cap', '12.345'], 'at most two decimals'],
+    [['plans', 'set', 'pro', '--security-cap', '2000000'], 'at most two decimals'],
+    [['plans', 'set', 'pro', '--security-cap', 'lots'], 'at most two decimals'],
+    [
+      ['plans', 'remove', 'pro', '--security-cap', '5'],
+      '--security-cap is only valid for add or set',
+    ],
+  ])('refuses %j', (args, message) => {
+    expect(() => parsePlatformPlansArgs(args)).toThrow(message);
+  });
+
+  it('refuses the flag before any change on a platform without plan caps', async () => {
+    platform(() => ({ catalog, accounts: [] }));
+    await expect(
+      runPlatformPlansConfig(
+        parsePlatformPlansArgs(['plans', 'set', 'pro', '--security-cap', '50', '--yes']),
+      ),
+    ).rejects.toThrow('does not support plan security scan caps');
+    expect(calls.filter((call) => call.body)).toHaveLength(0);
+  });
+
+  it('sends the cap alone and previews it from the caps the dry run read', async () => {
+    platform((_url, body) =>
+      body
+        ? {
+            dryRun: true,
+            action: 'plans.set',
+            target: 'pro',
+            expectedRevision: 7,
+            catalog: { ...catalog, revision: 8 },
+            affectedAccounts: 3,
+            // Newer than the cached listing, which has no entry for pro.
+            securityCaps: { caps: { pro: 5000 }, capsBefore: { pro: null } },
+          }
+        : { catalog, accounts: [], securityCaps: {} },
+    );
+    await runPlatformPlansConfig(
+      parsePlatformPlansArgs(['plans', 'set', 'pro', '--security-cap', '50', '--plan']),
+    );
+    expect(calls.at(-1)?.body).toEqual({ securityCap: 50, dryRun: true });
+    expect(output()).toContain('Security scan cap: no cap → $50.00 / month');
+  });
+
+  it('merges the flag into a plan file and checks the file field', async () => {
+    platform((_url, body) =>
+      body
+        ? { dryRun: true, expectedRevision: 7, catalog, affectedAccounts: 0 }
+        : {
+            catalog,
+            accounts: [],
+            securityCaps: {},
+          },
+    );
+    const file = join(directory, 'plan.json');
+    await writeFile(file, JSON.stringify({ name: 'Pro', securityCap: 'none' }));
+    await runPlatformPlansConfig(
+      parsePlatformPlansArgs(['plans', 'set', 'pro', '--file', file, '--plan']),
+    );
+    expect(calls.at(-1)?.body).toEqual({ name: 'Pro', securityCap: 'none', dryRun: true });
+    await writeFile(file, JSON.stringify({ securityCap: '50' }));
+    await expect(
+      runPlatformPlansConfig(
+        parsePlatformPlansArgs(['plans', 'set', 'pro', '--file', file, '--plan']),
+      ),
+    ).rejects.toThrow('securityCap must be a USD amount');
+  });
+
+  it('offers the cap in the interactive picker', async () => {
+    vi.stubGlobal('process', { ...process, stdin: { ...process.stdin, isTTY: true } });
+    platform((_url, body) =>
+      body?.dryRun
+        ? { dryRun: true, expectedRevision: 7, catalog, affectedAccounts: 0 }
+        : body
+          ? { catalog, reconciliation: { complete: true, processed: 0 } }
+          : { catalog, accounts: [], securityCaps: { pro: 2500 } },
+    );
+    vi.mocked(select).mockResolvedValueOnce('securityCap').mockResolvedValueOnce('amount');
+    vi.mocked(text).mockResolvedValueOnce('40');
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+    await runPlatformPlansConfig(parsePlatformPlansArgs(['plans', 'set', 'pro']));
+    expect(select).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        options: expect.arrayContaining([
+          { value: 'securityCap', label: 'Security scan cap: $25.00 / month' },
+        ]),
+      }),
+    );
+    expect(text).toHaveBeenCalledWith(expect.objectContaining({ initialValue: '25' }));
+    expect(calls.at(-1)?.body).toEqual({ securityCap: 40, expectedRevision: 7 });
+  });
+
+  it('shows the plan cap', async () => {
+    platform((url) =>
+      url.endsWith('/config/plans')
+        ? { catalog, accounts: [], securityCaps: { pro: 1250 } }
+        : {
+            catalogRevision: 7,
+            default: false,
+            plan: catalog.plans.find((plan) => plan.id === 'pro'),
+            accounts: 2,
+            securityCap: 1250,
+          },
+    );
+    await runPlatformPlansConfig(parsePlatformPlansArgs(['plans', 'show', 'pro']));
+    expect(output()).toContain('Security scan cap: $12.50 / month');
+  });
+});

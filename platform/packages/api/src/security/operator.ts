@@ -31,6 +31,7 @@ import {
 } from './budget.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
 import { SECURITY_FULL_REASON_NOTES, type SecurityFallbackFullReason } from './input/tier.ts';
+import { readSecurityPlanCapCell, securityProjectPlanCapSql } from './plan-caps.ts';
 import {
   lockSecurityPolicy,
   readSecurityPolicyLenient,
@@ -331,6 +332,7 @@ export async function setProjectSecurityCeiling(
       .select({
         monthlyCapCents: projectSecuritySettings.monthly_cap_cents,
         capCeilingCents: projectSecuritySettings.cap_ceiling_cents,
+        planCap: securityProjectPlanCapSql(projectSecuritySettings.project_id),
       })
       .from(projectSecuritySettings)
       .where(eq(projectSecuritySettings.project_id, input.projectId))
@@ -338,6 +340,7 @@ export async function setProjectSecurityCeiling(
     const before = {
       monthlyCapCents: current?.monthlyCapCents ?? null,
       capCeilingCents: current?.capCeilingCents ?? null,
+      planCap: readSecurityPlanCapCell(current?.planCap),
     };
     if (before.capCeilingCents !== input.cents) {
       await tx
@@ -362,7 +365,11 @@ export async function setProjectSecurityCeiling(
         new_cents: input.cents,
       });
     }
-    return { monthlyCapCents: before.monthlyCapCents, capCeilingCents: input.cents };
+    return {
+      monthlyCapCents: before.monthlyCapCents,
+      capCeilingCents: input.cents,
+      planCap: before.planCap,
+    };
   });
   return {
     ok: true as const,

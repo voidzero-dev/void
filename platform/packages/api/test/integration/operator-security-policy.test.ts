@@ -522,6 +522,16 @@ describe('operator security policy', () => {
       counts: Record<string, number>;
     };
     expect(allPreview.counts).toMatchObject({ scannedProjects: 3, firstFullScan: 2 });
+
+    await env.db
+      .insert(platformSettings)
+      .values({ key: 'plans:security-caps', value: { pro: 5000, lab: null } });
+    const cappedPreview = (await (
+      await request('/policy', { dryRun: true, mode: 'all' })
+    ).json()) as { preview: Array<string> };
+    expect(cappedPreview.preview).toContain(
+      '  Monthly scan budgets are off: only plans with a scan cap have a money limit. Set them with: void platform security budget',
+    );
     expect((await storedPolicy())?.revision).toBe(3);
     expect(await env.db.select().from(operatorEvents)).toHaveLength(0);
   });

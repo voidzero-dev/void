@@ -60,6 +60,7 @@ import {
   type SecurityPublicHeldState,
   type SecurityStreakScanLine,
 } from './notification-copy.ts';
+import { readSecurityPlanCap } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import {
   resolveInstallationAdminRecipients,
@@ -878,6 +879,7 @@ async function deliverProjectCap(db: Db, env: PlatformEmailEnv, row: Row): Promi
   const capSettings = {
     monthlyCapCents: settings?.own ?? null,
     capCeilingCents: settings?.ceiling ?? null,
+    planCap: await readSecurityPlanCap(db, row.project_id),
   };
   const capNano = securitySpendCaps(capSettings, policy.budgets).projectNano;
   const [spend] = await db

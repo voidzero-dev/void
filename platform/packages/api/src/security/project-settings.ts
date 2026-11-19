@@ -17,10 +17,11 @@ import { generateId } from '../id.ts';
 import type { ProjectRole } from '../types.ts';
 import {
   assertSecurityProjectCapAllowed,
-  securityProjectCeilingCents,
+  securityProjectCeiling,
   securityUsdToCents,
 } from './budget.ts';
 import { SecurityApiError } from './errors.ts';
+import { readSecurityPlanCapCell, securityProjectPlanCapSql } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import {
   securityProjectBudgetView,
@@ -197,6 +198,7 @@ export async function setProjectSecurityBudget(
       .select({
         monthlyCapCents: projectSecuritySettings.monthly_cap_cents,
         capCeilingCents: projectSecuritySettings.cap_ceiling_cents,
+        planCap: securityProjectPlanCapSql(projectSecuritySettings.project_id),
       })
       .from(projectSecuritySettings)
       .where(eq(projectSecuritySettings.project_id, input.projectId))
@@ -204,10 +206,11 @@ export async function setProjectSecurityBudget(
     const before = {
       monthlyCapCents: current?.monthlyCapCents ?? null,
       capCeilingCents: current?.capCeilingCents ?? null,
+      planCap: readSecurityPlanCapCell(current?.planCap),
     };
     assertSecurityProjectCapAllowed(
       input.cents,
-      securityProjectCeilingCents(before, policy.budgets),
+      securityProjectCeiling(before, policy.budgets),
       input.slug,
     );
     if (before.monthlyCapCents !== input.cents) {
@@ -233,7 +236,11 @@ export async function setProjectSecurityBudget(
         new_cents: input.cents,
       });
     }
-    return { monthlyCapCents: input.cents, capCeilingCents: before.capCeilingCents };
+    return {
+      monthlyCapCents: input.cents,
+      capCeilingCents: before.capCeilingCents,
+      planCap: before.planCap,
+    };
   });
   return {
     ok: true as const,

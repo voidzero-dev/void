@@ -46,6 +46,7 @@ import {
 } from '../zero-trust/configuration.ts';
 import { lockZeroTrustConfiguration } from '../zero-trust/lock.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
+import { readSecurityPlanCaps } from './plan-caps.ts';
 import type { SecurityProbeReport } from './probe.ts';
 import { cancelAllOpenRequests, listOpenRequestSlugs } from './public-gate.ts';
 import { countSecurityScanCandidates } from './scan-candidates.ts';
@@ -650,6 +651,11 @@ export type SecurityPolicyPreviewCounts = Readonly<{
   gate?: SecurityPolicyGateCounts;
   /** Only when sweeps turn on or change: projects due for a sweep now. */
   sweepProjects?: number;
+  /**
+   * Only when scans turn on with the platform and default project budgets off: some
+   * plan has a scan cap amount (`plans:security-caps`, M27), so not all spending is open.
+   */
+  planCapped?: boolean;
 }>;
 
 export type SecurityPolicyGateCounts = Readonly<{
@@ -720,7 +726,9 @@ function modeLines(
     }
     if (!next.budgets.platformCapOn && !next.budgets.projectCapsOn) {
       lines.push(
-        '  Monthly scan budgets are off (no money limit). Set them with: void platform security budget',
+        counts.planCapped
+          ? '  Monthly scan budgets are off: only plans with a scan cap have a money limit. Set them with: void platform security budget'
+          : '  Monthly scan budgets are off (no money limit). Set them with: void platform security budget',
       );
     }
     return lines;
@@ -1064,6 +1072,13 @@ export async function securityPolicyPreviewCounts(
     pickedBlockedAccepted,
     ...(changes.publicGateOn || changes.publicGateOff
       ? { gate: await gatePreviewCounts(db, changes, protects) }
+      : {}),
+    ...(turningOn && !next.budgets.platformCapOn && !next.budgets.projectCapsOn
+      ? {
+          planCapped: Object.values(await readSecurityPlanCaps(db)).some(
+            (cap) => typeof cap === 'number',
+          ),
+        }
       : {}),
     ...(changes.sweeps?.to.on
       ? {

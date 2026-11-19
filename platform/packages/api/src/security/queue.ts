@@ -1,4 +1,8 @@
-import type { SecurityMode, SecurityPolicyLimits } from '@void/platform/security-policy';
+import type {
+  SecurityMode,
+  SecurityPlanCap,
+  SecurityPolicyLimits,
+} from '@void/platform/security-policy';
 /**
  * The scan queue in PostgreSQL (spec §6.2): what the `SecurityScanScheduler` DO and
  * the hourly jobs read and write. Every write that ends or restarts an attempt is a
@@ -16,6 +20,7 @@ import { hasSqlState } from '../pg-errors.ts';
 import { projects, projectZeroTrust, users } from '../schema.ts';
 import { releaseSecurityScanReserve, releaseSecurityScanReserveIn } from './budget.ts';
 import type { SecurityScanModel } from './models.ts';
+import { readSecurityPlanCapCell, securityPlanCapSql } from './plan-caps.ts';
 import { installationZeroTrustProtects, readSecurityPolicyLenient } from './policy.ts';
 import { projectSecuritySettings, securityScans, type SecurityScanTrigger } from './schema.ts';
 
@@ -71,6 +76,8 @@ export type SecurityScanCandidate = Readonly<{
   noticeVersion: number | null;
   monthlyCapCents: number | null;
   capCeilingCents: number | null;
+  /** The cap of the owner's plan (M27). */
+  planCap: SecurityPlanCap;
 }>;
 
 export type SecurityScanQueueView = Readonly<{
@@ -94,7 +101,7 @@ export async function readSecurityScanQueue(
     .from(securityScans)
     .where(eq(securityScans.status, 'running'));
   const busy = alias(securityScans, 'busy');
-  const candidates = await db
+  const rows = await db
     .select({
       scanId: securityScans.id,
       projectId: securityScans.project_id,
@@ -107,6 +114,7 @@ export async function readSecurityScanQueue(
       noticeVersion: projectSecuritySettings.provider_notice_version,
       monthlyCapCents: projectSecuritySettings.monthly_cap_cents,
       capCeilingCents: projectSecuritySettings.cap_ceiling_cents,
+      planCap: securityPlanCapSql(projects.user_id),
     })
     .from(securityScans)
     .innerJoin(projects, eq(projects.id, securityScans.project_id))
@@ -131,6 +139,7 @@ export async function readSecurityScanQueue(
       asc(securityScans.id),
     )
     .limit(limit);
+  const candidates = rows.map((row) => ({ ...row, planCap: readSecurityPlanCapCell(row.planCap) }));
   const [queued] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(securityScans)

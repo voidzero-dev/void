@@ -39,7 +39,7 @@ void platform security budget --project <project-id> (--usd <n> | --clear) [--pl
 void platform security model <project-id> <model-id|--default> [--accept-provider-notice] [--plan] [--yes]
 ```
 
-A model run by a third party needs its provider notice accepted with `--accept-provider-notice`. `budget` with no flags shows the caps and this month's spend; with a cap flag it changes them. `--platform-usd` sets the platform cap and turns it on. `--project-default-usd` sets the default cap for every project and turns project caps on; `--project-caps off` removes it. `--project <id> --usd <n>` sets the most that project's admins may give it, and `--clear` removes that limit. A lower cap that a project admin set for their own project still applies.
+A model run by a third party needs its provider notice accepted with `--accept-provider-notice`. `budget` with no flags shows the caps and this month's spend; with a cap flag it changes them. `--platform-usd` sets the platform cap and turns it on. `--project-default-usd` sets the default cap for every project and turns project caps on; `--project-caps off` removes it. `--project <id> --usd <n>` sets the most that project's admins may give it, and `--clear` removes that limit. A lower cap that a project admin set for their own project still applies. Without a project limit, a project gets the [plan cap](./platform-config.md#plans) of its owner's plan, then the default.
 
 ## Findings and scans {#findings-scans}
 

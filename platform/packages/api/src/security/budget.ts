@@ -11,7 +11,7 @@
  * caps are whole cents (`policy.budgets` is USD with at most two decimals).
  */
 import { securityModelCostNanoUsd, type SecurityModelId } from '@void/platform/security-models';
-import type { SecurityPolicyBudgets } from '@void/platform/security-policy';
+import type { SecurityPlanCap, SecurityPolicyBudgets } from '@void/platform/security-policy';
 import { and, eq, gt, lt, sql, type SQL } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import { SecurityApiError } from './errors.ts';
@@ -52,24 +52,49 @@ export function securityUsdArgument(cents: number): string {
 // Who sets what (spec §16.2)
 // ---------------------------------------------------------------------------
 
-/** The cap columns of `project_security_settings`; a missing row is all `null`. */
+/**
+ * The cap columns of `project_security_settings` (a missing row is all `null`) and the
+ * cap of the owner's plan (`plans:security-caps`, M27; `inherit` when it has none).
+ */
 export type SecurityProjectCapSettings = Readonly<{
   monthlyCapCents: number | null;
   capCeilingCents: number | null;
+  planCap: SecurityPlanCap;
 }>;
 
+/** Where `ceiling(p)` comes from: this project's limit, its plan's cap, the policy default. */
+export type SecurityCeilingSource = 'project' | 'plan' | 'default';
+
 /**
- * `ceiling(p)`: the installation admin's limit for this project, else the default
- * project amount while project caps are on, else none.
+ * `ceiling(p)` and where it comes from, in this order: the installation admin's limit
+ * for this project, else the cap of the owner's plan (an amount, or `none` = no
+ * ceiling), else the default project amount while project caps are on, else none.
+ * A plan cap applies with project caps off too: it is set for that plan on purpose.
  */
+export function securityProjectCeiling(
+  settings: SecurityProjectCapSettings,
+  budgets: SecurityPolicyBudgets,
+): Readonly<{ cents: number; source: SecurityCeilingSource }> | null {
+  if (settings.capCeilingCents !== null) {
+    return { cents: settings.capCeilingCents, source: 'project' };
+  }
+  if (settings.planCap === 'none') {
+    return null;
+  }
+  if (settings.planCap !== 'inherit') {
+    return { cents: settings.planCap, source: 'plan' };
+  }
+  return budgets.projectCapsOn
+    ? { cents: securityUsdToCents(budgets.projectDefaultMonthlyUsd), source: 'default' }
+    : null;
+}
+
+/** `ceiling(p)` in cents; `null` = none (see `securityProjectCeiling`). */
 export function securityProjectCeilingCents(
   settings: SecurityProjectCapSettings,
   budgets: SecurityPolicyBudgets,
 ): number | null {
-  if (settings.capCeilingCents !== null) {
-    return settings.capCeilingCents;
-  }
-  return budgets.projectCapsOn ? securityUsdToCents(budgets.projectDefaultMonthlyUsd) : null;
+  return securityProjectCeiling(settings, budgets)?.cents ?? null;
 }
 
 /** `effective(p)`: the lower of the ceiling and the project's own cap, ignoring a missing one. */
@@ -113,15 +138,20 @@ export function securitySpendCaps(
  */
 export function assertSecurityProjectCapAllowed(
   requestedCents: number | null,
-  ceilingCents: number | null,
+  ceiling: Readonly<{ cents: number; source: SecurityCeilingSource }> | null,
   projectSlug: string,
 ): void {
-  if (requestedCents === null || ceilingCents === null || requestedCents <= ceilingCents) {
+  if (requestedCents === null || ceiling === null || requestedCents <= ceiling.cents) {
     return;
   }
+  const ceilingCents = ceiling.cents;
+  const limiter =
+    ceiling.source === 'plan'
+      ? "This project's plan limits it"
+      : 'The platform limits each project';
   throw SecurityApiError.of(
     'budgetAbovePlatformLimit',
-    `The platform limits each project to ${formatSecurityUsd(securityCentsToNano(ceilingCents))} / month. Ask your platform admin to raise it for ${projectSlug}: void platform security budget --project ${projectSlug} --usd ${securityUsdArgument(requestedCents)}`,
+    `${limiter} to ${formatSecurityUsd(securityCentsToNano(ceilingCents))} / month. Ask your platform admin to raise it for ${projectSlug}: void platform security budget --project ${projectSlug} --usd ${securityUsdArgument(requestedCents)}`,
     { ceilingUsd: ceilingCents / 100 },
   );
 }
