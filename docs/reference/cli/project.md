@@ -12,6 +12,7 @@ Show deployments for the configured target.
 - Void targets show recent hosted deployments; `[name]` looks up a project by slug and otherwise the linked project is used.
 - Cloudflare targets list Worker Versions, identify the active version, and show the recorded migration count. A project name is not accepted because the Worker name comes from `cloudflare.name` in `void.config.ts`.
 - Owners and admins also see a warning when the platform cannot finish [replacing the project's credentials](../../guide/project-collaboration.md#change-or-remove-access).
+- On a platform with [security audits](../../guide/platform/administration/security-audits.md), a `Security` line shows how many urgent findings are open, for example `Security  2 urgent open · 3 leads`. It is left out when scans are off.
 
 ## `void project link [name]` {#void-project-link-name}
 
@@ -59,6 +60,7 @@ Inspect or override protection for a project on a Void platform:
 void project zero-trust status [--project <slug>]
 void project zero-trust protect [--project <slug>]
 void project zero-trust public [--project <slug>]
+void project zero-trust bypass --reason "<text>" [--yes] [--project <slug>]
 void project zero-trust reconcile [--project <slug>]
 ```
 
@@ -71,6 +73,19 @@ platform default for future projects. Deploys and rollbacks wait until a
 protection change is finished; if one is refused, the owner or a project
 administrator can run `void project zero-trust reconcile` before you retry.
 These commands do not apply to direct Cloudflare deployments.
+
+When the platform scans before a project goes public, `public` does not make the
+project public at once. The project stays protected, and the command prints why
+and what to do next. It exits successfully, because the request was saved.
+`status` shows the open request:
+
+```text
+Public request: Waiting for a security scan of dpl_a3f0 before acme-web goes public. It stays protected by Zero Trust until the scan passes.
+```
+
+A request waits for a scan, is held by urgent findings (resolve them, there is no bypass), has no usable scan result, or needs a new deploy. Running `public` again asks for a new scan. `protect` cancels the request and keeps the project protected. With `--json`, a held request prints the saved state with `"held": true`.
+
+`bypass` skips the scan and makes the project public. The owner or a project administrator can run it (platform administrators use `void platform security bypass`) while the request is waiting, has no result, or needs a deploy. It needs a `--reason` of up to 4,000 characters and asks for confirmation unless you pass `--yes`; `--json` and non-interactive shells require `--yes`. Every bypass is recorded and emailed to the platform administrators. A bypass never skips an open urgent finding: it is refused, and the message lists the findings to resolve first. See [Scan before a project goes public](../../guide/platform/administration/security-audits.md#scan-before-public).
 
 ## `void project security` {#void-project-security}
 

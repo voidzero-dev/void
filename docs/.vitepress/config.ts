@@ -196,6 +196,7 @@ const platformSidebar = [
       { text: 'Users and Projects', link: '/guide/platform/administration/projects' },
       { text: 'Plans and Limits', link: '/guide/platform/administration/plans' },
       { text: 'Project Zero Trust', link: '/guide/platform/administration/zero-trust' },
+      { text: 'Security Audits', link: '/guide/platform/administration/security-audits' },
       { text: 'Email', link: '/guide/platform/administration/email' },
       { text: 'Operations', link: '/guide/platform/administration/operations' },
     ],

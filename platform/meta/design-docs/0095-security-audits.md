@@ -1320,6 +1320,13 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
 
 **M24 Phase 1 docs.** See Docs below. Exit: `vp check`, docs links resolve.
 
+As built (M24): all Phase 1 rows of the Docs table are done. `platform-security.md`, the `cli.md` rows and
+the `--security-audits` row of `platform-installation.md` already existed from M20-M23 and were kept. New:
+`docs/guide/platform/administration/security-audits.md` (also linked from `platform-administration.md` and
+the sidebar). Deviations: scan data sits under `security-scans/` in the platform R2 bucket, so the uninstall
+page says it follows the bucket rule (`--purge-resources`), not `--purge-data` (R11). The `Security` status
+line is in `void project status`. The credentials row names Workers AI Read, the permission the probe copy asks for.
+
 ### Phase 2
 
 **M25 Project rescan, admin backfill, scheduled sweeps.** `POST /projects/:id/security/scans`
