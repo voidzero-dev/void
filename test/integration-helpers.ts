@@ -321,6 +321,7 @@ export function collectServerOutput(child: ReturnType<typeof spawn>): () => stri
 
 export async function killChild(child: ReturnType<typeof spawn>): Promise<void> {
   if (child.exitCode === null && child.signalCode === null) {
+    let descendants: Array<number> = [];
     if (process.platform === 'win32' && child.pid) {
       // On Windows, SIGTERM doesn't propagate to child processes.
       // Use taskkill /T to kill the entire process tree (e.g. workerd.exe).
@@ -334,7 +335,7 @@ export async function killChild(child: ReturnType<typeof spawn>): Promise<void> 
       // Grandchildren like vite → miniflare → workerd are NOT signalled
       // and become orphans that hold resource locks (D1 SQLite, ports).
       // Walk the process tree bottom-up so every descendant is killed.
-      killTree(child.pid, 'SIGTERM');
+      descendants = killTree(child.pid, 'SIGTERM').filter((pid) => pid !== child.pid);
     } else {
       child.kill('SIGTERM');
     }
@@ -356,10 +357,33 @@ export async function killChild(child: ReturnType<typeof spawn>): Promise<void> 
         child.kill('SIGKILL');
       }
     }
+    // A descendant can outlive the process that started it and keep writing into the fixture
+    // while it shuts down. Wait for all of them, so the caller can remove the directory.
+    const patience = Date.now() + 5_000;
+    while (descendants.some(isAlive) && Date.now() < patience) {
+      await delay(25);
+    }
+    for (const pid of descendants.filter(isAlive)) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // Process may have already exited
+      }
+    }
   }
 }
 
-function killTree(pid: number, signal: NodeJS.Signals): void {
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Signals a process and its descendants, deepest first, and returns every signalled pid. */
+function killTree(pid: number, signal: NodeJS.Signals): Array<number> {
   // Find direct children before killing the parent, because once the
   // parent dies its children are reparented to init and pgrep -P won't
   // find them anymore.
@@ -373,12 +397,11 @@ function killTree(pid: number, signal: NodeJS.Signals): void {
   } catch {
     // pgrep exits 1 when no children are found
   }
-  for (const childPid of childPids) {
-    killTree(childPid, signal);
-  }
+  const signalled = childPids.flatMap((childPid) => killTree(childPid, signal));
   try {
     process.kill(pid, signal);
   } catch {
     // Process may have already exited
   }
+  return [...signalled, pid];
 }
