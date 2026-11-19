@@ -120,24 +120,29 @@ async function run(command, args, cwd, env = environment) {
 }
 
 const packedOgRoute = `import { html } from 'void/html';
-import { OgImageResponse } from '@void/image/generate';
+import { takumiRenderer } from '@void/image-renderer-takumi';
+import { OgImageResponse } from 'void/image';
 import { defineHandler } from 'void';
-export const GET = defineHandler((c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${Promise.resolve('Packed <OG> Привет Ελληνικά Łódź')}</div>\`, { fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
+export const GET = defineHandler((c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${Promise.resolve('Packed <OG> Привет Ελληνικά Łódź')}</div>\`, { renderer: [takumiRenderer, { fallbackFonts: false }], font: c.req.query('font') === 'Geist' ? 'Geist' : 'Roboto' }));
 `;
 const packedImageRoute = `import { html } from 'void/html';
-import { ImageResponse } from '@void/image/generate';
+import { takumiRenderer } from '@void/image-renderer-takumi';
+import { ImageResponse } from 'void/image';
 import { defineHandler } from 'void';
-export const GET = defineHandler((c) => new ImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${'Packed <image> Привет Ελληνικά Łódź'}</div>\`, { width: 600, height: 600, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
+export const GET = defineHandler((c) => new ImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${'Packed <image> Привет Ελληνικά Łódź'}</div>\`, { width: 600, height: 600, renderer: [takumiRenderer, { fallbackFonts: false }], font: c.req.query('font') === 'Geist' ? 'Geist' : 'Roboto' }));
 `;
 
 /** Fetches an image route and checks its PNG signature and dimensions. */
 async function assertPackedImage(url, dimensions, failure) {
-  const inter = await readPackedImage(url, dimensions, failure);
+  const roboto = await readPackedImage(url, dimensions, failure);
   const geist = await readPackedImage(`${url}?font=Geist`, dimensions, failure);
-  assert(!Buffer.from(inter).equals(Buffer.from(geist)), 'Inter and Geist must render differently');
+  assert(
+    !Buffer.from(roboto).equals(Buffer.from(geist)),
+    'Roboto and Geist must render differently',
+  );
   const again = await readPackedImage(url, dimensions, failure);
   assert(
-    Buffer.from(inter).equals(Buffer.from(again)),
+    Buffer.from(roboto).equals(Buffer.from(again)),
     'Font selection must not leak across renders',
   );
 }
@@ -183,7 +188,8 @@ environment.NPM_CONFIG_REGISTRY = registry.origin;
 environment.PNPM_CONFIG_REGISTRY = registry.origin;
 const voidManifest = packages.find((pkg) => pkg.manifest.name === 'void').manifest;
 const version = voidManifest.version;
-const imageVersion = packages.find((pkg) => pkg.manifest.name === '@void/image').manifest.version;
+const imagePackage = '@void/image-renderer-takumi';
+const imageVersion = packages.find((pkg) => pkg.manifest.name === imagePackage).manifest.version;
 const managers = process.env.VOID_PACKED_PM ? [process.env.VOID_PACKED_PM] : ['npm', 'pnpm'];
 assert(managers.every((manager) => ['npm', 'pnpm'].includes(manager)));
 const frameworks = process.env.VOID_PACKED_FRAMEWORK
@@ -289,23 +295,33 @@ try {
         const cli = join(fixture, 'node_modules/void/dist/cli/cli.mjs');
         await run(process.execPath, [cli, '--help'], fixture);
         await run(
-          manager,
-          manager === 'npm'
-            ? ['install', `@void/image@${imageVersion}`]
-            : ['add', `@void/image@${imageVersion}`],
+          process.execPath,
+          [
+            '--input-type=module',
+            '-e',
+            "import { ImageResponse } from 'void/image'; if (!ImageResponse) throw new Error('Missing ImageResponse');",
+          ],
           fixture,
         );
-        assert(existsSync(join(fixture, 'node_modules/@void/image/licenses/Inter.txt')));
+        await run(
+          manager,
+          manager === 'npm'
+            ? ['install', `${imagePackage}@${imageVersion}`]
+            : ['add', `${imagePackage}@${imageVersion}`],
+          fixture,
+        );
+        assert(existsSync(join(fixture, 'node_modules', imagePackage, 'licenses/Roboto.txt')));
         writeFileSync(
           join(fixture, 'check-image.mjs'),
           `import assert from 'node:assert/strict';
-import { ImageResponse, OgImageResponse } from '@void/image/generate';
+import { takumiRenderer } from '@void/image-renderer-takumi';
+import { ImageResponse, OgImageResponse } from 'void/image';
 import { html } from 'void/html';
 await assert.rejects(import('@void/image'));
-for (const path of ['void/image', 'void/og']) await assert.rejects(import(path));
+await assert.rejects(import('void/og'));
 for (const response of [
-  new ImageResponse(html\`<div>Hello</div>\`, { width: 320, height: 168, fallbackFonts: false }),
-  new OgImageResponse(html\`<div>Hello</div>\`, { fallbackFonts: false }),
+  new ImageResponse(html\`<div>Hello</div>\`, { width: 320, height: 168, renderer: takumiRenderer, fallbackFonts: false }),
+  new OgImageResponse(html\`<div>Hello</div>\`, { renderer: takumiRenderer, fallbackFonts: false }),
 ]) {
   const bytes = new Uint8Array(await response.arrayBuffer());
   assert.equal(response.headers.get('content-type'), 'image/png');

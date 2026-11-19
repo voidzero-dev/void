@@ -41,9 +41,9 @@ const page = await html`<main>${heading}</main>`;
 [`ImageResponse`](../../guide/image-generation.md) and [`OgImageResponse`](../../guide/og-images.md) accept templates directly, including asynchronous templates, without an extra `await`. Plain strings are not accepted:
 
 ```ts
-import { OgImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
 import { html } from 'void/html';
+import { OgImageResponse } from 'void/image';
 
 export const GET = defineHandler((c) => {
   const title = c.req.query('title') ?? 'Hello World';

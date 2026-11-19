@@ -85,6 +85,26 @@
       "import": "./dist/runtime/html.mjs",
       "require": "./dist/runtime/html.mjs"
     },
+    "./jsx": {
+      "types": "./dist/runtime/jsx/index.d.mts",
+      "import": "./dist/runtime/jsx/index.mjs",
+      "require": "./dist/runtime/jsx/index.mjs"
+    },
+    "./jsx/jsx-runtime": {
+      "types": "./dist/runtime/jsx/jsx-runtime.d.mts",
+      "import": "./dist/runtime/jsx/jsx-runtime.mjs",
+      "require": "./dist/runtime/jsx/jsx-runtime.mjs"
+    },
+    "./jsx/jsx-dev-runtime": {
+      "types": "./dist/runtime/jsx/jsx-dev-runtime.d.mts",
+      "import": "./dist/runtime/jsx/jsx-dev-runtime.mjs",
+      "require": "./dist/runtime/jsx/jsx-dev-runtime.mjs"
+    },
+    "./image": {
+      "types": "./dist/runtime/image/index.d.mts",
+      "import": "./dist/runtime/image/index.mjs",
+      "require": "./dist/runtime/image/index.mjs"
+    },
     "./auth": {
       "types": "./dist/runtime/auth/index.d.mts",
       "import": "./dist/runtime/auth/index.mjs",
@@ -355,6 +375,7 @@
   },
   "scripts": {
     "build": "node scripts/sync-docs.mjs && vp pack",
+    "build:watch": "vp pack --watch",
     "dev": "vp pack --watch",
     "typecheck": "tsrs --noEmit --rootDir ../.."
   },
@@ -406,6 +427,7 @@
     "@types/node": "catalog:",
     "@types/pg": "^8.23.1",
     "@types/proper-lockfile": "^4.1.4",
+    "@types/react": "^19.3.0",
     "@voidzero-dev/vite-plus-prompts": "catalog:",
     "arktype": "catalog:",
     "ci-info": "catalog:",

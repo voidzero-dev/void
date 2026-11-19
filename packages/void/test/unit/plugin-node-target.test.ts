@@ -52,11 +52,13 @@ describe('nodeTargetPlugin request bridge', () => {
       {},
       { command: 'serve', mode: 'development', isSsrBuild: false, isPreview: false },
     );
-    expect(config?.ssr?.external).toContain('@void/image');
+    expect(config?.ssr?.external).toContain('@void/image-renderer-takumi');
     const noExternal = config?.ssr?.noExternal as Array<string | RegExp>;
     expect(
       noExternal.some((entry) =>
-        typeof entry === 'string' ? entry === '@void/image' : entry.test('@void/image'),
+        typeof entry === 'string'
+          ? entry === '@void/image-renderer-takumi'
+          : entry.test('@void/image-renderer-takumi'),
       ),
     ).toBe(false);
     expect(noExternal).not.toContain('takumi-js');

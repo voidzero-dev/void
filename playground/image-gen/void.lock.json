@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "source": {
+    "browser": {
+      "binding": "BROWSER",
+      "remote": true
+    }
+  },
+  "resolved": {
+    "compatibility_date": "2026-02-24",
+    "browser": {
+      "binding": "BROWSER",
+      "remote": true
+    }
+  },
+  "text": "{\n  \"compatibility_date\": \"2026-02-24\",\n  \"browser\": {\n    \"binding\": \"BROWSER\",\n    \"remote\": true\n  }\n}\n"
+}
