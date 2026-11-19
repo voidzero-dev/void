@@ -47,6 +47,17 @@ does not use the group tasks. Every Vitest project must belong to exactly one gr
 `vite.config.ts`; add a new project to a group when you create it. Changes to packaging still need
 the packed checks below.
 
+While iterating on unit-tested code, `--sinceLastRun` reruns only the test files whose loaded
+modules changed since they last ran:
+
+```sh
+vp test run --project unit --project unit-pglite --project cli-unit --sinceLastRun
+```
+
+It follows modules a test imports, not files a test reads or subprocesses it starts. Integration
+tests build and serve apps through subprocesses, so the flag does not notice a rebuilt package
+there. Use `vp run test` for integration coverage and before handing off.
+
 For a leaf-module edit with known import-based consumers, Vitest's native related command is useful:
 
 ```sh
