@@ -96,7 +96,7 @@ describe('dashboard auth callback', () => {
   });
 
   it('redeems localhost managed-login codes with the cookie-bound PKCE verifier', async () => {
-    const request = vi.fn(async () => Response.json({ token: 'managed-local-jwt' }));
+    const request = vi.fn<typeof fetch>(async () => Response.json({ token: 'managed-local-jwt' }));
     const app = createApp(request as typeof fetch);
     const verifier = 'a'.repeat(43);
     const res = await app.request(
@@ -113,7 +113,7 @@ describe('dashboard auth callback', () => {
     expect(res.status).toBe(302);
     const [url, init] = request.mock.calls[0]!;
     expect(url).toBe('http://localhost:8787/auth/cli/token');
-    expect(JSON.parse(init.body as string)).toEqual({
+    expect(JSON.parse(init!.body as string)).toEqual({
       code: 'auth-code',
       state: 'pkce-state',
       code_verifier: verifier,

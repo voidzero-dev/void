@@ -136,7 +136,7 @@ export function checkSchema() {
     const started = performance.now();
     const result = spawn.sync(
       process.execPath,
-      [join(fixture.root, 'node_modules/typescript/bin/tsc'), '--noEmit'],
+      [join(fixture.root, 'node_modules/tsrs/bin/tsrs'), '--noEmit'],
       { cwd: fixture.root, encoding: 'utf8', timeout: TYPECHECK_TIMEOUT },
     );
     const diagnostics = [

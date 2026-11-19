@@ -1,6 +1,6 @@
 {
   "name": "@void/isr",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "Incremental revalidation and cache helpers for Void runtimes.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -36,13 +36,14 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@void/edge": "workspace:*"
   },
   "devDependencies": {
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   }

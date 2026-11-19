@@ -11,14 +11,14 @@ expectTypeOf(client.provider('openai').fetch('/chat/completions')).toEqualTypeOf
   Promise<Response>
 >();
 
-client.provider('openai').fetch('/chat/completions', {
+void client.provider('openai').fetch('/chat/completions', {
   signal: AbortSignal.timeout(30_000),
   body: {
     model: 'gpt-4o',
     messages: [{ role: 'user', content: 'Hello' }],
   },
 });
-client.provider('custom', { apiKeyEnv: 'CUSTOM_AI_KEY' }).fetch('/v1/respond', {
+void client.provider('custom', { apiKeyEnv: 'CUSTOM_AI_KEY' }).fetch('/v1/respond', {
   signal: null,
   method: 'POST',
   headers: { 'x-test': '1' },

@@ -5,9 +5,14 @@ import type { AddressInfo } from 'node:net';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
-import { expect, it } from 'vite-plus/test';
+import { expect, it as serialIt } from 'vite-plus/test';
 import { isVoidSecretOnlyDraft } from '../../../deploy-cloudflare/src/secret-draft.ts';
 import { voidSecretDraftVersion } from '../../../deploy-cloudflare/test/secret-draft-fixture.ts';
+import {
+  executeCloudflareD1Sql,
+  importCloudflareD1Sql,
+  resolveCloudflareD1Context,
+} from '../../src/cli/cloudflare-operations.ts';
 import { decodeCloudflareOperationResult } from '../../src/cli/cloudflare-process.ts';
 import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
@@ -18,6 +23,10 @@ import {
   temporaryDirectory,
   tokenEnv,
 } from '../helpers/cloudflare-operation-process.ts';
+
+// Each test waits for a real child process with its own directory and local API server.
+// Running them concurrently overlaps those waits; every test still spawns its own process.
+const it = serialIt.concurrent;
 
 const voidVersion = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
   .version as string;
@@ -833,7 +842,7 @@ it('uses pinned cf despite a project-local CLI and preserves D1 results and the 
   ]);
 }, 30_000);
 
-it('sends D1 SQL that starts with a comment as one --sql value through the pinned cf', async () => {
+it('sends D1 SQL that starts with a comment through the pinned cf', async () => {
   const directory = temporaryDirectory('void-cf-d1-comment-sql-');
   const bodies: Array<unknown> = [];
   const api = await listen(
@@ -870,6 +879,140 @@ it('sends D1 SQL that starts with a comment as one --sql value through the pinne
   );
   expect(output.status, output.stderr).toBe(0);
   expect(bodies).toEqual([{ sql }]);
+}, 30_000);
+
+it('sends a CRLF D1 SQL file to the query API with LF outside quoted values', async () => {
+  const directory = temporaryDirectory('void-cf-d1-crlf-sql-');
+  const bodies: Array<unknown> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+      }
+      bodies.push(JSON.parse(body));
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ success: true, result: [{ results: [], success: true }] }));
+    }),
+  );
+  const configPath = join(directory, 'wrangler.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      account_id: 'test-account',
+      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+    }),
+  );
+  const file = join(directory, 'trigger.sql');
+  writeFileSync(
+    file,
+    "CREATE TRIGGER trg BEFORE DELETE ON probe_z\r\nBEGIN\r\n  SELECT RAISE(ABORT, 'no\r\nchange');\r\nEND;\r\n",
+  );
+  const output = await runOperation(
+    directory,
+    { type: 'd1.execute', database: 'DB', file, configPath },
+    tokenEnv(api),
+  );
+  expect(output.status, output.stderr).toBe(0);
+  expect(bodies).toEqual([
+    {
+      sql: "CREATE TRIGGER trg BEFORE DELETE ON probe_z\nBEGIN\n  SELECT RAISE(ABORT, 'no\r\nchange');\nEND;\n",
+    },
+  ]);
+}, 30_000);
+
+it('preserves rows from large D1 queries without importing or exceeding argv limits', async () => {
+  const directory = temporaryDirectory('void-cf-d1-large-query-');
+  const sql = '/*' + 'synthetic comment '.repeat(150_000) + '*/ SELECT 42 AS answer;';
+  const requests: Array<{ url: string | undefined; body: unknown }> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+      }
+      requests.push({ url: request.url, body: JSON.parse(body) });
+      response.setHeader('Content-Type', 'application/json');
+      response.end(
+        JSON.stringify({ success: true, result: [{ success: true, results: [{ answer: 42 }] }] }),
+      );
+    }),
+  );
+  writeFileSync(
+    join(directory, 'wrangler.json'),
+    JSON.stringify({
+      name: 'test-worker',
+      account_id: 'test-account',
+      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+    }),
+  );
+  const context = resolveCloudflareD1Context(directory, 'DB', async (operation) =>
+    decodeCloudflareOperationResult(await runOperation(directory, operation, tokenEnv(api))),
+  );
+  await expect(executeCloudflareD1Sql(context, sql)).resolves.toEqual([{ answer: 42 }]);
+  expect(requests).toEqual([
+    { url: '/client/v4/accounts/test-account/d1/database/test-database/query', body: { sql } },
+  ]);
+}, 30_000);
+
+it('imports large D1 SQL without putting its contents in process arguments', async () => {
+  const directory = temporaryDirectory('void-cf-d1-large-sql-');
+  const sql = "INSERT INTO messages (text) VALUES ('" + 'synthetic data '.repeat(40) + "');\n";
+  const contents = sql.repeat(4096);
+  const etag = createHash('md5').update(contents).digest('hex');
+  let uploaded = '';
+  let uploadAuthorization: string | undefined;
+  const upload = await listen(
+    createServer(async (request, response) => {
+      uploadAuthorization = request.headers.authorization;
+      for await (const chunk of request) {
+        uploaded += chunk;
+      }
+      response.setHeader('etag', '"' + etag + '"');
+      response.end();
+    }),
+  );
+  const requests: Array<unknown> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      expect(request.url).toBe('/client/v4/accounts/test-account/d1/database/test-database/import');
+      expect(request.headers.authorization).toBe('Bearer synthetic-token');
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+      }
+      const input = JSON.parse(body);
+      requests.push(input);
+      const result =
+        input.action === 'init'
+          ? { filename: 'upload.sql', upload_url: upload + '/upload' }
+          : input.action === 'ingest'
+            ? { success: true, at_bookmark: 'import-bookmark', status: 'active' }
+            : { success: true, status: 'complete', result: { num_queries: 4096 } };
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ success: true, result }));
+    }),
+  );
+  const configPath = join(directory, 'wrangler.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      name: 'test-worker',
+      account_id: 'test-account',
+      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+    }),
+  );
+  const context = resolveCloudflareD1Context(directory, 'DB', async (operation) =>
+    decodeCloudflareOperationResult(await runOperation(directory, operation, tokenEnv(api))),
+  );
+  await expect(importCloudflareD1Sql(context, contents)).resolves.toBeUndefined();
+  expect(uploaded).toBe(contents);
+  expect(uploadAuthorization).toBeUndefined();
+  expect(requests).toEqual([
+    { action: 'init', etag },
+    { action: 'ingest', etag, filename: 'upload.sql' },
+    { action: 'poll', current_bookmark: 'import-bookmark' },
+  ]);
 }, 30_000);
 
 it('uses the configured HTTP proxy for cf resource requests', async () => {

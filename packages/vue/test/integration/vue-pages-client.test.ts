@@ -1,14 +1,16 @@
-import { execSync, type ChildProcess } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, type ChildProcess } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
+  createIsolatedPlayground,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
   waitForServer,
+  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
@@ -30,17 +32,21 @@ declare global {
 type NavElement = HTMLElement & { __stamp?: number };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
+// Both server groups build and serve one isolated copy of the playground, never its source.
+let fixture: IsolatedPlayground;
 let DEV_BASE: string;
 let PREVIEW_BASE: string;
 
 let browser: Browser;
 
 beforeAll(async () => {
+  fixture = createIsolatedPlayground(ROOT, 'playground/vue-pages');
   browser = await launchPagesBrowser();
 });
 
 afterAll(async () => {
   await browser?.close();
+  fixture?.cleanup();
 });
 
 async function prepareForViteHmr(page: Page) {
@@ -225,7 +231,7 @@ describe('vue-pages client (dev)', () => {
     async () => {
       const serverTimeout = process.platform === 'win32' ? 45_000 : 20_000;
       const server = await startServer(
-        (port) => (child = spawnPlaygroundServer(ROOT, 'vue-pages', 'dev', port)),
+        (port) => (child = spawnFixtureServer(fixture.root, 'dev', port)),
         serverTimeout,
       );
       DEV_BASE = server.base;
@@ -252,7 +258,7 @@ describe('vue-pages client (dev)', () => {
     'page component HMR updates when defineProps<Props>() comes from companion server types',
     { retry: 2 },
     async () => {
-      const pageFile = join(ROOT, 'playground/vue-pages/pages/deferred.vue');
+      const pageFile = join(fixture.root, 'pages/deferred.vue');
       const original = readFileSync(pageFile, 'utf-8');
 
       const context = await browser.newContext();
@@ -330,8 +336,8 @@ describe('vue-pages client (dev)', () => {
   defineSharedIslandHmrTests({
     getBase: () => DEV_BASE,
     getBrowser: () => browser,
-    counterFile: join(ROOT, 'playground/vue-pages/pages/blog/_Counter.vue'),
-    islandFile: join(ROOT, 'playground/vue-pages/pages/blog/index.island.vue'),
+    counterFile: () => join(fixture.root, 'pages/blog/_Counter.vue'),
+    islandFile: () => join(fixture.root, 'pages/blog/index.island.vue'),
     hmrKeepsState: true,
     prepareHmr: prepareForViteHmr,
     waitForHmr: waitForViteHmr,
@@ -342,15 +348,10 @@ describe('vue-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
-    if (!existsSync(join(ROOT, 'playground/vue-pages/dist'))) {
-      execSync('vp run --filter ./playground/vue-pages build', {
-        cwd: ROOT,
-        stdio: 'pipe',
-      });
-    }
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
 
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'vue-pages', 'preview', port)),
+      (port) => (child = spawnFixtureServer(fixture.root, 'preview', port)),
       30_000,
     );
     PREVIEW_BASE = server.base;

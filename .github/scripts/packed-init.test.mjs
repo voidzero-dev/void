@@ -5,7 +5,7 @@ import { join } from 'node:path/posix';
 import { test } from 'node:test';
 import { runPty } from './packed-init.mjs';
 
-test('drives a real PTY and preserves quoted arguments', async () => {
+void test('drives a real PTY and preserves quoted arguments', async () => {
   const cwd = mkdtempSync(join(tmpdir(), "void-pty-'quoted'-"));
   let output = '';
   const literal = "a 'quoted' $(printf should-not-run) value";
@@ -42,7 +42,7 @@ test('drives a real PTY and preserves quoted arguments', async () => {
   }
 });
 
-test('propagates child failure and detects missing prompts', async () => {
+void test('propagates child failure and detects missing prompts', async () => {
   const options = { cwd: tmpdir(), env: process.env, prompts: [], onOutput() {} };
   await assert.rejects(
     runPty([process.execPath, '-e', 'process.exit(7)'], options),
@@ -57,7 +57,7 @@ test('propagates child failure and detects missing prompts', async () => {
   );
 });
 
-test('terminates a stalled initializer', { timeout: 8000 }, async () => {
+void test('terminates a stalled initializer', { timeout: 8000 }, async () => {
   await assert.rejects(
     runPty([process.execPath, '-e', 'setInterval(() => {}, 1000)'], {
       cwd: tmpdir(),

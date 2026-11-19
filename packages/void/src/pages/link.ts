@@ -264,7 +264,7 @@ export function prefetchLink(
     options.cacheFor = cacheFor;
   }
 
-  router.prefetch(href, options);
+  void router.prefetch(href, options);
 }
 
 /**
@@ -303,7 +303,7 @@ export function handleLinkClick(
     return;
   }
 
-  router.visit(link.href, {
+  void router.visit(link.href, {
     method: link.method,
     data: link.isGet ? undefined : props.data,
     preserveScroll: props.preserveScroll,

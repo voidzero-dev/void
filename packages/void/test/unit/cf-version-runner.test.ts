@@ -15,7 +15,7 @@ import {
 } from '@cloudflare/build-output-utils';
 import { BuildOutputContainerConfigSchema } from '@cloudflare/config';
 import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { describe, expect, it as serialIt, vi } from 'vite-plus/test';
 import { cloudflareCommandDiagnostic } from '../../../deploy-cloudflare/src/diagnostics.ts';
 import {
   activateCloudflareVersion,
@@ -41,12 +41,18 @@ import {
   expectSameJson,
   listen,
   output,
+  outputRoot,
   pinnedCf,
   pinnedCfVersion,
   REAL_CF_TIMEOUT_MS,
   roots,
   voidVersion,
 } from '../helpers/cf-version-fixture.ts';
+
+// Most tests here wait for a real cf child process with their own directory and local API
+// server, so they run concurrently. Tests that use `vi` run alone through serialIt: they patch
+// globals, and Vitest clears every mock's call history whenever another test starts.
+const it = serialIt.concurrent;
 
 it.each([false, true])(
   'uploads the same package versions as real cf when preserving secrets (atomic=%s)',
@@ -564,7 +570,7 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
       Array(5).fill('Bearer asset-token'),
     );
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 }
 
@@ -757,7 +763,7 @@ it(
         },
       });
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -874,7 +880,7 @@ it.each(
           : [],
       );
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -926,7 +932,7 @@ it('fails a pinned upload when prepared _headers cannot be read', async () => {
     ).rejects.toMatchObject({ code: 'EISDIR' });
     expect(posts.some((url) => url.endsWith('/versions'))).toBe(false);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -996,7 +1002,7 @@ it('uploads Worker limits, placement and cache with pinned secrets', async () =>
     expect(uploads[0]).not.toHaveProperty('logpush');
     expect(uploads[0]).not.toHaveProperty('tail_consumers');
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -1062,7 +1068,7 @@ async function uploadTargeted(
       uploads,
     };
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 }
 
@@ -1121,7 +1127,7 @@ it('reports a live version whose atomic upload lost its target', async () => {
   });
 });
 
-it.each(['missing name', 'duplicate name', 'external collision', 'class collision'] as const)(
+serialIt.each(['missing name', 'duplicate name', 'external collision', 'class collision'] as const)(
   'rejects an invalid local Workflow declaration before any provider request: %s',
   async (mode) => {
     const prepared = await output({ secrets: { required: ['AUTH_SECRET'] } });
@@ -1167,7 +1173,7 @@ it.each(['missing name', 'duplicate name', 'external collision', 'class collisio
       );
       expect(fetch).not.toHaveBeenCalled();
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -1239,12 +1245,12 @@ it.each(['missing', 'owned', 'foreign', 'malformed', 'unrelated 404'] as const)(
       }
       expect(requests[1]?.path).toBe('/client/v4/accounts/account-id/workflows/jobs');
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
 
-it.each([
+serialIt.each([
   'unsafe binding',
   'unknown export',
   'scheduler Container',
@@ -1285,7 +1291,9 @@ it.each([
         });
       }
       const secretsFilePath =
-        mode === 'explicit secret collision' ? join(roots.at(-1)!, 'secrets.json') : undefined;
+        mode === 'explicit secret collision'
+          ? join(outputRoot(prepared), 'secrets.json')
+          : undefined;
       if (secretsFilePath) {
         writeFileSync(secretsFilePath, JSON.stringify({ AUTH_SECRET: 'private-secret' }));
       }
@@ -1315,12 +1323,12 @@ it.each([
       expect(fetch).not.toHaveBeenCalled();
       expect(runCf).not.toHaveBeenCalled();
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
 
-it('refuses a new imageless Container before version publication', async () => {
+serialIt('refuses a new imageless Container before version publication', async () => {
   const prepared = await containerOutput();
   try {
     const built = await readBuildOutput(prepared.directory);
@@ -1355,50 +1363,53 @@ it('refuses a new imageless Container before version publication', async () => {
     expect(fetch.mock.calls[0][1]?.method).toBe('GET');
     expect(runCf).not.toHaveBeenCalled();
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
-it('bounds pending Container image preparation before uploading a Worker version', async () => {
-  const prepared = await containerOutput();
-  try {
-    let pending = false;
-    vi.spyOn(Date, 'now').mockImplementation(() => (pending ? 900_001 : 0));
-    const requests: Array<string> = [];
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-      requests.push(String(url));
-      if (String(url).endsWith('/image-preparations')) {
-        pending = true;
+serialIt(
+  'bounds pending Container image preparation before uploading a Worker version',
+  async () => {
+    const prepared = await containerOutput();
+    try {
+      let pending = false;
+      vi.spyOn(Date, 'now').mockImplementation(() => (pending ? 900_001 : 0));
+      const requests: Array<string> = [];
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        requests.push(String(url));
+        if (String(url).endsWith('/image-preparations')) {
+          pending = true;
+          return Response.json({
+            success: true,
+            result: { image: containerImage, status: 'pending' },
+          });
+        }
         return Response.json({
           success: true,
-          result: { image: containerImage, status: 'pending' },
+          result: {
+            id: activePinnedVersion,
+            bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
+          },
         });
-      }
-      return Response.json({
-        success: true,
-        result: {
-          id: activePinnedVersion,
-          bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
-        },
       });
-    });
-    await expect(
-      uploadPinnedCloudflareVersion({
-        output: prepared,
-        accountId: 'account-id',
-        apiBaseUrl: 'http://127.0.0.1:1',
-        workerName: 'void-test',
-        token: 'synthetic-token',
-        atomic: true,
-        verifyUploader: () => true,
-      }),
-    ).rejects.toThrow('image preparation timed out');
-    expect(requests).toHaveLength(2);
-    expect(requests.at(-1)).toContain('/image-preparations');
-  } finally {
-    prepared.dispose();
-  }
-});
+      await expect(
+        uploadPinnedCloudflareVersion({
+          output: prepared,
+          accountId: 'account-id',
+          apiBaseUrl: 'http://127.0.0.1:1',
+          workerName: 'void-test',
+          token: 'synthetic-token',
+          atomic: true,
+          verifyUploader: () => true,
+        }),
+      ).rejects.toThrow('image preparation timed out');
+      expect(requests).toHaveLength(2);
+      expect(requests.at(-1)).toContain('/image-preparations');
+    } finally {
+      await prepared.dispose();
+    }
+  },
+);
 
 const activePinnedVersion = '11111111-1111-4111-8111-111111111111';
 const uploadedPinnedVersion = '22222222-2222-4222-8222-222222222222';
@@ -1641,7 +1652,7 @@ async function containerApi(mode: ContainerMode) {
   };
 }
 
-it.each(['settings-change', 'keys-change', 'readiness-failure'] as const)(
+serialIt.each(['settings-change', 'keys-change', 'readiness-failure'] as const)(
   'leaves the live Sandbox application unchanged when activation stops: %s',
   async (mode) => {
     const api = await containerApi(mode);
@@ -1681,7 +1692,7 @@ it.each(['settings-change', 'keys-change', 'readiness-failure'] as const)(
       const result = await activateCloudflareVersion({
         runWrangler: runner,
         workerName: 'void-test',
-        configPath: join(roots.at(-1)!, 'dist/ssr/wrangler.json'),
+        configPath: join(outputRoot(api.prepared), 'dist/ssr/wrangler.json'),
         verifyUploader: () => true,
         message: 'Verify Container candidate isolation.',
         readinessAttempts: 1,
@@ -1705,12 +1716,12 @@ it.each(['settings-change', 'keys-change', 'readiness-failure'] as const)(
         expect(api.requests.every((row) => row.method === 'GET')).toBe(true);
       }
     } finally {
-      api.prepared.dispose();
+      await api.prepared.dispose();
     }
   },
 );
 
-it.each([
+serialIt.each([
   'create',
   'existing',
   'pending',
@@ -1861,7 +1872,7 @@ it.each([
   } finally {
     inspect?.mockRestore();
     syncBuiltinESMExports();
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -1966,7 +1977,7 @@ it.each([false, true])(
         workerName: 'void-test',
         runCf,
         verifyResources: createCfResourceVerifier({
-          configPath: join(roots.at(-1)!, 'dist/ssr/wrangler.json'),
+          configPath: join(outputRoot(prepared), 'dist/ssr/wrangler.json'),
           runCf,
           runWrangler: () => {
             throw new Error('An app without paid bindings must not probe paid services.');
@@ -1983,7 +1994,7 @@ it.each([false, true])(
       const result = await activateCloudflareVersion({
         runWrangler: runner,
         workerName: 'void-test',
-        configPath: join(roots.at(-1)!, 'dist/ssr/wrangler.json'),
+        configPath: join(outputRoot(prepared), 'dist/ssr/wrangler.json'),
         verifyUploader: () => true,
         pinActiveSecrets,
         atomic,
@@ -2015,7 +2026,7 @@ it('does not pin active secrets during an existing-Worker handoff', async () => 
       createActiveSecretPinner({ output: prepared, handoffPending: true, requiredNames: [] }),
     ).toBeUndefined();
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2031,7 +2042,7 @@ it('refuses to pin when a required secret is absent from the live version', asyn
       }),
     ).toBe(false);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2069,7 +2080,7 @@ it(
   REAL_CF_TIMEOUT_MS,
 );
 
-it.each([
+serialIt.each([
   { diagnostic: 'synthetic provider failure [10007]', args: ['--version'] },
   {
     diagnostic: 'You cannot upload a new version of a Worker that does not yet exist.',
@@ -2141,7 +2152,7 @@ it('preserves interruption provenance before interpreting an empty cf deployment
     expect(result.signal).toBe('SIGTERM');
     expect(result.errorCode).toBeUndefined();
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2295,7 +2306,7 @@ it('preserves activation metadata and sorts cf version history for the existing 
       versions: [{ version_id: '00000000-0000-0000-0000-000000000001', percentage: 100 }],
     });
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2332,7 +2343,7 @@ it.each([undefined, false, true])(
         expect(args).toContain('--versions');
       }
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -2371,7 +2382,7 @@ it.each(['newest-first', 'oldest-first'] as const)(
       ).toEqual(Array.from({ length: 10 }, (_, index) => index + 16));
       expect(pages).toEqual(order === 'newest-first' ? [1, 2] : [1, 2, 3]);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -2425,7 +2436,7 @@ it.each([
           verifyUploader: () => true,
         },
       });
-      const configPath = join(roots.at(-1)!, 'dist/ssr/wrangler.json');
+      const configPath = join(outputRoot(prepared), 'dist/ssr/wrangler.json');
       const result = await deployCloudflareVersionTriggers({
         runWrangler: runner,
         workerName: 'void-test',
@@ -2447,7 +2458,7 @@ it.each([
       );
       expect(requests.some(({ path }) => path.includes('/versions'))).toBe(false);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -2486,7 +2497,7 @@ it('applies the immutable trigger snapshot through a private cf output copy', as
     expect(existsSync(privateDirectory)).toBe(false);
     expect(existsSync(prepared.directory)).toBe(true);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2543,7 +2554,7 @@ it.each(['restore', 'remove'] as const)(
       };
       const result = await deployCloudflareVersionTriggers({
         workerName: 'void-test',
-        configPath: join(roots.at(-1)!, 'dist', 'ssr', 'wrangler.json'),
+        configPath: join(outputRoot(prepared), 'dist', 'ssr', 'wrangler.json'),
         runWrangler: runner,
         triggerConfig: {
           ...base,
@@ -2558,7 +2569,7 @@ it.each(['restore', 'remove'] as const)(
         operation === 'restore' ? ['0 * * * *'] : undefined,
       );
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -2614,7 +2625,7 @@ it(
       });
       const result = await deployCloudflareVersionTriggers({
         workerName: 'void-test',
-        configPath: join(roots.at(-1)!, 'dist', 'ssr', 'wrangler.json'),
+        configPath: join(outputRoot(prepared), 'dist', 'ssr', 'wrangler.json'),
         runWrangler: runner,
         triggerConfig: {
           workers_dev: false,
@@ -2643,7 +2654,7 @@ it(
       expect(requests.some(({ path }) => path.includes('/versions'))).toBe(false);
       expect(readFileSync(getWorkerConfigPath(prepared.directory), 'utf8')).toBe(original);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -2736,14 +2747,14 @@ it.each([
           : [],
       );
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
 
 it('uses cf for Queue triggers, consumer cleanup, and version binding reads', async () => {
   const prepared = await output();
-  const triggerConfig = join(roots.at(-1)!, 'legacy-trigger.json');
+  const triggerConfig = join(outputRoot(prepared), 'legacy-trigger.json');
   writeFileSync(
     triggerConfig,
     JSON.stringify({ name: 'void-test', queues: { consumers: [{ queue: 'jobs' }] } }),
@@ -2822,7 +2833,7 @@ it('uses cf for Queue triggers, consumer cleanup, and version binding reads', as
       '--force',
     ]);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2859,7 +2870,7 @@ it('accepts only the staged static assets directory already sealed into prebuilt
     ).toBe(1);
     expect(calls).toHaveLength(1);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2872,7 +2883,7 @@ it.each(['r2', 'queue'] as const)(
         ? { queues: { producers: [{ binding: 'QUEUE', queue: 'jobs' }] } }
         : {}),
     });
-    const triggerConfig = join(roots.at(-1)!, 'triggers.json');
+    const triggerConfig = join(outputRoot(prepared), 'triggers.json');
     writeFileSync(triggerConfig, JSON.stringify({ name: 'void-test', workers_dev: true }));
     const cfCalls: Array<Array<string>> = [];
     const runCf = (args: Array<string>) => {
@@ -2880,7 +2891,7 @@ it.each(['r2', 'queue'] as const)(
       return { status: 1, stdout: '', stderr: 'Resource not found.' };
     };
     const verifier = createCfResourceVerifier({
-      configPath: join(roots.at(-1)!, 'dist', 'ssr', 'wrangler.json'),
+      configPath: join(outputRoot(prepared), 'dist', 'ssr', 'wrangler.json'),
       runCf,
       verifyCompatibilityRunner: () => true,
       runWrangler: operationFixture(async () => ({
@@ -2915,7 +2926,7 @@ it.each(['r2', 'queue'] as const)(
       expect(cfCalls.every((args) => args[0] === 'r2' && args[1] === 'buckets')).toBe(true);
       expect(cfCalls).toHaveLength(missing === 'r2' ? 3 : 0);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   15_000,
@@ -2942,7 +2953,7 @@ it('uploads when existing R2 and Queue bindings are verified by exact identity',
       workerName: 'void-test',
       runCf,
       verifyResources: createCfResourceVerifier({
-        configPath: join(roots.at(-1)!, 'dist', 'ssr', 'wrangler.json'),
+        configPath: join(outputRoot(prepared), 'dist', 'ssr', 'wrangler.json'),
         runCf,
         verifyCompatibilityRunner: () => true,
         runWrangler: operationFixture(async (args) => {
@@ -2965,12 +2976,12 @@ it('uploads when existing R2 and Queue bindings are verified by exact identity',
         'info',
         'jobs',
         '-c',
-        join(roots.at(-1)!, 'dist', 'ssr', 'wrangler.json'),
+        join(outputRoot(prepared), 'dist', 'ssr', 'wrangler.json'),
         '--env=',
       ],
     ]);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -3078,7 +3089,7 @@ describe('session credential failures', () => {
 
   it('keeps the helper child status and crash for the settings publisher', async () => {
     const prepared = await output();
-    const triggerConfig = join(roots.at(-1)!, 'trigger.json');
+    const triggerConfig = join(outputRoot(prepared), 'trigger.json');
     writeFileSync(
       triggerConfig,
       JSON.stringify({ name: 'void-test', observability: { enabled: true } }),
@@ -3105,7 +3116,7 @@ describe('session credential failures', () => {
     }
   });
 
-  it('never reads an auth failure as a missing Worker that needs a bootstrap', async () => {
+  serialIt('never reads an auth failure as a missing Worker that needs a bootstrap', async () => {
     const prepared = await output();
     const getToken = vi.fn(async () => ({
       ok: false as const,
@@ -3231,7 +3242,7 @@ describe('settings credential before activation', () => {
     }
   };
 
-  it.each([
+  serialIt.each([
     { label: 'observability', settings: { observability: { enabled: true } } },
     { label: 'logpush', settings: { logpush: false } },
   ])('stops before upload when the $label publisher has no credential', async ({ settings }) => {
@@ -3250,7 +3261,7 @@ describe('settings credential before activation', () => {
     );
   });
 
-  it.each([
+  serialIt.each([
     { label: 'no Worker settings', config: triggers },
     {
       label: 'a preserved snapshot',
@@ -3291,7 +3302,7 @@ describe('settings credential before activation', () => {
       }),
     );
     const prepared = await output();
-    const triggerConfig = join(roots.at(-1)!, 'trigger.json');
+    const triggerConfig = join(outputRoot(prepared), 'trigger.json');
     writeFileSync(
       triggerConfig,
       JSON.stringify({ name: 'void-test', observability: { enabled: true } }),

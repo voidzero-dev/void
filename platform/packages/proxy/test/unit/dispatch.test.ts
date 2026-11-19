@@ -131,7 +131,7 @@ function createAtomicD1() {
     for (const [id, name] of pending) {
       rows.set(id, name);
     }
-    return results as Array<D1Result>;
+    return results;
   });
   return { db: { prepare, batch } as unknown as D1Database, rows, batch };
 }

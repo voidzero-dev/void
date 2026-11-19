@@ -60,7 +60,7 @@ describe('nodeTargetPlugin request bridge', () => {
       middlewares: { use: (fn: Middleware) => (middleware = fn) },
       ssrLoadModule: async () => ({ default: app }),
     } as unknown as ViteDevServer;
-    getHookHandler(servePlugin().configureServer)!.call({} as never, server);
+    await getHookHandler(servePlugin().configureServer)!.call({} as never, server);
 
     const response = await requestThrough(middleware!, '/login');
 
@@ -94,7 +94,7 @@ describe('nodeTargetPlugin request bridge', () => {
     const server = {
       middlewares: { use: (fn: Middleware) => (middleware = fn) },
     } as unknown as PreviewServer;
-    getHookHandler(servePlugin().configurePreviewServer)!.call({} as never, server);
+    await getHookHandler(servePlugin().configurePreviewServer)!.call({} as never, server);
 
     const response = await requestThrough(middleware!, '/login');
 

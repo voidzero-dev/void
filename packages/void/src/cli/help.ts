@@ -183,7 +183,7 @@ const HELP_TREE: HelpTree = {
       {
         command: '--provision',
         description:
-          'Run resource provisioning again, for example to enable D1 read replication (with --platform cloudflare)',
+          'Run resource provisioning again even when every resource exists (with --platform cloudflare)',
       },
       {
         command: '--atomic',
@@ -1024,7 +1024,7 @@ const HELP_TREE: HelpTree = {
       },
       setup: {
         summary:
-          'Set email up on your own Cloudflare account: enable Email Routing, onboard Email Sending, and record send_email + addresses in the Cloudflare config managed by Void. Asks once before changing the account.',
+          'Set up Email Sending on your own Cloudflare account, plus Email Routing when the app has email/ handlers. Save the binding, sender, and handler addresses in the Cloudflare config managed by Void. Asks once before changing the account.',
         usage: ['void email setup --platform cloudflare'],
         options: [
           {
@@ -1284,6 +1284,7 @@ const HELP_TREE: HelpTree = {
             description:
               'Run against the deployed database (D1 via proxy; PostgreSQL via direct connection)',
           },
+          { command: '--yes', description: 'Skip the confirmation prompt for --remote' },
         ],
         examples: [
           { command: 'void db execute "select * from users"', description: 'Run inline SQL' },

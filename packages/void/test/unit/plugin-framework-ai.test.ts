@@ -60,13 +60,13 @@ async function runFrameworkSync(root: string): Promise<Record<string, unknown>> 
   if (!configHandler) {
     throw new Error('Expected early framework Wrangler sync hook');
   }
-  configHandler.call({} as never, {} as never, { command: 'serve' } as never);
+  await configHandler.call({} as never, {} as never, { command: 'serve' } as never);
   const hook = sync?.configResolved;
   const handler = typeof hook === 'function' ? hook : hook?.handler;
   if (!handler) {
     throw new Error('Expected framework Wrangler sync hook');
   }
-  handler.call({} as never, { command: 'serve' } as ResolvedConfig);
+  await handler.call({} as never, { command: 'serve' } as ResolvedConfig);
   return JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8'));
 }
 
@@ -79,7 +79,7 @@ async function runFrameworkCompat(root: string, command: 'serve' | 'build'): Pro
   if (!handler) {
     throw new Error('Expected framework Wrangler compatibility hook');
   }
-  handler.call({} as never, {} as never, { command } as never);
+  await handler.call({} as never, {} as never, { command } as never);
 }
 
 describe('framework Workers AI bindings', () => {

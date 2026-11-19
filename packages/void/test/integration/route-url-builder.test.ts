@@ -16,13 +16,23 @@ import { readConfig } from '../../src/config.ts';
 const packageRoot = join(import.meta.dirname, '../..');
 const adapterSource = (path: string) => JSON.stringify(join(packageRoot, '..', path));
 const roots: Array<string> = [];
-const compilers = [
-  createRequire(import.meta.url),
-  createRequire(join(packageRoot, '../../playground/analog/package.json')),
-].map((require) => ({
-  version: require('typescript/package.json').version as string,
-  tsc: join(dirname(require.resolve('typescript/package.json')), 'bin/tsc'),
+// tsrs is the repository's compiler. Apps and editors also run TypeScript 7 and 6.
+const compilers = (
+  [
+    ['tsrs', 'bin/tsrs', createRequire(import.meta.url)],
+    ['typescript', 'bin/tsc', createRequire(import.meta.url)],
+    [
+      'typescript',
+      'bin/tsc',
+      createRequire(join(packageRoot, '../../playground/analog/package.json')),
+    ],
+  ] as const
+).map(([name, bin, require]) => ({
+  version: `${name === 'tsrs' ? 'tsrs' : 'TS'} ${require(`${name}/package.json`).version}`,
+  tsc: join(dirname(require.resolve(`${name}/package.json`)), bin),
 }));
+// The oldest supported TypeScript, which still has legacy `node` resolution and a JS API.
+const typescript6 = compilers[2];
 const declarationChecks = compilers.flatMap((compiler) =>
   (['generated', 'package'] as const).map((declarations) => ({ ...compiler, declarations })),
 );
@@ -217,7 +227,7 @@ const svelte: SvelteLinkProps['href'] = '/unknown';
 void [same, known, built, react, vue, svelte];
 `;
 
-// Svelte's implementation uses runes, so this tsc fixture covers the other adapters.
+// Svelte's implementation uses runes, so this tsrs fixture covers the other adapters.
 // Svelte's `submit` takes the same `RouteUrl`, and `post`/`put`/`patch`/`delete` come from IslandFormState.
 const islandFormCheck = `import { useIslandForm as react } from ${adapterSource('react/src/runtime/use-island-form.ts')};
 import { useIslandForm as vue } from ${adapterSource('vue/src/runtime/use-island-form.ts')};
@@ -502,7 +512,7 @@ function typecheck(
 
 describe('standalone routeUrl utility', () => {
   it.each(declarationChecks)(
-    'preserves generic helpers and structural options through $declarations declarations with TS $version',
+    'preserves generic helpers and structural options through $declarations declarations with $version',
     async ({ declarations, tsc }) => {
       const root = await createFixture({
         extraFiles: {
@@ -576,7 +586,7 @@ void [userUrl, forwardOptions, forwardRouteOptions, forwardRouteOptionsSubtype, 
   );
 
   it.each(declarationChecks)(
-    'checks function helpers through $declarations declarations with TS $version',
+    'checks function helpers through $declarations declarations with $version',
     async ({ declarations, tsc }) => {
       const root = await createFixture({
         extraFiles: {
@@ -683,7 +693,7 @@ wrapped('/users/[id]');
   );
 
   it.each(declarationChecks)(
-    'keeps options optional in static function helpers through $declarations declarations with TS $version',
+    'keeps options optional in static function helpers through $declarations declarations with $version',
     async ({ declarations, tsc }) => {
       const root = await createFixture({
         includeHandlers: false,
@@ -719,7 +729,7 @@ routeUrl.call(undefined, unchecked, undefined);
   );
 
   it.each(compilers)(
-    'checks generated routes in Node16 CommonJS with TS $version',
+    'checks generated routes in Node16 CommonJS with $version',
     async ({ tsc }) => {
       const root = await createFixture({
         typedRoutes: true,
@@ -784,7 +794,7 @@ void unknown;
           'generated',
           ['check-legacy.ts'],
           { moduleResolution: 'node', ignoreDeprecations: '6.0', skipLibCheck },
-          compilers[1].tsc,
+          typescript6.tsc,
         ),
       ).toEqual({ output: '', status: 0 });
     },
@@ -920,7 +930,7 @@ void [href, unknown, query];
   );
 
   it.each(declarationChecks)(
-    'keeps invalid inputs rejected through $declarations declarations with TS $version',
+    'keeps invalid inputs rejected through $declarations declarations with $version',
     async ({ declarations, tsc }) => {
       const root = await createFixture({
         extraFiles: {
@@ -1015,7 +1025,7 @@ routeUrl('/users/[id]', { params: { id: 42, extra: value } });
   );
 
   it.each(declarationChecks)(
-    'rejects unknown routes in bivariant parameter checks through $declarations declarations with TS $version',
+    'rejects unknown routes in bivariant parameter checks through $declarations declarations with $version',
     async ({ declarations, tsc }) => {
       const root = await createFixture({
         extraFiles: {
@@ -1048,7 +1058,7 @@ void [builder, RouteBuilder, renamed, mixed, callback, known];
   );
 
   it.each(declarationChecks)(
-    'checks routeUrl in apps with thousands of routes through $declarations declarations with TS $version',
+    'checks routeUrl in apps with thousands of routes through $declarations declarations with $version',
     async ({ declarations, tsc }) => {
       // About 1,800 route keys, since each dynamic page also has a `:param` alias. A
       // non-primitive member in Candidate's constraint made `P & Candidate` a cross product
@@ -1090,7 +1100,7 @@ void [forward, forwardIntersectedPath];
   );
 
   it.each(declarationChecks)(
-    'uses native option errors and custom path errors through $declarations declarations with TS $version',
+    'uses native option errors and custom path errors through $declarations declarations with $version',
     async ({ declarations, tsc }) => {
       const cases: Array<[call: string, message: string | RegExp, kind: 'native' | 'custom']> = [
         ["routeUrl('/missing');", 'Unknown route: /missing.', 'custom'],
@@ -1235,7 +1245,7 @@ void [forward, forwardIntersectedPath];
   );
 
   it.each(declarationChecks)(
-    'requires options for generic paths through $declarations declarations with TS $version',
+    'requires options for generic paths through $declarations declarations with $version',
     async ({ declarations, tsc }) => {
       const root = await createFixture({
         extraFiles: {
@@ -1272,7 +1282,7 @@ routeUrl('/users/[id]', { /*options*/ });
 routeUrl('/users/[id]', { params: { /*params*/ } });
 `,
       );
-      const tsModule = createRequire(compilers[1].tsc).resolve('typescript');
+      const tsModule = createRequire(typescript6.tsc).resolve('typescript');
       const options = {
         target: 'ES2022',
         module: declarations === 'generated' ? 'ESNext' : 'NodeNext',
@@ -1601,11 +1611,11 @@ void [hrefs, route, emptyCatchAll, nestedCatchAll, unknown, external];
         include: ['routes.d.ts', 'check.ts'],
       }),
     );
-    const tsc = join(
-      dirname(createRequire(import.meta.url).resolve('typescript/package.json')),
-      'bin/tsc',
+    const tsrs = join(
+      dirname(createRequire(import.meta.url).resolve('tsrs/package.json')),
+      'bin/tsrs',
     );
-    const result = spawnSync(process.execPath, [tsc, '-p', join(root, 'tsconfig.json')], {
+    const result = spawnSync(process.execPath, [tsrs, '-p', join(root, 'tsconfig.json')], {
       encoding: 'utf8',
     });
     expect({ output: result.stdout + result.stderr, status: result.status }).toEqual({

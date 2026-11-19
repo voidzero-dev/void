@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "noEmit": true,
     "target": "ES2022",
     "module": "NodeNext",
     "lib": ["ES2022"],
@@ -17,7 +18,7 @@
     "skipLibCheck": true,
     "declaration": true,
     "outDir": "dist",
-    "rootDir": ".",
+    "rootDir": "../..",
     "types": ["node", "@cloudflare/workers-types"],
     "isolatedDeclarations": true,
     "allowImportingTsExtensions": true

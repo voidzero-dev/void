@@ -11,7 +11,11 @@ export type CloudflareOperation =
     } & ConfigTarget)
   | ({ type: 'd1.info'; name: string } & ConfigTarget)
   | { type: 'd1.create'; name: string; binding: string; configPath: string }
-  | { type: 'd1.execute'; database: string; sql: string; configPath: string }
+  | ({ type: 'd1.execute'; database: string; configPath: string } & (
+      | { sql: string; file?: never }
+      | { file: string; sql?: never }
+    ))
+  | { type: 'd1.import'; database: string; file: string; configPath: string }
   | { type: 'd1.migrations.list' | 'd1.migrations.apply'; database: string; configPath: string }
   | { type: 'd1.time-travel.bookmark'; database: string; configPath: string }
   | {

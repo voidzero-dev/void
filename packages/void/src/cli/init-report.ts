@@ -1,0 +1,182 @@
+import { log } from '@voidzero-dev/vite-plus-prompts';
+import { printDone, printNextStep } from './output.ts';
+
+/** A file that one `void init` run created or changed. */
+export type InitFileChange = {
+  kind: 'created' | 'updated';
+  path: string;
+  /** What changed in an updated file. A created file lists none. */
+  details: Array<string>;
+};
+
+/**
+ * What one `void init` run did. Init records its work here instead of logging
+ * each step, then prints a short summary when it finishes.
+ */
+export class InitReport {
+  readonly files: Array<InitFileChange> = [];
+  /** Finished work other than file changes. */
+  readonly completed: Array<string> = [];
+  /** What the user should do next. */
+  readonly nextSteps: Array<string> = [];
+  /**
+   * How to finish by hand the step that init is on, such as "Run `vp install`
+   * to finish setup". Only a run that stops during that step prints it.
+   */
+  unfinished: string | undefined;
+  /** The new starter in one line. See `setStarter`. */
+  private starter: string | undefined;
+  /** Files recorded by the time the starter was created. */
+  private starterFiles = new Set<string>();
+  private printed = false;
+
+  /**
+   * Record a new starter in one line, such as "Created a React Pages starter
+   * with D1 (SQLite)". The summary shows it instead of the files recorded so
+   * far, since listing the starter's files would add little. It still lists
+   * files outside the new app (a workspace root's pnpm-workspace.yaml) and
+   * later changes to files that existed before init.
+   */
+  setStarter(summary: string): void {
+    this.starter = summary;
+    this.starterFiles = new Set(this.files.map((file) => file.path));
+  }
+
+  /** Record a new file. Later changes to it in the same run keep it a new file. */
+  created(path: string): void {
+    const file = this.files.find((entry) => entry.path === path);
+    if (file) {
+      file.kind = 'created';
+      file.details = [];
+      return;
+    }
+    this.files.push({ kind: 'created', path, details: [] });
+  }
+
+  /** Record a change to an existing file. A file lists each detail once. */
+  updated(path: string, detail: string): void {
+    const file = this.files.find((entry) => entry.path === path);
+    if (!file) {
+      this.files.push({ kind: 'updated', path, details: [detail] });
+    } else if (file.kind === 'updated' && !file.details.includes(detail)) {
+      file.details.push(detail);
+    }
+  }
+
+  /** Record a write to `path`, which `existed` before it. */
+  wrote(path: string, existed: boolean, detail: string): void {
+    if (existed) {
+      this.updated(path, detail);
+    } else {
+      this.created(path);
+    }
+  }
+
+  done(message: string): void {
+    this.completed.push(message);
+  }
+
+  next(message: string): void {
+    this.nextSteps.push(message);
+  }
+
+  /** One line per file: created files first, then updated files with their details aligned. */
+  fileLines(files: ReadonlyArray<InitFileChange> = this.files): Array<string> {
+    const created = files.filter((file) => file.kind === 'created');
+    const updated = files.filter((file) => file.kind === 'updated');
+    const width = Math.max(0, ...updated.map((file) => file.path.length));
+    return [
+      ...created.map((file) => `+ ${file.path}`),
+      ...updated.map((file) => `~ ${file.path.padEnd(width)}  ${file.details.join(', ')}`),
+    ];
+  }
+
+  /**
+   * The files the summary lists. Under a starter, these are the files outside
+   * the new app and the later changes to files that existed before init.
+   * Report paths are relative to the app and use `/`.
+   */
+  private shownFiles(): Array<InitFileChange> {
+    if (!this.starter) {
+      return this.files;
+    }
+    return this.files.filter(
+      (file) =>
+        file.path === '..' ||
+        file.path.startsWith('../') ||
+        (file.kind === 'updated' && !this.starterFiles.has(file.path)),
+    );
+  }
+
+  /**
+   * Print the summary of a finished run: the new starter, or else the changed
+   * files. A `targeted` run (`--tsconfig`, `--github`) checks only part of the
+   * setup, so finding nothing to change there does not show that Void is set up.
+   */
+  print(targeted = false): void {
+    this.printed = true;
+    const lines = this.fileLines(this.shownFiles());
+    if (this.starter) {
+      printDone(lines.length > 0 ? [this.starter, ...lines] : this.starter);
+    } else if (lines.length > 0) {
+      printDone(['Configured Void', ...lines]);
+    } else {
+      printDone(targeted ? 'No files changed.' : 'Void is already set up. No files changed.');
+    }
+    this.printOtherWork();
+  }
+
+  /**
+   * Run init's `steps`. If they stop early, print what they had recorded, so
+   * that the run does not leave changes it never mentioned. A failed step
+   * throws; a cancelled prompt exits the process, also from the modules that
+   * init calls, so only an exit listener sees every one.
+   */
+  async printIfStopped(steps: () => Promise<void>): Promise<void> {
+    const onExit = (): void => this.printStopped();
+    process.once('exit', onExit);
+    try {
+      await steps();
+    } catch (error) {
+      this.printStopped();
+      throw error;
+    } finally {
+      process.removeListener('exit', onExit);
+    }
+  }
+
+  /**
+   * Print what the run did before it stopped, and how to finish the step it
+   * stopped in. Prints nothing if there is neither.
+   */
+  private printStopped(): void {
+    if (this.printed) {
+      return;
+    }
+    this.printed = true;
+    const lines = this.fileLines(this.shownFiles());
+    if (this.starter) {
+      log.warn('Setup did not finish. Done so far:');
+      printDone(lines.length > 0 ? [this.starter, ...lines] : this.starter);
+    } else if (lines.length > 0) {
+      log.warn(['Setup did not finish. Files changed so far:', ...lines].join('\n'));
+    } else if (this.completed.length > 0 || this.nextSteps.length > 0) {
+      log.warn('Setup did not finish. Done so far:');
+    } else if (!this.unfinished) {
+      return;
+    }
+    this.printOtherWork();
+    if (this.unfinished) {
+      printNextStep(this.unfinished, { wrap: false });
+    }
+  }
+
+  private printOtherWork(): void {
+    for (const message of this.completed) {
+      printDone(message);
+    }
+    for (const message of this.nextSteps) {
+      printNextStep(message);
+    }
+  }
+}

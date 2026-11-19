@@ -17,6 +17,7 @@ import { join } from 'pathslash';
 import { materializeCloudflareConfig, persistCloudflareConfig } from '../cloudflare-config.ts';
 import { createCloudflareProcessRunner } from './cloudflare-process.ts';
 import { findAmbientConfigOverride, findWranglerCiOverrideDotenvFile } from './deploy-transport.ts';
+import { Buffer } from './node-buffer.ts';
 import { getErrorMessage } from './output.ts';
 import {
   assertNoTransportRedirectInProjectDotenv,
@@ -212,16 +213,48 @@ export function resolveCloudflareD1Context(
   };
 }
 
+async function withD1SqlFile<T>(sql: string, action: (file: string) => Promise<T>): Promise<T> {
+  const directory = mkdtempSync(join(tmpdir(), 'void-d1-sql-'));
+  try {
+    const file = join(directory, 'input.sql');
+    writeFileSync(file, sql, { mode: 0o600 });
+    return await action(file);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+/** Explicit file imports do not produce query rows. */
+export async function importCloudflareD1Sql(
+  context: CloudflareD1Context,
+  sql: string,
+): Promise<void> {
+  await withD1SqlFile(sql, (file) =>
+    run(context.operation, {
+      type: 'd1.import',
+      database: context.migrateToken,
+      file,
+      configPath: context.operation.configPath,
+    }),
+  );
+}
+
 export async function executeCloudflareD1Sql(
   context: CloudflareD1Context,
   sql: string,
 ): Promise<Array<Record<string, unknown>>> {
-  const result = await run(context.operation, {
-    type: 'd1.execute',
-    database: context.migrateToken,
-    sql: sql,
-    configPath: context.operation.configPath,
-  });
+  const execute = (source: { sql: string } | { file: string }) =>
+    run(context.operation, {
+      type: 'd1.execute',
+      database: context.migrateToken,
+      ...source,
+      configPath: context.operation.configPath,
+    });
+  // A file changes only the transport, never the query's result semantics.
+  const result =
+    Buffer.byteLength(JSON.stringify(sql)) > 16 * 1024
+      ? await withD1SqlFile(sql, (file) => execute({ file }))
+      : await execute({ sql });
   const parsed = requireData(result.data, 'Cloudflare D1 execute');
   if (!Array.isArray(parsed)) {
     throw new Error('Cloudflare D1 execute returned an unexpected response.');

@@ -6,7 +6,7 @@
     "build": "vp build",
     "dev": "vp dev",
     "preview": "vp preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "vue": "catalog:"
@@ -14,6 +14,7 @@
   "devDependencies": {
     "@void/md": "workspace:*",
     "@void/vue": "workspace:*",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",

@@ -1,6 +1,6 @@
 {
   "name": "@void/edge",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "Routing, headers, and static asset helpers for Void runtimes.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -28,13 +28,14 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "@void/deploy-core": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   }

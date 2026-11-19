@@ -1,5 +1,7 @@
 // Windows file durations measured in https://github.com/voidzero-dev/void/actions/runs/36572350995.
 // Edited suites use conservative estimates adjusted for removed browser cases and duplicate builds.
+// The split browser suites (page-errors-*, server-auth-errors-*, http-errors-playground-*) use twice
+// their local macOS durations until a Windows run supplies measured values.
 // These values schedule shards only; every discovered test is still included.
 export const integrationTimings: Readonly<Record<string, number>> = {
   'packages/md/test/integration/markdown-blog.test.ts': 42014,
@@ -12,14 +14,16 @@ export const integrationTimings: Readonly<Record<string, number>> = {
   'packages/void/test/integration/astro.test.ts': 26000,
   'packages/void/test/integration/cli-help.test.ts': 1718,
   'packages/void/test/integration/cli-runtime-check.test.ts': 900,
-  'packages/void/test/integration/cloudflare-durable-build.test.ts': 15000,
   'packages/void/test/integration/cloudflare-deploy-build.test.ts': 6700,
+  'packages/void/test/integration/cloudflare-durable-build.test.ts': 15000,
   'packages/void/test/integration/cloudflare-isr-policy.test.ts': 15391,
   'packages/void/test/integration/durable-state-rpc.test.ts': 1160,
   'packages/void/test/integration/env-cli.test.ts': 2970,
   'packages/void/test/integration/env-server-build.test.ts': 873,
   'packages/void/test/integration/env-types-typecheck.test.ts': 1395,
   'packages/void/test/integration/full-deploy-manifest.test.ts': 6370,
+  'packages/void/test/integration/http-errors-playground-dev.test.ts': 40000,
+  'packages/void/test/integration/http-errors-playground-production.test.ts': 37000,
   'packages/void/test/integration/kitchen-sink-build.test.ts': 7365,
   'packages/void/test/integration/kitchen-sink.test.ts': 20887,
   'packages/void/test/integration/mysql-test.test.ts': 11000,
@@ -30,6 +34,10 @@ export const integrationTimings: Readonly<Record<string, number>> = {
   'packages/void/test/integration/node-target.test.ts': 10833,
   'packages/void/test/integration/nuxt.test.ts': 43000,
   'packages/void/test/integration/operator-cli.test.ts': 4910,
+  'packages/void/test/integration/page-errors-react.test.ts': 27000,
+  'packages/void/test/integration/page-errors-solid.test.ts': 16000,
+  'packages/void/test/integration/page-errors-svelte.test.ts': 17000,
+  'packages/void/test/integration/page-errors-vue.test.ts': 15000,
   'packages/void/test/integration/pages-target-assets.test.ts': 10966,
   'packages/void/test/integration/pg-api-test.test.ts': 11000,
   'packages/void/test/integration/pg-test.test.ts': 16237,
@@ -38,6 +46,9 @@ export const integrationTimings: Readonly<Record<string, number>> = {
   'packages/void/test/integration/queue-dispatch.test.ts': 208,
   'packages/void/test/integration/react-router.test.ts': 21000,
   'packages/void/test/integration/sandbox-managed-rpc.test.ts': 722,
+  'packages/void/test/integration/server-auth-errors-session.test.ts': 31000,
+  'packages/void/test/integration/server-auth-errors-signed-in.test.ts': 32000,
+  'packages/void/test/integration/server-auth-errors-signed-out.test.ts': 31000,
   'packages/void/test/integration/spa-middleware-auth.test.ts': 26264,
   'packages/void/test/integration/ssr-playground.test.ts': 13008,
   'packages/void/test/integration/static-pages.test.ts': 7034,

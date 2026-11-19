@@ -11,7 +11,7 @@ import {
   deleteKVNamespace,
   deleteQueue,
   deleteR2Bucket,
-  enableD1ReadReplication,
+  setD1ReadReplication,
   ensureHyperdriveCachingDisabled,
   getD1DatabaseByName,
   getKVNamespaceByTitle,
@@ -82,15 +82,9 @@ export async function provisionBindings(
     switch (resource.type) {
       case 'd1':
         tasks.push(
-          ensureResource(
-            db,
-            accountId,
-            apiToken,
-            projectId,
-            'd1',
-            resource.bindingName,
-            existing,
-          ).then((r): WorkerBinding => ({ type: 'd1', name: resource.bindingName, id: r.cf_id })),
+          ensureResource(db, accountId, apiToken, projectId, 'd1', resource.bindingName, existing, {
+            readReplication: resource.readReplication,
+          }).then((r): WorkerBinding => ({ type: 'd1', name: resource.bindingName, id: r.cf_id })),
         );
         break;
       case 'kv':
@@ -112,16 +106,9 @@ export async function provisionBindings(
         break;
       case 'r2':
         tasks.push(
-          ensureResource(
-            db,
-            accountId,
-            apiToken,
-            projectId,
-            'r2',
-            resource.bindingName,
-            existing,
+          ensureResource(db, accountId, apiToken, projectId, 'r2', resource.bindingName, existing, {
             locationHint,
-          ).then((r): WorkerBinding => ({
+          }).then((r): WorkerBinding => ({
             type: 'r2_bucket',
             name: resource.bindingName,
             bucket_name: r.cf_id,
@@ -214,15 +201,15 @@ async function ensureResource(
   type: Resource['type'],
   bindingName: string,
   existing: ReadonlyArray<Resource>,
-  locationHint?: R2LocationHint,
+  options: { locationHint?: R2LocationHint; readReplication?: boolean } = {},
 ): Promise<Resource> {
   // Normalize: R2 bucket names only allow lowercase alphanumeric + hyphens
   const resourceName = `${projectId}-${bindingName}`.toLowerCase().replaceAll('_', '-');
 
   const found = existing.find((r) => r.type === type && r.binding_name === bindingName);
   if (found) {
-    if (type === 'd1') {
-      await enableD1ReadReplication(accountId, apiToken, found.cf_id);
+    if (type === 'd1' && options.readReplication !== undefined) {
+      await setD1ReadReplication(accountId, apiToken, found.cf_id, options.readReplication);
     }
     return found;
   }
@@ -233,13 +220,13 @@ async function ensureResource(
   let createdByUs = false;
 
   try {
-    cfId = await createCfResource(type, accountId, apiToken, resourceName, locationHint);
+    cfId = await createCfResource(type, accountId, apiToken, resourceName, options);
     createdByUs = true;
   } catch (err) {
     if (isAlreadyExistsError(err)) {
       cfId = await lookupCfResource(type, accountId, apiToken, resourceName);
-      if (type === 'd1') {
-        await enableD1ReadReplication(accountId, apiToken, cfId);
+      if (type === 'd1' && options.readReplication !== undefined) {
+        await setD1ReadReplication(accountId, apiToken, cfId, options.readReplication);
       }
     } else {
       throw err;
@@ -294,11 +281,13 @@ async function createCfResource(
   accountId: string,
   apiToken: string,
   resourceName: string,
-  locationHint?: R2LocationHint,
+  options: { locationHint?: R2LocationHint; readReplication?: boolean },
 ): Promise<string> {
   switch (type) {
     case 'd1': {
-      const result = await createD1Database(accountId, apiToken, resourceName);
+      const result = await createD1Database(accountId, apiToken, resourceName, {
+        readReplication: options.readReplication,
+      });
       return result.uuid;
     }
     case 'kv': {
@@ -306,7 +295,7 @@ async function createCfResource(
       return result.id;
     }
     case 'r2': {
-      const result = await createR2Bucket(accountId, apiToken, resourceName, locationHint);
+      const result = await createR2Bucket(accountId, apiToken, resourceName, options.locationHint);
       return result.name;
     }
     case 'queue': {

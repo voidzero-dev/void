@@ -5,7 +5,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getWorkerConfigPath } from '@cloudflare/build-output-utils';
-import { expect, it, vi } from 'vite-plus/test';
+import { expect, it as serialIt, vi } from 'vite-plus/test';
 import { cloudflareCommandDiagnostic } from '../../../deploy-cloudflare/src/diagnostics.ts';
 import { isVoidSecretOnlyDraft } from '../../../deploy-cloudflare/src/secret-draft.ts';
 import {
@@ -24,11 +24,17 @@ import {
   cfUserAgent,
   listen,
   output,
+  outputRoot,
   pinnedCf,
   REAL_CF_ACTIVATION_TIMEOUT_MS,
   REAL_CF_TIMEOUT_MS,
   roots,
 } from '../helpers/cf-version-fixture.ts';
+
+// Most tests here wait for a real cf child process with their own directory and local API
+// server, so they run concurrently. Tests that use `vi` run alone through serialIt: they patch
+// globals, and Vitest clears every mock's call history whenever another test starts.
+const it = serialIt.concurrent;
 
 it.each([false, true])(
   'reads immutable version source through the real pinned cf HTTP transport (large=%s)',
@@ -215,7 +221,7 @@ it(
       expect(requests).toEqual(['/client/v4/accounts/account-id/workers/services/void-test']);
       expect(userAgents).toEqual([cfUserAgent]);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -262,7 +268,7 @@ it(
         { method: 'GET', path: '/client/v4/accounts/account-id/workers/services/void-test' },
       ]);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -313,7 +319,7 @@ it(
         'Aborting the upload operation because of conflicts. To override and upload anyway, remove the `--strict` flag',
       );
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -398,7 +404,7 @@ it.each([false, true])(
         });
       }
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -528,7 +534,7 @@ it.each([
           verifyUploader: () => true,
         },
         verifyResources: createCfResourceVerifier({
-          configPath: join(roots.at(-1)!, 'dist/ssr/wrangler.json'),
+          configPath: join(outputRoot(prepared), 'dist/ssr/wrangler.json'),
           runCf,
           runWrangler: () => {
             throw new Error('An app without paid bindings must not probe paid services.');
@@ -538,7 +544,7 @@ it.each([
       });
       const result = await activateCloudflareVersion({
         runWrangler: runner,
-        configPath: join(roots.at(-1)!, 'dist/ssr/wrangler.json'),
+        configPath: join(outputRoot(prepared), 'dist/ssr/wrangler.json'),
         workerName: 'void-test',
         verifyUploader: () => true,
         verifyInheritedSecrets: true,
@@ -609,7 +615,7 @@ it.each([
       ).toHaveLength(2);
       expect(readFileSync(getWorkerConfigPath(prepared.directory), 'utf8')).toBe(originalConfig);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_ACTIVATION_TIMEOUT_MS,
@@ -642,7 +648,7 @@ it(
   REAL_CF_TIMEOUT_MS,
 );
 
-it.runIf(process.platform !== 'win32')(
+serialIt.runIf(process.platform !== 'win32')(
   'bounds a Container command by terminating its actual child and descendant before returning',
   async () => {
     const originalSpawn = childProcess.spawn;
@@ -747,6 +753,6 @@ it('treats a verified empty deployment list as missing but rejects malformed sta
       expect(calls).toHaveLength('deployments' in body ? 2 : 1);
     }
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });

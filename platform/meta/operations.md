@@ -20,7 +20,9 @@ Run the source checks before deployment. From the repository root:
 ```sh
 vp run build
 vp run build:platform
-vp run check
+vp check packages platform
+vp run check:sdk
+vp run check:platform
 vp test run
 ```
 

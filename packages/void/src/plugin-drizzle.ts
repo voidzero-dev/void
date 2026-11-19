@@ -22,6 +22,7 @@ import { readProjectPaths, resolveProjectPaths, type ProjectPaths } from './proj
 const drizzleD1Resolved = fileURLToPath(import.meta.resolve('drizzle-orm/d1'));
 const drizzleOrmResolved = fileURLToPath(import.meta.resolve('drizzle-orm'));
 const envModuleResolved = fileURLToPath(import.meta.resolve('#self/_env'));
+const dbSessionResolved = fileURLToPath(import.meta.resolve('#self/runtime/db-session'));
 const drizzleNodePgResolved = fileURLToPath(import.meta.resolve('drizzle-orm/node-postgres'));
 const drizzleMysql2Resolved = fileURLToPath(import.meta.resolve('drizzle-orm/mysql2'));
 
@@ -300,29 +301,48 @@ export function createDb(connectionString) {
         return `
 export { ${DRIZZLE_OPERATORS} } from ${JSON.stringify(drizzleOrmResolved)};
 import { drizzle } from ${JSON.stringify(drizzleD1Resolved)};
-import { getRuntimeRequestResource, requireRuntimeBinding } from ${JSON.stringify(envModuleResolved)};
+import { getRuntimeRequestResource } from ${JSON.stringify(envModuleResolved)};
+import { createD1SessionAccess, resolveD1SessionStart } from ${JSON.stringify(dbSessionResolved)};
 ${schemaImport}
 
 const _requestResourceKey = {};
+const sessions = createD1SessionAccess(${JSON.stringify(d1BindingName)});
+
+export function setSession(start) {
+  sessions.setSession(start);
+}
+
+export function getBookmark(client) {
+  return sessions.getBookmark(client === db ? undefined : client);
+}
 
 export const db = new Proxy({}, {
   get(_, prop) {
+    // Promise assimilation and inspection are not database use.
+    if (
+      prop === 'then' ||
+      prop === 'toJSON' ||
+      prop === Symbol.toStringTag ||
+      prop === Symbol.for('nodejs.util.inspect.custom')
+    ) {
+      return undefined;
+    }
     const instance = getRuntimeRequestResource(
       _requestResourceKey,
-      () => createDb(requireRuntimeBinding(${JSON.stringify(d1BindingName)})),
-      () => createPrimaryDb(requireRuntimeBinding(${JSON.stringify(d1BindingName)}))
+      () => drizzle(sessions.getSession()${drizzleConfig}),
+      () => drizzle(sessions.getSession()${drizzleConfig})
     );
     return Reflect.get(instance, prop);
   },
 });
 
 export function createDb(d1, options) {
-  return drizzle(d1.withSession(options?.session ?? "first-unconstrained")${drizzleConfig});
+  return drizzle(d1.withSession(resolveD1SessionStart(
+    options?.session === undefined ? "first-unconstrained" : options.session,
+    "createDb"
+  ))${drizzleConfig});
 }
 
-function createPrimaryDb(d1) {
-  return drizzle(d1.withSession("first-primary")${drizzleConfig});
-}
 `;
       },
     },

@@ -156,6 +156,19 @@ export function validateManifestShape(manifest: unknown): string | null {
     return 'invalid manifest shape: bindings must be an object';
   }
   const bindings = manifest.bindings;
+  if (manifest.database !== undefined) {
+    if (
+      !isRecord(manifest.database) ||
+      Object.keys(manifest.database).some((key) => key !== 'readReplication') ||
+      (manifest.database.readReplication !== undefined &&
+        typeof manifest.database.readReplication !== 'boolean')
+    ) {
+      return 'invalid manifest shape: database.readReplication must be a boolean';
+    }
+    if (!Array.isArray(bindings.d1) || bindings.d1.length === 0) {
+      return 'invalid manifest shape: database requires a D1 binding';
+    }
+  }
   for (const key of ['d1', 'kv', 'r2', 'hyperdrive'] as const) {
     const bindingValue = bindings[key];
     if (bindingValue === undefined) {

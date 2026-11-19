@@ -583,6 +583,24 @@ describe('void db export', () => {
   });
 });
 
+/** A project whose local D1 database is a real SQLite file, opened by the unmocked runner. */
+async function createLocalSqliteProject(): Promise<string> {
+  const root = mkdtempSync(join(tmpdir(), 'void-execute-sqlite-'));
+  rootsToClean.push(root);
+  writeFileSync(join(root, 'void.json'), JSON.stringify({}));
+  const dbPath = join(root, '.void', 'local.sqlite');
+  mkdirSync(join(root, '.void'), { recursive: true });
+  mockGetMiniflareDatabasePath.mockReturnValue(dbPath);
+  const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+  const db = await openSqliteDatabase(dbPath);
+  try {
+    db.exec('CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)');
+  } finally {
+    db.close();
+  }
+  return root;
+}
+
 describe('void db execute', () => {
   let runDbCommand: typeof import('../../src/cli/db.ts').runDbCommand;
 
@@ -594,10 +612,21 @@ describe('void db execute', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    mockGetMiniflareDatabasePath.mockReset();
+    mockOpenSqliteDatabase.mockReset();
     for (const root of rootsToClean.splice(0, rootsToClean.length)) {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // `runDbCommand` opens with a blank line, so only non-empty calls carry a table.
+  function tableOutput(): string {
+    return vi
+      .mocked(console.log)
+      .mock.calls.map((call) => String(call[0] ?? ''))
+      .filter((line) => line.length > 0)
+      .join('\n');
+  }
 
   it('reads an absolute --file path as given', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-execute-abs-'));
@@ -624,6 +653,176 @@ describe('void db execute', () => {
     await runDbCommand(root, { action: 'execute', file: join(elsewhere, 'query.sql') });
 
     expect(mockPgQuery).toHaveBeenCalledWith('UPDATE users SET id = id;');
+  });
+
+  it('SQLite: prints rows for any single statement that returns them', async () => {
+    const root = await createLocalSqliteProject();
+    const reads: Array<[string, RegExp]> = [
+      ['-- leading comment\nSELECT 1 AS value', /value/],
+      ['WITH example AS (SELECT 1 AS value) SELECT value FROM example', /value/],
+      ['PRAGMA database_list', /main/],
+      ['EXPLAIN QUERY PLAN SELECT 1', /SCAN|CONSTANT ROW/i],
+      ["INSERT INTO items (name) VALUES ('first') RETURNING id, name", /first/],
+    ];
+
+    for (const [sql, pattern] of reads) {
+      vi.mocked(console.log).mockClear();
+      await runDbCommand(root, { action: 'execute', command: sql });
+      expect(tableOutput(), sql).toMatch(pattern);
+    }
+  });
+
+  it('SQLite: keeps a single statement whose literal holds a semicolon', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, { action: 'execute', command: "SELECT 'a;b' AS value" });
+
+    expect(tableOutput()).toMatch(/a;b/);
+  });
+
+  it('SQLite: runs a trigger whose body holds semicolons', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command:
+        'CREATE TRIGGER items_touch AFTER INSERT ON items BEGIN UPDATE items SET name = name WHERE id = new.id; END;',
+    });
+
+    expect(tableOutput()).toBe('');
+    await runDbCommand(root, {
+      action: 'execute',
+      command: "SELECT name FROM sqlite_master WHERE type = 'trigger'",
+    });
+    expect(tableOutput()).toMatch(/items_touch/);
+  });
+
+  it('SQLite: runs a script whose literals hold comment markers', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command:
+        "INSERT INTO items (name) VALUES ('--');\nINSERT INTO items (name) VALUES ('plain--');",
+    });
+    await runDbCommand(root, {
+      action: 'execute',
+      command: "INSERT INTO items (name) VALUES ('/*');\nINSERT INTO items (name) VALUES ('*/');",
+    });
+
+    expect(tableOutput()).toBe('');
+    await runDbCommand(root, { action: 'execute', command: 'SELECT name FROM items ORDER BY id' });
+    expect(tableOutput()).toContain('plain--');
+    expect(tableOutput()).toContain('/*');
+    const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+    const db = await openSqliteDatabase(join(root, '.void', 'local.sqlite'));
+    try {
+      const rows = db.prepare('SELECT name FROM items ORDER BY id').all() as Array<{
+        name: string;
+      }>;
+      expect(rows.map((row) => row.name)).toEqual(['--', 'plain--', '/*', '*/']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SQLite: a failing single statement runs once', async () => {
+    const root = await createLocalSqliteProject();
+    await runDbCommand(root, {
+      action: 'execute',
+      command: 'CREATE TABLE counters (id INTEGER PRIMARY KEY, hits INTEGER, label TEXT UNIQUE)',
+    });
+    await runDbCommand(root, {
+      action: 'execute',
+      command: "INSERT INTO counters (id, hits, label) VALUES (1, 0, 'one'), (2, 0, 'two')",
+    });
+
+    await expect(
+      runDbCommand(root, {
+        action: 'execute',
+        command: "UPDATE OR FAIL counters SET hits = hits + 1, label = 'done;x' WHERE id IN (1, 2)",
+      }),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+
+    const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+    const db = await openSqliteDatabase(join(root, '.void', 'local.sqlite'));
+    try {
+      const rows = db.prepare('SELECT id, hits, label FROM counters ORDER BY id').all();
+      // FAIL keeps the row it already updated, and the failed statement is not replayed.
+      expect(rows).toEqual([
+        { id: 1, hits: 1, label: 'done;x' },
+        { id: 2, hits: 0, label: 'two' },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SQLite: incremental vacuum reclaims the requested number of pages', async () => {
+    const root = await createLocalSqliteProject();
+    const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+    const db = await openSqliteDatabase(join(root, '.void', 'local.sqlite'));
+    try {
+      db.exec(`
+        PRAGMA page_size = 4096;
+        PRAGMA auto_vacuum = INCREMENTAL;
+        VACUUM;
+        INSERT INTO items (name) VALUES (zeroblob(262144));
+        DELETE FROM items;
+      `);
+      const freelist = db.prepare<{ freelist_count: number }>('PRAGMA freelist_count');
+      const before = freelist.get()!.freelist_count;
+      expect(before).toBeGreaterThanOrEqual(20);
+
+      await runDbCommand(root, { action: 'execute', command: 'PRAGMA incremental_vacuum(20)' });
+
+      expect(freelist.get()!.freelist_count).toBe(before - 20);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SQLite: SQL without a statement is a no-op', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, { action: 'execute', command: '-- nothing to run' });
+
+    expect(tableOutput()).toBe('');
+    expect(mockLog.error).not.toHaveBeenCalled();
+  });
+
+  it('SQLite: prints no table for writes, DDL and empty results', async () => {
+    const root = await createLocalSqliteProject();
+
+    for (const sql of [
+      "INSERT INTO items (name) VALUES ('second')",
+      'CREATE TABLE extra (id INTEGER)',
+      'SELECT * FROM items WHERE id < 0',
+    ]) {
+      vi.mocked(console.log).mockClear();
+      mockLog.info.mockClear();
+      await runDbCommand(root, { action: 'execute', command: sql });
+      expect(tableOutput(), sql).toBe('');
+      expect(mockLog.info, sql).not.toHaveBeenCalled();
+    }
+  });
+
+  it('SQLite: runs a multi-statement script without printing results', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command: "INSERT INTO items (name) VALUES ('script'); SELECT name FROM items;",
+    });
+
+    expect(tableOutput()).toBe('');
+    const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+    const db = await openSqliteDatabase(join(root, '.void', 'local.sqlite'));
+    try {
+      expect(db.prepare('SELECT name FROM items ORDER BY id').all()).toEqual([{ name: 'script' }]);
+    } finally {
+      db.close();
+    }
   });
 });
 

@@ -1,11 +1,16 @@
-import { execSync } from 'node:child_process';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, type ChildProcess } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getWorkerConfigPath } from '@cloudflare/build-output-utils';
-import spawn from 'cross-spawn';
 import { chromium, type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import {
+  createIsolatedPlayground,
+  killChild,
+  spawnFixtureServer,
+  startServer,
+  type IsolatedPlayground,
+} from '../../../../test/integration-helpers.ts';
 
 declare global {
   interface Window {
@@ -40,44 +45,21 @@ async function waitForHydration(page: Page) {
 }
 
 describe('playground/kitchen-sink', () => {
-  let child: ReturnType<typeof spawn>;
+  let fixture: IsolatedPlayground;
+  let child: ChildProcess;
 
   beforeAll(async () => {
     // Build first so every dependency is resolved before the server starts;
     // dev-mode dependency optimization makes browser checks unreliable.
-    const pg = join(ROOT, 'playground/kitchen-sink');
-    rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    execSync('vp run --filter ./playground/kitchen-sink build', {
-      cwd: ROOT,
-      stdio: 'pipe',
-    });
+    fixture = createIsolatedPlayground(ROOT, 'playground/kitchen-sink');
+    const pg = fixture.root;
+    execFileSync('vp', ['run', 'build'], { cwd: pg, stdio: 'pipe' });
     const previewDatabaseId = preparePreviewWranglerConfig(pg);
 
     // Start preview server — pre-built assets, no lazy optimization.
     const server = await startServer(
       (port) => {
-        child = spawn(
-          'vp',
-          [
-            'run',
-            '--filter',
-            './playground/kitchen-sink',
-            'preview',
-            '--host',
-            '127.0.0.1',
-            '--port',
-            String(port),
-            '--strictPort',
-          ],
-          {
-            cwd: ROOT,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env: {
-              ...process.env,
-              VOID_INSPECTOR_PORT: 'false',
-            },
-          },
-        );
+        child = spawnFixtureServer(fixture.root, 'preview', port);
         return child;
       },
       30_000,
@@ -101,6 +83,7 @@ describe('playground/kitchen-sink', () => {
     if (child) {
       await killChild(child);
     }
+    fixture?.cleanup();
   });
 
   it('serves SSR home page and hydrates', async () => {

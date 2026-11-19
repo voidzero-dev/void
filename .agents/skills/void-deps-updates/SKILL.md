@@ -12,13 +12,13 @@ Work in the Void maintainer checkout. Read its current `AGENTS.md`, `packages/vo
 - Capture a fresh production-install baseline **before editing**. Build and pack the complete public release cohort, including the platform runtime. Use [the measurement helper](#measure).
 - Update direct and transitive dependencies recursively through Vite+. Preserve explicitly held TypeScript/Svelte versions and their framework-specific catalogs; inspect current compatibility constraints rather than freezing historical versions forever.
 - Coordinate `cf`, Cloudflare Vite plugin, Wrangler, Miniflare/workerd, and Cloudflare support packages using their actual registry ranges and dist-tags. Dated prereleases need explicit alignment; stable `latest` can be an older major than an intended beta.
-- Preserve compatible published ranges, `workspace:*`, strict catalogs, intentional overrides, and package extensions. Avoid unnecessary pins or forcing incompatible runtime versions. Run `vp dedupe` and inspect remaining outdated packages.
+- Update the exact pins for `cf`, `@cloudflare/vite-plugin`, `miniflare`, `@cloudflare/config`, and `@cloudflare/build-output-utils` together. Their releases must resolve to the same Miniflare and workerd. Pin `@cloudflare/config` and `@cloudflare/build-output-utils` to the exact versions that `cf` and the Vite plugin depend on; check with `npm view cf@<version> dependencies` and `npm view @cloudflare/vite-plugin@<version> dependencies`. Preserve other compatible published ranges, `workspace:*`, strict catalogs, intentional overrides, and package extensions. Avoid forcing incompatible runtime versions. Run `vp dedupe` and inspect remaining outdated packages.
 - Update `void init`/Vite+ scaffold and bootstrap expectations. Match the React compiler dependency to the installed React plugin's peer range. Keep Sandbox SDK, Docker helper, and verified helper layer aligned.
 - Keep prerender architecture changes separate from routine dependency alignment.
 
 ## Verify and deliver
 
-Start with exact affected tests, then `vp run test --list`, affected tests, and `vp run check`. Follow `TESTING.md` for builds, artifact validation, lint, and final full tests. Do not overlap builds with checks reading the same generated output.
+Start with exact affected tests, then `vp run test` and `vp check`. Follow `TESTING.md` for builds, artifact validation, lint, and final full tests. Do not overlap builds with checks reading the same generated output.
 
 Manifest/lockfile updates require the full npm/pnpm × React/Vue/Svelte/Solid packed matrix, plus Vite+ starters:
 

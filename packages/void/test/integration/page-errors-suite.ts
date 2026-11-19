@@ -23,9 +23,17 @@ import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
 
 const repository = join(import.meta.dirname, '../../../..');
-const frameworks = ['react', 'vue', 'svelte', 'solid'] as const;
+export type PageErrorsFramework = 'react' | 'vue' | 'svelte' | 'solid';
 
-describe.each(frameworks)('Pages errors with %s', (framework) => {
+/**
+ * Each framework runs from its own test file, so the four fixtures build and serve in parallel
+ * workers instead of one after another.
+ */
+export function describePageErrors(framework: PageErrorsFramework): void {
+  describe(`Pages errors with ${framework}`, () => pageErrorsSuite(framework));
+}
+
+function pageErrorsSuite(framework: PageErrorsFramework): void {
   let fixture: IsolatedPlayground;
   let child: ReturnType<typeof spawn>;
   let browser: Browser;
@@ -708,4 +716,4 @@ export const loader = defineHandler(c => {
       expect(native404).not.toContain('type="module"');
     }
   });
-});
+}

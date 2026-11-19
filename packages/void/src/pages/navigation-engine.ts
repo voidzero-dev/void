@@ -885,7 +885,7 @@ export async function createPageNavigationEngine(
           processLines();
         }
 
-        (async () => {
+        void (async () => {
           try {
             while (!signal.aborted) {
               const { done, value } = await reader.read();
@@ -1259,12 +1259,12 @@ export async function createPageNavigationEngine(
       }
 
       if (components[id]) {
-        components[id]();
+        void components[id]();
       }
       const layoutIds = layoutTree[id] || [];
       for (const lid of layoutIds) {
         if (components[lid]) {
-          components[lid]();
+          void components[lid]();
         }
       }
 

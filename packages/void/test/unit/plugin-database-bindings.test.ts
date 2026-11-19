@@ -82,7 +82,7 @@ describe('PostgreSQL binding generation', () => {
     if (!handler) {
       throw new Error('Expected Wrangler sync plugin.');
     }
-    handler.call({} as never, { command: 'serve' } as ResolvedConfig);
+    await handler.call({} as never, { command: 'serve' } as ResolvedConfig);
 
     const config = JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')) as Record<
       string,

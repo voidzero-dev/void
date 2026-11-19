@@ -299,6 +299,11 @@ export async function streamDirectR2Deploy({
   spinner: SpinnerResult;
   cliLog?: CliLogger;
 }): Promise<StreamDeployResult> {
+  // Check before any upload: an older platform would accept the manifest and
+  // leave replication on.
+  if (manifest.database?.readReplication !== undefined) {
+    await client.requireD1ReadReplicationSupport();
+  }
   const workerInput =
     workerFiles && workerFiles.size > 0 && (await client.supportsDirectWorkerUpload())
       ? await uploadWorkerModules(client, projectId, workerFiles, s, cliLog)

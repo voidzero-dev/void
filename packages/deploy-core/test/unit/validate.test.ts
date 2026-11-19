@@ -1,6 +1,39 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { validateManifestShape, type DeployManifest } from '../../src/index.ts';
 
+describe('D1 read replication', () => {
+  it.each([undefined, false, true])('accepts readReplication %s', (readReplication) => {
+    expect(
+      validateManifestShape({
+        version: 3,
+        bindings: { d1: ['DB'] },
+        database: { readReplication },
+      }),
+    ).toBeNull();
+  });
+  it.each([null, true, { readReplication: 'true' }, { readReplication: 1 }, { replicas: true }])(
+    'rejects invalid database preferences %j',
+    (database) => {
+      expect(
+        validateManifestShape({
+          version: 3,
+          bindings: { d1: ['DB'] },
+          database,
+        }),
+      ).toContain('database.readReplication');
+    },
+  );
+  it('rejects database preferences without a D1 binding', () => {
+    expect(
+      validateManifestShape({
+        version: 3,
+        bindings: { hyperdrive: ['HYPERDRIVE'] },
+        database: { readReplication: true },
+      }),
+    ).toContain('requires a D1 binding');
+  });
+});
+
 describe('queue concurrency', () => {
   it.each([undefined, 1, 2, 250])('accepts maxConcurrency = %s', (maxConcurrency) => {
     expect(

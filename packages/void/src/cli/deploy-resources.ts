@@ -242,6 +242,12 @@ export async function computeDesiredCloudflareResources(
             : undefined) ||
           suffixedResourceName(workerName, 'db');
     desired.d1 = { binding, name, migrationsDir: migrationsDirRelative };
+    if (
+      typeof voidConfig.database === 'object' &&
+      voidConfig.database.readReplication !== undefined
+    ) {
+      desired.d1.readReplication = voidConfig.database.readReplication;
+    }
     reasons.set(binding, databaseReason);
   }
 

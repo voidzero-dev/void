@@ -355,7 +355,7 @@ describe('proxy worker', () => {
         duplex: 'half',
       } as RequestInit);
       let status: number | undefined;
-      const response = worker.fetch(request, createEnv()).then((value) => {
+      const response = Promise.resolve(worker.fetch(request, createEnv())).then((value) => {
         status = value.status;
       });
 
@@ -504,7 +504,7 @@ describe('proxy worker', () => {
         duplex: 'half',
       } as RequestInit);
       let status: number | undefined;
-      const response = worker.fetch(request, createEnv()).then((value) => {
+      const response = Promise.resolve(worker.fetch(request, createEnv())).then((value) => {
         status = value.status;
       });
       await vi.advanceTimersByTimeAsync(5_000);
@@ -1510,7 +1510,7 @@ describe('proxy worker', () => {
         },
         kvData,
       );
-      const upstream = vi.fn(async () => Response.json({ ok: true }));
+      const upstream = vi.fn<typeof fetch>(async () => Response.json({ ok: true }));
       vi.stubGlobal('fetch', upstream);
       return { env, upstream };
     }
@@ -2138,7 +2138,7 @@ describe('proxy worker', () => {
 
   describe('AI: /ai/provider', () => {
     function mockProviderFetch(response: BodyInit, init?: ResponseInit) {
-      const fetchMock = vi.fn(async () => new Response(response, init));
+      const fetchMock = vi.fn<typeof fetch>(async () => new Response(response, init));
       vi.stubGlobal('fetch', fetchMock);
       return fetchMock;
     }
@@ -2530,7 +2530,7 @@ describe('proxy worker', () => {
       );
 
       expect(res.status).toBe(401);
-      const json = await res.json();
+      const json = await res.json<{ error: string }>();
       expect(json.error).toContain('Invalid API key');
     });
 
@@ -2559,7 +2559,7 @@ describe('proxy worker', () => {
 
   describe('revalidate: /revalidate', () => {
     it('forwards revalidation to API via service binding', async () => {
-      const apiFetch = vi.fn(
+      const apiFetch = vi.fn<typeof fetch>(
         async () =>
           new Response(JSON.stringify({ purged: 2 }), {
             headers: { 'content-type': 'application/json' },
@@ -2583,13 +2583,13 @@ describe('proxy worker', () => {
       // Fetcher.fetch() receives (url: string, init: RequestInit)
       const [url, init] = apiFetch.mock.calls[0];
       expect(url).toBe('https://api/internal/revalidate/proj_000000000001');
-      expect(init.method).toBe('POST');
-      expect(new Headers(init.headers).get('x-void-internal')).toBe(aiTokens['proj_000000000001']);
-      expect(JSON.parse(init.body)).toEqual({ paths: ['/', '/blog'] });
+      expect(init!.method).toBe('POST');
+      expect(new Headers(init!.headers).get('x-void-internal')).toBe(aiTokens['proj_000000000001']);
+      expect(JSON.parse(init!.body as string)).toEqual({ paths: ['/', '/blog'] });
     });
 
     it('forwards all:true revalidation', async () => {
-      const apiFetch = vi.fn(
+      const apiFetch = vi.fn<typeof fetch>(
         async () =>
           new Response(JSON.stringify({ purged: 10 }), {
             headers: { 'content-type': 'application/json' },
@@ -2610,7 +2610,7 @@ describe('proxy worker', () => {
       expect(await res.json()).toEqual({ purged: 10 });
 
       const [, init] = apiFetch.mock.calls[0];
-      expect(JSON.parse(init.body)).toEqual({ all: true });
+      expect(JSON.parse(init!.body as string)).toEqual({ all: true });
     });
 
     it('rejects unauthenticated revalidation requests', async () => {

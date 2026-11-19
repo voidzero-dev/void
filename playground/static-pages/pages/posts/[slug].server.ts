@@ -1,4 +1,5 @@
 import { defineHandler } from 'void';
+import type { PageParams } from 'void/routes';
 
 export type Props = Readonly<{
   slug: string;
@@ -11,5 +12,6 @@ export function getPrerenderPaths() {
 }
 
 export const loader = defineHandler<Props>((c) => {
-  return { slug: c.req.param('slug') };
+  const { slug } = c.req.param() as PageParams<'/posts/[slug]'>;
+  return { slug };
 });

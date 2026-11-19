@@ -1,6 +1,6 @@
 {
   "name": "void",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "Full-stack framework and deployment CLI for Cloudflare Workers, powered by Vite.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -35,6 +35,7 @@
   },
   "imports": {
     "#self/_env": "./dist/runtime/env/runtime.mjs",
+    "#self/runtime/db-session": "./dist/runtime/db/session.mjs",
     "#self/email": "./dist/runtime/email/index.mjs",
     "#self/env": "./dist/runtime/env/public.mjs",
     "#self/client": "./dist/runtime/client/index.mjs",
@@ -360,7 +361,7 @@
   "scripts": {
     "build": "node scripts/sync-docs.mjs && vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit --rootDir ../.."
+    "typecheck": "tsrs --noEmit --rootDir ../.."
   },
   "dependencies": {
     "@cloudflare/build-output-utils": "catalog:",
@@ -422,6 +423,7 @@
     "pglite-server": "0.1.5",
     "picocolors": "^1.1.1",
     "tinyglobby": "^0.2.17",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "valibot": "^1.5.0",
     "vite": "catalog:",

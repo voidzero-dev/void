@@ -14,5 +14,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["pages", "routes", "middleware", "src", "*.config.ts"]
+  "include": ["env.d.ts", "pages", "routes", "middleware", "src", "*.config.ts"]
 }

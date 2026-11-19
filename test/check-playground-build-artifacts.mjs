@@ -6,7 +6,12 @@ const artifacts = {
   analog: ['dist/analog/server/index.mjs', 'dist/analog/public'],
   astro: ['dist/server/entry.mjs'],
   nuxt: ['.output/server/index.mjs', '.output/public'],
-  'react-router': ['build/server/index.js', 'build/client'],
+  'react-router': [
+    'build/server/index.js',
+    'build/client',
+    '.react-router/types/app/routes/+types/smoke.ts',
+    '.react-router/types/app/routes/+types/users.ts',
+  ],
   sveltekit: ['.svelte-kit/cloudflare/_worker.js'],
   'tanstack-start': ['dist/server/index.js', 'dist/client'],
   'vinext-app': ['dist/server/index.js', 'dist/client'],

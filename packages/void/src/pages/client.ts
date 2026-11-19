@@ -562,7 +562,7 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
   };
 
   engine.setPopStateHandler((url, options) => {
-    router.visit(url, options);
+    void router.visit(url, options);
   });
 
   return {
@@ -587,12 +587,12 @@ export function scheduleHydration(
   const hydrate = () => loader().then((mod) => hydrateFn(el, mod, props));
 
   if (strategy === 'load') {
-    hydrate();
+    void hydrate();
   } else if (strategy === 'visible') {
     const observer = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting) {
         observer.disconnect();
-        hydrate();
+        void hydrate();
       }
     });
     observer.observe(el);
@@ -606,7 +606,7 @@ export function scheduleHydration(
     const check = () => {
       if (mql.matches) {
         mql.removeEventListener('change', check);
-        hydrate();
+        void hydrate();
       }
     };
     mql.addEventListener('change', check);

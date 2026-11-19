@@ -45,9 +45,10 @@ let cloudflareEnv: RuntimeEnv | undefined;
 const isWorkerd = typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers';
 
 if (isWorkerd) {
-  import('cloudflare:workers')
+  // Only env is consumed; avoid instantiating the Workers RPC exports as PromiseLike types.
+  (import('cloudflare:workers') as Promise<{ env?: unknown }>)
     .then((mod) => {
-      cloudflareEnv = asEnv((mod as { env?: unknown }).env) ?? undefined;
+      cloudflareEnv = asEnv(mod.env) ?? undefined;
     })
     .catch(() => {});
 }

@@ -32,7 +32,7 @@ const route = {
 };
 const context = { waitUntil: vi.fn() } as unknown as ExecutionContext;
 const env = (
-  apiFetch: (...args: Array<unknown>) => Promise<Response>,
+  apiFetch: (input: unknown, init?: RequestInit) => Promise<Response>,
   dispatchGet: (...args: Array<unknown>) => Fetcher = () => ({ fetch: vi.fn() }) as never,
 ) =>
   ({
@@ -42,7 +42,7 @@ const env = (
     EMAIL_SHARED_ZONE_ID: 'zone-1',
     EMAIL_SHARED_INGRESS_NAME: 'gateway-1',
     DISPATCH: { get: dispatchGet },
-  }) as never;
+  }) as Parameters<typeof gateway.fetch>[1];
 
 function uncooperativeStream(chunk: Uint8Array): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -357,10 +357,11 @@ describe('dedicated email gateway', () => {
     expect(first.status).toBe(204);
     expect(first.headers.get('x-void-email-receipt')).toMatch(/^[a-f0-9]{64}$/);
     expect((await gateway.fetch(request(raw), environment, context)).status).toBe(204);
-    for (const headers of [
+    const changedHeaders: Array<Record<string, string>> = [
       { 'x-void-email-from': 'other@example.net' },
       { 'x-void-email-to': 'other@example.com' },
-    ]) {
+    ];
+    for (const headers of changedHeaders) {
       expect((await gateway.fetch(request(raw, headers), environment, context)).status).toBe(409);
     }
     expect(
@@ -595,7 +596,7 @@ describe('dedicated email gateway', () => {
       from: 'sender@example.net',
       to: 'support@example.com',
       setReject: (reason: string) => rejects.push(reason),
-    } as ForwardableEmailMessage;
+    } as unknown as ForwardableEmailMessage;
     await gateway.email(
       message,
       env(async (url, init) => {

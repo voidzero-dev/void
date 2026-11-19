@@ -43,7 +43,9 @@ jobs:
       - run: vp run --cache build:all
       - run: vp run build:docs
       - run: node test/check-playground-build-artifacts.mjs
-      - run: vp run check
+      - run: vp check
+      # Keep compiler coverage for generated/ignored files and the TS 6 framework fixtures.
+      - run: vp run check:types
 
   test:
     name: test (${{ matrix.os }}, ${{ matrix.shard }})
@@ -69,9 +71,6 @@ jobs:
       - uses: ./.github/actions/test-setup
         with:
           browser: ${{ matrix.shard != 'unit' }}
-
-      - run: vp check
-        if: ${{ matrix.shard == 'unit' }}
 
       # Unit suites import the core package and its workspace dependencies through public exports and
       # exercise generated CLI assets, so they need the transitive core stack even though they skip

@@ -405,10 +405,25 @@ const config = parsed.data;
 process.stdout.write(JSON.stringify({ config, followUps: migration.followUps }));
 `;
 
-export function migrateBuiltWranglerConfig(
-  raw: JsonObject,
-  mode = 'production',
-): ReturnType<typeof CloudflareConfigSchema.parse> {
+type MigratedConfig = ReturnType<typeof CloudflareConfigSchema.parse>;
+
+// Vite resolves its config several times for one build or dev server, and each
+// resolution asks for the same translation. The result depends only on the
+// input, so one subprocess serves every identical request in this process.
+const translations = new Map<string, MigratedConfig>();
+
+export function migrateBuiltWranglerConfig(raw: JsonObject, mode = 'production'): MigratedConfig {
+  const key = JSON.stringify([mode, raw]);
+  let config = translations.get(key);
+  if (!config) {
+    config = migrateWranglerConfig(raw, mode);
+    translations.set(key, config);
+  }
+  // Callers add bindings to the returned config.
+  return structuredClone(config);
+}
+
+function migrateWranglerConfig(raw: JsonObject, mode: string): MigratedConfig {
   const environment = record(record(raw.env)?.[mode]);
   const effective = environment ? { ...raw, ...environment } : raw;
   if (environment) {
