@@ -1,15 +1,20 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import {
+  createIsolatedPlayground,
+  type IsolatedPlayground,
+} from '../../../../test/integration-helpers.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
 import { collectPrerenderPaths } from '../../src/prerender.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/static-pages';
-const DIST = join(ROOT, PLAYGROUND, 'dist');
+let fixture: IsolatedPlayground;
+let DIST: string;
 
 function removeWranglerConfig(root: string) {
   rmSync(join(root, 'wrangler.jsonc'), { force: true });
@@ -18,11 +23,14 @@ function removeWranglerConfig(root: string) {
 
 describe('playground/static-pages build (output: static)', () => {
   beforeAll(() => {
-    const pg = join(ROOT, PLAYGROUND);
-    rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    rmSync(join(pg, '.void'), { recursive: true, force: true });
-    removeWranglerConfig(pg);
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
+    DIST = join(fixture.root, 'dist');
+    removeWranglerConfig(fixture.root);
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
+  });
+
+  afterAll(() => {
+    fixture?.cleanup();
   });
 
   it('emits worker entry and client manifest', () => {
@@ -145,10 +153,10 @@ describe('playground/static-pages build (output: static)', () => {
 
   it('collects prerender paths from the built worker endpoint', async () => {
     const paths = await collectPrerenderPaths({
-      root: join(ROOT, PLAYGROUND),
+      root: fixture.root,
       workerDir: join(DIST, 'ssr'),
       clientDir: join(DIST, 'client'),
-      persistDir: join(ROOT, PLAYGROUND, '.void'),
+      persistDir: join(fixture.root, '.void'),
     });
 
     expect(paths).toEqual(

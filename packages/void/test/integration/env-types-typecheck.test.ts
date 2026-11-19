@@ -1,12 +1,27 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
+import {
+  createIsolatedPlayground,
+  type IsolatedPlayground,
+} from '../../../../test/integration-helpers.ts';
 import { generateBindingTypes } from '../../src/codegen/binding-types.ts';
 import { generateEnvTypes } from '../../src/codegen/env-types.ts';
 
 const workspaceRoot = join(import.meta.dirname, '..', '..', '..', '..');
 const roots: Array<string> = [];
+// The fixtures nest in a copy of kitchen-sink: writing them into the source playground would
+// change the inputs of the workspace build and of other test files.
+let playground: IsolatedPlayground;
+
+beforeAll(() => {
+  playground = createIsolatedPlayground(workspaceRoot, 'playground/kitchen-sink');
+});
+
+afterAll(() => {
+  playground?.cleanup();
+});
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -25,7 +40,7 @@ describe('generated env types in a consumer project', () => {
   ])('types schema keys and ASSETS on both env and handler c.env%s', (_, wranglerTypes) => {
     // This nested fixture resolves the workspace's installed void package just
     // as a consumer does, while keeping its source out of the playground routes.
-    const root = mkdtempSync(join(workspaceRoot, 'playground/kitchen-sink/.tmp-env-types-'));
+    const root = mkdtempSync(join(playground.root, '.tmp-env-types-'));
     roots.push(root);
     const envFile = join(root, 'env.ts');
     const outDir = join(root, '.void');

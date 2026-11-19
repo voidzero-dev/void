@@ -37,6 +37,7 @@ const GENERATED_PLAYGROUND_ENTRIES = new Set([
   '.svelte-kit',
   '.tanstack',
   '.void',
+  '.void-wrangler.jsonc',
   '.vite-cloud',
   '.wrangler',
   'build',
@@ -237,30 +238,24 @@ export async function startServer(
   }
 }
 
-/** Spawns a workspace playground's `dev` or `preview` script; pass it to {@link startServer}. */
-export function spawnPlaygroundServer(
-  workspaceRoot: string,
-  playground: string,
-  script: 'dev' | 'preview',
+/**
+ * Spawns the `dev`, `preview` or another server script of an isolated playground copy; pass it
+ * to {@link startServer}. Tests never serve or build a playground in its source directory: the
+ * generated output would change the inputs of the workspace build and of other test files.
+ */
+export function spawnFixtureServer(
+  fixtureRoot: string,
+  script: string,
   port: number,
+  env: NodeJS.ProcessEnv = {},
 ): ReturnType<typeof spawn> {
   return crossSpawn(
     'vp',
-    [
-      'run',
-      '--filter',
-      `./playground/${playground}`,
-      script,
-      '--host',
-      '127.0.0.1',
-      '--port',
-      String(port),
-      '--strictPort',
-    ],
+    ['run', script, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
     {
-      cwd: workspaceRoot,
+      cwd: fixtureRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
+      env: { ...process.env, VOID_INSPECTOR_PORT: 'false', ...env },
     },
   );
 }

@@ -41,24 +41,6 @@ const sdkPgliteUnitTests = [
 // core-markdown workers explicitly from this main config process (which has the runner's step env).
 // Absent credentials become empty strings so ordinary test runs skip the live suite.
 const testGroupInput = [{ auto: true }, '!node_modules/.cache/**'];
-// Integration tests build and serve some playgrounds in place. That output is derived from
-// tracked sources and rewritten by the tests themselves, so it is not an input either.
-const integrationGroupInput = [
-  ...testGroupInput,
-  ...[
-    '.astro',
-    '.cloudflare',
-    '.nuxt',
-    '.output',
-    '.react-router',
-    '.svelte-kit',
-    '.void',
-    'build',
-    'dist',
-  ].map((directory) => `!playground/*/${directory}/**`),
-  '!playground-local/**',
-];
-
 const e2eWorkerEnv = {
   VOID_TEST_BROWSER: process.env.VOID_TEST_BROWSER ?? 'chromium',
   VOID_E2E_CF_TOKEN: process.env.VOID_E2E_CF_TOKEN ?? '',
@@ -92,7 +74,24 @@ const platformAlias = {
   ),
 };
 
-export default defineConfig({
+// Each Vitest project belongs to exactly one cached test group of `vp run test`. The check at
+// the end of this file fails when a project is in no group, so a new project cannot be left out.
+const testGroups = {
+  platform: [
+    'platform-unit',
+    'platform-unit-pglite',
+    'platform-api-integration',
+    'platform-api-integration-threads',
+  ],
+  unit: ['unit', 'unit-pglite', 'cli-unit'],
+  integration: ['parallel-integration'],
+};
+
+function testGroupCommand(group: keyof typeof testGroups): string {
+  return `vp test run ${testGroups[group].map((name) => `--project ${name}`).join(' ')}`;
+}
+
+const config = defineConfig({
   run: {
     tasks: {
       'build:all': {
@@ -104,19 +103,19 @@ export default defineConfig({
       },
       // Node's compile cache is shared and rewritten by every run, so it is not an input.
       // One cached task per test group, so `test:all` replays a group whose inputs did not change.
-      // Every Vitest project must belong to exactly one group. Test output is not restored on a hit.
+      // Test output is not restored on a hit.
       'test:group:platform': {
-        command: "vp test run --project 'platform-*'",
+        command: testGroupCommand('platform'),
         cache: { input: testGroupInput, output: [] },
       },
       'test:group:unit': {
-        command: 'vp test run --project unit --project unit-pglite --project cli-unit',
+        command: testGroupCommand('unit'),
         cache: { input: testGroupInput, output: [] },
       },
       'test:group:integration': {
-        command: 'vp test run --project parallel-integration',
+        command: testGroupCommand('integration'),
         cache: {
-          input: integrationGroupInput,
+          input: testGroupInput,
           output: [],
           untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
         },
@@ -640,3 +639,18 @@ export default defineConfig({
     ],
   },
 });
+
+const groupedProjects = Object.values(testGroups).flat();
+for (const project of config.test?.projects ?? []) {
+  const name = typeof project === 'object' && 'test' in project ? project.test?.name : undefined;
+  if (
+    typeof name !== 'string' ||
+    groupedProjects.filter((grouped) => grouped === name).length !== 1
+  ) {
+    throw new Error(
+      `Vitest project ${JSON.stringify(name)} must be listed in exactly one entry of testGroups in vite.config.ts.`,
+    );
+  }
+}
+
+export default config;

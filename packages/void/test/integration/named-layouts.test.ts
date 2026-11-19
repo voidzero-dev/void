@@ -1,38 +1,25 @@
+import type { ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
-import spawn from 'cross-spawn';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import {
+  createIsolatedPlayground,
+  killChild,
+  spawnFixtureServer,
+  startServer,
+  type IsolatedPlayground,
+} from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 let DEV_BASE: string;
 
 describe('named-layouts integration', () => {
-  let child: ReturnType<typeof spawn>;
+  let fixture: IsolatedPlayground;
+  let child: ChildProcess;
 
   beforeAll(async () => {
+    fixture = createIsolatedPlayground(ROOT, 'playground/named-layouts');
     const server = await startServer((port) => {
-      child = spawn(
-        'vp',
-        [
-          'run',
-          '--filter',
-          './playground/named-layouts',
-          'dev',
-          '--host',
-          '127.0.0.1',
-          '--port',
-          String(port),
-          '--strictPort',
-        ],
-        {
-          cwd: ROOT,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            VOID_INSPECTOR_PORT: 'false',
-          },
-        },
-      );
+      child = spawnFixtureServer(fixture.root, 'dev', port);
       return child;
     }, 20_000);
     DEV_BASE = server.base;
@@ -42,6 +29,7 @@ describe('named-layouts integration', () => {
     if (child) {
       await killChild(child);
     }
+    fixture?.cleanup();
   });
 
   it('/ — default layout chain (root only)', async () => {

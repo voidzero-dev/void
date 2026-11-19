@@ -1,13 +1,15 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
+  createIsolatedPlayground,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
+  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
 import { renderVoidConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
@@ -24,8 +26,21 @@ type NavElement = HTMLElement & { __STAMP?: number };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/node-static';
-const DIST = join(ROOT, PLAYGROUND, 'dist');
-const VOID_CONFIG = join(ROOT, PLAYGROUND, 'void.config.ts');
+
+// The dev test and both build groups share one copy, as they shared the source directory.
+let fixture: IsolatedPlayground;
+let DIST: string;
+let VOID_CONFIG: string;
+
+beforeAll(() => {
+  fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
+  DIST = join(fixture.root, 'dist');
+  VOID_CONFIG = join(fixture.root, 'void.config.ts');
+});
+
+afterAll(() => {
+  fixture?.cleanup();
+});
 
 let staticServer: Server | undefined;
 let staticBase: string;
@@ -71,10 +86,7 @@ it('uses server page data for navigation and prefetch in static-output dev', asy
   const browser = await chromium.launch();
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   try {
-    server = await startServer(
-      (port) => spawnPlaygroundServer(ROOT, 'node-static', 'dev', port),
-      20_000,
-    );
+    server = await startServer((port) => spawnFixtureServer(fixture.root, 'dev', port), 20_000);
     const page = await browser.newPage();
     page.setDefaultTimeout(10_000);
     await page.goto(server.base);
@@ -115,10 +127,9 @@ it('uses server page data for navigation and prefetch in static-output dev', asy
 
 describe('playground/node-static build (target: node, output: static)', () => {
   beforeAll(async () => {
-    const pg = join(ROOT, PLAYGROUND);
-    rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    rmSync(join(pg, '.void'), { recursive: true, force: true });
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    // The dev test above leaves local state behind.
+    rmSync(join(fixture.root, '.void'), { recursive: true, force: true });
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
 
     const clientDir = join(DIST, 'client');
     staticServer = createServer((req, res) => {
@@ -398,7 +409,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
   it('collects prerender paths from the built node app endpoint', async () => {
     const paths = await collectPrerenderPathsNode({
-      root: join(ROOT, PLAYGROUND),
+      root: fixture.root,
       ssrDir: join(DIST, 'ssr'),
       clientDir: join(DIST, 'client'),
     });
@@ -424,7 +435,7 @@ describe('playground/node-static redirects (target: node, output: static)', () =
     writeFileSync(
       VOID_CONFIG,
       renderVoidConfig({
-        ...readConfig(join(ROOT, PLAYGROUND)),
+        ...readConfig(fixture.root),
         routing: {
           redirects: {
             '/legacy': '/about',
@@ -434,10 +445,10 @@ describe('playground/node-static redirects (target: node, output: static)', () =
       }),
     );
 
-    const pg = join(ROOT, PLAYGROUND);
-    rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    rmSync(join(pg, '.void'), { recursive: true, force: true });
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    // Clear the previous group's build.
+    rmSync(join(fixture.root, 'dist'), { recursive: true, force: true });
+    rmSync(join(fixture.root, '.void'), { recursive: true, force: true });
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
     writeFileSync(VOID_CONFIG, originalConfig);
 
     externalServer = createServer((_req, res) => {

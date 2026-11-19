@@ -1,50 +1,44 @@
-import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync, type ChildProcess } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getWorkerAssetsDir, getWorkerConfigPath } from '@cloudflare/build-output-utils';
-import spawn from 'cross-spawn';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import {
+  createIsolatedPlayground,
+  killChild,
+  spawnFixtureServer,
+  startServer,
+  type IsolatedPlayground,
+} from '../../../../test/integration-helpers.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
+let fixture: IsolatedPlayground;
 let DEV_BASE: string;
 let PREVIEW_BASE: string;
 
+// The dev and the build + preview groups share one copy, as they shared the source directory.
+beforeAll(() => {
+  fixture = createIsolatedPlayground(ROOT, 'playground/ssr');
+});
+
+afterAll(() => {
+  fixture?.cleanup();
+});
+
 function clientEntryFile(): string {
   const manifest = JSON.parse(
-    readFileSync(join(ROOT, 'playground/ssr/dist/client/.vite/manifest.json'), 'utf-8'),
+    readFileSync(join(fixture.root, 'dist/client/.vite/manifest.json'), 'utf-8'),
   ) as Record<string, { file: string; isEntry?: boolean }>;
   return Object.values(manifest).find((entry) => entry.isEntry)!.file;
 }
 
 describe('playground/ssr dev', () => {
-  let child: ReturnType<typeof spawn>;
+  let child: ChildProcess;
 
   beforeAll(async () => {
     const server = await startServer((port) => {
-      child = spawn(
-        'vp',
-        [
-          'run',
-          '--filter',
-          './playground/ssr',
-          'dev',
-          '--host',
-          '127.0.0.1',
-          '--port',
-          String(port),
-          '--strictPort',
-        ],
-        {
-          cwd: ROOT,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            VOID_INSPECTOR_PORT: 'false',
-          },
-        },
-      );
+      child = spawnFixtureServer(fixture.root, 'dev', port);
       return child;
     }, 20_000);
     DEV_BASE = server.base;
@@ -79,35 +73,13 @@ describe('playground/ssr dev', () => {
 });
 
 describe('playground/ssr build + preview', () => {
-  let child: ReturnType<typeof spawn>;
+  let child: ChildProcess;
 
   beforeAll(async () => {
-    rmSync(join(ROOT, 'playground/ssr/dist'), { recursive: true, force: true });
-    execSync('vp run --filter ./playground/ssr build', { cwd: ROOT, stdio: 'pipe' });
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
 
     const server = await startServer((port) => {
-      child = spawn(
-        'vp',
-        [
-          'run',
-          '--filter',
-          './playground/ssr',
-          'preview',
-          '--host',
-          '127.0.0.1',
-          '--port',
-          String(port),
-          '--strictPort',
-        ],
-        {
-          cwd: ROOT,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            VOID_INSPECTOR_PORT: 'false',
-          },
-        },
-      );
+      child = spawnFixtureServer(fixture.root, 'preview', port);
       return child;
     }, 20_000);
     PREVIEW_BASE = server.base;
@@ -120,12 +92,12 @@ describe('playground/ssr build + preview', () => {
   });
 
   it('emits worker entry and client manifest', () => {
-    const workerEntry = join(ROOT, 'playground/ssr/dist/ssr/index.js');
-    const clientManifest = join(ROOT, 'playground/ssr/dist/client/.vite/manifest.json');
+    const workerEntry = join(fixture.root, 'dist/ssr/index.js');
+    const clientManifest = join(fixture.root, 'dist/client/.vite/manifest.json');
 
     expect(existsSync(workerEntry)).toBe(true);
     expect(existsSync(clientManifest)).toBe(true);
-    expect(existsSync(join(ROOT, 'playground/ssr/cloudflare.config.ts'))).toBe(false);
+    expect(existsSync(join(fixture.root, 'cloudflare.config.ts'))).toBe(false);
 
     const code = readFileSync(workerEntry, 'utf-8');
     // String literals survive minification; function names may be mangled
@@ -133,7 +105,7 @@ describe('playground/ssr build + preview', () => {
     expect(code).toContain('src/main.client.tsx');
 
     const wranglerConfig = JSON.parse(
-      readFileSync(join(ROOT, 'playground/ssr/dist/ssr/wrangler.json'), 'utf-8'),
+      readFileSync(join(fixture.root, 'dist/ssr/wrangler.json'), 'utf-8'),
     ) as {
       assets?: {
         not_found_handling?: string;
@@ -148,13 +120,13 @@ describe('playground/ssr build + preview', () => {
     expect(wranglerConfig.assets?.not_found_handling).toBe('none');
     expect(wranglerConfig.kv_namespaces?.some((b) => b.binding === 'KV')).toBe(true);
 
-    const headers = readFileSync(join(ROOT, 'playground/ssr/dist/client/_headers'), 'utf-8');
+    const headers = readFileSync(join(fixture.root, 'dist/client/_headers'), 'utf-8');
     expect(headers.split('\n')[0]).toBe(GENERATED_ASSET_HEADERS_MARKER);
     expect(headers).toContain(
       `/${clientEntryFile()}\n  Cache-Control: public, max-age=31536000, immutable\n`,
     );
     // v2 preview consumes the native artifact; CLI validation consumes dist.
-    const nativeRoot = join(ROOT, 'playground/ssr');
+    const nativeRoot = fixture.root;
     const native = JSON.parse(readFileSync(getWorkerConfigPath(nativeRoot), 'utf8'));
     expect(native.assets.runWorkerFirst).toEqual(runWorkerFirst);
     expect(readFileSync(join(getWorkerAssetsDir(nativeRoot), '_headers'), 'utf8')).toBe(headers);

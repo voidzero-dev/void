@@ -1,11 +1,26 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
+import {
+  createIsolatedPlayground,
+  type IsolatedPlayground,
+} from '../../../../test/integration-helpers.ts';
 import { generateAuthTypes } from '../../src/codegen/auth-types.ts';
 
 const workspaceRoot = join(import.meta.dirname, '..', '..', '..', '..');
 const roots: Array<string> = [];
+// The fixtures nest in a copy of kitchen-sink: writing them into the source playground would
+// change the inputs of the workspace build and of other test files.
+let playground: IsolatedPlayground;
+
+beforeAll(() => {
+  playground = createIsolatedPlayground(workspaceRoot, 'playground/kitchen-sink');
+});
+
+afterAll(() => {
+  playground?.cleanup();
+});
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -24,7 +39,7 @@ function typecheck(
   paths: Record<string, Array<string>>,
   authFileName = 'auth.ts',
 ) {
-  const root = mkdtempSync(join(workspaceRoot, 'playground/kitchen-sink/.tmp-auth-types-'));
+  const root = mkdtempSync(join(playground.root, '.tmp-auth-types-'));
   roots.push(root);
   const authFile = join(root, authFileName);
   const outDir = join(root, '.void');

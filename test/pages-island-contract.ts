@@ -155,16 +155,17 @@ function registerIslandTests(
 export function defineSharedIslandHmrTests({
   getBase,
   getBrowser,
-  counterFile,
-  islandFile,
+  counterFile: getCounterFile,
+  islandFile: getIslandFile,
   hmrKeepsState,
   prepareHmr,
   waitForHmr,
 }: {
   getBase: () => string;
   getBrowser: () => Browser;
-  counterFile: string;
-  islandFile: string;
+  /** Resolved when a case runs: the files live in a fixture copy created in `beforeAll`. */
+  counterFile: () => string;
+  islandFile: () => string;
   hmrKeepsState: boolean;
   /** Runs before the page loads. */
   prepareHmr?: (page: Page) => Promise<void>;
@@ -173,6 +174,7 @@ export function defineSharedIslandHmrTests({
 }): void {
   it('island component HMR updates without full page reload', { retry: 2 }, async () => {
     const base = getBase();
+    const counterFile = getCounterFile();
     const original = readFileSync(counterFile, 'utf-8');
 
     const context = await getBrowser().newContext();
@@ -215,6 +217,7 @@ export function defineSharedIslandHmrTests({
 
   it('island file edit triggers reload with updated content', { retry: 2 }, async () => {
     const base = getBase();
+    const islandFile = getIslandFile();
     const original = readFileSync(islandFile, 'utf-8');
 
     try {
