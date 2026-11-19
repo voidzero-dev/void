@@ -171,16 +171,29 @@ type MatchingRoute<P extends RoutePath, Candidate extends string> = [
     : P & Candidate;
 
 // Function helpers can widen Candidate to string when they infer the signature.
+// The marker must not be a subtype of the path: method signatures and code without
+// strictFunctionTypes compare parameters bivariantly and would accept the route.
 type UnknownRoute<Candidate extends string> = string extends Candidate
   ? never
-  : Candidate &
-      UrlTypeError<`Unknown route: ${Exclude<NoInfer<Candidate>, RoutePath>}. Use a registered route pattern.`> &
+  : UrlTypeError<`Unknown route: ${Exclude<NoInfer<Candidate>, RoutePath>}. Use a registered route pattern.`> &
       UrlErrorToken;
+
+// Keep P and Candidate out of a top-level union so TypeScript infers each from the
+// whole argument. A generic path such as `P & RoutePath` would otherwise be inferred
+// from its first member alone. The inner check always holds; its false branch only
+// gives Candidate an inference site.
+type RouteArgument<P extends RoutePath, Candidate extends string> = string extends Candidate
+  ? P
+  : [Candidate] extends [unknown]
+    ? MatchingRoute<P, Candidate> | UnknownRoute<Candidate>
+    : Candidate;
 
 /** Build a relative URL from a known route pattern. */
 // A single signature with a positional path preserves inference in wrappers and currying helpers.
-export function routeUrl<P extends RoutePath, Candidate extends RoutePath | (string & {}) = P>(
-  path: MatchingRoute<P, Candidate> | UnknownRoute<Candidate>,
+// Candidate is bounded by plain string: with `RoutePath | (string & {})`, the constraint of
+// `P & Candidate` is a cross product of the route union that overflows past ~316 routes.
+export function routeUrl<P extends RoutePath, Candidate extends string = P>(
+  path: RouteArgument<P, Candidate>,
   ...options: [RoutePathMap[NoInfer<MatchingRoute<P, Candidate>>]] extends [never]
     ? [options?: RouteOptions<MatchingRoute<P, Candidate>>]
     : [options: RouteOptions<MatchingRoute<P, Candidate>>]

@@ -539,6 +539,18 @@ function forwardArgs(...args: Parameters<typeof routeUrl<'/users/[id]'>>) {
 function forwardGenericArgs<P extends RoutePath>(...args: Parameters<typeof routeUrl<P>>) {
   return routeUrl(...args);
 }
+function forwardIntersectedPath<P extends string>(path: P & RoutePath, options: any) {
+  return routeUrl(path, options);
+}
+function forwardUnconstrainedPath<P>(path: P & RoutePath, options: any) {
+  return routeUrl(path, options);
+}
+function forwardStaticIntersection<P extends string>(path: P & ('/' | '/about')) {
+  return routeUrl(path);
+}
+function forwardPathOrAbout<P extends RoutePath>(path: P | '/about', options: any) {
+  return routeUrl(path, options);
+}
 forwardArgs('/users/[id]', { params: { id: 42 } });
 const user = { id: 42, name: 'Alice' };
 routeUrl('/users/[id]', { params: user });
@@ -552,7 +564,7 @@ const staticDestination: RouteDestination<'/about'> = { pathname: '/about' };
 routeUrl('/about', staticDestination);
 declare const indexedParams: Record<string, unknown> & { id: number };
 routeUrl('/users/[id]', { params: indexedParams });
-void [userUrl, forwardOptions, forwardRouteOptions, forwardRouteOptionsSubtype, forwardExplicitOptions, forwardAnyOptions, buildRoute, buildRouteWithSubtype, forwardStaticOptions, forwardDestination, forwardArgs, forwardGenericArgs];
+void [userUrl, forwardOptions, forwardRouteOptions, forwardRouteOptionsSubtype, forwardExplicitOptions, forwardAnyOptions, buildRoute, buildRouteWithSubtype, forwardStaticOptions, forwardDestination, forwardArgs, forwardGenericArgs, forwardIntersectedPath, forwardUnconstrainedPath, forwardStaticIntersection, forwardPathOrAbout];
 `,
         },
       });
@@ -999,6 +1011,79 @@ routeUrl('/users/[id]', { params: { id: 42, extra: value } });
           tsc,
         ),
       ).toEqual({ output: '', status: 0 });
+    },
+  );
+
+  it.each(declarationChecks)(
+    'rejects unknown routes in bivariant parameter checks through $declarations declarations with TS $version',
+    async ({ declarations, tsc }) => {
+      const root = await createFixture({
+        extraFiles: {
+          'check-bivariant.ts': `import { routeUrl } from 'void/routes';
+interface Builder { url(path: '/missing'): string }
+// @ts-expect-error method signatures compare parameters bivariantly but still reject unknown routes
+const builder: Builder = { url: routeUrl };
+// @ts-expect-error a class property implementing a method signature still rejects unknown routes
+class RouteBuilder implements Builder { url = routeUrl; }
+// @ts-expect-error an unknown bracket route would throw for its missing param at runtime
+const renamed: { url(path: '/users/[uid]'): string } = { url: routeUrl };
+// @ts-expect-error a known route cannot hide an unknown one in the same union
+const mixed: { url(path: '/about' | '/missing'): string } = { url: routeUrl };
+// @ts-expect-error function types without strictFunctionTypes still reject unknown routes
+const callback: (path: '/missing') => string = routeUrl;
+const known: { url(path: '/about'): string } = { url: routeUrl };
+void [builder, RouteBuilder, renamed, mixed, callback, known];
+`,
+        },
+      });
+      for (const compilerOptions of [{}, { strictFunctionTypes: false }]) {
+        expect
+          .soft(
+            typecheck(root, declarations, ['check-bivariant.ts'], compilerOptions, tsc),
+            JSON.stringify(compilerOptions),
+          )
+          .toEqual({ output: '', status: 0 });
+      }
+    },
+  );
+
+  it.each(declarationChecks)(
+    'checks routeUrl in apps with hundreds of routes through $declarations declarations with TS $version',
+    async ({ declarations, tsc }) => {
+      // A non-primitive member in Candidate's constraint made `P & Candidate` a cross product
+      // of the route union, which TypeScript rejects (TS2590) past ~316 route keys.
+      const pages = Object.fromEntries(
+        Array.from({ length: 150 }, (_, index) => [
+          [`pages/large/s${index}.tsx`, 'export default function Page() { return null; }'],
+          [`pages/large/d${index}/[id].tsx`, 'export default function Page() { return null; }'],
+        ]).flat(),
+      );
+      const root = await createFixture({
+        extraFiles: {
+          ...pages,
+          'check-large.ts': `import { routeUrl, type RouteOptions, type RoutePath } from 'void/routes';
+routeUrl('/large/s0');
+routeUrl('/large/d0/[id]', { params: { id: 1 } });
+declare const path: RoutePath;
+routeUrl(path, {} as any);
+function forward<P extends RoutePath>(path: P, options: RouteOptions<P>) {
+  return routeUrl(path, options);
+}
+function forwardIntersectedPath<P extends string>(path: P & RoutePath, options: any) {
+  return routeUrl(path, options);
+}
+// @ts-expect-error unknown routes are still rejected
+routeUrl('/large/missing');
+// @ts-expect-error params are still required
+routeUrl('/large/d0/[id]');
+void [forward, forwardIntersectedPath];
+`,
+        },
+      });
+      expect(typecheck(root, declarations, ['check-large.ts'], {}, tsc)).toEqual({
+        output: '',
+        status: 0,
+      });
     },
   );
 
