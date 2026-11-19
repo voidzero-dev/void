@@ -59,6 +59,7 @@ Use this page as a command reference. If you are setting up a project for the fi
 | `void account login`              | Authenticate with a Void platform                                             |
 | `void cloudflare login`           | Authenticate with Cloudflare through Void                                     |
 | `void platform install`           | Install a company Void platform in Cloudflare                                 |
+| `void platform security`          | Administer security audits: scan mode, models, spending caps, and findings    |
 | `void connect <url>`              | Connect the CLI to a Void platform; hostnames default to HTTPS                |
 | `void project link`               | Link directory to a project                                                   |
 | `void project logs`               | Show runtime logs from deployed project                                       |

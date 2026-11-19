@@ -1,5 +1,6 @@
 import { parsePlatformLoginId } from '@void/platform';
 import { OPERATOR_MAX_TIMEOUT_MS } from './operator-client.ts';
+import { applySecurityArgs, securityOperatorCommands } from './operator-security-args.ts';
 
 /** Public operator commands. This table also drives nested CLI help. */
 export type OperatorCommand = {
@@ -12,6 +13,10 @@ export type OperatorCommand = {
   values?: Record<string, string>;
   booleans?: Record<string, string>;
   method?: 'POST';
+  /** Lists take `--limit` and `--page`; without this only the generic list names do. */
+  paged?: boolean;
+  /** A POST that is an action, not a change: no preview, no `--plan` or `--yes`. */
+  noConfirm?: boolean;
   path: string;
 };
 
@@ -213,6 +218,7 @@ export const operatorCommands: Array<OperatorCommand> = [
     positional: ['id'],
     method: 'POST',
   },
+  ...securityOperatorCommands,
   {
     group: 'deployment',
     action: 'list',
@@ -610,6 +616,41 @@ export type OperatorArgs = {
   body: Record<string, unknown>;
 };
 
+/**
+ * A flag name can be a switch in one command and take a value in another (`security
+ * model --default` against `security models --default <id>`). Those names are switches
+ * only for the command that declares them as switches.
+ */
+function booleanFlagsFor(args: Array<string>): Array<string> {
+  const valueNames = new Set(
+    operatorCommands.flatMap((command) => Object.keys(command.values ?? {})),
+  );
+  const declared = operatorCommands.flatMap((command) => Object.keys(command.booleans ?? {}));
+  const ambiguous = new Set(declared.filter((name) => valueNames.has(name)));
+  const names = declared.filter((name) => !ambiguous.has(name));
+  if (ambiguous.size === 0) {
+    return names;
+  }
+  // Find the command from its first two words, skipping flags and their values.
+  const words: Array<string> = [];
+  for (let index = 0; index < args.length && words.length < 2; index++) {
+    const arg = args[index]!;
+    if (!arg.startsWith('--')) {
+      words.push(arg);
+    } else if (
+      !names.includes(arg.slice(2)) &&
+      !ambiguous.has(arg.slice(2)) &&
+      !['json', 'plan', 'yes', 'force'].includes(arg.slice(2))
+    ) {
+      index++;
+    }
+  }
+  const selected = operatorCommands.find(
+    (command) => command.group === words[0] && command.action === words[1],
+  );
+  return [...names, ...Object.keys(selected?.booleans ?? {}).filter((name) => ambiguous.has(name))];
+}
+
 export function parseOperatorArgs(args: Array<string>): OperatorArgs {
   const positional: Array<string> = [];
   const values: Record<string, string> = {};
@@ -620,7 +661,7 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
     'yes',
     // No command declares `--force`; parsing it as a boolean reports it as an unknown flag.
     'force',
-    ...operatorCommands.flatMap((command) => Object.keys(command.booleans ?? {})),
+    ...booleanFlagsFor(args),
   ]);
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!;
@@ -697,6 +738,7 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
     );
   }
   const paged =
+    command.paged === true ||
     action === 'list' ||
     action === 'events' ||
     action === 'logs' ||
@@ -717,7 +759,7 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
     if (
       ![
         'json',
-        ...(command.method ? ['yes', 'plan'] : []),
+        ...(command.method && !command.noConfirm ? ['yes', 'plan'] : []),
         ...Object.keys(command.booleans ?? {}),
       ].includes(name)
     ) {
@@ -805,7 +847,9 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
       parsed.body[name] = true;
     }
   }
-  if (group === 'zero-trust' && action === 'configure') {
+  if (group === 'security') {
+    applySecurityArgs(command, parameters, values, flags, parsed);
+  } else if (group === 'zero-trust' && action === 'configure') {
     if (!parsed.tokenStdin) {
       throw new Error('platform: zero-trust configure requires --token-stdin.');
     }

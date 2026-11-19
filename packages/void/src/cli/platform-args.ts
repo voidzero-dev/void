@@ -82,6 +82,7 @@ export type PlatformArgs =
       noControlPlaneDomain?: true;
       dedicatedZoneSpecified?: true;
       customDomains?: true;
+      securityAudits?: true;
       account: string;
       applicationDomain: string;
       controlPlaneDomain: string;
@@ -105,6 +106,7 @@ export type PlatformArgs =
       authConfig?: string;
       dashboardUrl?: string;
       customDomains?: true;
+      securityAudits?: true;
       /** upgrade only: omitted keeps the recorded value; `full` clears it. */
       runtimeLogs?: PlatformRuntimeLogsChoice;
       storageLocation?: PlatformStorageLocation;
@@ -187,6 +189,7 @@ function parseLifecycleSelector(
   authConfig?: string;
   dashboardUrl?: string;
   customDomains?: true;
+  securityAudits?: true;
   runtimeLogs?: PlatformRuntimeLogsChoice;
   storageLocation?: PlatformStorageLocation;
 } {
@@ -198,6 +201,7 @@ function parseLifecycleSelector(
   let authConfig: string | undefined;
   let dashboardUrl: string | undefined;
   let customDomains = false;
+  let securityAudits = false;
   for (let index = 0; index < rest.length; index++) {
     const arg = rest[index]!;
     if (arg === '--runtime') {
@@ -216,6 +220,11 @@ function parseLifecycleSelector(
       (subcommand === 'upgrade' || subcommand === 'repair')
     ) {
       customDomains = true;
+    } else if (
+      arg === '--security-audits' &&
+      (subcommand === 'upgrade' || subcommand === 'repair')
+    ) {
+      securityAudits = true;
     } else if (arg === '--storage-location' && subcommand === 'upgrade') {
       const [value, next] = readValue(rest, index, arg);
       storageLocation = parsePlatformStorageLocation(value);
@@ -247,6 +256,7 @@ function parseLifecycleSelector(
     ...(authConfig !== undefined ? { authConfig } : {}),
     ...(dashboardUrl !== undefined ? { dashboardUrl } : {}),
     ...(customDomains ? { customDomains: true as const } : {}),
+    ...(securityAudits ? { securityAudits: true as const } : {}),
     ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
     ...(storageLocation !== undefined ? { storageLocation } : {}),
   };
@@ -368,6 +378,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       authConfig,
       dashboardUrl,
       customDomains,
+      securityAudits,
       runtimeLogs,
       storageLocation,
     } = parseLifecycleSelector(rest, subcommand);
@@ -382,6 +393,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
           ...(authConfig !== undefined ? { authConfig } : {}),
           ...(dashboardUrl !== undefined ? { dashboardUrl } : {}),
           ...(customDomains ? { customDomains } : {}),
+          ...(securityAudits ? { securityAudits } : {}),
           ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
           ...(storageLocation !== undefined ? { storageLocation } : {}),
         };
@@ -429,6 +441,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     ]);
     let workersDev = false;
     let customDomains = false;
+    let securityAudits = false;
     for (let i = 0; i < rest.length; i++) {
       const arg = rest[i]!;
       if (valueFlags.has(arg)) {
@@ -457,6 +470,8 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
         workersDev = true;
       } else if (arg === '--custom-domains') {
         customDomains = true;
+      } else if (arg === '--security-audits') {
+        securityAudits = true;
       } else {
         throw new Error(`platform: Unexpected argument '${arg}'.`);
       }
@@ -514,6 +529,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       ...(noControlPlaneDomain ? { noControlPlaneDomain: true as const } : {}),
       ...(noDedicatedZone ? { dedicatedZoneSpecified: true as const } : {}),
       ...(customDomains ? { customDomains: true as const } : {}),
+      ...(securityAudits ? { securityAudits: true as const } : {}),
       ...(values.has('--hyperdrive') ? { hyperdrive: values.get('--hyperdrive')! } : {}),
       ...(loginMethods
         ? { loginMethods: [...new Set(loginMethods)] as Array<PlatformLoginKind> }

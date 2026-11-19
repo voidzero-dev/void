@@ -109,6 +109,7 @@ const referenceItems: Array<SidebarItem> = [
       { text: 'Platform Configuration', link: '/reference/cli/platform-config' },
       { text: 'Platform Users and Projects', link: '/reference/cli/platform-users' },
       { text: 'Project Zero Trust', link: '/reference/cli/platform-zero-trust' },
+      { text: 'Platform Security Audits', link: '/reference/cli/platform-security' },
       { text: 'Platform Operations', link: '/reference/cli/platform-operations' },
       { text: 'Platform Email', link: '/reference/cli/platform-email' },
     ],

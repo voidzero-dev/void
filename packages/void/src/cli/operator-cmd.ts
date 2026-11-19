@@ -21,6 +21,12 @@ import { dim, printSuccess, sanitizeTerminalText } from './output.ts';
 import { MINIMAL_RUNTIME_LOGS_NOTE } from './platform-runtime-logs.ts';
 
 const MAX_RUNTIME_FOLLOW_ROWS = 10_000;
+const OPEN_PUBLIC_REQUEST_STATES = [
+  'waiting_scan',
+  'held_findings',
+  'held_no_result',
+  'needs_deploy',
+];
 export const BUILD_LOG_DRAIN_TIMEOUT_MS: number = 2 * 60_000;
 
 function printable(value: unknown): string {
@@ -144,17 +150,21 @@ export function humanLines(value: unknown, indent = ''): Array<string> {
   });
 }
 
-function output(value: unknown, json: boolean): void {
+export function output(value: unknown, json: boolean): void {
   console.log(json ? JSON.stringify(value) : humanLines(value).join('\n'));
 }
 
-function outputMutation(result: Record<string, unknown>, args: OperatorArgs): void {
+export function outputMutation(result: Record<string, unknown>, args: OperatorArgs): void {
   output(result, args.json);
   // Some successful HTTP responses checkpoint work rather than complete it.
   const configuration = result.configuration as { status?: string } | undefined;
   const project = result.project as { state?: string; last_error?: string | null } | undefined;
+  // A public request that is still open has not made the project public.
+  const publicRequest = result.publicRequest as { state?: string } | null | undefined;
   if (
     args.json ||
+    (publicRequest?.state !== undefined &&
+      OPEN_PUBLIC_REQUEST_STATES.includes(publicRequest.state)) ||
     result.ok === false ||
     result.partial === true ||
     result.complete === false ||
@@ -671,6 +681,27 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
     return runAuth(origin, args);
   }
   const client = new OperatorClient(origin, readOperatorToken(origin));
+  if (args.group === 'security') {
+    // The probe is a check, not a change, so it needs no confirmation.
+    if (
+      args.method === 'POST' &&
+      args.action !== 'probe' &&
+      !args.plan &&
+      !args.yes &&
+      (!process.stdin.isTTY || !process.stderr.isTTY)
+    ) {
+      throw new OperatorClientError(
+        'Mutations in non-interactive mode require --yes or --plan.',
+        'confirmation_required',
+      );
+    }
+    const { runSecurityOperatorCommand } = await import('./operator-security.ts');
+    return runSecurityOperatorCommand(client, origin, args, {
+      output,
+      outputMutation,
+      confirm: confirmOperatorMutation,
+    });
+  }
   if (args.method === 'POST') {
     // Fail before contacting the server when unattended mutation authorization is missing.
     if (!args.plan && !args.yes && (!process.stdin.isTTY || !process.stderr.isTTY)) {

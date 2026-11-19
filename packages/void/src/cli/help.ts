@@ -54,15 +54,19 @@ function operatorHelpTree(): HelpTree {
                   },
                   ...(entry.method
                     ? [
-                        {
-                          command: '--plan',
-                          description: 'Validate and preview without changing anything',
-                        },
-                        {
-                          command: '--yes',
-                          description:
-                            'Apply after preview without prompting; required in unattended scripts',
-                        },
+                        ...(entry.noConfirm
+                          ? []
+                          : [
+                              {
+                                command: '--plan',
+                                description: 'Validate and preview without changing anything',
+                              },
+                              {
+                                command: '--yes',
+                                description:
+                                  'Apply after preview without prompting; required in unattended scripts',
+                              },
+                            ]),
                         {
                           command: '--timeout <seconds>',
                           description:
@@ -70,9 +74,8 @@ function operatorHelpTree(): HelpTree {
                         },
                       ]
                     : []),
-                  ...(['list', 'events', 'logs', 'attempts', 'shared-recipients'].includes(
-                    entry.action,
-                  )
+                  ...(entry.paged ||
+                  ['list', 'events', 'logs', 'attempts', 'shared-recipients'].includes(entry.action)
                     ? [
                         {
                           command: '--limit <number>',
@@ -548,6 +551,11 @@ const HELP_TREE: HelpTree = {
           {
             command: '--custom-domains',
             description: 'Let projects add their own domains (requires --dedicated-zone)',
+          },
+          {
+            command: '--security-audits',
+            description:
+              'Allow security audits. Needs Cloudflare Containers and Workers AI; it turns nothing on until an administrator sets a scan mode',
           },
           { command: '--control-plane-domain <domain>', description: 'Optional API hostname' },
           {
@@ -1618,7 +1626,7 @@ function lifecycleHelp(
   return {
     summary,
     usage: [
-      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>] [--custom-domains]' : ''}${command === 'upgrade' ? ' [--runtime-logs <full|minimal>] [--storage-location <hint|automatic>]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
+      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>] [--custom-domains] [--security-audits]' : ''}${command === 'upgrade' ? ' [--runtime-logs <full|minimal>] [--storage-location <hint|automatic>]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
     ],
     options: [
       { command: '--plan', description: 'Print the exact plan without making changes' },
@@ -1640,6 +1648,11 @@ function lifecycleHelp(
             {
               command: '--custom-domains',
               description: 'Turn on project custom domains; omission keeps the saved setting',
+            },
+            {
+              command: '--security-audits',
+              description:
+                'Allow security audits (needs Containers and Workers AI); omission keeps the saved setting',
             },
           ]
         : []),

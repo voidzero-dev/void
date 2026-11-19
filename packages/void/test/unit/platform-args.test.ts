@@ -104,6 +104,22 @@ describe('platform args', () => {
       );
     }
   });
+  it('allows security audits only in install, upgrade, and repair', () => {
+    for (const command of ['install', 'upgrade', 'repair']) {
+      expect(parsePlatformArgs([command, '--security-audits'])).toMatchObject({
+        securityAudits: true,
+      });
+      expect(parsePlatformArgs([command])).not.toHaveProperty('securityAudits');
+    }
+    // It needs no dedicated zone, unlike custom domains.
+    expect(parsePlatformArgs(['install', '--security-audits', '--workers-dev'])).toMatchObject({
+      securityAudits: true,
+      workersDev: true,
+    });
+    for (const command of ['enable', 'disable', 'rollback', 'uninstall']) {
+      expect(() => parsePlatformArgs([command, '--security-audits'])).toThrow();
+    }
+  });
   it('accepts replacement login settings only in repair', () => {
     expect(parsePlatformArgs(['repair', 'team', '--auth-config', 'auth.json'])).toEqual({
       subcommand: 'repair',

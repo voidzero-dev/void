@@ -9,32 +9,33 @@ outline: deep
 void platform install [options] [--yes]
 ```
 
-| Option                                    | Purpose                                                                              |
-| ----------------------------------------- | ------------------------------------------------------------------------------------ |
-| `--name <slug>`                           | Installation name used in `void-<name>-<role>` resource names; choose an unused name |
-| `--display-name <name>`                   | Human-readable platform name                                                         |
-| `--account <id>`                          | Cloudflare account id                                                                |
-| `--auth-config <path>`                    | Login methods, signup policy, and environment references for provider secrets        |
-| `--login-methods <methods>`               | Comma-separated `github`, `google`, `oidc`, or `cloudflare-access` login methods     |
-| `--access-protection`                     | Protect the platform UI and APIs with Cloudflare Access                              |
-| `--no-access-protection`                  | Skip Cloudflare Access protection                                                    |
-| `--app-access <public\|platform\|custom>` | Public apps, the platform's Access policy, or separately selected app policies       |
-| `--hyperdrive <create\|id>`               | Create Hyperdrive or use the specified existing configuration                        |
-| `--application-domain <domain>`           | Base domain for deployed apps                                                        |
-| `--workers-dev`                           | Explicit testing mode; add an application domain later                               |
-| `--zone <domain>`                         | Cloudflare zone containing the application domain                                    |
-| `--dedicated-zone`                        | Add zone-wide catch-all routes; valid only when the app domain is the whole zone     |
-| `--no-dedicated-zone`                     | Skip zone-wide application catch-all routes                                          |
-| `--custom-domains`                        | Let projects add their own domains; needs a dedicated zone                           |
-| `--runtime-logs <full\|minimal>`          | `minimal` keeps request URLs and log and exception messages out of runtime logs      |
-| `--storage-location <hint\|automatic>`    | Default location hint for new project R2 buckets; `automatic` clears it              |
-| `--control-plane-domain <domain>`         | Optional API custom hostname; defaults to `workers.dev`                              |
-| `--no-control-plane-domain`               | Use the default `workers.dev` API hostname                                           |
-| `--dashboard-url <origin>`                | HTTPS origin of an optional dashboard deployed separately                            |
-| `--plan`                                  | Preview Cloudflare changes and save installation choices locally                     |
-| `--resume`                                | Continue the matching checkpointed installation                                      |
-| `--runtime <path>`                        | Deploy a locally built, integrity-checked runtime directory                          |
-| `--yes`                                   | Acknowledge Cloudflare changes in non-interactive use                                |
+| Option                                    | Purpose                                                                                 |
+| ----------------------------------------- | --------------------------------------------------------------------------------------- |
+| `--name <slug>`                           | Installation name used in `void-<name>-<role>` resource names; choose an unused name    |
+| `--display-name <name>`                   | Human-readable platform name                                                            |
+| `--account <id>`                          | Cloudflare account id                                                                   |
+| `--auth-config <path>`                    | Login methods, signup policy, and environment references for provider secrets           |
+| `--login-methods <methods>`               | Comma-separated `github`, `google`, `oidc`, or `cloudflare-access` login methods        |
+| `--access-protection`                     | Protect the platform UI and APIs with Cloudflare Access                                 |
+| `--no-access-protection`                  | Skip Cloudflare Access protection                                                       |
+| `--app-access <public\|platform\|custom>` | Public apps, the platform's Access policy, or separately selected app policies          |
+| `--hyperdrive <create\|id>`               | Create Hyperdrive or use the specified existing configuration                           |
+| `--application-domain <domain>`           | Base domain for deployed apps                                                           |
+| `--workers-dev`                           | Explicit testing mode; add an application domain later                                  |
+| `--zone <domain>`                         | Cloudflare zone containing the application domain                                       |
+| `--dedicated-zone`                        | Add zone-wide catch-all routes; valid only when the app domain is the whole zone        |
+| `--no-dedicated-zone`                     | Skip zone-wide application catch-all routes                                             |
+| `--custom-domains`                        | Let projects add their own domains; needs a dedicated zone                              |
+| `--security-audits`                       | Allow [security audits](./platform-security.md#enable); needs Containers and Workers AI |
+| `--runtime-logs <full\|minimal>`          | `minimal` keeps request URLs and log and exception messages out of runtime logs         |
+| `--storage-location <hint\|automatic>`    | Default location hint for new project R2 buckets; `automatic` clears it                 |
+| `--control-plane-domain <domain>`         | Optional API custom hostname; defaults to `workers.dev`                                 |
+| `--no-control-plane-domain`               | Use the default `workers.dev` API hostname                                              |
+| `--dashboard-url <origin>`                | HTTPS origin of an optional dashboard deployed separately                               |
+| `--plan`                                  | Preview Cloudflare changes and save installation choices locally                        |
+| `--resume`                                | Continue the matching checkpointed installation                                         |
+| `--runtime <path>`                        | Deploy a locally built, integrity-checked runtime directory                             |
+| `--yes`                                   | Acknowledge Cloudflare changes in non-interactive use                                   |
 
 For a first installation, follow [Install a Void Platform](../../guide/self-hosted-platform.md). The interactive installer recommends using a domain and offers **Use workers.dev for testing** as a visible alternative. Void creates the platform infrastructure and tables. External PostgreSQL and a configured login method are required in either mode. Select all login methods you want to enable; none are selected initially. Non-interactive installation defaults to GitHub when no login configuration is supplied. `--workers-dev` skips zone/DNS/certificate operations and cannot be combined with `--application-domain`, `--zone`, or `--dedicated-zone`.
 
@@ -104,9 +105,9 @@ Use these commands to recover, update, pause, or remove an installation:
 
 ```sh
 void platform discover [--account <id>] [--installation <id-or-name>]
-void platform upgrade [id] [--runtime <path>] [--dashboard-url <origin>] [--custom-domains] [--runtime-logs <full|minimal>] [--storage-location <hint|automatic>] [--plan] [--yes]
+void platform upgrade [id] [--runtime <path>] [--dashboard-url <origin>] [--custom-domains] [--security-audits] [--runtime-logs <full|minimal>] [--storage-location <hint|automatic>] [--plan] [--yes]
 void platform rollback [id] --runtime <earlier-path> [--from-runtime <current-path>] [--plan] [--yes]
-void platform repair [id] [--runtime <path>] [--dashboard-url <origin>] [--custom-domains] [--auth-config <path>] [--plan] [--yes]
+void platform repair [id] [--runtime <path>] [--dashboard-url <origin>] [--custom-domains] [--security-audits] [--auth-config <path>] [--plan] [--yes]
 void platform disable [id] [--plan] [--yes]
 void platform enable [id] [--runtime <path>] [--plan] [--yes]
 void platform uninstall [id] [--plan] [--purge-data | --purge-resources] [--yes]

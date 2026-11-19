@@ -1268,7 +1268,7 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
 **M23 CLI operator group, installer flag, uninstall.**
 
 - Scope: `group:'security'` entries (status, probe, policy, models, limits with
-  `--scan-timeout`, budget + budget-set, findings with `--urgent` moved to the query,
+  `--scan-timeout`, budget, findings with `--urgent` moved to the query,
   show/resolve/reopen/comment with comma F-ids, model, scans, rescan, cancel,
   public-gate, public-requests, bypass, bypasses); paged list in `operator-args.ts` and
   `help.ts`; `outputMutation` treats an open `publicRequest` as not completed.
@@ -1279,6 +1279,44 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   `platform-management-upgrade.test.ts`, `platform-setup.test.ts`,
   `platform-teardown.test.ts`, `cli-help.test.ts`.
 - Exit: `void platform security --help` tree generated; old runtime refused.
+- As built: the group lives in `operator-security-args.ts` (table + `applySecurityArgs`) and the
+  runner in `operator-security.ts`; `operator-args.ts` spreads the table after `zero-trust`.
+  `OperatorCommand` gained `paged` (security lists take `--limit`/`--page`; `help.ts` reads it) and
+  `noConfirm` (the probe: one POST, no preview, no `--plan`/`--yes`, because its route has no dryRun and
+  a preview would run it). Projects are addressed by id (`<project-id>`), like every operator command;
+  `--project` filters take an id or a slug. `--default` is a value for `models` and a switch for
+  `model`: `booleanFlagsFor` treats a name as a switch only for the command that declares it as one.
+  Spec `--timeout MIN` is `--scan-timeout` (`--timeout` is the request deadline, as the plan says).
+  `budget` follows spec §13.4: no flags reads (GET), any cap flag writes (POST); `applySecurityArgs` picks the
+  method per call. Uninstall treats a 403 or 404 on the container application list as nothing to remove when the
+  controller does not exist; with a controller it still fails.
+  Policy-shaped writes (`policy`, `models`, `limits`, `public-gate`, platform `budget` with cap flags) preview, show
+  the preview without the stored policy, then apply at the previewed `expectedRevision`.
+  `--accept-provider-notice` reads the version from `GET /security/policy`. `--project-caps on` with no
+  amount applies the saved default (read from `GET /security/budget`); `--project-default-usd N` also turns
+  project caps on, since the route has one field for both. Finding commands take comma ids, read each
+  finding's revision, preview every id first, ask once, then write one by one; a failed write is reported
+  and the command exits with `partial_failure`. `rescan` prints the model, the reserve and whether the
+  live deployment was scanned before it asks (spec §13.4 text). A 501 `platform capability unavailable`
+  reads `Security audits are not installed. Run: void platform upgrade --security-audits`.
+  `outputMutation` prints no success line while `publicRequest.state` is open.
+  Installer: `--security-audits` on install, upgrade and repair (`platform-args.ts`); `createPlatformInstallPlan`
+  sets the capability and merges it onto a recorded manifest together with schema 7 (otherwise the drift
+  check would fail on the version); resume command, saved-plan guard and help text carry it; the runtime
+  guard `assertPlatformSecurityAuditsSupported` (`platform-security-audits.ts`) runs in the lifecycle, the
+  management upgrade and the installer, before anything changes. The runtime token link adds Containers +
+  Cloudchamber when Sandbox or security audits are on; the management token link adds them for security
+  audits too, because uninstall deletes the container application with the operator credential.
+  Uninstall (plain and `--purge-resources`): with the capability on, after traffic is disabled and before
+  any Worker is deleted, `deletePlatformSecurityScanner` removes the gate, the container application and
+  the controller, each found by its derived name and proven by the ownership marker. An object with
+  another installation's marker, or an application whose controller is gone or of another namespace, is
+  kept and named in a warning. Any other API error fails the uninstall (re-run it). With the capability off
+  it makes no call. The CLI cannot import the API's provisioning code (public packages never import
+  `platform/`), so `securityScannerNames` and the marker are re-derived there; a test pins the name rule.
+  Deviations: the plan did not name `platform-management.test.ts` / `platform-security-audits.test.ts`; the
+  uninstall and scanner-teardown tests live there. No full-run docs page yet (M24); the reference page
+  `docs/reference/cli/platform-security.md` and the `cli.md` row carry the commands (AGENTS.md CLI rule).
 
 **M24 Phase 1 docs.** See Docs below. Exit: `vp check`, docs links resolve.
 
