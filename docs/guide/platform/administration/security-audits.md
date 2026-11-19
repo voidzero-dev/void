@@ -18,7 +18,7 @@ This feature is off until you turn it on. Projects deployed directly to Cloudfla
 - Workers AI access for the default model: Workers Paid or prepaid AI credits.
 - For the optional scan before a project goes public, [project Zero Trust](./zero-trust.md) must be on and not public-only.
 
-The scanner runs in its own container with no internet access. It reaches models only through the platform. Uninstalling the platform removes the scanner Worker and its container application. See [Disable and Uninstall](/guide/platform/installation/uninstall).
+The scanner runs in its own container with no internet access. It reaches models only through the platform. Uninstalling the platform removes the scanner Worker, its container applications, and the scanner images it copied. See [Disable and Uninstall](/guide/platform/installation/uninstall).
 
 ::: warning Roll forward after you upgrade
 The upgrade that adds security audits includes a database migration for the scan scheduler. Cloudflare does not roll a Worker back past such a migration, so after you upgrade, fix a bad release by deploying a newer one.
@@ -64,7 +64,7 @@ Void reviews the source that changed when it can see it, and otherwise the built
 
 A model run by a third party sees the project's changed code, the files it uses, and past findings and comments. The provider may keep request data for a limited time and may refuse security-looking code. A refused scan shows as refused, never as passed. For that reason code does not go to a third party until someone has accepted the notice: you accept it once for a third-party platform default, and a project owner or administrator accepts it once per project. Until then the project uses a Cloudflare model. To keep all code in Cloudflare, block the third-party models.
 
-A project that picks a third-party model also needs an AI permission on the platform's runtime token. See [Permissions to select for each token](/guide/platform/installation/credentials). The probe names a missing permission and lists models that cannot be picked yet.
+A project that picks a third-party model also needs an AI permission on the platform's runtime token. See [Permissions to select for each token](/guide/platform/installation/credentials). The probe names a missing permission and lists models that cannot be picked yet. For these models the probe also copies a scanner image into the account's container registry. The first copy can take more than one probe run; until it is done, those models cannot be picked. When you block every model of one provider, the probe does not copy that provider's image.
 
 Project owners and administrators pick their project's model from the same list with `void project security model`.
 

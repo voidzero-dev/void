@@ -2044,7 +2044,9 @@ describe('uninstall with security audits', () => {
         .mock.calls.map(([text]) => String(text))
         .join('\n');
       expect(
-        plan.includes('Delete the security scanner Worker and its container application.'),
+        plan.includes(
+          'Delete the security scanner Worker, its container applications, and the scanner images it copied.',
+        ),
       ).toBe(listed);
     }
   });

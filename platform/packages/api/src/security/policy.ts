@@ -370,7 +370,7 @@ function assertDefaultModel(
   if (!probeRunsOnApply && !next.entitlement?.hosts[host]) {
     throw SecurityApiError.of(
       'modelNotAllowed',
-      `${host}/* models cannot be picked: the last probe found no AI Gateway credits for ${host}/*. Load Unified Billing credits, then run: void platform security probe`,
+      `${host}/* models cannot be picked: they were not ready in the last probe (check 5: AI Gateway credits or the scanner image). See the check 5 lines of: void platform security probe`,
       { model: id, host },
     );
   }

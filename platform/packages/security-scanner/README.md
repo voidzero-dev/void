@@ -61,7 +61,26 @@ then `docker build --platform linux/amd64 -f platform/packages/security-scanner/
 After a session that sent no report, engines A and C ask the model proxy why
 (`GET /v1/void/last-failure`); `status.ts` maps the answer.
 
+Images in a release (design doc 0095 M13b):
+
+```
+publish-security-scanner-images.ts --push        (manual workflow)
+  └─► ghcr.io/voidzero-dev/void-security-scanner-engine-{a,c}@sha256  (public)
+        └─► digests pinned in platform/packages/api/src/security/scanner-images.json
+              └─► probe copies each into registry.cloudflare.com/<account>/…
+                    └─► one container app + controller class per engine
+```
+
+The engine images keep their own `runner.mjs`; the controller only prepares `/scan` as
+root before it starts the runner as `scanner`. `digest: null` means that release has no
+image for the engine, so its models cannot be picked.
+
 ## Tests
 
 `vp test run platform/packages/security-scanner`. The fake model server in
 `test/fake-model/server.ts` serves scripted chat-completions JSON and SSE.
+`test/e2e/recorded-run.e2e.test.ts` builds both images for the host and runs a whole scan
+in each with `--network none` against `test/e2e/fake-sdk-model.mjs` (Anthropic Messages and
+OpenAI Responses). It is opt-in: it runs only with `VOID_SCANNER_E2E=1` and Docker present
+(`VOID_SCANNER_E2E=1 vp test run platform/packages/security-scanner/test/e2e`). CI sets it in
+the scanner image job.

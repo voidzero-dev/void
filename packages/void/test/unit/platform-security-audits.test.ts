@@ -41,12 +41,52 @@ function account(
     gate?: 'ours' | 'foreign' | 'missing';
     controller?: 'ours' | 'foreign' | 'missing';
     application?: 'ours' | 'other-namespace' | 'missing';
+    /** The Engine A container application and its copied image (M13b). */
+    engineA?: boolean;
     failOn?: string;
+    /** Registry answers for the image manifest HEAD and the layer cleanup. */
+    headStatus?: number;
+    gcStatus?: number;
   } = {},
 ) {
-  const { gate = 'ours', controller = 'ours', application = 'ours', failOn } = options;
+  const {
+    gate = 'ours',
+    controller = 'ours',
+    application = 'ours',
+    engineA = false,
+    failOn,
+    headStatus = 200,
+    gcStatus = 202,
+  } = options;
   const names = securityScannerNames(INSTALLATION);
   const calls: Array<string> = [];
+  const registryCalls: Array<string> = [];
+  const engineRepo = `account/${names.engines['engine-a'].repository}`;
+  let engineImage = engineA;
+  const registryFetch = async (url: string, init?: RequestInit): Promise<Response> => {
+    const method = init?.method ?? 'GET';
+    const path = new URL(url).pathname;
+    registryCalls.push(`${method} ${path}`);
+    if (path === `/v2/${engineRepo}/tags/list`) {
+      return engineImage
+        ? Response.json({ tags: ['sha256-aaa'] })
+        : new Response(null, { status: 404 });
+    }
+    if (path === `/v2/${engineRepo}/manifests/sha256-aaa` && method === 'HEAD') {
+      return new Response(null, {
+        status: headStatus,
+        headers: headStatus === 200 ? { 'docker-content-digest': 'sha256:aaa' } : {},
+      });
+    }
+    if (path === `/v2/${engineRepo}/manifests/sha256:aaa` && method === 'DELETE') {
+      engineImage = false;
+      return new Response(null, { status: 202 });
+    }
+    if (path === '/v2/gc/layers') {
+      return new Response(null, { status: gcStatus });
+    }
+    return new Response(null, { status: 404 });
+  };
   const gatePath = `/accounts/account/workers/dispatch/namespaces/${manifest(true).deployment.resources.dispatchNamespace}/scripts/${names.gate}`;
   const workerPath = `/accounts/account/workers/scripts/${names.worker}`;
   const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
@@ -73,10 +113,24 @@ function account(
         bindings: [
           ...(controller === 'ours' ? owner() : owner('someone-else')),
           { type: 'durable_object_namespace', name: 'SCANNER', namespace_id: 'ns-1' },
+          { type: 'durable_object_namespace', name: 'SCANNER_ENGINE_A', namespace_id: 'ns-a' },
+          { type: 'durable_object_namespace', name: 'SCANNER_ENGINE_C', namespace_id: 'ns-c' },
         ],
       } as T;
     }
+    if (path === '/accounts/account/containers/registries/registry.cloudflare.com/credentials') {
+      return { username: 'v1', password: 'registry-password' } as T;
+    }
     if (path.startsWith('/accounts/account/containers/applications?name=')) {
+      const name = decodeURIComponent(path.slice(path.indexOf('=') + 1));
+      if (name === names.engines['engine-a'].application) {
+        return (
+          engineA ? [{ id: 'app-a', name, durable_objects: { namespace_id: 'ns-a' } }] : []
+        ) as T;
+      }
+      if (name !== names.application) {
+        return [] as T;
+      }
       return (
         application === 'missing'
           ? []
@@ -94,7 +148,7 @@ function account(
     }
     throw new Error(`unexpected ${method} ${path}`);
   };
-  return { request, calls, names, gatePath, workerPath };
+  return { request, calls, names, gatePath, workerPath, registryFetch, registryCalls };
 }
 
 describe('security scanner names', () => {
@@ -107,6 +161,16 @@ describe('security scanner names', () => {
       worker: `void-security-scanner-${suffix}`,
       application: `void-security-scanner-${suffix}`,
       gate: `void-security-scanner-gate-${suffix}`,
+      engines: {
+        'engine-a': {
+          application: `void-security-scanner-engine-a-${suffix}`,
+          repository: `void-security-scanner-engine-a-${suffix}`,
+        },
+        'engine-c': {
+          application: `void-security-scanner-engine-c-${suffix}`,
+          repository: `void-security-scanner-engine-c-${suffix}`,
+        },
+      },
     });
     expect(securityScannerNames('other').worker).not.toBe(
       securityScannerNames(INSTALLATION).worker,
@@ -139,7 +203,11 @@ describe('deleting the security scanner', () => {
 
   it('deletes the gate, then the container application, then the controller', async () => {
     const cloudflare = account();
-    const result = await deletePlatformSecurityScanner(cloudflare, manifest(true));
+    const result = await deletePlatformSecurityScanner(
+      cloudflare,
+      manifest(true),
+      cloudflare.registryFetch,
+    );
     expect(result).toEqual({ deleted: ['gate', 'container application', 'controller'], kept: [] });
     expect(cloudflare.calls.filter((call) => call.startsWith('DELETE'))).toEqual([
       `DELETE ${cloudflare.gatePath}`,
@@ -148,9 +216,44 @@ describe('deleting the security scanner', () => {
     ]);
   });
 
+  it('also removes the engine container applications and the copied engine images', async () => {
+    const cloudflare = account({ engineA: true });
+    const result = await deletePlatformSecurityScanner(
+      cloudflare,
+      manifest(true),
+      cloudflare.registryFetch,
+    );
+    expect(result).toEqual({
+      deleted: ['gate', 'container application', 'controller', 'scanner images'],
+      kept: [],
+    });
+    expect(cloudflare.calls.filter((call) => call.startsWith('DELETE'))).toEqual([
+      `DELETE ${cloudflare.gatePath}`,
+      'DELETE /accounts/account/containers/applications/app-1',
+      'DELETE /accounts/account/containers/applications/app-a',
+      `DELETE ${cloudflare.workerPath}`,
+    ]);
+    const repo = cloudflare.names.engines['engine-a'].repository;
+    expect(cloudflare.registryCalls).toContain(`DELETE /v2/account/${repo}/manifests/sha256:aaa`);
+    expect(cloudflare.registryCalls.at(-1)).toBe('PUT /v2/gc/layers');
+  });
+
+  it('fails, so it can be run again, when an image cannot be read or the cleanup fails', async () => {
+    const unreadable = account({ engineA: true, headStatus: 500 });
+    await expect(
+      deletePlatformSecurityScanner(unreadable, manifest(true), unreadable.registryFetch),
+    ).rejects.toThrow('(HTTP 500)');
+    const cleanup = account({ engineA: true, gcStatus: 500 });
+    await expect(
+      deletePlatformSecurityScanner(cleanup, manifest(true), cleanup.registryFetch),
+    ).rejects.toThrow('The registry layer cleanup failed (HTTP 500).');
+  });
+
   it('succeeds again when everything is already gone', async () => {
     const cloudflare = account({ gate: 'missing', controller: 'missing', application: 'missing' });
-    expect(await deletePlatformSecurityScanner(cloudflare, manifest(true))).toEqual({
+    expect(
+      await deletePlatformSecurityScanner(cloudflare, manifest(true), cloudflare.registryFetch),
+    ).toEqual({
       deleted: [],
       kept: [],
     });
@@ -159,7 +262,11 @@ describe('deleting the security scanner', () => {
 
   it('keeps objects that carry another installation’s marker', async () => {
     const cloudflare = account({ gate: 'foreign', controller: 'foreign' });
-    const result = await deletePlatformSecurityScanner(cloudflare, manifest(true));
+    const result = await deletePlatformSecurityScanner(
+      cloudflare,
+      manifest(true),
+      cloudflare.registryFetch,
+    );
     expect(result.deleted).toEqual([]);
     expect(result.kept).toEqual([
       `security scanner gate ${cloudflare.names.gate}`,
@@ -171,13 +278,13 @@ describe('deleting the security scanner', () => {
 
   it('keeps a container application whose controller is gone or of another namespace', async () => {
     const orphan = account({ controller: 'missing' });
-    expect((await deletePlatformSecurityScanner(orphan, manifest(true))).kept).toEqual([
-      `security scanner container application ${orphan.names.application}`,
-    ]);
+    expect(
+      (await deletePlatformSecurityScanner(orphan, manifest(true), orphan.registryFetch)).kept,
+    ).toEqual([`security scanner container application ${orphan.names.application}`]);
     expect(orphan.calls).not.toContain('DELETE /accounts/account/containers/applications/app-1');
 
     const other = account({ application: 'other-namespace' });
-    const result = await deletePlatformSecurityScanner(other, manifest(true));
+    const result = await deletePlatformSecurityScanner(other, manifest(true), other.registryFetch);
     expect(result.deleted).toEqual(['gate', 'controller']);
     expect(result.kept).toEqual([
       `security scanner container application ${other.names.application}`,
@@ -190,7 +297,9 @@ describe('deleting the security scanner', () => {
       application: 'missing',
       failOn: 'GET /accounts/account/containers/applications',
     });
-    expect(await deletePlatformSecurityScanner(cloudflare, manifest(true))).toEqual({
+    expect(
+      await deletePlatformSecurityScanner(cloudflare, manifest(true), cloudflare.registryFetch),
+    ).toEqual({
       deleted: ['gate'],
       kept: [],
     });
@@ -198,9 +307,9 @@ describe('deleting the security scanner', () => {
 
   it('still fails on a refused application list when the controller exists', async () => {
     const cloudflare = account({ failOn: 'GET /accounts/account/containers/applications' });
-    await expect(deletePlatformSecurityScanner(cloudflare, manifest(true))).rejects.toThrow(
-      'forbidden',
-    );
+    await expect(
+      deletePlatformSecurityScanner(cloudflare, manifest(true), cloudflare.registryFetch),
+    ).rejects.toThrow('forbidden');
     expect(cloudflare.calls).not.toContain(`DELETE ${cloudflare.workerPath}`);
   });
 
@@ -208,9 +317,9 @@ describe('deleting the security scanner', () => {
     const cloudflare = account({
       failOn: 'DELETE /accounts/account/containers/applications/app-1',
     });
-    await expect(deletePlatformSecurityScanner(cloudflare, manifest(true))).rejects.toThrow(
-      'forbidden',
-    );
+    await expect(
+      deletePlatformSecurityScanner(cloudflare, manifest(true), cloudflare.registryFetch),
+    ).rejects.toThrow('forbidden');
     // The controller is kept while its container application still exists.
     expect(cloudflare.calls).not.toContain(`DELETE ${cloudflare.workerPath}`);
   });

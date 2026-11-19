@@ -12,6 +12,12 @@
 //                                                     ▼ alarm: heartbeat, poll /scan/out/status.json
 //   API ◄──── SecurityScanControl (service binding, props = installation identity) ────┘
 //
+// Engines (M13b): `ScannerController` runs Engine B on the managed image and streams the
+// runner in. `ScannerControllerEngineA` / `ScannerControllerEngineC` run the Engine A / C
+// image (copied by digest into the account registry; `images.default` of their container
+// app), which already holds the runner, the SDK and the MCP server. One container app per
+// class. An engine whose image is not in `__VOID_SECURITY_SCANNER_IMAGES` is refused.
+//
 // Spike S1 facts this file relies on: the hostname intercept is registered before the
 // catch-all (else the catch-all wins); HTTPS needs its own `interceptOutboundHttps('*')`
 // deny, else a TLS client hangs ~8 s; scan code starts through stdin and a short argv;
@@ -82,8 +88,51 @@ export type SecurityScanControlRpc = {
 
 export type ControllerEnv = {
   SCANNER: DurableObjectNamespace<ScannerController>;
+  SCANNER_ENGINE_A?: DurableObjectNamespace<ScannerController>;
+  SCANNER_ENGINE_C?: DurableObjectNamespace<ScannerController>;
+  /** JSON `{engine: image ref}` of the engine images that are ready. */
+  __VOID_SECURITY_SCANNER_IMAGES?: string;
   __VOID_SECURITY_SCAN_CONTROL: SecurityScanControlRpc;
 };
+
+/** The engines this controller knows, and the class that runs each. */
+export type ScannerEngine = 'void_loop' | 'agent_sdk' | 'codex_sdk';
+
+/** The engine images the API uploaded this controller with (bad data means none). */
+export function readyImageEngines(env: Pick<ControllerEnv, '__VOID_SECURITY_SCANNER_IMAGES'>) {
+  const ready = new Set<ScannerEngine>();
+  try {
+    const value = JSON.parse(env.__VOID_SECURITY_SCANNER_IMAGES ?? '{}') as unknown;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const engine of ['agent_sdk', 'codex_sdk'] as const) {
+        const ref = (value as Record<string, unknown>)[engine];
+        if (typeof ref === 'string' && ref.length > 0) {
+          ready.add(engine);
+        }
+      }
+    }
+  } catch {
+    // Unreadable: no image engine runs.
+  }
+  return ready;
+}
+
+/** The Durable Object namespace that runs `engine`, or null when it cannot run here. */
+export function scannerNamespace(
+  env: ControllerEnv,
+  engine: unknown,
+): DurableObjectNamespace<ScannerController> | null {
+  if (engine === 'void_loop') {
+    return env.SCANNER;
+  }
+  if (engine !== 'agent_sdk' && engine !== 'codex_sdk') {
+    return null;
+  }
+  if (!readyImageEngines(env).has(engine)) {
+    return null;
+  }
+  return (engine === 'agent_sdk' ? env.SCANNER_ENGINE_A : env.SCANNER_ENGINE_C) ?? null;
+}
 
 export type StartScanRequest = Readonly<{
   scanId: string;
@@ -178,6 +227,17 @@ async function bounded<T>(operation: Promise<T>, ms = CONTROL_TIMEOUT_MS): Promi
 
 const decoder = new TextDecoder();
 
+// Runs as root in an engine image (A/C) before the scan: the image already has the
+// `scanner` user and the runner; this only makes /scan an empty folder that user owns.
+// Exit 2: the image is not a scanner image.
+const IMAGE_SETUP_SCRIPT = [
+  'const fs=require("node:fs"),cp=require("node:child_process");',
+  `const user=${JSON.stringify(SCANNER_USER)},runner=${JSON.stringify(RUNNER_PATH)};`,
+  'try{cp.execFileSync("id",["-u",user],{stdio:"ignore"})}catch{process.exit(2)}',
+  'try{if(!fs.lstatSync(runner).isFile())process.exit(2)}catch{process.exit(2)}',
+  'fs.mkdirSync("/scan",{recursive:true});cp.execFileSync("chown",[user+":"+user,"/scan"]);fs.chmodSync("/scan",0o700);',
+].join('');
+
 // Runs as root before the scan: a non-root `scanner` user, an empty /scan it owns, and
 // the runner bundle from stdin, read-only. Short argv; the bundle comes on stdin.
 const SETUP_SCRIPT = [
@@ -266,31 +326,64 @@ export default class ScannerService extends WorkerEntrypoint<ControllerEnv> {
       ) {
         return Response.json({ ok: false, reason: 'invalid_request' }, { status: 400 });
       }
-      const stub = this.env.SCANNER.getByName(scanInstanceName(scanId, attempt));
+      const namespace = scannerNamespace(this.env, engine);
+      if (!namespace) {
+        // No container app runs this engine yet (its image is not ready).
+        return Response.json({ ok: false, reason: 'engine_unavailable' });
+      }
+      const stub = namespace.getByName(scanInstanceName(scanId, attempt));
       return Response.json(await stub.start({ scanId, attempt, engine, wallClockMs, hardCapMs }));
     }
     if (url.pathname === '/v1/scans/cancel') {
-      const { scanId, attempt } = body;
+      const { scanId, attempt, engine } = body;
       if (!isId(scanId) || !isAttempt(attempt)) {
         return Response.json({ ok: false, reason: 'invalid_request' }, { status: 400 });
       }
-      await this.env.SCANNER.getByName(scanInstanceName(scanId, attempt)).cancel();
+      // The scheduler sends no engine; a cancel reaches every class that could hold it.
+      const namespaces =
+        engine === undefined
+          ? [this.env.SCANNER, this.env.SCANNER_ENGINE_A, this.env.SCANNER_ENGINE_C]
+          : [scannerNamespace(this.env, engine)];
+      // All at once: one class that fails must not keep the cancel from the others.
+      const results = await Promise.allSettled(
+        namespaces.map((namespace) =>
+          namespace?.getByName(scanInstanceName(scanId, attempt)).cancel(),
+        ),
+      );
+      if (results.some((result) => result.status === 'rejected')) {
+        return Response.json({ ok: false, reason: 'cancel_failed' }, { status: 500 });
+      }
       return Response.json({ ok: true });
     }
     if (url.pathname === '/v1/self-test') {
       const { probeId } = body;
+      const engine = body.engine ?? 'void_loop';
       if (!isId(probeId)) {
         return Response.json({ ok: false, reason: 'invalid_request' }, { status: 400 });
       }
-      return Response.json(
-        await this.env.SCANNER.getByName(probeInstanceName(probeId)).selfTest(probeId),
-      );
+      const namespace = scannerNamespace(this.env, engine);
+      if (!namespace) {
+        return Response.json({
+          started: false,
+          coldStartMs: null,
+          report: null,
+          error: 'engine_unavailable',
+        } satisfies SelfTestResult);
+      }
+      return Response.json(await namespace.getByName(probeInstanceName(probeId)).selfTest(probeId));
     }
     return new Response('not found', { status: 404 });
   }
 }
 
 export class ScannerController extends DurableObject<ControllerEnv> {
+  /** The engine this class runs. Engine B: the managed image, runner streamed in. */
+  protected readonly engine: ScannerEngine = 'void_loop';
+
+  private get usesManagedImage(): boolean {
+    return this.engine === 'void_loop';
+  }
+
   private get container(): Container {
     const container = this.ctx.container;
     if (!container) {
@@ -328,8 +421,13 @@ export class ScannerController extends DurableObject<ControllerEnv> {
   }
 
   private startContainer(instance: typeof SCAN_INSTANCE | typeof PROBE_INSTANCE): void {
+    // Engines A/C: the copied image their container app was uploaded with.
+    const image = this.usesManagedImage ? MANAGED_IMAGE : this.container.images.default;
+    if (!image) {
+      throw new Error('The scanner engine has no image.');
+    }
     this.container.start({
-      image: MANAGED_IMAGE,
+      image,
       entrypoint: ['sleep', 'infinity'],
       enableInternet: false,
       // Explicit and empty: the container gets no token, no URL, no project data.
@@ -358,6 +456,19 @@ export class ScannerController extends DurableObject<ControllerEnv> {
   }
 
   private async installRunner(): Promise<void> {
+    if (!this.usesManagedImage) {
+      // The engine image ships its own runner (with its SDK); only /scan is prepared.
+      const process = await this.container.exec(['node', '-e', IMAGE_SETUP_SCRIPT], {
+        user: 'root',
+        env: { ...EXEC_ENV },
+        signal: AbortSignal.timeout(SETUP_TIMEOUT_MS),
+      });
+      const output = await process.output();
+      if (output.exitCode !== 0) {
+        throw new Error(`Scanner image setup failed (exit ${output.exitCode}).`);
+      }
+      return;
+    }
     if (!runnerSource) {
       throw new Error('The scanner controller is missing its runner bundle.');
     }
@@ -394,8 +505,8 @@ export class ScannerController extends DurableObject<ControllerEnv> {
     if (await this.state()) {
       return { ok: false, reason: 'already_started' };
     }
-    if (request.engine !== 'void_loop') {
-      // Engines A and C bring their own images (M13).
+    if (request.engine !== this.engine) {
+      // Each engine has its own class and container app.
       return { ok: false, reason: 'engine_unavailable' };
     }
     const now = Date.now();
@@ -648,4 +759,14 @@ export class ScannerController extends DurableObject<ControllerEnv> {
       await this.finish();
     }
   }
+}
+
+/** Engine A (`anthropic/*`): the Agent SDK image. */
+export class ScannerControllerEngineA extends ScannerController {
+  protected override readonly engine: ScannerEngine = 'agent_sdk';
+}
+
+/** Engine C (`openai/*`): the Codex SDK image. */
+export class ScannerControllerEngineC extends ScannerController {
+  protected override readonly engine: ScannerEngine = 'codex_sdk';
 }

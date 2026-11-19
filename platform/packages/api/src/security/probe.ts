@@ -4,8 +4,18 @@
  * job while the policy is on (M9). Checks 1–4 must pass to leave `disabled`; check 5
  * decides per third-party host whether its models can be picked; check 6 only warns.
  *
- *   1 capability ─► 2 provision + container self-test ─► 3 egress lock (same self-test)
- *   4 Workers AI 1-token call · 5 one call per third-party host · 6 email binding
+ *   1 capability
+ *   4 Workers AI 1-token call
+ *   5 per third-party host: one call ─► copy + prepare its engine image   (all in parallel;
+ *     only when the call passed and not every model of the host is blocked; M13b)
+ *   2 provision + container self-test ─► 3 egress lock
+ *   5 image: the same self-test in each deployed engine image        (in parallel with 2)
+ *   6 email binding
+ *
+ * The model calls and the image work end by `SECURITY_IMAGE_BUDGET_MS` after the start.
+ * The controller keeps every engine image it already runs at the current release pin, so a
+ * failed call or copy only decides whether the host can be picked, never what is deployed.
+ * A third-party host can be picked only when its call and its engine image both pass.
  */
 import {
   getSecurityModel,
@@ -21,17 +31,30 @@ import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import { CF_API_BASE } from '../provisioning/cloudflare-api.ts';
 import {
+  ensureSecurityScannerImage,
+  scannerImageRef,
+  type ScannerImageResult,
+} from '../provisioning/security-scanner-images.ts';
+import {
+  assertSecurityScannerContainers,
   provisionSecurityScanner,
   SecurityScannerError,
+  securityScannerNames,
   securityScannerTarget,
+  type SecurityScannerImages,
   type SecurityScannerNames,
 } from '../provisioning/security-scanner.ts';
-import type { SelfTestResult } from '../security-scanner-controller-runtime.ts';
+import type { ScannerEngine, SelfTestResult } from '../security-scanner-controller-runtime.ts';
 import {
   readStoredSecurityPolicy,
   recordSecurityEntitlement,
   securityFallbackModel,
 } from './policy.ts';
+import {
+  securityImageEngineForHost,
+  securityScannerImagePins,
+  type SecurityImageEngine,
+} from './scanner-images.ts';
 
 export type SecurityProbeCheckName =
   | 'capability'
@@ -39,6 +62,7 @@ export type SecurityProbeCheckName =
   | 'egress'
   | 'workers_ai'
   | 'credits'
+  | 'image'
   | 'email';
 
 /** The checks that must pass to leave `disabled`. */
@@ -74,10 +98,23 @@ export type SecurityProbeReport = Readonly<{
   coldStartMs: number | null;
 }>;
 
+export type SecurityProbeProvisioned = Readonly<{
+  names: SecurityScannerNames;
+  /** The engine images the controller runs after provisioning. */
+  deployed: SecurityScannerImages;
+}>;
+
 /** The parts of the probe that leave the API Worker; tests replace them. */
 export type SecurityProbeDeps = Readonly<{
-  provision(): Promise<SecurityScannerNames>;
-  selfTest(names: SecurityScannerNames, probeId: string): Promise<SelfTestResult>;
+  /** Copies (when missing) and prepares one engine image, ending by `deadline`. */
+  image(engine: SecurityImageEngine, deadline: number): Promise<ScannerImageResult>;
+  /** Provisions the scanner with the images made ready now; deployed ones at the pin stay. */
+  provision(ready: SecurityScannerImages): Promise<SecurityProbeProvisioned>;
+  selfTest(
+    names: SecurityScannerNames,
+    probeId: string,
+    engine: ScannerEngine,
+  ): Promise<SelfTestResult>;
   workersAi(model: SecurityModelId): Promise<void>;
   thirdParty(host: SecurityThirdPartyHost, model: SecurityModelId): Promise<number>;
 }>;
@@ -97,7 +134,29 @@ export const SECURITY_PROBE_COPY = {
     `The runtime API token cannot call AI Gateway for ${host}/*. Add Account → Workers AI → Read to the token, then run the probe again.`,
   email: 'Email is off. Owners will see findings only in the CLI and project page.',
   skipped: 'Not checked: security audits are not installed.',
+  imageNoCredits: (host: SecurityThirdPartyHost) =>
+    `Not checked: the ${host}/* call did not pass, so its scanner image is not copied.`,
+  imageBlocked: (host: SecurityThirdPartyHost) =>
+    `Not checked: every ${host}/* model is blocked, so its scanner image is not copied. Unblock a model, then run void platform security probe.`,
+  imageSkipped: 'Not checked: the scanner controller could not be provisioned.',
+  imageUnpublished: (host: SecurityThirdPartyHost) =>
+    `This platform release has no scanner image for ${host}/* models. They stay off until a platform release ships one.`,
+  imagePending: (host: SecurityThirdPartyHost) =>
+    `The ${host}/* scanner image is still being copied into this account. Run void platform security probe again in a few minutes.`,
+  imageCredentials: (host: SecurityThirdPartyHost) =>
+    `The runtime token cannot copy the ${host}/* scanner image into the account registry. It needs Account → Containers → Edit.`,
+  imageCopy: (host: SecurityThirdPartyHost) =>
+    `Could not copy the ${host}/* scanner image into this account. Run void platform security probe again.`,
+  imageSelfTest: (host: SecurityThirdPartyHost, probeId: string) =>
+    `The ${host}/* scanner image failed its self-test (probe ${probeId}), so these models stay off. Run void platform security probe again; if it keeps failing, report probe ${probeId} with void platform logs.`,
 } as const;
+
+/**
+ * How long, from the probe start, the model calls and the engine image copy may take; the
+ * copy resumes next time. With provisioning and the self-test (at most 240 s) the probe
+ * stays under the CLI's 5-minute request timeout.
+ */
+export const SECURITY_IMAGE_BUDGET_MS = 45_000;
 
 export const SECURITY_CREDITS_LINK = 'https://dash.cloudflare.com/?to=/:account/ai/ai-gateway';
 const AI_TIMEOUT_MS = 30_000;
@@ -218,17 +277,42 @@ function gatewayId(env: ApiEnv['Bindings']): string {
 
 /** The real calls: Cloudflare API, the dispatch gate, Workers AI and AI Gateway REST. */
 export function securityProbeDeps(env: ApiEnv['Bindings']): SecurityProbeDeps {
+  const target = securityScannerTarget(env);
+  // No image is copied into an account that cannot run containers (checked once).
+  let containers: Promise<void> | undefined;
   return {
-    async provision() {
-      return (await provisionSecurityScanner(securityScannerTarget(env))).names;
+    async image(engine, deadline) {
+      containers ??= assertSecurityScannerContainers(target);
+      await containers;
+      const names = await securityScannerNames(target.installationKey);
+      const pin = securityScannerImagePins().find((candidate) => candidate.engine === engine)!;
+      return ensureSecurityScannerImage(target, pin, names.engines[engine].repository, {
+        deadline,
+      });
     },
-    async selfTest(names, probeId) {
+    async provision(ready) {
+      const names = await securityScannerNames(target.installationKey);
+      // The refs of this release's pins: an engine already running one of them stays.
+      const keep: Partial<Record<SecurityImageEngine, string>> = {};
+      for (const pin of securityScannerImagePins()) {
+        if (pin.digest !== null) {
+          keep[pin.engine] = scannerImageRef(
+            target.accountId,
+            names.engines[pin.engine].repository,
+            pin.digest,
+          );
+        }
+      }
+      const result = await provisionSecurityScanner(target, ready, { keep });
+      return { names, deployed: result.images };
+    },
+    async selfTest(names, probeId, engine) {
       const response = await env.DISPATCH.get(names.gate).fetch(
         'https://security-scanner.internal/v1/self-test',
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ probeId }),
+          body: JSON.stringify({ probeId, engine }),
           signal: AbortSignal.timeout(SECURITY_SELF_TEST_TIMEOUT_MS),
         },
       );
@@ -294,6 +378,88 @@ export function securityProbeDeps(env: ApiEnv['Bindings']): SecurityProbeDeps {
 }
 
 const HOSTS: ReadonlyArray<SecurityThirdPartyHost> = ['openai', 'anthropic'];
+const CONTAINER_LABEL = 'Container + token permissions';
+
+const creditsLabel = (host: SecurityThirdPartyHost) => `Credits     ${host}/*`;
+const imageLabel = (host: SecurityThirdPartyHost) => `Image       ${host}/*`;
+
+type Timed<T> = Readonly<{ value?: T; error?: unknown; ms: number }>;
+
+/** Every model of this host is blocked, so none of its scans can run. */
+function hostBlocked(policy: SecurityPolicy, host: SecurityThirdPartyHost): boolean {
+  return SECURITY_MODEL_IDS.filter((id) => getSecurityModel(id).host === host).every((id) =>
+    policy.blockedModels.includes(id),
+  );
+}
+
+/** The check 5 line for one host's engine image. */
+function imageCheck(input: {
+  host: SecurityThirdPartyHost;
+  probeId: string;
+  creditsOk: boolean;
+  blocked: boolean;
+  provisioned: boolean;
+  /** The controller runs this engine's image (copied now or by an earlier probe). */
+  deployed: boolean;
+  image: Timed<ScannerImageResult> | undefined;
+  selfTest: Timed<SelfTestResult> | undefined;
+}): SecurityProbeCheck {
+  const { host, probeId } = input;
+  const base = { check: 5 as const, name: 'image' as const, label: imageLabel(host), host };
+  if (!input.creditsOk) {
+    return { ...base, status: 'skipped', message: SECURITY_PROBE_COPY.imageNoCredits(host) };
+  }
+  if (input.blocked) {
+    return { ...base, status: 'skipped', message: SECURITY_PROBE_COPY.imageBlocked(host) };
+  }
+  if (!input.provisioned || input.image === undefined) {
+    return { ...base, status: 'skipped', message: SECURITY_PROBE_COPY.imageSkipped };
+  }
+  const image: ScannerImageResult = input.image.value ?? {
+    ok: false,
+    step: 'copy',
+    detail: errorText(input.image.error ?? 'no answer'),
+  };
+  // A deployed image is judged by its self-test, even when this run's copy step failed.
+  if (!input.deployed && !image.ok) {
+    const message =
+      image.step === 'unpublished'
+        ? SECURITY_PROBE_COPY.imageUnpublished(host)
+        : image.step === 'pending'
+          ? SECURITY_PROBE_COPY.imagePending(host)
+          : image.step === 'credentials'
+            ? SECURITY_PROBE_COPY.imageCredentials(host)
+            : SECURITY_PROBE_COPY.imageCopy(host);
+    return { ...base, status: 'fail', message, detail: image.detail };
+  }
+  if (!input.deployed) {
+    return { ...base, status: 'skipped', message: SECURITY_PROBE_COPY.imageSkipped };
+  }
+  const result: SelfTestResult = input.selfTest?.value ?? {
+    started: false,
+    coldStartMs: null,
+    report: null,
+    error: errorText(input.selfTest?.error ?? 'no answer'),
+  };
+  const verdict = judgeSelfTest(result, probeId);
+  if (verdict.container.ok && verdict.egress.ok) {
+    return { ...base, status: 'ok', ms: input.selfTest?.ms };
+  }
+  const detail = verdict.container.ok ? verdict.egress.detail : verdict.container.detail;
+  console.error('[security-probe] engine image self-test failed', {
+    probeId,
+    host,
+    detail,
+    report: result.report,
+  });
+  return {
+    ...base,
+    status: 'fail',
+    message: SECURITY_PROBE_COPY.imageSelfTest(host, probeId),
+    detail,
+    ms: input.selfTest?.ms,
+  };
+}
 
 /** Runs checks 1–6. Never throws for a failing check; it reports it. */
 export async function runSecurityProbe(
@@ -320,7 +486,7 @@ export async function runSecurityProbe(
       {
         check: 2,
         name: 'container',
-        label: 'Container + token permissions',
+        label: CONTAINER_LABEL,
         status: 'skipped',
         message: SECURITY_PROBE_COPY.skipped,
       },
@@ -339,44 +505,80 @@ export async function runSecurityProbe(
         status: 'skipped',
         message: SECURITY_PROBE_COPY.skipped,
       },
-      ...HOSTS.map((host): SecurityProbeCheck => ({
-        check: 5,
-        name: 'credits',
-        label: `Credits     ${host}/*`,
-        host,
-        status: 'skipped',
-        message: SECURITY_PROBE_COPY.skipped,
-      })),
+      ...HOSTS.flatMap((host): Array<SecurityProbeCheck> => [
+        {
+          check: 5,
+          name: 'credits',
+          label: creditsLabel(host),
+          host,
+          status: 'skipped',
+          message: SECURITY_PROBE_COPY.skipped,
+        },
+        {
+          check: 5,
+          name: 'image',
+          label: imageLabel(host),
+          host,
+          status: 'skipped',
+          message: SECURITY_PROBE_COPY.skipped,
+        },
+      ]),
     );
   } else {
     checks.push({ check: 1, name: 'capability', label: 'Capability securityAudits', status: 'ok' });
-    const scanner = (async () => {
-      const provisioned = await timed(() => deps.provision());
-      if (provisioned.error !== undefined || !provisioned.value) {
-        return { provisioned, selfTest: undefined };
-      }
-      const names = provisioned.value;
-      return { provisioned, selfTest: await timed(() => deps.selfTest(names, probeId)) };
-    })();
-    const [scan, ai, ...hosts] = await Promise.all([
-      scanner,
+    // An engine image is copied right after its host's call passes, unless every model of
+    // the host is blocked. All of it ends by the deadline; a copy cut off goes on next time.
+    const deadline = Date.now() + SECURITY_IMAGE_BUDGET_MS;
+    const [ai, ...hosts] = await Promise.all([
       timed(() => deps.workersAi(aiModel)),
-      ...HOSTS.map((host) => {
+      ...HOSTS.map(async (host) => {
         const model = securityProbeHostModel(host);
-        return timed(() => deps.thirdParty(host, model));
+        const credits = await timed(() => deps.thirdParty(host, model));
+        const ok =
+          credits.error === undefined &&
+          credits.value !== undefined &&
+          credits.value >= 200 &&
+          credits.value < 300;
+        const blocked = hostBlocked(policy, host);
+        const engine = securityImageEngineForHost(host);
+        const image = ok && !blocked ? await timed(() => deps.image(engine, deadline)) : undefined;
+        return { host, engine, credits, ok, blocked, image };
       }),
     ]);
-    const containerLabel = 'Container + token permissions';
-    if (scan.provisioned.error !== undefined) {
+    const creditsOk = hosts.map((entry) => entry.ok);
+    const ready: Partial<Record<SecurityImageEngine, string>> = {};
+    for (const entry of hosts) {
+      if (entry.image?.value?.ok) {
+        ready[entry.engine] = entry.image.value.ref;
+      }
+    }
+    const provisioned = await timed(() => deps.provision(ready));
+    const deployed = provisioned.value?.deployed ?? {};
+    const names = provisioned.value?.names;
+    // Engine B and each deployed engine image of a callable, unblocked host run the same
+    // self-test, in parallel.
+    const testedEngines = hosts
+      .filter((entry) => entry.ok && !entry.blocked && deployed[entry.engine] !== undefined)
+      .map((entry) => entry.engine);
+    const [selfTest, ...engineTests] = names
+      ? await Promise.all([
+          timed(() => deps.selfTest(names, probeId, 'void_loop')),
+          ...testedEngines.map((engine) => timed(() => deps.selfTest(names, probeId, engine))),
+        ])
+      : [undefined];
+    const engineSelfTest = (engine: SecurityImageEngine) =>
+      testedEngines.includes(engine) ? engineTests[testedEngines.indexOf(engine)] : undefined;
+
+    if (provisioned.error !== undefined || !names) {
       checks.push(
         {
           check: 2,
           name: 'container',
-          label: containerLabel,
+          label: CONTAINER_LABEL,
           status: 'fail',
-          message: securityProvisionMessage(scan.provisioned.error),
-          detail: errorText(scan.provisioned.error),
-          ms: scan.provisioned.ms,
+          message: securityProvisionMessage(provisioned.error),
+          detail: errorText(provisioned.error),
+          ms: provisioned.ms,
         },
         {
           check: 3,
@@ -387,25 +589,25 @@ export async function runSecurityProbe(
         },
       );
     } else {
-      const selfTest: SelfTestResult =
-        scan.selfTest?.value ??
+      const result: SelfTestResult =
+        selfTest?.value ??
         ({
           started: false,
           coldStartMs: null,
           report: null,
-          error: errorText(scan.selfTest?.error ?? 'no answer'),
+          error: errorText(selfTest?.error ?? 'no answer'),
         } satisfies SelfTestResult);
-      coldStartMs = selfTest.coldStartMs;
-      const verdict = judgeSelfTest(selfTest, probeId);
+      coldStartMs = result.coldStartMs;
+      const verdict = judgeSelfTest(result, probeId);
       checks.push({
         check: 2,
         name: 'container',
-        label: containerLabel,
+        label: CONTAINER_LABEL,
         status: verdict.container.ok ? 'ok' : 'fail',
         ...(verdict.container.ok
           ? {}
           : { message: SECURITY_PROBE_COPY.container, detail: verdict.container.detail }),
-        ms: scan.selfTest?.ms,
+        ms: selfTest?.ms,
       });
       if (!verdict.container.ok) {
         checks.push({
@@ -421,7 +623,7 @@ export async function runSecurityProbe(
           console.error('[security-probe] egress lock failed', {
             probeId,
             detail: verdict.egress.detail,
-            report: selfTest.report,
+            report: result.report,
           });
         }
         checks.push({
@@ -447,15 +649,15 @@ export async function runSecurityProbe(
         : { message: SECURITY_PROBE_COPY.workersAi(aiModel), detail: errorText(ai.error) }),
     });
     HOSTS.forEach((host, index) => {
-      const result = hosts[index]!;
+      const entry = hosts[index]!;
+      const result = entry.credits;
       const status = result.value;
-      const ok =
-        result.error === undefined && status !== undefined && status >= 200 && status < 300;
+      const ok = creditsOk[index]!;
       const permission = status === 401 || status === 403;
       checks.push({
         check: 5,
         name: 'credits',
-        label: `Credits     ${host}/*`,
+        label: creditsLabel(host),
         host,
         model: securityProbeHostModel(host),
         status: ok ? 'ok' : 'fail',
@@ -470,6 +672,18 @@ export async function runSecurityProbe(
               ...(permission ? {} : { link: SECURITY_CREDITS_LINK }),
             }),
       });
+      checks.push(
+        imageCheck({
+          host,
+          probeId,
+          creditsOk: ok,
+          blocked: entry.blocked,
+          provisioned: names !== undefined && provisioned.error === undefined,
+          deployed: deployed[entry.engine] !== undefined,
+          image: entry.image,
+          selfTest: engineSelfTest(entry.engine),
+        }),
+      );
     });
   }
   checks.push({
@@ -482,8 +696,11 @@ export async function runSecurityProbe(
   const missing = SECURITY_PROBE_REQUIRED.filter((name) =>
     checks.some((check) => check.name === name && check.status !== 'ok'),
   );
+  // A host can be picked when its model call passed and its engine image runs.
   const hostOk = (host: SecurityThirdPartyHost) =>
-    checks.some((check) => check.host === host && check.status === 'ok');
+    ['credits', 'image'].every((name) =>
+      checks.some((check) => check.host === host && check.name === name && check.status === 'ok'),
+    );
   const checkedAt = new Date(now()).toISOString();
   const entitlement: SecurityEntitlement = {
     checkedAt,

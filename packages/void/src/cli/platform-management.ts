@@ -1227,7 +1227,9 @@ export async function uninstallPlatform(
             : ['Turn off project Zero Trust; no platform user exists yet.']
           : []),
         ...(securityAudits
-          ? ['Delete the security scanner Worker and its container application.']
+          ? [
+              'Delete the security scanner Worker, its container applications, and the scanner images it copied.',
+            ]
           : []),
         purgeResources
           ? purgeResourcesPlanText(manifest)

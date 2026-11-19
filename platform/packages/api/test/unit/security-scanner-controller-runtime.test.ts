@@ -29,6 +29,8 @@ import ScannerService, {
   SETUP_TIMEOUT_MS,
   ScanModelOutbound,
   ScannerController,
+  ScannerControllerEngineA,
+  ScannerControllerEngineC,
   STATUS_PATH,
   scanInstanceName,
   probeInstanceName,
@@ -38,7 +40,10 @@ import { createFakeContainer, type FakeContainer } from '../__mocks__/container.
 
 const RUNNER = '// fake scanner runner\n';
 
-function fixture(options: Parameters<typeof createFakeContainer>[0] = {}) {
+function fixture(
+  options: Parameters<typeof createFakeContainer>[0] = {},
+  Controller: typeof ScannerController = ScannerController,
+) {
   const fake: FakeContainer = createFakeContainer(options);
   const data = new Map<string, unknown>();
   const alarms: Array<number> = [];
@@ -66,7 +71,7 @@ function fixture(options: Parameters<typeof createFakeContainer>[0] = {}) {
     },
   };
   const env = { SCANNER: { getByName: vi.fn() }, __VOID_SECURITY_SCAN_CONTROL: control };
-  const controller = new ScannerController(ctx as never, env as never);
+  const controller = new Controller(ctx as never, env as never);
   return { fake, data, alarms, control, ctx, env, controller };
 }
 
@@ -287,6 +292,109 @@ describe('ScannerController scan attempt', () => {
   });
 });
 
+describe('engine image classes (M13b)', () => {
+  const REF = `registry.cloudflare.com/acct/void-security-scanner-engine-a-x@sha256:${'a'.repeat(64)}`;
+
+  it('run the copied image, prepare /scan as root and use the runner the image ships', async () => {
+    const setup = fixture({}, ScannerControllerEngineA);
+    setup.fake.container.images.default = REF;
+    expect(await setup.controller.start({ ...START, engine: 'agent_sdk' })).toEqual({ ok: true });
+    await setup.controller.alarm();
+    const { fake, control } = setup;
+    // The same egress lock, before the container starts.
+    expect(fake.calls.slice(0, 4)).toEqual([
+      `interceptOutboundHttp:${MODEL_HOST}`,
+      'interceptAllOutboundHttp',
+      'interceptOutboundHttps:*',
+      'start',
+    ]);
+    expect(fake.started()).toMatchObject({
+      image: REF,
+      enableInternet: false,
+      env: {},
+      entrypoint: ['sleep', 'infinity'],
+    });
+    const prepare = fake.execs.find((call) => call.argv[0] === 'node' && call.argv[1] === '-e');
+    // The image runs as `scanner` by default; only this step is root, and no runner is streamed.
+    expect(prepare?.options).toMatchObject({ user: 'root', env: EXEC_ENV });
+    expect(prepare?.options?.stdin).toBeUndefined();
+    expect(prepare?.argv[2]).toContain('chown');
+    const runner = fake.execs.find((call) => call.argv[1] === RUNNER_PATH);
+    expect(runner?.argv).toEqual(['node', RUNNER_PATH, '--stdin-tar']);
+    expect(runner?.options).toMatchObject({ user: 'scanner', cwd: '/scan', env: EXEC_ENV });
+    expect(control.input).toHaveBeenCalledWith('ss_abc', 2);
+  });
+
+  it('refuse another engine, and fail the attempt when the class has no image', async () => {
+    expect(
+      await fixture({}, ScannerControllerEngineC).controller.start({
+        ...START,
+        engine: 'agent_sdk',
+      }),
+    ).toEqual({ ok: false, reason: 'engine_unavailable' });
+    expect(await fixture({}, ScannerControllerEngineA).controller.start(START)).toEqual({
+      ok: false,
+      reason: 'engine_unavailable',
+    });
+
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const missing = fixture({}, ScannerControllerEngineC);
+    expect(await missing.controller.start({ ...START, engine: 'codex_sdk' })).toEqual({ ok: true });
+    await missing.controller.alarm();
+    expect(missing.fake.calls).not.toContain('start');
+    expect(missing.control.result).toHaveBeenCalledWith('ss_abc', 2, {
+      status: { status: 'failed', reason: 'infrastructure', error_class: 'controller_error' },
+      findings: null,
+    });
+  });
+
+  it('refuse an image without the scanner user or runner before the runner starts', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const setup = fixture(
+      {
+        exec: (call) =>
+          call.argv[0] === 'node' && call.argv[1] === '-e' && call.options?.user === 'root'
+            ? { exitCode: 2 }
+            : undefined,
+      },
+      ScannerControllerEngineA,
+    );
+    setup.fake.container.images.default = REF;
+    await setup.controller.start({ ...START, engine: 'agent_sdk' });
+    await setup.controller.alarm();
+    expect(setup.fake.execs.some((call) => call.argv[1] === RUNNER_PATH)).toBe(false);
+    expect(setup.control.input).not.toHaveBeenCalled();
+    expect(setup.control.result).toHaveBeenCalledWith(
+      'ss_abc',
+      2,
+      expect.objectContaining({
+        status: expect.objectContaining({ error_class: 'controller_error' }),
+      }),
+    );
+    expect(setup.fake.container.running).toBe(false);
+  });
+
+  it('self-test in the engine image the same way', async () => {
+    const report = { selfTest: 1, uid: 10001 };
+    const setup = fixture(
+      {
+        exec: (call) =>
+          call.argv[2] === '--self-test'
+            ? { exitCode: 0, stdout: `${JSON.stringify(report)}\n` }
+            : undefined,
+      },
+      ScannerControllerEngineC,
+    );
+    setup.fake.container.images.default = REF;
+    expect(await setup.controller.selfTest('pr_c')).toMatchObject({ started: true, report });
+    expect(setup.fake.started()).toMatchObject({ image: REF, enableInternet: false, env: {} });
+    expect(setup.fake.intercepts[0]?.binding).toEqual({
+      outbound: 'model',
+      props: { probeId: 'pr_c' },
+    });
+  });
+});
+
 describe('ScannerController self-test', () => {
   it('runs the runner self-test as scanner behind the same egress lock and destroys the container', async () => {
     const report = { selfTest: 1, uid: 999, model: { ok: true, probe: 'pr_x' } };
@@ -368,23 +476,90 @@ describe('ScannerService', () => {
   function service() {
     const stubs = new Map<
       string,
-      { start: ReturnType<typeof vi.fn>; selfTest: ReturnType<typeof vi.fn> }
+      {
+        start: ReturnType<typeof vi.fn>;
+        cancel: ReturnType<typeof vi.fn>;
+        selfTest: ReturnType<typeof vi.fn>;
+      }
     >();
+    const namespace = (label: string) => ({
+      getByName: vi.fn((name: string) => {
+        const stub = {
+          start: vi.fn(async () => ({ ok: true })),
+          cancel: vi.fn(async () => {}),
+          selfTest: vi.fn(async () => ({ started: true })),
+        };
+        stubs.set(`${label}:${name}`, stub);
+        return stub;
+      }),
+    });
     const env = {
-      SCANNER: {
-        getByName: vi.fn((name: string) => {
-          const stub = {
-            start: vi.fn(async () => ({ ok: true })),
-            cancel: vi.fn(async () => {}),
-            selfTest: vi.fn(async () => ({ started: true })),
-          };
-          stubs.set(name, stub);
-          return stub;
-        }),
-      },
+      SCANNER: namespace('b'),
+      SCANNER_ENGINE_A: namespace('a'),
+      SCANNER_ENGINE_C: namespace('c'),
+      __VOID_SECURITY_SCANNER_IMAGES: JSON.stringify({
+        agent_sdk: 'registry.cloudflare.com/x/a@sha256:1',
+      }),
     };
     return { service: new ScannerService({} as never, env as never), env, stubs };
   }
+
+  it('sends each engine to its own class, and refuses an engine with no ready image', async () => {
+    const { service: scanner, env } = service();
+    const started = await scanner.fetch(post('/v1/scans/start', { ...START, engine: 'agent_sdk' }));
+    expect(await started.json()).toEqual({ ok: true });
+    expect(env.SCANNER_ENGINE_A.getByName).toHaveBeenCalledWith(scanInstanceName('ss_abc', 2));
+    expect(env.SCANNER.getByName).not.toHaveBeenCalled();
+
+    for (const engine of ['codex_sdk', 'some_engine']) {
+      const refused = await scanner.fetch(post('/v1/scans/start', { ...START, engine }));
+      expect(await refused.json()).toEqual({ ok: false, reason: 'engine_unavailable' });
+    }
+    expect(env.SCANNER_ENGINE_C.getByName).not.toHaveBeenCalled();
+
+    const probe = await scanner.fetch(
+      post('/v1/self-test', { probeId: 'pr_1', engine: 'codex_sdk' }),
+    );
+    expect(await probe.json()).toMatchObject({ started: false, error: 'engine_unavailable' });
+    await scanner.fetch(post('/v1/self-test', { probeId: 'pr_1', engine: 'agent_sdk' }));
+    expect(env.SCANNER_ENGINE_A.getByName).toHaveBeenLastCalledWith(probeInstanceName('pr_1'));
+  });
+
+  it('reads unreadable images data as no engine image', async () => {
+    const { service: scanner, env } = service();
+    env.__VOID_SECURITY_SCANNER_IMAGES = 'not json';
+    const refused = await scanner.fetch(post('/v1/scans/start', { ...START, engine: 'agent_sdk' }));
+    expect(await refused.json()).toEqual({ ok: false, reason: 'engine_unavailable' });
+  });
+
+  it('cancels an attempt in every class when the engine is not named', async () => {
+    const { service: scanner, stubs } = service();
+    await scanner.fetch(post('/v1/scans/cancel', { scanId: 'ss_abc', attempt: 2 }));
+    const name = scanInstanceName('ss_abc', 2);
+    for (const label of ['a', 'b', 'c']) {
+      expect(stubs.get(`${label}:${name}`)?.cancel).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('still cancels the other classes when one class fails, then fails the request', async () => {
+    const { service: scanner, env, stubs } = service();
+    env.SCANNER_ENGINE_A.getByName.mockImplementationOnce(() => ({
+      start: vi.fn(),
+      cancel: vi.fn(async () => {
+        throw new Error('Durable Object busy');
+      }),
+      selfTest: vi.fn(),
+    }));
+    const response = await scanner.fetch(
+      post('/v1/scans/cancel', { scanId: 'ss_abc', attempt: 2 }),
+    );
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ ok: false, reason: 'cancel_failed' });
+    const name = scanInstanceName('ss_abc', 2);
+    for (const label of ['b', 'c']) {
+      expect(stubs.get(`${label}:${name}`)?.cancel).toHaveBeenCalledTimes(1);
+    }
+  });
 
   const post = (path: string, body: unknown) =>
     new Request(`https://security-scanner.internal${path}`, {

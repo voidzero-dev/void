@@ -343,7 +343,7 @@ function SettingsSection({
               {settings.models.map((model) => (
                 <div key={model.id}>
                   <FormCheckbox
-                    label={`${model.id} - ${model.badges.join(' · ')}${model.hostOk ? '' : ' - no credits (probe check 5)'}${model.priced ? '' : ' - no list price yet'}`}
+                    label={`${model.id} - ${model.badges.join(' · ')}${model.hostOk ? '' : ' - not ready (probe check 5: credits or scanner image)'}${model.priced ? '' : ' - no list price yet'}`}
                     name={`allow:${model.id}`}
                     submitValue="yes"
                     initialValue={!model.blocked}

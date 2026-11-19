@@ -1,3 +1,4 @@
+import { getSecurityModel, SECURITY_MODEL_IDS } from '@void/platform/security-models';
 import { SECURITY_POLICY_SETTINGS_KEY } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import {
@@ -10,6 +11,21 @@ import {
   test,
   vi,
 } from 'vite-plus/test';
+
+// The release pins: tests publish fake engine images (or none) through this.
+const pinState = vi.hoisted(() => ({
+  digests: {} as Partial<Record<'agent_sdk' | 'codex_sdk', string>>,
+}));
+vi.mock('../../src/security/scanner-images.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/security/scanner-images.ts')>();
+  return {
+    ...actual,
+    securityScannerImagePins: () =>
+      actual
+        .securityScannerImagePins()
+        .map((pin) => ({ ...pin, digest: pinState.digests[pin.engine] ?? null })),
+  };
+});
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { app } from '../../src/index.ts';
 import {
@@ -25,6 +41,7 @@ import {
   securityProvisionMessage,
   type SecurityProbeCheck,
 } from '../../src/security/probe.ts';
+import { createFakeRegistry, fakeImage, type FakeRegistry } from '../__mocks__/image-registry.ts';
 import {
   clearTables,
   createOperatorToken,
@@ -49,6 +66,9 @@ type Fakes = {
   gates: Array<string>;
   ai: ReturnType<typeof vi.fn>;
   rest: Array<{ url: string; headers: Headers; body: Record<string, unknown> }>;
+  registry: FakeRegistry;
+  /** The engine of each self-test, in call order. */
+  selfTestEngines: Array<string>;
 };
 
 const PASSING_REPORT = (probeId: string) => ({
@@ -68,7 +88,28 @@ const PASSING_REPORT = (probeId: string) => ({
 let fakes: Fakes;
 let bindings: TestEnv;
 let restStatus: { messages: number; responses: number };
-let selfTestAnswer: (probeId: string) => SelfTestResult;
+let selfTestAnswer: (probeId: string, engine: string) => SelfTestResult;
+const ENGINE_A_IMAGE = fakeImage({ layers: 2 });
+const ENGINE_C_IMAGE = fakeImage({ layers: 3 });
+
+function stubFetch(cf: MockCfApiHandle, rest: Fakes['rest'], registry: FakeRegistry) {
+  const next = registry.fetch(cf as unknown as typeof fetch);
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/ai/v1/')) {
+      rest.push({
+        url,
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body)),
+      });
+      return Response.json(
+        {},
+        { status: url.endsWith('/messages') ? restStatus.messages : restStatus.responses },
+      );
+    }
+    return next(input, init);
+  });
+}
 
 beforeAll(async () => {
   env = await setupEnv();
@@ -84,30 +125,28 @@ beforeEach(async () => {
     coldStartMs: 4200,
     report: PASSING_REPORT(probeId),
   });
+  pinState.digests = { agent_sdk: ENGINE_A_IMAGE.digest, codex_sdk: ENGINE_C_IMAGE.digest };
   const cf = mockCfApi();
   const rest: Fakes['rest'] = [];
-  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input instanceof Request ? input.url : input);
-    if (url.includes('/ai/v1/')) {
-      rest.push({
-        url,
-        headers: new Headers(init?.headers),
-        body: JSON.parse(String(init?.body)),
-      });
-      return Response.json(
-        {},
-        { status: url.endsWith('/messages') ? restStatus.messages : restStatus.responses },
-      );
-    }
-    return (cf as unknown as typeof fetch)(input, init);
+  const registry = createFakeRegistry({
+    published: {
+      'voidzero-dev/void-security-scanner-engine-a': ENGINE_A_IMAGE,
+      'voidzero-dev/void-security-scanner-engine-c': ENGINE_C_IMAGE,
+    },
   });
+  stubFetch(cf, rest, registry);
+  const selfTestEngines: Array<string> = [];
   const selfTest = vi.fn(async (_url: string, init: RequestInit) => {
-    const { probeId } = JSON.parse(String(init.body)) as { probeId: string };
-    return Response.json(selfTestAnswer(probeId));
+    const { probeId, engine } = JSON.parse(String(init.body)) as {
+      probeId: string;
+      engine: string;
+    };
+    selfTestEngines.push(engine);
+    return Response.json(selfTestAnswer(probeId, engine));
   });
   const gates: Array<string> = [];
   const ai = vi.fn(async () => ({ response: 'ok' }));
-  fakes = { cf, selfTest, gates, ai, rest };
+  fakes = { cf, selfTest, gates, ai, rest, registry, selfTestEngines };
   bindings = {
     ...env,
     PLATFORM_INSTALLATION_ID: 'inst_probe',
@@ -157,6 +196,23 @@ function check(body: ProbeBody, name: SecurityProbeCheck['name'], host?: string)
   );
 }
 
+/** Controller uploads so far (each one is a code deploy that restarts its Durable Objects). */
+async function controllerUploads(): Promise<number> {
+  const names = await securityScannerNames('inst_probe');
+  return (fakes.cf.mock.calls as Array<[string, RequestInit | undefined]>).filter(
+    ([url, init]) =>
+      init?.method === 'PUT' && String(url).endsWith(`/workers/scripts/${names.worker}`),
+  ).length;
+}
+
+async function containerNames(): Promise<Array<string>> {
+  const names = await securityScannerNames('inst_probe');
+  const metadata = fakes.cf.state.hostScripts.get(names.worker)?.metadata as
+    | { containers: Array<{ name: string }> }
+    | undefined;
+  return (metadata?.containers ?? []).map((entry) => entry.name);
+}
+
 async function storedPolicy() {
   const [row] = await env.db
     .select()
@@ -169,15 +225,19 @@ describe('security probe', () => {
   test('reports all six checks and stores the result', async () => {
     const body = await probe();
     expect(body.probeId.startsWith('pr_')).toBe(true);
-    expect(body.checks.map((entry) => [entry.check, entry.status])).toEqual([
-      [1, 'ok'],
-      [2, 'ok'],
-      [3, 'ok'],
-      [4, 'ok'],
-      [5, 'ok'],
-      [5, 'ok'],
-      [6, 'off'],
-    ]);
+    expect(body.checks.map((entry) => [entry.check, entry.name, entry.host, entry.status])).toEqual(
+      [
+        [1, 'capability', undefined, 'ok'],
+        [2, 'container', undefined, 'ok'],
+        [3, 'egress', undefined, 'ok'],
+        [4, 'workers_ai', undefined, 'ok'],
+        [5, 'credits', 'openai', 'ok'],
+        [5, 'image', 'openai', 'ok'],
+        [5, 'credits', 'anthropic', 'ok'],
+        [5, 'image', 'anthropic', 'ok'],
+        [6, 'email', undefined, 'off'],
+      ],
+    );
     expect(check(body, 'email')?.message).toBe(SECURITY_PROBE_COPY.email);
     expect(body).toMatchObject({
       ok: true,
@@ -191,11 +251,31 @@ describe('security probe', () => {
       entitlement: { ok: true, hosts: { openai: true, anthropic: true } },
     });
 
-    // Check 2 provisioned the scanner and ran the self-test through its gate.
+    // Check 2 provisioned the scanner and ran the self-test through its gate, once for
+    // Engine B and once in each engine image (check 5), after copying both images.
     const names = await securityScannerNames('inst_probe');
     expect(fakes.cf.state.hostScripts.has(names.worker)).toBe(true);
-    expect(fakes.gates).toEqual([names.gate]);
-    expect(fakes.selfTest).toHaveBeenCalledTimes(1);
+    expect(fakes.gates).toEqual([names.gate, names.gate, names.gate]);
+    expect([...fakes.selfTestEngines].sort()).toEqual(['agent_sdk', 'codex_sdk', 'void_loop']);
+    for (const [engine, image] of [
+      ['agent_sdk', ENGINE_A_IMAGE],
+      ['codex_sdk', ENGINE_C_IMAGE],
+    ] as const) {
+      const repository = `${env.CF_ACCOUNT_ID}/${names.engines[engine].repository}`;
+      expect(fakes.registry.hasManifest(repository, image.digest)).toBe(true);
+      expect(fakes.registry.prepared).toContain(
+        `registry.cloudflare.com/${repository}@${image.digest}`,
+      );
+    }
+    const metadata = fakes.cf.state.hostScripts.get(names.worker)?.metadata as
+      | { containers: Array<{ name: string }> }
+      | undefined;
+    const containers = metadata?.containers ?? [];
+    expect(containers.map((entry) => entry.name)).toEqual([
+      names.application,
+      names.engines.agent_sdk.application,
+      names.engines.codex_sdk.application,
+    ]);
 
     // Check 4: a 1-token call with payload logging and the cache off.
     expect(fakes.ai).toHaveBeenCalledWith(
@@ -227,7 +307,7 @@ describe('security probe', () => {
       status: 'fail',
       message: 'Security audits are not installed. Run: void platform upgrade --security-audits',
     });
-    expect(body.checks.filter((entry) => entry.status === 'skipped')).toHaveLength(5);
+    expect(body.checks.filter((entry) => entry.status === 'skipped')).toHaveLength(7);
     expect(body).toMatchObject({ ok: false, saved: false });
     expect(fakes.cf).not.toHaveBeenCalled();
     expect(fakes.rest).toEqual([]);
@@ -244,12 +324,7 @@ describe('security probe', () => {
           { status: 403 },
         ),
     });
-    const cf = fakes.cf;
-    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) =>
-      String(input).includes('/ai/v1/')
-        ? Response.json({})
-        : (cf as unknown as typeof fetch)(input, init),
-    );
+    stubFetch(fakes.cf, fakes.rest, fakes.registry);
     const body = await probe();
     expect(check(body, 'container')).toMatchObject({
       status: 'fail',
@@ -259,6 +334,12 @@ describe('security probe', () => {
     expect(check(body, 'egress')?.status).toBe('skipped');
     expect(body.entitlement).toMatchObject({ ok: false, missing: ['container', 'egress'] });
     expect(fakes.selfTest).not.toHaveBeenCalled();
+    // No image is copied into an account that cannot run containers.
+    expect(fakes.registry.calls).toEqual([]);
+    expect(check(body, 'image', 'openai')).toMatchObject({
+      status: 'skipped',
+      message: SECURITY_PROBE_COPY.imageSkipped,
+    });
   });
 
   test('check 2: a container that does not start, or runs as root, fails', async () => {
@@ -342,6 +423,153 @@ describe('security probe', () => {
         hosts: { openai: false, anthropic: false },
       }),
     );
+    // A host that cannot be called gets no image copy and no image self-test.
+    for (const host of ['openai', 'anthropic'] as const) {
+      expect(check(body, 'image', host)).toMatchObject({
+        status: 'skipped',
+        message: SECURITY_PROBE_COPY.imageNoCredits(host),
+      });
+    }
+    expect(fakes.registry.calls.filter((call) => call.includes('ghcr'))).toEqual([]);
+    expect(fakes.selfTestEngines).toEqual(['void_loop']);
+  });
+
+  test('check 5 image: a release with no image for an engine keeps only that host off', async () => {
+    pinState.digests = { codex_sdk: ENGINE_C_IMAGE.digest };
+    const body = await probe();
+    expect(check(body, 'image', 'anthropic')).toMatchObject({
+      status: 'fail',
+      message: SECURITY_PROBE_COPY.imageUnpublished('anthropic'),
+    });
+    expect(check(body, 'image', 'openai')?.status).toBe('ok');
+    expect(body.entitlement).toMatchObject({ ok: true, hosts: { openai: true, anthropic: false } });
+    expect([...fakes.selfTestEngines].sort()).toEqual(['codex_sdk', 'void_loop']);
+    const names = await securityScannerNames('inst_probe');
+    const metadata = fakes.cf.state.hostScripts.get(names.worker)?.metadata as {
+      containers: Array<{ name: string }>;
+    };
+    expect(metadata.containers.map((entry) => entry.name)).toEqual([
+      names.application,
+      names.engines.codex_sdk.application,
+    ]);
+  });
+
+  test('check 5 image: an engine image that fails its self-test keeps only that host off', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    selfTestAnswer = (probeId, engine) => ({
+      started: true,
+      coldStartMs: 1,
+      report: { ...PASSING_REPORT(probeId), ...(engine === 'agent_sdk' ? { uid: 0 } : {}) },
+    });
+    const body = await probe();
+    expect(check(body, 'container')?.status).toBe('ok');
+    expect(check(body, 'image', 'anthropic')).toMatchObject({
+      status: 'fail',
+      message: SECURITY_PROBE_COPY.imageSelfTest('anthropic', body.probeId),
+      detail: 'the scanner ran as root',
+    });
+    expect(body.entitlement).toMatchObject({ ok: true, hosts: { openai: true, anthropic: false } });
+    expect(errors).toHaveBeenCalledWith(
+      '[security-probe] engine image self-test failed',
+      expect.objectContaining({ probeId: body.probeId, host: 'anthropic' }),
+    );
+  });
+
+  test('check 5 image: a copy the registry refuses names the token permission', async () => {
+    fakes.registry = createFakeRegistry({ credentialsStatus: 403 });
+    stubFetch(fakes.cf, fakes.rest, fakes.registry);
+    const body = await probe();
+    for (const host of ['openai', 'anthropic'] as const) {
+      expect(check(body, 'image', host)).toMatchObject({
+        status: 'fail',
+        message: SECURITY_PROBE_COPY.imageCredentials(host),
+      });
+    }
+    // Engine B is not affected.
+    expect(body.entitlement).toMatchObject({
+      ok: true,
+      hosts: { openai: false, anthropic: false },
+    });
+  });
+
+  test('check 5 image: a later failed call or copy never takes a deployed engine off', async () => {
+    const first = await probe();
+    expect(first.entitlement.hosts).toEqual({ openai: true, anthropic: true });
+    const uploads = await controllerUploads();
+    const deployed = await containerNames();
+    expect(deployed).toHaveLength(3);
+
+    // No credits for anthropic/* this time: no copy and no self-test for it, but the
+    // controller is not uploaded again and keeps the engine's container.
+    restStatus = { messages: 429, responses: 200 };
+    fakes.selfTestEngines.length = 0;
+    const noCredits = await probe();
+    expect(check(noCredits, 'image', 'anthropic')).toMatchObject({
+      status: 'skipped',
+      message: SECURITY_PROBE_COPY.imageNoCredits('anthropic'),
+    });
+    expect(noCredits.entitlement.hosts).toEqual({ openai: true, anthropic: false });
+    expect([...fakes.selfTestEngines].sort()).toEqual(['codex_sdk', 'void_loop']);
+    expect(await controllerUploads()).toBe(uploads);
+    expect(await containerNames()).toEqual(deployed);
+
+    // Registry credentials fail once: the deployed images still run their self-test.
+    restStatus = { messages: 200, responses: 200 };
+    fakes.registry = createFakeRegistry({ credentialsStatus: 503 });
+    stubFetch(fakes.cf, fakes.rest, fakes.registry);
+    const noRegistry = await probe();
+    expect(check(noRegistry, 'image', 'anthropic')?.status).toBe('ok');
+    expect(check(noRegistry, 'image', 'openai')?.status).toBe('ok');
+    expect(noRegistry.entitlement.hosts).toEqual({ openai: true, anthropic: true });
+    expect(await controllerUploads()).toBe(uploads);
+    expect(await containerNames()).toEqual(deployed);
+  });
+
+  test('check 5 image: a host whose models are all blocked gets no copy and no self-test', async () => {
+    const blockedModels = SECURITY_MODEL_IDS.filter(
+      (id) => getSecurityModel(id).host === 'anthropic',
+    );
+    await env.db.insert(platformSettings).values({
+      key: SECURITY_POLICY_SETTINGS_KEY,
+      value: {
+        mode: 'disabled',
+        defaultModel: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+        blockedModels,
+        thirdPartyNotice: null,
+        limits: {
+          concurrency: 2,
+          timeoutMinutes: 20,
+          maxInputTokens: 600_000,
+          maxOutputTokens: 60_000,
+          modelCallsPerScan: 80,
+        },
+        budgets: {
+          platformCapOn: false,
+          platformMonthlyUsd: 1000,
+          projectCapsOn: false,
+          projectDefaultMonthlyUsd: 100,
+        },
+        entitlement: null,
+        publicGate: false,
+        revision: 1,
+      },
+    });
+    const body = await probe();
+    expect(body.saved).toBe(true);
+    expect(check(body, 'image', 'anthropic')).toMatchObject({
+      status: 'skipped',
+      message: SECURITY_PROBE_COPY.imageBlocked('anthropic'),
+    });
+    expect(check(body, 'image', 'openai')?.status).toBe('ok');
+    expect(
+      fakes.registry.calls.filter((call) => call.includes('void-security-scanner-engine-a')),
+    ).toEqual([]);
+    expect([...fakes.selfTestEngines].sort()).toEqual(['codex_sdk', 'void_loop']);
+    const names = await securityScannerNames('inst_probe');
+    expect(await containerNames()).toEqual([
+      names.application,
+      names.engines.codex_sdk.application,
+    ]);
   });
 
   test('check 6: an email binding is reported on', async () => {
@@ -391,12 +619,13 @@ describe('security probe', () => {
     });
     expect(refusedBody.details.probeId).toMatch(/^pr_/);
     expect(refusedBody.message).toContain(`probe ${refusedBody.details.probeId}`);
+    // Engine B and both engine images ran their self-test.
     expect(await storedPolicy()).toMatchObject({
       mode: 'disabled',
       revision: 1,
       entitlement: { ok: false, missing: ['workers_ai'] },
     });
-    expect(fakes.selfTest).toHaveBeenCalledTimes(1);
+    expect(fakes.selfTest).toHaveBeenCalledTimes(3);
 
     const accepted = await policyRequest({ expectedRevision: 1, mode: 'public' });
     expect(accepted.status).toBe(200);
@@ -405,7 +634,7 @@ describe('security probe', () => {
       revision: 2,
       entitlement: { ok: true },
     });
-    expect(fakes.selfTest).toHaveBeenCalledTimes(2);
+    expect(fakes.selfTest).toHaveBeenCalledTimes(6);
   });
 });
 

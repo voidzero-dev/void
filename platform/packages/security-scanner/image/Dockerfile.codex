@@ -8,10 +8,13 @@
 # stay in the image.
 FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 ARG TARGETARCH
+# /scan is an empty folder the scanner owns: the runner unpacks the input tar into it as
+# `scanner` (the controller repeats this setup as root before each run, like the managed image).
 RUN useradd --create-home --uid 10001 scanner \
-  && mkdir -p /scan/input /scan/memory /scan/out /work /opt/void-scanner \
-  && chown scanner /scan/out \
-  && chmod 755 /scan /scan/input /scan/memory /work
+  && mkdir -p /scan /work /opt/void-scanner \
+  && chown scanner:scanner /scan \
+  && chmod 700 /scan \
+  && chmod 755 /work
 WORKDIR /opt/void-scanner
 COPY platform/packages/security-scanner/image/codex/package.json platform/packages/security-scanner/image/codex/package-lock.json ./
 COPY platform/packages/security-scanner/image/codex/make-catalog.mjs ./make-catalog.mjs

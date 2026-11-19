@@ -1,0 +1,50 @@
+name: Publish Security Scanner Images
+
+# Manual release step for security audits Engines A and C (design doc 0095 M13b): build
+# both scanner images for linux/amd64, push them to ghcr.io, and print the digests to pin
+# in platform/packages/api/src/security/scanner-images.json. Commit that file before the
+# platform release that should turn those engines on. The ghcr.io packages must be public:
+# each install copies the image by digest without credentials. Runs only on main or a
+# release tag, with no build cache, and labels each image with the commit it was built
+# from (org.opencontainers.image.revision), so a pinned digest can be traced to reviewed code.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: platform-security-scanner-images
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0
+        with:
+          cache: false
+          node-version-file: .node-version
+      - run: vp install
+      - name: Log in to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build, push and pin both images
+        run: node platform/scripts/publish-security-scanner-images.ts --push
+      - name: Show the digests to commit
+        run: |
+          {
+            echo '### platform/packages/api/src/security/scanner-images.json'
+            echo "Built from \`$GITHUB_SHA\` ($GITHUB_REF)."
+            echo '```json'
+            cat platform/packages/api/src/security/scanner-images.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

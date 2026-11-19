@@ -104,11 +104,11 @@ export async function setProjectSecurityModel(
     }
     acceptNotice = accept === SECURITY_PROVIDER_NOTICE_VERSION;
     if (model !== null) {
-      // Code must not leave Cloudflare for a host the platform has no credits for.
+      // Code must not leave Cloudflare for a host the last probe did not find ready.
       if (!policy.entitlement?.hosts[host]) {
         throw SecurityApiError.of(
           'modelNotAllowed',
-          `${host}/* models cannot be picked: the platform has no AI Gateway credits for ${host}/*. Ask your platform admin.`,
+          `${host}/* models cannot be picked: they are not ready on this platform (AI Gateway credits or the scanner image). Ask your platform admin.`,
           { model, host },
         );
       }
