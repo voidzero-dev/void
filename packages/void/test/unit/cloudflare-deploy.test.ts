@@ -501,6 +501,16 @@ describe('Cloudflare activation diagnostics', () => {
     },
   );
 
+  it.each(['inheritance-source-unavailable', 'inheritance-source-changed'] as const)(
+    'reports the uploaded version when secret inheritance verification stops activation (%s)',
+    (reason) => {
+      const versionId = '22222222-2222-4222-8222-222222222222';
+      const message = formatCloudflareActivationError({ ok: false, reason, versionId });
+      expect(message).toContain(`Worker version ${versionId} was uploaded but not activated`);
+      expect(message).toContain('Production traffic is unchanged');
+    },
+  );
+
   it('does not suggest an account subdomain when workers.dev is off', () => {
     const versionId = '22222222-2222-4222-8222-222222222222';
     for (const reason of [
