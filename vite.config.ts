@@ -121,6 +121,14 @@ export default defineConfig({
           untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
         },
       },
+      // Local verification without the static checks: build, then the cached test groups.
+      test: {
+        command:
+          'vp run --cache build:all && vp run test:group:platform && vp run test:group:unit && vp run test:group:integration',
+        cache: {
+          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
+        },
+      },
       'test:all': {
         command:
           'vp run --cache build:all && node test/check-playground-build-artifacts.mjs && vp check && vp run check:types && vp run test:group:platform && vp run test:group:unit && vp run test:group:integration',

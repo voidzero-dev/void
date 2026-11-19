@@ -28,47 +28,24 @@ while building unrelated apps, including fixtures that have not generated their 
 Type-only contracts use `*.typecheck.ts`. Package typechecking verifies them; the Vitest runtime
 does not need to execute their `expectTypeOf` assertions.
 
-### Affected local tests
+### Local test runs
 
-`vp run test` is the local affected-tests default; `vp test run`, `vp run test:full`, and CI still
-run the full suite. The selector's result caching is disabled: Git state must be inspected on every run.
-Do not pass `vp run --cache` to this task.
+`vp run test` builds the workspace and runs the tests as three cached groups: platform, unit, and
+integration. Vite Task records the files each group reads and replays a group when none of them
+changed, so a platform-only change does not rerun the SDK groups and an unchanged checkout replays
+all three. A failed group is never replayed. `vpr test:all` adds formatting, lint, and typechecks.
 
 ```sh
-vp run test --list                 # Preview files and fallback reasons; no builds or test hooks
-vp run test                       # Staged, unstaged, and untracked changes against HEAD
-vp run test --base origin/main     # Branch commits since merge-base, plus local changes
-vp run test --unit                 # Faster iteration only; explicitly skips integration projects
+vp run test                        # Build, then run or replay each test group
+vp run test:group:platform         # One group; also test:group:unit, test:group:integration
+vp test run                        # Every test, never replayed
 ```
 
-Pass shortcut arguments directly after the task name, without an extra `--`. A clean working tree
-selects nothing unless `--base` includes earlier commits. Invalid Git refs or selection failures
-fail the command rather than silently skipping coverage.
-
-The runner uses Vitest's static import graph, including transitive and literal dynamic imports.
-It supplies changed paths through [Vitest's `experimental.vcsProvider` hook](https://vitest.dev/config/experimental#experimental-vcsprovider).
-Independent Git queries run asynchronously in parallel, and filtering reuses one snapshot per invocation.
-Neither test results nor Git state are cached between commands. Built public exports join that snapshot
-before import-based selection. The hook is specific to the smart runner: native `vp test run --changed`
-still lacks the repository's integration fallbacks.
-
-The runner adds coverage that imports cannot describe:
-
-- SDK source changes rebuild public packages, select all SDK build/server/browser integrations,
-  and include built public exports in the related graph so platform and adapter consumers are covered.
-- Platform source, migration, and fixture changes select the owning package's tests, including
-  both API integration worker pools. Ordinary changed test files use the native related graph.
-- Playground changes select suites mentioning that fixture path. An unmapped playground selects
-  all SDK integrations; shared test tooling, configuration, dependencies, deletions/renames,
-  and unknown ownership fall back to the full selection.
-- Documentation-only changes skip runtime tests. Verify documentation rendering/examples separately.
-
-`--list` does not refresh builds, so built-export coverage can expand when the command executes.
-Affected selection is conservative, not a proof that all behavior is covered: computed imports,
-filesystem reads, generated artifacts, and external services can introduce additional dependencies.
-Explicitly run a known consumer when changing one of those boundaries. Changes to packaging still
-need the packed checks below; changes to metaframework output still need `build:all` and the
-artifact check.
+The cache sees files, not environment variables, network services, Docker, or the clock. Use
+`vp test run` (or `vp run test:full`) when one of those changed or when chasing a flaky test. CI
+does not use the group tasks. Every Vitest project must belong to exactly one group in the root
+`vite.config.ts`; add a new project to a group when you create it. Changes to packaging still need
+the packed checks below.
 
 For a leaf-module edit with known import-based consumers, Vitest's native related command is useful:
 
@@ -77,10 +54,9 @@ vp test related --run packages/void/src/runtime/sse/index.ts --project unit --pr
 vp test list packages/void/test/unit/plugin-routing.test.ts --filesOnly
 ```
 
-Agents should run a focused regression first, then affected verification and `vp check` after a
-batch. Use unit-only runs during iteration, but run the affected integration selection before
-handoff. Run the full suite once for final verification, not after every edit. For interactive
-development, `vp test watch <test-file>` keeps the transform graph in memory between edits.
+Agents should run a focused regression first, then `vp run test` and `vp check` after a batch.
+For interactive development, `vp test watch <test-file>` keeps the transform graph in memory
+between edits.
 
 The named shortcuts select the current test projects:
 
@@ -101,14 +77,6 @@ vpr test:all
 
 `vpr test:all` formats, lints, builds, typechecks, and tests the merged monorepo. Investigate slow
 or hanging tests when they occur instead of routinely increasing timeouts.
-
-`vpr test:all` runs the tests as three cached tasks: `test:group:platform`, `test:group:unit`, and
-`test:group:integration`. Vite Task records the files each group reads and replays the group when
-none of them changed, so a platform-only change does not rerun the SDK groups and an unchanged
-checkout replays all three. A failed group is never replayed. Run `vp test run` (or
-`vp run test:full`) to execute every test regardless of the cache, for example when chasing a
-flaky test. CI does not use the group tasks. Every Vitest project must belong to exactly one group
-in the root `vite.config.ts`; add a new project to a group when you create it.
 
 Subprocess and provisioning-lock unit tests start alongside the platform projects so their real
 process deadlines can overlap database work. The remaining SDK unit and integration files then

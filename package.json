@@ -16,7 +16,6 @@
     "install:void-dev": "vp run build:core && node scripts/void-dev-link.mjs install",
     "lint": "vp lint",
     "prepare": "vp config && vp run build:core",
-    "test": "node test/affected.mjs",
     "test:full": "vp test run",
     "test:integration": "vp test run --project parallel-integration",
     "test:metaframeworks": "vp test run --project parallel-integration analog.test.ts astro.test.ts nitro-worker.test.ts nuxt.test.ts react-router.test.ts sveltekit.test.ts tanstack-start.test.ts vinext-app.test.ts vinext-pages.test.ts",

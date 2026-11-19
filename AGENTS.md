@@ -25,9 +25,8 @@ Deploy hosted production before publishing the npm packages: the CLI checks the 
   - During plan generation: ask clarifying questions when necessary, especially around developer-experience defining design decisions.
   - Verification:
     - Run `vp check` for formatting, linting, and workspace typechecking after completing a batch of tasks.
-    - During development, run an exact test file (and `-t` for a focused case) first. Use `vp run test --list` to inspect affected coverage, then `vp run test` for changed-file validation. Use `--base <ref>` when changes are already committed; the default includes only staged, unstaged, and untracked files.
-    - `vp run test --unit` is an iteration-only shortcut, not integration verification. Native `vp test related --run <source>` misses filesystem/subprocess inputs; prefer the smart runner's conservative fallbacks before handing off. See `TESTING.md` for builds, integration selection, and import profiling.
-    - Run `vp test run` once when everything is done for final verification. CI and `vpr test:all` retain full-suite coverage. Do not repeatedly run the full suite during iteration, enable result caching for the smart selector, or disable module isolation to make tests faster.
+    - During development, run an exact test file (and `-t` for a focused case) first, then `vp run test`. It builds the workspace and runs the platform, unit, and integration test groups, replaying a group whose input files did not change. Native `vp test related --run <source>` misses filesystem/subprocess inputs. See `TESTING.md` for builds, the test groups, and import profiling.
+    - Run `vpr test:all` once when everything is done for final verification. Use `vp test run` to execute every test without the cache, for example when environment variables or external services changed. Do not disable module isolation to make tests faster.
     - If there are tests hanging or running particularly slow, investigate right there and attempt to fix. Testing velocity is something that should be maintained or improved at every opportunity.
   - Documentation: after verification, update the relevant docs only when public behavior, configuration, or user workflows change. An internal fix often needs no user-facing documentation change:
     - `README.md`
@@ -46,10 +45,8 @@ Deploy hosted production before publishing the npm packages: the CLI checks the 
 vp run build                        # Build all packages
 vp run build:all                    # Build packages and playgrounds
 vp run build:core                   # Build shared packages, CLI, and platform runtime
-vp run test                         # Affected local tests, with integration fallbacks
-vp run test --list                  # Preview affected test files without builds/hooks
-vp run test --base origin/main      # Include committed branch changes
-vp test run                         # Run tests (unit + integration tests)
+vp run test                         # Build, then run or replay each cached test group
+vp test run                         # Run every test without the cache
 vpr test:all                        # Format, lint, build, typecheck, and run all SDK/platform tests
 vp test run packages/void           # Only test the core plugin
 vp lint                             # Oxlint through Vite+
@@ -110,7 +107,7 @@ review newer TypeScript, Kit, and adapter catalog versions with
 
 ## Testing
 
-Run affected local tests from root with `vp run test`; `vp test run` always runs the full suite.
+Run local tests from root with `vp run test`, which replays unchanged test groups; `vp test run` always runs the full suite.
 See `TESTING.md` for minimal agent verification and profiling, and each package README for test listings.
 
 ## Playground

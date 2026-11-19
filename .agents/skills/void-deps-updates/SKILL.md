@@ -18,7 +18,7 @@ Work in the Void maintainer checkout. Read its current `AGENTS.md`, `packages/vo
 
 ## Verify and deliver
 
-Start with exact affected tests, then `vp run test --list`, affected tests, and `vp check`. Follow `TESTING.md` for builds, artifact validation, lint, and final full tests. Do not overlap builds with checks reading the same generated output.
+Start with exact affected tests, then `vp run test` and `vp check`. Follow `TESTING.md` for builds, artifact validation, lint, and final full tests. Do not overlap builds with checks reading the same generated output.
 
 Manifest/lockfile updates require the full npm/pnpm × React/Vue/Svelte/Solid packed matrix, plus Vite+ starters:
 
