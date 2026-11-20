@@ -81,13 +81,18 @@ export function interpolateRouteParams(
 /** Known page, HTTP and WebSocket route patterns. */
 export type RoutePath = keyof RoutePathMap & string;
 
+// The helpers below are exported because generated route declarations re-export them:
+// earlier generated files declared them, so apps can import them from `void/routes`.
+
 // Dynamic segments in either public or legacy patterns match any text,
 // so `/users/[id]` accepts `/users/${string}`. Template
 // literal types cannot exclude empty or `/`-leading text without per-character unions.
-type RouteUrlSegment<S extends string> = S extends `:${string}` | `[${string}]` | '*' ? string : S;
+export type RouteUrlSegment<S extends string> = S extends `:${string}` | `[${string}]` | '*'
+  ? string
+  : S;
 // Root params and catch-alls would accept every absolute path. Keep those
 // patterns available to routeUrl(), but require explicit construction for them.
-type CheckedRoutePath<P extends string> = P extends `/${infer Segment}/${infer Rest}`
+export type CheckedRoutePath<P extends string> = P extends `/${infer Segment}/${infer Rest}`
   ? Rest extends ''
     ? string extends RouteUrlSegment<Segment>
       ? never
@@ -98,21 +103,21 @@ type CheckedRoutePath<P extends string> = P extends `/${infer Segment}/${infer R
       ? never
       : P
     : P;
-type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`
+export type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`
   ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`
   : RouteUrlSegment<P>;
 // A trailing `/*` also matches the bare prefix, as in Hono: `/docs/*` matches `/docs`.
-type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${'*' | '[...]'}/`
+export type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${'*' | '[...]'}/`
   ? `${RouteSegmentsUrl<Prefix>}/` | `${RouteSegmentsUrl<Prefix>}/${string}/`
   : P extends `${infer Prefix}/${'*' | '[...]'}`
     ? (Prefix extends '' ? '/' : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`
     : RouteSegmentsUrl<P>;
 // Fixed segments are also accepted percent-encoded, as `routeUrl()` returns them.
-type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;
-type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePath>>;
+export type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;
+export type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePath>>;
 // Use a structural marker so package and generated declarations agree when a
 // helper-built URL crosses into a navigation, form, or stream client.
-type BuiltRouteUrl = string & { readonly __voidRouteUrl: true };
+export type BuiltRouteUrl = string & { readonly __voidRouteUrl: true };
 
 /** Whether `routing.typedRoutes` is on in the generated route types. */
 export type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;
@@ -179,10 +184,15 @@ type MatchingRoute<P extends RoutePath, Candidate extends string> = [
 // strictFunctionTypes compare parameters bivariantly and would accept the route.
 // A string-literal message also keeps the quoted path in the error: TypeScript prints
 // the argument as `string` when the parameter type has no literal or template members.
-type UnknownRoute<Candidate extends string> = string extends Candidate
+// Distributing over Candidate lets an implementation of `typeof routeUrl` accept the path
+// as `RoutePath`: TypeScript checks it with Candidate widened to string, which yields P.
+// That result must not be never, or TypeScript would not use it.
+type UnknownRoute<P extends RoutePath, Candidate extends string> = Candidate extends RoutePath
   ? never
-  : `Unknown route: ${Exclude<NoInfer<Candidate>, RoutePath>}. Use a registered route pattern.` &
-      UrlErrorToken;
+  : string extends Candidate
+    ? NoInfer<P>
+    : `Unknown route: ${Exclude<NoInfer<Candidate>, RoutePath>}. Use a registered route pattern.` &
+        UrlErrorToken;
 
 // Keep P out of a top-level union so TypeScript infers it from the whole argument. A
 // generic path such as `P & RoutePath` would otherwise be inferred from its first member
@@ -191,13 +201,14 @@ type UnknownRoute<Candidate extends string> = string extends Candidate
 // paths, such as `P & RoutePath` in a generic helper, infer never and resolve to P like a
 // plain parameter. Left deferred, the check would compare every route in that union with
 // every other one, which exceeds TypeScript's complexity limit in apps with ~1,400 routes.
+// The unreachable branch is also a route so that every branch is assignable to P.
 type RouteArgument<P extends RoutePath, Candidate extends string> = [Candidate] extends [never]
   ? P
   : string extends Candidate
     ? P
     : [Candidate] extends [unknown]
-      ? MatchingRoute<P, Candidate> | UnknownRoute<Candidate>
-      : `${Candidate}`;
+      ? MatchingRoute<P, Candidate> | UnknownRoute<P, Candidate>
+      : `${Candidate}` & NoInfer<P>;
 
 /** Build a relative URL from a known route pattern. */
 // A single signature with a positional path preserves inference in wrappers and currying helpers.

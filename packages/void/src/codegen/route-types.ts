@@ -144,6 +144,8 @@ export function generateRouteTypes(
   // Resolve the SDK's ESM declarations from CommonJS projects as well.
   const sdkRouteTypes =
     'import("void/_route-url-types", { with: { "resolution-mode": "import" } })';
+  // Earlier generated files declared the URL helpers here, which exported them from
+  // void/routes too, so keep every one of those names importable.
   for (const name of [
     'RoutePath',
     'RouteQueryValue',
@@ -151,8 +153,20 @@ export function generateRouteTypes(
     'RouteUrl',
     'Href',
     'RouteUrlInput',
+    'TypedRoutes',
+    'BuiltRouteUrl',
+    'EncodedRoutePath',
+    'RoutePathUrl',
   ]) {
     lines.push(`  export type ${name} = ${sdkRouteTypes}.${name};`);
+  }
+  for (const name of [
+    'RouteUrlSegment',
+    'CheckedRoutePath',
+    'RouteSegmentsUrl',
+    'RoutePatternUrl',
+  ]) {
+    lines.push(`  export type ${name}<P extends string> = ${sdkRouteTypes}.${name}<P>;`);
   }
   lines.push(`  export type RouteOptions<P extends RoutePath> = ${sdkRouteTypes}.RouteOptions<P>;`);
   lines.push(

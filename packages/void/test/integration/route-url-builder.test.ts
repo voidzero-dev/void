@@ -588,6 +588,64 @@ void [userUrl, forwardOptions, forwardRouteOptions, forwardRouteOptionsSubtype, 
   );
 
   it.each(declarationChecks)(
+    'accepts implementations and helper types from main through $declarations declarations with $version',
+    async ({ declarations, tsc }) => {
+      const root = await createFixture({
+        extraFiles: {
+          'check-implementations.ts': `import { routeUrl, type RoutePath, type RouteUrl } from 'void/routes';
+import type { BuiltRouteUrl, CheckedRoutePath, EncodedRoutePath, RoutePathUrl, RoutePatternUrl, RouteSegmentsUrl, RouteUrlSegment, TypedRoutes } from 'void/routes';
+const routePath: typeof routeUrl = (path: RoutePath, options?: unknown) => path as RouteUrl;
+const routePathRest: typeof routeUrl = (path: RoutePath, ...rest: unknown[]) => path as RouteUrl;
+const genericRest: typeof routeUrl = <P extends RoutePath>(path: P, ...args: any[]) => path as RouteUrl;
+const forwarded: typeof routeUrl = (path, ...options) => routeUrl(path, ...options);
+const satisfied = ((path: RoutePath, options?: unknown) => path as RouteUrl) satisfies typeof routeUrl;
+function declared<P extends RoutePath>(path: P, ...args: any[]): RouteUrl {
+  return path as RouteUrl;
+}
+const fromDeclaration: typeof routeUrl = declared;
+const dependencies: { routeUrl: typeof routeUrl } = {
+  routeUrl(path: RoutePath, options?: unknown) {
+    return path as RouteUrl;
+  },
+};
+interface UrlBuilder {
+  build: typeof routeUrl;
+}
+class FakeBuilder implements UrlBuilder {
+  build(path: RoutePath, options?: unknown) {
+    return path as RouteUrl;
+  }
+}
+function withBuilder(build: typeof routeUrl = (path: RoutePath, options?: unknown) => path as RouteUrl) {
+  return build;
+}
+declare function fn<T extends (...args: any[]) => any>(implementation?: T): T & {
+  mockImplementation(implementation: T): void;
+};
+const mock: typeof routeUrl = fn((path: RoutePath, options?: unknown) => path as RouteUrl);
+fn(routeUrl).mockImplementation((path: RoutePath) => path as RouteUrl);
+routePath('/about');
+routePath('/users/[id]', { params: { id: 42 } });
+// @ts-expect-error an implementation keeps routeUrl's required params
+routePath('/users/[id]');
+// @ts-expect-error an implementation keeps routeUrl's route check
+forwarded('/missing');
+const typed: TypedRoutes = false;
+const built = '' as BuiltRouteUrl;
+const pathUrl: RoutePathUrl = '/users/42';
+type Helpers = [EncodedRoutePath, CheckedRoutePath<'/about'>, RoutePatternUrl<'/files/[...]'>, RouteSegmentsUrl<'a/b'>, RouteUrlSegment<'[id]'>];
+void [routePathRest, genericRest, satisfied, fromDeclaration, dependencies, FakeBuilder, withBuilder, mock, typed, built, pathUrl, {} as Helpers];
+`,
+        },
+      });
+      expect(typecheck(root, declarations, ['check-implementations.ts'], {}, tsc)).toEqual({
+        output: '',
+        status: 0,
+      });
+    },
+  );
+
+  it.each(declarationChecks)(
     'checks function helpers through $declarations declarations with $version',
     async ({ declarations, tsc }) => {
       const root = await createFixture({
