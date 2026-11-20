@@ -607,12 +607,14 @@ describe('installed platform upgrade', () => {
         expect(failure).toBeInstanceOf(PlatformCloudflareApiError);
         expect(failure.status).toBe(401);
         expect(failure.message).toContain(
-          `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token, not the management token.`,
+          `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token (VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN), or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit.`,
         );
         expect(failure.message).toContain(
           'Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token',
         );
-        expect(failure.message).not.toContain(' CLOUDFLARE_API_TOKEN');
+        // The 401 is the runtime token's, not browser login's.
+        expect(failure.message).not.toContain('Void used the Cloudflare browser login');
+        expect(failure.message).not.toContain('Set CLOUDFLARE_API_TOKEN to a valid');
         expect(failure.message).not.toContain('runtime-');
         expect(installPlatform).not.toHaveBeenCalled();
         expect(writeInstallationManifest).not.toHaveBeenCalled();

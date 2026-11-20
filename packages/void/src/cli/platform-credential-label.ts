@@ -29,7 +29,8 @@ export const PLATFORM_AI_GATEWAY_PERMISSION = 'Account → AI Gateway → Edit';
 /** For example `management token from CLOUDFLARE_API_TOKEN`. */
 export function describePlatformCredential(label: PlatformCredentialLabel): string {
   if (label.source === 'oauth') {
-    return 'Cloudflare browser login (Wrangler OAuth)';
+    // No "Wrangler": the CLI rewrites that word in printed errors.
+    return 'Cloudflare browser login';
   }
   const kind = credentialKind(label);
   switch (label.source) {
@@ -198,7 +199,7 @@ function credentialAdvice(
 function aiGatewayStandIn(label: PlatformCredentialLabel): string {
   const name = describePlatformCredential(label);
   return label.aiGatewayFor?.source === 'oauth'
-    ? `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token, not the management token.`
+    ? `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token (${PLATFORM_RUNTIME_TOKEN_VARIABLE}), or set CLOUDFLARE_API_TOKEN to a management token with ${PLATFORM_AI_GATEWAY_PERMISSION}.`
     : `Void used the ${name} for AI Gateway. Fix the runtime token.`;
 }
 

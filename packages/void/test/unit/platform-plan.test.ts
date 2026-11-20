@@ -771,7 +771,7 @@ describe('platform installation planning', () => {
       false,
     ).then(expectedRejection, (error: Error) => error);
     expect(error.message).toBe(
-      'platform: The runtime token could not verify AI Gateway access. Browser login cannot use AI Gateway, so Void used the runtime token you entered for it. Fix the runtime token, not the management token. HTTP 403 means the token works but is missing Account → AI Gateway → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a runtime token that has it, then retry. No platform resources were created.',
+      'platform: The runtime token could not verify AI Gateway access. Browser login cannot use AI Gateway, so Void used the runtime token you entered for it. Fix the runtime token (VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN), or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit. HTTP 403 means the token works but is missing Account → AI Gateway → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a runtime token that has it, then retry. No platform resources were created.',
     );
   });
 

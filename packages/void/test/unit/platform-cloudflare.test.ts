@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { formatCloudflareUserMessage } from '../../src/cli/cloudflare-user-output.ts';
 import {
   hyperdriveOriginConfigHash,
   hyperdriveOriginFromConnectionString,
@@ -1947,7 +1948,7 @@ describe('naming the Cloudflare credential in errors', () => {
       expect(error.status).toBe(401);
       expect(error.requestPath).toBe('/accounts/account/ai-gateway/gateways');
       expect(error.message).toContain(
-        `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token, not the management token. HTTP 401 means Cloudflare did not accept the token: it is not valid, has expired, or was replaced. Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token, then retry.`,
+        `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token (VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN), or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit. HTTP 401 means Cloudflare did not accept the token: it is not valid, has expired, or was replaced. Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token, then retry.`,
       );
       expect(error.message).not.toContain('management token from');
       expect(error.message).not.toContain('runtime-token');
@@ -1966,6 +1967,16 @@ describe('naming the Cloudflare credential in errors', () => {
     expect(error.message).toContain(
       'Browser login cannot use AI Gateway. Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to the platform runtime token, or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit, then retry.',
     );
+  });
+
+  it('names browser login in words the CLI prints unchanged', async () => {
+    const client = new PlatformCloudflareClient('browser-token', {
+      credential: { role: 'management', source: 'oauth' },
+      fetcher: denyingFetcher(403),
+    });
+    const error = await failure(client.listQueues('account', 'usage'));
+    expect(error.message).toContain('Void used the Cloudflare browser login.');
+    expect(formatCloudflareUserMessage(error.message)).toBe(error.message);
   });
 
   it('lists every runtime-token permission Cloudflare denied', async () => {
