@@ -61,7 +61,7 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
     spec: Omit<SessionSpec, 'system' | 'maxTurns' | 'signal'>,
     maxTurns = task.maxTurns,
   ) => {
-    const outcome = await engine.runSession({ ...spec, system, maxTurns, signal });
+    const outcome = readNothing(await engine.runSession({ ...spec, system, maxTurns, signal }));
     record(result, spec, outcome);
     return outcome;
   };
@@ -139,6 +139,28 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
     };
   }
   return { ...result, findings };
+}
+
+/**
+ * A session that read no file cannot clear code: the prompt names files but never holds
+ * their text. A report from it with nothing but rejections (an empty hunt, or a verify
+ * that drops its candidate) is bad output, not a clean result. Spike S9 B5: a model that
+ * declines by handing in an empty report would otherwise pass the public gate.
+ */
+export function readNothing(outcome: SessionOutcome): SessionOutcome {
+  if (
+    outcome.kind !== 'submitted' ||
+    outcome.stats.reads > 0 ||
+    outcome.report.findings.some((finding) => finding.verdict !== 'rejected')
+  ) {
+    return outcome;
+  }
+  return {
+    kind: 'bad_output',
+    errorKind: 'nothing_read',
+    message: 'the session cleared the code without reading any file',
+    stats: outcome.stats,
+  };
 }
 
 /** Room left for the findings file's other fields (`schema_version`, `run_status`, `notes`). */

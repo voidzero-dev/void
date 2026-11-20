@@ -32,6 +32,8 @@ export type ModelCallFailureReason =
   | 'credits'
   | 'not_allowed'
   | 'upstream'
+  /** The provider refused the request on policy grounds (`cyber_policy`). */
+  | 'refused'
   | 'rate_wait';
 
 export type ModelCallFailure = Readonly<{

@@ -79,6 +79,7 @@ const inputBuild = await import('../packages/api/src/security/input/build.ts');
 const controllerRuntime =
   await import('../packages/api/src/security-scanner-controller-runtime.ts');
 const { createFakeContainer } = await import('../packages/api/test/__mocks__/container.ts');
+const { COPY_HOST } = await import('../packages/api/src/security/runtime-copy-names.ts');
 const schema = await import('../packages/api/src/schema.ts');
 const policyModule = await import('../../packages/platform/src/security-policy.ts');
 const models = await import('../../packages/platform/src/security-models.ts');
@@ -1367,6 +1368,8 @@ async function egressSection() {
     container: fake.container,
     exports: {
       ScanModelOutbound: (init: { props: unknown }) => ({ outbound: 'model', props: init.props }),
+      // M30: the scan's runtime copy, the only other host the container may call.
+      CopyOutbound: (init: { props: unknown }) => ({ outbound: 'copy', props: init.props }),
       DenyAll: () => ({ outbound: 'deny' }),
     },
     storage: {
@@ -1388,13 +1391,14 @@ async function egressSection() {
     hardCapMs: 120_000,
   });
   await controller.alarm();
-  const order = fake.calls.slice(0, 4);
+  const order = fake.calls.slice(0, 5);
   check(
     'egress',
-    'controller: model host intercept, then all HTTP, then all HTTPS, then start',
+    'controller: model host and copy host intercepts, then all HTTP, then all HTTPS, then start',
     JSON.stringify(order) ===
       JSON.stringify([
         `interceptOutboundHttp:${controllerRuntime.MODEL_HOST}`,
+        `interceptOutboundHttp:${COPY_HOST}`,
         'interceptAllOutboundHttp',
         'interceptOutboundHttps:*',
         'start',

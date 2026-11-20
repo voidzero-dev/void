@@ -106,7 +106,8 @@ describe('Engine B on the fake model', () => {
       // Verify 1 (the confirmed one)
       chatToolCall('grep', { pattern: 'ORDER BY' }),
       chatToolCall('submit_findings', report([SQL])),
-      // Verify 2 (the lead)
+      // Verify 2 (the lead): it reads the file, then drops the candidate
+      chatToolCall('read_file', { path: '/scan/input/src/users.ts' }),
       chatToolCall('submit_findings', report([])),
     ]);
     const status = await runScan({ root, baseUrl: model.url, retryDelayMs: 0 });
@@ -120,16 +121,16 @@ describe('Engine B on the fake model', () => {
       status: 'succeeded',
       reason: null,
       error_class: null,
-      model_calls: 6,
-      tokens_in: 600,
-      tokens_out: 120,
+      model_calls: 7,
+      tokens_in: 700,
+      tokens_out: 140,
       findings: { confirmed: 1, needs_validation: 0, rejected: 1 },
     });
     expect(status.engine_version).toContain('void-loop/1');
     expect(status.sessions.map((s) => [s.phase, s.index, s.outcome, s.turns])).toEqual([
       ['hunt', 0, 'submitted', 3],
       ['verify', 1, 'submitted', 2],
-      ['verify', 2, 'submitted', 1],
+      ['verify', 2, 'submitted', 2],
     ]);
 
     const findings = JSON.parse(await readFile(join(root, 'out/findings.json'), 'utf8'));
@@ -187,6 +188,62 @@ describe('Engine B on the fake model', () => {
       'error: unknown tool "shell"',
     ]);
     expect(JSON.stringify(model!.requests)).not.toContain('CF_API_TOKEN=leak');
+    // Refused or unknown tool calls read nothing.
+    expect(outcome.stats.reads).toBe(0);
+  });
+
+  test('counts the scan tool calls that answered', async () => {
+    const engine = await engineWith([
+      chatToolCalls([
+        { name: 'list_files', arguments: { recursive: true } },
+        { name: 'read_file', arguments: { path: '/scan/input/src/users.ts' } },
+        { name: 'read_file', arguments: { path: '/etc/passwd' } },
+      ]),
+      chatToolCall('submit_findings', report([])),
+    ]);
+    expect(await engine.runSession(spec())).toMatchObject({
+      kind: 'submitted',
+      stats: { reads: 2 },
+    });
+  });
+
+  test('a decline sent as an empty report with no file read fails the scan (spike S9 B5)', async () => {
+    model = await startFakeModel([
+      {
+        json: {
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: "I won't analyze this for vulnerabilities.",
+                tool_calls: [
+                  {
+                    id: 'c1',
+                    type: 'function',
+                    function: {
+                      name: 'submit_findings',
+                      arguments: JSON.stringify({
+                        run_status: 'complete',
+                        findings: [],
+                        notes: 'declined',
+                      }),
+                    },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        },
+      },
+    ]);
+    const status = await runScan({ root, baseUrl: model.url, retryDelayMs: 0 });
+    expect(status).toMatchObject({
+      status: 'failed',
+      reason: 'bad_output',
+      error_class: 'nothing_read',
+      findings: { confirmed: 0, needs_validation: 0, rejected: 0 },
+    });
   });
 
   test('one repair turn after a report that fails the check', async () => {
@@ -511,7 +568,7 @@ describe('runScan failures still write status.json', () => {
               runSession: async () => ({
                 kind: 'refused',
                 category: 'cyber_policy',
-                stats: { turns: 1, modelCalls: 1, inputTokens: 0, outputTokens: 0 },
+                stats: { turns: 1, modelCalls: 1, inputTokens: 0, outputTokens: 0, reads: 0 },
               }),
             }
           : null,

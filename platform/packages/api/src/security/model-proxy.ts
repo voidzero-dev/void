@@ -697,6 +697,31 @@ type Upstream =
   | Readonly<{ kind: 'paid_unreadable'; detail: string }>
   | Readonly<{ kind: 'failed'; status: number; credits: boolean; detail: string }>;
 
+/** Provider error codes that mean a policy refusal (spec §8.4). */
+const PROVIDER_POLICY_CODES = ['cyber_policy', 'trusted_access_for_cyber'] as const;
+
+/** The policy code in a provider error body (`{"error":{"code":"cyber_policy"}}`), or `null`. */
+export function providerPolicyCode(detail: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(detail);
+  } catch {
+    return null;
+  }
+  // The gateway may hand the provider body back as one item of a list.
+  for (const item of Array.isArray(parsed) ? parsed : [parsed]) {
+    const error =
+      typeof item === 'object' && item !== null ? (item as Record<string, unknown>).error : null;
+    const code =
+      typeof error === 'object' && error !== null ? (error as Record<string, unknown>).code : null;
+    const match = PROVIDER_POLICY_CODES.find((known) => known === code);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+}
+
 function statusOf(error: unknown): number | null {
   for (let current = error, depth = 0; current && depth < 4; depth++) {
     const record = asObject(current);
@@ -1103,6 +1128,19 @@ export async function handleSecurityModelRequest(
       detail: upstream.detail.slice(0, 500),
     });
     const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+    const policyCode = providerPolicyCode(upstream.detail);
+    if (policyCode) {
+      // A refusal, not an outage: the code goes on so Engine C reads it in the error text
+      // and the scan ends `refused` instead of being retried (spike S9).
+      return failed(
+        'refused',
+        refuse(
+          status === 402 || status === 401 ? 400 : status,
+          policyCode,
+          'The model provider refused this request.',
+        ),
+      );
+    }
     // A 402 the runner would read as credits is not passed through without the header, and
     // a 401 never reaches an engine: Claude Code retries it for minutes (spike S2).
     return failed(

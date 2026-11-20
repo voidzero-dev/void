@@ -35,6 +35,13 @@ function submitted(raws: Array<Record<string, unknown>>, runStatus?: string): Ou
   return { kind: 'submitted', report: reportOf(raws, runStatus), repaired: false };
 }
 
+type Unread = OutcomeBody & { reads?: number };
+
+/** A session outcome from a session that read no file. */
+function unread(body: OutcomeBody): OutcomeBody {
+  return { ...body, reads: 0 } as Unread;
+}
+
 /** An engine that answers sessions from a script and records the specs it got. */
 function scriptedEngine(
   script: Array<OutcomeBody | ((spec: SessionSpec) => OutcomeBody)>,
@@ -50,10 +57,10 @@ function scriptedEngine(
       if (next === undefined) {
         throw new Error(`no scripted session for ${spec.phase} ${spec.index}`);
       }
-      const body = typeof next === 'function' ? next(spec) : next;
+      const { reads = 1, ...body } = (typeof next === 'function' ? next(spec) : next) as Unread;
       return {
         ...body,
-        stats: { turns: 2, modelCalls: 2, inputTokens: 100, outputTokens: 10 },
+        stats: { turns: 2, modelCalls: 2, inputTokens: 100, outputTokens: 10, reads },
       } as SessionOutcome;
     },
   };
@@ -216,6 +223,46 @@ describe('runPhases', () => {
     expect(engine.specs).toHaveLength(4);
   });
 
+  test('a hunt that read nothing cannot pass as a clean scan (spike S9 B5)', async () => {
+    const result = await runPhases({
+      engine: scriptedEngine([unread(submitted([]))]),
+      task: TASK,
+      hasMemory: false,
+    });
+    expect(result).toMatchObject({
+      status: 'failed',
+      reason: 'bad_output',
+      errorClass: 'nothing_read',
+      findings: [],
+    });
+    expect(result.sessions).toMatchObject([{ phase: 'hunt', outcome: 'bad_output' }]);
+    // Only rejections clear nothing either.
+    expect(
+      await runPhases({
+        engine: scriptedEngine([unread(submitted([rejected()]))]),
+        task: TASK,
+        hasMemory: false,
+      }),
+    ).toMatchObject({ status: 'failed', errorClass: 'nothing_read' });
+    // A hunt that reads files may still find nothing.
+    expect(
+      await runPhases({ engine: scriptedEngine([submitted([])]), task: TASK, hasMemory: false }),
+    ).toMatchObject({ status: 'succeeded', findings: [] });
+  });
+
+  test('a session that read nothing still hands on what it found', async () => {
+    const engine = scriptedEngine([
+      unread(submitted([confirmed({ fingerprint: 'a' }), confirmed({ fingerprint: 'b' })])),
+      unread(submitted([confirmed({ fingerprint: 'a' })])),
+      // A verify session that drops its candidate unread: the candidate stays a lead.
+      unread(submitted([])),
+    ]);
+    const result = await runPhases({ engine, task: TASK, hasMemory: false });
+    expect(result).toMatchObject({ status: 'incomplete', reason: 'run_incomplete' });
+    expect(result.findings.map((f) => [f.fingerprint, f.verdict])).toEqual([['a', 'confirmed']]);
+    expect(result.sessions.map((s) => s.outcome)).toEqual(['submitted', 'submitted', 'bad_output']);
+  });
+
   test('a hunt that says run_status incomplete keeps confirmed findings only', async () => {
     const engine = scriptedEngine([
       submitted([confirmed(), lead()], 'incomplete'),
@@ -303,6 +350,18 @@ describe('runPhases standard profile (sweeps)', () => {
   test('an unreadable hunt costs only its area and ends the scan incomplete', async () => {
     const engine = scriptedEngine([
       { kind: 'bad_output', errorKind: 'schema', message: 'bad' },
+      submitted([confirmed({ fingerprint: 'sqli:q' })]),
+      submitted([]),
+      submitted([confirmed({ fingerprint: 'sqli:q' })]),
+    ]);
+    const result = await runPhases({ engine, task: SWEEP, hasMemory: false });
+    expect(result).toMatchObject({ status: 'incomplete', reason: 'run_incomplete' });
+    expect(result.findings.map((f) => f.fingerprint)).toEqual(['sqli:q']);
+  });
+
+  test('a focus hunt that read nothing costs its area only', async () => {
+    const engine = scriptedEngine([
+      unread(submitted([])),
       submitted([confirmed({ fingerprint: 'sqli:q' })]),
       submitted([]),
       submitted([confirmed({ fingerprint: 'sqli:q' })]),

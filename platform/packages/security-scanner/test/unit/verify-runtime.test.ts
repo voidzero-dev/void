@@ -95,7 +95,7 @@ function scriptedEngine(
       }
       return {
         ...(await next(spec)),
-        stats: { turns: 1, modelCalls: 1, inputTokens: 1, outputTokens: 1 },
+        stats: { turns: 1, modelCalls: 1, inputTokens: 1, outputTokens: 1, reads: 1 },
       } as SessionOutcome;
     },
   };

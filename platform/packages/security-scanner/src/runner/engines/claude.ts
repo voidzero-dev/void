@@ -137,6 +137,10 @@ export function createPathHook(root: string) {
     if (typeof candidate !== 'string' || candidate === '') {
       return true;
     }
+    if (candidate.startsWith('~')) {
+      // Claude Code reads `~` as its home (the config folder), not as a name in the cwd.
+      return false;
+    }
     const absolute = resolve(real(`${root}/input`), candidate);
     // A missing file is judged by its lexical path.
     const resolved = real(absolute);
@@ -145,20 +149,90 @@ export function createPathHook(root: string) {
   return async (input: Record<string, unknown>): Promise<Record<string, unknown>> => {
     const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
     const paths = [toolInput.file_path, toolInput.path, toolInput.notebook_path];
-    if (typeof toolInput.pattern === 'string' && toolInput.pattern.startsWith('/')) {
-      paths.push(toolInput.pattern);
+    const pattern = toolInput.pattern;
+    if (typeof pattern === 'string') {
+      if (input.tool_name === 'Grep') {
+        // A Grep pattern is search text; only an absolute one is checked, as before.
+        if (pattern.startsWith('/')) {
+          paths.push(pattern);
+        }
+      } else {
+        // A Glob pattern is a path: `../../**/*` lists names outside the scan folders.
+        const reach = globReach(pattern, toolInput.path);
+        if (reach === null) {
+          return deny();
+        }
+        paths.push(reach);
+      }
     }
     if (paths.every(under)) {
       return {};
     }
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: 'Only files under /scan/input and /scan/memory can be read.',
-      },
-    };
+    return deny();
   };
+}
+
+/** The hook, counting the Read / Glob / Grep calls it lets through (`stats.reads`). */
+export function countReads(
+  hook: (input: Record<string, unknown>) => Promise<Record<string, unknown>>,
+  onRead: () => void,
+) {
+  return async (input: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const answer = await hook(input);
+    if (
+      answer.hookSpecificOutput === undefined &&
+      (CLAUDE_TOOLS as ReadonlyArray<unknown>).includes(input.tool_name)
+    ) {
+      onRead();
+    }
+    return answer;
+  };
+}
+
+function deny(): Record<string, unknown> {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: 'Only files under /scan/input and /scan/memory can be read.',
+    },
+  };
+}
+
+const GLOB_CHARS = ['*', '?', '[', '{'];
+
+/**
+ * The folder a Glob pattern can reach: its fixed leading segments, under the search
+ * folder. `null` when the pattern could climb out in a way that prefix cannot show:
+ * a `..` anywhere, a `~` home, a backslash escape, or a brace choice that starts a
+ * new root (`{/etc,src}/*`).
+ */
+export function globReach(pattern: string, searchPath: unknown): string | null {
+  if (pattern.includes('..') || pattern.startsWith('~') || pattern.includes('\\')) {
+    return null;
+  }
+  let previous = '';
+  for (const char of pattern) {
+    if ((previous === '{' || previous === ',') && (char === '/' || char === '~')) {
+      return null;
+    }
+    previous = char;
+  }
+  const fixed: Array<string> = [];
+  for (const segment of pattern.split('/')) {
+    if (GLOB_CHARS.some((char) => segment.includes(char))) {
+      break;
+    }
+    fixed.push(segment);
+  }
+  const prefix = fixed.join('/');
+  if (pattern.startsWith('/')) {
+    // An absolute pattern ignores the search folder.
+    return prefix === '' ? '/' : prefix;
+  }
+  const base = typeof searchPath === 'string' && searchPath !== '' ? searchPath : '.';
+  // `under` resolves this against /scan/input, as Glob does without a path.
+  return `${base}/${prefix}`;
 }
 
 const UNSUPPORTED_SCHEMA_KEYS = new Set([
@@ -191,6 +265,22 @@ export function structuredOutputSchema(): Record<string, unknown> {
 
 function text(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+function stopCategory(details: unknown): string | null {
+  return typeof details === 'object' && details !== null
+    ? text((details as Record<string, unknown>).category)
+    : null;
+}
+
+/** The refusal category on an assistant message that stopped with `refusal`. */
+function assistantRefusalCategory(message: ClaudeMessage): string | null {
+  const inner = message.message;
+  if (typeof inner !== 'object' || inner === null) {
+    return null;
+  }
+  const { stop_reason, stop_details } = inner as Record<string, unknown>;
+  return stop_reason === 'refusal' ? stopCategory(stop_details) : null;
 }
 
 function count(value: unknown): number {
@@ -227,6 +317,8 @@ export function createClaudeEngine(options: ClaudeEngineOptions): Engine {
       const configDir = await mkdtemp(join(options.configBase ?? '/home/scanner', 'claude-'));
       const before = await readLastFailure(baseUrl, doFetch, spec.signal);
       let result: ClaudeMessage | null = null;
+      // Claude Code puts `stop_details` on the assistant message, not on the result.
+      let refusalCategory: string | null = null;
       let failed = false;
       try {
         const messages = sdk.query({
@@ -241,13 +333,15 @@ export function createClaudeEngine(options: ClaudeEngineOptions): Engine {
             configDir,
             caFile: options.caFile ?? CLAUDE_CA_FILE,
             abortController,
-            hook: createPathHook(options.root),
+            hook: countReads(createPathHook(options.root), () => stats.reads++),
             onStderr: () => undefined,
           }),
         });
         for await (const message of messages) {
           if (message.type === 'result') {
             result = message;
+          } else if (message.type === 'assistant') {
+            refusalCategory = assistantRefusalCategory(message) ?? refusalCategory;
           }
         }
       } catch {
@@ -290,7 +384,7 @@ export function createClaudeEngine(options: ClaudeEngineOptions): Engine {
       const outcome = classifyClaudeResult({
         subtype: safeLabel(String(result.subtype ?? '')),
         stopReason: text(result.stop_reason),
-        stopCategory: text((result.stop_details as Record<string, unknown> | undefined)?.category),
+        stopCategory: stopCategory(result.stop_details) ?? refusalCategory,
         structuredOutput: submittedOutput,
         isError: result.is_error === true,
         resultText: text(result.result),

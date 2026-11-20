@@ -9,6 +9,7 @@ import {
   billedInputTokens,
   clampCallOutput,
   handleSecurityModelRequest,
+  providerPolicyCode,
   readModelUsage,
   SECURITY_DEFAULT_CALL_OUTPUT_TOKENS,
   SECURITY_MODEL_FAILURE_PATH,
@@ -697,6 +698,61 @@ describe('third-party calls through AI Gateway REST', () => {
     });
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('tokens');
     expect(h.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes a provider cyber_policy refusal on, so the scan ends refused (spike S9 P1)', async () => {
+    h.scan.value = scanRow({ modelUsed: TERRA });
+    h.fetch.mockResolvedValue(
+      Response.json(
+        {
+          error: {
+            message:
+              'This request has been flagged for potentially high-risk cybersecurity activity.',
+            type: 'invalid_request_error',
+            code: 'cyber_policy',
+          },
+        },
+        { status: 400 },
+      ),
+    );
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const response = await call(h, '/v1/responses', { model: TERRA, input: 'x' });
+    spy.mockRestore();
+    expect(response.status).toBe(400);
+    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
+    const text = await response.text();
+    expect(JSON.parse(text)).toMatchObject({ error: 'cyber_policy' });
+    expect(h.failures.at(-1)).toMatchObject({ reason: 'refused', httpStatus: 400 });
+    expect(h.settles[0]!.actualNano).toBe(0);
+
+    // Codex shows the answer as `unexpected status 400 Bad Request: <body>` (spike S3).
+    const runner = (await import(/* @vite-ignore */ RUNNER_STATUS)) as {
+      classifyCodexRun(signal: unknown): unknown;
+      readProxyStopReason(value: string | null): unknown;
+    };
+    const failure = h.failures.at(-1)!;
+    expect(
+      runner.classifyCodexRun({
+        submitted: null,
+        failure: { message: `unexpected status 400 Bad Request: ${text}` },
+        finalMessage: null,
+        exitCode: 1,
+        proxyStop: {
+          httpStatus: failure.httpStatus,
+          reason: runner.readProxyStopReason(failure.reason),
+        },
+      }),
+    ).toEqual({ kind: 'refused', category: 'cyber_policy' });
+  });
+
+  it('reads a policy code only from the provider error object', () => {
+    expect(providerPolicyCode('{"error":{"code":"trusted_access_for_cyber"}}')).toBe(
+      'trusted_access_for_cyber',
+    );
+    expect(providerPolicyCode('[{"error":{"code":"cyber_policy"}}]')).toBe('cyber_policy');
+    expect(providerPolicyCode('{"error":{"code":"rate_limit_exceeded"}}')).toBeNull();
+    expect(providerPolicyCode('{"error":{"message":"cyber_policy"}}')).toBeNull();
+    expect(providerPolicyCode('overloaded')).toBeNull();
   });
 
   it('passes another upstream failure as a plain failure the runner retries', async () => {

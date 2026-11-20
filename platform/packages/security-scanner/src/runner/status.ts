@@ -213,6 +213,18 @@ export type CodexRunSignal = {
 
 const CODEX_POLICY_CODES = ['cyber_policy', 'trusted_access_for_cyber'];
 
+/**
+ * The failure text with spaces and dashes read as `_`: Codex prints its own
+ * `CyberPolicy` error as `cyber policy: <message>`, not as the API code (spike S9).
+ */
+function policyText(value: string): string {
+  let out = '';
+  for (const char of value.toLowerCase()) {
+    out += char === ' ' || char === '-' ? '_' : char;
+  }
+  return out;
+}
+
 export function classifyCodexRun(signal: CodexRunSignal): OutcomeBody {
   if (signal.proxyStop) {
     const stop = classifyProxyStop(signal.proxyStop.httpStatus, signal.proxyStop.reason);
@@ -220,7 +232,7 @@ export function classifyCodexRun(signal: CodexRunSignal): OutcomeBody {
       return stop;
     }
   }
-  const failureText = `${signal.failure?.code ?? ''} ${signal.failure?.message ?? ''}`;
+  const failureText = policyText(`${signal.failure?.code ?? ''} ${signal.failure?.message ?? ''}`);
   const policyCode = CODEX_POLICY_CODES.find((code) => failureText.includes(code));
   if (policyCode) {
     return { kind: 'refused', category: policyCode };

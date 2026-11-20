@@ -7,6 +7,7 @@ import {
   CLAUDE_TOOLS,
   claudeOptions,
   createClaudeEngine,
+  countReads,
   createPathHook,
   gatewayName,
   structuredOutputSchema,
@@ -179,9 +180,83 @@ describe('Engine A path hook', () => {
     expect(await call({ file_path: join(root, 'input/../../secret.txt') })).toMatchObject(deny);
     expect(await call({ pattern: '/etc/passwd' })).toMatchObject(deny);
   });
+
+  test('a Glob pattern cannot reach outside the scan folders (spike S11)', async () => {
+    const hook = createPathHook(root);
+    const deny = { hookSpecificOutput: { permissionDecision: 'deny' } };
+    const glob = (tool_input: Record<string, unknown>) => hook({ tool_name: 'Glob', tool_input });
+    expect(await glob({ pattern: '**/*.ts' })).toEqual({});
+    expect(await glob({ pattern: 'src/**/*' })).toEqual({});
+    expect(await glob({ pattern: '**/*', path: join(root, 'memory') })).toEqual({});
+    expect(await glob({ pattern: `${join(root, 'input')}/**/*.ts` })).toEqual({});
+    for (const pattern of [
+      '../../**/*',
+      'src/../../*',
+      '**/../../*',
+      '{..,src}/*',
+      '{/etc,src}/*',
+      '/{etc,tmp}/*',
+      '/etc/**',
+      '/**',
+      '~/**',
+      '\\.\\./*',
+      `${dir}/*`,
+    ]) {
+      expect(await glob({ pattern }), pattern).toMatchObject(deny);
+    }
+    expect(await glob({ pattern: '**/*', path: dir })).toMatchObject(deny);
+    // A Grep pattern is search text: a relative one is not read as a path.
+    expect(await hook({ tool_name: 'Grep', tool_input: { pattern: '../x' } })).toEqual({});
+  });
+
+  test('a ~ path is the CLI home, not a name in the scan folder', async () => {
+    const hook = createPathHook(root);
+    const deny = { hookSpecificOutput: { permissionDecision: 'deny' } };
+    expect(
+      await hook({ tool_name: 'Read', tool_input: { file_path: '~/.claude.json' } }),
+    ).toMatchObject(deny);
+    expect(
+      await hook({ tool_name: 'Glob', tool_input: { pattern: '*', path: '~' } }),
+    ).toMatchObject(deny);
+    expect(
+      await hook({ tool_name: 'Grep', tool_input: { pattern: 'x', path: '~/' } }),
+    ).toMatchObject(deny);
+    expect(await hook({ tool_name: 'Read', tool_input: { file_path: 'src/~x.ts' } })).toEqual({});
+  });
+
+  test('counts only the scan tool calls the hook lets through', async () => {
+    let reads = 0;
+    const hook = countReads(createPathHook(root), () => reads++);
+    await hook({ tool_name: 'Read', tool_input: { file_path: join(root, 'input/a.ts') } });
+    await hook({ tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } });
+    await hook({ tool_name: 'Read', tool_input: { file_path: '/etc/passwd' } });
+    await hook({ tool_name: 'StructuredOutput', tool_input: {} });
+    expect(reads).toBe(2);
+  });
 });
 
 describe('Engine A sessions', () => {
+  test('the session counts the reads its hook let through', async () => {
+    const sdk: ClaudeSdk = {
+      query: ({ options }) =>
+        (async function* () {
+          const hooks = options.hooks as {
+            PreToolUse: Array<{
+              hooks: Array<(input: Record<string, unknown>) => Promise<unknown>>;
+            }>;
+          };
+          const hook = hooks.PreToolUse[0]!.hooks[0]!;
+          await hook({ tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } });
+          await hook({ tool_name: 'Glob', tool_input: { pattern: '../../**/*' } });
+          yield RESULT_OK;
+        })(),
+    };
+    expect(await engine(sdk).runSession(spec())).toMatchObject({
+      kind: 'submitted',
+      stats: { reads: 1 },
+    });
+  });
+
   test('a valid structured output is submitted, with counts and a clean config folder', async () => {
     const seen: Array<Seen> = [];
     const outcome = await engine(
@@ -241,6 +316,23 @@ describe('Engine A sessions', () => {
             stop_reason: 'refusal',
             stop_details: { category: 'cyber' },
           },
+        ]),
+      ).runSession(spec()),
+    ).toMatchObject({ kind: 'refused', category: 'cyber' });
+    // Claude Code 2.1.328 puts stop_details on the assistant message only (spike S9 A1).
+    expect(
+      await engine(
+        sdkOf([
+          {
+            type: 'assistant',
+            message: {
+              role: 'assistant',
+              content: [],
+              stop_reason: 'refusal',
+              stop_details: { type: 'refusal', category: 'cyber' },
+            },
+          },
+          { type: 'result', subtype: 'success', is_error: false, stop_reason: 'refusal' },
         ]),
       ).runSession(spec()),
     ).toMatchObject({ kind: 'refused', category: 'cyber' });

@@ -156,9 +156,23 @@ async function runFixture(fixture: Fixture, work: string): Promise<Mapped> {
           configBase: home,
           fetch: lastFailureFetch(fixture.proxyFailure ?? null) as typeof fetch,
           loadSdk: async () => ({
-            query: () =>
+            query: ({ options }: { options: Record<string, unknown> }) =>
               (async function* () {
+                // Claude Code runs the PreToolUse hook before each tool call.
+                const hooks = options.hooks as {
+                  PreToolUse: Array<{
+                    hooks: Array<(input: Record<string, unknown>) => Promise<unknown>>;
+                  }>;
+                };
+                const hook = hooks.PreToolUse[0]!.hooks[0]!;
                 for (const message of fixture.messages ?? []) {
+                  const inner = message.message as { content?: unknown } | undefined;
+                  for (const block of Array.isArray(inner?.content) ? inner.content : []) {
+                    const part = block as { type?: string; name?: string; input?: unknown };
+                    if (part.type === 'tool_use') {
+                      await hook({ tool_name: part.name, tool_input: part.input });
+                    }
+                  }
                   yield message as { type: string };
                 }
               })(),

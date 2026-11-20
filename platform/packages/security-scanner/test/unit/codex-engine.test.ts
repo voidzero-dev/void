@@ -209,7 +209,7 @@ describe('Engine C sessions', () => {
     );
     expect(outcome).toMatchObject({
       kind: 'submitted',
-      stats: { turns: 1, modelCalls: 2, inputTokens: 900, outputTokens: 40 },
+      stats: { turns: 1, modelCalls: 2, inputTokens: 900, outputTokens: 40, reads: 1 },
     });
     expect(seen.thread).toMatchObject({
       model: 'gpt-6.1-terra',

@@ -35,6 +35,11 @@ export type SessionStats = {
   modelCalls: number;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Scan tool calls (read, list, search) that answered. A session with none read no
+   * code, so its report cannot clear any (phases.ts `readNothing`).
+   */
+  reads: number;
 };
 
 export type SessionOutcome = { stats: SessionStats } & (
@@ -59,5 +64,5 @@ export interface Engine {
 }
 
 export function emptyStats(): SessionStats {
-  return { turns: 0, modelCalls: 0, inputTokens: 0, outputTokens: 0 };
+  return { turns: 0, modelCalls: 0, inputTokens: 0, outputTokens: 0, reads: 0 };
 }

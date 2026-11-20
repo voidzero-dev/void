@@ -180,6 +180,25 @@ describe('Engine C (Codex SDK) run mapping', () => {
     ).toEqual({ kind: 'refused', category: 'trusted_access_for_cyber' });
   });
 
+  test('Codex prints its own cyber policy error with a space (spike S9 C1)', () => {
+    expect(
+      classifyCodexRun({
+        ...base,
+        failure: {
+          message:
+            'cyber policy: This request has been flagged for potentially high-risk cybersecurity activity.',
+        },
+        exitCode: 1,
+      }),
+    ).toEqual({ kind: 'refused', category: 'cyber_policy' });
+    expect(
+      classifyCodexRun({ ...base, failure: { message: 'Trusted-Access-For-Cyber required' } }),
+    ).toEqual({ kind: 'refused', category: 'trusted_access_for_cyber' });
+    expect(
+      classifyCodexRun({ ...base, failure: { message: 'cyber security scan failed' } }).kind,
+    ).toBe('infrastructure');
+  });
+
   test('a submitted report wins over a plain final message', () => {
     const validated = classifyClaudeResult({ subtype: 'success', structuredOutput: report([]) });
     if (validated.kind !== 'submitted') {

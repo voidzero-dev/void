@@ -283,6 +283,15 @@ export function createCodexEngine(options: CodexEngineOptions): Engine {
             if (item.type === 'mcp_tool_call' || item.type === 'agent_message') {
               stats.modelCalls++;
             }
+            // A read, list or search on the void-scan server that answered.
+            if (
+              item.type === 'mcp_tool_call' &&
+              item.tool !== 'submit_findings' &&
+              item.status !== 'failed' &&
+              item.error == null
+            ) {
+              stats.reads++;
+            }
           } else if (event.type === 'turn.completed') {
             const usage = (event.usage ?? {}) as Record<string, unknown>;
             stats.inputTokens += count(usage.input_tokens);

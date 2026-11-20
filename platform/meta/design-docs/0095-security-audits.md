@@ -2165,8 +2165,8 @@ real model proxy. Live refusal rates stay BLOCKED (no Unified Billing credits, s
 
 - Controls hold: 402 → `failed (credits)` for A and C, a dropped stream → `failed
   (infrastructure)`, clean submits → `succeeded`.
-- Known model risk, not a mapping bug: a model that "declines" by sending an empty report
-  (`B5`) ends `succeeded`, the same as a clean scan.
+- A model that "declines" by sending an empty report (`B5`) ended `succeeded`, the same
+  as a clean scan, so it would pass the public gate. Fixed after the spikes (item 5 below).
 
 **S11.** 150 checks in 10 groups: tools 30, tar 20, MCP 8, engines 24, output 12, phrases
 7, input 9, egress 19, caps 12, ingest 9. All hold except one.
@@ -2216,6 +2216,33 @@ real model proxy. Live refusal rates stay BLOCKED (no Unified Billing credits, s
    answers `{}` (allowed). Glob could list file names outside `/scan/input` and
    `/scan/memory` (Read stays blocked). Expected deny: resolve a relative pattern against
    the cwd, or refuse a `..` segment.
+
+**Fixed after the spikes** (re-run: S7 26/26, S9 21/21, S11 150/150):
+
+1. `classifyCodexRun` reads spaces and dashes as `_` before it looks for a policy code,
+   so `cyber policy: <msg>` ends `refused (cyber_policy)`.
+2. The proxy reads the provider error body: `error.code` `cyber_policy` or
+   `trusted_access_for_cyber` is answered with that code as the `error` (same HTTP
+   status) and recorded as last failure `refused`, so Codex shows the code and the scan
+   ends `refused`, not retried.
+3. Engine A takes the refusal category from the last assistant message that stopped with
+   `refusal` when the result has no `stop_details`.
+4. The Engine A hook reads every Glob `pattern` as a path: a `..`, `~`, backslash or a
+   brace choice that starts a new root (`{/etc,x}`) is refused; otherwise the fixed
+   leading part, under the search `path` or `/scan/input`, must stay in the scan folders.
+   A Grep `pattern` is search text and is not read as a path. A path that starts with
+   `~` (the CLI's home, its config folder) is refused for every tool.
+5. A session that read no file cannot clear code (`phases.ts` `readNothing`): the prompt
+   names files but never holds their text. Each engine counts the scan tool calls that
+   answered (`stats.reads`: Engine B's own tools, Engine A's hook allows, Engine C's
+   void-scan MCP calls). A report with only rejections from a session with no read is
+   `bad_output (nothing_read)`: a hunt fails the scan (a `standard` focus hunt costs its
+   area, the scan ends `incomplete`), a verify keeps the candidate as a lead and ends the
+   scan `incomplete`. Either way the public gate stays closed. B5 is now an `unsignalled`
+   fixture; the clean controls (B4, A5, C7) read a file first.
+
+The S11 egress harness now expects the M30 copy-host intercept (`copy.void.internal`)
+between the model host and the catch-alls.
 
 ### S12 legal checklist (open questions for the user)
 
