@@ -288,6 +288,22 @@ describe('queueing a fallback scan', () => {
     }
   });
 
+  it('keeps the client asset pass of the rescan it re-runs (M31)', async () => {
+    const policy = await savePolicy();
+    const { project, deployment } = await liveProject();
+    await endedScan(project.id, deployment.id, {
+      trigger: 'rescan',
+      tier: 'full',
+      coverage_notes: ['rescan', 'client-assets', 'client-sources 3 files'],
+    });
+    await queueSecurityFallbackScans(onEnv, env.db, policy, {
+      now: Date.now(),
+      projectId: project.id,
+    });
+    const [row] = await fallbackScans(project.id);
+    expect(row?.coverage_notes).toEqual(['rescan', 'client-assets']);
+  });
+
   it('does nothing with the setting off, the policy Off or no @cf model left', async () => {
     const { project, deployment } = await liveProject();
     await endedScan(project.id, deployment.id);

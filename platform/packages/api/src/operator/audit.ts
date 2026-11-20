@@ -434,7 +434,11 @@ function auditTarget(
       }
     }
     if (segments[3] === 'scans' && segments.length === 4) {
-      return JSON.stringify({ projectId, rescan: true });
+      return JSON.stringify({
+        projectId,
+        rescan: true,
+        clientAssets: body.clientAssets === true ? true : undefined,
+      });
     }
     if (segments[3] === 'model' && segments.length === 4) {
       return JSON.stringify({

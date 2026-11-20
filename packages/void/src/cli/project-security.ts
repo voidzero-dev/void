@@ -14,6 +14,7 @@ import type {
   SecurityRescanPreview,
   SecurityScanSummary,
 } from './security-api-types.ts';
+import { sarifToolVersion, securityFindingsSarif } from './security-sarif.ts';
 
 type Args = ProjectSecurityArgs;
 
@@ -505,10 +506,13 @@ export function rescanConfirmLines(preview: SecurityRescanPreview): Array<string
     typeof preview.worstCaseUsd === 'number'
       ? ` It can cost up to ${usd(preview.worstCaseUsd)}.`
       : '';
+  const whole = preview.clientAssets
+    ? 'This reviews the whole app, and the sources of its client bundles.'
+    : 'This reviews the whole app.';
   const lines = [
     preview.alreadyScanned
-      ? `Live deployment ${id} was already scanned. Run a full scan with ${model}? This reviews the whole app.${cost}`
-      : `Run a full scan of live deployment ${id} with ${model}? This reviews the whole app.${cost}`,
+      ? `Live deployment ${id} was already scanned. Run a full scan with ${model}? ${whole}${cost}`
+      : `Run a full scan of live deployment ${id} with ${model}? ${whole}${cost}`,
   ];
   const budget = preview.budget;
   lines.push(
@@ -558,6 +562,23 @@ export async function runProjectSecurityCommand(
       ? found
       : found.filter((finding) => finding.verdict !== 'needs_validation');
     const hidden = found.length - shown.length;
+    if (args.format === 'sarif') {
+      // stdout holds the SARIF log only; what it leaves out goes to stderr.
+      console.log(
+        JSON.stringify(securityFindingsSarif(shown, { version: sarifToolVersion() }), null, 2),
+      );
+      if (hidden > 0) {
+        console.error(
+          `${hidden} ${hidden === 1 ? 'lead is' : 'leads are'} left out. Add them with --leads.`,
+        );
+      }
+      if (more) {
+        console.error(
+          'Only the first 500 findings are in the file. Narrow it with --severity or --urgent.',
+        );
+      }
+      return;
+    }
     const lines = shown.length === 0 ? ['No findings.'] : formatFindingList(shown);
     if (hidden > 0) {
       lines.push(
@@ -664,7 +685,13 @@ export async function runProjectSecurityCommand(
   }
 
   if (args.action === 'scan') {
-    const preview = await client.previewProjectSecurityScan(projectId);
+    const scanOptions = { clientAssets: args.clientAssets };
+    const preview = await client.previewProjectSecurityScan(projectId, scanOptions);
+    if (args.clientAssets && preview.clientAssets !== true) {
+      throw new Error(
+        'project: This platform cannot read client bundle sources yet. Run the scan without --client-assets, or ask your platform admin to upgrade.',
+      );
+    }
     if (!args.yes) {
       const interactive = deps.interactive ?? (Boolean(process.stdout.isTTY) && !isCI);
       if (args.json || !interactive) {
@@ -683,9 +710,9 @@ export async function runProjectSecurityCommand(
         return;
       }
     }
-    const queued = await client.startProjectSecurityScan(projectId);
+    const queued = await client.startProjectSecurityScan(projectId, scanOptions);
     print(args, queued, [
-      `✓ Full scan ${cleanLine(queued.scanId)} of ${cleanLine(queued.deploymentId)} queued.`,
+      `✓ Full scan ${cleanLine(queued.scanId)} of ${cleanLine(queued.deploymentId)} queued${queued.clientAssets ? ', with client bundle sources' : ''}.`,
       '  It waits its turn like any scan. See the result: void project security status',
     ]);
     return;

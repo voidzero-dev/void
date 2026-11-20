@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { securityFingerprintKey } from '../../src/security/findings.ts';
 import {
   buildSecurityLedgerSummary,
   parseFindingsReport,
@@ -241,6 +242,89 @@ describe('scan files', () => {
       sinkHash: 'h1',
       detail: { hits: [{ phrase: 'report nothing', line: 4 }] },
     });
+  });
+
+  it('turns a secret found in the output into a confirmed server finding with no value (M31)', () => {
+    const hashes = new Map([['_assets/app.js', 'h2']]);
+    const client = recordFromServerLead(
+      'proj_aaaaaaaaaaaa',
+      {
+        kind: 'secret_in_output',
+        file: '_assets/app.js',
+        secret: 'STRIPE_KEY',
+        forms: ['raw', 'base64'],
+        line: 3,
+        client: true,
+        alsoIn: ['_assets/vendor.js'],
+        files: 3,
+      },
+      hashes,
+      { isPublic: true },
+    );
+    expect(client).toMatchObject({
+      verdict: 'confirmed',
+      severity: 'high',
+      source: 'server',
+      category: 'secret-in-output',
+      cwe: 'CWE-200',
+      title: 'Secret STRIPE_KEY is in a public file: _assets/app.js',
+      lineStart: 3,
+      // Not the file's hash: a new bundle must not undo an accepted-risk resolve.
+      sinkHash: null,
+      moves: true,
+      fingerprint: 'server:secret_in_output:STRIPE_KEY',
+      detail: {
+        secret: 'STRIPE_KEY',
+        forms: ['raw', 'base64'],
+        client: true,
+        files: 3,
+        also_in: ['_assets/vendor.js'],
+      },
+    });
+    expect(client.detail.evidence).toContain('It is in 2 more files, such as _assets/vendor.js.');
+    expect(client.detail.fix).toMatch(/^Anyone can download this file/);
+    // A protected project: a static asset, public once the project is.
+    const hidden = recordFromServerLead(
+      'proj_aaaaaaaaaaaa',
+      {
+        kind: 'secret_in_output',
+        file: '_assets/app-other.js',
+        secret: 'STRIPE_KEY',
+        forms: ['raw'],
+        line: 1,
+        client: true,
+      },
+      hashes,
+      { isPublic: false },
+    );
+    expect(hidden.title).toBe('Secret STRIPE_KEY is in a static asset: _assets/app-other.js');
+    expect(hidden.severity).toBe('high');
+    expect(hidden.detail.fix).toMatch(/^Static assets are public once the project is public/);
+    // The key names the secret and the side, not the (hashed) file.
+    expect(hidden.key).toBe(client.key);
+    const server = recordFromServerLead(
+      'proj_aaaaaaaaaaaa',
+      {
+        kind: 'secret_in_output',
+        file: 'src/pay.ts',
+        secret: 'STRIPE_KEY',
+        forms: ['raw'],
+        line: 0,
+        client: false,
+      },
+      hashes,
+    );
+    expect(server).toMatchObject({
+      severity: 'medium',
+      cwe: 'CWE-798',
+      lineStart: null,
+      title: 'Secret STRIPE_KEY is written into the deployed code: src/pay.ts',
+    });
+    // One key per secret and side; a model record with the same fingerprint gets another.
+    expect(server.key).not.toBe(client.key);
+    expect(server.key).not.toBe(
+      securityFingerprintKey('proj_aaaaaaaaaaaa', server.fingerprint, 'worker'),
+    );
   });
 
   it('builds a ledger summary from paths and status only, under its size limit', () => {

@@ -62,6 +62,7 @@ import {
 } from './findings.ts';
 import { parseSecurityBacklog } from './input/backlog.ts';
 import type { SecurityServerLead } from './input/phrase-check.ts';
+import { SECURITY_SECRET_FORMS, type SecuritySecretForm } from './input/redact.ts';
 import { securityRawOutputPrefix } from './maintenance.ts';
 import { enqueueSecurityNotification } from './notifications.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
@@ -353,6 +354,63 @@ export function parseSecurityScanScope(
   }
 }
 
+/** A secret name as the secrets API stores it (upper case letters, digits, `_`), checked loosely. */
+function isSecretName(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 256) {
+    return false;
+  }
+  for (const char of value) {
+    const ok =
+      (char >= 'a' && char <= 'z') ||
+      (char >= 'A' && char <= 'Z') ||
+      (char >= '0' && char <= '9') ||
+      char === '_';
+    if (!ok) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function parseServerLead(value: unknown): SecurityServerLead | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+  const lead = value as Record<string, unknown>;
+  if (typeof lead.file !== 'string' || relativePathProblem(lead.file) !== null) {
+    return null;
+  }
+  if (lead.kind === 'reviewer_text' && Array.isArray(lead.hits)) {
+    return lead as unknown as SecurityServerLead;
+  }
+  if (lead.kind === 'secret_in_output' && isSecretName(lead.secret)) {
+    const forms = Array.isArray(lead.forms)
+      ? SECURITY_SECRET_FORMS.filter((form) => (lead.forms as Array<unknown>).includes(form))
+      : [];
+    const alsoIn = Array.isArray(lead.alsoIn)
+      ? lead.alsoIn
+          .filter(
+            (path): path is string =>
+              typeof path === 'string' && relativePathProblem(path) === null,
+          )
+          .slice(0, 10)
+      : [];
+    const files =
+      Number.isSafeInteger(lead.files) && (lead.files as number) > 1 ? (lead.files as number) : 1;
+    return {
+      kind: 'secret_in_output',
+      file: lead.file,
+      secret: lead.secret,
+      forms,
+      line:
+        Number.isSafeInteger(lead.line) && (lead.line as number) > 0 ? (lead.line as number) : 0,
+      client: lead.client === true,
+      ...(files > 1 ? { alsoIn, files: Math.max(files, 1 + alsoIn.length) } : {}),
+    };
+  }
+  return null;
+}
+
 function parseServerLeads(text: string | null): Array<SecurityServerLead> {
   if (text === null) {
     return [];
@@ -362,26 +420,33 @@ function parseServerLeads(text: string | null): Array<SecurityServerLead> {
     if (value.version !== 1 || !Array.isArray(value.leads)) {
       return [];
     }
-    return value.leads.filter(
-      (lead): lead is SecurityServerLead =>
-        typeof lead === 'object' &&
-        lead !== null &&
-        (lead as SecurityServerLead).kind === 'reviewer_text' &&
-        typeof (lead as SecurityServerLead).file === 'string' &&
-        relativePathProblem((lead as SecurityServerLead).file) === null &&
-        Array.isArray((lead as SecurityServerLead).hits),
-    );
+    return value.leads.flatMap((lead: unknown) => {
+      const parsed = parseServerLead(lead);
+      return parsed ? [parsed] : [];
+    });
   } catch {
     return [];
   }
 }
 
-/** A server lead (text aimed at AI reviewers, spec §10.3) as a stored record. */
+/**
+ * A server lead as a stored record: text aimed at AI reviewers (spec §10.3) is a lead;
+ * a stored secret value in the deployed output (M31) is a confirmed finding, `high` in
+ * a static asset and `medium` in Worker code. Its key is the secret's name and the side
+ * (client / Worker), not the file: client bundles have hashed names, so a new bundle is
+ * the same finding (an accepted risk stays accepted). The source `server` keeps a model
+ * record from taking it over, and no value is ever stored. `isPublic`: the project was
+ * public when the scan was queued (the wording only).
+ */
 export function recordFromServerLead(
   projectId: string,
   lead: SecurityServerLead,
   hashes: ReadonlyMap<string, string>,
+  options: Readonly<{ isPublic?: boolean | null }> = {},
 ): SecurityIngestRecord {
+  if (lead.kind === 'secret_in_output') {
+    return recordFromSecretLead(projectId, lead, options.isPublic ?? null);
+  }
   const hits = lead.hits.slice(0, 20).map((hit) => ({
     phrase: String(hit.phrase).slice(0, 40),
     line: Number.isSafeInteger(hit.line) ? hit.line : null,
@@ -405,6 +470,75 @@ export function recordFromServerLead(
     outsideDiff: false,
     detail: { hits },
     source: 'server',
+  };
+}
+
+/** The category of a server-made secret finding (M31). */
+export const SECURITY_SECRET_IN_OUTPUT_CATEGORY = 'secret-in-output';
+
+const SECRET_FORM_WORDS: Readonly<Record<SecuritySecretForm, string>> = {
+  raw: 'as is',
+  json: 'JSON-escaped',
+  base64: 'base64',
+  url: 'URL-encoded',
+};
+
+function recordFromSecretLead(
+  projectId: string,
+  lead: Extract<SecurityServerLead, { kind: 'secret_in_output' }>,
+  isPublic: boolean | null,
+): SecurityIngestRecord {
+  const fingerprint = `server:secret_in_output:${lead.secret}`;
+  const line = lead.line > 0 ? lead.line : null;
+  const forms = lead.forms.map((form) => SECRET_FORM_WORDS[form]);
+  const where = `${lead.file}${line === null ? '' : `, line ${line}`}`;
+  const alsoIn = lead.alsoIn ?? [];
+  const files = lead.files ?? 1;
+  const more =
+    files > 1
+      ? ` It is in ${files - 1} more ${files === 2 ? 'file' : 'files'}${alsoIn.length > 0 ? `, such as ${alsoIn.join(', ')}` : ''}.`
+      : '';
+  const title = lead.client
+    ? isPublic === true
+      ? `Secret ${lead.secret} is in a public file: ${lead.file}`
+      : `Secret ${lead.secret} is in a static asset: ${lead.file}`
+    : `Secret ${lead.secret} is written into the deployed code: ${lead.file}`;
+  const fix = lead.client
+    ? `${isPublic === true ? 'Anyone can download this file' : 'Static assets are public once the project is public'}, so treat ${lead.secret} as leaked: rotate it, and keep it on the server (read it from env in a server route). Stop the build from writing it into client code.`
+    : `Read ${lead.secret} from env at run time instead of writing its value into the code or the build. If the code was shared, rotate it.`;
+  return {
+    // The side, not the file: a hashed bundle name changes with every client change.
+    key: securityFingerprintKey(
+      projectId,
+      fingerprint,
+      lead.client ? 'client' : 'worker',
+      'server',
+    ),
+    fingerprint,
+    verdict: 'confirmed',
+    severity: lead.client ? 'high' : 'medium',
+    confidence: 'high',
+    title: title.slice(0, REPORT_LIMITS.title),
+    category: SECURITY_SECRET_IN_OUTPUT_CATEGORY,
+    cwe: lead.client ? 'CWE-200' : 'CWE-798',
+    file: lead.file,
+    lineStart: line,
+    lineEnd: line,
+    sinkPath: lead.file,
+    // The file's hash would change with every bundle, so a resolve as accepted risk
+    // would not hold; the finding is about the value, which an exact match proves.
+    sinkHash: null,
+    outsideDiff: false,
+    detail: {
+      secret: lead.secret,
+      forms: [...lead.forms],
+      client: lead.client,
+      ...(files > 1 ? { files, also_in: [...alsoIn] } : {}),
+      evidence: `The stored value of project secret ${lead.secret} (${forms.join(', ') || 'as is'}) is in ${where} of the deployed ${lead.client ? 'static assets' : 'Worker'}.${more} The platform found it before the scan; the value is not stored with this finding.`,
+      fix,
+    },
+    source: 'server',
+    moves: true,
   };
 }
 
@@ -555,6 +689,7 @@ type ScanRow = Readonly<{
   backlogFiles: number;
   coverageNotes: ReadonlyArray<string>;
   baseScanId: string | null;
+  publicAtEnqueue: boolean | null;
 }>;
 
 /**
@@ -624,9 +759,9 @@ export async function ingestSecurityScanResult(
       await readR2Text(r2, `${scanPrefix}scope.json`),
       parseSecurityBacklog(backlogText),
     );
-    if (outcome.store === 'all') {
-      leads = parseServerLeads(await readR2Text(r2, `${scanPrefix}server-leads.json`));
-    }
+    // An `incomplete` scan keeps confirmed records only: the server's secret findings
+    // (M31) are confirmed, its reviewer-text leads are dropped with the model's leads.
+    leads = parseServerLeads(await readR2Text(r2, `${scanPrefix}server-leads.json`));
   }
 
   const stored = await db.transaction(async (tx) => {
@@ -644,6 +779,7 @@ export async function ingestSecurityScanResult(
         backlogFiles: securityScans.backlog_files,
         coverageNotes: securityScans.coverage_notes,
         baseScanId: securityScans.base_scan_id,
+        publicAtEnqueue: securityScans.public_at_enqueue,
       })
       .from(securityScans)
       .where(eq(securityScans.id, scanId))
@@ -767,8 +903,10 @@ async function storeOutcome(
 
   if (outcome.store !== 'none' && outcome.report !== null) {
     const records: Array<SecurityIngestRecord> = [];
-    for (const lead of outcome.store === 'all' ? leads : []) {
-      records.push(recordFromServerLead(projectId, lead, hashes));
+    for (const lead of leads) {
+      records.push(
+        recordFromServerLead(projectId, lead, hashes, { isPublic: row.publicAtEnqueue }),
+      );
     }
     const rejected: Array<FindingRecord> = [];
     for (const record of outcome.report.findings) {
@@ -1057,6 +1195,17 @@ function patchColumns(
     // The proof joins the stored detail; a detail already at its 32 KB limit stays as is.
     const merged = sql`jsonb_set(${securityFindings.detail}, '{runtime_proof}', ${JSON.stringify(patch.runtimeProof)}::jsonb, true)`;
     set.detail = sql`CASE WHEN octet_length((${merged})::text) <= ${SECURITY_DETAIL_MAX_BYTES} THEN ${merged} ELSE ${securityFindings.detail} END`;
+  }
+  if (patch.location !== undefined) {
+    const record = patch.location;
+    Object.assign(set, {
+      title: record.title,
+      file: record.file,
+      line_start: record.lineStart,
+      line_end: record.lineEnd,
+      detail: record.detail,
+      sink_path: record.sinkPath,
+    });
   }
   if (patch.details !== undefined) {
     const record = patch.details;

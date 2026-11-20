@@ -89,6 +89,7 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
       project: 'Project id or slug',
       state: 'open, resolved or all',
       severity: 'critical, high, medium, low or informational',
+      format: 'sarif prints every matching finding as a SARIF 2.1.0 log',
     },
     booleans: { urgent: 'Only open critical or high findings that are confirmed' },
     paged: true,
@@ -168,6 +169,9 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     description: 'Run a full scan of the live deployment (asks first; it can cost real money)',
     path: '/projects/:id/security/scans',
     positional: ['id'],
+    booleans: {
+      'client-assets': 'Also read the sources of the client bundles from their source maps',
+    },
     method: 'POST',
   },
   {
@@ -356,9 +360,29 @@ export function applySecurityArgs(
     parsed.path = parsed.path.replace(':sid', encodeURIComponent(parameters[0]!));
     return;
   }
+  if (action === 'rescan' && flags.has('client-assets')) {
+    parsed.body = { clientAssets: true };
+    return;
+  }
   if (action === 'findings') {
     if (flags.has('urgent')) {
       parsed.query.urgent = 'true';
+    }
+    if (values.format !== undefined) {
+      if (values.format !== 'sarif') {
+        throw new Error('platform: --format must be sarif.');
+      }
+      if (flags.has('json')) {
+        throw new Error('platform: Use --format sarif or --json, not both.');
+      }
+      if (parsed.query.page !== undefined || parsed.query.limit !== undefined) {
+        throw new Error(
+          'platform: --format sarif exports every matching finding; drop --page and --limit.',
+        );
+      }
+      // The export reads every page itself (`findings-sarif`); the server never sees it.
+      delete parsed.query.format;
+      parsed.action = 'findings-sarif';
     }
     if (values.state !== undefined && !['open', 'resolved', 'all'].includes(values.state)) {
       throw new Error('platform: --state must be open, resolved or all.');

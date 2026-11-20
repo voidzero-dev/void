@@ -326,6 +326,10 @@ describe('operator security findings', () => {
 
     const all = await call('/security/findings');
     expect(all.body.total).toBe(3);
+    // The SARIF export (M31) reads the CWE, the end line and the verdict source too.
+    expect(Object.keys(all.body.findings[0])).toEqual(
+      expect.arrayContaining(['cwe', 'lineEnd', 'verdictSource']),
+    );
     expect(all.body.findings.map((row: Json) => `${row.project}/${row.id}`)).toEqual([
       'bravo/F-1',
       'alpha/F-1',
@@ -536,6 +540,23 @@ describe('operator security rescan', () => {
     expect(second.status).toBe(409);
     expect(second.body.error).toBe('security_scan_in_progress');
     expect((await call(path, { body: { dryRun: true } })).status).toBe(409);
+  });
+
+  it('queues the client asset pass when asked (M31)', async () => {
+    await savePolicy();
+    const { project, deployment } = await projectWithDeployment();
+    await storeSnapshot(project.id, deployment.id);
+    const path = `/projects/${project.id}/security/scans`;
+    expect((await call(path, { body: { clientAssets: 1 } })).status).toBe(400);
+    const preview = await call(path, { body: { dryRun: true, clientAssets: true } });
+    expect(preview.body).toMatchObject({ dryRun: true, clientAssets: true });
+    const queued = await call(path, { body: { clientAssets: true } });
+    expect(queued.body).toMatchObject({ ok: true, clientAssets: true });
+    const [row] = await env.db
+      .select()
+      .from(securityScans)
+      .where(eq(securityScans.id, queued.body.scanId));
+    expect(row?.coverage_notes).toEqual(['client-assets']);
   });
 
   it('refuses a rescan that cannot run, each with its own code', async () => {

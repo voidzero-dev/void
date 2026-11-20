@@ -50,7 +50,7 @@ Platform administrators can also manage all of this from **Security** in the adm
 
 A scan starts when a deploy goes live. Rollbacks, failed deploys, and `preview-*` projects are not scanned. A newer deploy replaces a scan that is still queued. A redeploy with no code change is recorded as "no changes" and costs nothing.
 
-Void reviews the source that changed when it can see it, and otherwise the built output mapped back to source. Third-party package code, lockfiles, binaries, and secret-like files are left out, and stored secret values are replaced before any model sees the code. Each result states what it covered, such as `Changes since dpl_7c20 · source diff · 14 files · complete`. Large changes are scanned in parts, and the page shows the files still waiting.
+Void reviews the source that changed when it can see it, and otherwise the built output mapped back to source. Third-party package code, lockfiles, binaries, and secret-like files are left out, and stored secret values are replaced before any model sees the code. A full rescan can also review the sources of the client bundles, from the source maps deployed with them: `void project security scan --client-assets`. Each result states what it covered, such as `Changes since dpl_7c20 · source diff · 14 files · complete`. Large changes are scanned in parts, and the page shows the files still waiting.
 
 ## Models and the provider notice
 
@@ -74,6 +74,8 @@ Only a human closes a finding. A scan can add one, confirm it again, or reopen i
 
 A finding is **urgent** when it is confirmed, critical or high, and still open. Weaker or unconfirmed findings are listed as leads or lower severity and are never urgent.
 
+When the value of a project secret appears in the deployed Worker code or in a static text file (`.js`, `.html`, `.json`, `.css`, `.txt`, up to 8 MB), as is or encoded, the platform reports it itself as a `secret-in-output` finding that names the secret but never shows its value. There is one finding per secret for static files and one for Worker code, whatever files it is in. In a static file it is high and urgent, since anyone can download the file once the project is public: rotate the secret and keep it on the server. In Worker code it is medium: read it from `env` instead of writing it into the code. If the value is meant to be public, such as a publishable key, resolve the finding as accepted risk; it stays resolved when later deploys change the bundle.
+
 When a project uses a Cloudflare model, a scan can also test a possible finding on a throwaway copy of the deployment: the same code with empty databases, fake secrets, and no internet access. Only the scanner can reach the copy, and it is deleted when the scan ends. A finding proven this way shows as `confirmed (runtime)` in `void project security show`. The copy is part of the scan cost.
 
 | Who sees what                   | Reader | Collaborator and up |
@@ -88,6 +90,8 @@ Open urgent findings show:
 - in `void project security status`, and as a `Security` line in `void project status`,
 - on the project's security page, opened with `void project security open`, where project members can also comment, resolve, pick the model and set the budget,
 - in the administrator UI, with an **Urgent** filter.
+
+To use findings in a code scanning tool, export them as SARIF with `void project security list --format sarif` (or `void platform security findings --format sarif` for every project).
 
 Every scan that does not succeed says what happened, and the next scan covers those changes. A refused, timed-out, or failed scan is never counted as clean.
 

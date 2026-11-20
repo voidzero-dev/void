@@ -44,22 +44,22 @@ A model run by a third party needs its provider notice accepted with `--accept-p
 ## Findings and scans {#findings-scans}
 
 ```sh
-void platform security findings [--project <id-or-slug>] [--urgent] [--state <open|resolved|all>] [--severity <level>]
+void platform security findings [--project <id-or-slug>] [--urgent] [--state <open|resolved|all>] [--severity <level>] [--format sarif]
 void platform security show <project-id> <finding-id,...>
 void platform security resolve <project-id> <finding-id,...> --reason <fixed|false-positive|accepted-risk> --comment "<text>" [--yes]
 void platform security reopen <project-id> <finding-id,...> --comment "<text>" [--yes]
 void platform security comment <project-id> <finding-id,...> "<text>" [--yes]
 void platform security scans [--project <id-or-slug>] [--status <status>] [--trigger gate]
-void platform security rescan <project-id> [--yes]
+void platform security rescan <project-id> [--client-assets] [--yes]
 void platform security backfill [--plan] [--yes]
 void platform security sweeps <on|off> [--every-days <n>] [--plan] [--yes]
 void platform security fallback <on|off> [--plan] [--yes]
 void platform security cancel <scan-id> [--yes]
 ```
 
-Lists show one page at a time; use `--limit` (up to 100) and `--page`. Findings list the oldest first. Name several findings with commas to change them together; they are checked before any change is made.
+Lists show one page at a time; use `--limit` (up to 100) and `--page`. Findings list the oldest first. `findings --format sarif` prints every matching finding, across projects, as one SARIF 2.1.0 file (up to 10,000 findings); it does not take `--limit` or `--page`. Name several findings with commas to change them together; they are checked before any change is made.
 
-`rescan` runs a full scan of the live deployment. It tells you which model it uses and the most it can cost, then asks before it starts. Monthly caps apply to rescans too. Project admins can start the same scan with `void project security scan`.
+`rescan` runs a full scan of the live deployment. It tells you which model it uses and the most it can cost, then asks before it starts. Monthly caps apply to rescans too. `--client-assets` also reviews the sources of the project's client bundles from the source maps deployed with them. Project admins can start the same scan with `void project security scan`.
 
 Turning security audits on scans nothing that is already live. `backfill` scans each live deployment in scope that has never been scanned, up to 50 projects at a time; run it again for the rest. `--plan` shows how many projects it reaches and the most the scans can cost. A deployment whose code is no longer stored cannot be scanned; the preview counts these, and the next deploy of each project scans it.
 

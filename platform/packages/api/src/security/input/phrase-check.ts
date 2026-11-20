@@ -9,6 +9,8 @@
  * too common inside identifiers.
  */
 
+import type { SecuritySecretForm } from './redact.ts';
+
 export const SECURITY_REVIEWER_PHRASES: ReadonlyArray<string> = [
   'ignore previous',
   'ignore all previous',
@@ -36,12 +38,32 @@ const MAX_HITS_PER_FILE = 20;
 
 export type SecurityPhraseHit = Readonly<{ phrase: string; line: number }>;
 
-export type SecurityServerLead = Readonly<{
+export type SecurityReviewerTextLead = Readonly<{
   kind: 'reviewer_text';
   title: string;
   file: string;
   hits: ReadonlyArray<SecurityPhraseHit>;
 }>;
+
+/**
+ * M31: a stored project secret value found in the deployed output (the redactor's
+ * hit, spec §7.3). Names the secret, never its value. One lead per secret and side:
+ * `client` is a deployed static asset, otherwise Worker code. `file` and `line` are
+ * the first place it was found; `alsoIn` lists a few more files, `files` counts them all.
+ */
+export type SecuritySecretLead = Readonly<{
+  kind: 'secret_in_output';
+  file: string;
+  secret: string;
+  forms: ReadonlyArray<SecuritySecretForm>;
+  line: number;
+  client: boolean;
+  alsoIn?: ReadonlyArray<string>;
+  files?: number;
+}>;
+
+/** What the server finds itself, whatever the model outputs. */
+export type SecurityServerLead = SecurityReviewerTextLead | SecuritySecretLead;
 
 /** `charCodeAt` past either end is NaN, which is not a word character. */
 function isWordChar(code: number): boolean {
@@ -114,8 +136,8 @@ export function findReviewerPhrases(text: string): Array<SecurityPhraseHit> {
 /** One lead per changed file with a hit. */
 export function reviewerTextLeads(
   files: ReadonlyArray<Readonly<{ path: string; text: string }>>,
-): Array<SecurityServerLead> {
-  const leads: Array<SecurityServerLead> = [];
+): Array<SecurityReviewerTextLead> {
+  const leads: Array<SecurityReviewerTextLead> = [];
   for (const file of files) {
     const hits = findReviewerPhrases(file.text);
     if (hits.length > 0) {

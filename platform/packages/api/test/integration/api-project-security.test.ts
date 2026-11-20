@@ -749,6 +749,35 @@ describe('project rescan (M25)', () => {
     expect(refused.message).not.toContain('cancel');
   });
 
+  it('queues a rescan with the client asset pass as a coverage note (M31)', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    const deployment = await createTestDeployment(env.db, project.id);
+    await storeSnapshot(project.id, deployment.id);
+    const path = `/projects/${project.id}/security/scans`;
+    const bad = await call(path, people.admin.jwt, {
+      method: 'POST',
+      body: { clientAssets: 'yes' },
+    });
+    expect(bad.status).toBe(400);
+    const preview = await json(
+      await call(path, people.admin.jwt, {
+        method: 'POST',
+        body: { dryRun: true, clientAssets: true },
+      }),
+    );
+    expect(preview).toMatchObject({ dryRun: true, clientAssets: true });
+    const queued = await json(
+      await call(path, people.admin.jwt, { method: 'POST', body: { clientAssets: true } }),
+    );
+    expect(queued).toMatchObject({ ok: true, clientAssets: true });
+    const [row] = await env.db
+      .select()
+      .from(securityScans)
+      .where(eq(securityScans.id, queued.scanId));
+    expect(row!.coverage_notes).toEqual(['client-assets']);
+  });
+
   it('needs settings, a JSON body, the capability, and a scannable live deployment', async () => {
     await savePolicy();
     const { project, people } = await setup();

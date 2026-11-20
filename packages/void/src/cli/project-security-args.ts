@@ -37,13 +37,15 @@ export type ProjectSecurityArgs = {
       state: 'open' | 'resolved' | 'all';
       severity: string | null;
       leads: boolean;
+      /** M31: `sarif` prints a SARIF 2.1.0 log instead of the table. */
+      format: 'text' | 'sarif';
     }
   | { action: 'show'; id: string }
   | { action: 'comment'; id: string; text: string }
   | { action: 'resolve'; ids: Array<string>; reason: SecurityResolutionReason; comment: string }
   | { action: 'reopen'; id: string; comment: string }
   | { action: 'scans'; limit: number }
-  | { action: 'scan'; yes: boolean }
+  | { action: 'scan'; yes: boolean; clientAssets: boolean }
   | {
       action: 'model';
       change: 'show' | 'set' | 'default';
@@ -61,6 +63,7 @@ const VALUE_FLAGS = new Set([
   '--severity',
   '--limit',
   '--usd',
+  '--format',
 ]);
 const BOOLEAN_FLAGS = new Set([
   '--json',
@@ -70,18 +73,19 @@ const BOOLEAN_FLAGS = new Set([
   '--accept-provider-notice',
   '--off',
   '--yes',
+  '--client-assets',
 ]);
 // Flags each action accepts besides `--project` and `--json`.
 const ACTION_FLAGS: Record<string, Array<string>> = {
   status: [],
   open: [],
-  list: ['--urgent', '--state', '--severity', '--leads'],
+  list: ['--urgent', '--state', '--severity', '--leads', '--format'],
   show: [],
   comment: [],
   resolve: ['--reason', '--comment'],
   reopen: ['--comment'],
   scans: ['--limit'],
-  scan: ['--yes'],
+  scan: ['--yes', '--client-assets'],
   model: ['--default', '--accept-provider-notice'],
   budget: ['--usd', '--off'],
 };
@@ -225,10 +229,18 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
         `project: Invalid --severity '${severity}'. Use one of ${SEVERITIES.join('|')}.`,
       );
     }
+    const format = values.get('--format') ?? 'text';
+    if (format !== 'text' && format !== 'sarif') {
+      throw new Error(`project: Invalid --format '${format}'. Use text or sarif.`);
+    }
+    if (format === 'sarif' && json) {
+      throw new Error('project: Use --format sarif or --json, not both.');
+    }
     return {
       ...base,
       json,
       action,
+      format,
       urgent: flags.has('--urgent'),
       state: state as 'open' | 'resolved' | 'all',
       severity,
@@ -288,7 +300,13 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
   }
   if (action === 'scan') {
     noPositionals();
-    return { ...base, json, action, yes: flags.has('--yes') };
+    return {
+      ...base,
+      json,
+      action,
+      yes: flags.has('--yes'),
+      clientAssets: flags.has('--client-assets'),
+    };
   }
   if (action === 'model') {
     if (positionals.length > 1) {

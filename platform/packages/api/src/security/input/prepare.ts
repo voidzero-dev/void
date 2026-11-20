@@ -57,26 +57,34 @@ import {
 import { parseSecurityBacklog, serializeSecurityBacklog } from './backlog.ts';
 import {
   buildSecurityScanInput,
+  SECURITY_CLIENT_ASSETS_NOTE,
   SECURITY_INPUT_MAX_BYTES,
   utf8Length,
   type SecurityBuiltInput,
+  type SecurityClientSource,
   type SecurityInputAsset,
   type SecuritySourceDiffInput,
 } from './build.ts';
+import { looksBinary, securityInputFilter } from './filters.ts';
 import {
   SECURITY_MEMORY_HISTORY_MAX_FILES,
   type SecurityMemoryEvent,
   type SecurityMemoryFinding,
 } from './memory.ts';
-import type { SecuritySecret } from './redact.ts';
+import { createSecurityRedactor, type SecuritySecret, type SecuritySecretHit } from './redact.ts';
 import { loadSecuritySourceDiff, type SecuritySourceDiffEnv } from './t1-github.ts';
 import {
   assetInputPath,
   bundleSources,
   changedTextAssets,
+  oversizedTextAssets,
+  readSourceMap,
+  SECURITY_CLIENT_PREFIX,
   type SecurityBundleSources,
+  type SecurityMapSource,
   securityModuleFile,
   sha256Hex,
+  sourceMapFor,
   type SecurityAssetEntry,
   type SecurityModuleFile,
 } from './t2.ts';
@@ -97,6 +105,21 @@ export type SecurityInputEnv = Pick<
 const MAX_ASSETS_READ = 400;
 /** … and their bytes, so assets and modules together fit the API isolate. */
 const MAX_ASSET_BYTES_READ = 16 * 1024 * 1024;
+/** Client asset pass (M31): source maps read per scan, at most, … */
+const MAX_CLIENT_MAPS_READ = 100;
+/** … one map's size (a bigger one is not read) … */
+const MAX_CLIENT_MAP_BYTES = 8 * 1024 * 1024;
+/** … and all maps' bytes. Only their `sourcesContent` is kept, within what is left of the input limit. */
+const MAX_CLIENT_MAP_BYTES_READ = 24 * 1024 * 1024;
+/**
+ * M31: text assets too big to read are searched for stored secret values, one at a
+ * time (only the hits are kept): at most this many files, …
+ */
+const MAX_SEARCHED_ASSETS = 50;
+/** … this size each … */
+const MAX_SEARCHED_ASSET_BYTES = 8 * 1024 * 1024;
+/** … and these bytes in all. */
+const MAX_SEARCHED_ASSET_BYTES_TOTAL = 64 * 1024 * 1024;
 
 /** The deployment's input is gone or too large: the scan ends `failed (input_missing)`. */
 export class SecurityInputMissing extends Error {}
@@ -656,6 +679,143 @@ async function loadAssets(
   return { assets, unread };
 }
 
+/**
+ * The client asset pass (M31): the sources of the deployed client bundles, from their
+ * source maps (the `sourceMappingURL` comment of a bundle this scan read, an inline map,
+ * or `<bundle>.map` deployed next to it, which also covers a bundle too big to read).
+ * A map shared by bundles is read once. Maps over the limits,
+ * or gone from storage, are counted in `unread`.
+ */
+async function loadClientSources(
+  env: SecurityInputEnv,
+  projectId: string,
+  head: ReadonlyArray<SecurityAssetEntry>,
+  assets: ReadonlyArray<SecurityInputAsset>,
+  /** Bytes the read set has left after modules and assets: sources past it are never sent. */
+  budget: number,
+): Promise<{ sources: Array<SecurityClientSource>; unread: number }> {
+  const bare = (path: string) => (path.startsWith('/') ? path.slice(1) : path);
+  const maps = new Map<string, SecurityAssetEntry>();
+  for (const entry of head) {
+    if (entry.path.endsWith('.map')) {
+      maps.set(bare(entry.path), entry);
+    }
+  }
+  const done = new Set<string>();
+  const sources: Array<SecurityClientSource> = [];
+  let unread = 0;
+  let read = 0;
+  let bytes = 0;
+  let kept = 0;
+  const texts = new Map(assets.map((asset) => [asset.path, asset.text]));
+  const bundles = head
+    .filter(
+      (entry) =>
+        (entry.path.endsWith('.js') || entry.path.endsWith('.mjs')) &&
+        !entry.path.startsWith('/.void-deploy/'),
+    )
+    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  for (const asset of bundles) {
+    const name = bare(asset.path);
+    const ref = sourceMapFor({ name, text: texts.get(asset.path) ?? '' }, maps);
+    if (ref === null || done.has(ref.name)) {
+      continue;
+    }
+    done.add(ref.name);
+    if (kept >= budget) {
+      // Nothing more fits the read set: the rest of the maps are not read.
+      unread++;
+      continue;
+    }
+    let found: Array<SecurityMapSource> | null;
+    if (ref.inline !== null) {
+      found = readSourceMap(ref.name, ref.inline);
+    } else {
+      const entry = maps.get(ref.name)!;
+      if (
+        read >= MAX_CLIENT_MAPS_READ ||
+        entry.size > MAX_CLIENT_MAP_BYTES ||
+        bytes + entry.size > MAX_CLIENT_MAP_BYTES_READ
+      ) {
+        unread++;
+        continue;
+      }
+      const text = await readAsset(env, projectId, entry.hash);
+      if (text === null) {
+        unread++;
+        continue;
+      }
+      read++;
+      bytes += entry.size;
+      found = readSourceMap(ref.name, text);
+    }
+    for (const source of found ?? []) {
+      // What the builder drops anyway (secret-like, skipped, binary) is not kept.
+      if (
+        securityInputFilter(`${SECURITY_CLIENT_PREFIX}${source.path}`) !== null ||
+        looksBinary(source.text)
+      ) {
+        continue;
+      }
+      const size = utf8Length(source.text);
+      if (kept + size > budget) {
+        continue;
+      }
+      kept += size;
+      sources.push({ asset: asset.path, path: source.path, text: source.text });
+    }
+  }
+  return { sources, unread };
+}
+
+/**
+ * M31: changed text assets over the read limit (every one for a full scan), searched
+ * for stored secret values one at a time; only the hits are kept. Ones past the limits,
+ * or gone from storage, are `unsearched`: left out of the head's asset index, so the
+ * next scan searches them again.
+ */
+async function searchLargeAssets(
+  env: SecurityInputEnv,
+  projectId: string,
+  head: ReadonlyArray<SecurityAssetEntry>,
+  base: ReadonlyMap<string, string> | null,
+  secrets: ReadonlyArray<SecuritySecret>,
+): Promise<{
+  searched: Array<{ path: string; hits: Array<SecuritySecretHit> }>;
+  unsearched: Set<string>;
+}> {
+  const searched: Array<{ path: string; hits: Array<SecuritySecretHit> }> = [];
+  const unsearched = new Set<string>();
+  if (secrets.length === 0) {
+    return { searched, unsearched };
+  }
+  const redactor = createSecurityRedactor(secrets);
+  let files = 0;
+  let bytes = 0;
+  for (const asset of oversizedTextAssets(head, base)) {
+    if (
+      files >= MAX_SEARCHED_ASSETS ||
+      asset.size > MAX_SEARCHED_ASSET_BYTES ||
+      bytes + asset.size > MAX_SEARCHED_ASSET_BYTES_TOTAL
+    ) {
+      unsearched.add(asset.path);
+      continue;
+    }
+    const text = await readAsset(env, projectId, asset.hash);
+    if (text === null) {
+      unsearched.add(asset.path);
+      continue;
+    }
+    files++;
+    bytes += asset.size;
+    const hits = redactor.hitsIn(text);
+    if (hits.length > 0) {
+      searched.push({ path: asset.path, hits });
+    }
+  }
+  return { searched, unsearched };
+}
+
 export type SecurityPreparedInput = Readonly<{
   built: SecurityBuiltInput;
   baseScanId: string | null;
@@ -782,6 +942,37 @@ export async function prepareSecurityScanInputFiles(
     }
   }
 
+  const secrets = await loadSecrets(env, db, scan.projectId);
+  // M31: text assets too big to read are still searched for the stored secret values.
+  const large = await searchLargeAssets(
+    env,
+    scan.projectId,
+    headAssets,
+    diffBase?.assets ?? null,
+    secrets,
+  );
+  // M31: a rescan that asked for the client asset pass (a full scan: every text asset).
+  const clientAssets =
+    scan.coverageNotes.includes(SECURITY_CLIENT_ASSETS_NOTE) && tier.tier === 'full';
+  let client: Awaited<ReturnType<typeof loadClientSources>> | null = null;
+  if (clientAssets) {
+    // Only what the read set can still take after the bundle's sources and the assets.
+    const sources = (bundle.value ??= bundleSources(head.files, main));
+    let used = 0;
+    for (const file of sources.files) {
+      used += utf8Length(file.text);
+    }
+    for (const asset of assets) {
+      used += utf8Length(asset.text);
+    }
+    client = await loadClientSources(
+      env,
+      scan.projectId,
+      headAssets,
+      assets,
+      Math.max(0, SECURITY_INPUT_MAX_BYTES - used),
+    );
+  }
   const built = buildSecurityScanInput({
     scan: {
       id: scan.id,
@@ -802,9 +993,14 @@ export async function prepareSecurityScanInputFiles(
     base: diffBase,
     assets,
     unreadAssets,
+    clientAssets,
+    clientSources: client?.sources ?? [],
+    clientMapsUnread: client?.unread ?? 0,
+    searchedAssets: large.searched,
+    unsearchedAssets: large.unsearched.size,
     backlog,
     recheckFiles,
-    secrets: await loadSecrets(env, db, scan.projectId),
+    secrets,
     // No lockfile reaches the platform yet (spike S7): third-party code stays, ranked last.
     lockfile: null,
     memory: {
@@ -824,11 +1020,14 @@ export async function prepareSecurityScanInputFiles(
   await r2.put(`${headPrefix}sources.json`, serializeHashMap(built.sourceIndex));
   await r2.put(
     `${headPrefix}assets.json`,
-    // Assets this scan did not read stay out, so the next scan sees them as changed.
+    // Assets this scan did not read (or, too big to read, did not search) stay out,
+    // so the next scan sees them as changed.
     serializeHashMap(
       new Map(
         headAssets
-          .filter((asset) => !built.unscannedAssets.has(asset.path))
+          .filter(
+            (asset) => !built.unscannedAssets.has(asset.path) && !large.unsearched.has(asset.path),
+          )
           .map((asset) => [asset.path, asset.hash]),
       ),
     ),

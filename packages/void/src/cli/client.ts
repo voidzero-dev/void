@@ -1089,18 +1089,24 @@ export class PlatformClient {
   }
 
   /** The rescan cost check: what a project rescan would run, queuing nothing. */
-  async previewProjectSecurityScan(projectId: string): Promise<SecurityRescanPreview> {
+  async previewProjectSecurityScan(
+    projectId: string,
+    options: { clientAssets?: boolean } = {},
+  ): Promise<SecurityRescanPreview> {
     return this.security(`${projectId}/security/scans`, 'Failed to preview the security scan', {
       method: 'POST',
-      body: { dryRun: true },
+      body: { dryRun: true, ...(options.clientAssets ? { clientAssets: true } : {}) },
       permission: 'settings',
     });
   }
 
-  async startProjectSecurityScan(projectId: string): Promise<SecurityRescanQueued> {
+  async startProjectSecurityScan(
+    projectId: string,
+    options: { clientAssets?: boolean } = {},
+  ): Promise<SecurityRescanQueued> {
     return this.security(`${projectId}/security/scans`, 'Failed to start the security scan', {
       method: 'POST',
-      body: {},
+      body: options.clientAssets ? { clientAssets: true } : {},
       permission: 'settings',
     });
   }

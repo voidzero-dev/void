@@ -812,7 +812,7 @@ const HELP_TREE: HelpTree = {
           },
           {
             command: 'list',
-            description: 'List findings (--urgent, --state, --severity, --leads)',
+            description: 'List findings (--urgent, --state, --severity, --leads, --format sarif)',
           },
           { command: 'show <F-id>', description: 'Show one finding with its history' },
           {
@@ -827,7 +827,8 @@ const HELP_TREE: HelpTree = {
           { command: 'scans', description: 'Show scan history (--limit, up to 100)' },
           {
             command: 'scan',
-            description: 'Run a full scan of the live deployment (asks first; it costs money)',
+            description:
+              'Run a full scan of the live deployment (asks first; it costs money; --client-assets)',
           },
           { command: 'model [<id> | --default]', description: 'Show or set the scan model' },
           {
@@ -853,6 +854,10 @@ const HELP_TREE: HelpTree = {
           },
           { command: '--leads', description: 'list: include leads that need a human look' },
           {
+            command: '--format sarif',
+            description: 'list: print a SARIF 2.1.0 file for code scanning tools',
+          },
+          {
             command: '--reason <reason>',
             description: 'resolve: fixed, false-positive or accepted-risk',
           },
@@ -869,6 +874,10 @@ const HELP_TREE: HelpTree = {
           { command: '--usd <amount>', description: 'budget: monthly cap in dollars' },
           { command: '--off', description: 'budget: clear this project own cap' },
           { command: '--yes', description: 'scan: start without the cost prompt' },
+          {
+            command: '--client-assets',
+            description: 'scan: also review client bundle sources from their source maps',
+          },
         ],
         examples: [
           {

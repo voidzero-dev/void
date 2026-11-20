@@ -82,3 +82,58 @@ describe('createSecurityRedactor', () => {
     );
   });
 });
+
+describe('hitsIn (M31 secret findings)', () => {
+  it('names each secret once with its forms and first line, never the value', () => {
+    const secret = { name: 'STRIPE_KEY', value: 'sk_live_a/b+c"d=1' };
+    const redactor = createSecurityRedactor([secret, { name: 'UNUSED', value: 'never_seen_9' }]);
+    const text = [
+      'const a = 1;',
+      `const b64 = '${btoa(secret.value)}';`,
+      `const raw = '${secret.value}';`,
+      `fetch('/x?key=${encodeURIComponent(secret.value)}');`,
+    ].join('\n');
+    const hits = redactor.hitsIn(text);
+    expect(hits).toEqual([{ name: 'STRIPE_KEY', forms: ['raw', 'base64', 'url'], line: 2 }]);
+    expect(JSON.stringify(hits)).not.toContain(secret.value);
+    // Reading hits does not count as a redaction.
+    expect(redactor.hits()).toBe(0);
+  });
+
+  it('does not count a shorter secret inside a longer one', () => {
+    const redactor = createSecurityRedactor([
+      { name: 'SHORT', value: 'abc12345' },
+      { name: 'LONG', value: 'abc12345-extra-XYZ' },
+    ]);
+    expect(redactor.hitsIn('k=abc12345-extra-XYZ;\nj=1')).toEqual([
+      { name: 'LONG', forms: ['raw'], line: 1 },
+    ]);
+    expect(redactor.hitsIn('a\nb\nk=abc12345-extra-XYZ; j=abc12345')).toEqual([
+      { name: 'LONG', forms: ['raw'], line: 3 },
+      { name: 'SHORT', forms: ['raw'], line: 3 },
+    ]);
+  });
+
+  it('stays fast when a value repeats many times', () => {
+    const redactor = createSecurityRedactor([
+      { name: 'SHORT', value: 'abc12345' },
+      { name: 'LONG', value: 'abc12345-extra-XYZ' },
+    ]);
+    // 200k matches: a check of each match against every earlier one would stall here.
+    const text = `${'abc12345-extra-XYZ;'.repeat(100_000)}\n${'abc12345;'.repeat(100_000)}`;
+    const started = performance.now();
+    expect(redactor.hitsIn(text)).toEqual([
+      { name: 'LONG', forms: ['raw'], line: 1 },
+      { name: 'SHORT', forms: ['raw'], line: 2 },
+    ]);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it('finds nothing for short or plain values', () => {
+    const redactor = createSecurityRedactor([
+      { name: 'MODE', value: 'production' },
+      { name: 'FLAG', value: 'true' },
+    ]);
+    expect(redactor.hitsIn("if (env.MODE === 'production') flag = 'true';")).toEqual([]);
+  });
+});

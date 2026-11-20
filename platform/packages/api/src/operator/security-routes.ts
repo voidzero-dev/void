@@ -424,6 +424,14 @@ securityOperatorRoutes.post('/projects/:id/security/findings/:fid/reopen', async
   }
 });
 
+/** `clientAssets` of a rescan request (M31): absent is off. */
+function rescanClientAssets(value: unknown): boolean {
+  if (value !== undefined && typeof value !== 'boolean') {
+    throw new OperatorError(400, 'clientAssets must be true or false.', 'invalid_argument');
+  }
+  return value === true;
+}
+
 /** Manual rescan (T3 full scan, never `no changes`). A preview is the cost check (edge #43). */
 securityOperatorRoutes.post(
   '/projects/:id/security/scans',
@@ -432,14 +440,16 @@ securityOperatorRoutes.post(
     const body = await readBody(context);
     const projectId = context.req.param('id');
     const db = context.get('db');
+    const options = { clientAssets: rescanClientAssets(body.clientAssets) };
     if (dryRun(body)) {
-      const result = await previewSecurityRescan(context.env, db, projectId);
+      const result = await previewSecurityRescan(context.env, db, projectId, options);
       return context.json(
         preview('security.rescan', projectId, {
           deploymentId: result.target.deploymentId,
           project: result.target.slug,
           alreadyScanned: result.alreadyScanned,
           tier: result.tier,
+          clientAssets: result.clientAssets,
           model: result.model,
           thirdParty: result.thirdParty,
           worstCaseUsd: result.worstCaseUsd,
@@ -447,7 +457,12 @@ securityOperatorRoutes.post(
         }),
       );
     }
-    const { preview: queued, scanId } = await queueSecurityRescan(context.env, db, projectId);
+    const { preview: queued, scanId } = await queueSecurityRescan(
+      context.env,
+      db,
+      projectId,
+      options,
+    );
     await pokeSecurityScanScheduler(context.env);
     return context.json(
       {
@@ -456,6 +471,7 @@ securityOperatorRoutes.post(
         project: queued.target.slug,
         deploymentId: queued.target.deploymentId,
         tier: queued.tier,
+        clientAssets: queued.clientAssets,
         model: queued.model,
         alreadyScanned: queued.alreadyScanned,
       },

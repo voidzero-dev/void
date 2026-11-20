@@ -1793,6 +1793,66 @@ server findings (`source=server`, category secret-in-output, no value stored);
 optional client asset pass; `void project security list --format sarif` and operator
 export. Tests: `security-redact.test.ts`, `security-sarif.test.ts`.
 
+As built (M31):
+
+```
+input build: read set ─► redact ─► text changed? ─► redactor.hitsIn(original) ─┐
+             every built module (searched only) ───────────────────────────────┤
+             text assets over 256 KB (prepare searches them, hits only) ───────┴─► one lead per
+             secret and side: secret_in_output { first file + line, forms, client, alsoIn, files }
+ingest: lead ─► confirmed server finding, key = server + project + "server:secret_in_output:<NAME>"
+        + side (client | worker), never the file; a re-seen row takes the latest file/line/title
+        client file (_assets/, _client/) ─► high, CWE-200 (urgent)    server code ─► medium, CWE-798
+rescan --client-assets ─► coverage note `client-assets` ─► scan start (full only) ─► source maps of
+        client bundles ─► `_client/<source>` after everything else, in what is left of the read limits
+list --format sarif / platform security findings --format sarif ─► SARIF 2.1.0 (CLI side)
+```
+
+- Secret findings: `redact.ts` gains `hitsIn(text)` (each secret once, forms seen, first line, a
+  form inside a longer match is not counted). `build.ts` checks every file it puts in the read
+  set (all scans, not just the focus: the check is free and the finding is about the deployed
+  output), at most 200 leads a scan. `ingest.ts` stores them with the reviewer-text leads in
+  `server-leads.json`; the lead type is a union in `phrase-check.ts`. Confirmed, so an
+  `incomplete` scan keeps them too (it keeps confirmed records only, so its reviewer-text leads
+  are still dropped). The detail has the secret's name, the forms, `client`, an evidence and a
+  fix line; no value is read back or stored. A model record cannot take one over (the key has
+  `server`). Review fixes: the key has the side, not the file (hashed bundle names changed
+  it every deploy, and an accepted risk did not carry over); the sink hash is `null` for the
+  same reason; built modules are searched too (a `define` value is not in `sourcesContent`),
+  and text assets over the read limit are searched in prepare (50 files, 8 MB each, 64 MB;
+  the rest noted `secret-check-unread N files` and left out of the asset index); a cap past
+  200 leads is noted `secret-leads-capped N`; `hitsIn` checks overlaps in linear time; the
+  client wording follows `public_at_enqueue` ("public file" only when public). Severity is the platform's call (it is confirmed by an exact match): a public file
+  is a leak (high), Worker code is a hard-coded secret (medium). A stored secret that is meant
+  to be public (a publishable key) is resolved as accepted risk.
+- Client asset pass: opt-in per rescan, not a policy item (`--client-assets` on `void project
+  security scan` and `void platform security rescan`; `clientAssets: true` on both
+  `POST …/security/scans` routes, echoed in the preview and the reply so a new CLI refuses the
+  flag on an old platform). A coverage note set at queue time carries it, like `rescan` /
+  `sweep`; the builder keeps the note, and a fallback of that rescan copies it. Maps: the
+  bundle's `sourceMappingURL` (file or inline), else `<bundle>.map` next to it (so bundles over
+  the 256 KB asset limit are covered too); 100 maps, 8 MB each, 24 MB in all; only
+  `sourcesContent` is kept, and only what the read set can still take after the bundle's
+  sources and the assets (the rest of the maps count as unread). Sources go under `_client/` with the §7.4 filters and the
+  third-party rule; they are extra input: one that does not fit is only noted
+  (`client-sources-left N files`), never backlogged, and never makes a scan partial. Notes:
+  `client-assets`, `client-sources N files`, `client-maps-unread N files`.
+- SARIF: built in the CLI (`packages/void/src/cli/security-sarif.ts`), not the API: both
+  commands read the existing list routes. Rule = category (readers' findings, with no category,
+  get `finding`), level from severity, `security-severity` per rule (highest of its results),
+  `partialFingerprints` = (project/) finding id, resolved → `suppressions`. The project list
+  keeps the 500 cap and the leads filter; notes go to stderr so stdout is the file. The
+  operator export reads every page (100 pages of 100 at most) and does not take
+  `--page`/`--limit` or `--json`; the operator findings list now also returns `cwe`, `lineEnd` and
+  `verdictSource`.
+- Webhooks were built in M26.
+- Deviations: no policy item, admin panel or dashboard control for the client asset pass
+  (per rescan only); no SARIF on the API. Also changed `fallback.ts`, `operator/audit.ts`
+  (`clientAssets` in the rescan audit), the help text, and the tests
+  `security-input-t2.test.ts`, `security-ingest-schema.test.ts`, `security-ingest.test.ts`,
+  `security-input-capture.test.ts`, `api-project-security.test.ts`, `operator-security.test.ts`,
+  `security-fallback.test.ts`, `project-security-command.test.ts`, `operator-cli.test.ts`.
+
 ### Phase 3
 
 **M32 Local tree scan (`void project security check`).** CLI collects git-tracked

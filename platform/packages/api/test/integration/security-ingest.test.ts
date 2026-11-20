@@ -914,6 +914,134 @@ describe('scan result ingest', () => {
     ]);
   });
 
+  it('stores a secret found in the output as a confirmed server finding, also when incomplete (M31)', async () => {
+    const { project } = await setup();
+    const deployment = await deploy(project.id);
+    const leads = JSON.stringify({
+      version: 1,
+      leads: [
+        {
+          kind: 'secret_in_output',
+          file: '_assets/assets/app.js',
+          secret: 'STRIPE_KEY',
+          forms: ['raw', 'nonsense'],
+          line: 2,
+          client: true,
+          value: 'sk_live_must_not_be_kept',
+        },
+        {
+          kind: 'reviewer_text',
+          file: 'src/routes/users.ts',
+          hits: [{ phrase: 'report nothing', line: 1 }],
+        },
+        { kind: 'secret_in_output', file: '../etc/passwd', secret: 'X', forms: [], line: 1 },
+        { kind: 'secret_in_output', file: 'src/a.ts', secret: 'bad name!', forms: [], line: 1 },
+      ],
+    });
+    await runningScan('scan_inc', project.id, deployment.id);
+    await env.STATIC_ASSETS_R2.put(
+      `${securityRawOutputPrefix(project.id, 'scan_inc')}server-leads.json`,
+      leads,
+    );
+    const stored = await ingest(
+      'scan_inc',
+      result('scan_inc', [], { status: 'incomplete', reason: 'token_cap' }),
+    );
+    expect(stored).toMatchObject({ ok: true, status: 'incomplete' });
+    const rows = await findingsOf(project.id);
+    // The reviewer-text lead is a lead: an incomplete scan drops it.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      source: 'server',
+      verdict: 'confirmed',
+      severity: 'high',
+      category: 'secret-in-output',
+      file: '_assets/assets/app.js',
+      line_start: 2,
+      state: 'open',
+    });
+    expect(rows[0]!.detail).toMatchObject({ secret: 'STRIPE_KEY', forms: ['raw'], client: true });
+    expect(JSON.stringify(rows[0])).not.toContain('sk_live_must_not_be_kept');
+    expect(stored).toMatchObject({ news: [expect.any(String)] });
+
+    // The next scan finds it again: the same row, not a new one.
+    await runningScan('scan_2', project.id, deployment.id);
+    await env.STATIC_ASSETS_R2.put(
+      `${securityRawOutputPrefix(project.id, 'scan_2')}server-leads.json`,
+      leads,
+    );
+    await ingest('scan_2', result('scan_2', []));
+    const again = await findingsOf(project.id);
+    expect(again.map((row) => [row.source, row.verdict, row.category])).toEqual([
+      ['server', 'confirmed', 'secret-in-output'],
+      ['server', 'needs_validation', 'ai-reviewer-text'],
+    ]);
+  });
+
+  it('keeps one secret finding across hashed bundle names, and its accepted risk (M31)', async () => {
+    const { project } = await setup();
+    const secretLeads = (file: string, line: number) =>
+      JSON.stringify({
+        version: 1,
+        leads: [
+          {
+            kind: 'secret_in_output',
+            file,
+            secret: 'PUBLISHABLE_KEY',
+            forms: ['raw'],
+            line,
+            client: true,
+          },
+        ],
+      });
+    const first = await deploy(project.id, '2026-11-18T13:00:00.000Z');
+    await runningScan('scan_1', project.id, first.id, { public_at_enqueue: true });
+    await env.STATIC_ASSETS_R2.put(
+      `${securityRawOutputPrefix(project.id, 'scan_1')}server-leads.json`,
+      secretLeads('_assets/assets/index-aaa.js', 3),
+    );
+    const created = await ingest('scan_1', result('scan_1', []));
+    const [row] = await findingsOf(project.id);
+    expect(created).toMatchObject({ news: [row!.id] });
+    expect(row).toMatchObject({
+      title: 'Secret PUBLISHABLE_KEY is in a public file: _assets/assets/index-aaa.js',
+      sink_content_hash: null,
+    });
+    // A publishable key: resolved as accepted risk.
+    await env.db
+      .update(securityFindings)
+      .set({
+        state: 'resolved',
+        resolution: 'accepted_risk',
+        resolved_at: '2026-11-18T13:30:00.000Z',
+        resolved_severity: 'high',
+        resolved_sink_hash: null,
+      })
+      .where(eq(securityFindings.id, row!.id));
+
+    // The client code changed: a new bundle name, the same finding, still accepted.
+    const second = await deploy(project.id, '2026-11-18T14:00:00.000Z');
+    await runningScan('scan_2', project.id, second.id, { public_at_enqueue: true });
+    await env.STATIC_ASSETS_R2.put(
+      `${securityRawOutputPrefix(project.id, 'scan_2')}server-leads.json`,
+      secretLeads('_assets/assets/index-bbb.js', 7),
+    );
+    const again = await ingest('scan_2', result('scan_2', []));
+    expect(again).toMatchObject({ ok: true, news: [], reopened: [] });
+    const rows = await findingsOf(project.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: row!.id,
+      state: 'resolved',
+      resolution: 'accepted_risk',
+      file: '_assets/assets/index-bbb.js',
+      sink_path: '_assets/assets/index-bbb.js',
+      line_start: 7,
+      title: 'Secret PUBLISHABLE_KEY is in a public file: _assets/assets/index-bbb.js',
+    });
+    expect(await eventsOf(row!.id)).toEqual(['created', 'seen_again']);
+  });
+
   it('a rejection never reaches a later scan and never hides a finding (edge #40)', async () => {
     const { project } = await setup();
     const deployment = await deploy(project.id);

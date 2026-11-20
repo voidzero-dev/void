@@ -10,6 +10,8 @@
  *   changed (or backlog) files left out of the read set ─► backlog, never "seen"
  *   read set + memory ─► redaction ─► tar entries (`task.json`, `input/…`, `memory/…`)
  *   focus ─► phrase check ─► server leads
+ *   read set + built modules + searched assets ─► stored secret values found (M31)
+ *     ─► server leads (`secret_in_output`), one per secret and side (client / Worker)
  */
 import type { SecurityEngine } from '@void/platform/security-models';
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
@@ -25,11 +27,17 @@ import {
   SECURITY_MEMORY_HISTORY_MAX_FILES,
   type SecurityMemoryInput,
 } from './memory.ts';
-import { reviewerTextLeads, type SecurityServerLead } from './phrase-check.ts';
-import { createSecurityRedactor, type SecuritySecret } from './redact.ts';
+import {
+  reviewerTextLeads,
+  type SecurityServerLead,
+  type SecuritySecretLead,
+} from './phrase-check.ts';
+import { createSecurityRedactor, type SecuritySecret, type SecuritySecretHit } from './redact.ts';
 import {
   assetInputPath,
   bundleSources,
+  SECURITY_BUILT_PREFIX,
+  SECURITY_CLIENT_PREFIX,
   changedSources,
   type SecurityBundleSources,
   type SecurityModuleFile,
@@ -43,6 +51,25 @@ import { SECURITY_FULL_REASON_NOTES, type SecurityTierChoice } from './tier.ts';
 export const SECURITY_INPUT_MAX_BYTES = 32 * 1024 * 1024;
 /** Dropped code above this share of the bundle's source bytes makes the scan `partial`. */
 export const SECURITY_DROPPED_PARTIAL_SHARE = 0.05;
+/**
+ * The coverage note of a rescan that asked for the client asset pass (M31): set when
+ * it is queued, kept by the builder, so a fallback of that rescan asks for it too.
+ */
+export const SECURITY_CLIENT_ASSETS_NOTE = 'client-assets';
+
+/** A source of a client bundle, from the source map of a deployed asset (M31). */
+export type SecurityClientSource = Readonly<{
+  /** The bundle's path as deployed. */
+  asset: string;
+  /** The source's path from the map, normalized; sent under `_client/`. */
+  path: string;
+  text: string;
+}>;
+
+/** Secret findings (secret and side) one scan sends to ingest, at most. */
+export const SECURITY_MAX_SECRET_LEADS = 200;
+/** Other files one secret finding lists besides its first. */
+const MAX_SECRET_OTHER_FILES = 10;
 /** Secret-like file names listed in the coverage notes, at most. */
 const MAX_LISTED_SECRET_FILES = 20;
 
@@ -95,6 +122,20 @@ export type SecurityInputPlan = Readonly<{
   assets: ReadonlyArray<SecurityInputAsset>;
   /** Changed text assets that were not read (over the read limits, or gone from storage). */
   unreadAssets?: ReadonlyArray<string>;
+  /** M31: run the client asset pass (a rescan asked for it): read `clientSources` too. */
+  clientAssets?: boolean;
+  /** The sources the maps of the read client bundles carry, in asset order. */
+  clientSources?: ReadonlyArray<SecurityClientSource>;
+  /** Client source maps that were not read (over the map limits, or gone from storage). */
+  clientMapsUnread?: number;
+  /**
+   * M31: secrets found in text assets too big to read (searched only, never sent), by
+   * deployed path. `unsearchedAssets` counts the big ones not searched (the limits).
+   */
+  searchedAssets?: ReadonlyArray<
+    Readonly<{ path: string; hits: ReadonlyArray<SecuritySecretHit> }>
+  >;
+  unsearchedAssets?: number;
   backlog: ReadonlyArray<string>;
   /** Files of findings resolved `fixed` that a gate scan must re-check (edge #85). */
   recheckFiles: ReadonlyArray<string>;
@@ -182,6 +223,12 @@ type Candidate = SecuritySourceFile & {
 };
 
 type ReadFile = Candidate & { sent: string; sentBytes: number };
+
+type SecretLeadDraft = Omit<SecuritySecretLead, 'forms' | 'alsoIn' | 'files'> & {
+  forms: Array<SecuritySecretHit['forms'][number]>;
+  alsoIn: Array<string>;
+  files: number;
+};
 
 export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltInput {
   const notes: Array<string> = [...(plan.notes ?? [])];
@@ -331,21 +378,152 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   const ordered = [...firstParty, ...assetFiles, ...unverified];
   const readSet: Array<ReadFile> = [];
   const cut: Array<Candidate> = [];
+  // One lead per secret and side, at the first file it is in (read-set order, then
+  // built modules, then big assets): a value inlined in many hashed chunks is one finding.
+  const secretLeads = new Map<string, SecretLeadDraft>();
+  let secretLeadsDropped = 0;
+  const addSecretHits = (
+    path: string,
+    hits: ReadonlyArray<SecuritySecretHit>,
+    client: boolean,
+  ): void => {
+    for (const hit of hits) {
+      const key = `${client ? 'client' : 'worker'}\u0000${hit.name}`;
+      const lead = secretLeads.get(key);
+      if (lead === undefined) {
+        if (secretLeads.size >= SECURITY_MAX_SECRET_LEADS) {
+          secretLeadsDropped++;
+          continue;
+        }
+        secretLeads.set(key, {
+          kind: 'secret_in_output',
+          file: path,
+          secret: hit.name,
+          forms: [...hit.forms],
+          line: hit.line,
+          client,
+          alsoIn: [],
+          files: 1,
+        });
+        continue;
+      }
+      if (lead.file === path || lead.alsoIn.includes(path)) {
+        continue;
+      }
+      lead.files++;
+      for (const form of hit.forms) {
+        if (!lead.forms.includes(form)) {
+          lead.forms.push(form);
+        }
+      }
+      if (lead.alsoIn.length < MAX_SECRET_OTHER_FILES) {
+        lead.alsoIn.push(path);
+      }
+    }
+  };
   let readBytes = 0;
-  for (const file of ordered) {
+  /** Adds the file to the read set when it fits; `false` when it does not. */
+  const read = (file: Candidate): boolean => {
     if (readSet.length >= maxInputFiles || readBytes + file.bytes > SECURITY_INPUT_MAX_BYTES) {
-      cut.push(file);
-      continue;
+      return false;
     }
     // Redaction can make a text longer: the runner's per-file limit applies to what is sent.
     const sent = redactor.redact(file.text);
     const sentBytes = sent === file.text ? file.bytes : utf8Length(sent);
     if (sentBytes > SCAN_INPUT_LIMITS.maxFileBytes) {
-      cut.push(file);
-      continue;
+      return false;
     }
     readBytes += sentBytes;
     readSet.push({ ...file, sent, sentBytes });
+    if (sent !== file.text) {
+      // The stored value is in the deployed output: a server finding, by name only.
+      addSecretHits(file.path, redactor.hitsIn(file.text), file.asset !== null);
+    }
+    return true;
+  };
+  for (const file of ordered) {
+    if (!read(file)) {
+      cut.push(file);
+    }
+  }
+  if (plan.clientAssets) {
+    // M31 client asset pass: the sources of client bundles, from their source maps, in
+    // what is left of the read limits. Extra input: the bundles stay in the read set,
+    // so a source that does not fit is only noted (no backlog, no partial label).
+    notes.push(SECURITY_CLIENT_ASSETS_NOTE);
+    const first: Array<Candidate> = [];
+    const later: Array<Candidate> = [];
+    for (const source of plan.clientSources ?? []) {
+      const path = `${SECURITY_CLIENT_PREFIX}${source.path}`;
+      if (
+        taken.has(path) ||
+        securityInputFilter(path) !== null ||
+        looksBinary(source.text) ||
+        !usableInputPath(path)
+      ) {
+        continue;
+      }
+      const party = classifyThirdParty(source.path, plan.lockfile);
+      if (party === 'registry') {
+        continue;
+      }
+      taken.add(path);
+      (party === 'unverified' ? later : first).push({
+        path,
+        text: source.text,
+        sha256: '',
+        module: '',
+        map: null,
+        built: false,
+        bytes: utf8Length(source.text),
+        unverified: party === 'unverified',
+        asset: source.asset,
+      });
+    }
+    let clientRead = 0;
+    let clientLeft = 0;
+    for (const file of [...first, ...later]) {
+      if (read(file)) {
+        clientRead++;
+      } else {
+        clientLeft++;
+      }
+    }
+    notes.push(`client-sources ${clientRead} files`);
+    if (clientLeft > 0) {
+      notes.push(`client-sources-left ${clientLeft} files`);
+    }
+    if ((plan.clientMapsUnread ?? 0) > 0) {
+      notes.push(`client-maps-unread ${plan.clientMapsUnread} files`);
+    }
+  }
+  // The read set holds a module's sources when it has a map, but a value the build
+  // wrote in (`define`, `import.meta.env`) is only in the built code: search every
+  // deployed module as built too. Never sent, so it costs no input.
+  for (const module of plan.head.modules) {
+    const path = `${SECURITY_BUILT_PREFIX}${module.name}`;
+    if (
+      module.name.endsWith('.map') ||
+      module.text.length === 0 ||
+      looksBinary(module.text) ||
+      !usableInputPath(path)
+    ) {
+      continue;
+    }
+    addSecretHits(path, redactor.hitsIn(module.text), false);
+  }
+  // Text assets too big to read were searched by the caller (only the hits come here).
+  for (const asset of plan.searchedAssets ?? []) {
+    const path = assetInputPath(asset.path);
+    if (path !== null && usableInputPath(path)) {
+      addSecretHits(path, asset.hits, true);
+    }
+  }
+  if ((plan.unsearchedAssets ?? 0) > 0) {
+    notes.push(`secret-check-unread ${plan.unsearchedAssets} files`);
+  }
+  if (secretLeadsDropped > 0) {
+    notes.push(`secret-leads-capped ${secretLeadsDropped}`);
   }
   cut.push(...unreadSources);
   for (const file of cut) {
@@ -568,7 +746,12 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     droppedFiles,
     droppedBytes,
     inputBytes,
-    serverLeads: reviewerTextLeads(leadSources),
+    serverLeads: [
+      ...reviewerTextLeads(leadSources),
+      ...[...secretLeads.values()].map(({ alsoIn, files, ...lead }): SecuritySecretLead =>
+        files > 1 ? { ...lead, alsoIn, files } : lead,
+      ),
+    ],
     sourceIndex,
     unscannedAssets,
     emptyFocus,

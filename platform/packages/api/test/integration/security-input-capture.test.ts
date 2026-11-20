@@ -347,7 +347,11 @@ describe('scan input capture', () => {
     const raw = securityRawOutputPrefix(project.id, 'scan_first');
     expect(JSON.parse((await r2Text(`${raw}server-leads.json`))!).leads).toMatchObject([
       { title: 'Text aimed at AI reviewers in src/routes/users.ts' },
+      // M31: the stored secret value in the output, named and never kept.
+      { kind: 'secret_in_output', file: 'src/routes/users.ts', secret: 'STRIPE_KEY', line: 2 },
+      { kind: 'secret_in_output', file: '_assets/app.js', secret: 'STRIPE_KEY', client: true },
     ]);
+    expect(await r2Text(`${raw}server-leads.json`)).not.toContain(SECRET);
     expect(JSON.parse((await r2Text(`${raw}backlog.json`))!)).toEqual({ version: 1, paths: [] });
   });
 
@@ -440,6 +444,89 @@ describe('scan input capture', () => {
     // A fallback of a deploy scan follows the base rule: here nothing changed.
     const deployLike = await fallback('scan_fb_deploy', {});
     expect(deployLike.prepared.built.noChanges).toBe(true);
+  });
+
+  it('reads client bundle sources from their source maps on a client asset pass (M31)', async () => {
+    const { project } = await setup();
+    await createTestProjectSecret(env.db, env, project.id, 'STRIPE_KEY', SECRET);
+    const appMap = JSON.stringify({
+      version: 3,
+      sources: ['../../src/client/App.tsx'],
+      sourcesContent: [`export const key = '${SECRET}';`],
+      mappings: '',
+    });
+    const bigMap = JSON.stringify({
+      version: 3,
+      sources: ['../src/client/Big.tsx'],
+      sourcesContent: ['export const big = 1;'],
+      mappings: '',
+    });
+    const live = await deploy(project.id, {
+      assets: {
+        '/assets/app.js': { hash: 'app', size: 40 },
+        '/assets/app.js.map': { hash: 'appmap', size: appMap.length },
+        // Too big to read as an asset: its map is found next to it.
+        '/big.js': { hash: 'big', size: 300 * 1024 },
+        '/big.js.map': { hash: 'bigmap', size: bigMap.length },
+      },
+    });
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/app`, `x();\n${MAP_URL}app.js.map`);
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/appmap`, appMap);
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/bigmap`, bigMap);
+    // Too big to send, but still searched for the stored value (M31).
+    await env.STATIC_ASSETS_R2.put(
+      `assets/${project.id}/big`,
+      `${'x'.repeat(300 * 1024)}\nconst key = '${SECRET}';`,
+    );
+    const prefix = await stage(project.id, live.id, appModules('export const v = 1;'));
+    const pass = async (id: string, notes: Array<string>) => {
+      await runningScan(id, project.id, live.id, {
+        trigger: 'fallback',
+        input_prefix: prefix,
+        coverage_notes: notes,
+      });
+      const prepared = await prepareSecurityScanInputFiles(onEnv, env.db, id, 1);
+      await env.db
+        .update(securityScans)
+        .set({ status: 'failed', finished_at: new Date().toISOString() })
+        .where(eq(securityScans.id, id));
+      return prepared!.built;
+    };
+
+    const built = await pass('scan_client', ['rescan', 'client-assets']);
+    const paths = built.entries.map((entry) => entry.path);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        'input/_assets/assets/app.js',
+        'input/_client/src/client/App.tsx',
+        'input/_client/src/client/Big.tsx',
+      ]),
+    );
+    expect(built.notes).toEqual(
+      expect.arrayContaining(['client-assets', 'client-sources 2 files']),
+    );
+    for (const entry of built.entries) {
+      expect(String(entry.data)).not.toContain(SECRET);
+    }
+    // The client source holds the stored value: a public secret finding, by name. The
+    // big bundle (searched, never sent) is the same finding: one per secret and side.
+    expect(built.serverLeads).toContainEqual(
+      expect.objectContaining({
+        kind: 'secret_in_output',
+        file: '_client/src/client/App.tsx',
+        secret: 'STRIPE_KEY',
+        client: true,
+        alsoIn: ['_assets/big.js'],
+        files: 2,
+      }),
+    );
+    expect(paths).not.toContain('input/_assets/big.js');
+    // The note stays on the row, so a fallback of this scan asks for the pass too.
+    expect((await scan('scan_client')).coverage_notes).toContain('client-assets');
+
+    // Without the note, no map is read.
+    const plain = await pass('scan_plain', ['rescan']);
+    expect(plain.entries.some((entry) => entry.path.startsWith('input/_client/'))).toBe(false);
   });
 
   it('reads a recovered inline deploy from the stored Worker bundle', async () => {

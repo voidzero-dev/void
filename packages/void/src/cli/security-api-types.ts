@@ -154,6 +154,8 @@ export type SecurityRescanPreview = {
   deploymentId: string;
   alreadyScanned: boolean;
   tier: string;
+  /** M31: the scan also reads client bundle sources; older platforms omit it. */
+  clientAssets?: boolean;
   model: string | null;
   thirdParty: boolean;
   worstCaseUsd: number | null;
@@ -165,6 +167,7 @@ export type SecurityRescanQueued = {
   scanId: string;
   deploymentId: string;
   tier: string;
+  clientAssets?: boolean;
   model: string | null;
   alreadyScanned: boolean;
 };

@@ -56,6 +56,8 @@ export type SecuritySourceFile = Readonly<{
 export const SECURITY_BUILT_PREFIX = '_worker/';
 /** Where changed text assets go under `/scan/input`. */
 export const SECURITY_ASSET_PREFIX = '_assets/';
+/** Where the client asset pass (M31) puts the sources of client bundles. */
+export const SECURITY_CLIENT_PREFIX = '_client/';
 
 /** Text assets T2 reads: these types, at most 256 KB each. */
 export const SECURITY_TEXT_ASSET_EXTENSIONS: ReadonlyArray<string> = [
@@ -477,6 +479,25 @@ export function changedTextAssets(
       (asset) =>
         isTextAsset(asset.path) &&
         asset.size <= SECURITY_TEXT_ASSET_MAX_BYTES &&
+        !asset.path.startsWith('/.void-deploy/') &&
+        (base === null || base.get(asset.path) !== asset.hash),
+    )
+    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+}
+
+/**
+ * M31: text assets over the read limit whose hash differs from the base's (every one
+ * with no base). Too big to send, they are only searched for stored secret values.
+ */
+export function oversizedTextAssets(
+  head: ReadonlyArray<SecurityAssetEntry>,
+  base: ReadonlyMap<string, string> | null,
+): Array<SecurityAssetEntry> {
+  return head
+    .filter(
+      (asset) =>
+        isTextAsset(asset.path) &&
+        asset.size > SECURITY_TEXT_ASSET_MAX_BYTES &&
         !asset.path.startsWith('/.void-deploy/') &&
         (base === null || base.get(asset.path) !== asset.hash),
     )

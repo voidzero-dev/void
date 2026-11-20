@@ -87,6 +87,11 @@ export type SecurityIngestRecord = Readonly<{
   source: 'scanner' | 'server';
   /** M30: `runtime` when a request to the scan's copy proved it. Absent means static. */
   verdictSource?: 'static' | 'runtime';
+  /**
+   * M31: the key does not name the file (a server secret finding: client bundles have
+   * hashed names), so a re-seen row takes this record's file, lines, title and detail.
+   */
+  moves?: true;
 }>;
 
 /** Trims the longest text fields until the detail fits its column (32 KB). */
@@ -319,6 +324,8 @@ export type SecurityFindingPatch = {
   verdictSource?: 'runtime';
   /** M30: the request that proved it, merged into the stored `detail` with the source. */
   runtimeProof?: Readonly<Record<string, unknown>>;
+  /** M31: where the finding is now (a record that `moves`). */
+  location?: SecurityIngestRecord;
   reopen?: true;
 };
 
@@ -351,6 +358,8 @@ export function decideSeenFinding(
     patch.details = record;
     verdict = 'confirmed';
     events.push('promoted');
+  } else if (record.moves) {
+    patch.location = record;
   }
   if (
     record.verdict === 'confirmed' &&

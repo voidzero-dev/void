@@ -1,6 +1,7 @@
 import type { OperatorArgs } from './operator-args.ts';
 import { OperatorClientError, type OperatorClient } from './operator-client.ts';
 import { dim, printSuccess } from './output.ts';
+import { type SarifFinding, sarifToolVersion, securityFindingsSarif } from './security-sarif.ts';
 
 type Result = Record<string, unknown>;
 
@@ -97,7 +98,38 @@ async function runRead(client: OperatorClient, args: OperatorArgs, io: SecurityI
     io.output(details.length === 1 ? details[0] : { findings: details }, args.json);
     return;
   }
+  if (args.action === 'findings-sarif') {
+    return exportFindingsSarif(client, args);
+  }
   io.output(await client.request(args.path, { query: args.query }), args.json);
+}
+
+/** The SARIF export reads this many pages of 100 findings, at most. */
+const SARIF_MAX_PAGES = 100;
+
+/** `findings --format sarif`: every matching finding, page by page, as one SARIF log. */
+async function exportFindingsSarif(client: OperatorClient, args: OperatorArgs): Promise<void> {
+  const findings: Array<SarifFinding> = [];
+  let totalPages = 1;
+  for (let page = 1; page <= Math.min(totalPages, SARIF_MAX_PAGES); page++) {
+    const result = await client.request(args.path, {
+      query: { ...args.query, page: String(page), limit: '100' },
+    });
+    const rows = Array.isArray(result.findings) ? (result.findings as Array<SarifFinding>) : [];
+    findings.push(...rows);
+    totalPages = number(result.totalPages) ?? 1;
+    if (rows.length === 0) {
+      break;
+    }
+  }
+  console.log(
+    JSON.stringify(securityFindingsSarif(findings, { version: sarifToolVersion() }), null, 2),
+  );
+  if (totalPages > SARIF_MAX_PAGES) {
+    process.stderr.write(
+      `Only the first ${SARIF_MAX_PAGES * 100} findings are in the file. Narrow it with --project, --severity or --urgent.\n`,
+    );
+  }
 }
 
 /** One policy-shaped change: preview, confirm, then apply at the previewed revision. */
@@ -275,15 +307,25 @@ async function runRescan(
   io: SecurityIo,
 ): Promise<void> {
   const preview = await previewOf(client, args, args.path, args.body);
+  if (args.body.clientAssets === true && preview.clientAssets !== true) {
+    throw new OperatorClientError(
+      'This platform cannot read client bundle sources yet. Upgrade it, or run the rescan without --client-assets.',
+      'unsupported',
+    );
+  }
   if (!args.json && !args.plan) {
     // The server's preview is the cost check (edge #43): say what it would run and what it can cost.
     const target = preview.target as unknown;
     const id = typeof preview.deploymentId === 'string' ? preview.deploymentId : String(target);
     const model = typeof preview.model === 'string' ? preview.model : 'the scan model';
+    const whole =
+      preview.clientAssets === true
+        ? 'This reviews the whole app, and the sources of its client bundles.'
+        : 'This reviews the whole app.';
     const first =
       preview.alreadyScanned === true
-        ? `Live deployment ${id} was already scanned. Run a full scan with ${model}? This reviews the whole app.`
-        : `Run a full scan of live deployment ${id} with ${model}? This reviews the whole app.`;
+        ? `Live deployment ${id} was already scanned. Run a full scan with ${model}? ${whole}`
+        : `Run a full scan of live deployment ${id} with ${model}? ${whole}`;
     process.stderr.write(
       `${first}${typeof preview.worstCaseUsd === 'number' ? ` It can cost up to ${money(preview.worstCaseUsd)}.` : ''}\n${dim('Monthly caps apply; raise the cap first if a rescan is refused.')}\n`,
     );

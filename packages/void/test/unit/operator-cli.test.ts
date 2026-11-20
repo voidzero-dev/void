@@ -2489,6 +2489,68 @@ describe('platform security commands', () => {
     );
   });
 
+  it('asks for the client asset pass on a rescan, and refuses it on an old platform (M31)', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.rescan',
+        target: 'p1',
+        deploymentId: 'dpl_9a1d',
+        model: 'm',
+        clientAssets: true,
+      },
+      { ok: true, scanId: 'scan-1', clientAssets: true },
+      { dryRun: true, action: 'security.rescan', target: 'p1', deploymentId: 'dpl_9a1d' },
+    ]);
+    await run('rescan', 'p1', '--client-assets', '--yes');
+    expect(calls[0]!.body).toEqual({ clientAssets: true, dryRun: true });
+    expect(calls[1]).toMatchObject({ body: { clientAssets: true } });
+    expect(out.errors()).toContain('and the sources of its client bundles');
+    await expect(run('rescan', 'p1', '--client-assets', '--yes')).rejects.toThrow(
+      'cannot read client bundle sources yet',
+    );
+    expect(calls).toHaveLength(3);
+  });
+
+  it('exports every matching finding as one SARIF log with --format sarif (M31)', async () => {
+    const out = quiet();
+    const row = (id: string, project: string) => ({
+      id,
+      project,
+      verdict: 'confirmed',
+      severity: 'high',
+      state: 'open',
+      title: `title ${id}`,
+      category: 'xss',
+      file: 'src/a.ts',
+      line: 2,
+    });
+    const calls = serve([
+      { findings: [row('F-1', 'acme')], page: 1, limit: 100, total: 2, totalPages: 2 },
+      { findings: [row('F-1', 'beta')], page: 2, limit: 100, total: 2, totalPages: 2 },
+    ]);
+    await run('findings', '--format', 'sarif', '--urgent');
+    expect(calls.map(({ query }) => query)).toEqual([
+      '?urgent=true&page=1&limit=100',
+      '?urgent=true&page=2&limit=100',
+    ]);
+    const log = JSON.parse(out.printed());
+    expect(
+      log.runs[0].results.map(
+        (result: { partialFingerprints: Record<string, string> }) =>
+          result.partialFingerprints['voidFinding/v1'],
+      ),
+    ).toEqual(['acme/F-1', 'beta/F-1']);
+    expect(() => run('findings', '--format', 'csv')).toThrow('--format must be sarif');
+    expect(() => run('findings', '--format', 'sarif', '--page', '2')).toThrow(
+      'drop --page and --limit',
+    );
+    expect(() => run('findings', '--format', 'sarif', '--json')).toThrow(
+      'Use --format sarif or --json, not both.',
+    );
+  });
+
   it('does not rescan for --plan', async () => {
     quiet();
     const calls = serve([

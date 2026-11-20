@@ -30,6 +30,7 @@ import {
   securityUsdToCents,
 } from './budget.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
+import { SECURITY_CLIENT_ASSETS_NOTE } from './input/build.ts';
 import { SECURITY_FULL_REASON_NOTES, type SecurityFallbackFullReason } from './input/tier.ts';
 import { readSecurityPlanCapCell, securityProjectPlanCapSql } from './plan-caps.ts';
 import {
@@ -462,8 +463,11 @@ export async function listOperatorSecurityFindings(
         severity: effectiveSeverity,
         title: securityFindings.title,
         category: securityFindings.category,
+        cwe: securityFindings.cwe,
         file: securityFindings.file,
         lineStart: securityFindings.line_start,
+        lineEnd: securityFindings.line_end,
+        verdictSource: securityFindings.verdict_source,
         state: securityFindings.state,
         resolution: securityFindings.resolution,
         notSeenInLatest: securityFindings.not_seen_in_latest,
@@ -493,8 +497,11 @@ export async function listOperatorSecurityFindings(
       severity: row.severity,
       title: row.title,
       category: row.category,
+      cwe: row.cwe,
       file: row.file,
       line: row.lineStart,
+      lineEnd: row.lineEnd,
+      verdictSource: row.verdict === 'confirmed' ? row.verdictSource : null,
       state: row.state,
       resolution: row.resolution,
       notSeenInLatest: row.notSeenInLatest,
@@ -779,6 +786,11 @@ export type SecurityRescanOptions = Readonly<{
    * scan start choose it (`securityFallbackFullReason`).
    */
   fallbackOf?: SecurityFallbackFullReason | null;
+  /**
+   * M31: also read the sources of the client bundles from their source maps (the client
+   * asset pass). A coverage note on the row; the scan start reads it.
+   */
+  clientAssets?: boolean;
 }>;
 
 /**
@@ -883,6 +895,7 @@ export async function previewSecurityRescan(
     target: { projectId, slug: project.slug, deploymentId: live.id } satisfies RescanTarget,
     alreadyScanned: scanned !== undefined,
     tier: 'full' as const,
+    clientAssets: options.clientAssets === true,
     model: model.id,
     thirdParty: model.thirdParty,
     worstCaseUsd: worstCase === null ? null : worstCase / NANO_USD_PER_USD,
@@ -963,7 +976,10 @@ export async function queueSecurityRescan(
       status: 'queued',
       trigger,
       public_request_id: options.publicRequestId ?? null,
-      coverage_notes: options.fallbackOf ? [SECURITY_FULL_REASON_NOTES[options.fallbackOf]] : [],
+      coverage_notes: [
+        ...(options.fallbackOf ? [SECURITY_FULL_REASON_NOTES[options.fallbackOf]] : []),
+        ...(options.clientAssets ? [SECURITY_CLIENT_ASSETS_NOTE] : []),
+      ],
       input_r2_key: input.r2Key,
       policy_mode_at_enqueue: policy.mode,
       public_at_enqueue: !isProtected,

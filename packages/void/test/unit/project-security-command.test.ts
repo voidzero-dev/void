@@ -440,7 +440,14 @@ describe('project security scan (M25)', () => {
     const asked: Array<string> = [];
     await runProjectSecurityCommand(
       root,
-      { subcommand: 'security', projectSlug: '', json: false, action: 'scan', yes: false },
+      {
+        subcommand: 'security',
+        projectSlug: '',
+        json: false,
+        action: 'scan',
+        yes: false,
+        clientAssets: false,
+      },
       {
         interactive: true,
         confirm: async (message) => {
@@ -463,7 +470,14 @@ describe('project security scan (M25)', () => {
     await expect(
       runProjectSecurityCommand(
         root,
-        { subcommand: 'security', projectSlug: '', json: false, action: 'scan', yes: false },
+        {
+          subcommand: 'security',
+          projectSlug: '',
+          json: false,
+          action: 'scan',
+          yes: false,
+          clientAssets: false,
+        },
         { interactive: false },
       ),
     ).rejects.toThrow('Add --yes to start the scan without a prompt.');
@@ -488,10 +502,42 @@ describe('project security scan (M25)', () => {
     );
   });
 
+  it('asks for the client asset pass with --client-assets (M31)', async () => {
+    const root = linked();
+    const calls = route({
+      [`POST ${SCANS}`]: (() => {
+        let posts = 0;
+        return () =>
+          ++posts === 1
+            ? Response.json({ ...preview, clientAssets: true })
+            : Response.json({ ...queued, clientAssets: true }, { status: 202 });
+      })(),
+    });
+    const out = capture();
+    await run(root, ['security', 'scan', '--yes', '--client-assets']);
+    expect(calls.map((c) => c.body)).toEqual([
+      { dryRun: true, clientAssets: true },
+      { clientAssets: true },
+    ]);
+    expect(out.join('\n')).toContain(
+      '✓ Full scan ss_new of dpl_9a1d queued, with client bundle sources.',
+    );
+  });
+
+  it('refuses --client-assets on a platform that ignores it, before queuing', async () => {
+    const root = linked();
+    const calls = route(handlers());
+    await expect(run(root, ['security', 'scan', '--yes', '--client-assets'])).rejects.toThrow(
+      'This platform cannot read client bundle sources yet.',
+    );
+    expect(calls).toHaveLength(1);
+  });
+
   it('parses only --yes, --project and --json', () => {
     expect(parseProjectArgs(['security', 'scan', '--yes'])).toMatchObject({
       action: 'scan',
       yes: true,
+      clientAssets: false,
     });
     expect(() => parseProjectArgs(['security', 'scan', '--usd', '5'])).toThrow(
       '--usd is not used with security scan',
@@ -522,6 +568,55 @@ describe('project security command paths', () => {
     expect(text).toContain('F-2');
     expect(text).toContain('lead');
     expect(text).not.toContain('hidden');
+  });
+
+  it('prints the list as a SARIF log with --format sarif (M31)', async () => {
+    const root = linked();
+    route({
+      [`GET ${F}`]: () =>
+        Response.json({
+          findings: [
+            finding('F-1', {
+              category: 'secret-in-output',
+              cwe: 'CWE-200',
+              file: '_assets/app.js',
+              line: 2,
+              lineEnd: 2,
+              title: 'Secret STRIPE_KEY is in a public file: _assets/app.js',
+            }),
+            finding('F-2', { verdict: 'needs_validation', severity: null }),
+          ],
+          nextCursor: null,
+        }),
+    });
+    const out = capture();
+    const errors: Array<string> = [];
+    vi.spyOn(console, 'error').mockImplementation((...a) => void errors.push(a.join(' ')));
+    await run(root, ['security', 'list', '--format', 'sarif']);
+    const log = JSON.parse(out.join('\n'));
+    expect(log.version).toBe('2.1.0');
+    expect(log.runs[0].results).toEqual([
+      expect.objectContaining({
+        ruleId: 'secret-in-output',
+        level: 'error',
+        message: { text: 'F-1: Secret STRIPE_KEY is in a public file: _assets/app.js' },
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: '_assets/app.js', uriBaseId: '%SRCROOT%' },
+              region: { startLine: 2, endLine: 2 },
+            },
+          },
+        ],
+      }),
+    ]);
+    expect(errors).toEqual(['1 lead is left out. Add them with --leads.']);
+    expect(() => parseProjectArgs(['security', 'list', '--format', 'csv'])).toThrow(
+      "Invalid --format 'csv'",
+    );
+    expect(() => parseProjectArgs(['security', 'list', '--format', 'sarif', '--json'])).toThrow(
+      'not both',
+    );
   });
 
   it('stops listing at 500 findings and says so', async () => {

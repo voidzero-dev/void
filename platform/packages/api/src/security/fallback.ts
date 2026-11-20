@@ -17,6 +17,7 @@ import { sql } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { OperatorError } from '../operator/common.ts';
+import { SECURITY_CLIENT_ASSETS_NOTE } from './input/build.ts';
 import { securityCfDefaultModel } from './models.ts';
 import { queueSecurityRescan } from './operator.ts';
 
@@ -56,6 +57,7 @@ type Candidate = Readonly<{
   project_id: string;
   id: string;
   trigger: string;
+  coverage_notes: ReadonlyArray<string> | null;
   open_request_id: string | null;
 }>;
 
@@ -83,7 +85,7 @@ export async function queueSecurityFallbackScans(
   // The project's newest scan, if it is a third-party failure of the live deployment
   // (the same rule as `securityScanWantsFallback`).
   const result = await db.execute(sql`
-    SELECT latest.project_id, latest.id, latest.trigger,
+    SELECT latest.project_id, latest.id, latest.trigger, latest.coverage_notes,
            (SELECT r.id FROM security_public_requests r
              WHERE r.project_id = latest.project_id
                AND r.state IN ('waiting_scan', 'held_findings', 'held_no_result', 'needs_deploy')
@@ -91,7 +93,7 @@ export async function queueSecurityFallbackScans(
     FROM (
       SELECT DISTINCT ON (s.project_id)
              s.project_id, s.id, s.status, s.status_reason, s.trigger, s.model_used,
-             s.finished_at, s.deployment_id
+             s.finished_at, s.deployment_id, s.coverage_notes
       FROM security_scans s
       WHERE TRUE ${project}
       ORDER BY s.project_id, s.created_at DESC, s.id DESC
@@ -113,6 +115,8 @@ export async function queueSecurityFallbackScans(
         by: 'operator',
         publicRequestId: row.open_request_id,
         fallbackOf: row.trigger === 'rescan' || row.trigger === 'sweep' ? row.trigger : null,
+        // M31: a fallback of a rescan with the client asset pass runs it too.
+        clientAssets: row.coverage_notes?.includes(SECURITY_CLIENT_ASSETS_NOTE) === true,
       });
       console.info('[security-scan] fallback scan queued on the @cf default', {
         projectId: row.project_id,

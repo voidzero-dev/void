@@ -316,27 +316,33 @@ const app = new Hono<ApiEnv>()
       return capabilityOff(context);
     }
     try {
-      const dryRun = field(await readJson(context), 'dryRun');
+      const body = await readJson(context);
+      const dryRun = field(body, 'dryRun');
       if (dryRun !== undefined && typeof dryRun !== 'boolean') {
         throw SecurityApiError.invalid('dryRun must be true or false.');
       }
+      // M31: the client asset pass (sources of client bundles from their source maps).
+      const clientAssets = field(body, 'clientAssets');
+      if (clientAssets !== undefined && typeof clientAssets !== 'boolean') {
+        throw SecurityApiError.invalid('clientAssets must be true or false.');
+      }
+      const options = { by: 'project' as const, clientAssets: clientAssets === true };
       const db = context.get('db');
       if (dryRun === true) {
-        const preview = await previewSecurityRescan(context.env, db, projectId, { by: 'project' });
+        const preview = await previewSecurityRescan(context.env, db, projectId, options);
         return context.json({
           dryRun: true,
           deploymentId: preview.target.deploymentId,
           alreadyScanned: preview.alreadyScanned,
           tier: preview.tier,
+          clientAssets: preview.clientAssets,
           model: preview.model,
           thirdParty: preview.thirdParty,
           worstCaseUsd: preview.worstCaseUsd,
           budget: preview.budget,
         });
       }
-      const { preview, scanId } = await queueSecurityRescan(context.env, db, projectId, {
-        by: 'project',
-      });
+      const { preview, scanId } = await queueSecurityRescan(context.env, db, projectId, options);
       await pokeSecurityScanScheduler(context.env);
       return context.json(
         {
@@ -344,6 +350,7 @@ const app = new Hono<ApiEnv>()
           scanId,
           deploymentId: preview.target.deploymentId,
           tier: preview.tier,
+          clientAssets: preview.clientAssets,
           model: preview.model,
           alreadyScanned: preview.alreadyScanned,
         },
