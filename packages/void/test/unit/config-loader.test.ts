@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
@@ -38,6 +38,48 @@ describe('loadVoidConfig', () => {
       source: 'void.config.ts',
       value: { sourceDir: 'src' },
     });
+  });
+
+  it('reuses transpiled source in an installed project and still follows every edit', () => {
+    const config = (dir: string) =>
+      'import { defineConfig } from "void/config";\n' +
+      'import { SUFFIX } from "./shared.ts";\n' +
+      `export default defineConfig({ sourceDir: "${dir}" + SUFFIX });\n`;
+    const root = createTempProject(config('one'));
+    writeFileSync(join(root, 'shared.ts'), 'export const SUFFIX = "-a";\n');
+    mkdirSync(join(root, 'node_modules'));
+    const cache = join(root, 'node_modules', '.cache', 'void', 'config');
+
+    expect(loadVoidConfig(root)?.value).toEqual({ sourceDir: 'one-a' });
+    const cached = readdirSync(cache);
+    expect(cached.length).toBeGreaterThan(0);
+    expect(loadVoidConfig(root)?.value).toEqual({ sourceDir: 'one-a' });
+
+    writeFileSync(join(root, 'void.config.ts'), config('two'));
+    expect(loadVoidConfig(root)?.value).toEqual({ sourceDir: 'two-a' });
+    writeFileSync(join(root, 'shared.ts'), 'export const SUFFIX = "-b";\n');
+    expect(loadVoidConfig(root)?.value).toEqual({ sourceDir: 'two-b' });
+
+    // A truncated or foreign cache entry is ignored, not evaluated.
+    for (const file of readdirSync(cache)) {
+      writeFileSync(join(cache, file), 'throw new Error("stale cache entry");');
+    }
+    expect(loadVoidConfig(root)?.value).toEqual({ sourceDir: 'two-b' });
+  });
+
+  it('evaluates the config again on every load', () => {
+    const root = createTempProject(
+      'globalThis.__voidConfigLoads = (globalThis.__voidConfigLoads ?? 0) + 1;\n' +
+        'export default { sourceDir: "src" };\n',
+    );
+    mkdirSync(join(root, 'node_modules'));
+    const counter = globalThis as { __voidConfigLoads?: number };
+    counter.__voidConfigLoads = 0;
+
+    loadVoidConfig(root);
+    loadVoidConfig(root);
+    expect(counter.__voidConfigLoads).toBe(2);
+    delete counter.__voidConfigLoads;
   });
 
   it('gives a targeted hint when void.config.ts imports through a tsconfig path alias', () => {
