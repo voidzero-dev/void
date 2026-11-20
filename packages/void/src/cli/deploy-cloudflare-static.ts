@@ -191,7 +191,8 @@ export function resolveCloudflareStaticPreset(
       ),
     };
   }
-  if (detectFramework(root)) {
+  // `static` and `spa` returned above, so a configured app type here means a Worker deploy.
+  if (detectFramework(root) || voidConfig.inference?.appType) {
     return null;
   }
   const detected = detectPreset(root, { spa: options.spa, strictBackend: true });
