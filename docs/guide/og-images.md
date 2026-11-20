@@ -14,7 +14,7 @@ For other generated images, use `ImageResponse` from the same module.
 
 Configure the [`BROWSER` binding](./image-generation.md#setup) in `void.config.ts`.
 
-For `.tsx` routes, follow the [TypeScript JSX setup](./image-generation.md#jsx-types).
+For `.tsx` routes, follow the [Hono JSX setup](./image-generation.md#jsx-types).
 
 ## Usage
 

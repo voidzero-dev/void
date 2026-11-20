@@ -34,11 +34,13 @@ If you haven't connected the project yet, run `void connect --platform cloudflar
 
 ### JSX Types
 
-To make TypeScript recognize Hono JSX in your project, you have two options:
+`void/image` uses [Hono JSX](https://hono.dev/docs/guides/jsx) through `void/jsx`. You can write `.tsx` image routes in a project that doesn't use React without installing `react`, `react-dom`, or `@types/react`. React elements and components aren't accepted as image input. If you prefer not to configure JSX, use [HTML templates](#html-templates) in a `.ts` route.
+
+Configure Hono JSX in one of two ways:
 
 - **Per file:** If your app already uses another JSX runtime, keep its settings and add `/** @jsxImportSource void/jsx */` at the top of each `.tsx` file that uses Hono JSX.
 
-- **Project-wide:** Add `void/jsx` to `compilerOptions.types` in `tsconfig.json`, keeping any existing entries. Set `jsxImportSource` as well: `types` loads the declarations but does not select the JSX runtime.
+- **Project-wide:** If your app doesn't use another JSX runtime, configure `tsconfig.json` as shown below, keeping any existing entries in `compilerOptions.types`. Despite its name, `"jsx": "react-jsx"` enables TypeScript's automatic JSX transform; `"jsxImportSource": "void/jsx"` selects Hono instead of React.
 
   ```json
   {
