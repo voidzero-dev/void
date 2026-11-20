@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { runProjectCommand } from '../../src/cli/project-cmd.ts';
@@ -471,8 +472,8 @@ describe('project Zero Trust command with a public request', () => {
     const root = setup(fetchMock);
     const out = capture();
     await runProjectCommand(root, { ...base, action: 'status' });
-    const flat = out
-      .text()
+    // CI forces colour: strip it so the box borders split cleanly.
+    const flat = stripVTControlCharacters(out.text())
       .split('│')
       .join(' ')
       .split('\n')
