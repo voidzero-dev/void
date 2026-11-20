@@ -22,7 +22,7 @@ const environmentPages = [
   ['greeting.prod', 'Production page'],
 ];
 
-describe.each(['react', 'hono/jsx'])('server JSX with %s', (jsxImportSource) => {
+describe.each(['react', 'void/jsx'])('server JSX with %s', (jsxImportSource) => {
   let playground: IsolatedPlayground;
   const servers: Array<ReturnType<typeof spawn>> = [];
   const bases: Record<string, string> = {};
@@ -174,7 +174,9 @@ export const action = defineHandler(c => c.text(${JSON.stringify(text)}));`,
       expect(serverGraph).not.toContain(`/routes/${ext}/environment.dev.${ext}`);
       expect(serverGraph).not.toContain(`/routes/${ext}/debug.dev.${ext}`);
     }
-    expect(serverGraph).toContain(`${jsxImportSource}/jsx-runtime`);
+    expect(serverGraph).toContain(
+      jsxImportSource === 'react' ? 'react/jsx-runtime' : '/runtime/jsx/jsx-runtime.mjs',
+    );
   });
 
   if (jsxImportSource === 'react') {

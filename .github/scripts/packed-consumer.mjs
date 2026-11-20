@@ -119,6 +119,46 @@ async function run(command, args, cwd, env = environment) {
   }
 }
 
+const packedOgRoute = `import { html } from 'void/html';
+import { takumiRenderer } from '@void/image-renderer-takumi';
+import { OgImageResponse } from 'void/image';
+import { defineHandler } from 'void';
+export const GET = defineHandler((c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${Promise.resolve('Packed <OG> Привет Ελληνικά Łódź')}</div>\`, { renderer: [takumiRenderer, { fallbackFonts: false }], font: c.req.query('font') === 'Geist' ? 'Geist' : 'Roboto' }));
+`;
+const packedImageRoute = `import { html } from 'void/html';
+import { takumiRenderer } from '@void/image-renderer-takumi';
+import { ImageResponse } from 'void/image';
+import { defineHandler } from 'void';
+export const GET = defineHandler((c) => new ImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${'Packed <image> Привет Ελληνικά Łódź'}</div>\`, { width: 600, height: 600, renderer: [takumiRenderer, { fallbackFonts: false }], font: c.req.query('font') === 'Geist' ? 'Geist' : 'Roboto' }));
+`;
+
+/** Fetches an image route and checks its PNG signature and dimensions. */
+async function assertPackedImage(url, dimensions, failure) {
+  const roboto = await readPackedImage(url, dimensions, failure);
+  const geist = await readPackedImage(`${url}?font=Geist`, dimensions, failure);
+  assert(
+    !Buffer.from(roboto).equals(Buffer.from(geist)),
+    'Roboto and Geist must render differently',
+  );
+  const again = await readPackedImage(url, dimensions, failure);
+  assert(
+    Buffer.from(roboto).equals(Buffer.from(again)),
+    'Font selection must not leak across renders',
+  );
+}
+
+async function readPackedImage(url, dimensions, failure) {
+  const response = await fetch(url);
+  assert.equal(response.status, 200, failure());
+  assert.equal(response.headers.get('content-type'), 'image/png', failure());
+  // A render error arrives after the status, as a failed body.
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], failure());
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  assert.deepEqual([view.getUint32(16), view.getUint32(20)], dimensions, failure());
+  return bytes;
+}
+
 const packages = [];
 for (const entry of readdirSync(join(root, 'packages'), { withFileTypes: true })) {
   if (!entry.isDirectory()) {
@@ -146,7 +186,10 @@ writeFileSync(
 environment.npm_config_registry = registry.origin;
 environment.NPM_CONFIG_REGISTRY = registry.origin;
 environment.PNPM_CONFIG_REGISTRY = registry.origin;
-const version = packages.find((pkg) => pkg.manifest.name === 'void').manifest.version;
+const voidManifest = packages.find((pkg) => pkg.manifest.name === 'void').manifest;
+const version = voidManifest.version;
+const imagePackage = '@void/image-renderer-takumi';
+const imageVersion = packages.find((pkg) => pkg.manifest.name === imagePackage).manifest.version;
 const managers = process.env.VOID_PACKED_PM ? [process.env.VOID_PACKED_PM] : ['npm', 'pnpm'];
 assert(managers.every((manager) => ['npm', 'pnpm'].includes(manager)));
 const frameworks = process.env.VOID_PACKED_FRAMEWORK
@@ -251,6 +294,45 @@ try {
         );
         const cli = join(fixture, 'node_modules/void/dist/cli/cli.mjs');
         await run(process.execPath, [cli, '--help'], fixture);
+        await run(
+          process.execPath,
+          [
+            '--input-type=module',
+            '-e',
+            "import { ImageResponse } from 'void/image'; if (!ImageResponse) throw new Error('Missing ImageResponse');",
+          ],
+          fixture,
+        );
+        await run(
+          manager,
+          manager === 'npm'
+            ? ['install', `${imagePackage}@${imageVersion}`]
+            : ['add', `${imagePackage}@${imageVersion}`],
+          fixture,
+        );
+        assert(existsSync(join(fixture, 'node_modules', imagePackage, 'licenses/Roboto.txt')));
+        writeFileSync(
+          join(fixture, 'check-image.mjs'),
+          `import assert from 'node:assert/strict';
+import { takumiRenderer } from '@void/image-renderer-takumi';
+import { ImageResponse, OgImageResponse } from 'void/image';
+import { html } from 'void/html';
+await assert.rejects(import('@void/image'));
+await assert.rejects(import('void/og'));
+for (const response of [
+  new ImageResponse(html\`<div>Hello</div>\`, { width: 320, height: 168, renderer: takumiRenderer, fallbackFonts: false }),
+  new OgImageResponse(html\`<div>Hello</div>\`, { renderer: takumiRenderer, fallbackFonts: false }),
+]) {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  assert.equal(response.headers.get('content-type'), 'image/png');
+  assert.deepEqual([...bytes.slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+}
+`,
+        );
+        await run(process.execPath, ['check-image.mjs'], fixture);
+        if (process.env.CI || spawnSync('bun', ['--version']).status === 0) {
+          await run('bun', ['check-image.mjs'], fixture);
+        }
         if (full && framework === 'react') {
           await run(
             manager,
@@ -341,6 +423,9 @@ try {
           join(fixture, 'routes/api/packed-email.ts'),
           `import { defineHandler } from 'void';\nimport { sendEmail } from 'void/email';\nexport const GET = defineHandler(async () => { return sendEmail({ from: 'packed@example.com', to: 'inbox@example.com', subject: 'Packed', text: 'ok' }); });\n`,
         );
+        // Both response classes use the generate subpath and React only when the app has it.
+        writeFileSync(join(fixture, 'routes/api/packed-og.ts'), packedOgRoute);
+        writeFileSync(join(fixture, 'routes/api/packed-image.ts'), packedImageRoute);
         mkdirSync(join(fixture, 'public'), { recursive: true });
         writeFileSync(join(fixture, 'public/packed.txt'), label);
         const vite = join(
@@ -448,6 +533,8 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
             } else {
               assert.equal(email.error?.code, 'BINDING_MISSING', emailBody);
             }
+            await assertPackedImage(`${base}/api/packed-og`, [1200, 630], task.failure);
+            await assertPackedImage(`${base}/api/packed-image`, [600, 600], task.failure);
             if (full && framework === 'react') {
               const markdown = await fetch(`${base}/markdown`);
               assert.equal(markdown.status, 200, task.failure());
@@ -490,17 +577,16 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
         if (framework === 'react') {
           // The Node target bundles the installed void into its build, so a ValidationError from
           // void/handler is the class that page actions check, as in dev.
-          await run(
-            manager,
-            manager === 'npm' ? ['install', '@hono/node-server'] : ['add', '@hono/node-server'],
-            fixture,
-          );
+          await run(manager, [manager === 'npm' ? 'install' : 'add', '@hono/node-server'], fixture);
           writeFileSync(
             join(fixture, 'void.config.ts'),
             "import { defineConfig } from 'void/config';\nexport default defineConfig({ target: 'node' });\n",
           );
           // KV and email are Cloudflare bindings.
           rmSync(join(fixture, 'routes'), { recursive: true });
+          mkdirSync(join(fixture, 'routes/api'), { recursive: true });
+          writeFileSync(join(fixture, 'routes/api/packed-og.ts'), packedOgRoute);
+          writeFileSync(join(fixture, 'routes/api/packed-image.ts'), packedImageRoute);
           writeFileSync(
             join(fixture, 'pages/form.tsx'),
             'export default function Form() {\n  return <h1>Form</h1>;\n}\n',
@@ -534,12 +620,14 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
             const body = await response.text();
             assert.equal(response.status, 200, `${body}\n${task.failure()}`);
             assert(body.includes('Email already taken'), body);
+            await assertPackedImage(`${base}/api/packed-og`, [1200, 630], task.failure);
+            await assertPackedImage(`${base}/api/packed-image`, [600, 600], task.failure);
           } finally {
             await task.stop();
           }
         }
         console.log(
-          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+ build/typecheck/test' : 'public Vite build/typecheck'}, assets, KV, email, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
+          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+ build/typecheck/test' : 'public Vite build/typecheck'}, assets, KV, email, OG/image rendering, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
         );
       } catch (error) {
         failures.push({ fixture: label, error: String(error.stack ?? error) });

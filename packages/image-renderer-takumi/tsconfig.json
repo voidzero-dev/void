@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node", "vite/client"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUnusedLocals": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "declaration": true,
+    "isolatedDeclarations": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "test"]
+}

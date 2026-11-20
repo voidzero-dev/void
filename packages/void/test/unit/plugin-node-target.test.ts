@@ -46,6 +46,25 @@ async function requestThrough(middleware: Middleware, path: string): Promise<Res
 }
 
 describe('nodeTargetPlugin request bridge', () => {
+  it('inlines the image renderer like other Void packages', async () => {
+    const config = await getHookHandler(servePlugin().config)!.call(
+      {} as never,
+      {},
+      { command: 'serve', mode: 'development', isSsrBuild: false, isPreview: false },
+    );
+    expect(config?.ssr?.external).toBeUndefined();
+    const noExternal = config?.ssr?.noExternal as Array<string | RegExp>;
+    expect(
+      noExternal.some((entry) =>
+        typeof entry === 'string'
+          ? entry === '@void/image-renderer-takumi'
+          : entry.test('@void/image-renderer-takumi'),
+      ),
+    ).toBe(true);
+    expect(noExternal).toContain('takumi-js');
+    expect(noExternal).toEqual(expect.arrayContaining([/^@takumi-rs\//]));
+  });
+
   it('keeps every Set-Cookie header in dev', async () => {
     let middleware: Middleware | undefined;
     const app = {

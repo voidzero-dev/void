@@ -1,0 +1,30 @@
+{
+  "name": "benchmark-image-gen-takumi",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "deploy": "cf deploy",
+    "deploy:prebuilt": "cf deploy --prebuilt",
+    "dev": "vp dev",
+    "test": "node --test test/query.test.ts",
+    "test:smoke": "node --test test/workers.test.ts",
+    "typecheck": "tsc --noEmit",
+    "typecheck:watch": "tsc --noEmit --watch"
+  },
+  "dependencies": {
+    "@void/image-renderer-takumi": "workspace:*",
+    "void": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/build-output-utils": "catalog:",
+    "@cloudflare/config": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "cf": "catalog:",
+    "miniflare": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

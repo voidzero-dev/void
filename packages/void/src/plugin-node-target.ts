@@ -169,7 +169,15 @@ export function nodeTargetPlugin(
       // and installed packages that import void in the dev server, Vitest and the build alike,
       // as with a workspace link.
       const ssr = {
-        noExternal: ['void', /^@void\//, ...findVoidDependentPackages(root)],
+        noExternal: [
+          'void',
+          /^@void\//,
+          // Resolve each renderer's Takumi dependencies from its own location,
+          // rather than leaving bare imports to the app's installed versions.
+          'takumi-js',
+          /^@takumi-rs\//,
+          ...findVoidDependentPackages(root),
+        ],
       };
       if (command !== 'build') {
         return { ssr };
@@ -178,6 +186,7 @@ export function nodeTargetPlugin(
       const voidDir = join(root, '.void');
       const ssrBuildOptions = {
         outDir: 'dist/ssr',
+        emitAssets: true,
         rollupOptions: {
           input: {
             app: join(voidDir, 'app.ts'),

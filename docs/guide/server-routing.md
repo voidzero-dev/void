@@ -92,7 +92,9 @@ import { defineHandler } from 'void';
 export const GET = defineHandler((c) => c.html(renderToStaticMarkup(<h1>Hello!</h1>)));
 ```
 
-For API-only, Vue, or Svelte apps, add `hono` as a dependency and configure [Hono's JSX](https://hono.dev/docs/guides/jsx) in `vite.config.ts`:
+To use [Hono JSX](https://hono.dev/docs/guides/jsx) in one route, add `/** @jsxImportSource void/jsx */` at the top of the file. Your app's JSX settings still apply to other files.
+
+To use Hono JSX project-wide in an app that doesn't use another JSX runtime, configure `vite.config.ts`:
 
 ```ts
 // vite.config.ts
@@ -100,12 +102,12 @@ import { defineConfig } from 'vite-plus';
 import { voidPlugin } from 'void';
 
 export default defineConfig({
-  oxc: { jsx: { runtime: 'automatic', importSource: 'hono/jsx' } },
+  oxc: { jsx: { runtime: 'automatic', importSource: 'void/jsx' } },
   plugins: [voidPlugin()],
 });
 ```
 
-`c.html()` then takes the JSX directly:
+For TypeScript, set `"jsx": "react-jsx"` and `"jsxImportSource": "void/jsx"` in `compilerOptions`. No separate Hono dependency is needed. `c.html()` takes Hono JSX directly:
 
 ```tsx
 // routes/hello.tsx → GET /hello
