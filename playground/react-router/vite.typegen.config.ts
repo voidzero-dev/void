@@ -1,9 +1,8 @@
 import { reactRouter } from '@react-router/dev/vite';
 import { defineConfig } from 'vite-plus';
 
-// For `react-router typegen` in the build script. Generating route types does not need Void.
-// With Void loaded, it would write the dev Worker entry that the build then replaces, and the
-// two steps would never be replayed from the task cache.
+// Run typegen after `vp build` supplies .void/tsconfig.json. Loading Void again here would
+// overwrite the built Worker entry with the dev one and prevent cache replay.
 export default defineConfig({
   plugins: [reactRouter()],
 });

@@ -194,14 +194,17 @@ export async function loader() {
   });
 
   it('generates route types from scratch and queries MySQL in the built Worker', async () => {
-    // The dev server generates these too, so do not let the previous test mask a missing build step.
-    rmSync(join(playground.root, '.react-router'), { recursive: true, force: true });
+    // The preceding dev test writes both directories, but CI builds from a clean checkout.
+    for (const directory of ['.react-router', '.void']) {
+      rmSync(join(playground.root, directory), { recursive: true, force: true });
+    }
     execFileSync('vp', ['run', 'build'], {
       cwd: playground.root,
       stdio: 'pipe',
       env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
       shell: process.platform === 'win32',
     });
+    expect(existsSync(join(playground.root, '.void/tsconfig.json'))).toBe(true);
     for (const route of ['smoke', 'users']) {
       expect(
         existsSync(join(playground.root, '.react-router/types/app/routes/+types', `${route}.ts`)),

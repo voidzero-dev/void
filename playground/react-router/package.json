@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "react-router typegen --config vite.typegen.config.ts && vp build",
+    "build": "vp build && react-router typegen --config vite.typegen.config.ts",
     "dev": "vp dev"
   },
   "dependencies": {
