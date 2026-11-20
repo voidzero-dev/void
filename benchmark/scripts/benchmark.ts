@@ -32,7 +32,7 @@ Deploy batch → wait for quiet metrics → employee Access login → oha latenc
   --metrics-wait <time>    Ingestion wait after the padded window ends (default: 3m)
   -h, --help               Show usage
 
-Loads <benchmark-id>/benchmark.json; omitted fields use defaults.
+Loads <benchmark-id>/benchmark.jsonc; omitted fields use defaults.
 CLI latency settings override each JSON workload; --path selects one ad-hoc workload.
 Use "latency": [] for deployment only. Regenerate reports with vp run report <benchmark-id>.
 

@@ -1,9 +1,13 @@
-import type { RenderImageOptions } from '@void/image/generate';
+import type { takumiRenderer, TakumiRendererOptions } from '@void/image-renderer-takumi';
+import type { RenderImageOptions } from 'void/image';
 
 const emojiStyles = ['twemoji', 'blobmoji', 'noto', 'openmoji', 'fluent', 'fluentFlat'] as const;
-const defaultFonts = ['Inter', 'Geist'] as const;
+const defaultFonts = ['Roboto', 'Geist'] as const;
 
-export interface ImageQuery extends RenderImageOptions {
+export interface ImageQuery
+  extends
+    Pick<RenderImageOptions<typeof takumiRenderer>, 'width' | 'height' | 'font'>,
+    Pick<TakumiRendererOptions, 'emoji' | 'fallbackFonts'> {
   text: string;
   iterations: number;
 }
@@ -51,7 +55,7 @@ export function parseImageQuery(query: URLSearchParams): ImageQuery {
   return {
     text,
     emoji: choice(query, 'emoji', emojiStyles, 'twemoji'),
-    defaultFont: choice(query, 'defaultFont', defaultFonts, 'Inter'),
+    font: choice(query, 'defaultFont', defaultFonts, 'Roboto'),
     fallbackFonts: choice(query, 'fallbackFonts', ['true', 'false'], 'true') === 'true',
     width: integer(query, 'width', 1200, 1, 4096),
     height: integer(query, 'height', 630, 1, 4096),

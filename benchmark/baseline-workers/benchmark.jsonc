@@ -1,0 +1,11 @@
+{
+  "latency": [
+    {
+      "id": "baseline",
+      "description": "Empty Workers response",
+      "request": { "path": "/" },
+      "expect": { "bodyBytes": 0 },
+      "settings": { "requests": 1000 },
+    },
+  ],
+}

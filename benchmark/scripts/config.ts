@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path/posix';
+import { parse, printParseErrorCode, type ParseError } from 'jsonc-parser';
 import { parseLatencyArgs } from './latency.ts';
 import { parseRunCount } from './statistics.ts';
 
@@ -184,10 +185,23 @@ export function resolveBenchmarkConfig(
 }
 
 export function loadBenchmarkConfig(app: string) {
-  const file = path.join(app, 'benchmark.json');
+  const file = path.join(app, 'benchmark.jsonc');
   const stat = fs.lstatSync(file, { throwIfNoEntry: false });
   if (stat?.isSymbolicLink()) {
     throw new Error(`Refusing to use a symlink: ${file}`);
   }
-  return stat ? (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown) : {};
+  if (!stat) {
+    return {};
+  }
+  const errors: Array<ParseError> = [];
+  const source = fs.readFileSync(file, 'utf8');
+  const config: unknown = parse(source, errors, { allowTrailingComma: true });
+  const error = errors[0];
+  if (error) {
+    const lines = source.slice(0, error.offset).split(/\r\n|\r|\n/);
+    throw new Error(
+      `${file}:${lines.length}:${(lines.at(-1)?.length ?? 0) + 1}: ${printParseErrorCode(error.error)}`,
+    );
+  }
+  return config;
 }
