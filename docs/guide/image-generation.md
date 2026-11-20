@@ -255,14 +255,14 @@ export const GET = () =>
   });
 ```
 
-| Option                | Default             | Description                                                                                  |
-| --------------------- | ------------------- | -------------------------------------------------------------------------------------------- |
-| `fallbackFonts`       | `true`              | Downloads font subsets from Google Fonts for missing glyphs.                                 |
-| `emoji`               | `'twemoji'`         | Emoji set: `'twemoji'`, `'blobmoji'`, `'noto'`, `'openmoji'`, `'fluent'`, or `'fluentFlat'`. |
-| `images.allowUrl`     | No custom filter    | A function that returns `false` to block a remote image or emoji URL.                        |
-| `images.maxBytes`     | `33554432` (32 MiB) | Maximum response size in bytes per image download.                                           |
-| `images.timeout`      | `30000` (30 s)      | Download timeout in milliseconds.                                                            |
-| `images.throwOnError` | `true`              | Fails rendering when an image fails to load. Set to `false` to omit the failed image.        |
+| Option                | Default             | Description                                                                                    |
+| --------------------- | ------------------- | ---------------------------------------------------------------------------------------------- |
+| `fallbackFonts`       | `true`              | Downloads font subsets from Google Fonts for missing glyphs.                                   |
+| `emoji`               | `'twemoji'`         | Emoji set: `'twemoji'`, `'blobmoji'`, `'noto'`, `'openmoji'`, `'fluent'`, or `'fluentFlat'`.   |
+| `images.allowUrl`     | No custom filter    | A function that returns `false` to block a remote image or emoji URL.                          |
+| `images.maxBytes`     | `33554432` (32 MiB) | Maximum response size in bytes per image download.                                             |
+| `images.timeout`      | `30000` (30 s)      | Download timeout in milliseconds.                                                              |
+| `images.throwOnError` | `true`              | Fails rendering when a non-emoji image fails to load. Set to `false` to omit the failed image. |
 
 Use [CSS properties supported by Takumi](https://takumi.kane.tw/docs/styles). On Cloudflare, the renderer's WebAssembly and bundled font add to the Worker size, and rendering uses Worker CPU time. [Cache generated images](#cache-generated-images) if the same image is requested frequently.
 
@@ -276,6 +276,6 @@ Use `lang` in the image options or on the root element to choose how Han charact
 
 ### Takumi emoji and remote images
 
-Takumi downloads emoji artwork as part of rendering. Sets differ in coverage; for example, `noto` does not include country flags.
+Takumi downloads emoji artwork as part of rendering. Sets differ in coverage; for example, `noto` does not include country flags. Unavailable emoji are omitted, even when `images.throwOnError` is `true`.
 
 Use `images.allowUrl` to allow only trusted sources when image URLs come from request data.

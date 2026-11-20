@@ -86,6 +86,7 @@ describe('scanPages', () => {
   });
 
   beforeEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
     mkdirSync(join(TMP, 'pages'), { recursive: true });
   });
 

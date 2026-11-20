@@ -228,3 +228,15 @@ minimumReleaseAgeExclude:
   - oxfmt@0.79.0
   - oxlint@1.94.0
   - tsrs@7.1.0-beta.tsrs2
+  - '@takumi-rs/core-darwin-arm64@2.21.0'
+  - '@takumi-rs/core-darwin-x64@2.21.0'
+  - '@takumi-rs/core-linux-arm64-gnu@2.21.0'
+  - '@takumi-rs/core-linux-arm64-musl@2.21.0'
+  - '@takumi-rs/core-linux-x64-gnu@2.21.0'
+  - '@takumi-rs/core-linux-x64-musl@2.21.0'
+  - '@takumi-rs/core-win32-arm64-msvc@2.21.0'
+  - '@takumi-rs/core-win32-x64-msvc@2.21.0'
+  - '@takumi-rs/core@2.21.0'
+  - '@takumi-rs/helpers@2.21.0'
+  - '@takumi-rs/wasm@2.21.0'
+  - takumi-js@2.21.0
