@@ -18,6 +18,7 @@ import {
   PlatformCloudflareClient,
   verifyPlatformRuntimeTokenEmailPermissions,
 } from '../../src/cli/platform-cloudflare.ts';
+import { formatPlatformCredentialDenials } from '../../src/cli/platform-credential-label.ts';
 import { recordWorkerCutoverStage } from '../../src/cli/platform-installer-cutover.ts';
 import { PlatformAccessBlockedError } from '../../src/cli/platform-installer.ts';
 import { runPlatformLifecycleCommand } from '../../src/cli/platform-lifecycle.ts';
@@ -1007,14 +1008,26 @@ describe('platform credential onboarding', () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
     const original = mocks.plan.getMockImplementation()!;
     mocks.plan.mockImplementationOnce(original).mockImplementationOnce(async (client) => {
-      const denied = (await client
-        .request('/accounts/account/queues')
-        .catch((error: unknown) => error)) as Error;
-      // The shape the plan throws for several denied reads.
+      const deny = (path: string) =>
+        client
+          .request(path)
+          .catch((error: unknown) => error) as Promise<PlatformCloudflareApiError>;
+      const denied = [
+        await deny('/accounts/account/queues'),
+        await deny('/accounts/account/storage/kv/namespaces'),
+      ];
+      // The shape the plan throws for several reads denied to a labeled client.
       throw new AggregateError(
-        [denied, denied],
-        `platform: Cloudflare denied reads the plan needs.\n\n${denied.message}`,
-        { cause: denied },
+        denied,
+        `platform: Cloudflare denied reads the plan needs.\n\n${formatPlatformCredentialDenials(
+          denied[0]!.credential!,
+          denied.map((error) => ({
+            permission: 'a permission this read needs',
+            request: `GET ${error.requestPath}`,
+            status: error.status,
+          })),
+        )}`,
+        { cause: denied[0] },
       );
     });
     vi.stubGlobal(
@@ -1032,8 +1045,11 @@ describe('platform credential onboarding', () => {
 
     expect(warn).toHaveBeenCalledOnce();
     const warning = warn.mock.calls[0]![0] as string;
-    expect(warning.split('Cloudflare API error: Authentication error')).toHaveLength(2);
-    expect(warning).toContain('Void used the management token you entered.');
+    // The list already names each request; the first denial is not repeated under it.
+    expect(warning).not.toContain('Cloudflare API error: Authentication error');
+    expect(warning).toContain('GET /accounts/account/queues');
+    expect(warning).toContain('GET /accounts/account/storage/kv/namespaces');
+    expect(warning.split('management token you entered')).toHaveLength(2);
     expect(warning).toContain('Check the token permissions and account/zone scope');
   });
 

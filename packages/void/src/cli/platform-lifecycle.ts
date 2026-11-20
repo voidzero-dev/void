@@ -968,11 +968,21 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
             throw error;
           }
           const details: Array<string> = [];
+          // Errors an AggregateError above already lists in its own message.
+          const listed = new Set<unknown>();
           for (
             let cause = error, depth = 0;
             depth < 5 && cause instanceof Error;
             depth++, cause = cause.cause
           ) {
+            if (listed.has(cause)) {
+              continue;
+            }
+            if (cause instanceof AggregateError) {
+              for (const listedError of cause.errors) {
+                listed.add(listedError);
+              }
+            }
             const message = cause.message.replaceAll(token, '[redacted]');
             // A wrapping error often repeats its cause's message.
             if (!details.some((detail) => detail.includes(message))) {
