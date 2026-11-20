@@ -5,6 +5,14 @@ import type { ScanReport } from '../report.ts';
 
 export type SessionPhase = 'hunt' | 'verify';
 
+/** A tool one session adds to the scan tools (M30: `copy_request` in verify sessions). */
+export type SessionTool = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  run(args: Record<string, unknown>): Promise<{ ok: boolean; text: string }>;
+};
+
 export type SessionSpec = {
   phase: SessionPhase;
   /** 0 for the hunt, 1… for verify sessions. */
@@ -14,6 +22,8 @@ export type SessionSpec = {
   maxTurns: number;
   /** Extra rule on a valid report (a verify session submits one record at most). */
   check?: (report: ScanReport) => string | null;
+  /** Extra tools for this session; only engines with `sessionTools` get them. */
+  tools?: ReadonlyArray<SessionTool>;
   signal?: AbortSignal;
 };
 
@@ -43,6 +53,8 @@ export interface Engine {
   readonly id: EngineId;
   /** Stored as `security_scans.engine_version`. */
   readonly version: string;
+  /** M30: the engine offers `SessionSpec.tools` to the model (Engine B's own loop). */
+  readonly sessionTools?: boolean;
   runSession(spec: SessionSpec): Promise<SessionOutcome>;
 }
 

@@ -62,8 +62,15 @@ describe('security scanner provisioning', () => {
     const names = await securityScannerNames(target.installationKey);
     const { applicationId } = await provisionSecurityScanner(target);
 
-    const [controller, gate, ...rest] = await uploads(cf);
+    const [sandbox, controller, gate, ...rest] = await uploads(cf);
     expect(rest).toEqual([]);
+    // The runtime copy side (M30) comes first: its namespace and its sandbox Worker.
+    expect(
+      cf.mock.calls.map(
+        ([url, init]) => `${(init as RequestInit | undefined)?.method ?? 'GET'} ${String(url)}`,
+      ),
+    ).toContainEqual(expect.stringMatching(/^POST .*\/workers\/dispatch\/namespaces$/));
+    expect(sandbox!.url).toContain(`/workers/scripts/${names.copySandbox}`);
     expect(controller!.url).toContain(`/workers/scripts/${names.worker}`);
     expect(controller!.headers.get('If-None-Match')).toBe('*');
     const metadata = controller!.metadata as {
@@ -112,7 +119,14 @@ describe('security scanner provisioning', () => {
         (binding) =>
           !['plain_text', 'service', 'durable_object_namespace'].includes(String(binding.type)),
       ),
-    ).toEqual([]);
+    ).toEqual([
+      {
+        type: 'dispatch_namespace',
+        name: '__VOID_SECURITY_COPIES',
+        namespace: names.copyNamespace,
+        outbound: { worker: { service: names.copySandbox } },
+      },
+    ]);
 
     expect(gate!.url).toContain(
       `/workers/dispatch/namespaces/void-users-test/scripts/${names.gate}`,
@@ -411,6 +425,12 @@ describe('security scanner provisioning', () => {
       { method: 'DELETE', url: `/workers/scripts/${names.worker}` },
     );
     expect(cf.state.containerApps.size).toBe(0);
+    // The runtime copy side goes too (M30): its namespace and its sandbox Worker.
+    cf.expectCallOrder(
+      { method: 'DELETE', url: `/workers/dispatch/namespaces/${names.copyNamespace}` },
+      { method: 'DELETE', url: `/workers/scripts/${names.copySandbox}` },
+    );
+    expect(cf.state.hostScripts.has(names.copySandbox)).toBe(false);
     expect(cf.state.hostScripts.has(names.worker)).toBe(false);
     expect(
       registry.hasManifest(

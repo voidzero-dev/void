@@ -30,6 +30,8 @@ const FINDING_KEYS = [
   'conditions',
   'fix',
   'reason',
+  // M30: the model names its proof; verdict_source and runtime_proof are the runner's.
+  'proof_request',
 ];
 const TRACE_KEYS = ['file', 'line', 'note'];
 

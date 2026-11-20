@@ -307,6 +307,8 @@ describe('scan input capture', () => {
       model: '@cf/test/model',
       tier: 'full',
       changed_files: [],
+      // Engine B on a Worker app: verify may check candidates on a throwaway copy (M30).
+      runtime_copy: true,
     });
 
     const row = await scan('scan_first');

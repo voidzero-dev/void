@@ -531,6 +531,29 @@ describe('scan result ingest', () => {
     });
   });
 
+  it('a static finding proven later at runtime keeps its detail and gets the proof (M30)', async () => {
+    const { project } = await setup();
+    const deployment = await deploy(project.id);
+    await runningScan('scan_1', project.id, deployment.id);
+    await ingest('scan_1', result('scan_1', [finding()]));
+    expect((await findingsOf(project.id))[0]).toMatchObject({ verdict_source: 'static' });
+    const proof = { request: 'r2', method: 'GET', path: '/users?id=1%20OR%201=1', status: 200 };
+    await runningScan('scan_2', project.id, deployment.id);
+    await ingest(
+      'scan_2',
+      result('scan_2', [finding({ verdict_source: 'runtime', runtime_proof: proof })]),
+    );
+    const [row] = await findingsOf(project.id);
+    expect(row).toMatchObject({ verdict_source: 'runtime' });
+    expect(row!.detail).toMatchObject({ fix: 'bind the id', runtime_proof: proof });
+    // A later static scan never takes the proof away.
+    await runningScan('scan_3', project.id, deployment.id);
+    await ingest('scan_3', result('scan_3', [finding()]));
+    const [after] = await findingsOf(project.id);
+    expect(after).toMatchObject({ verdict_source: 'runtime' });
+    expect(after!.detail).toMatchObject({ runtime_proof: proof });
+  });
+
   it('an incomplete scan keeps validated confirmed records only; the base does not move', async () => {
     const { project } = await setup();
     const deployment = await deploy(project.id);

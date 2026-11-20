@@ -166,7 +166,11 @@ describe('submitFindingsParameters', () => {
       conditions: 'c',
       reason: 'r',
     });
-    expect(fields).toEqual(['line_start', ...Object.keys(record)].filter(unique).sort());
+    // The model also names its copy request (M30); verdict_source and runtime_proof are
+    // the runner's own fields and are not offered.
+    expect(fields).toEqual(
+      ['line_start', 'proof_request', ...Object.keys(record)].filter(unique).sort(),
+    );
   });
 });
 

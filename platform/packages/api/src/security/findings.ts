@@ -85,6 +85,8 @@ export type SecurityIngestRecord = Readonly<{
   outsideDiff: boolean;
   detail: Readonly<Record<string, unknown>>;
   source: 'scanner' | 'server';
+  /** M30: `runtime` when a request to the scan's copy proved it. Absent means static. */
+  verdictSource?: 'static' | 'runtime';
 }>;
 
 /** Trims the longest text fields until the detail fits its column (32 KB). */
@@ -147,8 +149,12 @@ export function recordFromReport(
       evidence: record.evidence,
       conditions: record.conditions,
       fix: record.fix,
+      ...(record.runtime_proof ? { runtime_proof: record.runtime_proof } : {}),
     }),
     source: 'scanner',
+    ...(record.verdict === 'confirmed' && record.verdict_source === 'runtime'
+      ? { verdictSource: 'runtime' as const }
+      : {}),
   };
 }
 
@@ -296,6 +302,8 @@ export type SecurityStoredFinding = Readonly<{
   notSeenInLatest: boolean;
   /** A `seen_again` / `seen_again_stale` event exists since the last resolve. */
   seenSinceResolve: boolean;
+  /** M30: how the stored confirmation was reached; absent means static. */
+  verdictSource?: 'static' | 'runtime';
 }>;
 
 /** Columns the ingest writes on an existing finding. */
@@ -307,6 +315,10 @@ export type SecurityFindingPatch = {
   severity?: SecuritySeverity;
   /** Lead → confirmed: the confirmed record's fields replace the lead's. */
   details?: SecurityIngestRecord;
+  /** M30: a runtime confirmation of a finding stored as static (never the other way). */
+  verdictSource?: 'runtime';
+  /** M30: the request that proved it, merged into the stored `detail` with the source. */
+  runtimeProof?: Readonly<Record<string, unknown>>;
   reopen?: true;
 };
 
@@ -339,6 +351,20 @@ export function decideSeenFinding(
     patch.details = record;
     verdict = 'confirmed';
     events.push('promoted');
+  }
+  if (
+    record.verdict === 'confirmed' &&
+    record.verdictSource === 'runtime' &&
+    stored.verdictSource !== 'runtime'
+  ) {
+    // A runtime proof only adds to a finding: a later static scan never takes it away.
+    patch.verdictSource = 'runtime';
+    const proof = record.detail.runtime_proof;
+    if (patch.details === undefined && proof && typeof proof === 'object') {
+      // A lead promoted here takes the record's whole detail; a stored finding keeps its
+      // own and gets only the proof, so the view never shows runtime without it.
+      patch.runtimeProof = proof as Readonly<Record<string, unknown>>;
+    }
   }
   let severity = stored.severity;
   if (

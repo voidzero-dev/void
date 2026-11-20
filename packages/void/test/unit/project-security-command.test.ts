@@ -544,7 +544,12 @@ describe('project security command paths', () => {
     route({
       [`GET ${F}/F-1`]: () =>
         Response.json({
-          finding: finding('F-1', { evidence: 'EVID', fix: 'FIXTEXT' }),
+          finding: finding('F-1', {
+            evidence: 'EVID',
+            fix: 'FIXTEXT',
+            verdictSource: 'runtime',
+            runtimeProof: { request: 'r2', method: 'GET', path: '/users?id=1', status: 200 },
+          }),
           events: [
             {
               createdAt: '2026-11-17T10:00:00.000Z',
@@ -565,6 +570,8 @@ describe('project security command paths', () => {
     expect(text).toContain('title F-1');
     expect(text).toContain('EVID');
     expect(text).toContain('FIXTEXT');
+    expect(text).toContain('confirmed (runtime)');
+    expect(text).toContain('GET /users?id=1 answered 200 on a throwaway copy');
     expect(text).toContain('ana');
     out.length = 0;
     await run(root, ['security', 'show', 'F-2']);

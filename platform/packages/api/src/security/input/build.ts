@@ -75,6 +75,8 @@ export type SecurityInputPlan = Readonly<{
     forPublicRequest?: boolean;
     /** The deployment's claimed commit; `null` for a dirty tree, `--skip-build`, no git. */
     commit: string | null;
+    /** M30: a runtime copy is made for this scan (task `runtime_copy`). */
+    runtimeCopy?: boolean;
   }>;
   tier: SecurityTierChoice;
   /** The T1 files; required when `tier` is `source_diff`, ignored otherwise. */
@@ -540,6 +542,10 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   };
   if (noChanges) {
     task.no_changes = true;
+  }
+  if (plan.scan.runtimeCopy) {
+    // An older runner ignores it and stays static-only.
+    task.runtime_copy = true;
   }
   if (plan.tier.fullReason === 'sweep') {
     // A scheduled sweep (or its fallback, M26) runs the deeper profile (M25). An older runner ignores the field

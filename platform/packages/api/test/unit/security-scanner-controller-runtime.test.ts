@@ -18,6 +18,7 @@ vi.mock('cloudflare:workers', () => ({
   },
 }));
 import ScannerService, {
+  CopyOutbound,
   DenyAll,
   EXEC_ENV,
   FINDINGS_PATH,
@@ -36,6 +37,7 @@ import ScannerService, {
   probeInstanceName,
 } from '../../src/security-scanner-controller-runtime.ts';
 import { SECURITY_SELF_TEST_TIMEOUT_MS } from '../../src/security/probe.ts';
+import { COPY_HOST } from '../../src/security/runtime-copy-names.ts';
 import { createFakeContainer, type FakeContainer } from '../__mocks__/container.ts';
 
 const RUNNER = '// fake scanner runner\n';
@@ -57,6 +59,7 @@ function fixture(
     container: fake.container,
     exports: {
       ScanModelOutbound: (init: { props: unknown }) => ({ outbound: 'model', props: init.props }),
+      CopyOutbound: (init: { props: unknown }) => ({ outbound: 'copy', props: init.props }),
       DenyAll: () => ({ outbound: 'deny' }),
     },
     storage: {
@@ -101,10 +104,12 @@ beforeEach(() => {
 });
 
 describe('ScannerController scan attempt', () => {
-  it('locks egress before the container starts: model host, then all HTTP, then all HTTPS', async () => {
+  it('locks egress before the container starts: model host, copy host, then all HTTP, then all HTTPS', async () => {
     const { fake } = await startedScan();
-    expect(fake.calls.slice(0, 4)).toEqual([
+    expect(fake.calls.slice(0, 5)).toEqual([
       `interceptOutboundHttp:${MODEL_HOST}`,
+      // M30: the scan's own copy, registered before the catch-alls.
+      `interceptOutboundHttp:${COPY_HOST}`,
       'interceptAllOutboundHttp',
       'interceptOutboundHttps:*',
       'start',
@@ -112,8 +117,11 @@ describe('ScannerController scan attempt', () => {
     expect(fake.intercepts[0]).toMatchObject({
       binding: { outbound: 'model', props: { scanId: 'ss_abc', attempt: 2 } },
     });
-    expect(fake.intercepts[1]?.binding).toEqual({ outbound: 'deny' });
+    expect(fake.intercepts[1]).toMatchObject({
+      binding: { outbound: 'copy', props: { scanId: 'ss_abc', attempt: 2 } },
+    });
     expect(fake.intercepts[2]?.binding).toEqual({ outbound: 'deny' });
+    expect(fake.intercepts[3]?.binding).toEqual({ outbound: 'deny' });
   });
 
   it('starts with no internet and no secret env, and runs the runner as the scanner user', async () => {
@@ -167,6 +175,47 @@ describe('ScannerController scan attempt', () => {
       ok: false,
       reason: 'engine_unavailable',
     });
+  });
+
+  it('asks for the runtime copy once the runner has its input (M30)', async () => {
+    const setup = fixture();
+    const order: Array<string> = [];
+    setup.control.input.mockImplementationOnce(async () => {
+      order.push('input');
+      return new Blob(['TAR']).stream();
+    });
+    const copy = vi.fn(async () => {
+      order.push('copy');
+      return { ok: true as const, script: 's', ms: 1 };
+    });
+    Object.assign(setup.control, { copy });
+    await setup.controller.start(START);
+    await setup.controller.alarm();
+    expect(copy).toHaveBeenCalledWith('ss_abc', 2);
+    expect(order).toEqual(['input', 'copy']);
+    expect((setup.data.get('state') as State).phase).toBe('running');
+  });
+
+  it('keeps scanning when the copy fails or the API has no copy call', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    for (const copy of [
+      vi.fn(async () => {
+        throw new Error('cloudflare down');
+      }),
+      vi.fn(async () => ({ ok: false as const, reason: 'static' })),
+      undefined,
+    ]) {
+      const setup = fixture();
+      if (copy) {
+        Object.assign(setup.control, { copy });
+      }
+      await setup.controller.start(START);
+      await setup.controller.alarm();
+      expect((setup.data.get('state') as State).phase).toBe('running');
+      expect(setup.control.result).not.toHaveBeenCalled();
+      expect(setup.fake.container.running).toBe(true);
+    }
   });
 
   it('reports a missing input as an infrastructure failure and destroys the container', async () => {
@@ -302,8 +351,9 @@ describe('engine image classes (M13b)', () => {
     await setup.controller.alarm();
     const { fake, control } = setup;
     // The same egress lock, before the container starts.
-    expect(fake.calls.slice(0, 4)).toEqual([
+    expect(fake.calls.slice(0, 5)).toEqual([
       `interceptOutboundHttp:${MODEL_HOST}`,
+      `interceptOutboundHttp:${COPY_HOST}`,
       'interceptAllOutboundHttp',
       'interceptOutboundHttps:*',
       'start',
@@ -462,6 +512,76 @@ describe('outbound handlers', () => {
     });
     await outbound.fetch(request);
     expect(model).toHaveBeenCalledWith('ss_1', 3, request);
+  });
+
+  it('sends copy requests to the copy of this attempt only, marked dispatched (M30)', async () => {
+    const seen: Array<{ script: string; url: string; method: string; body: string }> = [];
+    const namespace = {
+      get: vi.fn((script: string) => ({
+        fetch: async (request: Request) => {
+          seen.push({
+            script,
+            url: request.url,
+            method: request.method,
+            body: await request.text(),
+          });
+          return new Response('from the copy', { status: 201, headers: { 'x-app': '1' } });
+        },
+      })),
+    };
+    const outbound = new CopyOutbound(
+      { props: { scanId: 'scan_abc123', attempt: 2 } } as never,
+      {
+        __VOID_SECURITY_COPIES: namespace,
+        __VOID_SECURITY_COPY_PREFIX: 'void-sec-copy-0123456789ab-',
+      } as never,
+    );
+    const response = await outbound.fetch(
+      new Request('http://copy.void.internal/api/items?id=2', {
+        method: 'POST',
+        headers: { 'x-void-copy': 'forged', 'x-void-scan-id': 'scan_other' },
+        body: '{"a":1}',
+      }),
+    );
+    expect(response.status).toBe(201);
+    expect(response.headers.get('x-void-copy')).toBe('dispatched');
+    expect(response.headers.get('x-app')).toBe('1');
+    expect(await response.text()).toBe('from the copy');
+    // The name comes from the props: a header from the container picks nothing.
+    expect(seen).toEqual([
+      {
+        script: 'void-sec-copy-0123456789ab-scanabc123-a2',
+        url: 'https://copy.void.internal/api/items?id=2',
+        method: 'POST',
+        body: '{"a":1}',
+      },
+    ]);
+  });
+
+  it('answers unavailable when there is no copy, or no copy namespace', async () => {
+    const missing = new CopyOutbound(
+      { props: { scanId: 'scan_abc', attempt: 1 } } as never,
+      {
+        __VOID_SECURITY_COPIES: {
+          get: () => ({
+            fetch: async () => {
+              throw new Error('Worker not found.');
+            },
+          }),
+        },
+        __VOID_SECURITY_COPY_PREFIX: 'void-sec-copy-x-',
+      } as never,
+    );
+    const gone = await missing.fetch(new Request('http://copy.void.internal/__void_copy/ready'));
+    expect(gone.status).toBe(503);
+    expect(gone.headers.get('x-void-copy')).toBe('unavailable');
+    const old = new CopyOutbound(
+      { props: { scanId: 'scan_abc', attempt: 1 } } as never,
+      {} as never,
+    );
+    const none = await old.fetch(new Request('http://copy.void.internal/'));
+    expect(none.status).toBe(503);
+    expect(none.headers.get('x-void-copy')).toBe('unavailable');
   });
 
   it('denies every other host', async () => {

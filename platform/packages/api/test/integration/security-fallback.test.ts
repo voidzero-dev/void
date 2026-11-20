@@ -408,6 +408,7 @@ describe('queueing a fallback scan', () => {
       forget: async () => 0,
       poke: async () => {},
       probe: async () => {},
+      reapCopies: async () => 0,
     });
     expect(report).toMatchObject({ reaped: 1, fallbacksQueued: 1 });
     expect(await fallbackScans(project.id)).toHaveLength(1);

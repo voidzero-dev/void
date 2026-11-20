@@ -12,6 +12,7 @@ import type { Engine, EngineId } from './engines/types.ts';
 import { createVoidLoopEngine, MODEL_BASE_URL } from './engines/void-loop.ts';
 import { runPhases, type PhasesResult } from './phases.ts';
 import { FINDINGS_SCHEMA_VERSION, type FindingsFile } from './report.ts';
+import { CopyClient } from './runtime/copy.ts';
 import { outcomeStatus, type StatusFields, type StatusFile } from './status.ts';
 import { parseTaskText, TaskError, type ScanTask } from './task.ts';
 import { createFsTools, type FsTools } from './tools/fs.ts';
@@ -44,6 +45,9 @@ export type RunScanOptions = {
   retryDelayMs?: number;
   /** A failure before the scan started (for example a bad input tar). A stop on `signal` wins. */
   startError?: { errorClass: string; message: string };
+  /** M30: the runtime copy route (default `http://copy.void.internal`) and, for tests, its wait. */
+  copyBaseUrl?: string;
+  copyReadyWaitMs?: number;
 };
 
 export const defaultEngineFactory: EngineFactory = (task, context) => {
@@ -131,6 +135,12 @@ export async function runScan(options: RunScanOptions): Promise<StatusFile> {
           engine,
           task,
           hasMemory: await isRegularFile(join(options.root, 'memory', 'index.json')),
+          copy: new CopyClient({
+            baseUrl: options.copyBaseUrl,
+            fetch: options.fetch,
+            signal: options.signal,
+            readyWaitMs: options.copyReadyWaitMs,
+          }),
           signal: options.signal,
         });
       }

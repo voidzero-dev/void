@@ -42,6 +42,11 @@ export type ScanTask = {
   changedFiles: Array<string>;
   maxTurns: number;
   maxVerify: number;
+  /**
+   * M30: the API is making a runtime copy of the deployment, reachable at
+   * `http://copy.void.internal`. Verify sessions may send it test requests.
+   */
+  runtimeCopy: boolean;
 };
 
 export class TaskError extends Error {}
@@ -92,6 +97,7 @@ export function parseTask(value: unknown): ScanTask {
     changedFiles,
     maxTurns: readLimit(maxTurns, 'limits.max_turns', TASK_LIMITS.maxTurns, 1),
     maxVerify: readLimit(maxVerify, 'limits.max_verify', TASK_LIMITS.maxVerify, 0),
+    runtimeCopy: task.runtime_copy === true,
   };
 }
 

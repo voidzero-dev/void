@@ -27,6 +27,13 @@ import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
 import type { ApiEnv } from '../env.ts';
 import { getSecurityScannerControllerSource } from '../security-scanner-controller-source.ts';
 import {
+  COPY_NAMESPACE_BINDING,
+  COPY_PREFIX_BINDING,
+  runtimeCopyPrefix,
+} from '../security/runtime-copy-names.ts';
+import { COPY_SANDBOX_SOURCE } from '../security/runtime-copy-sources.ts';
+import { sweepSecurityRuntimeCopies } from '../security/runtime-copy-sweep.ts';
+import {
   SECURITY_IMAGE_ENGINE_SLUG,
   SECURITY_IMAGE_ENGINES,
   type SecurityImageEngine,
@@ -107,6 +114,10 @@ export type SecurityScannerNames = Readonly<{
   application: string;
   gate: string;
   engines: Readonly<Record<SecurityImageEngine, SecurityScannerEngineNames>>;
+  /** Runtime copies (M30): their dispatch namespace, its outbound Worker, the name prefix. */
+  copyNamespace: string;
+  copySandbox: string;
+  copyPrefix: string;
 }>;
 
 /** Ready image refs by engine: what the controller is uploaded with. */
@@ -161,6 +172,9 @@ export async function securityScannerNames(installationKey: string): Promise<Sec
     worker: `void-security-scanner-${suffix}`,
     application: `void-security-scanner-${suffix}`,
     gate: `void-security-scanner-gate-${suffix}`,
+    copyNamespace: `void-security-copies-${suffix}`,
+    copySandbox: `void-security-copy-sandbox-${suffix}`,
+    copyPrefix: runtimeCopyPrefix(suffix),
     engines: {
       agent_sdk: engine(SECURITY_IMAGE_ENGINE_SLUG.agent_sdk),
       codex_sdk: engine(SECURITY_IMAGE_ENGINE_SLUG.codex_sdk),
@@ -297,12 +311,14 @@ function codeIsCurrent(
   settings: WorkerSettings,
   target: SecurityScannerTarget,
   digest: string,
+  names: SecurityScannerNames,
 ): boolean {
   const control = settings.bindings.find(
     (binding) => binding.type === 'service' && binding.name === SECURITY_SCANNER_CONTROL_BINDING,
   );
   return (
     plainText(settings, SOURCE_BINDING) === digest &&
+    plainText(settings, COPY_PREFIX_BINDING) === names.copyPrefix &&
     hasEngineClasses(settings) &&
     control?.service === target.apiService &&
     control.entrypoint === SECURITY_SCANNER_CONTROL_ENTRYPOINT
@@ -315,9 +331,10 @@ function isCurrent(
   target: SecurityScannerTarget,
   digest: string,
   images: SecurityScannerImages,
+  names: SecurityScannerNames,
 ): boolean {
   return (
-    codeIsCurrent(settings, target, digest) &&
+    codeIsCurrent(settings, target, digest, names) &&
     plainText(settings, SECURITY_SCANNER_IMAGES_BINDING) === securityScannerImagesText(images)
   );
 }
@@ -416,6 +433,15 @@ async function uploadController(
         name: SECURITY_SCANNER_IMAGES_BINDING,
         text: securityScannerImagesText(images),
       },
+      // Runtime copies (M30): the only way into a copy, with the sandbox as its
+      // outbound Worker, so every global fetch of a copy ends there.
+      {
+        type: 'dispatch_namespace',
+        name: COPY_NAMESPACE_BINDING,
+        namespace: names.copyNamespace,
+        outbound: { worker: { service: names.copySandbox } },
+      },
+      { type: 'plain_text', name: COPY_PREFIX_BINDING, text: names.copyPrefix },
     ],
     ...migrationFor(existing),
     containers: [
@@ -536,6 +562,121 @@ async function ensureGate(
   }
 }
 
+function namespaceUrl(target: SecurityScannerTarget, name: string): string {
+  return `${CF_API_BASE}/${target.accountId}/workers/dispatch/namespaces/${name}`;
+}
+
+/**
+ * The runtime copies' dispatch namespace and the copy sandbox (M30): the namespace's
+ * outbound Worker and the stubs a copy's platform and queue bindings point at. The
+ * sandbox has no workers.dev route, no secret and keeps no data. Both are made before
+ * the controller is uploaded, since its dispatch binding names them.
+ */
+export async function ensureSecurityCopyInfrastructure(
+  target: SecurityScannerTarget,
+  names: SecurityScannerNames,
+): Promise<void> {
+  try {
+    await cfFetch(namespaceUrl(target, names.copyNamespace), target.apiToken);
+  } catch (error) {
+    if (!(error instanceof CloudflareApiError && error.status === 404)) {
+      throw error;
+    }
+    try {
+      await cfFetch(
+        `${CF_API_BASE}/${target.accountId}/workers/dispatch/namespaces`,
+        target.apiToken,
+        {
+          method: 'POST',
+          body: JSON.stringify({ name: names.copyNamespace }),
+        },
+      );
+    } catch (createError) {
+      // Another probe created it in between.
+      if (!(createError instanceof CloudflareApiError && createError.status === 409)) {
+        throw createError;
+      }
+    }
+  }
+  const digest = await sha256Hex(COPY_SANDBOX_SOURCE);
+  const settings = await readSettings(target, names.copySandbox);
+  if (settings) {
+    assertOwnership(settings, target);
+    if (plainText(settings, SOURCE_BINDING) === digest) {
+      return;
+    }
+  }
+  const metadata = {
+    main_module: 'index.js',
+    compatibility_date: '2026-09-01',
+    bindings: [
+      { type: 'plain_text', name: OWNER_BINDING, text: ownerMarker(target.installationKey) },
+      { type: 'plain_text', name: SOURCE_BINDING, text: digest },
+    ],
+  };
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+  form.append(
+    'index.js',
+    new Blob([COPY_SANDBOX_SOURCE], { type: 'application/javascript+module' }),
+    'index.js',
+  );
+  const response = await fetch(workerUrl(target.accountId, names.copySandbox), {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${target.apiToken}` },
+    body: form,
+  });
+  if (!response.ok) {
+    throw new SecurityScannerError(
+      'upload',
+      `Security copy sandbox upload failed (HTTP ${response.status}): ${(await response.text()).slice(0, 300)}`,
+    );
+  }
+  await cfFetch(`${workerUrl(target.accountId, names.copySandbox)}/subdomain`, target.apiToken, {
+    method: 'POST',
+    body: JSON.stringify({ enabled: false, previews_enabled: false }),
+  });
+}
+
+/**
+ * Uninstall of the copy side: every copy script in the namespace, the namespace, then
+ * the sandbox. Copy stores are deleted by the caller's sweep first.
+ */
+async function deleteSecurityCopyInfrastructure(
+  target: SecurityScannerTarget,
+  names: SecurityScannerNames,
+): Promise<void> {
+  const sandbox = await readSettings(target, names.copySandbox);
+  if (sandbox) {
+    assertOwnership(sandbox, target);
+  }
+  const namespace = await fetch(namespaceUrl(target, names.copyNamespace), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${target.apiToken}` },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!namespace.ok && namespace.status !== 404) {
+    throw new SecurityScannerError(
+      'upload',
+      `Security copy namespace deletion failed (HTTP ${namespace.status}).`,
+    );
+  }
+  if (!sandbox) {
+    return;
+  }
+  const deleted = await fetch(workerUrl(target.accountId, names.copySandbox), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${target.apiToken}` },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!deleted.ok && deleted.status !== 404) {
+    throw new SecurityScannerError(
+      'upload',
+      `Security copy sandbox deletion failed (HTTP ${deleted.status}).`,
+    );
+  }
+}
+
 /** The account can run Cloudflare Containers with this token (checked before anything else). */
 export async function assertSecurityScannerContainers(
   target: SecurityScannerTarget,
@@ -584,8 +725,14 @@ export async function provisionSecurityScanner(
   if (settings) {
     assertOwnership(settings, target);
   }
+  // The copy namespace and its outbound Worker exist before the controller binds them.
+  await ensureSecurityCopyInfrastructure(target, names);
   let wanted = mergeImages(settings ? deployedSecurityScannerImages(settings) : {}, images, keep);
-  for (let attempt = 1; !settings || !isCurrent(settings, target, digest, wanted); attempt++) {
+  for (
+    let attempt = 1;
+    !settings || !isCurrent(settings, target, digest, wanted, names);
+    attempt++
+  ) {
     await uploadController(target, names, source, digest, settings, wanted);
     settings = await readSettings(target, names.worker);
     if (!settings) {
@@ -596,7 +743,7 @@ export async function provisionSecurityScanner(
     }
     assertOwnership(settings, target);
     const deployed = deployedSecurityScannerImages(settings);
-    if (codeIsCurrent(settings, target, digest) && covers(deployed, wanted)) {
+    if (codeIsCurrent(settings, target, digest, names) && covers(deployed, wanted)) {
       // Another probe may have added an image in between; keep what runs.
       wanted = deployed;
       break;
@@ -667,7 +814,15 @@ export async function verifySecurityScanner(
     throw new SecurityScannerError('missing', 'The security scanner controller is missing.');
   }
   assertOwnership(settings, target);
-  if (!isCurrent(settings, target, await sha256Hex(getSecurityScannerControllerSource()), images)) {
+  if (
+    !isCurrent(
+      settings,
+      target,
+      await sha256Hex(getSecurityScannerControllerSource()),
+      images,
+      names,
+    )
+  ) {
     throw new SecurityScannerError(
       'outdated',
       'The security scanner controller is from another platform release.',
@@ -746,8 +901,9 @@ export async function deleteSecurityScanner(target: SecurityScannerTarget): Prom
   }
   const repositories = SECURITY_IMAGE_ENGINES.map((engine) => names.engines[engine].repository);
   if (!settings) {
-    // A run whose image cleanup failed after the controller was deleted: the image
-    // repositories are named per installation, so a retry still removes them.
+    // A run whose image or copy cleanup failed after the controller was deleted: these
+    // are named per installation, so a retry still removes them.
+    await deleteSecurityCopies(target, names);
     await deleteSecurityScannerImages(target, repositories);
     return;
   }
@@ -781,6 +937,25 @@ export async function deleteSecurityScanner(target: SecurityScannerTarget): Prom
       `Security scanner controller deletion failed (HTTP ${response.status}).`,
     );
   }
+  await deleteSecurityCopies(target, names);
   // The copied engine images: storage the installation no longer needs.
   await deleteSecurityScannerImages(target, repositories);
+}
+
+/** Every runtime copy (scripts, then stores), the copy namespace and the sandbox. */
+async function deleteSecurityCopies(
+  target: SecurityScannerTarget,
+  names: SecurityScannerNames,
+): Promise<void> {
+  await sweepSecurityRuntimeCopies(
+    {
+      accountId: target.accountId,
+      apiToken: target.apiToken,
+      namespace: names.copyNamespace,
+      sandbox: names.copySandbox,
+      prefix: names.copyPrefix,
+    },
+    new Set(),
+  );
+  await deleteSecurityCopyInfrastructure(target, names);
 }

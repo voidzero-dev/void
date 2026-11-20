@@ -657,3 +657,59 @@ export async function settleSecurityModelCall(
     };
   });
 }
+
+/**
+ * The runtime copy's cost (M30, spec §8.6 and §16): one Worker script and throwaway
+ * stores, counted on the scan's meter and on both month rows. It is cents of a cent, so
+ * it never waits on a cap; it only counts while this attempt runs.
+ */
+export async function chargeSecurityScanCopy(
+  db: Db,
+  input: Readonly<{
+    scanId: string;
+    attempt: number;
+    projectId: string;
+    nano: number;
+    now?: number;
+  }>,
+): Promise<boolean> {
+  const nano = Math.max(0, Math.round(input.nano));
+  const month = securitySpendMonth(input.now ?? Date.now());
+  return db.transaction(async (tx) => {
+    const [scan] = await tx
+      .update(securityScans)
+      .set({ metered_nano_usd: sql`${securityScans.metered_nano_usd} + ${nano}` })
+      .where(
+        and(
+          eq(securityScans.id, input.scanId),
+          eq(securityScans.attempt, input.attempt),
+          eq(securityScans.status, 'running'),
+        ),
+      )
+      .returning({ id: securityScans.id });
+    if (!scan) {
+      return false;
+    }
+    await ensureSpendRows(tx, input.projectId, month);
+    await tx
+      .update(securityProjectSpend)
+      .set({
+        spent_nano_usd: sql`${securityProjectSpend.spent_nano_usd} + ${nano}`,
+        updated_at: sql`now()`,
+      })
+      .where(
+        and(
+          eq(securityProjectSpend.project_id, input.projectId),
+          eq(securityProjectSpend.month, month),
+        ),
+      );
+    await tx
+      .update(securityPlatformSpend)
+      .set({
+        spent_nano_usd: sql`${securityPlatformSpend.spent_nano_usd} + ${nano}`,
+        updated_at: sql`now()`,
+      })
+      .where(eq(securityPlatformSpend.month, month));
+    return true;
+  });
+}

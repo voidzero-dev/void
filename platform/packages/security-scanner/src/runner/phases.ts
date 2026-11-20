@@ -4,10 +4,18 @@
 //   standard     scheduled sweeps (M25): one hunt session per focus area over the
 //                whole app, candidates merged by fingerprint, then the same verify step.
 // "confirmed (static)" needs both the hunt trace and a separate verify session.
+// M30: with a runtime copy, each verify session can also send test requests to it;
+// a confirmation that names a request the copy answered is "confirmed (runtime)".
 
 import type { Engine, SessionOutcome, SessionSpec } from './engines/types.ts';
 import { huntPrompt, STANDARD_HUNT_FOCUS, systemPrompt, verifyPrompt } from './prompts.ts';
 import { REPORT_LIMITS, SEVERITIES, type FindingRecord, type ScanReport } from './report.ts';
+import {
+  type CopyClient,
+  type CopyRequestRecord,
+  withoutRuntimeFields,
+  withVerdictSource,
+} from './runtime/copy.ts';
 import { outcomeStatus, type StatusFields, type StatusFile } from './status.ts';
 import type { ScanTask } from './task.ts';
 
@@ -23,6 +31,8 @@ export type PhasesOptions = {
   engine: Engine;
   task: ScanTask;
   hasMemory: boolean;
+  /** M30: the scan's runtime copy, used when the task asks for it and the engine can. */
+  copy?: CopyClient;
   signal?: AbortSignal;
 };
 
@@ -64,7 +74,11 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
     return { ...result, ...hunt.fields };
   }
 
-  const { candidates, rejected } = splitCandidates(hunt.report);
+  // Only the runner sets runtime fields; a hunt record never carries them.
+  const { candidates, rejected } = splitCandidates({
+    ...hunt.report,
+    findings: hunt.report.findings.map(withoutRuntimeFields),
+  });
   const toVerify = candidates.slice(0, task.maxVerify);
   // Candidates past the verify cap had no second session, so they stay leads.
   const unverified = candidates.slice(task.maxVerify).map(asLead);
@@ -72,13 +86,23 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
   let verifyFailed = false;
   // Session indexes stay unique: verify sessions follow the hunt sessions.
   const firstVerifyIndex = result.sessions.length;
+  const copy =
+    toVerify.length > 0 &&
+    task.runtimeCopy &&
+    engine.sessionTools === true &&
+    options.copy !== undefined &&
+    (await options.copy.waitReady())
+      ? options.copy
+      : null;
 
   for (const [position, candidate] of toVerify.entries()) {
+    const session = copy?.sessionTool() ?? null;
     const outcome = await run({
       phase: 'verify',
       index: firstVerifyIndex + position,
-      prompt: verifyPrompt(candidate),
+      prompt: verifyPrompt(candidate, { runtime: session !== null }),
       check: oneRecordAtMost,
+      ...(session ? { tools: [session.tool] } : {}),
     });
     if (outcome.kind === 'bad_output') {
       // One unreadable check must not cost the findings already confirmed. The candidate
@@ -94,7 +118,7 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
       const kept = fields.status === 'incomplete' ? confirmedOnly(verified) : [];
       return { ...result, ...fields, findings: kept };
     }
-    verified.push(verifiedRecord(candidate, outcome.report));
+    verified.push(sourced(verifiedRecord(candidate, outcome.report), session?.requests ?? null));
   }
 
   const all = [...verified, ...unverified, ...rejected];
@@ -277,6 +301,14 @@ export function verifiedRecord(candidate: FindingRecord, report: ScanReport): Fi
     };
   }
   return { ...answer, fingerprint: candidate.fingerprint };
+}
+
+/** The verify record with the runtime claim checked (a session with no copy: none). */
+function sourced(
+  record: FindingRecord,
+  requests: ReadonlyArray<CopyRequestRecord> | null,
+): FindingRecord {
+  return requests === null ? withoutRuntimeFields(record) : withVerdictSource(record, requests);
 }
 
 function asLead(finding: FindingRecord): FindingRecord {

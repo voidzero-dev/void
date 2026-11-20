@@ -1712,6 +1712,82 @@ reachable only from the scan's controller (a second intercepted host
 `security-runtime-copy.test.ts` (mockCfApi), runner `verify-runtime.test.ts`;
 live only for the real copy.
 
+As built (M30):
+
+```
+prepare (input tar) ─► task.json runtime_copy: true   (Engine B, Worker app, manifest readable)
+controller begin(): runner started, input piped ─► control.copy(scan, attempt)   (bounded, never fails the scan)
+  SecurityScanControl.copy ─► fence ─► plan (manifest, secret names) ─► modules from the scan snapshot (R2)
+  ─► empty D1 / KV / R2 (parallel) ─► each copy D1 gets the live D1 schema (sqlite_master, no rows)
+  ─► PUT void-sec-copy-<h>-<scan>-a<n> into void-security-copies-<h>
+       guard module ─► entry module (/__void_copy/ready|d1|kv) ─► deployed modules unchanged
+  ─► charge the copy on the scan meter and both month rows
+container ─http://copy.void.internal/…─► CopyOutbound (props scan, attempt) ─► dispatch namespace script
+  copy fetch / DO fetch ─► guard ─► __VOID_COPY_EGRESS ─► copy sandbox (403)      WebSocket ─► throws
+  copy global fetch ─► outbound Worker = copy sandbox (403)
+runner verify (Engine B) ─► copy_request tool ─► proof_request "rN" ─► runner checks rN was dispatched
+  ─► verdict_source runtime + runtime_proof ─► ingest (static → runtime only, never back)
+result stored or requeued ─► delete this attempt's copy (script settings name its stores: script, then those stores)
+hourly maintenance ─► sweep by name prefix, then read running scans: every copy whose attempt is not running · uninstall ─► sweep + namespace + sandbox
+```
+
+- Files: `security/runtime-copy{,-names,-plan,-sources,-sweep}.ts`; changes in `control.ts`
+  (`copy()`, delete after `result()`), `maintenance.ts` (`runtime copies` step, `copiesReaped`),
+  `budget.ts` (`chargeSecurityScanCopy`), `input/{prepare,build}.ts`, `findings.ts`,
+  `ingest.ts`, `project-findings.ts` (`verdictSource`, `runtimeProof` in the full view),
+  `provisioning/security-scanner.ts`, `security-scanner-controller-runtime.ts`
+  (`CopyOutbound`, copy host intercept, `makeCopy`), the runner (`runtime/copy.ts`,
+  `phases.ts`, `prompts.ts`, `report.ts`, `validate-findings.ts`, `engines/{types,void-loop}.ts`),
+  and the CLI finding detail (`confirmed (runtime)` and the proof line).
+- Name: `void-sec-copy-<installation hash>-<scan id letters/digits>-a<attempt>`, not
+  `sec-copy-<scan>`: one copy per attempt (a retry gets a new, empty copy), and the prefix lets
+  the reaper find leftovers from Cloudflare's own lists. No database table for copies.
+- Namespace: a separate dispatch namespace `void-security-copies-<h>` and an account Worker
+  `void-security-copy-sandbox-<h>` (owner marker, source digest, no workers.dev), made by
+  `provisionSecurityScanner` before the controller upload. The controller gets a
+  `dispatch_namespace` binding whose outbound Worker is the sandbox. Not the users' namespace:
+  its outbound Worker cannot change per script and the gate lives there.
+- S13 kept: Durable Objects bypass the outbound Worker, so the entry imports a guard first that
+  sends `fetch` to the sandbox through a service binding and makes `WebSocket` connects throw.
+- Migrations: the copy D1 gets the live D1's schema read from `sqlite_master` (tables, views,
+  indexes, triggers; virtual-table shadow tables (the FTS3/4/5 and R*Tree suffixes only) left out; at most 500 statements), not the
+  project's migration files: the deployed migrations are not in the scan snapshot, and the
+  schema is what the code runs against. The live D1 is only read, and only `sqlite_master`.
+- Stubs: `__VOID_PROXY` (AI, email, revalidation) is the sandbox's `PlatformStub` (503 JSON);
+  queue producers are `QueueStub` (messages dropped); project secrets and secret-looking vars get
+  `void-copy-fake-…` values, and `__VOID_PROXY_TOKEN` too. Left out: hyperdrive, sandbox,
+  assets, cron triggers, queue consumers. Static apps get no copy.
+- Engines: Engine B only (`void_loop`, its own tool loop). Engines A and C keep static verdicts:
+  their SDK loops have no extra tool. The copy is made after the runner starts, so it never
+  delays the hunt; verify waits up to 90 s for `/__void_copy/ready`, then runs static-only.
+- Proof: the model names one `copy_request` id in `proof_request`; the runner keeps
+  `verdict_source: runtime` only when that request of the same session reached the copy
+  (`x-void-copy: dispatched`) and is not a `/__void_copy/` setup route (read as `fetch` reads the
+  path): seeding a row proves nothing. Model-set `verdict_source` and `runtime_proof` are dropped.
+  Hunt records never carry them. A finding stored as static and later proven gets the source and
+  `detail.runtime_proof` (jsonb merge); nothing takes them back.
+- Secrets (spec §7.3): the copy runs the raw bundle and its answers reach the model, so no copy is
+  made when a stored secret value (the redactor's four forms) is in a module, a kept var
+  (`secret_in_bundle`) or the live schema (`secret_in_schema`). Fakes replace secrets in `env` only.
+- Delete: the result path reads the copy script's settings (one 404 for scans with no copy), deletes
+  the script, then the D1/KV/R2 its bindings name, each name checked against the copy's prefix. A
+  copy finished after its attempt ended (charge refused) or whose charge threw is deleted at once.
+  The account-wide listing is for the hourly reaper and uninstall only; it reads the running scans
+  after listing, so a scan that starts during the listing keeps its copy.
+- Test data: the entry answers `POST /__void_copy/d1` (one statement on a copy D1 binding) and
+  `POST /__void_copy/kv` (one key), so verify can seed rows; the copy starts empty.
+- Cost: one script-hour of Workers for Platforms + D1 rows written + one R2 class A operation per
+  bucket, charged once when the copy is made (no cap check: the scan's reserve already passed).
+- Deviations: also changed `test/integration/helpers.ts` (`mockCfApi`: dispatch namespace
+  GET/POST/DELETE, copy scripts list, D1/KV/R2 lists), `api-security-provisioning.test.ts`,
+  `security-input-capture.test.ts`, `security-sweeps.test.ts`, `security-fallback.test.ts`,
+  `project-security-command.test.ts`, `security-ingest.test.ts` (runtime proof on a stored finding),
+  the new integration test `security-runtime-copy-prepare.test.ts` (secret skip, charge refused),
+  one paragraph of the security audits guide and the uninstall page. Not run
+  live: the real copy (S13 already measured the guard and the namespace on the VoidZero account).
+  `security-runtime-copy.test.ts` is a unit test with its own small fake Cloudflare API, not
+  `mockCfApi` (an integration helper); `mockCfApi` covers the provisioning side.
+
 **M31 Server secret findings, client asset deep scan, SARIF.** Redaction hits become
 server findings (`source=server`, category secret-in-output, no value stored);
 optional client asset pass; `void project security list --format sarif` and operator

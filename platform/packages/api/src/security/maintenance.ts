@@ -7,6 +7,7 @@
  *   ─ reaper: running past lease    ─ re-poke: stale pending_input → queued, poke
  *     → timed_out                   ─ 24 h wait → skipped:backlog
  *   ─ ended rows still holding a reserve → released
+ *   ─ runtime copies of attempts no longer running → deleted (M30)
  *   ─ raw output sweep (30 d)       ─ daily probe (entitlement older than 24 h)
  *                                   ─ scheduled full sweeps (policy `sweeps.on`)
  *                                   ─ fallback backstop (policy `fallbackToCf`)
@@ -40,6 +41,7 @@ import {
   releaseStrandedSecurityScanReserves,
   skipBackloggedSecurityScans,
 } from './queue.ts';
+import { reapSecurityRuntimeCopies } from './runtime-copy.ts';
 import { securityScanControllerClient, type SecurityScanController } from './scheduler.ts';
 import { securityScans } from './schema.ts';
 import { queueSecuritySweeps } from './sweeps.ts';
@@ -77,11 +79,14 @@ export type SecurityMaintenanceDeps = Readonly<{
   forget(scanId: string, attempt: number): Promise<unknown>;
   poke(): Promise<void>;
   probe(): Promise<unknown>;
+  /** Deletes runtime copies whose attempt is not running; returns how many. */
+  reapCopies(): Promise<number>;
 }>;
 
 export type SecurityMaintenanceReport = Readonly<{
   reaped: number;
   reservesReleased: number;
+  copiesReaped: number;
   repoked: number;
   backlogged: number;
   sweepsQueued: number;
@@ -101,6 +106,7 @@ function realDeps(env: ApiEnv['Bindings'], db: Db): SecurityMaintenanceDeps {
     forget: (scanId, attempt) => scheduler().forgetModelCalls(scanId, attempt),
     poke: () => pokeSecurityScanScheduler(env),
     probe: () => probeAndRecord(env, db),
+    reapCopies: () => reapSecurityRuntimeCopies(env, db),
   };
 }
 
@@ -135,6 +141,8 @@ export async function runSecurityMaintenance(
   const reservesReleased = await step('stranded reserves', 0, () =>
     releaseStrandedSecurityScanReserves(db),
   );
+  // After the reaper, so a copy of a scan it just ended goes in the same run.
+  const copiesReaped = await step('runtime copies', 0, () => deps.reapCopies());
   // Email rows wait for the alarm whatever the policy says: a lost poke is retried here.
   const notificationPoke = () =>
     step('notification poke', undefined, async () => {
@@ -190,6 +198,7 @@ export async function runSecurityMaintenance(
   return {
     reaped,
     reservesReleased,
+    copiesReaped,
     repoked,
     backlogged,
     sweepsQueued,

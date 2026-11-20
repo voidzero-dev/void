@@ -18,7 +18,7 @@ This feature is off until you turn it on. Projects deployed directly to Cloudfla
 - Workers AI access for the default model: Workers Paid or prepaid AI credits.
 - For the optional scan before a project goes public, [project Zero Trust](./zero-trust.md) must be on and not public-only.
 
-The scanner runs in its own container with no internet access. It reaches models only through the platform. Uninstalling the platform removes the scanner Worker, its container applications, and the scanner images it copied. See [Disable and Uninstall](/guide/platform/installation/uninstall).
+The scanner runs in its own container with no internet access. It reaches models only through the platform. Uninstalling the platform removes the scanner Worker, its container applications, the scanner images it copied, and any leftover scan copies. See [Disable and Uninstall](/guide/platform/installation/uninstall).
 
 ::: warning Roll forward after you upgrade
 The upgrade that adds security audits includes a database migration for the scan scheduler. Cloudflare does not roll a Worker back past such a migration, so after you upgrade, fix a bad release by deploying a newer one.
@@ -73,6 +73,8 @@ Project owners and administrators pick their project's model from the same list 
 Only a human closes a finding. A scan can add one, confirm it again, or reopen it, but never close it. Resolve a finding as fixed, false positive, or accepted risk, with a comment of up to 4,000 characters. The comment and the resolution feed the next scan, so the same false alarm does not come back. Comments never hide anything; only a false-positive resolution does.
 
 A finding is **urgent** when it is confirmed, critical or high, and still open. Weaker or unconfirmed findings are listed as leads or lower severity and are never urgent.
+
+When a project uses a Cloudflare model, a scan can also test a possible finding on a throwaway copy of the deployment: the same code with empty databases, fake secrets, and no internet access. Only the scanner can reach the copy, and it is deleted when the scan ends. A finding proven this way shows as `confirmed (runtime)` in `void project security show`. The copy is part of the scan cost.
 
 | Who sees what                   | Reader | Collaborator and up |
 | ------------------------------- | ------ | ------------------- |

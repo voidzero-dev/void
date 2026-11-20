@@ -113,6 +113,9 @@ export type SecurityFinding = {
   evidence?: unknown;
   conditions?: unknown;
   fix?: unknown;
+  /** `runtime` when a request to a throwaway copy of the deployment proved it. */
+  verdictSource?: 'static' | 'runtime' | null;
+  runtimeProof?: { request: string; method: string; path: string; status: number } | null;
 };
 
 export type SecurityFindingEvent = {

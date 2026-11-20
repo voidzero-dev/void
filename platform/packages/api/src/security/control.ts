@@ -9,7 +9,8 @@
  * the lease ran out, is refused (spec §6.2, T10). `heartbeat` is the fence check the
  * controller makes before it starts a container and on every poll. `model` is the
  * model proxy (`model-proxy.ts`), `input` builds the scan input (`input/prepare.ts`),
- * `result` stores the outcome and findings (`ingest.ts`).
+ * `copy` makes the scan's runtime copy (`runtime-copy.ts`, M30), `result` stores the
+ * outcome and findings (`ingest.ts`) and deletes the copy.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { getPlatformCapabilities } from '../capabilities.ts';
@@ -27,6 +28,11 @@ import { ingestSecurityScanResult } from './ingest.ts';
 import { prepareSecurityScanInput } from './input/prepare.ts';
 import { handleSecurityModelRequest, securityModelProxyDeps } from './model-proxy.ts';
 import { recheckPublicRequestForScan } from './public-gate-flow.ts';
+import {
+  deleteSecurityRuntimeCopyForScan,
+  prepareSecurityRuntimeCopy,
+  type SecurityCopyOutcome,
+} from './runtime-copy.ts';
 
 export { checkScanFence, judgeScanFence } from './fence.ts';
 
@@ -107,6 +113,33 @@ export class SecurityScanControl extends WorkerEntrypoint<
     }
   }
 
+  /**
+   * The runtime copy of this attempt (M30, spec §8.6): the deployed bundle with empty
+   * stores, fake secrets and stubs, reachable only from this scan's container. The
+   * controller asks once the runner is running; a copy that is not made leaves the scan
+   * static-only.
+   */
+  async copy(scanId: string, attempt: number): Promise<SecurityCopyOutcome> {
+    if (!this.trusted(scanId, attempt)) {
+      return { ok: false, reason: 'fence' };
+    }
+    try {
+      return await prepareSecurityRuntimeCopy(
+        this.env,
+        createDb(this.env.HYPERDRIVE.connectionString),
+        scanId,
+        attempt,
+      );
+    } catch (error) {
+      console.error('[security-scan] runtime copy could not be made', {
+        scanId,
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { ok: false, reason: 'create_failed' };
+    }
+  }
+
   /** The model proxy: every model call of this scan attempt (spec §15.1). */
   async model(scanId: string, attempt: number, request: Request): Promise<Response> {
     if (!this.trusted(scanId, attempt)) {
@@ -135,6 +168,20 @@ export class SecurityScanControl extends WorkerEntrypoint<
         status: report?.status,
         findings: typeof report?.findings === 'string' ? report.findings : null,
       });
+      if (ingested.ok) {
+        // The attempt is over (stored or requeued): its copy goes now; the reaper retries.
+        this.later(
+          Promise.resolve()
+            .then(() => deleteSecurityRuntimeCopyForScan(this.env, scanId, attempt))
+            .catch((error: unknown) => {
+              console.error('[security-scan] runtime copy delete failed', {
+                scanId,
+                attempt,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }),
+        );
+      }
       if (ingested.ok && ingested.kind === 'stored') {
         // The public gate judges the stored result (a gate scan, or any scan of the live deployment).
         await recheckPublicRequestForScan(this.env, db, scanId);

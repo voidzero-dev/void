@@ -5,6 +5,7 @@
 //
 //   API ──DISPATCH gate──► ScannerService.fetch ──► ScannerController (scan:<id>:<attempt>)
 //                                                     │ intercept model.void.internal → ScanModelOutbound
+//                                                     │ intercept copy.void.internal  → CopyOutbound (M30)
 //                                                     │ intercept all HTTP / all HTTPS → DenyAll
 //                                                     │ start({ enableInternet: false, env: {} })
 //                                                     │ every exec: env = { PATH, HOME } only
@@ -18,6 +19,11 @@
 // app), which already holds the runner, the SDK and the MCP server. One container app per
 // class. An engine whose image is not in `__VOID_SECURITY_SCANNER_IMAGES` is refused.
 //
+// Runtime copy (M30, spike S13): once the runner runs, the controller asks the API for
+// this attempt's copy (`control.copy`). `CopyOutbound` dispatches the container's
+// requests to that copy only; the copy namespace's outbound Worker blocks the copy's own
+// fetches. The copy name comes from the attempt, never from the container.
+//
 // Spike S1 facts this file relies on: the hostname intercept is registered before the
 // catch-all (else the catch-all wins); HTTPS needs its own `interceptOutboundHttps('*')`
 // deny, else a TLS client hangs ~8 s; scan code starts through stdin and a short argv;
@@ -27,6 +33,7 @@ import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 // oxlint-disable-next-line typescript/triple-slash-reference -- dependent workspace projects need the virtual build module declaration.
 /// <reference path="./security-scanner-controller-modules.d.ts" />
 import runnerSource from 'void:security-scanner-runner-source';
+import { COPY_HEADER, COPY_HOST, runtimeCopyScriptName } from './security/runtime-copy-names.ts';
 
 /** The only host the container may call. The runner's base URL points here. */
 export const MODEL_HOST = 'model.void.internal';
@@ -65,6 +72,10 @@ const PROBE_INSTANCE = 'lite';
 const CONTROL_TIMEOUT_MS = 30_000;
 /** The API reads the deployment, past findings and secrets to build the input tar. */
 export const INPUT_TIMEOUT_MS = 120_000;
+/** Making the runtime copy (stores, schema, upload; S13: about 10 s). */
+export const COPY_TIMEOUT_MS = 120_000;
+/** One container request to the copy, at most. */
+export const COPY_REQUEST_TIMEOUT_MS = 30_000;
 const STATE_KEY = 'state';
 
 export type ScanFence =
@@ -84,6 +95,20 @@ export type SecurityScanControlRpc = {
   input(scanId: string, attempt: number): Promise<ReadableStream<Uint8Array> | null>;
   model(scanId: string, attempt: number, request: Request): Promise<Response>;
   result(scanId: string, attempt: number, report: ScanResultReport): Promise<{ ok: boolean }>;
+  /** M30: makes this attempt's runtime copy. An older API has no such method. */
+  copy?(
+    scanId: string,
+    attempt: number,
+  ): Promise<{ ok: true; script: string; ms: number } | { ok: false; reason: string }>;
+};
+
+/** The copy namespace binding (M30). */
+export type CopyNamespace = {
+  get(
+    name: string,
+    args?: Record<string, unknown>,
+    options?: Record<string, unknown>,
+  ): { fetch(request: Request): Promise<Response> };
 };
 
 export type ControllerEnv = {
@@ -93,6 +118,9 @@ export type ControllerEnv = {
   /** JSON `{engine: image ref}` of the engine images that are ready. */
   __VOID_SECURITY_SCANNER_IMAGES?: string;
   __VOID_SECURITY_SCAN_CONTROL: SecurityScanControlRpc;
+  /** M30: this installation's runtime copies, and their name prefix. */
+  __VOID_SECURITY_COPIES?: CopyNamespace;
+  __VOID_SECURITY_COPY_PREFIX?: string;
 };
 
 /** The engines this controller knows, and the class that runs each. */
@@ -169,8 +197,10 @@ type ProbeState = { kind: 'probe'; probeId: string; createdAt: number };
 type State = ScanState | ProbeState;
 
 type ModelOutboundProps = { scanId: string; attempt: number } | { probeId: string };
+type CopyOutboundProps = { scanId: string; attempt: number };
 type ExportsLoopback = {
   ScanModelOutbound(options: { props: ModelOutboundProps }): Fetcher;
+  CopyOutbound(options: { props: CopyOutboundProps }): Fetcher;
   DenyAll(options: { props: Record<string, never> }): Fetcher;
 };
 
@@ -279,6 +309,53 @@ export class ScanModelOutbound extends WorkerEntrypoint<ControllerEnv, ModelOutb
       return new Response('not found', { status: 404 });
     }
     return this.env.__VOID_SECURITY_SCAN_CONTROL.model(props.scanId, props.attempt, request);
+  }
+}
+
+function copyUnavailable(detail: string): Response {
+  return new Response(`runtime copy unavailable: ${detail}`, {
+    status: 503,
+    headers: { [COPY_HEADER]: 'unavailable' },
+  });
+}
+
+/**
+ * Copy route for one scan attempt (M30): `http://copy.void.internal/<path>` goes to this
+ * attempt's copy as `https://copy.void.internal/<path>`. Identity comes from the props;
+ * nothing the container sends picks another copy. Every answer is marked: `dispatched`
+ * (the copy answered) or `unavailable` (no copy, or it failed).
+ */
+export class CopyOutbound extends WorkerEntrypoint<ControllerEnv, CopyOutboundProps> {
+  async fetch(request: Request): Promise<Response> {
+    const { scanId, attempt } = this.ctx.props;
+    const namespace = this.env.__VOID_SECURITY_COPIES;
+    const prefix = this.env.__VOID_SECURITY_COPY_PREFIX;
+    if (!namespace || !prefix) {
+      return copyUnavailable('this controller has no copy namespace');
+    }
+    const url = new URL(request.url);
+    const target = new URL(`${url.pathname}${url.search}`, `https://${COPY_HOST}`);
+    const headers = new Headers(request.headers);
+    headers.delete(COPY_HEADER);
+    const init: RequestInit = {
+      method: request.method,
+      headers,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(COPY_REQUEST_TIMEOUT_MS),
+    };
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      init.body = await request.arrayBuffer();
+    }
+    let response: Response;
+    try {
+      const copy = namespace.get(runtimeCopyScriptName(prefix, scanId, attempt));
+      response = await copy.fetch(new Request(target, init));
+    } catch (error) {
+      return copyUnavailable(error instanceof Error ? error.message.slice(0, 200) : 'error');
+    }
+    const out = new Response(response.body, response);
+    out.headers.set(COPY_HEADER, 'dispatched');
+    return out;
   }
 }
 
@@ -416,6 +493,13 @@ export class ScannerController extends DurableObject<ControllerEnv> {
   private async lockEgress(props: ModelOutboundProps): Promise<void> {
     const container = this.container;
     await container.interceptOutboundHttp(MODEL_HOST, this.loopback.ScanModelOutbound({ props }));
+    if ('scanId' in props) {
+      // M30: the scan's own copy, before the catch-alls (else they win).
+      await container.interceptOutboundHttp(
+        COPY_HOST,
+        this.loopback.CopyOutbound({ props: { scanId: props.scanId, attempt: props.attempt } }),
+      );
+    }
     await container.interceptAllOutboundHttp(this.loopback.DenyAll({ props: {} }));
     await container.interceptOutboundHttps('*', this.loopback.DenyAll({ props: {} }));
   }
@@ -652,7 +736,26 @@ export class ScannerController extends DurableObject<ControllerEnv> {
     // Wait for the whole tar: the runner keeps running after this alarm returns,
     // and later alarms only read its result files.
     await input.pipeTo(process.stdin);
+    // The hunt takes minutes; the copy is ready long before verify needs it.
+    await this.makeCopy(state);
     await this.ctx.storage.setAlarm(Date.now() + POLL_MS);
+  }
+
+  /** Asks the API for the runtime copy. A failure only leaves the scan static-only. */
+  private async makeCopy(state: ScanState): Promise<void> {
+    try {
+      const control = this.control;
+      // An RPC stub answers every name; a plain object (an older API in tests) may not.
+      if (typeof control.copy !== 'function') {
+        return;
+      }
+      const result = await bounded(control.copy(state.scanId, state.attempt), COPY_TIMEOUT_MS);
+      if (!result.ok) {
+        console.log('[security-scanner] no runtime copy', { reason: result.reason });
+      }
+    } catch (error) {
+      console.error('[security-scanner] runtime copy failed', error);
+    }
   }
 
   private async poll(state: ScanState): Promise<void> {

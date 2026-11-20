@@ -46,6 +46,7 @@ import {
   isNewRecord,
   notSeenNow,
   recordFromReport,
+  SECURITY_DETAIL_MAX_BYTES,
   SECURITY_FINDINGS_CAPPED_NOTE,
   SECURITY_MAX_REJECTED_PER_SCAN,
   SECURITY_REJECTED_KEPT_PER_PROJECT,
@@ -935,6 +936,7 @@ async function upsertFindings(
       resolvedSeverity: finding.resolved_severity,
       notSeenInLatest: finding.not_seen_in_latest,
       seenSinceResolve: seenSince.has(finding.id),
+      verdictSource: finding.verdict_source,
     };
     const decision = decideSeenFinding(stored, record, scan);
     await tx
@@ -969,6 +971,7 @@ async function upsertFindings(
         fingerprint_key: record.key,
         model_fingerprint: record.fingerprint,
         verdict: record.verdict,
+        verdict_source: record.verdictSource ?? 'static',
         severity: record.severity,
         confidence: record.confidence,
         title: record.title,
@@ -1046,6 +1049,14 @@ function patchColumns(
   }
   if (patch.severity !== undefined) {
     set.severity = patch.severity;
+  }
+  if (patch.verdictSource !== undefined) {
+    set.verdict_source = patch.verdictSource;
+  }
+  if (patch.runtimeProof !== undefined && patch.details === undefined) {
+    // The proof joins the stored detail; a detail already at its 32 KB limit stays as is.
+    const merged = sql`jsonb_set(${securityFindings.detail}, '{runtime_proof}', ${JSON.stringify(patch.runtimeProof)}::jsonb, true)`;
+    set.detail = sql`CASE WHEN octet_length((${merged})::text) <= ${SECURITY_DETAIL_MAX_BYTES} THEN ${merged} ELSE ${securityFindings.detail} END`;
   }
   if (patch.details !== undefined) {
     const record = patch.details;

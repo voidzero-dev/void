@@ -376,6 +376,7 @@ export function formatFinding(
     finding.file ? `${cleanLine(finding.file)}${finding.line ? `:${finding.line}` : ''}` : null,
     finding.category ? cleanLine(finding.category) : null,
     finding.cwe ? cleanLine(finding.cwe) : null,
+    finding.verdictSource === 'runtime' ? 'confirmed (runtime)' : null,
     finding.confidence !== undefined && finding.confidence !== null
       ? `confidence ${cleanLine(finding.confidence)}`
       : null,
@@ -394,6 +395,12 @@ export function formatFinding(
   for (const [label, value] of [
     ['Trace', finding.trace],
     ['Evidence', finding.evidence],
+    [
+      'Runtime proof',
+      finding.runtimeProof
+        ? `${cleanLine(finding.runtimeProof.method)} ${cleanLine(finding.runtimeProof.path)} answered ${finding.runtimeProof.status} on a throwaway copy`
+        : null,
+    ],
     ['Conditions', finding.conditions],
     ['Suggested fix', finding.fix],
   ] as const) {

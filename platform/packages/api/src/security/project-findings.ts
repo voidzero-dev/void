@@ -66,6 +66,7 @@ const findingColumns = {
   revision: securityFindings.revision,
   outsideDiff: securityFindings.outside_diff,
   source: securityFindings.source,
+  verdictSource: securityFindings.verdict_source,
   fixChecked: securityFindings.fix_checked_scan_id,
   firstScanId: securityFindings.first_scan_id,
   lastSeenScanId: securityFindings.last_seen_scan_id,
@@ -97,6 +98,7 @@ type FindingRow = Readonly<{
   revision: number;
   outsideDiff: boolean;
   source: 'scanner' | 'server';
+  verdictSource: 'static' | 'runtime';
   fixChecked: string | null;
   firstScanId: string;
   lastSeenScanId: string;
@@ -158,6 +160,9 @@ export function securityFindingView(
     revision: row.revision,
     outsideDiff: row.outsideDiff,
     source: row.source,
+    // M30: `confirmed (runtime)` when a request to the scan's throwaway copy proved it.
+    verdictSource: row.verdict === 'confirmed' ? row.verdictSource : null,
+    runtimeProof: detail.runtime_proof ?? null,
     // `fixed` is proven only once a later clean scan did not report it again.
     fixChecked: row.fixChecked !== null,
     firstScanId: row.firstScanId,

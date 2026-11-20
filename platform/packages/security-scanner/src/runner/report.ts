@@ -22,6 +22,28 @@ export type TraceStep = {
   note: string;
 };
 
+/** M30: how a confirmation was reached. `runtime`: a request to the scan's copy proved it. */
+export const VERDICT_SOURCES = ['static', 'runtime'] as const;
+export type VerdictSource = (typeof VERDICT_SOURCES)[number];
+
+export const RUNTIME_PROOF_METHODS = [
+  'GET',
+  'HEAD',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'OPTIONS',
+] as const;
+
+/** The copy request a runtime confirmation rests on, as the runner recorded it. */
+export type RuntimeProof = {
+  request: string;
+  method: (typeof RUNTIME_PROOF_METHODS)[number];
+  path: string;
+  status: number;
+};
+
 export type FindingRecord = {
   fingerprint: string;
   verdict: Verdict;
@@ -40,6 +62,15 @@ export type FindingRecord = {
   conditions: string;
   fix: string;
   reason: string;
+  /**
+   * Verify sessions with the copy tool: the id of the `copy_request` call that proves a
+   * confirmed record (for example "r2"). The runner checks it and turns it into
+   * `verdict_source` / `runtime_proof`; it never reaches the findings file.
+   */
+  proof_request?: string | null;
+  /** Set by the runner only. Absent means `static`. */
+  verdict_source?: VerdictSource;
+  runtime_proof?: RuntimeProof | null;
 };
 
 export type ScanReport = {
@@ -65,6 +96,7 @@ export const REPORT_LIMITS = {
   fix: 4000,
   reason: 1000,
   notes: 2000,
+  proofRequest: 16,
   maxLine: 10_000_000,
 } as const;
 
@@ -117,6 +149,12 @@ export function submitFindingsParameters(): Record<string, unknown> {
             conditions: { type: 'string', maxLength: REPORT_LIMITS.conditions },
             fix: { type: 'string', maxLength: REPORT_LIMITS.fix },
             reason: { type: 'string', maxLength: REPORT_LIMITS.reason },
+            proof_request: {
+              type: ['string', 'null'],
+              maxLength: REPORT_LIMITS.proofRequest,
+              description:
+                'Only with the copy_request tool: the id of the request that proves a confirmed finding (for example "r2"), else null.',
+            },
           },
         },
       },

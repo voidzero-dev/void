@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   ingest: vi.fn(),
   recheck: vi.fn(),
   github: vi.fn(),
+  copy: vi.fn(),
+  deleteCopy: vi.fn(),
 }));
 vi.mock('cloudflare:workers', () => ({
   WorkerEntrypoint: class {
@@ -37,6 +39,10 @@ vi.mock('../../src/security/public-gate-flow.ts', () => ({
 }));
 vi.mock('../../src/security/github-check.ts', () => ({
   reportSecurityScanToGitHub: mocks.github,
+}));
+vi.mock('../../src/security/runtime-copy.ts', () => ({
+  prepareSecurityRuntimeCopy: mocks.copy,
+  deleteSecurityRuntimeCopyForScan: mocks.deleteCopy,
 }));
 
 import { judgeScanFence, SecurityScanControl } from '../../src/security/control.ts';
@@ -192,9 +198,12 @@ describe('SecurityScanControl', () => {
     mocks.github.mockResolvedValue({ reported: true, checkRunId: '1', comments: 0 });
 
     mocks.ingest.mockResolvedValue({ ok: true, kind: 'stored', status: 'succeeded' });
+    mocks.deleteCopy.mockResolvedValue(undefined);
     expect(await withCtx.result('ss_1', 2, report)).toEqual({ ok: true });
     expect(mocks.github).toHaveBeenCalledWith(env, expect.anything(), 'ss_1');
-    expect(waited).toHaveLength(1);
+    // The runtime copy (M30) and the GitHub check, both after the call.
+    expect(mocks.deleteCopy).toHaveBeenCalledWith(env, 'ss_1', 2);
+    expect(waited).toHaveLength(2);
 
     // A retried attempt has no result yet; a stored "nothing to send" scan reports too.
     mocks.github.mockClear();
@@ -204,6 +213,33 @@ describe('SecurityScanControl', () => {
     mocks.prepare.mockResolvedValue(null);
     expect(await withCtx.input('ss_1', 2)).toBeNull();
     expect(mocks.github).toHaveBeenCalledWith(env, expect.anything(), 'ss_1');
+  });
+
+  it('makes the runtime copy only for a trusted caller, and deletes it once a result is taken (M30)', async () => {
+    mocks.copy.mockResolvedValue({ ok: true, script: 'void-sec-copy-x-ss1-a2', ms: 9000 });
+    expect(await control().copy('ss_1', 2)).toEqual({
+      ok: true,
+      script: 'void-sec-copy-x-ss1-a2',
+      ms: 9000,
+    });
+    expect(mocks.copy).toHaveBeenCalledWith(env, expect.anything(), 'ss_1', 2);
+    mocks.copy.mockClear();
+    expect(await control({}).copy('ss_1', 2)).toEqual({ ok: false, reason: 'fence' });
+    expect(mocks.copy).not.toHaveBeenCalled();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.copy.mockRejectedValue(new Error('cloudflare down'));
+    expect(await control().copy('ss_1', 2)).toEqual({ ok: false, reason: 'create_failed' });
+
+    // A requeued attempt is over too: its copy goes; a refused result keeps it.
+    mocks.deleteCopy.mockClear();
+    mocks.deleteCopy.mockResolvedValue(undefined);
+    mocks.ingest.mockResolvedValue({ ok: true, kind: 'retried' });
+    await control().result('ss_1', 2, { status: {}, findings: null });
+    expect(mocks.deleteCopy).toHaveBeenCalledWith(env, 'ss_1', 2);
+    mocks.deleteCopy.mockClear();
+    mocks.ingest.mockResolvedValue({ ok: false });
+    await control().result('ss_1', 2, { status: {}, findings: null });
+    expect(mocks.deleteCopy).not.toHaveBeenCalled();
   });
 
   it('answers not taken when ingest throws or the caller is not trusted', async () => {

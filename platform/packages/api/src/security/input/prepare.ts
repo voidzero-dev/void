@@ -47,6 +47,7 @@ import {
 import { ingestSecurityScanResult, serializeSecurityScanScope } from '../ingest.ts';
 import { securityRawOutputPrefix } from '../maintenance.ts';
 import { endSecurityScanAttempt } from '../queue.ts';
+import { securityRuntimeCopyWanted } from '../runtime-copy-plan.ts';
 import {
   securityFindingEvents,
   securityFindings,
@@ -100,7 +101,7 @@ const MAX_ASSET_BYTES_READ = 16 * 1024 * 1024;
 /** The deployment's input is gone or too large: the scan ends `failed (input_missing)`. */
 export class SecurityInputMissing extends Error {}
 
-type SnapshotModule = Readonly<{
+export type SnapshotModule = Readonly<{
   name: string;
   type: string;
   size: number;
@@ -130,7 +131,7 @@ type ScanContext = Readonly<{
 
 const decoder = new TextDecoder();
 
-function modulesKey(prefix: string): string {
+export function modulesKey(prefix: string): string {
   return `${prefix}modules.json`;
 }
 
@@ -164,7 +165,7 @@ function serializeHashMap(map: ReadonlyMap<string, string>): string {
   return JSON.stringify({ version: 1, hashes: Object.fromEntries(map) });
 }
 
-function parseSnapshotModules(text: string | null): Array<SnapshotModule> | null {
+export function parseSnapshotModules(text: string | null): Array<SnapshotModule> | null {
   if (text === null) {
     return null;
   }
@@ -740,7 +741,8 @@ export async function prepareSecurityScanInputFiles(
     .map((finding) => finding.file!);
 
   // T1 when GitHub can show the change (hosted only); otherwise T2 stays, with a note.
-  const main = parseManifest(scan.manifest)?.workerMain ?? null;
+  const manifest = parseManifest(scan.manifest);
+  const main = manifest?.workerMain ?? null;
   let sourceDiff: SecuritySourceDiffInput | null = null;
   const notes: Array<string> = [];
   // The bundle's sources, read once: by T1 only when it can start, else by the build.
@@ -789,6 +791,8 @@ export async function prepareSecurityScanInputFiles(
       trigger: scan.trigger,
       forPublicRequest: scan.publicRequestId !== null,
       commit: scan.commit,
+      // M30: the controller asks for a runtime copy; verify sessions may use it.
+      runtimeCopy: securityRuntimeCopyWanted(manifest, scan.engine),
     },
     tier,
     sourceDiff,

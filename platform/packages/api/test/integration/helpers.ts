@@ -1720,6 +1720,8 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     ...overrides,
   };
 
+  const dispatchNamespaces = new Set<string>();
+
   const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -1833,6 +1835,58 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return mocks.createContainerApp!(url, init);
     }
 
+    // Dispatch namespaces themselves (the security scanner's copy namespace, M30) and
+    // the list calls its reaper makes. Copy scripts and stores start empty.
+    {
+      const path = new URL(url).pathname;
+      const namespaceAt = path.indexOf('/workers/dispatch/namespaces');
+      if (namespaceAt !== -1) {
+        const rest = path.slice(namespaceAt + '/workers/dispatch/namespaces'.length);
+        const parts = rest.split('/').filter(Boolean);
+        if (parts.length === 0 && method === 'POST') {
+          const name = String(JSON.parse(String(init?.body ?? '{}')).name ?? '');
+          dispatchNamespaces.add(name);
+          return cfSuccess({ namespace_name: name });
+        }
+        if (parts.length === 1 && method === 'GET') {
+          return dispatchNamespaces.has(parts[0]!)
+            ? cfSuccess({ namespace_name: parts[0] })
+            : Response.json(
+                { success: false, errors: [{ code: 100119, message: 'namespace not found' }] },
+                { status: 404 },
+              );
+        }
+        if (parts.length === 1 && method === 'DELETE') {
+          dispatchNamespaces.delete(parts[0]!);
+          return cfSuccess(null);
+        }
+        if (parts.length === 2 && parts[1] === 'scripts' && method === 'GET') {
+          return cfSuccess([]);
+        }
+        // A scan result deletes its copy by reading the copy script's settings first.
+        if (
+          parts.length === 4 &&
+          parts[1] === 'scripts' &&
+          parts[2]!.startsWith('void-sec-copy-') &&
+          parts[3] === 'settings' &&
+          method === 'GET'
+        ) {
+          return Response.json(
+            { success: false, errors: [{ code: 10007, message: 'script not found' }] },
+            { status: 404 },
+          );
+        }
+      }
+      if (method === 'GET' && path.endsWith('/d1/database')) {
+        return cfSuccess([]);
+      }
+      if (method === 'GET' && path.endsWith('/storage/kv/namespaces')) {
+        return cfSuccess([]);
+      }
+      if (method === 'GET' && path.endsWith('/r2/buckets')) {
+        return cfSuccess({ buckets: [] });
+      }
+    }
     if (method === 'GET' && url.includes('/workers/dispatch/') && url.includes('/secrets')) {
       return mocks.listWorkerSecrets(url, init);
     }

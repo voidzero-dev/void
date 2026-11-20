@@ -12,7 +12,13 @@ import {
 import { scanToolDefinitions } from '../tools/definitions.ts';
 import type { FsTools, ToolResult } from '../tools/fs.ts';
 import { describeValidationError } from '../validate-findings.ts';
-import { emptyStats, type Engine, type SessionOutcome, type SessionSpec } from './types.ts';
+import {
+  emptyStats,
+  type Engine,
+  type SessionOutcome,
+  type SessionSpec,
+  type SessionTool,
+} from './types.ts';
 
 export const VOID_LOOP_VERSION = 'void-loop/1';
 export const MODEL_BASE_URL = 'http://model.void.internal';
@@ -47,7 +53,15 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
     function: { name: tool.name, description: tool.description, parameters: tool.parameters },
   }));
 
-  async function runTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  async function runTool(
+    name: string,
+    args: Record<string, unknown>,
+    extra: ReadonlyArray<SessionTool>,
+  ): Promise<ToolResult> {
+    const tool = extra.find((candidate) => candidate.name === name);
+    if (tool) {
+      return tool.run(args);
+    }
     switch (name) {
       case 'read_file':
         return options.tools.readFile(args);
@@ -66,12 +80,26 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
 
   async function callModel(
     messages: Array<ChatMessage>,
+    extra: ReadonlyArray<SessionTool>,
     signal?: AbortSignal,
   ): Promise<CallResult> {
     const request = JSON.stringify({
       model: options.model,
       messages,
-      tools: toolSpecs,
+      tools:
+        extra.length === 0
+          ? toolSpecs
+          : [
+              ...toolSpecs,
+              ...extra.map((tool) => ({
+                type: 'function' as const,
+                function: {
+                  name: tool.name,
+                  description: tool.description,
+                  parameters: tool.parameters,
+                },
+              })),
+            ],
       tool_choice: 'auto',
     });
     // Any failure that is not a proxy stop is retried once (README "Model proxy stops").
@@ -141,8 +169,10 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
   return {
     id: 'void_loop',
     version: VOID_LOOP_VERSION,
+    sessionTools: true,
     async runSession(spec: SessionSpec): Promise<SessionOutcome> {
       const stats = emptyStats();
+      const extra = spec.tools ?? [];
       const done = (outcome: OutcomeBody): SessionOutcome => ({ ...outcome, stats });
       const messages: Array<ChatMessage> = [
         { role: 'system', content: spec.system },
@@ -160,7 +190,7 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
         if (stats.turns > 0 && stats.turns === spec.maxTurns - 1) {
           addUserNote(messages, LAST_TURN_NOTE);
         }
-        const call = await callModel(messages, spec.signal);
+        const call = await callModel(messages, extra, spec.signal);
         if (!call.ok) {
           return done(call.outcome);
         }
@@ -254,7 +284,7 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
           const result =
             args === null
               ? { ok: false, text: 'error: tool arguments must be a JSON object' }
-              : await runTool(name, args);
+              : await runTool(name, args, extra);
           messages.push({ role: 'tool', tool_call_id: toolCall.id, content: result.text });
         }
       }

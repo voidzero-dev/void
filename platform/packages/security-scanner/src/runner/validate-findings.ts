@@ -7,15 +7,19 @@ import {
   FINDINGS_SCHEMA_VERSION,
   REPORT_LIMITS,
   RUN_STATUSES,
+  RUNTIME_PROOF_METHODS,
   SEVERITIES,
+  VERDICT_SOURCES,
   VERDICTS,
   type Confidence,
   type FindingRecord,
   type RunStatus,
+  type RuntimeProof,
   type ScanReport,
   type Severity,
   type TraceStep,
   type Verdict,
+  type VerdictSource,
 } from './report.ts';
 
 export type ValidationErrorKind = 'too_large' | 'not_json' | 'too_many_records' | 'shape';
@@ -113,6 +117,9 @@ const FINDING_KEYS = [
   'conditions',
   'fix',
   'reason',
+  'proof_request',
+  'verdict_source',
+  'runtime_proof',
 ] as const;
 
 function readFinding(value: unknown, path: string): FindingRecord {
@@ -157,11 +164,53 @@ function readFinding(value: unknown, path: string): FindingRecord {
     fix: readOptionalText(object.fix, `${path}.fix`, REPORT_LIMITS.fix),
     reason: readOptionalText(object.reason, `${path}.reason`, REPORT_LIMITS.reason),
   };
+  // M30 fields: only present when given, so a static report reads as before.
+  if (object.proof_request !== undefined) {
+    record.proof_request =
+      object.proof_request === null || object.proof_request === ''
+        ? null
+        : readText(object.proof_request, `${path}.proof_request`, REPORT_LIMITS.proofRequest);
+  }
+  if (object.verdict_source !== undefined) {
+    record.verdict_source = readEnum<VerdictSource>(
+      object.verdict_source,
+      `${path}.verdict_source`,
+      VERDICT_SOURCES,
+    );
+  }
+  if (object.runtime_proof !== undefined) {
+    record.runtime_proof =
+      object.runtime_proof === null
+        ? null
+        : readRuntimeProof(object.runtime_proof, `${path}.runtime_proof`);
+  }
   checkVerdictRules(record, path);
   return record;
 }
 
+function readRuntimeProof(value: unknown, path: string): RuntimeProof {
+  const object = readObject(value, path, ['request', 'method', 'path', 'status']);
+  const status = object.status;
+  if (typeof status !== 'number' || !Number.isInteger(status) || status < 100 || status > 599) {
+    throw new ShapeError(`${path}.status`, 'must be an HTTP status');
+  }
+  return {
+    request: readText(object.request, `${path}.request`, REPORT_LIMITS.proofRequest),
+    method: readEnum(object.method, `${path}.method`, RUNTIME_PROOF_METHODS),
+    path: readText(object.path, `${path}.path`, REPORT_LIMITS.path),
+    status,
+  };
+}
+
 function checkVerdictRules(record: FindingRecord, path: string): void {
+  if (record.verdict_source === 'runtime') {
+    if (record.verdict !== 'confirmed') {
+      throw new ShapeError(`${path}.verdict_source`, 'runtime is only for a confirmed finding');
+    }
+    if (!record.runtime_proof) {
+      throw new ShapeError(`${path}.runtime_proof`, 'is required for a runtime confirmation');
+    }
+  }
   if (record.verdict === 'confirmed') {
     if (record.severity === null) {
       throw new ShapeError(`${path}.severity`, 'is required for a confirmed finding');

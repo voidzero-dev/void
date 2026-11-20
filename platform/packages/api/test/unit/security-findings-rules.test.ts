@@ -181,6 +181,35 @@ describe('a key the project already has', () => {
     });
   });
 
+  it('a runtime proof marks the finding runtime and is never taken away (M30)', () => {
+    const proof = { request: 'r2', method: 'GET' as const, path: '/users?id=1', status: 200 };
+    const runtime = record({ verdict_source: 'runtime', runtime_proof: proof });
+    expect(runtime.verdictSource).toBe('runtime');
+    expect(runtime.detail).toMatchObject({ runtime_proof: proof });
+    // A lead never carries the runtime source, whatever the record says.
+    expect(
+      record({ verdict: 'needs_validation', severity: null, verdict_source: 'runtime' })
+        .verdictSource,
+    ).toBeUndefined();
+    // A finding stored as static keeps its detail and gets the proof with the source.
+    const upgraded = decideSeenFinding(stored(), runtime, scan()).patch;
+    expect(upgraded.verdictSource).toBe('runtime');
+    expect(upgraded.runtimeProof).toEqual(proof);
+    expect(upgraded.details).toBeUndefined();
+    // A lead confirmed at runtime takes the whole record, proof included.
+    const promoted = decideSeenFinding(
+      stored({ verdict: 'needs_validation', severity: null }),
+      runtime,
+      scan(),
+    ).patch;
+    expect(promoted.verdictSource).toBe('runtime');
+    expect(promoted.details?.detail).toMatchObject({ runtime_proof: proof });
+    expect(promoted.runtimeProof).toBeUndefined();
+    expect(
+      decideSeenFinding(stored({ verdictSource: 'runtime' }), record(), scan()).patch.verdictSource,
+    ).toBeUndefined();
+  });
+
   it('promotes a lead the scan confirms; new unless informational', () => {
     const lead = stored({ verdict: 'needs_validation', severity: null });
     const decision = decideSeenFinding(lead, record(), scan());
