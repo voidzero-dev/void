@@ -46,13 +46,13 @@ async function requestThrough(middleware: Middleware, path: string): Promise<Res
 }
 
 describe('nodeTargetPlugin request bridge', () => {
-  it('leaves image generation and its WASM loader with installed dependencies', async () => {
+  it('inlines the image renderer like other Void packages', async () => {
     const config = await getHookHandler(servePlugin().config)!.call(
       {} as never,
       {},
       { command: 'serve', mode: 'development', isSsrBuild: false, isPreview: false },
     );
-    expect(config?.ssr?.external).toContain('@void/image-renderer-takumi');
+    expect(config?.ssr?.external).toBeUndefined();
     const noExternal = config?.ssr?.noExternal as Array<string | RegExp>;
     expect(
       noExternal.some((entry) =>
@@ -60,8 +60,9 @@ describe('nodeTargetPlugin request bridge', () => {
           ? entry === '@void/image-renderer-takumi'
           : entry.test('@void/image-renderer-takumi'),
       ),
-    ).toBe(false);
-    expect(noExternal).not.toContain('takumi-js');
+    ).toBe(true);
+    expect(noExternal).toContain('takumi-js');
+    expect(noExternal).toEqual(expect.arrayContaining([/^@takumi-rs\//]));
   });
 
   it('keeps every Set-Cookie header in dev', async () => {

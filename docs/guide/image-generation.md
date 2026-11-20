@@ -266,9 +266,13 @@ export const GET = () =>
 
 Use [CSS properties supported by Takumi](https://takumi.kane.tw/docs/styles). On Cloudflare, the renderer's WebAssembly and bundled font add to the Worker size, and rendering uses Worker CPU time. [Cache generated images](#cache-generated-images) if the same image is requested frequently.
 
+Node.js and Bun builds include the renderer's WebAssembly file. Deploy the complete `dist` directory, including its assets.
+
 ### Takumi fonts
 
 Roboto is bundled and selected by default. It covers Latin, Cyrillic, and Greek. Set `font: 'Geist'` to use the bundled Latin Geist face. Use `font` to select a custom family or an ordered list of families. Custom `fonts` entries take font bytes (`Uint8Array` or `ArrayBuffer`); load the file before passing it to the renderer. Keep reusable font bytes at module scope when practical.
+
+Use WOFF2 instead of WOFF for custom fonts with `takumiRenderer`. WOFF is not supported by this renderer, including on Node.js. The default Browser Run renderer supports both formats.
 
 Takumi can download font subsets from Google Fonts for glyphs such as Japanese, Chinese, Korean, Thai, Arabic, or Hebrew. Set `fallbackFonts: false` in the renderer tuple to skip those downloads. If no available font covers a glyph, it may render as a box. On Workers, downloads can add latency and count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests).
 
