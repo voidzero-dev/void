@@ -504,7 +504,9 @@ function typecheck(
       include,
     }),
   );
-  const result = spawnSync(process.execPath, [tsc, '-p', join(root, config)], {
+  // Tests parse `file(line,col): error` lines. Under FORCE_COLOR, which `vp run` sets for
+  // tests, TypeScript 7 and tsrs print pretty diagnostics unless the command line opts out.
+  const result = spawnSync(process.execPath, [tsc, '-p', join(root, config), '--pretty', 'false'], {
     encoding: 'utf8',
   });
   return { output: result.stdout + result.stderr, status: result.status };
