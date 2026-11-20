@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { parseSync } from 'vite';
 import { describe, expect, it } from 'vite-plus/test';
 import type { PageDefinition, PageScanResult } from '../../src/pages/types.ts';
@@ -85,8 +86,9 @@ describe('Pages metadata wiring', () => {
       );
       const marker = code.indexOf('app.use(__createNamedActionMarker(__matchedRoutes));');
       expect(marker !== -1).toBe(marked);
-      expect(code).toMatch(
-        /import \{ matchedRoutes as __matchedRoutes \} from "[^"]*runtime\/routing\/index\.[a-z]+";/,
+      const routingRuntimePath = fileURLToPath(import.meta.resolve('#self/runtime/routing'));
+      expect(code).toContain(
+        `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(routingRuntimePath)};`,
       );
       if (marked) {
         expect(marker).toBeGreaterThan(code.indexOf('__routingRuntime.routingMiddleware('));

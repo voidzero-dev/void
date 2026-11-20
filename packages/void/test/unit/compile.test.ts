@@ -1,4 +1,5 @@
 import { win32 } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { compilePattern as sharedCompilePattern, matchPatternCaptures } from '@void/edge';
 /* oxlint-disable typescript-eslint/no-explicit-any -- these tests wire the void context augmentations by hand (`c.rewrite`, `c.originalUrl`, `c.isRewritten`) to exercise generated code paths directly; `as any` is the least noisy way to assign/read those members without re-declaring the full Hono context shape per test. */
 import { Hono } from 'hono';
@@ -1146,9 +1147,12 @@ describe('compileNodeApp', () => {
 
   it('generates node app with serveStatic and default export', () => {
     const code = compileNodeApp('node');
+    const routingRuntimePath = fileURLToPath(import.meta.resolve('#self/runtime/routing'));
     expect(code).toContain('import { serveStatic } from "@hono/node-server/serve-static"');
     // From Void's routing runtime, so the app and the runtime share one Hono.
-    expect(code).toMatch(/import \{ Hono, [^}]*\} from "[^"]*runtime\/routing\/index\.[a-z]+";/);
+    expect(code).toContain(
+      `import { Hono, prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(routingRuntimePath)};`,
+    );
     expect(code).toContain('export default app');
     expect(code).toContain(
       'import innerApp, { __voidCollectPrerenderPaths, __voidRenderStaticNotFound } from "virtual:void-routes"',
