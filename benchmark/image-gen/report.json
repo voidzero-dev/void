@@ -1,0 +1,2629 @@
+{
+  "kind": "void-benchmark-report",
+  "schemaVersion": 1,
+  "status": "success",
+  "benchmark": "image-gen",
+  "startedAt": "2026-11-20T02:38:58.666Z",
+  "finishedAt": "2026-11-20T03:50:21.711Z",
+  "quietAttempts": 4,
+  "metricsAttempts": 4,
+  "runtime": {
+    "node": "v24.22.1",
+    "osRelease": "25.6.0"
+  },
+  "machine": {
+    "hostnameSha256": "ac84d7c6ed5458a31e79a25f931f16b87220758dc1677e9cdf9022505db370aa",
+    "platform": "darwin",
+    "cpu": {
+      "models": ["Apple M5 Pro"],
+      "architecture": "arm64",
+      "logicalCores": 18,
+      "availableParallelism": 18
+    },
+    "network": {
+      "type": "ethernet",
+      "interface": "en7"
+    }
+  },
+  "settings": {
+    "metricsPaddingMs": 90000,
+    "metricsWaitMs": 180000,
+    "metricsIntervalMs": 10000
+  },
+  "deploy": {
+    "status": "success",
+    "workerName": "void-perf-image-gen",
+    "workerId": "d8f97940421f45128c32c93db782c266",
+    "versionId": "8534e565-cec4-467a-8f0c-0f85c848b12c",
+    "url": "https://void-perf-image-gen.cloudflare-internal-11e.workers.dev",
+    "timings": {
+      "buildReportedMs": 146,
+      "uploadReportedMs": 7410,
+      "triggersReportedMs": 1940,
+      "workerStartupMs": 2,
+      "cfDeployWallMs": 15009.377000000037,
+      "workflowWallMs": 19549.82566599996,
+      "accessWallMs": 3233.552832999965,
+      "cleanWallMs": 6.5656249999883585,
+      "workerLookupWallMs": 1299.9157500000438
+    },
+    "bundle": {
+      "rawBytes": 181859,
+      "gzipBytes": 51209
+    },
+    "batch": {
+      "requestedRuns": 30,
+      "completedRuns": 30,
+      "failedRuns": 0,
+      "notRun": 0,
+      "startedAt": "2026-11-20T02:38:59.741Z",
+      "finishedAt": "2026-11-20T02:47:00.069Z",
+      "bootstrap": {
+        "method": "percentile bootstrap",
+        "confidenceLevel": 0.95,
+        "resamples": 10000,
+        "seed": 1987012964,
+        "quantiles": "linear interpolation (R-7)",
+        "relativeHalfWidthTarget": 0.05,
+        "assumptions": "IID resampling; intervals describe this batch, not independent environments."
+      },
+      "statistics": {
+        "buildReportedMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 159.06666666666666,
+          "median": 143.5,
+          "standardDeviation": 39.376987269683056,
+          "min": 134,
+          "max": 299,
+          "q1": 138,
+          "q3": 154,
+          "iqr": 16,
+          "meanCI95": [146.69916666666666, 174.3],
+          "medianCI95": [139.5, 151.5],
+          "relativeMeanCIHalfWidth": 0.0867586965632859,
+          "meetsPrecisionTarget": false
+        },
+        "uploadReportedMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 7276,
+          "median": 7475,
+          "standardDeviation": 1010.5669286303503,
+          "min": 3570,
+          "max": 8300,
+          "q1": 7370,
+          "q3": 7617.5,
+          "iqr": 247.5,
+          "meanCI95": [6868.666666666667, 7569.666666666667],
+          "medianCI95": [7400, 7560],
+          "relativeMeanCIHalfWidth": 0.048172072567344695,
+          "meetsPrecisionTarget": true
+        },
+        "triggersReportedMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 1805.3333333333333,
+          "median": 1875,
+          "standardDeviation": 323.3630748259912,
+          "min": 610,
+          "max": 2200,
+          "q1": 1810,
+          "q3": 1917.5,
+          "iqr": 107.5,
+          "meanCI95": [1675.6583333333333, 1900],
+          "medianCI95": [1839.875, 1895],
+          "relativeMeanCIHalfWidth": 0.06213303175775481,
+          "meetsPrecisionTarget": false
+        },
+        "workerStartupMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 5.666666666666667,
+          "median": 5,
+          "standardDeviation": 2.4541777657185153,
+          "min": 2,
+          "max": 11,
+          "q1": 4,
+          "q3": 7,
+          "iqr": 3,
+          "meanCI95": [4.8, 6.533333333333333],
+          "medianCI95": [4, 7],
+          "relativeMeanCIHalfWidth": 0.15294117647058822,
+          "meetsPrecisionTarget": false
+        },
+        "cfDeployWallMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 14595.889120733338,
+          "median": 14989.638625500003,
+          "standardDeviation": 1623.5436252600514,
+          "min": 8442.354166999983,
+          "max": 15674.968166999999,
+          "q1": 14713.21247875,
+          "q3": 15181.684603499998,
+          "iqr": 468.47212474999833,
+          "meanCI95": [13943.509712589172, 15058.332639539172],
+          "medianCI95": [14825.73218750002, 15110.516541500016],
+          "relativeMeanCIHalfWidth": 0.038189620300910755,
+          "meetsPrecisionTarget": true
+        },
+        "cleanWallMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 6.798801433331928,
+          "median": 6.7136869999958435,
+          "standardDeviation": 1.549657593367553,
+          "min": 4.390583000000333,
+          "max": 10.73341700003948,
+          "q1": 6.059104250016389,
+          "q3": 7.331177499996556,
+          "iqr": 1.272073249980167,
+          "meanCI95": [6.253225491661243, 7.352592302497907],
+          "medianCI95": [6.364770999996836, 7.222708499975852],
+          "relativeMeanCIHalfWidth": 0.08085004552764907,
+          "meetsPrecisionTarget": false
+        },
+        "workerLookupWallMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 1301.2999763000068,
+          "median": 1268.2965415000217,
+          "standardDeviation": 117.36049338305524,
+          "min": 1215.770916999987,
+          "max": 1884.1881659999926,
+          "q1": 1257.4537710000004,
+          "q3": 1305.5736457499997,
+          "iqr": 48.119874749999326,
+          "meanCI95": [1269.9157149725036, 1349.9491512458355],
+          "medianCI95": [1259.6280415000365, 1291.3914790000417],
+          "relativeMeanCIHalfWidth": 0.030751340094883988,
+          "meetsPrecisionTarget": true
+        }
+      },
+      "bundle": {
+        "rawBytes": {
+          "count": 30,
+          "min": 181859,
+          "max": 181859
+        },
+        "gzipBytes": {
+          "count": 30,
+          "min": 51209,
+          "max": 51209
+        }
+      },
+      "runs": [
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:38:59.742Z",
+          "finishedAt": "2026-11-20T02:39:16.568Z",
+          "versionId": "24a46f6f-772d-46cd-abfc-c5c221ca7b32",
+          "timings": {
+            "buildReportedMs": 134,
+            "uploadReportedMs": 7770,
+            "triggersReportedMs": 1850,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 15547.048958,
+            "workflowWallMs": 16825.773875,
+            "accessWallMs": null,
+            "cleanWallMs": 5.087791999999993,
+            "workerLookupWallMs": 1272.6997499999998
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:39:16.568Z",
+          "finishedAt": "2026-11-20T02:39:32.876Z",
+          "versionId": "81364881-2e9b-4850-81bc-ed5f1c3f0e07",
+          "timings": {
+            "buildReportedMs": 144,
+            "uploadReportedMs": 7460,
+            "triggersReportedMs": 1970,
+            "workerStartupMs": 5,
+            "cfDeployWallMs": 14998.961458999998,
+            "workflowWallMs": 16307.469917000002,
+            "accessWallMs": null,
+            "cleanWallMs": 6.319374999999127,
+            "workerLookupWallMs": 1301.2540829999962
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:39:32.876Z",
+          "finishedAt": "2026-11-20T02:39:48.744Z",
+          "versionId": "2e8801a9-6041-440c-9fe5-c56c0e93946f",
+          "timings": {
+            "buildReportedMs": 137,
+            "uploadReportedMs": 7310,
+            "triggersReportedMs": 1920,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 14621.917249999999,
+            "workflowWallMs": 15870.643959,
+            "accessWallMs": null,
+            "cleanWallMs": 4.40312499999709,
+            "workerLookupWallMs": 1243.8057909999989
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:39:48.744Z",
+          "finishedAt": "2026-11-20T02:40:06.071Z",
+          "versionId": "f244235e-2c14-4ce2-8d50-2ec3cee6d374",
+          "timings": {
+            "buildReportedMs": 134,
+            "uploadReportedMs": 7730,
+            "triggersReportedMs": 2200,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 15467.6535,
+            "workflowWallMs": 17358.603833999994,
+            "accessWallMs": null,
+            "cleanWallMs": 6.410166999994544,
+            "workerLookupWallMs": 1884.1881659999926
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:40:06.071Z",
+          "finishedAt": "2026-11-20T02:40:23.067Z",
+          "versionId": "b5da641e-caa9-4644-b373-941b9b456f28",
+          "timings": {
+            "buildReportedMs": 138,
+            "uploadReportedMs": 8300,
+            "triggersReportedMs": 1830,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 15674.968166999999,
+            "workflowWallMs": 17006.223832999996,
+            "accessWallMs": null,
+            "cleanWallMs": 4.82424999999057,
+            "workerLookupWallMs": 1325.6708749999962
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:40:23.068Z",
+          "finishedAt": "2026-11-20T02:40:39.441Z",
+          "versionId": "4f4e1675-bade-4549-aaa2-0170fe9d9889",
+          "timings": {
+            "buildReportedMs": 173,
+            "uploadReportedMs": 7370,
+            "triggersReportedMs": 1890,
+            "workerStartupMs": 5,
+            "cfDeployWallMs": 15112.348041000005,
+            "workflowWallMs": 16376.887917,
+            "accessWallMs": null,
+            "cleanWallMs": 7.93604200000118,
+            "workerLookupWallMs": 1255.926707999999
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:40:39.441Z",
+          "finishedAt": "2026-11-20T02:40:56.026Z",
+          "versionId": "02a64a2f-b097-45e7-bf78-c01592860f58",
+          "timings": {
+            "buildReportedMs": 154,
+            "uploadReportedMs": 7610,
+            "triggersReportedMs": 1900,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 15205.042791,
+            "workflowWallMs": 16585.69616600001,
+            "accessWallMs": null,
+            "cleanWallMs": 6.520415999999386,
+            "workerLookupWallMs": 1373.8942909999896
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:40:56.026Z",
+          "finishedAt": "2026-11-20T02:41:12.229Z",
+          "versionId": "89d9df22-4c5b-427f-b5ac-917f66251dc3",
+          "timings": {
+            "buildReportedMs": 172,
+            "uploadReportedMs": 7630,
+            "triggersReportedMs": 1870,
+            "workerStartupMs": 6,
+            "cfDeployWallMs": 14980.315792000009,
+            "workflowWallMs": 16203.895666000011,
+            "accessWallMs": null,
+            "cleanWallMs": 7.1629160000011325,
+            "workerLookupWallMs": 1215.770916999987
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:41:12.230Z",
+          "finishedAt": "2026-11-20T02:41:28.133Z",
+          "versionId": "0597e2c8-92dd-4ba1-b32d-b9de74ef49e7",
+          "timings": {
+            "buildReportedMs": 140,
+            "uploadReportedMs": 7490,
+            "triggersReportedMs": 1770,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 14676.459957999992,
+            "workflowWallMs": 15903.750792000006,
+            "accessWallMs": null,
+            "cleanWallMs": 6.677750000002561,
+            "workerLookupWallMs": 1220.1783340000256
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:41:28.133Z",
+          "finishedAt": "2026-11-20T02:41:44.584Z",
+          "versionId": "bdd0c078-5ea0-4002-bb8a-0df41c9303ed",
+          "timings": {
+            "buildReportedMs": 136,
+            "uploadReportedMs": 7930,
+            "triggersReportedMs": 1890,
+            "workerStartupMs": 11,
+            "cfDeployWallMs": 15189.733041,
+            "workflowWallMs": 16451.19879199998,
+            "accessWallMs": null,
+            "cleanWallMs": 7.350542000000132,
+            "workerLookupWallMs": 1253.509458000015
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:41:44.585Z",
+          "finishedAt": "2026-11-20T02:42:00.676Z",
+          "versionId": "dbd93d49-f214-49fe-b896-3e6014713b64",
+          "timings": {
+            "buildReportedMs": 137,
+            "uploadReportedMs": 7480,
+            "triggersReportedMs": 1790,
+            "workerStartupMs": 8,
+            "cfDeployWallMs": 14730.38954199999,
+            "workflowWallMs": 16091.269666999986,
+            "accessWallMs": null,
+            "cleanWallMs": 6.917874999984633,
+            "workerLookupWallMs": 1353.3229580000043
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:42:00.676Z",
+          "finishedAt": "2026-11-20T02:42:16.842Z",
+          "versionId": "081e878c-1af8-4b76-aca2-7833d2cae3de",
+          "timings": {
+            "buildReportedMs": 299,
+            "uploadReportedMs": 7270,
+            "triggersReportedMs": 1780,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 14889.32250000001,
+            "workflowWallMs": 16166.379207999998,
+            "accessWallMs": null,
+            "cleanWallMs": 9.608292000018992,
+            "workerLookupWallMs": 1266.9408330000006
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:42:16.843Z",
+          "finishedAt": "2026-11-20T02:42:33.078Z",
+          "versionId": "60bbc782-30df-4157-ad90-d0b9ccf244ae",
+          "timings": {
+            "buildReportedMs": 139,
+            "uploadReportedMs": 7460,
+            "triggersReportedMs": 1930,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 14921.166750000004,
+            "workflowWallMs": 16235.785249999986,
+            "accessWallMs": null,
+            "cleanWallMs": 7.190833999979077,
+            "workerLookupWallMs": 1307.013500000001
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:42:33.079Z",
+          "finishedAt": "2026-11-20T02:42:49.057Z",
+          "versionId": "da53e28e-3308-43df-8323-eb363f987dec",
+          "timings": {
+            "buildReportedMs": 154,
+            "uploadReportedMs": 7090,
+            "triggersReportedMs": 1790,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 14707.486791000003,
+            "workflowWallMs": 15978.663749999978,
+            "accessWallMs": null,
+            "cleanWallMs": 8.401958000002196,
+            "workerLookupWallMs": 1262.2324159999844
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:42:49.058Z",
+          "finishedAt": "2026-11-20T02:42:59.328Z",
+          "versionId": "d99d0648-a1e0-46eb-9bb7-90fbb15f37dd",
+          "timings": {
+            "buildReportedMs": 142,
+            "uploadReportedMs": 3790,
+            "triggersReportedMs": 610,
+            "workerStartupMs": 10,
+            "cfDeployWallMs": 9002.97979099999,
+            "workflowWallMs": 10270.414874999988,
+            "accessWallMs": null,
+            "cleanWallMs": 7.273083999985829,
+            "workerLookupWallMs": 1259.4995410000265
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:42:59.328Z",
+          "finishedAt": "2026-11-20T02:43:15.428Z",
+          "versionId": "663c949d-443f-417c-a27a-0499fc8b2e75",
+          "timings": {
+            "buildReportedMs": 136,
+            "uploadReportedMs": 7530,
+            "triggersReportedMs": 1850,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 14833.608291000011,
+            "workflowWallMs": 16099.882165999996,
+            "accessWallMs": null,
+            "cleanWallMs": 4.390583000000333,
+            "workerLookupWallMs": 1261.322709
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:43:15.428Z",
+          "finishedAt": "2026-11-20T02:43:31.333Z",
+          "versionId": "db35c140-81c2-46ee-9100-e1aeb1d63730",
+          "timings": {
+            "buildReportedMs": 140,
+            "uploadReportedMs": 7350,
+            "triggersReportedMs": 1910,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 14660.987957999983,
+            "workflowWallMs": 15905.540207999991,
+            "accessWallMs": null,
+            "cleanWallMs": 6.721457999985432,
+            "workerLookupWallMs": 1237.2835410000407
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:43:31.334Z",
+          "finishedAt": "2026-11-20T02:43:47.942Z",
+          "versionId": "319f8279-3dad-496f-9f6c-f86ae94a5960",
+          "timings": {
+            "buildReportedMs": 214,
+            "uploadReportedMs": 7470,
+            "triggersReportedMs": 1880,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 15260.595040999993,
+            "workflowWallMs": 16608.267667000007,
+            "accessWallMs": null,
+            "cleanWallMs": 4.413750000006985,
+            "workerLookupWallMs": 1342.6920419999515
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:43:47.942Z",
+          "finishedAt": "2026-11-20T02:44:03.854Z",
+          "versionId": "d4df7348-3e63-49fd-9850-9cf66e918872",
+          "timings": {
+            "buildReportedMs": 149,
+            "uploadReportedMs": 7370,
+            "triggersReportedMs": 1810,
+            "workerStartupMs": 8,
+            "cfDeployWallMs": 14622.82362500002,
+            "workflowWallMs": 15912.307459000032,
+            "accessWallMs": null,
+            "cleanWallMs": 5.9968750000116415,
+            "workerLookupWallMs": 1282.8672080000397
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:44:03.855Z",
+          "finishedAt": "2026-11-20T02:44:20.147Z",
+          "versionId": "c9238e76-3008-493a-aa29-922757c6dad8",
+          "timings": {
+            "buildReportedMs": 143,
+            "uploadReportedMs": 7550,
+            "triggersReportedMs": 1970,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 15021.930166000035,
+            "workflowWallMs": 16292.217917000002,
+            "accessWallMs": null,
+            "cleanWallMs": 10.73341700003948,
+            "workerLookupWallMs": 1259.0339580000145
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:44:20.147Z",
+          "finishedAt": "2026-11-20T02:44:36.530Z",
+          "versionId": "c0a092a6-7048-4ac0-beb3-3347ba20768c",
+          "timings": {
+            "buildReportedMs": 167,
+            "uploadReportedMs": 7450,
+            "triggersReportedMs": 1890,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 15108.685042000026,
+            "workflowWallMs": 16382.68508299999,
+            "accessWallMs": null,
+            "cleanWallMs": 8.836999999999534,
+            "workerLookupWallMs": 1264.5875840000226
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:44:36.530Z",
+          "finishedAt": "2026-11-20T02:44:46.236Z",
+          "versionId": "e5eae2e8-cad0-44d8-9a3d-c96ad1e6b5c8",
+          "timings": {
+            "buildReportedMs": 138,
+            "uploadReportedMs": 3570,
+            "triggersReportedMs": 710,
+            "workerStartupMs": 9,
+            "cfDeployWallMs": 8442.354166999983,
+            "workflowWallMs": 9706.342500000028,
+            "accessWallMs": null,
+            "cleanWallMs": 6.705916000006255,
+            "workerLookupWallMs": 1256.9270419999957
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:44:46.236Z",
+          "finishedAt": "2026-11-20T02:45:02.180Z",
+          "versionId": "82602628-e674-4ef4-95c9-6577748913b5",
+          "timings": {
+            "buildReportedMs": 220,
+            "uploadReportedMs": 7040,
+            "triggersReportedMs": 1980,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 14584.435624999984,
+            "workflowWallMs": 15943.556167000032,
+            "accessWallMs": null,
+            "cleanWallMs": 4.715250000008382,
+            "workerLookupWallMs": 1353.818666999985
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:45:02.180Z",
+          "finishedAt": "2026-11-20T02:45:18.559Z",
+          "versionId": "a896700d-fb60-4fc8-a645-2a8bbade6c31",
+          "timings": {
+            "buildReportedMs": 141,
+            "uploadReportedMs": 7680,
+            "triggersReportedMs": 2020,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 15100.886958000017,
+            "workflowWallMs": 16379.07050000003,
+            "accessWallMs": null,
+            "cleanWallMs": 7.101582999981474,
+            "workerLookupWallMs": 1269.6522500000428
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:45:18.559Z",
+          "finishedAt": "2026-11-20T02:45:34.731Z",
+          "versionId": "a3469921-749a-4745-a4d4-dc434040895c",
+          "timings": {
+            "buildReportedMs": 135,
+            "uploadReportedMs": 7520,
+            "triggersReportedMs": 1800,
+            "workerStartupMs": 10,
+            "cfDeployWallMs": 14817.856084000028,
+            "workflowWallMs": 16172.183582999976,
+            "accessWallMs": null,
+            "cleanWallMs": 5.501292000000831,
+            "workerLookupWallMs": 1348.09466599999
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:45:34.732Z",
+          "finishedAt": "2026-11-20T02:45:51.235Z",
+          "versionId": "1db28e32-1edb-4b12-97fa-c794d306a1ac",
+          "timings": {
+            "buildReportedMs": 147,
+            "uploadReportedMs": 7570,
+            "triggersReportedMs": 1890,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 15213.68645899999,
+            "workflowWallMs": 16503.126042000018,
+            "accessWallMs": null,
+            "cleanWallMs": 7.736083999974653,
+            "workerLookupWallMs": 1281.1336249999586
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:45:51.235Z",
+          "finishedAt": "2026-11-20T02:46:07.961Z",
+          "versionId": "3ae6d5c3-cc40-46b6-af65-bb70037638d5",
+          "timings": {
+            "buildReportedMs": 147,
+            "uploadReportedMs": 8070,
+            "triggersReportedMs": 1860,
+            "workerStartupMs": 5,
+            "cfDeployWallMs": 15460.150250000006,
+            "workflowWallMs": 16726.684332999983,
+            "accessWallMs": null,
+            "cleanWallMs": 6.245792000030633,
+            "workerLookupWallMs": 1259.7565420000465
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:46:07.962Z",
+          "finishedAt": "2026-11-20T02:46:24.074Z",
+          "versionId": "823b430f-c3f1-4899-b3ef-17a75dc67668",
+          "timings": {
+            "buildReportedMs": 154,
+            "uploadReportedMs": 7390,
+            "triggersReportedMs": 1850,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 14855.963333999971,
+            "workflowWallMs": 16112.931582999998,
+            "accessWallMs": null,
+            "cleanWallMs": 7.254582999972627,
+            "workerLookupWallMs": 1249.1569170000148
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:46:24.075Z",
+          "finishedAt": "2026-11-20T02:46:40.519Z",
+          "versionId": "bf2063f0-8c65-4d25-af5b-e29b9f800a55",
+          "timings": {
+            "buildReportedMs": 262,
+            "uploadReportedMs": 7620,
+            "triggersReportedMs": 1810,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 15157.539290999994,
+            "workflowWallMs": 16443.750833999948,
+            "accessWallMs": null,
+            "cleanWallMs": 8.960416999994777,
+            "workerLookupWallMs": 1276.8491670000367
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-20T02:46:40.519Z",
+          "finishedAt": "2026-11-20T02:47:00.069Z",
+          "versionId": "8534e565-cec4-467a-8f0c-0f85c848b12c",
+          "timings": {
+            "buildReportedMs": 146,
+            "uploadReportedMs": 7410,
+            "triggersReportedMs": 1940,
+            "workerStartupMs": 2,
+            "cfDeployWallMs": 15009.377000000037,
+            "workflowWallMs": 19549.82566599996,
+            "accessWallMs": 3233.552832999965,
+            "cleanWallMs": 6.5656249999883585,
+            "workerLookupWallMs": 1299.9157500000438
+          },
+          "bundle": {
+            "rawBytes": 181859,
+            "gzipBytes": 51209
+          }
+        }
+      ]
+    }
+  },
+  "latencyWorkloads": [
+    {
+      "id": "baseline",
+      "description": "Empty response with image code present in the deployment",
+      "status": "success",
+      "latency": {
+        "status": "success",
+        "url": "https://void-perf-image-gen.cloudflare-internal-11e.workers.dev/",
+        "ohaVersion": "oha 1.17.0",
+        "measurementStartedAt": "2026-11-20T02:47:15.126Z",
+        "measurementFinishedAt": "2026-11-20T02:54:29.264Z",
+        "settings": {
+          "requests": 1000,
+          "runs": 10,
+          "duration": null,
+          "connections": 1,
+          "rate": null,
+          "timeout": "30s",
+          "httpVersion": "1.1",
+          "keepAlive": true,
+          "warmupRequests": 50,
+          "access": "temporary-login",
+          "request": {
+            "method": "GET",
+            "status": 200,
+            "bodyBytes": 0
+          }
+        },
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 408.528711001,
+            "totalData": 0,
+            "average": 0.04083255697810001,
+            "fastest": 0.025538166,
+            "slowest": 0.410408291,
+            "requestsPerSec": 24.47808374470778
+          },
+          "latencyPercentiles": {
+            "p50": 0.0382308955,
+            "p95": 0.05575610654999999,
+            "p99": 0.09499892875000002
+          },
+          "statusCodeDistribution": {
+            "200": 10000
+          }
+        },
+        "runs": [
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:47:18.090Z",
+            "measurementFinishedAt": "2026-11-20T02:47:59.191Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 40.939255625,
+                "slowest": 0.282608584,
+                "fastest": 0.026276916,
+                "average": 0.04091966145299997,
+                "requestsPerSec": 24.426433376315206,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.03231075,
+                "p25": 0.034688334,
+                "p50": 0.038027375,
+                "p75": 0.042931,
+                "p90": 0.049010042,
+                "p95": 0.054829958,
+                "p99": 0.111515458,
+                "p99.9": 0.282608584,
+                "p99.99": 0.282608584
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:48:01.595Z",
+            "measurementFinishedAt": "2026-11-20T02:48:40.866Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 39.106011333,
+                "slowest": 0.16651375,
+                "fastest": 0.026456375,
+                "average": 0.03908616267500006,
+                "requestsPerSec": 25.57151614069472,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.031827417,
+                "p25": 0.033898958,
+                "p50": 0.037122917,
+                "p75": 0.041660458,
+                "p90": 0.046643167,
+                "p95": 0.0515535,
+                "p99": 0.0791715,
+                "p99.9": 0.16651375,
+                "p99.99": 0.16651375
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:48:43.055Z",
+            "measurementFinishedAt": "2026-11-20T02:49:23.870Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 40.655964209,
+                "slowest": 0.239197458,
+                "fastest": 0.026441292,
+                "average": 0.040635323247000005,
+                "requestsPerSec": 24.596637159047635,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.032097375,
+                "p25": 0.034478125,
+                "p50": 0.037693875,
+                "p75": 0.042853042,
+                "p90": 0.050302042,
+                "p95": 0.057959125,
+                "p99": 0.097411875,
+                "p99.9": 0.239197458,
+                "p99.99": 0.239197458
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:49:26.667Z",
+            "measurementFinishedAt": "2026-11-20T02:50:06.078Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 39.241139084,
+                "slowest": 0.237958667,
+                "fastest": 0.027233708,
+                "average": 0.03922128153399999,
+                "requestsPerSec": 25.483460045830714,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.031737417,
+                "p25": 0.033839167,
+                "p50": 0.037045875,
+                "p75": 0.041543917,
+                "p90": 0.047356958,
+                "p95": 0.051976166,
+                "p99": 0.079037625,
+                "p99.9": 0.237958667,
+                "p99.99": 0.237958667
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:50:08.273Z",
+            "measurementFinishedAt": "2026-11-20T02:50:47.099Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 38.6685115,
+                "slowest": 0.155175875,
+                "fastest": 0.026894875,
+                "average": 0.03864933493399997,
+                "requestsPerSec": 25.860835113862606,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.031446125,
+                "p25": 0.033609,
+                "p50": 0.036742625,
+                "p75": 0.040630708,
+                "p90": 0.045879958,
+                "p95": 0.050575583,
+                "p99": 0.09640675,
+                "p99.9": 0.155175875,
+                "p99.99": 0.155175875
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:50:49.351Z",
+            "measurementFinishedAt": "2026-11-20T02:51:37.160Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 47.644166291,
+                "slowest": 0.323759209,
+                "fastest": 0.032301166,
+                "average": 0.04762231090700004,
+                "requestsPerSec": 20.988928505794853,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.039698625,
+                "p25": 0.041910083,
+                "p50": 0.045587541,
+                "p75": 0.050207292,
+                "p90": 0.055397125,
+                "p95": 0.061701125,
+                "p99": 0.083061584,
+                "p99.9": 0.323759209,
+                "p99.99": 0.323759209
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:51:39.181Z",
+            "measurementFinishedAt": "2026-11-20T02:52:18.774Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 39.439907958,
+                "slowest": 0.218508125,
+                "fastest": 0.02596825,
+                "average": 0.039419390611,
+                "requestsPerSec": 25.355028745627685,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.031559,
+                "p25": 0.034021417,
+                "p50": 0.037067,
+                "p75": 0.041460959,
+                "p90": 0.046696416,
+                "p95": 0.05230425,
+                "p99": 0.090903584,
+                "p99.9": 0.218508125,
+                "p99.99": 0.218508125
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:52:21.075Z",
+            "measurementFinishedAt": "2026-11-20T02:53:00.834Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 39.592449125,
+                "slowest": 0.410408291,
+                "fastest": 0.026672458,
+                "average": 0.039573467625999954,
+                "requestsPerSec": 25.257341288558138,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.032071334,
+                "p25": 0.034090916,
+                "p50": 0.037386334,
+                "p75": 0.041411042,
+                "p90": 0.046484167,
+                "p95": 0.052090709,
+                "p99": 0.089458666,
+                "p99.9": 0.410408291,
+                "p99.99": 0.410408291
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:53:03.254Z",
+            "measurementFinishedAt": "2026-11-20T02:53:45.324Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 41.904593084,
+                "slowest": 0.250571417,
+                "fastest": 0.027770625,
+                "average": 0.041883565995000004,
+                "requestsPerSec": 23.86373250291314,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.032620333,
+                "p25": 0.035345125,
+                "p50": 0.038604833,
+                "p75": 0.04393275,
+                "p90": 0.052253,
+                "p95": 0.059455625,
+                "p99": 0.109900875,
+                "p99.9": 0.250571417,
+                "p99.99": 0.250571417
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:53:47.763Z",
+            "measurementFinishedAt": "2026-11-20T02:54:29.263Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 41.336712792,
+                "slowest": 0.321566333,
+                "fastest": 0.025538166,
+                "average": 0.04131507079900002,
+                "requestsPerSec": 24.191570457763458,
+                "totalData": 0,
+                "sizePerRequest": 0,
+                "sizePerSec": 0
+              },
+              "latencyPercentiles": {
+                "p10": 0.031848083,
+                "p25": 0.034424875,
+                "p50": 0.038011833,
+                "p75": 0.04346425,
+                "p90": 0.051544333,
+                "p95": 0.060599417,
+                "p99": 0.109995209,
+                "p99.9": 0.321566333,
+                "p99.99": 0.321566333
+              },
+              "statusCodeDistribution": {
+                "200": 1000
+              }
+            }
+          }
+        ],
+        "statistics": {
+          "rounds": 10,
+          "requests": 10000,
+          "units": "seconds",
+          "min": 0.025538166,
+          "max": 0.410408291,
+          "p99": 0.09499892875000002,
+          "bootstrap": {
+            "method": "percentile bootstrap",
+            "confidenceLevel": 0.95,
+            "resamples": 10000,
+            "seed": 1987012964,
+            "quantiles": "linear interpolation (R-7)",
+            "relativeHalfWidthTarget": 0.05,
+            "assumptions": "Rounds are exchangeable independent clusters; within-round observations remain together. Sequential rounds may still be correlated.",
+            "unit": "whole round",
+            "estimand": "request-weighted pooled mean and pooled request percentiles"
+          },
+          "metrics": {
+            "mean": {
+              "estimate": 0.04083255697810001,
+              "ci95": [0.039588204590707506, 0.042539105564727495],
+              "relativeCIHalfWidth": 0.036134168325567574,
+              "meetsPrecisionTarget": true
+            },
+            "p50": {
+              "estimate": 0.0382308955,
+              "ci95": [0.0372210310875, 0.04025935295000001],
+              "relativeCIHalfWidth": 0.039736472593219864,
+              "meetsPrecisionTarget": true
+            },
+            "p95": {
+              "estimate": 0.05575610654999999,
+              "ci95": [0.05282635445, 0.05847831694999998],
+              "relativeCIHalfWidth": 0.05068469491257883,
+              "meetsPrecisionTarget": false
+            }
+          }
+        }
+      },
+      "metrics": {
+        "status": "success",
+        "window": {
+          "requested": {
+            "start": "2026-11-20T02:47:15.126Z",
+            "end": "2026-11-20T02:54:29.264Z"
+          },
+          "queried": {
+            "start": "2026-11-20T02:45:45.000Z",
+            "end": "2026-11-20T02:56:00.000Z"
+          }
+        },
+        "units": {
+          "cpuTime": "microseconds",
+          "wallTime": "microseconds",
+          "memoryUsageBytes": "bytes"
+        },
+        "metrics": {
+          "sum": {
+            "errors": 0,
+            "requests": 10720,
+            "subrequests": 0
+          },
+          "quantiles": {
+            "cpuTimeP50": 464,
+            "cpuTimeP90": 768,
+            "cpuTimeP99": 1551,
+            "cpuTimeP999": 5737,
+            "memoryUsageBytesP50": 3149836,
+            "memoryUsageBytesP90": 4198412,
+            "memoryUsageBytesP99": 4984844,
+            "memoryUsageBytesP999": 5246988,
+            "wallTimeP50": 1117,
+            "wallTimeP90": 1736,
+            "wallTimeP99": 3527,
+            "wallTimeP999": 9130
+          }
+        }
+      },
+      "quietAttempts": 1,
+      "resultAttempts": 1
+    },
+    {
+      "id": "small-image",
+      "description": "Generate a 64 × 64 PNG",
+      "status": "success",
+      "latency": {
+        "status": "success",
+        "url": "https://void-perf-image-gen.cloudflare-internal-11e.workers.dev/run?width=64&height=64",
+        "ohaVersion": "oha 1.17.0",
+        "measurementStartedAt": "2026-11-20T02:59:06.794Z",
+        "measurementFinishedAt": "2026-11-20T03:20:10.545Z",
+        "settings": {
+          "requests": 250,
+          "runs": 10,
+          "duration": null,
+          "connections": 1,
+          "rate": null,
+          "timeout": "30s",
+          "httpVersion": "1.1",
+          "keepAlive": true,
+          "warmupRequests": 50,
+          "access": "temporary-login",
+          "request": {
+            "method": "GET",
+            "status": 200
+          }
+        },
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 1036.462297209,
+            "totalData": 650000,
+            "average": 0.4145512196936,
+            "fastest": 0.193138,
+            "slowest": 3.590542125,
+            "requestsPerSec": 2.412051076756033
+          },
+          "latencyPercentiles": {
+            "p50": 0.35868733350000004,
+            "p95": 0.7040799142999998,
+            "p99": 0.8336763828299969
+          },
+          "statusCodeDistribution": {
+            "200": 2500
+          }
+        },
+        "runs": [
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T02:59:34.324Z",
+            "measurementFinishedAt": "2026-11-20T03:01:38.352Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 123.876659834,
+                "slowest": 1.820108416,
+                "fastest": 0.220487667,
+                "average": 0.4954728524959998,
+                "requestsPerSec": 2.018136429695559,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 524.7154717208454
+              },
+              "latencyPercentiles": {
+                "p10": 0.287237041,
+                "p25": 0.348252292,
+                "p50": 0.487334916,
+                "p75": 0.619470792,
+                "p90": 0.712452875,
+                "p95": 0.746575042,
+                "p99": 1.001988167,
+                "p99.9": 1.820108416,
+                "p99.99": 1.820108416
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:02:00.462Z",
+            "measurementFinishedAt": "2026-11-20T03:03:48.433Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 107.81512875,
+                "slowest": 3.590542125,
+                "fastest": 0.197347458,
+                "average": 0.43123059364400024,
+                "requestsPerSec": 2.3187840417062064,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 602.8838508436137
+              },
+              "latencyPercentiles": {
+                "p10": 0.281939292,
+                "p25": 0.314044083,
+                "p50": 0.359055417,
+                "p75": 0.525908041,
+                "p90": 0.641912959,
+                "p95": 0.705366958,
+                "p99": 0.916631667,
+                "p99.9": 3.590542125,
+                "p99.99": 3.590542125
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:04:13.086Z",
+            "measurementFinishedAt": "2026-11-20T03:06:00.909Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 107.613677625,
+                "slowest": 1.66092375,
+                "fastest": 0.218624166,
+                "average": 0.43041816299600016,
+                "requestsPerSec": 2.323124769243291,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 604.0124400032556
+              },
+              "latencyPercentiles": {
+                "p10": 0.287153709,
+                "p25": 0.317867375,
+                "p50": 0.380479625,
+                "p75": 0.528914333,
+                "p90": 0.653125959,
+                "p95": 0.714483125,
+                "p99": 0.786492,
+                "p99.9": 1.66092375,
+                "p99.99": 1.66092375
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:06:21.697Z",
+            "measurementFinishedAt": "2026-11-20T03:08:04.815Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 102.938693125,
+                "slowest": 1.019846208,
+                "fastest": 0.196158625,
+                "average": 0.41171980431600014,
+                "requestsPerSec": 2.428630016668477,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 631.443804333804
+              },
+              "latencyPercentiles": {
+                "p10": 0.273293583,
+                "p25": 0.318332333,
+                "p50": 0.376586417,
+                "p75": 0.490022083,
+                "p90": 0.604227916,
+                "p95": 0.675635542,
+                "p99": 0.761974583,
+                "p99.9": 1.019846208,
+                "p99.99": 1.019846208
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:08:27.014Z",
+            "measurementFinishedAt": "2026-11-20T03:10:01.287Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 94.107995541,
+                "slowest": 0.774121209,
+                "fastest": 0.193513209,
+                "average": 0.3763988686800002,
+                "requestsPerSec": 2.6565224194057198,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 690.6958290454871
+              },
+              "latencyPercentiles": {
+                "p10": 0.266312708,
+                "p25": 0.298950417,
+                "p50": 0.329504333,
+                "p75": 0.408190083,
+                "p90": 0.605229208,
+                "p95": 0.656227792,
+                "p99": 0.747643,
+                "p99.9": 0.774121209,
+                "p99.99": 0.774121209
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:10:22.729Z",
+            "measurementFinishedAt": "2026-11-20T03:12:01.002Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 98.010146625,
+                "slowest": 1.530939208,
+                "fastest": 0.193138,
+                "average": 0.3920099478680001,
+                "requestsPerSec": 2.5507563105331696,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 663.1966407386241
+              },
+              "latencyPercentiles": {
+                "p10": 0.264935292,
+                "p25": 0.311795125,
+                "p50": 0.350513709,
+                "p75": 0.421901333,
+                "p90": 0.564301292,
+                "p95": 0.682250625,
+                "p99": 0.858330292,
+                "p99.9": 1.530939208,
+                "p99.99": 1.530939208
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:12:19.928Z",
+            "measurementFinishedAt": "2026-11-20T03:14:00.164Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 100.052042958,
+                "slowest": 0.968874,
+                "fastest": 0.218781083,
+                "average": 0.40017291983199993,
+                "requestsPerSec": 2.4986996028151607,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 649.6618967319417
+              },
+              "latencyPercentiles": {
+                "p10": 0.263998416,
+                "p25": 0.305054167,
+                "p50": 0.353997666,
+                "p75": 0.441282458,
+                "p90": 0.647722292,
+                "p95": 0.681191958,
+                "p99": 0.772307916,
+                "p99.9": 0.968874,
+                "p99.99": 0.968874
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:14:19.947Z",
+            "measurementFinishedAt": "2026-11-20T03:16:02.120Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 101.989178292,
+                "slowest": 3.522612625,
+                "fastest": 0.225179208,
+                "average": 0.4079213970000001,
+                "requestsPerSec": 2.451240456945714,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 637.3225188058857
+              },
+              "latencyPercentiles": {
+                "p10": 0.264524958,
+                "p25": 0.301001875,
+                "p50": 0.346446,
+                "p75": 0.424084625,
+                "p90": 0.609498833,
+                "p95": 0.703566583,
+                "p99": 1.111417667,
+                "p99.9": 3.522612625,
+                "p99.99": 3.522612625
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:16:30.376Z",
+            "measurementFinishedAt": "2026-11-20T03:18:09.847Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 99.294503625,
+                "slowest": 1.028359875,
+                "fastest": 0.2175465,
+                "average": 0.3971437594560002,
+                "requestsPerSec": 2.5177627247542422,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 654.618308436103
+              },
+              "latencyPercentiles": {
+                "p10": 0.267996083,
+                "p25": 0.308405792,
+                "p50": 0.356069042,
+                "p75": 0.440622208,
+                "p90": 0.607155834,
+                "p95": 0.693062792,
+                "p99": 0.93133575,
+                "p99.9": 1.028359875,
+                "p99.99": 1.028359875
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:18:29.582Z",
+            "measurementFinishedAt": "2026-11-20T03:20:10.544Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 100.764270834,
+                "slowest": 2.787834666,
+                "fastest": 0.195773917,
+                "average": 0.4030238906479999,
+                "requestsPerSec": 2.481038149046425,
+                "totalData": 65000,
+                "sizePerRequest": 260,
+                "sizePerSec": 645.0699187520704
+              },
+              "latencyPercentiles": {
+                "p10": 0.271871625,
+                "p25": 0.306780167,
+                "p50": 0.343019833,
+                "p75": 0.421859375,
+                "p90": 0.621373291,
+                "p95": 0.726070209,
+                "p99": 0.79963625,
+                "p99.9": 2.787834666,
+                "p99.99": 2.787834666
+              },
+              "statusCodeDistribution": {
+                "200": 250
+              }
+            }
+          }
+        ],
+        "statistics": {
+          "rounds": 10,
+          "requests": 2500,
+          "units": "seconds",
+          "min": 0.193138,
+          "max": 3.590542125,
+          "p99": 0.8336763828299969,
+          "bootstrap": {
+            "method": "percentile bootstrap",
+            "confidenceLevel": 0.95,
+            "resamples": 10000,
+            "seed": 1987012964,
+            "quantiles": "linear interpolation (R-7)",
+            "relativeHalfWidthTarget": 0.05,
+            "assumptions": "Rounds are exchangeable independent clusters; within-round observations remain together. Sequential rounds may still be correlated.",
+            "unit": "whole round",
+            "estimand": "request-weighted pooled mean and pooled request percentiles"
+          },
+          "metrics": {
+            "mean": {
+              "estimate": 0.4145512196936,
+              "ci95": [0.3979285335523999, 0.43538263303917984],
+              "relativeCIHalfWidth": 0.04517427245113736,
+              "meetsPrecisionTarget": true
+            },
+            "p50": {
+              "estimate": 0.35868733350000004,
+              "ci95": [0.345438271, 0.380545792],
+              "relativeCIHalfWidth": 0.048938891509532456,
+              "meetsPrecisionTarget": true
+            },
+            "p95": {
+              "estimate": 0.7040799142999998,
+              "ci95": [0.681144375, 0.7195561701999994],
+              "relativeCIHalfWidth": 0.02727800809243976,
+              "meetsPrecisionTarget": true
+            }
+          }
+        }
+      },
+      "metrics": {
+        "status": "success",
+        "window": {
+          "requested": {
+            "start": "2026-11-20T02:59:06.794Z",
+            "end": "2026-11-20T03:20:10.545Z"
+          },
+          "queried": {
+            "start": "2026-11-20T02:57:36.000Z",
+            "end": "2026-11-20T03:21:41.000Z"
+          }
+        },
+        "units": {
+          "cpuTime": "microseconds",
+          "wallTime": "microseconds",
+          "memoryUsageBytes": "bytes"
+        },
+        "metrics": {
+          "sum": {
+            "errors": 0,
+            "requests": 3004,
+            "subrequests": 3004
+          },
+          "quantiles": {
+            "cpuTimeP50": 1740,
+            "cpuTimeP90": 2540,
+            "cpuTimeP99": 6053,
+            "cpuTimeP999": 11001,
+            "memoryUsageBytesP50": 3421212,
+            "memoryUsageBytesP90": 4741032,
+            "memoryUsageBytesP99": 5795588,
+            "memoryUsageBytesP999": 6059552,
+            "wallTimeP50": 314355,
+            "wallTimeP90": 593117,
+            "wallTimeP99": 841615,
+            "wallTimeP999": 3410177
+          }
+        }
+      },
+      "quietAttempts": 1,
+      "resultAttempts": 1
+    },
+    {
+      "id": "og-image",
+      "description": "Generate a 1200 × 630 Open Graph PNG",
+      "status": "success",
+      "latency": {
+        "status": "success",
+        "url": "https://void-perf-image-gen.cloudflare-internal-11e.workers.dev/run?width=1200&height=630",
+        "ohaVersion": "oha 1.17.0",
+        "measurementStartedAt": "2026-11-20T03:24:48.923Z",
+        "measurementFinishedAt": "2026-11-20T03:32:42.504Z",
+        "settings": {
+          "requests": 50,
+          "runs": 10,
+          "duration": null,
+          "connections": 1,
+          "rate": null,
+          "timeout": "30s",
+          "httpVersion": "1.1",
+          "keepAlive": true,
+          "warmupRequests": 50,
+          "access": "temporary-login",
+          "request": {
+            "method": "GET",
+            "status": 200
+          }
+        },
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 241.124716584,
+            "totalData": 3541000,
+            "average": 0.4821970178420001,
+            "fastest": 0.23865325,
+            "slowest": 6.731582625,
+            "requestsPerSec": 2.0736157084328446
+          },
+          "latencyPercentiles": {
+            "p50": 0.40673000049999997,
+            "p95": 0.7542112145499998,
+            "p99": 1.2179930808399981
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        },
+        "runs": [
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:25:14.923Z",
+            "measurementFinishedAt": "2026-11-20T03:25:37.234Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 22.141929625,
+                "slowest": 1.489012459,
+                "fastest": 0.258279375,
+                "average": 0.4427899250399999,
+                "requestsPerSec": 2.2581591056791193,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 15992.282786419524
+              },
+              "latencyPercentiles": {
+                "p10": 0.321352416,
+                "p25": 0.341612917,
+                "p50": 0.397081125,
+                "p75": 0.48920225,
+                "p90": 0.638814958,
+                "p95": 0.7027665,
+                "p99": 1.489012459,
+                "p99.9": 1.489012459,
+                "p99.99": 1.489012459
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:25:59.010Z",
+            "measurementFinishedAt": "2026-11-20T03:26:28.185Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 28.96779275,
+                "slowest": 6.731582625,
+                "fastest": 0.245090583,
+                "average": 0.5793059983400001,
+                "requestsPerSec": 1.7260548786548466,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 12223.920650633625
+              },
+              "latencyPercentiles": {
+                "p10": 0.292109291,
+                "p25": 0.346381125,
+                "p50": 0.423380291,
+                "p75": 0.592687875,
+                "p90": 0.66455225,
+                "p95": 0.764060125,
+                "p99": 6.731582625,
+                "p99.9": 6.731582625,
+                "p99.99": 6.731582625
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:26:49.919Z",
+            "measurementFinishedAt": "2026-11-20T03:27:13.441Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 23.356981583,
+                "slowest": 0.753646958,
+                "fastest": 0.2414445,
+                "average": 0.4670875474600001,
+                "requestsPerSec": 2.14068756368724,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 15160.349326033032
+              },
+              "latencyPercentiles": {
+                "p10": 0.296946875,
+                "p25": 0.341937417,
+                "p50": 0.432134208,
+                "p75": 0.607596416,
+                "p90": 0.741885209,
+                "p95": 0.744865167,
+                "p99": 0.753646958,
+                "p99.9": 0.753646958,
+                "p99.99": 0.753646958
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:27:37.180Z",
+            "measurementFinishedAt": "2026-11-20T03:28:00.292Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 22.939696125,
+                "slowest": 0.8720955,
+                "fastest": 0.271053917,
+                "average": 0.45870789836,
+                "requestsPerSec": 2.179627826260057,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 15436.124265573722
+              },
+              "latencyPercentiles": {
+                "p10": 0.310218875,
+                "p25": 0.371848042,
+                "p50": 0.42853325,
+                "p75": 0.545569,
+                "p90": 0.666348833,
+                "p95": 0.777121875,
+                "p99": 0.8720955,
+                "p99.9": 0.8720955,
+                "p99.99": 0.8720955
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:28:27.720Z",
+            "measurementFinishedAt": "2026-11-20T03:28:52.508Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 24.620419292,
+                "slowest": 2.591265542,
+                "fastest": 0.272599792,
+                "average": 0.49235414422,
+                "requestsPerSec": 2.03083462580374,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 14382.370819942085
+              },
+              "latencyPercentiles": {
+                "p10": 0.321771333,
+                "p25": 0.364996667,
+                "p50": 0.432169667,
+                "p75": 0.530263,
+                "p90": 0.676506916,
+                "p95": 0.704112458,
+                "p99": 2.591265542,
+                "p99.9": 2.591265542,
+                "p99.99": 2.591265542
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:29:13.463Z",
+            "measurementFinishedAt": "2026-11-20T03:29:35.056Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 21.429433083,
+                "slowest": 1.421371834,
+                "fastest": 0.26992475,
+                "average": 0.42854790247999996,
+                "requestsPerSec": 2.333239512512586,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 16524.002227614135
+              },
+              "latencyPercentiles": {
+                "p10": 0.293095333,
+                "p25": 0.312992542,
+                "p50": 0.363723542,
+                "p75": 0.449281709,
+                "p90": 0.67996825,
+                "p95": 0.787503042,
+                "p99": 1.421371834,
+                "p99.9": 1.421371834,
+                "p99.99": 1.421371834
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:29:55.817Z",
+            "measurementFinishedAt": "2026-11-20T03:30:25.625Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 29.596134208,
+                "slowest": 5.911659917,
+                "fastest": 0.256275125,
+                "average": 0.59187874742,
+                "requestsPerSec": 1.6894098279391072,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 11964.400401464756
+              },
+              "latencyPercentiles": {
+                "p10": 0.337757083,
+                "p25": 0.362156125,
+                "p50": 0.446595958,
+                "p75": 0.575304292,
+                "p90": 0.842101625,
+                "p95": 0.944157833,
+                "p99": 5.911659917,
+                "p99.9": 5.911659917,
+                "p99.99": 5.911659917
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:30:49.963Z",
+            "measurementFinishedAt": "2026-11-20T03:31:15.082Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 24.936950709,
+                "slowest": 0.781196209,
+                "fastest": 0.288622583,
+                "average": 0.49869255254,
+                "requestsPerSec": 2.005056696124217,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 14199.811521951706
+              },
+              "latencyPercentiles": {
+                "p10": 0.338179708,
+                "p25": 0.37421,
+                "p50": 0.470459125,
+                "p75": 0.627147084,
+                "p90": 0.71650825,
+                "p95": 0.750574542,
+                "p99": 0.781196209,
+                "p99.9": 0.781196209,
+                "p99.99": 0.781196209
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:31:37.999Z",
+            "measurementFinishedAt": "2026-11-20T03:31:58.942Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 20.782592459,
+                "slowest": 0.813811792,
+                "fastest": 0.269708292,
+                "average": 0.41559861168000006,
+                "requestsPerSec": 2.405859620191285,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 17038.29783019468
+              },
+              "latencyPercentiles": {
+                "p10": 0.309108667,
+                "p25": 0.327086958,
+                "p50": 0.36367375,
+                "p75": 0.448319583,
+                "p90": 0.660140208,
+                "p95": 0.795823708,
+                "p99": 0.813811792,
+                "p99.9": 0.813811792,
+                "p99.99": 0.813811792
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:32:19.988Z",
+            "measurementFinishedAt": "2026-11-20T03:32:42.503Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 22.35278675,
+                "slowest": 0.815166375,
+                "fastest": 0.23865325,
+                "average": 0.44700685088,
+                "requestsPerSec": 2.2368575587113315,
+                "totalData": 354100,
+                "sizePerRequest": 7082,
+                "sizePerSec": 15841.425230793651
+              },
+              "latencyPercentiles": {
+                "p10": 0.313311916,
+                "p25": 0.35113375,
+                "p50": 0.402846334,
+                "p75": 0.510424625,
+                "p90": 0.725867875,
+                "p95": 0.756967916,
+                "p99": 0.815166375,
+                "p99.9": 0.815166375,
+                "p99.99": 0.815166375
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          }
+        ],
+        "statistics": {
+          "rounds": 10,
+          "requests": 500,
+          "units": "seconds",
+          "min": 0.23865325,
+          "max": 6.731582625,
+          "p99": 1.2179930808399981,
+          "bootstrap": {
+            "method": "percentile bootstrap",
+            "confidenceLevel": 0.95,
+            "resamples": 10000,
+            "seed": 1987012964,
+            "quantiles": "linear interpolation (R-7)",
+            "relativeHalfWidthTarget": 0.05,
+            "assumptions": "Rounds are exchangeable independent clusters; within-round observations remain together. Sequential rounds may still be correlated.",
+            "unit": "whole round",
+            "estimand": "request-weighted pooled mean and pooled request percentiles"
+          },
+          "metrics": {
+            "mean": {
+              "estimate": 0.4821970178420001,
+              "ci95": [0.4498354293926001, 0.51994386297265],
+              "relativeCIHalfWidth": 0.07269687595104765,
+              "meetsPrecisionTarget": false
+            },
+            "p50": {
+              "estimate": 0.40673000049999997,
+              "ci95": [0.382776646, 0.4299642085],
+              "relativeCIHalfWidth": 0.05800846070119188,
+              "meetsPrecisionTarget": false
+            },
+            "p95": {
+              "estimate": 0.7542112145499998,
+              "ci95": [0.74301915895, 0.7966732205499992],
+              "relativeCIHalfWidth": 0.035569652482568756,
+              "meetsPrecisionTarget": true
+            }
+          }
+        }
+      },
+      "metrics": {
+        "status": "success",
+        "window": {
+          "requested": {
+            "start": "2026-11-20T03:24:48.923Z",
+            "end": "2026-11-20T03:32:42.504Z"
+          },
+          "queried": {
+            "start": "2026-11-20T03:23:18.000Z",
+            "end": "2026-11-20T03:34:13.000Z"
+          }
+        },
+        "units": {
+          "cpuTime": "microseconds",
+          "wallTime": "microseconds",
+          "memoryUsageBytes": "bytes"
+        },
+        "metrics": {
+          "sum": {
+            "errors": 0,
+            "requests": 1007,
+            "subrequests": 1007
+          },
+          "quantiles": {
+            "cpuTimeP50": 1850,
+            "cpuTimeP90": 2680,
+            "cpuTimeP99": 6008,
+            "cpuTimeP999": 11576,
+            "memoryUsageBytesP50": 3455472,
+            "memoryUsageBytesP90": 4872532,
+            "memoryUsageBytesP99": 5715510,
+            "memoryUsageBytesP999": 5743838,
+            "wallTimeP50": 338346,
+            "wallTimeP90": 623319,
+            "wallTimeP99": 879069,
+            "wallTimeP999": 5871945
+          }
+        }
+      },
+      "quietAttempts": 1,
+      "resultAttempts": 1
+    },
+    {
+      "id": "emoji-image",
+      "description": "Generate a 1200 × 630 PNG with Hello 👋 🌍 🚀 using browser-native emoji",
+      "status": "success",
+      "latency": {
+        "status": "success",
+        "url": "https://void-perf-image-gen.cloudflare-internal-11e.workers.dev/run?width=1200&height=630&text=Hello%20%F0%9F%91%8B%20%F0%9F%8C%8D%20%F0%9F%9A%80",
+        "ohaVersion": "oha 1.17.0",
+        "measurementStartedAt": "2026-11-20T03:37:20.132Z",
+        "measurementFinishedAt": "2026-11-20T03:45:49.019Z",
+        "settings": {
+          "requests": 50,
+          "runs": 10,
+          "duration": null,
+          "connections": 1,
+          "rate": null,
+          "timeout": "30s",
+          "httpVersion": "1.1",
+          "keepAlive": true,
+          "warmupRequests": 50,
+          "access": "temporary-login",
+          "request": {
+            "method": "GET",
+            "status": 200
+          }
+        },
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 262.476072125,
+            "totalData": 11734000,
+            "average": 0.524903413736,
+            "fastest": 0.248042042,
+            "slowest": 9.686834584,
+            "requestsPerSec": 1.9049355468939018
+          },
+          "latencyPercentiles": {
+            "p50": 0.4406071245,
+            "p95": 0.7742620187499997,
+            "p99": 0.9968462864199995
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        },
+        "runs": [
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:37:44.491Z",
+            "measurementFinishedAt": "2026-11-20T03:38:11.191Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 26.514473709,
+                "slowest": 0.900309709,
+                "fastest": 0.273776917,
+                "average": 0.5302383258599999,
+                "requestsPerSec": 1.8857624914134403,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 44255.07414849062
+              },
+              "latencyPercentiles": {
+                "p10": 0.365190584,
+                "p25": 0.431884875,
+                "p50": 0.533322916,
+                "p75": 0.628521458,
+                "p90": 0.7186625,
+                "p95": 0.739513208,
+                "p99": 0.900309709,
+                "p99.9": 0.900309709,
+                "p99.99": 0.900309709
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:38:38.089Z",
+            "measurementFinishedAt": "2026-11-20T03:39:03.835Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 25.592993958,
+                "slowest": 0.996206416,
+                "fastest": 0.29901475,
+                "average": 0.5118135783600001,
+                "requestsPerSec": 1.9536596649088303,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 45848.48501608043
+              },
+              "latencyPercentiles": {
+                "p10": 0.346940791,
+                "p25": 0.375215208,
+                "p50": 0.478068125,
+                "p75": 0.626903709,
+                "p90": 0.783473958,
+                "p95": 0.799867375,
+                "p99": 0.996206416,
+                "p99.9": 0.996206416,
+                "p99.99": 0.996206416
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:39:26.504Z",
+            "measurementFinishedAt": "2026-11-20T03:39:50.056Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 23.379268542,
+                "slowest": 0.900743167,
+                "fastest": 0.2919565,
+                "average": 0.4675402200199999,
+                "requestsPerSec": 2.1386468918040284,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 50189.76525685695
+              },
+              "latencyPercentiles": {
+                "p10": 0.327296,
+                "p25": 0.364269291,
+                "p50": 0.432657459,
+                "p75": 0.562675333,
+                "p90": 0.692902709,
+                "p95": 0.697653792,
+                "p99": 0.900743167,
+                "p99.9": 0.900743167,
+                "p99.99": 0.900743167
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:40:19.580Z",
+            "measurementFinishedAt": "2026-11-20T03:40:47.422Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 27.646109833,
+                "slowest": 5.7145025,
+                "fastest": 0.248042042,
+                "average": 0.55287750582,
+                "requestsPerSec": 1.8085727178988886,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 42443.584543651115
+              },
+              "latencyPercentiles": {
+                "p10": 0.308867583,
+                "p25": 0.345586125,
+                "p50": 0.393830417,
+                "p75": 0.49546475,
+                "p90": 0.728235541,
+                "p95": 0.882396792,
+                "p99": 5.7145025,
+                "p99.9": 5.7145025,
+                "p99.99": 5.7145025
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:41:11.447Z",
+            "measurementFinishedAt": "2026-11-20T03:41:46.056Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 34.4308645,
+                "slowest": 9.686834584,
+                "fastest": 0.25408025,
+                "average": 0.6885631074199995,
+                "requestsPerSec": 1.452185436703165,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 34079.88782854988
+              },
+              "latencyPercentiles": {
+                "p10": 0.326479792,
+                "p25": 0.369087167,
+                "p50": 0.474283542,
+                "p75": 0.65041425,
+                "p90": 0.7339805,
+                "p95": 0.808577542,
+                "p99": 9.686834584,
+                "p99.9": 9.686834584,
+                "p99.99": 9.686834584
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:42:09.001Z",
+            "measurementFinishedAt": "2026-11-20T03:42:32.693Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 23.513355875,
+                "slowest": 0.833824291,
+                "fastest": 0.289159,
+                "average": 0.47021942756,
+                "requestsPerSec": 2.1264510376913606,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 49903.55295254086
+              },
+              "latencyPercentiles": {
+                "p10": 0.321595583,
+                "p25": 0.365445083,
+                "p50": 0.414498959,
+                "p75": 0.503631542,
+                "p90": 0.7136975,
+                "p95": 0.78513625,
+                "p99": 0.833824291,
+                "p99.9": 0.833824291,
+                "p99.99": 0.833824291
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:42:57.625Z",
+            "measurementFinishedAt": "2026-11-20T03:43:31.114Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 33.315965875,
+                "slowest": 9.029538208,
+                "fastest": 0.273251792,
+                "average": 0.6662696691000001,
+                "requestsPerSec": 1.5007819430358926,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 35220.35063916633
+              },
+              "latencyPercentiles": {
+                "p10": 0.321882375,
+                "p25": 0.362798583,
+                "p50": 0.476966708,
+                "p75": 0.636669625,
+                "p90": 0.752575292,
+                "p95": 0.832932708,
+                "p99": 9.029538208,
+                "p99.9": 9.029538208,
+                "p99.99": 9.029538208
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:43:54.052Z",
+            "measurementFinishedAt": "2026-11-20T03:44:18.242Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 24.042269,
+                "slowest": 1.124110041,
+                "fastest": 0.263168541,
+                "average": 0.4807910449599999,
+                "requestsPerSec": 2.079670600141775,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 48805.70964412718
+              },
+              "latencyPercentiles": {
+                "p10": 0.340895125,
+                "p25": 0.377226333,
+                "p50": 0.457471625,
+                "p75": 0.535264708,
+                "p90": 0.698815583,
+                "p95": 0.748576542,
+                "p99": 1.124110041,
+                "p99.9": 1.124110041,
+                "p99.99": 1.124110041
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:44:41.678Z",
+            "measurementFinishedAt": "2026-11-20T03:45:05.632Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 23.78774775,
+                "slowest": 0.85678125,
+                "fastest": 0.255843333,
+                "average": 0.4757080782600001,
+                "requestsPerSec": 2.1019224066725695,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 49327.91503979186
+              },
+              "latencyPercentiles": {
+                "p10": 0.339681667,
+                "p25": 0.378887667,
+                "p50": 0.427905541,
+                "p75": 0.570160583,
+                "p90": 0.71740275,
+                "p95": 0.82852325,
+                "p99": 0.85678125,
+                "p99.9": 0.85678125,
+                "p99.99": 0.85678125
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          },
+          {
+            "status": "success",
+            "measurementStartedAt": "2026-11-20T03:45:28.551Z",
+            "measurementFinishedAt": "2026-11-20T03:45:49.018Z",
+            "oha": {
+              "summary": {
+                "successRate": 1,
+                "total": 20.253023083,
+                "slowest": 0.917816333,
+                "fastest": 0.259671166,
+                "average": 0.40501318,
+                "requestsPerSec": 2.4687672450227467,
+                "totalData": 1173400,
+                "sizePerRequest": 23468,
+                "sizePerSec": 57937.02970619382
+              },
+              "latencyPercentiles": {
+                "p10": 0.297337,
+                "p25": 0.333376834,
+                "p50": 0.37477875,
+                "p75": 0.433482083,
+                "p90": 0.538735125,
+                "p95": 0.654014125,
+                "p99": 0.917816333,
+                "p99.9": 0.917816333,
+                "p99.99": 0.917816333
+              },
+              "statusCodeDistribution": {
+                "200": 50
+              }
+            }
+          }
+        ],
+        "statistics": {
+          "rounds": 10,
+          "requests": 500,
+          "units": "seconds",
+          "min": 0.248042042,
+          "max": 9.686834584,
+          "p99": 0.9968462864199995,
+          "bootstrap": {
+            "method": "percentile bootstrap",
+            "confidenceLevel": 0.95,
+            "resamples": 10000,
+            "seed": 1987012964,
+            "quantiles": "linear interpolation (R-7)",
+            "relativeHalfWidthTarget": 0.05,
+            "assumptions": "Rounds are exchangeable independent clusters; within-round observations remain together. Sequential rounds may still be correlated.",
+            "unit": "whole round",
+            "estimand": "request-weighted pooled mean and pooled request percentiles"
+          },
+          "metrics": {
+            "mean": {
+              "estimate": 0.524903413736,
+              "ci95": [0.47612661101599996, 0.5819069246735],
+              "relativeCIHalfWidth": 0.10076169337955786,
+              "meetsPrecisionTarget": false
+            },
+            "p50": {
+              "estimate": 0.4406071245,
+              "ci95": [0.4071739985999999, 0.4665277295],
+              "relativeCIHalfWidth": 0.06735448384698109,
+              "meetsPrecisionTarget": false
+            },
+            "p95": {
+              "estimate": 0.7742620187499997,
+              "ci95": [0.741689167, 0.808577542],
+              "relativeCIHalfWidth": 0.043194921990353685,
+              "meetsPrecisionTarget": true
+            }
+          }
+        }
+      },
+      "metrics": {
+        "status": "success",
+        "window": {
+          "requested": {
+            "start": "2026-11-20T03:37:20.132Z",
+            "end": "2026-11-20T03:45:49.019Z"
+          },
+          "queried": {
+            "start": "2026-11-20T03:35:50.000Z",
+            "end": "2026-11-20T03:47:20.000Z"
+          }
+        },
+        "units": {
+          "cpuTime": "microseconds",
+          "wallTime": "microseconds",
+          "memoryUsageBytes": "bytes"
+        },
+        "metrics": {
+          "sum": {
+            "errors": 0,
+            "requests": 1005,
+            "subrequests": 1005
+          },
+          "quantiles": {
+            "cpuTimeP50": 1923,
+            "cpuTimeP90": 2729,
+            "cpuTimeP99": 6493,
+            "cpuTimeP999": 11843,
+            "memoryUsageBytesP50": 4335424,
+            "memoryUsageBytesP90": 5837884,
+            "memoryUsageBytesP99": 6663260,
+            "memoryUsageBytesP999": 6827536,
+            "wallTimeP50": 378420,
+            "wallTimeP90": 653603,
+            "wallTimeP99": 854029,
+            "wallTimeP999": 8987287
+          }
+        }
+      },
+      "quietAttempts": 1,
+      "resultAttempts": 1
+    }
+  ]
+}

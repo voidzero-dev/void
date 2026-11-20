@@ -2,7 +2,7 @@
 
 Benchmarks build and deployment performance, bundle sizes, and the latency of
 deployed Cloudflare Workers. The apps compare direct Workers, Void, and
-`@void/image`.
+`void/image` with Cloudflare Browser Run or Takumi.
 
 ## Usage
 
@@ -14,8 +14,14 @@ vp run build
 vp run --filter ./benchmark benchmark baseline-workers
 ```
 
-Available benchmarks: `baseline-workers`, `baseline-void`, `image-response-bare`,
-and `image-response`.
+Available benchmarks:
+
+- `baseline-workers` and `baseline-void`: Worker and Void baselines.
+- `image-gen`: Cloudflare Browser Run, with native browser emoji.
+- `image-gen-takumi`: the same image workloads with Takumi and Twemoji.
+
+The Browser Run benchmark requires Browser Run on the target Cloudflare account.
+Its render requests count toward Browser Run usage.
 
 Install `oha` and supply `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` through
 your environment or credential wrapper. The token needs Workers deployment,
@@ -39,8 +45,9 @@ vp run --filter ./benchmark compare
 The overview is **[`benchmark/report.md`](./report.md)**, with Mermaid charts and
 links to the individual reports. Commit it alongside the source reports.
 
-An optional `benchmark/<id>/benchmark.json` configures deployment count and latency
-workloads. Missing fields use defaults: 30 deployments, then 10 latency rounds of
+An optional `benchmark/<id>/benchmark.jsonc` configures deployment count and latency
+workloads. Use `//` or `/* … */` comments to temporarily disable entries. Missing
+fields use defaults: 30 deployments, then 10 latency rounds of
 500 requests with 50 warmup requests per round. CLI options override configuration;
 `--path` selects one ad-hoc workload. Set `"latency": []` for deployment only.
 
@@ -54,8 +61,8 @@ except the `test` and `typecheck` package tasks.
 Runs the complete benchmark. All latency workloads use the final deployment.
 
 ```sh
-vp run --filter ./benchmark benchmark image-response
-vp run --filter ./benchmark benchmark image-response --path '/run?width=64&height=64' --deploy-runs 5 -n 200
+vp run --filter ./benchmark benchmark image-gen
+vp run --filter ./benchmark benchmark image-gen --path '/run?width=64&height=64' --deploy-runs 5 -n 200
 ```
 
 | Argument                    | Description                                                        |
@@ -104,7 +111,7 @@ Measures client latency with `oha`, using the saved deployment or an explicit UR
 Does not deploy or retrieve Cloudflare metrics.
 
 ```sh
-vp run --filter ./benchmark latency image-response-bare --path /run
+vp run --filter ./benchmark latency image-gen-takumi --path '/run?width=64&height=64'
 vp run --filter ./benchmark latency baseline-workers --url https://example.workers.dev -z 30s
 ```
 
@@ -125,7 +132,7 @@ vp run --filter ./benchmark latency baseline-workers --url https://example.worke
 | `--access`              | Authenticate an explicit `--url` through employee Access.                                                       |
 
 Use either `--requests` or `--duration`, not both. This standalone script uses its
-own arguments, not `benchmark.json`. Results are saved under
+own arguments, not `benchmark.jsonc`. Results are saved under
 `benchmark/<id>/artifacts/latency/`.
 
 ### `metrics`

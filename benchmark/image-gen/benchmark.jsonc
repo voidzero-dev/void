@@ -1,0 +1,31 @@
+{
+  "latency": [
+    {
+      "id": "baseline",
+      "description": "Empty response with image code present in the deployment",
+      "request": { "path": "/" },
+      "expect": { "bodyBytes": 0 },
+      "settings": { "requests": 1000 },
+    },
+    {
+      "id": "small-image",
+      "description": "Generate a 64 × 64 PNG",
+      "request": { "path": "/run?width=64&height=64" },
+      "settings": { "requests": 250 },
+    },
+    {
+      "id": "og-image",
+      "description": "Generate a 1200 × 630 Open Graph PNG",
+      "request": { "path": "/run?width=1200&height=630" },
+      "settings": { "requests": 50 },
+    },
+    {
+      "id": "emoji-image",
+      "description": "Generate a 1200 × 630 PNG with Hello 👋 🌍 🚀 using browser-native emoji",
+      "request": {
+        "path": "/run?width=1200&height=630&text=Hello%20👋%20🌍%20🚀",
+      },
+      "settings": { "requests": 50 },
+    },
+  ],
+}

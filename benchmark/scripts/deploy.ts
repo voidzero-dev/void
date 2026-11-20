@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path/posix';
 import { performance } from 'node:perf_hooks';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs, stripVTControlCharacters } from 'node:util';
 import { getMachineInfo } from './machine.ts';
 import { bootstrapMethod, parseRunCount, summarizeSamples } from './statistics.ts';
@@ -63,13 +63,21 @@ export function parseDeployArgs(args: Array<string>) {
 
 async function deploy(id: string, requestedRuns: number, benchmark: boolean) {
   const app = path.join(benchmarkRoot, id);
+  const configPath = path.join(app, 'cloudflare.config.ts');
 
   if (
-    !fs.existsSync(path.join(app, 'cloudflare.config.ts')) ||
+    !fs.existsSync(configPath) ||
     fs.realpathSync(app) !== app ||
     readJson(path.join(app, 'package.json')).scripts?.build !== 'vp build'
   ) {
     throw new Error(`Not a benchmark app using vp build: ${id}`);
+  }
+
+  // Resolve the Worker name once, outside the measured deployment workflow.
+  const { default: config } = await import(pathToFileURL(configPath).href);
+  const workerName: unknown = config?.worker?.name;
+  if (typeof workerName !== 'string' || !workerName.trim()) {
+    throw new Error(`Missing Worker name in ${id}/cloudflare.config.ts (worker.name).`);
   }
 
   // Keep local machine/network inspection outside the measured deployment workflow.
@@ -106,6 +114,7 @@ async function deploy(id: string, requestedRuns: number, benchmark: boolean) {
       const run = await deployAttempt(
         id,
         app,
+        workerName,
         artifacts,
         machine,
         index === requestedRuns - 1,
@@ -204,6 +213,7 @@ async function deploy(id: string, requestedRuns: number, benchmark: boolean) {
 async function deployAttempt(
   id: string,
   app: string,
+  workerName: string,
   artifacts: string,
   machine: ReturnType<typeof getMachineInfo>,
   setupAccess: boolean,
@@ -222,7 +232,7 @@ async function deployAttempt(
     url: null,
     bundle: null,
     timings: {
-      ...parseDeployLog('', `void-perf-${id}`),
+      ...parseDeployLog('', workerName),
       cfDeployWallMs: null,
       workflowWallMs: null,
       cleanWallMs: null,
@@ -384,10 +394,7 @@ async function deployAttempt(
       stats.timings.cfDeployWallMs = performance.now() - deployStarted;
       Object.assign(
         stats.timings,
-        parseDeployLog(
-          fs.readFileSync(path.join(directory, 'deploy.log'), 'utf8'),
-          `void-perf-${id}`,
-        ),
+        parseDeployLog(fs.readFileSync(path.join(directory, 'deploy.log'), 'utf8'), workerName),
       );
     }
 
@@ -405,17 +412,21 @@ async function deployAttempt(
 
     const record = records[0];
 
+    if (record.worker_name !== workerName) {
+      throw new Error(
+        `Deploy JSON Worker name mismatch: expected ${JSON.stringify(workerName)}, got ${JSON.stringify(record.worker_name) ?? 'no name'}.`,
+      );
+    }
+
     if (
-      record.worker_name !== `void-perf-${id}` ||
       !Number.isFinite(record.bundle_size?.raw_bytes) ||
       !Number.isFinite(record.bundle_size?.gzip_bytes) ||
       record.bundle_size.raw_bytes < 0 ||
       record.bundle_size.gzip_bytes < 0
     ) {
-      throw new Error('Deploy JSON is missing the benchmark Worker name or bundle sizes.');
+      throw new Error('Deploy JSON is missing valid bundle sizes.');
     }
 
-    const workerName: string = record.worker_name;
     stats.workerName = workerName;
     stats.versionId = record.version_id;
     stats.bundle = {

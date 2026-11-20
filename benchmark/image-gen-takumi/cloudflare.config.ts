@@ -2,7 +2,7 @@ import { defineConfig } from 'cf/config';
 
 export default defineConfig({
   worker: {
-    name: 'void-perf-image-response-bare',
+    name: 'void-perf-image-gen-takumi',
     compatibilityDate: '2026-11-10',
     compatibilityFlags: ['nodejs_als'],
     workersDev: true,

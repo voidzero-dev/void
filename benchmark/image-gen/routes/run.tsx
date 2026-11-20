@@ -1,6 +1,6 @@
-import { ImageResponse } from '@void/image/generate';
+/** @jsxImportSource void/jsx */
 import { defineHandler } from 'void';
-import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
 import { parseImageQuery } from '../src/query.ts';
 
 export const GET = defineHandler(async (c) => {
@@ -19,11 +19,11 @@ export const GET = defineHandler(async (c) => {
     return new Response(null, { headers: { 'Cache-Control': 'no-store' } });
   }
 
-  const content = html`<div
-    style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; font-size: 64px; background: white; color: black"
-  >
-    ${text}
-  </div>`;
+  const content = (
+    <div style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; font-size: 64px; background: white; color: black">
+      {text}
+    </div>
+  );
 
   // Drain each body before rendering again. Do not accumulate PNGs in the stress workload.
   for (let index = 1; index < iterations; index++) {
