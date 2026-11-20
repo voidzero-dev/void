@@ -1,6 +1,6 @@
 ---
 title: Security audits on deploy
-status: planned
+status: implemented
 created: 2026-11-18
 ---
 
@@ -32,6 +32,27 @@ this file says where the code goes, in what order, and how we test it.
 - Capability off: the install is the same as today, except the idle
   `SecurityScanScheduler` DO class in the API Worker.
 - Native `void deploy --platform cloudflare` does not change at all.
+
+## Scanner invariants
+
+Every change to the scanner, the controller, the model proxy or the gate must keep these.
+Each one has tests (named) or a spike that checks it.
+
+| #   | Invariant                                                                                                                                            | Held by                                                                                      | Checked by                                                                                                                                                                                             |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| I1  | A scan never blocks, slows or fails a deploy, rollback, build or GitHub check (D45)                                                                  | go-live tx writes a row only; all scan work runs after commit; the GitHub check is `neutral` | `security-enqueue.test.ts`, `security-github-check.test.ts`                                                                                                                                            |
+| I2  | The container has no internet. It reaches only `model.void.internal` and `copy.void.internal`, and the input comes in over `exec` stdin              | `start({ enableInternet: false, env: {} })`, outbound intercepts in the controller           | S11 (egress 19/19); S1 not recorded                                                                                                                                                                    |
+| I3  | No credential enters the container: no token in env or files; identity is in service-binding props; own provider keys stay in the API (M33)          | `ScanModelOutbound` / `CopyOutbound` props, proxy adds headers                               | S11, `security-byok.test.ts`; S1 not recorded                                                                                                                                                          |
+| I4  | Every controller write carries `(scan, attempt)`; a write from an ended or reaped attempt is refused                                                 | lease + attempt fence in `control.ts`                                                        | `security-scan-control.test.ts`                                                                                                                                                                        |
+| I5  | Only a human closes a finding; a scan adds, confirms or reopens. A human severity is never changed by a scan                                         | `findings.ts` `decideSeenFinding`                                                            | `security-findings-rules.test.ts`                                                                                                                                                                      |
+| I6  | No project goes public through a gated request without a gate pass or a recorded bypass; no bypass while an urgent finding is open (D46, D50)        | `public-gate-judge.ts`, bypass under the project lock                                        | `security-gate-bypass.test.ts` ("public gate bypass races", #94), `security-public-gate.test.ts` (bypass refused while urgent open), `security-gate-judge.test.ts`, `security-gate-zero-trust.test.ts` |
+| I7  | A scan starts only when its worst case fits every cap; each model call is metered against the hold; own-key spend counts too (R14)                   | scheduler reserve, proxy `UPDATE … RETURNING`                                                | `security-budget.test.ts`, S11 (caps 12/12)                                                                                                                                                            |
+| I8  | No code goes to a third-party model before its provider notice is accepted; a fallback never moves a `@cf` scan to a third party                     | model resolve, `fallback.ts`                                                                 | `security-fallback.test.ts`, `api-project-security.test.ts`                                                                                                                                            |
+| I9  | Stored secret values are replaced before any model sees code; a secret finding never stores the value; no runtime copy when a value is in the bundle | `input/redact.ts`, `runtime-copy-plan.ts`                                                    | `security-redact.test.ts`, `security-runtime-copy.test.ts`                                                                                                                                             |
+| I10 | A refused, timed-out, failed or incomplete scan is never "clean" for the gate, the page or the GitHub check                                          | `ingest.ts` outcome table                                                                    | S9 (24/24), `security-ingest.test.ts`                                                                                                                                                                  |
+| I11 | Files from the scanned code (`AGENTS.md`, `.claude/`, `.codex/`, `.agents/skills`, `.mcp.json`) are input only, never engine config                  | Engine A `settingSources: []`, Engine C empty cwd and own `CODEX_HOME`                       | S2, S3, S11                                                                                                                                                                                            |
+| I12 | A local check never opens, reopens, proves or holds anything (R13)                                                                                   | `storeLocalOutcome`                                                                          | `security-local-check.test.ts`                                                                                                                                                                         |
+| I13 | Capability off: only the idle `SecurityScanScheduler` class is new; native Cloudflare deploys are unchanged                                          | runtime manifest, CLI target checks                                                          | capability-off cases in `security-enqueue.test.ts` and `api-project-security.test.ts`; `cloudflare-deploy.test.ts`, `cf-version-runner.test.ts`, `worker-config.test.ts`                               |
 
 ## Architecture
 
@@ -2080,6 +2101,51 @@ POST /projects/:id/security/findings/:fid/severity {severity: level | null, comm
 
 **M36 Final docs and full verification.** Phase 2/3 docs; `vp run test --base origin/main`,
 `vp check`, then `vp test run` once.
+
+As built (M36):
+
+```
+docs table "Phase 2/3" row
+  project.md · platform-security.md · platform-config.md · dashboard README ─► already done per milestone (M25–M35)
+  plans.md ─────────────────► new "Security Scan Cap" section (dashboard field + --security-cap)
+  security-audits.md guide ─► cap-first step · "Scan live apps again" (rescan, backfill, sweeps, fallback)
+                              · "GitHub checks" (M28) · dashboard page · streak / platform / digest emails
+                              · webhook pointer · local check sends no email
+  SKILL.md ─────────────────► project.md routing row · rule: no scan, check or severity edit unless asked
+  this file ────────────────► status implemented · Scanner invariants · Live check status (below)
+```
+
+- Verification (2026-11-20, worktree at `fdee96c7b` + these doc edits): `vp check` clean
+  (3230 files formatted, 2675 linted and typechecked). `vp run test --base origin/main` picked the
+  full selection (the spike scripts under `platform/scripts/` have no ownership rule), rebuilt the
+  public packages and ran 896 files passed, 2 skipped (898), 19309 tests passed, 38 skipped, 225 s.
+  `vp test run`: the same counts, 228 s. No failing file in either run. The 2 skipped files are
+  opt-in by env (for example the Docker recorded run, `VOID_SCANNER_E2E=1`). The docs build passes
+  (VitePress fails on dead links).
+- Deviations: the Docs table named `plans.md` only as "security cap"; it is the admin guide
+  (`docs/guide/platform/administration/plans.md`). `cli/project.md`, `cli/platform-security.md`,
+  `cli/platform-config.md` and the dashboard README were already written by M25–M35, so M36 only
+  checked them. The test strategy's `security-capability-off.test.ts` and
+  `platform/scripts/security-smoke-test.ts` were never written: capability-off cases live in
+  `security-enqueue.test.ts`, `api-project-security.test.ts` and the operator probe and policy
+  tests, and the smoke script is still open (listed below). No code change in M36.
+
+### Live check status
+
+| Check                                    | Status                                                                                                                                                                        |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1 egress, S1b image copy                | S1 results are not recorded here; its egress lock is in M6 and S2 / S3 / S11 check egress again. S1b ran with a small image only (R1); a full engine image copy is unmeasured |
+| S2 / S3 lockdown (Engines A / C)         | PASS locally through the gateway; live quality BLOCKED (scratch account had no Unified Billing credits)                                                                       |
+| S4 / S8 Engine B quality, cost, time     | PASS on the default `@cf/deepseek-ai/deepseek-v4.1-flash-1017` (10/10, 0 false, 8/8 valid); glm-5.3 FAILS                                                                     |
+| S5 static confirmations                  | PASS (20/20 planted bugs confirmed with a trace)                                                                                                                              |
+| S6 engine parity                         | Not run (needs Engines A / C live)                                                                                                                                            |
+| S7 inputs, S9 refusals, S11 red team     | PASS locally after fixes (S7 26/26, S9 24/24, S11 160/160); S9 live refusal rates not run                                                                                     |
+| S10 gateway                              | PASS for no bodies and no cache on REST; binding path and meter vs gateway not run (0094 check A pending)                                                                     |
+| S12 legal                                | Open for the user (checklist above)                                                                                                                                           |
+| S13 runtime copy                         | PASS (guard added); the M30 copy code itself is not run live                                                                                                                  |
+| BYOK (M33)                               | Not run live; needs a real provider key. The first live probe with a saved key is the check                                                                                   |
+| Engine A / C images                      | Digests stay `null` until the images are published at release (ghcr, then copied by the probe); until then probe check 5 keeps `openai/*` and `anthropic/*` unpickable        |
+| Release smoke (`security-smoke-test.ts`) | Not written; to do before release                                                                                                                                             |
 
 ## Phase 0 spikes
 

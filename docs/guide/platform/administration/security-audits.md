@@ -29,10 +29,11 @@ The upgrade that adds security audits includes a database migration for the scan
 ```sh
 void platform upgrade --security-audits
 void platform security probe
+void platform security budget --platform-usd 500
 void platform security policy public
 ```
 
-The probe checks that the account can run scans and names anything missing. Turning a scan mode on runs it first and refuses when it fails. The probe runs again each day while scans are on. If it starts failing, the policy stays on, new deploys are not scanned, and the admin pages show a banner.
+The probe checks that the account can run scans and names anything missing. Spending caps are off by default, so set a [platform cap](#spending-caps) before you choose a mode. Turning a scan mode on runs the probe first and refuses when it fails. The probe runs again each day while scans are on. If it starts failing, the policy stays on, new deploys are not scanned, and the admin pages show a banner.
 
 Choose a scan mode:
 
@@ -42,7 +43,7 @@ Choose a scan mode:
 | Public projects only | Projects that are public, or that have no Zero Trust protection |
 | All projects         | Every project                                                   |
 
-Turning a mode on scans nothing right away. Each project is scanned at its next deploy, and the first scan of a project reviews the whole deployment. Later scans review what changed since the last good scan. Use `--plan` to preview how many projects a change reaches.
+Turning a mode on scans nothing right away. Each project is scanned at its next deploy, and the first scan of a project reviews the whole deployment. Later scans review what changed since the last good scan. Use `--plan` to preview how many projects a change reaches. To scan apps that are already live, see [Scan live apps again](#scan-live-apps).
 
 A platform admin can also give one project its own rule, from the project's **Security** section in the administrator UI or with the CLI:
 
@@ -127,12 +128,34 @@ Open urgent findings show:
 
 - at the end of each `void deploy` to a Void platform, with titles only for a signed-in user who can deploy. CI runs and readers see counts and ids,
 - in `void project security status`, and as a `Security` line in `void project status`,
-- on the project's security page, opened with `void project security open`, where project members can also comment, resolve, pick the model and set the budget,
+- on the project's security page, opened with `void project security open`, where collaborators and up can comment, and the owner and project admins can also resolve, pick the model, set the budget, and bypass a held public request. A platform with the user dashboard has the same page behind **Security** on its **Projects** list,
+- on GitHub, for deploys built from a [connected repository](#github-checks),
 - in the administrator UI, with an **Urgent** filter.
 
 To use findings in a code scanning tool, export them as SARIF with `void project security list --format sarif` (or `void platform security findings --format sarif` for every project).
 
 Every scan that does not succeed says what happened, and the next scan covers those changes. A refused, timed-out, or failed scan is never counted as clean.
+
+## Scan live apps again {#scan-live-apps}
+
+Deploy scans review what changed. These scans review more. Each one costs money and counts toward the [spending caps](#spending-caps):
+
+| To                                                      | Run                                                                           | Who                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------- |
+| Scan one project's live deployment in full now          | `void project security scan`, or `void platform security rescan <project-id>` | Project owner or admin, or a platform administrator |
+| Scan live apps deployed before security audits were on  | `void platform security backfill`                                             | Platform administrators                             |
+| Review every live app in full on a schedule             | `void platform security sweeps on --every-days 30`                            | Platform administrators                             |
+| Scan again on Cloudflare when a third-party model fails | `void platform security fallback on`                                          | Platform administrators                             |
+
+A full scan names its model and the most it can cost, then asks first. Backfill handles up to 50 projects at a time; run it again for the rest. A sweep is a deeper review than a deploy scan, and only a few start each hour, so deploy scans keep moving. Fallback scans the same changes once more on the default `@cf` model when a third-party model refuses, times out, or returns output that cannot be read. It never sends code from a `@cf` scan to a third party. Sweeps and fallback are off by default. A deployment whose code is no longer stored cannot be scanned again until the project deploys. See [Findings and scans](/reference/cli/platform-security#findings-scans).
+
+## GitHub checks {#github-checks}
+
+Each scan of a deploy built from a repository connected with `void github connect` adds a `Void Security Audit` check to the commit. This works with either executor, `container` or `github_actions`. A `void deploy` from a terminal, or from a CI job that is not a connected build, gets no check. The check is always **neutral**, so it never blocks a merge. It shows only the number of urgent findings and a link to the project's security page, never titles or files, because anyone who can see the repository can read it. A scan that did not finish says so, and is never shown as clean.
+
+While an urgent finding is open, each open pull request for that commit (up to five) also gets one comment with the same counts, which later scans update in place. The comment needs the GitHub App's **Pull requests: Read and write** permission. With read-only access, only the check is posted.
+
+**Re-run** on the check starts a full rescan of the live deployment when the person who clicks it signs in to the platform with that GitHub account and is the project's owner or an admin. For anyone else, or on a check of an older deployment, it does nothing. **Re-run all** reruns the build instead.
 
 ## Spending caps
 
@@ -148,20 +171,25 @@ void platform security budget --platform-usd 500 --project-default-usd 50
 void platform config plans set pro --security-cap 200
 ```
 
-A plan cap applies to each project whose owner is on that plan, even with project caps off. `--security-cap none` gives the plan's projects no cap, and `inherit` returns it to the default.
+A plan cap applies to each project whose owner is on that plan, even with project caps off. `--security-cap none` gives the plan's projects no cap, and `inherit` returns it to the default. See [Security scan cap](./plans.md#security-scan-cap).
 
 ## Emails
 
-| Email                                        | Sent to                                            |
-| -------------------------------------------- | -------------------------------------------------- |
-| New findings, one per scan                   | Owner, project admins, and the people who deployed |
-| A human reopens an urgent finding            | Owner and project admins                           |
-| Project cap at 80% and 100%                  | Owner and project admins                           |
-| Platform cap at 80% and 100%                 | Platform administrators                            |
-| Public request held, now public, or canceled | Who asked, the owner, and project admins           |
-| Scan bypassed                                | Every platform administrator, with the reason      |
+| Email                                                                  | Sent to                                            |
+| ---------------------------------------------------------------------- | -------------------------------------------------- |
+| New findings, one per scan                                             | Owner, project admins, and the people who deployed |
+| A human reopens an urgent finding                                      | Owner and project admins                           |
+| Project cap at 80% and 100%                                            | Owner and project admins                           |
+| Platform cap at 80% and 100%                                           | Platform administrators                            |
+| Public request held, now public, or canceled                           | Who asked, the owner, and project admins           |
+| Scan bypassed                                                          | Every platform administrator, with the reason      |
+| Three scans of a project in a row failed                               | Owner, project admins, and platform administrators |
+| Many scans failed for a platform reason, at most once a day            | Platform administrators                            |
+| Weekly summary, when turned on with `void platform security digest on` | Platform administrators                            |
 
-Emails carry titles, severity, and file paths, never code. Without a configured [email domain](./email.md) the same information is in the CLI and on the project page, and bypasses still show in the admin pages.
+Emails carry titles, severity, and file paths, never code. Without a configured [email domain](./email.md) the same information is in the CLI and on the project page, and bypasses still show in the admin pages. A `void project security check` sends no email.
+
+To send these events to your own system, set a webhook with `void platform security webhook <https-url>`. Its signed body holds ids and counts only, and it is sent even without an email domain. See [Alerts, summary, and webhook](/reference/cli/platform-security#alerts).
 
 ## Scan before a project goes public {#scan-before-public}
 
@@ -209,6 +237,7 @@ Project members use these commands. See [Projects](/reference/cli/project#void-p
 ```sh
 void project security status
 void project security list --urgent
+void project security check
 void project zero-trust status
 ```
 
