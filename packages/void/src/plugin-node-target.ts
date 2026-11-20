@@ -171,12 +171,13 @@ export function nodeTargetPlugin(
       const ssr = {
         noExternal: [
           'void',
-          /^@void\/(?!image-renderer-takumi(?:\/|$))/,
+          /^@void\//,
+          // Resolve each renderer's Takumi dependencies from its own location,
+          // rather than leaving bare imports to the app's installed versions.
+          'takumi-js',
+          /^@takumi-rs\//,
           ...findVoidDependentPackages(root),
         ],
-        // Keep the renderer's package-relative WASM loader with its installed dependencies,
-        // including workspace links. Its Void imports are type-only.
-        external: ['@void/image-renderer-takumi'],
       };
       if (command !== 'build') {
         return { ssr };
