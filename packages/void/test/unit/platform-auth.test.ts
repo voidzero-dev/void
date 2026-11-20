@@ -147,6 +147,37 @@ describe('platform Cloudflare authentication', () => {
     expect((error.cause as PlatformCloudflareApiError).status).toBe(403);
   });
 
+  it('keeps a denial seen before a later check fails for another reason', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async (url) => {
+        const path = new URL(String(url)).pathname;
+        if (path.endsWith('/accounts')) {
+          return Response.json({ success: true, result: [{ id: 'account', name: 'Account' }] });
+        }
+        return path.includes('/r2/')
+          ? Response.json({ success: false, errors: [{ message: 'Slow down' }] }, { status: 429 })
+          : Response.json(
+              { success: false, errors: [{ message: 'Authentication error' }] },
+              { status: 403 },
+            );
+      },
+    });
+    const error = await verifyPlatformCloudflareCredential(client, {
+      account: { id: 'account', name: 'Account' },
+      source: 'saved',
+      r2Buckets: ['assets'],
+    }).then(expectedRejection, (error: Error) => error);
+    expect(error.message).toBe(
+      [
+        'platform: Cloudflare denied the management token saved on this machine:',
+        '- Account → Workers Scripts → Edit (HTTP 403; Cloudflare Workers access)',
+        'HTTP 403 means the token works but is missing Account → Workers Scripts → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has it, then retry.',
+      ].join('\n'),
+    );
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+    expect((error.cause as PlatformCloudflareApiError).status).toBe(403);
+  });
+
   it('keeps checking after the account list is denied, and says a 401 token is not valid', async () => {
     const client = {
       listAccounts: async () => {

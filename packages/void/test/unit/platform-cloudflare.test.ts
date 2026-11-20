@@ -2060,6 +2060,93 @@ describe('naming the Cloudflare credential in errors', () => {
     expect(error.message).toContain('- Account → Email Routing Addresses → Edit (HTTP 403)');
   });
 
+  it('keeps a denial seen before a later check fails for another reason', async () => {
+    const client = new PlatformCloudflareClient('runtime-token', {
+      fetcher: async (input) =>
+        new URL(String(input)).pathname.endsWith('/purge_cache')
+          ? Response.json({ success: false, errors: [{ message: 'Slow down' }] }, { status: 429 })
+          : denyingFetcher(403)(input),
+    });
+    const error = await verifyPlatformRuntimeTokenPermissions(client, {
+      accountId: 'account',
+      applicationDomain: 'apps.example.com',
+      credential: { role: 'runtime', source: 'saved' },
+      customDomains: true,
+      zoneId: 'zone',
+    }).then(expectedRejection, (error: Error) => error);
+    expect(error).not.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+    expect(error.message).toContain('Cloudflare denied the runtime token saved on this machine:');
+    expect(error.message).toContain('- Account → Hyperdrive → Write (HTTP 403)');
+    expect(error.message).not.toContain('429');
+    // Install finds the 403 in the cause chain and asks for a new token.
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+    expect((error.cause as PlatformCloudflareApiError).status).toBe(403);
+  });
+
+  it('keeps the email error class when a later check fails for another reason', async () => {
+    const client = new PlatformCloudflareClient('runtime-token', {
+      fetcher: async (input) => {
+        const { pathname } = new URL(String(input));
+        return pathname.endsWith('/purge_cache')
+          ? Response.json({ success: false, errors: [{ message: 'Down' }] }, { status: 503 })
+          : denyingFetcher(403, (path) => path.includes('/email/'))(input);
+      },
+    });
+    await expect(
+      verifyPlatformRuntimeTokenPermissions(client, {
+        accountId: 'account',
+        applicationDomain: 'apps.example.com',
+        credential: { role: 'runtime', source: 'saved' },
+        customDomains: false,
+        emailZoneId: 'mail-zone',
+        zoneId: 'zone',
+      }),
+    ).rejects.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+  });
+
+  it('names the credential when the workers.dev subdomain read is denied', async () => {
+    const client = new PlatformCloudflareClient('operator-token', {
+      credential: { role: 'management', source: 'saved' },
+      fetcher: denyingFetcher(403),
+    });
+    const error = await failure(client.getWorkersSubdomain('account'));
+    expect(error.message).toBe(
+      'platform: Could not read the workers.dev subdomain for account account (HTTP 403). Void used the management token saved on this machine. HTTP 403 means the token works but is missing Account → Workers Scripts → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has it, then retry.',
+    );
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+  });
+
+  it.each([
+    [
+      'reads a KV value',
+      (client: PlatformCloudflareClient) => client.getKvValue('account', 'namespace', 'manifest'),
+      '/accounts/account/storage/kv/namespaces/namespace/values/manifest',
+      'Account → Workers KV Storage → Edit',
+    ],
+    [
+      'deletes a resource',
+      (client: PlatformCloudflareClient) => client.deleteWorkerRoute('zone', 'route'),
+      '/zones/zone/workers/routes/route',
+      'Zone → Workers Routes → Edit',
+    ],
+  ])(
+    'names the credential when Cloudflare denies a request that %s',
+    async (_name, call, path, permission) => {
+      const client = new PlatformCloudflareClient('operator-token', {
+        credential: { role: 'management', source: 'saved' },
+        fetcher: denyingFetcher(403),
+      });
+      const error = await failure(call(client));
+      expect(error).toBeInstanceOf(PlatformCloudflareApiError);
+      expect(error.status).toBe(403);
+      expect(error.requestPath).toBe(path);
+      expect(error.credential).toEqual({ role: 'management', source: 'saved' });
+      expect(error.message).toContain('Void used the management token saved on this machine.');
+      expect(error.message).toContain(`missing ${permission}`);
+      expect(error.message).not.toContain('operator-token');
+    },
+  );
+
   it('stops at a rate limit and says it is not a missing permission', async () => {
     const client = new PlatformCloudflareClient('runtime-token', {
       fetcher: denyingFetcher(429),

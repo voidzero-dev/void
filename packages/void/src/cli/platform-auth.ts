@@ -65,6 +65,8 @@ export async function verifyPlatformCloudflareCredential(
   // Run every check, so one error lists every missing permission.
   const denials: Array<PlatformCredentialDenial> = [];
   let firstDenial: PlatformCloudflareApiError | undefined;
+  const deniedError = (denial: PlatformCloudflareApiError) =>
+    new Error(`platform: ${formatPlatformCredentialDenials(label, denials)}`, { cause: denial });
   const check = async (
     what: string,
     permission: string,
@@ -90,6 +92,10 @@ export async function verifyPlatformCloudflareCredential(
           : status === 429
             ? 'Cloudflare rate-limited this check. Retry shortly.'
             : 'Retry the command after Cloudflare connectivity is restored.';
+      // Report a denial already seen, so callers still see the rejected token.
+      if (firstDenial) {
+        throw deniedError(firstDenial);
+      }
       throw new Error(
         `platform: ${what} is unavailable${status === null ? '' : ` (HTTP ${status})`} using the ${name}. ${detail}`,
         { cause },
@@ -124,9 +130,7 @@ export async function verifyPlatformCloudflareCredential(
     );
   }
   if (firstDenial) {
-    throw new Error(`platform: ${formatPlatformCredentialDenials(label, denials)}`, {
-      cause: firstDenial,
-    });
+    throw deniedError(firstDenial);
   }
 }
 
