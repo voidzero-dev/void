@@ -139,71 +139,40 @@ export function generateRouteTypes(
   lines.push('  export interface WebSocketRouteMap {}');
   lines.push('  export interface PageActionMap {}');
   lines.push('');
-  // Projects resolve void/routes to this generated declaration through their
-  // tsconfig paths, so keep the standalone helper's declarations here as well.
-  lines.push('  export type RoutePath = keyof RoutePathMap & string;');
-  lines.push('  export type RouteQueryValue = string | number | boolean | null | undefined;');
+  // A bare types-only entry follows the installed SDK through upgrades.
+  // void/routes would be circular because this file augments that entry.
+  // Resolve the SDK's ESM declarations from CommonJS projects as well.
+  const sdkRouteTypes =
+    'import("void/_route-url-types", { with: { "resolution-mode": "import" } })';
+  // Earlier generated files declared the URL helpers here, which exported them from
+  // void/routes too, so keep every one of those names importable.
+  for (const name of [
+    'RoutePath',
+    'RouteQueryValue',
+    'RouteQuery',
+    'RouteUrl',
+    'Href',
+    'RouteUrlInput',
+    'TypedRoutes',
+    'BuiltRouteUrl',
+    'EncodedRoutePath',
+    'RoutePathUrl',
+  ]) {
+    lines.push(`  export type ${name} = ${sdkRouteTypes}.${name};`);
+  }
+  for (const name of [
+    'RouteUrlSegment',
+    'CheckedRoutePath',
+    'RouteSegmentsUrl',
+    'RoutePatternUrl',
+  ]) {
+    lines.push(`  export type ${name}<P extends string> = ${sdkRouteTypes}.${name}<P>;`);
+  }
+  lines.push(`  export type RouteOptions<P extends RoutePath> = ${sdkRouteTypes}.RouteOptions<P>;`);
   lines.push(
-    '  export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;',
+    `  export type RouteDestination<P extends RoutePath = RoutePath> = ${sdkRouteTypes}.RouteDestination<P>;`,
   );
-  lines.push('  export type RouteOptions<P extends RoutePath> = {');
-  lines.push('    query?: RouteQuery;');
-  lines.push('    hash?: string;');
-  lines.push('  } & ([RoutePathMap[P]] extends [never]');
-  lines.push('    ? { params?: never }');
-  lines.push('    : { params: { [K in RoutePathMap[P] & string]: string | number } });');
-  lines.push(
-    '  export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath',
-  );
-  lines.push('    ? { pathname: P } & RouteOptions<P>');
-  lines.push('    : never;');
-  lines.push(
-    '  type RouteUrlSegment<S extends string> = S extends `:${string}` | `[${string}]` | "*" ? string : S;',
-  );
-  lines.push(
-    '  type CheckedRoutePath<P extends string> = P extends `/${infer Segment}/${infer Rest}`',
-  );
-  lines.push('    ? Rest extends ""');
-  lines.push('      ? string extends RouteUrlSegment<Segment> ? never : P');
-  lines.push('      : P');
-  lines.push('    : P extends `/${infer Segment}`');
-  lines.push('      ? string extends RouteUrlSegment<Segment> ? never : P');
-  lines.push('      : P;');
-  lines.push(
-    '  type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`',
-  );
-  lines.push('    ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`');
-  lines.push('    : RouteUrlSegment<P>;');
-  lines.push(
-    '  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${"*" | "[...]"}/`',
-  );
-  lines.push('    ? `${RouteSegmentsUrl<Prefix>}/` | `${RouteSegmentsUrl<Prefix>}/${string}/`');
-  lines.push('    : P extends `${infer Prefix}/${"*" | "[...]"}`');
-  lines.push(
-    '    ? (Prefix extends "" ? "/" : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`',
-  );
-  lines.push('    : RouteSegmentsUrl<P>;');
-  lines.push('  type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;');
-  lines.push(
-    '  type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePath>>;',
-  );
-  lines.push('  type BuiltRouteUrl = string & { readonly __voidRouteUrl: true };');
-  lines.push('  type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;');
-  lines.push('  export type RouteUrl = TypedRoutes extends true');
-  lines.push('    ? BuiltRouteUrl | RoutePathUrl | `${RoutePathUrl}${"?" | "#"}${string}`');
-  lines.push('    : string;');
-  lines.push('  export type Href = TypedRoutes extends true');
-  lines.push(
-    '    ? RouteUrl | `${"?" | "#"}${string}` | `${"http://" | "https://" | "mailto:" | "tel:"}${string}`',
-  );
-  lines.push('    : string;');
-  lines.push('  export type RouteUrlInput = Href | URL | RouteDestination;');
-  lines.push('  export function routeUrl<P extends RoutePath>(');
-  lines.push('    path: P,');
-  lines.push('    ...args: [RoutePathMap[NoInfer<P>]] extends [never]');
-  lines.push('      ? [options?: RouteOptions<P>]');
-  lines.push('      : [options: RouteOptions<P>]');
-  lines.push('  ): RouteUrl;');
+  lines.push(`  export const routeUrl: typeof ${sdkRouteTypes}.routeUrl;`);
   lines.push('');
   lines.push('  export interface RouteTypesConfig {');
   if (options.typedRoutes) {

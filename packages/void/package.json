@@ -26,6 +26,13 @@
     "sandbox.Dockerfile"
   ],
   "type": "module",
+  "typesVersions": {
+    "*": {
+      "_route-url-types": [
+        "./dist/runtime/routing/route-url.d.mts"
+      ]
+    }
+  },
   "imports": {
     "#self/_env": "./dist/runtime/env/runtime.mjs",
     "#self/runtime/db-session": "./dist/runtime/db/session.mjs",
@@ -313,6 +320,9 @@
         "import": "./dist/runtime/env/public.mjs",
         "require": "./dist/runtime/env/public.mjs"
       }
+    },
+    "./_route-url-types": {
+      "types": "./dist/runtime/routing/route-url.d.mts"
     },
     "./_env": {
       "types": "./dist/runtime/env/runtime.d.mts",
