@@ -1,0 +1,11 @@
+{
+  "latency": [
+    {
+      "id": "baseline",
+      "description": "Empty Void response",
+      "request": { "path": "/" },
+      "expect": { "bodyBytes": 0 },
+      "settings": { "requests": 1000 },
+    },
+  ],
+}

@@ -511,6 +511,9 @@ importers:
       cf:
         specifier: 'catalog:'
         version: 1.0.0-rc.0(@types/node@26.6.6)
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -567,11 +570,8 @@ importers:
         specifier: 'catalog:'
         version: 1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)
 
-  benchmark/image-response:
+  benchmark/image-gen:
     dependencies:
-      '@void/image':
-        specifier: workspace:*
-        version: link:../../packages/image
       void:
         specifier: workspace:*
         version: link:../../packages/void
@@ -604,15 +604,18 @@ importers:
         specifier: 'catalog:'
         version: 1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)
 
-  benchmark/image-response-bare:
+  benchmark/image-gen-takumi:
     dependencies:
-      '@void/image':
+      '@void/image-renderer-takumi':
         specifier: workspace:*
-        version: link:../../packages/image
+        version: link:../../packages/image-renderer-takumi
       void:
         specifier: workspace:*
         version: link:../../packages/void
     devDependencies:
+      '@cloudflare/build-output-utils':
+        specifier: 'catalog:'
+        version: 1.0.0-rc.0
       '@cloudflare/config':
         specifier: 'catalog:'
         version: 1.0.0-rc.0
@@ -625,6 +628,9 @@ importers:
       cf:
         specifier: 'catalog:'
         version: 1.0.0-rc.0(@types/node@26.6.6)
+      miniflare:
+        specifier: 'catalog:'
+        version: 5.20261116.0-beta(@types/node@26.6.6)
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -12017,6 +12023,23 @@ snapshots:
       vite: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
       wrangler: 4.163.0(@cloudflare/workers-types@5.20261117.1)(@types/node@26.6.6)
       ws: 8.22.0
+    transitivePeerDependencies:
+      - '@types/node'
+      - bufferutil
+      - kerberos
+      - utf-8-validate
+      - workerd
+
+  '@cloudflare/vite-plugin@2.0.0-rc.0(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(workerd@1.20261110.1)':
+    dependencies:
+      '@cloudflare/build-output-utils': 1.0.0-rc.0
+      '@cloudflare/config': 1.0.0-rc.0
+      '@cloudflare/runtime-types': 0.1.29(@types/node@26.6.6)
+      '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261110.1)
+      miniflare: 5.20261116.0-beta(@types/node@26.6.6)
+      unenv: 2.0.0-rc.24
+      vite: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
+      ws: 8.21.0
     transitivePeerDependencies:
       - '@types/node'
       - bufferutil
