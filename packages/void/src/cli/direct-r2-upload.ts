@@ -20,6 +20,60 @@ const MAX_R2_PUT_RETRIES = 3;
  */
 const RETRY_BACKOFF_MS = [250, 500, 1000];
 
+const R2_CREDENTIALS_DOCS_URL =
+  'https://void.cloud/guide/platform/installation/credentials#r2-upload-credentials';
+
+/**
+ * S3 error codes that mean R2 did not accept the signature on a presigned
+ * upload link. The platform signs every link with its own R2 key pair, so
+ * these usually point at that pair. Expiry and clock-skew codes are left out:
+ * they have other causes.
+ */
+const R2_CREDENTIAL_ERROR_CODES = new Set([
+  'Unauthorized',
+  'AccessDenied',
+  'SignatureDoesNotMatch',
+  'InvalidAccessKeyId',
+]);
+
+/**
+ * Read the `<Code>` value from an S3-style XML error body. Returns
+ * `undefined` when the body has no complete, non-empty `<Code>` element.
+ */
+export function r2ErrorCode(body: string): string | undefined {
+  const open = '<Code>';
+  const start = body.indexOf(open);
+  if (start === -1) {
+    return undefined;
+  }
+  const valueStart = start + open.length;
+  const end = body.indexOf('</Code>', valueStart);
+  if (end === -1) {
+    return undefined;
+  }
+  const code = body.slice(valueStart, end).trim();
+  return code === '' ? undefined : code;
+}
+
+function directR2PutErrorMessage(
+  status: number,
+  hash: string,
+  path: string,
+  body: string,
+  code: string | undefined,
+): string {
+  if ((status === 401 || status === 403) && code && R2_CREDENTIAL_ERROR_CODES.has(code)) {
+    return (
+      `R2 rejected the upload signature (${code}) for ${path} (${hash}). ` +
+      "This usually means the platform's R2 upload credentials are wrong. " +
+      'Ask the platform operator to fix it. ' +
+      'If you run this platform: set VOID_PLATFORM_R2_ACCESS_KEY_ID and VOID_PLATFORM_R2_SECRET_ACCESS_KEY ' +
+      `to a working pair and run \`void platform repair\`. See ${R2_CREDENTIALS_DOCS_URL}`
+    );
+  }
+  return `R2 PUT failed for ${path} (${hash}): ${status}${body ? ` ${body}` : ''}`;
+}
+
 export class DirectR2PutError extends Error {
   readonly status: number;
   readonly hash: string;
@@ -30,14 +84,18 @@ export class DirectR2PutError extends Error {
    * `BadDigest` (Content-MD5 mismatch) or signature errors.
    */
   readonly body: string;
+  /** S3 `<Code>` parsed from `body`, when R2 returned an XML error. */
+  readonly code: string | undefined;
 
   constructor(status: number, hash: string, path: string, body: string) {
-    super(`R2 PUT failed for ${path} (${hash}): ${status}${body ? ` ${body}` : ''}`);
+    const code = r2ErrorCode(body);
+    super(directR2PutErrorMessage(status, hash, path, body, code));
     this.name = 'DirectR2PutError';
     this.status = status;
     this.hash = hash;
     this.path = path;
     this.body = body;
+    this.code = code;
   }
 }
 
