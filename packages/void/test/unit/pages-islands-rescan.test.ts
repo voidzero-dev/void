@@ -3,10 +3,11 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { hasIslandPages, watchPagesForRescan } from '../../src/pages/islands-plugin.ts';
 import type { PageScanResult } from '../../src/pages/types.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_pages_islands_rescan__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_pages_islands_rescan__');
 const PAGES_DIR = join(TMP, 'pages');
 
 function writePage(relativePath: string, source: string): string {

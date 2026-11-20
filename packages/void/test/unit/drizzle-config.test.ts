@@ -13,6 +13,7 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toSlash } from 'pathslash';
 import { describe, it, expect, beforeEach, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { generateVoidAuthDrizzleSchema } from '../../src/auth/drizzle.ts';
 import { validateAuthMigrationSchema } from '../../src/cli/deploy-migrations.ts';
 import { withPrivateDrizzleConfig, writeDrizzleConfig } from '../../src/drizzle/config.ts';
@@ -203,7 +204,9 @@ describe(
 
     beforeEach(() => {
       // drizzle-kit loads the schema, which must resolve drizzle-orm from the package.
-      root = mkdtempSync(join(packageRoot, '.tmp-drizzle-casing-'));
+      root = mkdtempSync(
+        packageFixturePath(join(packageRoot, 'test/unit'), '.tmp-drizzle-casing-'),
+      );
       mkdirSync(join(root, 'db'));
     });
 

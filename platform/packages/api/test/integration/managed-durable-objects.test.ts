@@ -526,7 +526,21 @@ describe('managed native Durable Objects', () => {
     expect(workers.map(currentRelease).sort()).toEqual([first.id, second.id].sort());
   });
 
-  it('ends the release uploads of a queued deployment at the run deadline', async () => {
+  it.each([
+    {
+      phase: 'application binding verification',
+      elapsed: 600_000,
+      readsBindings: false,
+      message:
+        'The deployment reached its time limit while verifying application Durable Object bindings.',
+    },
+    {
+      phase: 'Durable Object host upload',
+      elapsed: 570_000,
+      readsBindings: true,
+      message: WORKER_UPLOAD_OUT_OF_TIME,
+    },
+  ])('enforces the queued deadline during $phase', async ({ elapsed, readsBindings, message }) => {
     const first = await deploy();
     const worker = await durableObjectWorkerName(project.id, binding.className);
     const queuedEnv = {
@@ -547,12 +561,13 @@ describe('managed native Durable Objects', () => {
     );
     await response.body?.cancel();
     const id = response.headers.get('x-void-deployment-id')!;
-    // The application upload ends 9.5 minutes into the run. Too little is left
-    // to move the host and still move it back, so the host is not touched.
+    const candidate = `user-${project.slug}-${id}`;
     const now = Date.now.bind(Date);
     vi.spyOn(Date, 'now').mockImplementation(
-      () => now() + (provider.state.hostScripts.has(`user-${project.slug}-${id}`) ? 570_000 : 0),
+      () => now() + (provider.state.hostScripts.has(candidate) ? elapsed : 0),
     );
+    const fetchMock = vi.fn(globalThis.fetch);
+    vi.stubGlobal('fetch', fetchMock);
     const sent = writes.filter((write) => write.name === worker).length;
 
     await processDeploymentBatch(
@@ -566,8 +581,12 @@ describe('managed native Durable Objects', () => {
     expect((await getDeployment(env.db, id))?.status).toBe('failed');
     expect((await getDeploymentOperation(env.db, id))?.events.at(-1)?.event).toMatchObject({
       event: 'error',
-      message: WORKER_UPLOAD_OUT_OF_TIME,
+      message,
     });
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).endsWith(`/scripts/${candidate}/bindings`)),
+    ).toBe(readsBindings);
+    expect(provider.state.hostScripts.has(candidate)).toBe(false);
     expect(writes.filter((write) => write.name === worker)).toHaveLength(sent);
     expect(currentRelease(worker)).toBe(first.id);
   });

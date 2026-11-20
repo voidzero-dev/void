@@ -303,6 +303,11 @@ export async function streamDirectR2Deploy({
   spinner: SpinnerResult;
   cliLog?: CliLogger;
 }): Promise<StreamDeployResult> {
+  // Check before any upload: an older platform would accept the manifest and
+  // leave replication on.
+  if (manifest.database?.readReplication !== undefined) {
+    await client.requireD1ReadReplicationSupport();
+  }
   // Read before the upload, which empties `workerFiles`.
   const securityPackages =
     root && workerFiles && workerFiles.size > 0

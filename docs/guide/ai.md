@@ -167,6 +167,8 @@ const response = await ai.provider('openai').fetch('/chat/completions', {
 });
 ```
 
+If the signal aborts while you read a streaming response, reading it rejects with the signal's reason instead of ending with a `void:error` event.
+
 ### OpenAI
 
 ```ts

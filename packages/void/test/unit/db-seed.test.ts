@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import * as output from '../../src/cli/output.ts';
 import { getMiniflareDatabasePath } from '../../src/migrations/runner.ts';
 
@@ -53,7 +54,7 @@ function createProjectRoot(options: {
   migration?: string;
   config?: Record<string, unknown>;
 }): string {
-  const root = mkdtempSync(join(import.meta.dirname, '.tmp-db-seed-'));
+  const root = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-db-seed-'));
   const migrationsDir = join(root, 'db', 'migrations');
   mkdirSync(join(migrationsDir, 'meta'), { recursive: true });
   writeFileSync(

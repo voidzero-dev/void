@@ -1,6 +1,6 @@
 {
   "name": "@void/deploy-cloudflare",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "Cloudflare deployment primitives for Void runtimes and deployment adapters.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -28,7 +28,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "@void/deploy-core": "workspace:*",
@@ -38,6 +38,7 @@
     "@cloudflare/workers-types": "catalog:",
     "@types/node": "catalog:",
     "pathslash": "catalog:",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   }

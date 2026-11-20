@@ -2,9 +2,10 @@ import { EventEmitter } from 'node:events';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_islands_plugin__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_islands_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 type HookWithHandler<T> = { handler: T };
 type MockServer = {

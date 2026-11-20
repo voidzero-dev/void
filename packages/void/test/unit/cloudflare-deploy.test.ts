@@ -24,6 +24,7 @@ import { log } from '@voidzero-dev/vite-plus-prompts';
 import ignore from 'ignore';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { activateCloudflareVersion as activateCloudflareVersionPrimitive } from '../../../deploy-cloudflare/src/index.ts';
 import {
   operationFixture,
@@ -122,7 +123,7 @@ vi.mock('../../src/cli/deploy-cloudflare.ts', async (importOriginal) => {
   };
 });
 
-const tmpDir = join(import.meta.dirname, '.tmp-cf-deploy-test');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-cf-deploy-test');
 
 function removeProjectFixture(): void {
   // Windows can briefly retain handles opened by the real env-schema probe subprocesses.
@@ -498,6 +499,16 @@ describe('Cloudflare activation diagnostics', () => {
       expect(formatCloudflareActivationError({ ok: false, reason })).toContain(
         'did not report its version id',
       );
+    },
+  );
+
+  it.each(['inheritance-source-unavailable', 'inheritance-source-changed'] as const)(
+    'reports the uploaded version when secret inheritance verification stops activation (%s)',
+    (reason) => {
+      const versionId = '22222222-2222-4222-8222-222222222222';
+      const message = formatCloudflareActivationError({ ok: false, reason, versionId });
+      expect(message).toContain(`Worker version ${versionId} was uploaded but not activated`);
+      expect(message).toContain('Production traffic is unchanged');
     },
   );
 
@@ -11080,6 +11091,14 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
       }),
       [`POST /zones/${ZONE_ID}/email/routing/dns`]: ok({ enabled: true }),
       [`PATCH /zones/${ZONE_ID}/email/routing`]: ok({ support_subaddress: true }),
+      // Sending-only apps read and onboard Email Sending through the bearer: not onboarded
+      // yet, and onboarding succeeds (the inbound runner defaults above say the same).
+      [`GET /zones/${ZONE_ID}/email/sending/subdomains`]: ok([]),
+      [`POST /zones/${ZONE_ID}/email/sending/subdomains`]: ok({
+        name: 'mail.acme.com',
+        enabled: true,
+        tag: '19af4fdbee924a92916afea0de5a8fdd',
+      }),
       ...overrides,
     };
     return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -11215,10 +11234,18 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
       rmSync(join(root, 'email'), { recursive: true });
       const { deps, spawns, fetchCalls, exitCalls, trace } = emailHarness({
         isCI,
-        runner: { 'email sending settings mail.acme.com': sendingEnabled },
         fetchOverrides: {
           'GET /zones?name=mail.acme.com': () =>
             new Response(JSON.stringify({ success: true, result: [] })),
+          [`GET /zones/${ZONE_ID}/email/sending/subdomains`]: () =>
+            new Response(
+              JSON.stringify({
+                success: true,
+                result: [
+                  { name: 'mail.acme.com', enabled: true, tag: '19af4fdbee924a92916afea0de5a8fdd' },
+                ],
+              }),
+            ),
         },
         confirm: async () => {
           throw new Error('No inbound setup should be offered');
@@ -11255,16 +11282,18 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
       });
       rmSync(join(root, 'email'), { recursive: true });
       const { deps, spawns, fetchCalls, confirms, exitCalls, trace } = emailHarness({
-        runner: {
-          'email sending enable mail.acme.com': enabled
-            ? cleanExit
-            : {
-                ...cleanExit,
-                status: 1,
-                errorCode: 10105,
-                stderr: 'Email Sending is unavailable on this plan [code: 10105]',
-              },
-        },
+        fetchOverrides: enabled
+          ? {}
+          : {
+              [`POST /zones/${ZONE_ID}/email/sending/subdomains`]: () =>
+                new Response(
+                  JSON.stringify({
+                    success: false,
+                    errors: [{ code: 10105, message: 'Email Sending is unavailable on this plan' }],
+                  }),
+                  { status: 403 },
+                ),
+            },
       });
       const output = captureOutput();
       try {
@@ -11285,11 +11314,96 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
       expect(confirms).toEqual(['Set up email on mail.acme.com?']);
       expect(exitCalls).toEqual(enabled ? [] : [1]);
       expect(trace.includes('build')).toBe(enabled);
-      expect(spawns.some(({ args }) => args[0] === 'email' && args[1] === 'routing')).toBe(false);
-      expect(fetchCalls.every(({ method }) => method === 'GET')).toBe(true);
+      expect(spawns.some(({ args }) => args[0] === 'email')).toBe(false);
+      expect(
+        fetchCalls
+          .filter(({ method }) => method !== 'GET')
+          .map(({ method, path }) => `${method} ${path}`),
+      ).toEqual([`POST /zones/${ZONE_ID}/email/sending/subdomains`]);
       expect(output.lines.join('\n')).toContain('inbound   not required');
       expect(output.lines.join('\n')).not.toContain('Inbound works');
       expect(readRootConfig(root).addresses).toBeUndefined();
+      if (!enabled) {
+        expect(output.lines.join('\n')).toContain(
+          'Enable Workers Paid: https://dash.cloudflare.com/?to=/:account/workers/plans',
+        );
+        expect(output.lines.join('\n')).toContain('Zone Read + Email Sending Edit');
+      }
+    },
+  );
+
+  // A sending-only app set up before (binding committed) on an account that cannot onboard
+  // Email Sending: each deploy says why once, never asks again, and never retries onboarding.
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    'sending-only app with a saved binding is not re-prompted on Workers Free (CI: %s, --require-email: %s)',
+    async (isCI, requireEmail) => {
+      const root = emailProject(
+        {
+          ...PROVISIONED_D1,
+          send_email: [{ name: 'SEND_EMAIL' }],
+          vars: { __VOID_EMAIL_FROM: 'old@mail.acme.com' },
+        },
+        {
+          'routes/send.ts': `import { sendEmail } from 'void/email'; export const POST = () => sendEmail({to: 'a@example.com', subject: 'Hello', text: 'Hello'});`,
+        },
+      );
+      rmSync(join(root, 'email'), { recursive: true });
+      const { deps, spawns, fetchCalls, confirms, exitCalls, trace } = emailHarness({
+        isCI,
+        // Retrying onboarding would answer 10105; the deploy must not try.
+        fetchOverrides: {
+          [`POST /zones/${ZONE_ID}/email/sending/subdomains`]: () => {
+            throw new Error('a saved sending-only setup must not retry onboarding');
+          },
+        },
+        // Record a prompt instead of answering it, so the assertion names the failure.
+        confirm: undefined,
+      });
+      const output = captureOutput();
+      try {
+        for (let run = 0; run < 2; run += 1) {
+          const deploy = runCloudflareDeploy(
+            root,
+            { platform: 'cloudflare', requireEmail },
+            silentCliLog,
+            deps,
+          );
+          if (requireEmail) {
+            await expect(deploy).rejects.toBeInstanceOf(ExitError);
+          } else {
+            await deploy;
+          }
+        }
+      } finally {
+        output.restore();
+      }
+      const printed = output.lines.join('\n');
+      expect(confirms).toEqual([]);
+      expect(spawns.some((s) => s.args[0] === 'email')).toBe(false);
+      expect(fetchCalls.every(({ method }) => method === 'GET')).toBe(true);
+      expect(printed).toContain(
+        'Enable Workers Paid: https://dash.cloudflare.com/?to=/:account/workers/plans',
+      );
+      expect(printed).toContain('Zone Read + Email Sending Edit');
+      expect(printed).not.toContain('cannot ask');
+      expect(printed).not.toContain('This changes YOUR Cloudflare account');
+      expect(exitCalls).toEqual(requireEmail ? [1, 1] : []);
+      expect(trace.filter((t) => t === 'build')).toHaveLength(requireEmail ? 0 : 2);
+      if (!requireEmail) {
+        expect(printed).toContain(
+          'outbound  sendEmail() from noreply@mail.acme.com   (Email Sending not onboarded)',
+        );
+      }
+      // The saved setup ships as-is, with the sender brought up to date.
+      const written = readRootConfig(root);
+      expect(written.send_email).toEqual([{ name: 'SEND_EMAIL' }]);
+      expect(written.vars).toEqual({ __VOID_EMAIL_FROM: 'noreply@mail.acme.com' });
+      expect(written.addresses).toBeUndefined();
     },
   );
 
@@ -12296,7 +12410,7 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
       ...INIT_MIGRATION,
     });
     const snapshots: Array<unknown> = [];
-    const { deps, spawns, confirms, exitCalls } = emailHarness({
+    const { deps, spawns, fetchCalls, confirms, exitCalls } = emailHarness({
       ...readyRows,
       runner: { ...readyRows.runner, 'email routing rules list acme.com': myRule },
       deps: {
@@ -12330,8 +12444,8 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
     expect(exitCalls).toEqual([]);
     expect(confirms).toEqual([]);
     // Sending-only preflight still flags stale configured addresses without probing routing.
-    expect(spawns.some((s) => s.args[0] === 'email' && s.args[1] === 'routing')).toBe(false);
-    expect(spawns.some((s) => s.args[0] === 'email' && s.args[1] === 'sending')).toBe(true);
+    expect(spawns.some((s) => s.args[0] === 'email')).toBe(false);
+    expect(fetchCalls.some(({ path }) => path.endsWith('/email/sending/subdomains'))).toBe(true);
     expect(readRootConfig(root).addresses).toEqual(['support@mail.acme.com']);
     const printed = output.lines.join('\n');
     expect(printed).toContain(

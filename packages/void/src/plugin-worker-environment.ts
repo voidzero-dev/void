@@ -195,6 +195,7 @@ async function readWorkerdNodeBuiltins(compat: WranglerCompat): Promise<Set<stri
 export function createServerRuntimeOptimizerPlugin(
   dialect: DatabaseDialect,
   readCompat: () => WranglerCompat,
+  ssrEntry: string | null = null,
 ): Plugin {
   let workerdNodeBuiltins: Promise<Set<string>> | undefined;
   const serverRuntimeOptimizerPlugin: Plugin = {
@@ -217,9 +218,22 @@ export function createServerRuntimeOptimizerPlugin(
           // source gives the dev worker two copies, so `getOAuthState()` misses the state the
           // runtime set. A production build already bundles one copy.
           exclude: ['void', 'better-auth'],
+          // The Worker reaches the SSR entry through generated modules, which the dependency
+          // scan cannot follow. Unscanned, the entry's dependencies are found during the first
+          // request, and the Worker reloads once they are prebundled.
+          ...(ssrEntry ? { entries: [ssrEntry] } : {}),
           // Excluding void also skips converting its CommonJS dependencies, which workerd cannot
           // evaluate: an installed void/email fails with "exports is not defined".
-          include: ['void > email-validator', ...DATABASE_DRIVER_DEPS[dialect]],
+          //
+          // Void's routing runtime imports Hono for itself and for the generated routes. Naming
+          // it here prebundles it before the Worker starts, not on its first request.
+          include: [
+            'void > devalue',
+            'void > email-validator',
+            'void > hono',
+            'void > hono/route',
+            ...DATABASE_DRIVER_DEPS[dialect],
+          ],
         },
       };
     },

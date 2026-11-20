@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
   createIsolatedPlayground,
   killChild,
+  spawnFixtureServer,
   startServer,
   type IsolatedPlayground,
   type StartedServer,
@@ -18,33 +19,14 @@ let DEV_BASE: string;
 
 describe('playground/react-router dev', { retry: 2 }, () => {
   let child: ReturnType<typeof spawn>;
+  let fixture: IsolatedPlayground;
 
   beforeAll(async () => {
-    const server = await startServer((port) => {
-      child = spawn(
-        'vp',
-        [
-          'run',
-          '--filter',
-          `./${PLAYGROUND}`,
-          'dev',
-          '--host',
-          '127.0.0.1',
-          '--port',
-          String(port),
-          '--strictPort',
-        ],
-        {
-          cwd: ROOT,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            VOID_INSPECTOR_PORT: 'false',
-          },
-        },
-      );
-      return child;
-    }, 30_000);
+    fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
+    const server = await startServer(
+      (port) => (child = spawnFixtureServer(fixture.root, 'dev', port)),
+      30_000,
+    );
     DEV_BASE = server.base;
   });
 
@@ -52,6 +34,7 @@ describe('playground/react-router dev', { retry: 2 }, () => {
     if (child) {
       await killChild(child);
     }
+    fixture?.cleanup();
   });
 
   it('applies env.ts to server routes', async () => {
@@ -211,14 +194,17 @@ export async function loader() {
   });
 
   it('generates route types from scratch and queries MySQL in the built Worker', async () => {
-    // The dev server generates these too, so do not let the previous test mask a missing build step.
-    rmSync(join(playground.root, '.react-router'), { recursive: true, force: true });
+    // The preceding dev test writes both directories, but CI builds from a clean checkout.
+    for (const directory of ['.react-router', '.void']) {
+      rmSync(join(playground.root, directory), { recursive: true, force: true });
+    }
     execFileSync('vp', ['run', 'build'], {
       cwd: playground.root,
       stdio: 'pipe',
       env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
       shell: process.platform === 'win32',
     });
+    expect(existsSync(join(playground.root, '.void/tsconfig.json'))).toBe(true);
     for (const route of ['smoke', 'users']) {
       expect(
         existsSync(join(playground.root, '.react-router/types/app/routes/+types', `${route}.ts`)),

@@ -591,8 +591,14 @@ function formatCloudflareActivationFailure(
         ? `deploy: another Cloudflare operation superseded this deployment. Void restored triggers for the active version ${result.activeVersionId ?? '(unknown)'}; retry from fresh deployment status.`
         : `deploy: another Cloudflare operation superseded this deployment, but its trigger state could not be verified. Inspect the active Worker version ${result.activeVersionId ?? '(unknown)'} immediately.`;
     case 'inheritance-source-unavailable':
+      if (result.versionId) {
+        return `deploy: Worker version ${result.versionId} was uploaded but not activated because Cloudflare's version history could not confirm which secrets it inherited. Production traffic is unchanged.`;
+      }
       return 'deploy: could not verify which Worker Version would supply inherited secrets; production traffic is unchanged.';
     case 'inheritance-source-changed':
+      if (result.versionId) {
+        return `deploy: Worker version ${result.versionId} was uploaded but not activated because Cloudflare returned an unexpected version history. Inspect the Worker versions in Cloudflare before retrying. Production traffic is unchanged.`;
+      }
       return [
         'deploy: the active Worker Version is not the latest upload, and its secrets could not be pinned safely.',
         'Inspect the active and latest Worker versions in Cloudflare before retrying.',

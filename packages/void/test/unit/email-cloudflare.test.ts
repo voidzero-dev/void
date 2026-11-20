@@ -6,6 +6,8 @@ import {
   emailFromDomain,
   fetchWithSessionBearer,
   findEmailConfigConflicts,
+  formatSendingOnlyPaidHint,
+  isAwaitingSendingOnboarding,
   readRoutingRules,
   readRoutingSettings,
   readSendingSettings,
@@ -1302,32 +1304,39 @@ describe('preflightEmail', () => {
 });
 
 describe('sending-only Cloudflare email', () => {
-  function sendingOnly(domain = 'mail.acme.com') {
-    return transcriptInputs({
+  const SUBDOMAINS = `/zones/${ZONE_ID}/email/sending/subdomains`;
+  const listed = (domain: string) => () =>
+    jsonResponse(200, {
+      success: true,
+      result: [{ name: domain, enabled: true, tag: '19af4fdbee924a92916afea0de5a8fdd' }],
+    });
+  const notListed = () => jsonResponse(200, { success: true, result: [] });
+  const refused = (code: number) => () =>
+    jsonResponse(403, { success: false, errors: [{ code, message: 'Forbidden' }], result: null });
+
+  /**
+   * Email Sending is read and onboarded through the bearer on the zone preflight resolved.
+   * The runner knows no Email operation, so any provider Email call fails the test.
+   */
+  function sendingOnly(
+    domain = 'mail.acme.com',
+    account: { list?: () => Response; enable?: () => Response } = {},
+  ) {
+    const fixture = transcriptInputs({
       handlers: scan([]),
       from: `Pocket Folio <noreply@${domain}>`,
       existingSendEmail: [{ name: 'SEND_EMAIL' }],
       existingVars: { __VOID_EMAIL_FROM: `Pocket Folio <noreply@${domain}>` },
-      runnerTable: {
-        'whoami --json': {
-          status: 0,
-          stdout: '',
-          stderr: '',
-          data: {
-            loggedIn: true,
-            authType: 'OAuth Token',
-            tokenPermissions: ['email_sending:write'],
-          },
-        },
-        [`email sending settings ${domain}`]: {
-          status: 0,
-          stdout: '',
-          stderr: '',
-          data: { name: domain, enabled: true, tag: '19af4fdbee924a92916afea0de5a8fdd' },
-        },
-      },
       fetchTable: {
         'GET /zones?name=mail.acme.com': () => jsonResponse(200, { success: true, result: [] }),
+        [`GET ${SUBDOMAINS}`]: account.list ?? listed(domain),
+        [`POST ${SUBDOMAINS}`]:
+          account.enable ??
+          (() =>
+            jsonResponse(200, {
+              success: true,
+              result: { name: domain, enabled: true, tag: '19af4fdbee924a92916afea0de5a8fdd' },
+            })),
       },
       dns: {
         resolveMx: async () => {
@@ -1336,7 +1345,17 @@ describe('sending-only Cloudflare email', () => {
         resolveTxt: async () => [],
       },
     });
+    const whoami: EmailWranglerRunResult = {
+      status: 0,
+      stdout: '',
+      stderr: '',
+      data: { loggedIn: true, authType: 'OAuth Token', tokenPermissions: ['email_sending:write'] },
+    };
+    fixture.inputs.runWrangler = fakeRunner({ 'whoami --json': whoami }, fixture.calls);
+    return fixture;
   }
+  const paths = (fetchCalls: Array<FetchCall>) =>
+    fetchCalls.map(({ method, url }) => `${method} ${url.slice(url.indexOf('/zones'))}`);
 
   it.each(['acme.com', 'mail.acme.com'])(
     'accepts onboarded sending on %s without routing scopes or probes',
@@ -1347,11 +1366,12 @@ describe('sending-only Cloudflare email', () => {
       expect(pre.blockers).toEqual([]);
       expect(pre.session.missingScopes).toEqual([]);
       expect(pre.sender.state).toBe('ready');
-      expect(calls.map(({ operation }) => operation.type)).toEqual([
-        'auth.whoami',
-        'email.sending.settings',
+      expect(calls.map(({ operation }) => operation.type)).toEqual(['auth.whoami']);
+      expect(paths(fetchCalls)).toEqual([
+        ...(domain === 'acme.com' ? [] : ['GET /zones?name=mail.acme.com']),
+        'GET /zones?name=acme.com',
+        `GET ${SUBDOMAINS}`,
       ]);
-      expect(fetchCalls.every(({ url }) => url.includes('/zones?name='))).toBe(true);
       const printed = renderEmailChecklist(pre);
       expect(printed).toContain('sending only');
       expect(printed).toContain('inbound   not required');
@@ -1359,6 +1379,13 @@ describe('sending-only Cloudflare email', () => {
       expect(printed).not.toMatch(/enable Email Routing|subaddressing|apex MX|This changes/);
     },
   );
+
+  it('matches the listed subdomain by name and treats an absent one as not onboarded', async () => {
+    const other = sendingOnly('mail.acme.com', { list: listed('news.acme.com') });
+    const pre = await preflightEmail(other.inputs);
+    expect(pre.sending.state).toBe('pending');
+    expect(pre.ready).toBe(false);
+  });
 
   it('writes the binding and sender without touching inbound configuration', async () => {
     const { inputs, calls, fetchCalls } = sendingOnly();
@@ -1380,43 +1407,48 @@ describe('sending-only Cloudflare email', () => {
     expect(fetchCalls).toEqual([]);
   });
 
-  it('onboards sending only, and never enables routing or subaddressing', async () => {
-    const { inputs, calls, fetchCalls } = sendingOnly();
-    const original = inputs.runWrangler;
-    inputs.runWrangler = (operation, options) => {
-      if (operation.type === 'email.sending.settings') {
-        return sendingNotFound('mail.acme.com');
-      }
-      if (operation.type === 'email.sending.enable') {
-        calls.push({ operation, args: operationWords(operation), capture: options.capture });
-        return { status: 0, stdout: '', stderr: '' };
-      }
-      return original(operation, options);
-    };
+  it('onboards through the bearer on the resolved zone, and never enables routing or subaddressing', async () => {
+    const { inputs, calls, fetchCalls } = sendingOnly('mail.acme.com', { list: notListed });
     const pre = await preflightEmail(inputs);
     expect(pre.ready).toBe(false);
     calls.length = 0;
     fetchCalls.length = 0;
     const out = await applyEmailSetup(pre, inputs);
     expect(out.ready).toBe(true);
-    expect(calls.map(({ operation }) => operation.type)).toEqual(['email.sending.enable']);
+    expect(out.lines).toContain('  ✔ sending   mail.acme.com onboarded');
+    expect(calls).toEqual([]);
+    expect(paths(fetchCalls)).toEqual([`POST ${SUBDOMAINS}`]);
+    expect(fetchCalls[0]!.body).toBe(JSON.stringify({ name: 'mail.acme.com' }));
+    expect(fetchCalls[0]!.headers.Authorization).toBe(`Bearer ${BEARER}`);
+  });
+
+  it('names a missing session bearer instead of the Workers Paid plan when onboarding cannot start', async () => {
+    const { inputs, fetchCalls } = sendingOnly('mail.acme.com', { list: notListed });
+    const pre = await preflightEmail(inputs);
+    fetchCalls.length = 0;
+    inputs.getSessionBearer = async () => {
+      throw new Error('session expired');
+    };
+    const out = await applyEmailSetup(pre, inputs);
+    expect(out.ready).toBe(false);
+    expect(out.lines).toContain(
+      '  ! sending   mail.acme.com not onboarded (session bearer unavailable); rerun void email setup --platform cloudflare',
+    );
+    expect(out.lines.some((line) => line.includes('Workers Paid'))).toBe(false);
     expect(fetchCalls).toEqual([]);
   });
 
-  it.each([sendingNotFound('mail.acme.com'), apiFailure(10000, 'sending settings')])(
+  it('treats code 2040 (already onboarded) as onboarded', async () => {
+    const { inputs } = sendingOnly('mail.acme.com', { list: notListed, enable: refused(2040) });
+    const out = await applyEmailSetup(await preflightEmail(inputs), inputs);
+    expect(out.sendingReady).toBe(true);
+    expect(out.ready).toBe(true);
+  });
+
+  it.each([notListed, refused(10000)])(
     'does not mistake a binding for verified sending',
-    async (sending) => {
-      const { inputs } = sendingOnly();
-      const original = inputs.runWrangler;
-      inputs.runWrangler = (operation, options) => {
-        if (operation.type === 'email.sending.settings') {
-          return sending;
-        }
-        if (operation.type === 'email.sending.enable') {
-          return apiFailure(10105, 'sending');
-        }
-        return original(operation, options);
-      };
+    async (list) => {
+      const { inputs } = sendingOnly('mail.acme.com', { list, enable: refused(10105) });
       const pre = await preflightEmail(inputs);
       expect(pre.ready).toBe(false);
       const out = await applyEmailSetup(pre, inputs);
@@ -1425,6 +1457,38 @@ describe('sending-only Cloudflare email', () => {
       expect(renderEmailChecklist(pre)).not.toContain('email sending is configured');
     },
   );
+
+  it('names Workers Paid, its link and the token permissions when onboarding is refused', async () => {
+    const { inputs } = sendingOnly('mail.acme.com', { list: notListed, enable: refused(10105) });
+    const pre = await preflightEmail(inputs);
+    expect(isAwaitingSendingOnboarding(pre)).toBe(true);
+    const checklist = renderEmailChecklist(pre);
+    expect(checklist).toContain(
+      'sending   mail.acme.com  not onboarded — needs Workers Paid; after upgrading run void email setup --platform cloudflare',
+    );
+    expect(checklist).not.toContain('verified destinations only');
+    const out = await applyEmailSetup(pre, inputs);
+    expect(out.ready).toBe(false);
+    expect(out.patch).toEqual({ addresses: null });
+    const printed = out.lines.join('\n');
+    expect(printed).toContain('[code: 10105]');
+    for (const line of formatSendingOnlyPaidHint('mail.acme.com')) {
+      expect(out.lines).toContain(`    ${line}`);
+    }
+    expect(printed).toContain('https://dash.cloudflare.com/?to=/:account/workers/plans');
+    expect(printed).toContain('Zone Read + Email Sending Edit');
+    expect(printed).not.toContain('verified destinations only');
+  });
+
+  it('does not treat an unreadable sending row as waiting for onboarding', async () => {
+    const { inputs } = sendingOnly('mail.acme.com', { list: refused(10000) });
+    const pre = await preflightEmail(inputs);
+    expect(isAwaitingSendingOnboarding(pre)).toBe(false);
+    // Without a saved binding the app was never set up: deploy offers setup as usual.
+    const fresh = sendingOnly('mail.acme.com', { list: notListed });
+    fresh.inputs.existingSendEmail = undefined;
+    expect(isAwaitingSendingOnboarding(await preflightEmail(fresh.inputs))).toBe(false);
+  });
 
   it('reports an unreadable zone as unknown without proposing routing setup', async () => {
     const { inputs } = sendingOnly();
@@ -2102,6 +2166,18 @@ describe('renderAddressMap', () => {
         '    outbound  sendEmail() from noreply@acme.com   (verified destinations only)',
       ].join('\n'),
     );
+  });
+
+  it('does not promise verified destinations to a sending-only app that is not onboarded', () => {
+    expect(
+      renderAddressMap({
+        from: 'noreply@acme.com',
+        routes: [],
+        addresses: [],
+        sendingReady: false,
+        sendingOnly: true,
+      }),
+    ).toBe('    outbound  sendEmail() from noreply@acme.com   (Email Sending not onboarded)');
   });
 
   it('marks a written address whose rule this deploy creates', () => {

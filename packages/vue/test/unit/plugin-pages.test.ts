@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import * as Vue from 'vue';
 import { compileScript, parse } from 'vue/compiler-sfc';
 import { renderToString } from 'vue/server-renderer';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { pagesPlugin } from '../../src/plugin-pages.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_pages_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 
 type HookWithHandler<T> = { handler: T };
@@ -305,6 +306,24 @@ describe('pagesPlugin transform paths', () => {
 describe('pagesPlugin dev HMR', () => {
   afterEach(() => {
     rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('names Vue for the client and its server renderer for the Worker in dev', async () => {
+    writePage('index.vue', '<template><h1>Home</h1></template>\n');
+
+    const plugin = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages') as
+      | PagesPluginHooks
+      | undefined;
+    if (!plugin) {
+      throw new Error('Expected void-vue:pages plugin.');
+    }
+
+    expect(await getHookHandler(plugin.config)({}, { command: 'serve' })).toMatchObject({
+      optimizeDeps: { include: ['vue'] },
+      environments: {
+        void_worker: { optimizeDeps: { include: ['vue', 'vue/server-renderer'] } },
+      },
+    });
   });
 
   it('rescans dev renderer loads after adding a page file', async () => {

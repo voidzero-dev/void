@@ -389,6 +389,9 @@ for (const name of ['cf', '@cloudflare/vite-plugin']) {
   assert.equal(manifest('miniflare', tool), miniflare, name + ' installs a second Miniflare');
   assert.equal(manifest('miniflare', types), miniflare, name + ' runtime types install a second Miniflare');
   assert.equal(manifest('workerd', types), workerd, name + ' runtime types install a second workerd');
+  for (const shared of ['@cloudflare/config', '@cloudflare/build-output-utils']) {
+    assert.equal(manifest(shared, tool), manifest(shared, voidEntry), name + ' installs a second ' + shared);
+  }
 }
 const manifestPath = findPackageJSON('@void/platform', voidEntry);
 const entry = JSON.parse(readFileSync(manifestPath, 'utf8')).exports['./installer'].import;

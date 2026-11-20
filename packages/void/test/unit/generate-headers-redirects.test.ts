@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   intro: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
 
 import { parseHeadersFile, parseRedirectsFile } from '../../src/cli/headers.ts';
 
-const tmpDir = join(import.meta.dirname, '.tmp-parse-redirects-test');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-parse-redirects-test');
 
 function setup(content?: string) {
   rmSync(tmpDir, { recursive: true, force: true });

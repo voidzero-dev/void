@@ -9,6 +9,7 @@ import { compile, compileModule } from 'svelte/compiler';
 import { transformWithOxc } from 'vite';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { VoidRouter } from 'void/pages-client';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 
 type TestForm = {
   readonly data: Record<string, unknown>;
@@ -32,7 +33,7 @@ type TestIslandForm = {
 
 // The unit project has no Svelte plugin and resolves `svelte` to its server entry, so compile
 // the rune module and a host component here and point them at Svelte's browser entries.
-const TMP = join(import.meta.dirname, '.tmp-use-form');
+const TMP = packageFixturePath(import.meta.dirname, '.tmp-use-form');
 const require = createRequire(import.meta.url);
 const svelteDir = dirname(require.resolve('svelte/package.json'));
 const svelteExports: Record<string, string | { browser?: string; default: string }> =

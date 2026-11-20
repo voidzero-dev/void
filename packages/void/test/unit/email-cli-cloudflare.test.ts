@@ -342,6 +342,19 @@ const sendingOnboarded: EmailWranglerRunResult = {
   data: { name: 'mail.acme.com', enabled: true, tag: ZONE_ID },
   stderr: BETA_WARNING,
 };
+/** Sending-only apps read and onboard Email Sending through the bearer on the resolved zone. */
+const SENDING_SUBDOMAINS = `/zones/${ZONE_ID}/email/sending/subdomains`;
+const subdomainsListed = (names: Array<string>) => () =>
+  jsonResponse(200, {
+    success: true,
+    result: names.map((name) => ({ name, enabled: true, tag: '19af4fdbee924a92916afea0de5a8fdd' })),
+  });
+const sendingRefusedByApi = () =>
+  jsonResponse(403, {
+    success: false,
+    errors: [{ code: 10105, message: 'email.sending.error.authentication.not_entitled' }],
+    result: null,
+  });
 
 describe('sending-only email setup and status', () => {
   it.each(['setup', 'status'] as const)(
@@ -358,9 +371,9 @@ describe('sending-only email setup and status', () => {
       roots.push(root);
       rmSync(join(root, 'email'), { recursive: true });
       const { deps, calls, fetchCalls, printed } = transcriptDeps({
-        runnerTable: { 'email sending settings mail.acme.com': sendingOnboarded },
         fetchTable: {
           'GET /zones?name=mail.acme.com': () => jsonResponse(200, { success: true, result: [] }),
+          [`GET ${SENDING_SUBDOMAINS}`]: subdomainsListed(['mail.acme.com']),
         },
       });
       const code = await run(root, command, {
@@ -373,17 +386,105 @@ describe('sending-only email setup and status', () => {
       expect(code).toBe(0);
       expect(printed.join('\n')).toContain('inbound   not required');
       expect(printed.join('\n')).not.toContain('enable Email Routing');
-      expect(calls.some(({ operation }) => operation.type.startsWith('email.routing.'))).toBe(
-        false,
-      );
+      expect(calls.some(({ operation }) => operation.type.startsWith('email.'))).toBe(false);
       expect(
-        fetchCalls.every(({ method, url }) => method === 'GET' && url.includes('/zones?name=')),
+        fetchCalls.every(({ method, url }) => method === 'GET' && !url.includes('/email/routing')),
       ).toBe(true);
       const config = readJsonc(join(root, 'wrangler.jsonc'));
       expect(config.addresses).toBeUndefined();
       expect(config.send_email).toEqual([{ name: 'SEND_EMAIL' }]);
     },
   );
+
+  /** A sending-only app set up earlier (binding saved) whose domain is not onboarded. */
+  function savedSendingOnly(extra: { fetchTable?: Record<string, () => Response> } = {}) {
+    const root = makeProject({
+      wrangler: JSON.stringify({
+        account_id: ACCOUNT,
+        name: 'acme-support',
+        send_email: [{ name: 'SEND_EMAIL' }],
+        vars: { __VOID_EMAIL_FROM: 'noreply@mail.acme.com' },
+      }),
+    });
+    roots.push(root);
+    rmSync(join(root, 'email'), { recursive: true });
+    const fakes = transcriptDeps({
+      fetchTable: {
+        'GET /zones?name=mail.acme.com': () => jsonResponse(200, { success: true, result: [] }),
+        [`GET ${SENDING_SUBDOMAINS}`]: subdomainsListed([]),
+        ...extra.fetchTable,
+      },
+    });
+    return { root, configPath: join(root, 'wrangler.jsonc'), ...fakes };
+  }
+
+  it('status names Workers Paid, its link and the token permissions, and exits 1', async () => {
+    const { root, deps, calls, fetchCalls, printed } = savedSendingOnly();
+    const logged = captureLog();
+    let code: number;
+    try {
+      code = await run(root, 'status', { ...deps, isInteractive: false });
+    } finally {
+      logged.restore();
+    }
+    expect(code).toBe(1);
+    expect(printed[0]).toContain(
+      'sending   mail.acme.com  not onboarded — needs Workers Paid; after upgrading run void email setup --platform cloudflare',
+    );
+    expect(printed.at(-1)).toBe(
+      '    outbound  sendEmail() from noreply@mail.acme.com   (Email Sending not onboarded)',
+    );
+    const warned = logged.lines.join('\n');
+    expect(warned).toContain(
+      'Enable Workers Paid: https://dash.cloudflare.com/?to=/:account/workers/plans',
+    );
+    expect(warned).toContain('Zone Read + Email Sending Edit');
+    expect(warned).not.toContain('Email is not set up');
+    expect(calls.some(({ operation }) => operation.type.startsWith('email.'))).toBe(false);
+    expect(fetchCalls.some(({ method }) => method === 'POST')).toBe(false);
+  });
+
+  it('setup asks to onboard Email Sending; a refusal prints the Workers Paid steps and exits 1', async () => {
+    const { root, configPath, deps, calls, fetchCalls, printed } = savedSendingOnly({
+      fetchTable: { [`POST ${SENDING_SUBDOMAINS}`]: sendingRefusedByApi },
+    });
+    const before = readFileSync(configPath, 'utf-8');
+    const confirms: Array<string> = [];
+    const logged = captureLog();
+    let code: number;
+    try {
+      code = await run(root, 'setup', {
+        ...deps,
+        isInteractive: true,
+        confirm: async (message) => {
+          confirms.push(message);
+          return true;
+        },
+      });
+    } finally {
+      logged.restore();
+    }
+    expect(code).toBe(1);
+    expect(confirms).toEqual([
+      'Onboard mail.acme.com for Email Sending? Sending-only apps need Workers Paid.',
+    ]);
+    expect(calls.some(({ operation }) => operation.type.startsWith('email.'))).toBe(false);
+    expect(
+      fetchCalls
+        .filter(({ method }) => method === 'POST')
+        .map(({ url, body }) => [url.slice(url.indexOf('/zones')), body]),
+    ).toEqual([[SENDING_SUBDOMAINS, JSON.stringify({ name: 'mail.acme.com' })]]);
+    const output = printed.join('\n');
+    expect(output).toContain('[code: 10105]');
+    expect(output).toContain(
+      'Enable Workers Paid: https://dash.cloudflare.com/?to=/:account/workers/plans',
+    );
+    expect(output).toContain('Zone Read + Email Sending Edit');
+    expect(output).not.toContain('verified destinations only');
+    expect(logged.lines.join('\n')).toContain('Follow the Workers Paid steps above.');
+    // The saved binding and sender stay as they were.
+    expect(readFileSync(configPath, 'utf-8')).toBe(before);
+  });
 });
 
 describe('void email setup --platform cloudflare', () => {

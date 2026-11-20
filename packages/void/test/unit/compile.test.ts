@@ -1,4 +1,5 @@
 import { win32 } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { compilePattern as sharedCompilePattern, matchPatternCaptures } from '@void/edge';
 /* oxlint-disable typescript-eslint/no-explicit-any -- these tests wire the void context augmentations by hand (`c.rewrite`, `c.originalUrl`, `c.isRewritten`) to exercise generated code paths directly; `as any` is the least noisy way to assign/read those members without re-declaring the full Hono context shape per test. */
 import { Hono } from 'hono';
@@ -31,9 +32,6 @@ import {
 } from '../../src/runtime/routing/index.ts';
 
 const testOptions = {
-  honoPath: '/resolved/hono/index.mjs',
-  honoRoutePath: '/resolved/hono/route.mjs',
-
   runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
   projectRoot: '/project',
   homeDir: '/Users/test',
@@ -1116,7 +1114,7 @@ describe('compileNodeApp', () => {
         Bindings: { ASSETS: { fetch(request: Request): Promise<Response> } };
       }>();
       innerApp.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
-      const code = compileNodeApp(target, 'hono')
+      const code = compileNodeApp(target)
         .replace(/^import .*;$/gm, '')
         .replace('import.meta.voidClientDirectory', '"client"')
         .replace('export default app;', 'return app;');
@@ -1148,9 +1146,13 @@ describe('compileNodeApp', () => {
   );
 
   it('generates node app with serveStatic and default export', () => {
-    const code = compileNodeApp('node', '/resolved/hono/index.mjs');
+    const code = compileNodeApp('node');
+    const routingRuntimePath = fileURLToPath(import.meta.resolve('#self/runtime/routing'));
     expect(code).toContain('import { serveStatic } from "@hono/node-server/serve-static"');
-    expect(code).toContain('import { Hono } from "/resolved/hono/index.mjs"');
+    // From Void's routing runtime, so the app and the runtime share one Hono.
+    expect(code).toContain(
+      `import { Hono, prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(routingRuntimePath)};`,
+    );
     expect(code).toContain('export default app');
     expect(code).toContain(
       'import innerApp, { __voidCollectPrerenderPaths, __voidRenderStaticNotFound } from "virtual:void-routes"',
@@ -1167,26 +1169,26 @@ describe('compileNodeApp', () => {
   });
 
   it('generates bun app with hono/bun serveStatic', () => {
-    const code = compileNodeApp('bun', '/resolved/hono/index.mjs');
+    const code = compileNodeApp('bun');
     expect(code).toContain('import { serveStatic } from "hono/bun"');
     expect(code).toContain('export default app');
     expect(code).not.toContain('@hono/node-server');
   });
 
   it('generates deno app with hono/deno serveStatic', () => {
-    const code = compileNodeApp('deno', '/resolved/hono/index.mjs');
+    const code = compileNodeApp('deno');
     expect(code).toContain('import { serveStatic } from "hono/deno"');
     expect(code).toContain('export default app');
     expect(code).not.toContain('@hono/node-server');
   });
 
   it('omits boot-time env validation when no envSchemaModule is provided', () => {
-    const code = compileNodeApp('node', '/resolved/hono/index.mjs');
+    const code = compileNodeApp('node');
     expect(code).not.toContain('_validateEnvOnce');
   });
 
   it('splices boot-time env validation when envSchemaModule is provided (node)', () => {
-    const code = compileNodeApp('node', '/resolved/hono/index.mjs', {
+    const code = compileNodeApp('node', {
       importPath: '/abs/path/to/env.ts',
       helperPath: '/resolved/env-public.mjs',
     });
@@ -1202,7 +1204,7 @@ describe('compileNodeApp', () => {
   });
 
   it('uses Deno.env.toObject() as the env source on the deno target', () => {
-    const code = compileNodeApp('deno', '/resolved/hono/index.mjs', {
+    const code = compileNodeApp('deno', {
       importPath: '/abs/path/to/env.ts',
       helperPath: '/resolved/env-public.mjs',
     });
@@ -1211,7 +1213,7 @@ describe('compileNodeApp', () => {
   });
 
   it('splices boot-time env validation on the bun target', () => {
-    const code = compileNodeApp('bun', '/resolved/hono/index.mjs', {
+    const code = compileNodeApp('bun', {
       importPath: '/abs/path/to/env.ts',
       helperPath: '/resolved/env-public.mjs',
     });

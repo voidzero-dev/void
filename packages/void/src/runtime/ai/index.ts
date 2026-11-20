@@ -611,8 +611,15 @@ export type VoidAi = {
   stream(model: string, inputs: Record<string, unknown>, options?: AiOptions): Promise<Response>;
 };
 
-/** Normalize provider 429 responses and binding quota failures before they reach callers. */
-async function aiOperation<T>(execute: () => Promise<T>, rawStream = false): Promise<T> {
+/**
+ * Normalize provider 429 responses and binding quota failures before they reach callers.
+ * `signal` is the caller's own cancellation of a provider request; see `streamResponse`.
+ */
+async function aiOperation<T>(
+  execute: () => Promise<T>,
+  rawStream = false,
+  signal?: AbortSignal | null,
+): Promise<T> {
   let value: T;
   try {
     value = await execute();
@@ -630,7 +637,7 @@ async function aiOperation<T>(execute: () => Promise<T>, rawStream = false): Pro
     value.body &&
     value.headers.get('content-type')?.includes('text/event-stream')
   ) {
-    return new Response(streamResponse(value.body).body, value) as T;
+    return new Response(streamResponse(value.body, signal).body, value) as T;
   }
   if (rawStream && value instanceof ReadableStream) {
     return streamResponse(value).body as T;
@@ -656,8 +663,12 @@ function classifyAiLimit(error: unknown): UsageLimit | null {
     : null;
 }
 
-/** Streaming failures after headers are sent end with an explicit terminal SSE event. */
-function streamResponse(body: ReadableStream): Response {
+/**
+ * Streaming failures after headers are sent end with an explicit terminal SSE
+ * event. A provider request the caller cancelled through `signal` instead fails
+ * with the caller's reason, as a plain fetch does.
+ */
+function streamResponse(body: ReadableStream, signal?: AbortSignal | null): Response {
   const reader = body.getReader();
   return new Response(
     new ReadableStream({
@@ -670,6 +681,10 @@ function streamResponse(body: ReadableStream): Response {
             controller.enqueue(chunk.value);
           }
         } catch (error) {
+          if (signal?.aborted) {
+            controller.error(signal.reason);
+            return;
+          }
           const limit = classifyAiLimit(error);
           let data: unknown = { message: 'Generation was interrupted. Please try again.' };
           if (limit) {
@@ -706,7 +721,11 @@ export const ai: VoidAi = new Proxy({} as VoidAi, {
     if (prop === 'provider') {
       return (provider: string, options?: AiProviderOptions) => ({
         fetch: (path: string, init?: AiProviderFetchInit) =>
-          aiOperation(() => backend().providerFetch(provider, path, init, options)),
+          aiOperation(
+            () => backend().providerFetch(provider, path, init, options),
+            false,
+            init?.signal,
+          ),
       });
     }
     if (prop === 'run' || prop === 'image' || prop === 'models' || prop === 'toMarkdown') {

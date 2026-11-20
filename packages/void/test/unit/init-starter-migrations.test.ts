@@ -10,6 +10,7 @@ import {
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { hasDeploySchemaDrift } from '../../src/cli/deploy-drift.ts';
 import { generateStarterMigration } from '../../src/cli/init.ts';
 import { createPagesStarterTemplate, type ScaffoldStarterMode } from '../../src/cli/template.ts';
@@ -22,6 +23,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   confirm: vi.fn(),
   isCancel: vi.fn(),
   isCI: () => false,
+  settings: { accessible: false },
   select: vi.fn(),
   text: vi.fn(),
   spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
@@ -40,20 +42,20 @@ afterEach(() => {
 // Each case runs real Drizzle Kit subprocesses for generation and drift checking.
 // Windows CI needs more than the default five seconds to start both processes.
 describe('starter migration generation', { timeout: 30_000 }, () => {
-  it('creates a sqlite starter migration that deploy sees as drift-free', () => {
+  it('creates a sqlite starter migration that deploy sees as drift-free', async () => {
     const root = createStarterApp('sqlite');
 
-    generateStarterMigration(root, 'sqlite');
+    await generateStarterMigration(root, 'sqlite');
 
     expect(readSqlMigrations(root)).toHaveLength(1);
     expect(existsSync(join(root, 'db', 'migrations', 'meta', '_journal.json'))).toBe(true);
     expect(hasDeploySchemaDrift(root, 'sqlite')).toBe(false);
   });
 
-  it('creates a postgresql starter migration that deploy sees as drift-free', () => {
+  it('creates a postgresql starter migration that deploy sees as drift-free', async () => {
     const root = createStarterApp('postgresql');
 
-    generateStarterMigration(root, 'postgresql');
+    await generateStarterMigration(root, 'postgresql');
 
     expect(readSqlMigrations(root)).toHaveLength(1);
     expect(existsSync(join(root, 'db', 'migrations', 'meta', '_journal.json'))).toBe(true);
@@ -62,7 +64,9 @@ describe('starter migration generation', { timeout: 30_000 }, () => {
 });
 
 function createStarterApp(starterMode: Exclude<ScaffoldStarterMode, 'static'>): string {
-  const root = mkdtempSync(join(packageRoot, '.tmp-init-starter-'));
+  const root = mkdtempSync(
+    packageFixturePath(join(packageRoot, 'test/unit'), '.tmp-init-starter-'),
+  );
   tempDirs.push(root);
 
   const template = createPagesStarterTemplate({

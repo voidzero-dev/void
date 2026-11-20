@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
   acquireProvisionLock,
   createDefaultRunWrangler,
@@ -74,7 +75,7 @@ async function waitForPid(pidFile: string, timeoutMs: number): Promise<number | 
 }
 
 describe('createDefaultRunWrangler — normal close confirms the whole GROUP', () => {
-  const GROUP_CLOSE_TMP = join(import.meta.dirname, '.tmp-group-close');
+  const GROUP_CLOSE_TMP = packageFixturePath(import.meta.dirname, '.tmp-group-close');
   beforeEach(() => {
     rmSync(GROUP_CLOSE_TMP, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
     mkdirSync(GROUP_CLOSE_TMP, { recursive: true });
@@ -133,7 +134,7 @@ describe('createDefaultRunWrangler — normal close confirms the whole GROUP', (
 });
 
 describe('createDefaultRunWrangler — signal-path kill failure quarantines the lock (child-process)', () => {
-  const SIGNAL_KILL_TMP = join(import.meta.dirname, '.tmp-signal-kill');
+  const SIGNAL_KILL_TMP = packageFixturePath(import.meta.dirname, '.tmp-signal-kill');
   beforeEach(() => {
     rmSync(SIGNAL_KILL_TMP, { recursive: true, force: true });
     mkdirSync(SIGNAL_KILL_TMP, { recursive: true });
@@ -241,7 +242,7 @@ describe('createDefaultRunWrangler — signal-path kill failure quarantines the 
 });
 
 describe('createDefaultRunWrangler — ONE signal coordinator: repeated signals coalesced, teardown bounded, spawns rejected', () => {
-  const COORDINATOR_TMP = join(import.meta.dirname, '.tmp-signal-coordinator');
+  const COORDINATOR_TMP = packageFixturePath(import.meta.dirname, '.tmp-signal-coordinator');
   beforeEach(() => {
     rmSync(COORDINATOR_TMP, { recursive: true, force: true });
     mkdirSync(COORDINATOR_TMP, { recursive: true });
@@ -565,7 +566,7 @@ describe('createDefaultRunWrangler — ONE signal coordinator: repeated signals 
 });
 
 describe('createDefaultRunWrangler — post-spawn child `error` events confirm/quarantine', () => {
-  const POST_SPAWN_TMP = join(import.meta.dirname, '.tmp-post-spawn-error');
+  const POST_SPAWN_TMP = packageFixturePath(import.meta.dirname, '.tmp-post-spawn-error');
   const spawnedChildren = new Set<import('node:child_process').ChildProcess>();
   beforeEach(() => {
     rmSync(POST_SPAWN_TMP, { recursive: true, force: true });

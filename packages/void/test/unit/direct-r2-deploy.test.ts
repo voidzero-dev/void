@@ -125,6 +125,7 @@ function installPlatformMocks(opts?: {
   r2PutBehavior?: (url: string) => Response | Promise<Response>;
   workerUploadUrls?: () => Response;
   finalizeEvents?: Array<unknown>;
+  capabilities?: Record<string, unknown>;
 }): MockState {
   const state: MockState = {
     preflightCalls: [],
@@ -138,6 +139,10 @@ function installPlatformMocks(opts?: {
     const url = typeof input === 'string' ? input : (input as Request).url;
     const reqInit = init ?? {};
     const method = reqInit.method ?? 'GET';
+
+    if (url.endsWith('/capabilities') && method === 'GET' && opts?.capabilities) {
+      return Response.json(opts.capabilities);
+    }
 
     if (url.endsWith('/deploy/preflight') && method === 'POST') {
       state.preflightCalls.push(JSON.parse(reqInit.body as string));
@@ -722,6 +727,79 @@ describe('Worker module uploads', () => {
     expect(state.uploadUrlsCalls).toHaveLength(0);
     expect(state.r2PutCalls).toHaveLength(0);
     expect(state.finalizeCalls).toHaveLength(0);
+  });
+});
+
+describe('D1 read replication', () => {
+  const manifest: DeployManifest = {
+    version: 3,
+    assetManifestVersion: 2,
+    bindings: { d1: ['DB'] },
+    type: 'void',
+    ssr: true,
+    workerMain: 'index.js',
+  };
+
+  async function deployWith(origin: string, deployManifest: DeployManifest): Promise<void> {
+    const { assetManifest, assetFiles } = await collectAndHashAssets(assetsDir);
+    await streamDirectR2Deploy({
+      client: new PlatformClient('test-token', { apiUrl: origin }),
+      projectId: 'proj_t',
+      manifest: deployManifest,
+      assetManifest,
+      assetFiles,
+      needed: ['/index.html'],
+      preflightUsed: false,
+      spinner: noopSpinner as unknown as SpinnerResult,
+    });
+  }
+
+  function requestedPaths(): Array<string> {
+    return fetchMock.mock.calls.map(([url]) => new URL(String(url)).pathname);
+  }
+
+  it.each([true, false])(
+    'stops before any upload when the platform cannot apply readReplication: %s',
+    async (readReplication) => {
+      // What a 1.10.0 platform advertises: it ignores the setting.
+      const state = installPlatformMocks({ capabilities: { skipMigrations: true } });
+
+      await expect(
+        deployWith(`https://api-rr-old-${readReplication}.test`, {
+          ...manifest,
+          database: { readReplication },
+        }),
+      ).rejects.toThrow(
+        'This Void platform cannot apply `database.readReplication` from void.config.ts. Ask its administrator to upgrade with `void platform upgrade`.',
+      );
+
+      expect(requestedPaths()).toEqual(['/capabilities']);
+      expect(state.uploadUrlsCalls).toHaveLength(0);
+      expect(state.r2PutCalls).toHaveLength(0);
+      expect(state.finalizeCalls).toHaveLength(0);
+    },
+  );
+
+  it('sends the setting when the platform advertises support', async () => {
+    const state = installPlatformMocks({ capabilities: { d1ReadReplication: true } });
+
+    await deployWith('https://api-rr-new.test', {
+      ...manifest,
+      database: { readReplication: false },
+    });
+
+    expect(requestedPaths()[0]).toBe('/capabilities');
+    const body = JSON.parse(state.finalizeCalls[0].init.body as string);
+    expect(body.manifest.database).toEqual({ readReplication: false });
+  });
+
+  it('does not ask for capabilities when the app leaves the setting out', async () => {
+    const state = installPlatformMocks();
+
+    await deployWith('https://api-rr-unset.test', manifest);
+
+    expect(requestedPaths()).not.toContain('/capabilities');
+    expect(state.finalizeCalls).toHaveLength(1);
   });
 });
 

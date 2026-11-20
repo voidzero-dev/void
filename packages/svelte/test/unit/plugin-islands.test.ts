@@ -4,9 +4,10 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { compile } from 'svelte/compiler';
 import { build, normalizePath, type Rolldown } from 'vite';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_islands_plugin__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_islands_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 type HookWithHandler<T> = { handler: T };
 type IslandsPluginHooks = {

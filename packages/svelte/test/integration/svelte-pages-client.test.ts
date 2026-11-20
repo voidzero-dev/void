@@ -1,13 +1,14 @@
-import { execSync, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { execFileSync, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
+  createIsolatedPlayground,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
+  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
@@ -22,17 +23,21 @@ import {
 type NavElement = HTMLElement & { __stamp?: number };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
+// Both server groups build and serve one isolated copy of the playground, never its source.
+let fixture: IsolatedPlayground;
 let DEV_BASE: string;
 let PREVIEW_BASE: string;
 
 let browser: Browser;
 
 beforeAll(async () => {
+  fixture = createIsolatedPlayground(ROOT, 'playground/svelte-pages');
   browser = await launchPagesBrowser();
 });
 
 afterAll(async () => {
   await browser?.close();
+  fixture?.cleanup();
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
@@ -125,7 +130,7 @@ describe('svelte-pages client (dev)', () => {
 
   beforeAll(async () => {
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'svelte-pages', 'dev', port)),
+      (port) => (child = spawnFixtureServer(fixture.root, 'dev', port)),
       20_000,
     );
     DEV_BASE = server.base;
@@ -149,8 +154,8 @@ describe('svelte-pages client (dev)', () => {
   defineSharedIslandHmrTests({
     getBase: () => DEV_BASE,
     getBrowser: () => browser,
-    counterFile: join(ROOT, 'playground/svelte-pages/pages/blog/_Counter.svelte'),
-    islandFile: join(ROOT, 'playground/svelte-pages/pages/blog/index.island.svelte'),
+    counterFile: () => join(fixture.root, 'pages/blog/_Counter.svelte'),
+    islandFile: () => join(fixture.root, 'pages/blog/index.island.svelte'),
     hmrKeepsState: false,
   });
 });
@@ -159,15 +164,10 @@ describe('svelte-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
-    if (!existsSync(join(ROOT, 'playground/svelte-pages/dist'))) {
-      execSync('vp run --filter ./playground/svelte-pages build', {
-        cwd: ROOT,
-        stdio: 'pipe',
-      });
-    }
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
 
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'svelte-pages', 'preview', port)),
+      (port) => (child = spawnFixtureServer(fixture.root, 'preview', port)),
       30_000,
     );
     PREVIEW_BASE = server.base;

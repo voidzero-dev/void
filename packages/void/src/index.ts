@@ -83,7 +83,7 @@ import { hasEmailHandlers } from './router/email.ts';
 import { isRouteEnabledForEnvironment, type RouteEnvironment } from './router/parse-filename.ts';
 import { resolveSandboxConfig } from './sandbox/config.ts';
 import { CLOUDFLARE_DEPLOY_BUILD_ENV, loadLocalEnv, resolveRemoteMode } from './shared/env.ts';
-import { validateSsrEntry } from './ssr/entry.ts';
+import { getSsrServerEntryPath, validateSsrEntry } from './ssr/entry.ts';
 
 const scheduledPointerCleanups = new Set<string>();
 
@@ -236,8 +236,10 @@ export function voidPlugin(options?: {
   // graph and therefore another envContext, so request bindings disappear for
   // the prebundled copy. Every return path includes this plugin, including
   // framework and Node targets that do not all use bindingRuntimePlugin.
-  const serverRuntimeOptimizerPlugin = createServerRuntimeOptimizerPlugin(dialect, () =>
-    readWranglerCompat(root, config),
+  const serverRuntimeOptimizerPlugin = createServerRuntimeOptimizerPlugin(
+    dialect,
+    () => readWranglerCompat(root, config),
+    framework ? null : getSsrServerEntryPath(root),
   );
   // Scan queues/websocket routes early so both framework-mode and default-mode
   // branches can safely close over these bindings.

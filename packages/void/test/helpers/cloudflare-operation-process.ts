@@ -6,13 +6,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CloudflareOperation } from '@void/deploy-cloudflare';
-import { afterEach } from 'vite-plus/test';
+import { afterAll } from 'vite-plus/test';
 import { encodeCloudflareOperation } from '../../src/cli/cloudflare-process.ts';
 import { resolveCloudflareOperationArgv } from '../../src/cli/preset.ts';
 
-/** Cleanups run after each test, last registered first. Tests may push their own. */
+/**
+ * Cleanups run when the file ends, last registered first. Tests may push their own.
+ * Tests that only wait for a child process run concurrently, so the end of one test must not
+ * release the servers and directories of another.
+ */
 export const cleanups: Array<() => unknown> = [];
-afterEach(async () => {
+afterAll(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
     await cleanup();
   }

@@ -1,5 +1,5 @@
 import { readdirSync } from 'node:fs';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath, type Plugin, type UserConfig } from 'vite';
 import { createPagesPlugin, generateComponentManifest, resolvePrefetchConfig } from 'void/pages';
 import type {
   PageScanResult,
@@ -247,7 +247,7 @@ export function pagesPlugin(
           staticPageData,
         );
       },
-      config({ isDev }) {
+      config({ isDev }): UserConfig | undefined {
         if (isDev) {
           return {
             optimizeDeps: {
@@ -255,6 +255,12 @@ export function pagesPlugin(
               // imports during SPA navigation, avoiding a full-page reload
               // from Vite's dep optimizer.
               include: ['vue'],
+            },
+            environments: {
+              void_worker: {
+                // Name the server renderer so the Worker has it before its first request.
+                optimizeDeps: { include: ['vue', 'vue/server-renderer'] },
+              },
             },
           };
         }

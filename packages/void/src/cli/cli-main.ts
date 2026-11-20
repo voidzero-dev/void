@@ -268,7 +268,7 @@ if (helpPath) {
     }
     runInitCommand(root, initArgs).catch((err) => {
       log.error(formatCloudflareUserMessage(err.message ?? String(err)));
-      process.exit(1);
+      process.exitCode = 1;
     });
   });
 } else if (command === 'migrate') {

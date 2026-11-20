@@ -1431,6 +1431,7 @@ const HELP_TREE: HelpTree = {
             description:
               'Run against the deployed database (D1 via proxy; PostgreSQL via direct connection)',
           },
+          { command: '--yes', description: 'Skip the confirmation prompt for --remote' },
         ],
         examples: [
           { command: 'void db execute "select * from users"', description: 'Run inline SQL' },

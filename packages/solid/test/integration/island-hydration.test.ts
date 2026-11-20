@@ -1,10 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { chromium, type Browser } from 'playwright';
 import { preview, type PreviewServer } from 'vite';
 import solid from 'vite-plugin-solid';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
+import { createPackageFixtureDir } from '../../../../test/integration-helpers.ts';
 import { buildIslandApp } from '../../../../test/island-css-build.ts';
 import { openIslandPage, type IslandPageVisit } from '../../../../test/island-page-browser.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
@@ -78,7 +79,10 @@ export default function Plain() {
 };
 
 async function visitFixture(): Promise<{ visit: IslandPageVisit; close(): Promise<void> }> {
-  const root = mkdtempSync(join(import.meta.dirname, '__tmp_island_hydration_'));
+  const root = createPackageFixtureDir(
+    join(import.meta.dirname, '../..'),
+    '__tmp_island_hydration_',
+  );
   for (const [file, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     writeFileSync(join(root, file), content);

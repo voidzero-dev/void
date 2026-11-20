@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parse as parseJsoncRaw, type ParseError } from 'jsonc-parser';
 import { toSlash } from 'pathslash';
 import { describe, it, expect, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
   acknowledgeWranglerManagedQueueRemovals,
   bindingEntriesForField,
@@ -27,7 +28,7 @@ import {
 import { readConfig, type VoidConfig } from '../../src/config.ts';
 import type { InferredBindings } from '../../src/inference/walk.ts';
 
-const tmpDir = join(import.meta.dirname, '.tmp-wrangler-test');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-wrangler-test');
 
 function setup(filename: string, content: string) {
   rmSync(tmpDir, { recursive: true, force: true });

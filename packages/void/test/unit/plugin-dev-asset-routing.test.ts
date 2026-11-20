@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Plugin } from 'vite';
+import { normalizePath, type Plugin } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
@@ -252,7 +252,10 @@ describe('voidPlugin dev asset routing', () => {
 
   it('converts void CommonJS dependencies only in environments that run in workerd', async () => {
     const workerdOptimizer = {
-      optimizeDeps: { exclude: ['void', 'better-auth'], include: ['void > email-validator'] },
+      optimizeDeps: {
+        exclude: ['void', 'better-auth'],
+        include: ['void > devalue', 'void > email-validator', 'void > hono', 'void > hono/route'],
+      },
     };
     const nodeOptimizer = { optimizeDeps: { exclude: ['void'] } };
     const cases = [
@@ -290,10 +293,31 @@ describe('voidPlugin dev asset routing', () => {
         `${createRoot.name} ${database}`,
       ).resolves.toEqual({
         optimizeDeps: drivers
-          ? { exclude: ['void', 'better-auth'], include: ['void > email-validator', ...drivers] }
+          ? {
+              exclude: ['void', 'better-auth'],
+              include: [
+                'void > devalue',
+                'void > email-validator',
+                'void > hono',
+                'void > hono/route',
+                ...drivers,
+              ],
+            }
           : { exclude: ['void'] },
       });
     }
+  });
+
+  it('scans the SSR entry for dependencies of the Worker', async () => {
+    const root = createApiOnlyProjectRoot();
+    const ssrEntry = join(root, 'src/main.ssr.tsx');
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(ssrEntry, 'export function render() { return new Response(null); }');
+    writeFileSync(join(root, 'src/main.client.tsx'), 'export {};');
+
+    await expect(
+      resolveRuntimeOptimizerConfig(root, 'void_worker', workerd),
+    ).resolves.toMatchObject({ optimizeDeps: { entries: [normalizePath(ssrEntry)] } });
   });
 
   it('leaves client dependency optimization unchanged', async () => {

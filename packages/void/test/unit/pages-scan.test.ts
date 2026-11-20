@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as tinyglobby from 'tinyglobby';
 import { describe, expect, it, beforeEach, afterEach, vi, type MockInstance } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { resolveLayoutIds } from '../../src/pages/layout-resolution.ts';
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
@@ -18,7 +19,7 @@ import * as sourceAnalysisCache from '../../src/shared/source-analysis-cache.ts'
 vi.mock('tinyglobby', { spy: true });
 vi.mock('../../src/shared/source-analysis-cache.ts', { spy: true });
 
-const TMP = join(import.meta.dirname, '__tmp_pages_scan__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_pages_scan__');
 
 function writeFile(relativePath: string, content: string): void {
   const full = join(TMP, 'pages', relativePath);

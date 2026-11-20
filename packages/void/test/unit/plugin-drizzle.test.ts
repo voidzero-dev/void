@@ -523,11 +523,8 @@ createDb(binding, { session: { bookmark: null } });
         files: [fixture],
       }),
     );
-    const tsc = join(
-      dirname(fileURLToPath(import.meta.resolve('typescript/package.json'))),
-      'bin/tsc',
-    );
-    const result = spawnSync(process.execPath, [tsc, '--project', join(root, 'tsconfig.json')], {
+    const tsrs = join(dirname(fileURLToPath(import.meta.resolve('tsrs/package.json'))), 'bin/tsrs');
+    const result = spawnSync(process.execPath, [tsrs, '--project', join(root, 'tsconfig.json')], {
       encoding: 'utf8',
       timeout: 30_000,
     });

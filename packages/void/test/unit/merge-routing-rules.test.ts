@@ -1,9 +1,10 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { mergeRoutingRules } from '../../src/cli/headers.ts';
 
-const tmpDir = join(import.meta.dirname, '.tmp-merge-routing-rules');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-merge-routing-rules');
 
 function setup(files: { redirects?: string; headers?: string } = {}) {
   rmSync(tmpDir, { recursive: true, force: true });

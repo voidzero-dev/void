@@ -1,7 +1,10 @@
+import { globSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite-plus';
+import { integrationTestDirs, listIntegrationTestFiles } from './test/integration-files.ts';
 import { SuiteSequencer } from './test/sequencer.ts';
+import { chunkTestFiles } from './test/test-chunks.ts';
 
 const maxWorkers = process.env.CI ? 2 : Math.max(2, Math.floor(availableParallelism() * 0.75));
 const apiTimezoneTests = [
@@ -19,6 +22,7 @@ const pgliteUnitTests = [
 ];
 const cliUnitTests = [
   'packages/void/test/unit/cf-*.test.ts',
+  'packages/void/test/unit/cloudflare-operation-process*.test.ts',
   'packages/void/test/unit/provision-*.test.ts',
   'packages/void/test/unit/deploy-drift.test.ts',
 ];
@@ -85,7 +89,78 @@ const platformAlias = {
   ),
 };
 
-export default defineConfig({
+// Each Vitest project belongs to exactly one cached test group of `vp run test`. The check at
+// the end of this file fails when a project is in no group, so a new project cannot be left out.
+const testGroups = {
+  platform: [
+    'platform-unit',
+    'platform-unit-pglite',
+    'platform-api-integration',
+    'platform-api-integration-threads',
+  ],
+  unit: ['unit', 'unit-pglite', 'cli-unit'],
+  integration: ['parallel-integration'],
+};
+
+// The files a cached test task reads are its inputs. Two trees are left out: Node's compile
+// cache, which every run rewrites, and the temporary playground copies. A copy is made from
+// tracked files, and some frameworks list the directory that holds the copies of other tests.
+const testGroupInput = [{ auto: true }, '!node_modules/.cache/**', '!playground-local/**'];
+
+function testGroupCommand(group: keyof typeof testGroups): string {
+  return `vp test run ${testGroups[group].map((name) => `--project ${name}`).join(' ')}`;
+}
+
+// The integration group runs one cached task per test file. Each task records the files its test
+// reads, so a change reruns only the files that depend on it and the others are replayed.
+const e2eEnvNames = ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'];
+const integrationFileTasks = Object.fromEntries(
+  listIntegrationTestFiles(import.meta.dirname).map((file) => [
+    `test:integration:${file}`,
+    {
+      command: `vp test run --project parallel-integration ${file}`,
+      cache: { input: testGroupInput, output: [], untrackedEnv: e2eEnvNames },
+    },
+  ]),
+);
+
+// The unit and platform groups run as cached chunks of related files. One Vitest run per file
+// would cost more than the tests themselves, so files are chunked by directory instead.
+//
+// A large directory of unit tests is divided further by file name: a source change then reruns
+// the chunks that import it. The platform group is not divided, because every API integration
+// test loads the whole API and an API change reruns all of them anyway.
+//
+// Chunks run side by side. A chunk gets workers for its size, and at least two: most are small.
+const unitTestGlobs = ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'];
+const platformTestGlobs = ['platform/packages/*/test/**/*.test.ts'];
+const chunkConcurrency = Math.max(2, maxWorkers - 1);
+
+function chunkTasks(group: 'unit' | 'platform', globs: Array<string>) {
+  const files = globSync(globs, { cwd: import.meta.dirname }).map((file) =>
+    file.replaceAll('\\', '/'),
+  );
+  const divideLargeDirectories = group === 'unit';
+  return Object.fromEntries(
+    [...chunkTestFiles(files, { divideLargeDirectories })].map(([chunk, chunkFiles]) => {
+      const workers = divideLargeDirectories
+        ? 2
+        : Math.min(maxWorkers, Math.max(2, Math.ceil(chunkFiles.length / 12)));
+      return [
+        `test:${group}:${chunk}`,
+        {
+          command: `${testGroupCommand(group)} --maxWorkers ${workers} ${chunkFiles.join(' ')}`,
+          cache: { input: testGroupInput, output: [] },
+        },
+      ];
+    }),
+  );
+}
+
+const unitChunkTasks = chunkTasks('unit', unitTestGlobs);
+const platformChunkTasks = chunkTasks('platform', platformTestGlobs);
+
+const config = defineConfig({
   run: {
     tasks: {
       'build:all': {
@@ -95,9 +170,47 @@ export default defineConfig({
       'lint:platform': {
         command: 'vp lint platform --type-aware --tsconfig platform/tsconfig.json',
       },
+      // One cached task per test group, so `test:all` replays a group whose inputs did not change.
+      // Test output is not restored on a hit.
+      ...platformChunkTasks,
+      'test:platform:chunks': {
+        command: 'node test/check-test-tasks.mjs platform',
+        dependsOn: Object.keys(platformChunkTasks),
+      },
+      'test:group:platform': {
+        command: `vp run --concurrency-limit ${chunkConcurrency} test:platform:chunks`,
+      },
+      ...unitChunkTasks,
+      'test:unit:chunks': {
+        command: 'node test/check-test-tasks.mjs unit',
+        dependsOn: Object.keys(unitChunkTasks),
+      },
+      'test:group:unit': {
+        command: `vp run --concurrency-limit ${chunkConcurrency} test:unit:chunks`,
+      },
+      ...integrationFileTasks,
+      // The check runs after every file passed and fails when a collected file has no task.
+      'test:integration:files': {
+        command: 'node test/check-test-tasks.mjs integration',
+        dependsOn: Object.keys(integrationFileTasks),
+      },
+      'test:group:integration': {
+        command: `vp run --concurrency-limit ${maxWorkers} test:integration:files`,
+        cache: { untrackedEnv: e2eEnvNames },
+      },
+      // Local verification without the static checks: build the packages, then the cached test
+      // groups. Tests copy and build the playgrounds they use, so the playground builds of
+      // `build:all` are only needed by the artifact and type checks in `test:all`.
+      test: {
+        command:
+          "vp run --cache build && vp run --cache --filter './platform/packages/**' build && vp run test:group:platform && vp run test:group:unit && vp run test:group:integration",
+        cache: {
+          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
+        },
+      },
       'test:all': {
         command:
-          'vp run --cache build:all && node test/check-playground-build-artifacts.mjs && vp check && vp run check:types && vp test run',
+          'vp run --cache build:all && node test/check-playground-build-artifacts.mjs && vp check && vp run --cache check:types && vp run test:group:platform && vp run test:group:unit && vp run test:group:integration',
         // `vp run` passes ONLY the env vars a task declares to that task — not the full environment.
         // Without this, the gated live Cloudflare e2e's credentials never reach `vp test run`, so it
         // skips even when the CI job injects them. `untrackedEnv` forwards them without folding them
@@ -476,7 +589,10 @@ export default defineConfig({
           include: cliUnitTests,
           pool: 'threads',
           maxWorkers,
-          ...(process.platform === 'win32' ? { testTimeout: 20_000 } : {}),
+          // These files run their real subprocess tests concurrently. A test then also waits
+          // while its neighbours block the thread in a synchronous spawn, so Vitest's 5-second
+          // default is too short on a busy machine.
+          testTimeout: 20_000,
         },
       },
       {
@@ -485,7 +601,7 @@ export default defineConfig({
           name: 'unit',
           fsModuleCache: true,
           css: { include: [/starter-ui\.css(?:\?|$)/] },
-          include: ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'],
+          include: unitTestGlobs,
           exclude: [...cliUnitTests, ...sdkPgliteUnitTests],
           sequence: { groupOrder: 2 },
           pool: 'threads',
@@ -516,7 +632,7 @@ export default defineConfig({
           name: 'platform-unit',
           fsModuleCache: true,
           pool: 'threads',
-          include: ['platform/packages/*/test/**/*.test.ts'],
+          include: platformTestGlobs,
           exclude: ['platform/packages/api/test/integration/**', ...pgliteUnitTests],
           maxWorkers,
         },
@@ -588,20 +704,25 @@ export default defineConfig({
           // existing e2e file drives playground/spa, while the other SPA integration uses an
           // isolated playground-local copy so both remain safe when credentials are present.
           env: e2eWorkerEnv,
-          include: [
-            'packages/void/test/integration/**/*.test.ts',
-            // Gated live-account e2e (test/e2e/**). Collected here so it is skipped cleanly in CI
-            // (no token) rather than silently undiscovered; runs only when its env vars are set.
-            'packages/void/test/e2e/**/*.test.ts',
-            'packages/md/test/integration/**/*.test.ts',
-            'packages/react/test/integration/**/*.test.ts',
-            'packages/vue/test/integration/**/*.test.ts',
-            'packages/svelte/test/integration/**/*.test.ts',
-            'packages/solid/test/integration/**/*.test.ts',
-          ],
+          include: integrationTestDirs.map((dir) => `${dir}/**/*.test.ts`),
           maxWorkers,
         },
       },
     ],
   },
 });
+
+const groupedProjects = Object.values(testGroups).flat();
+for (const project of config.test?.projects ?? []) {
+  const name = typeof project === 'object' && 'test' in project ? project.test?.name : undefined;
+  if (
+    typeof name !== 'string' ||
+    groupedProjects.filter((grouped) => grouped === name).length !== 1
+  ) {
+    throw new Error(
+      `Vitest project ${JSON.stringify(name)} must be listed in exactly one entry of testGroups in vite.config.ts.`,
+    );
+  }
+}
+
+export default config;

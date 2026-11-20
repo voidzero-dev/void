@@ -29,6 +29,8 @@ import {
   applyEmailSetup,
   createNodeEmailDns,
   emailConfigInputs,
+  formatSendingOnlyPaidHint,
+  isAwaitingSendingOnboarding,
   preflightEmail,
   probeMx,
   renderAddressMap,
@@ -1132,6 +1134,8 @@ async function runEmailCloudflareCommandInConfig(
     return fail(`email: ${err instanceof Error ? err.message : String(err)}`);
   }
   print(renderEmailChecklist(pre));
+  const sendingOnly = pre.usage.handlers.length === 0;
+  const awaitingOnboarding = isAwaitingSendingOnboarding(pre);
 
   if (args.subcommand === 'status') {
     print(
@@ -1140,12 +1144,17 @@ async function runEmailCloudflareCommandInConfig(
         routes: pre.derived.routes,
         addresses: pre.rules.mine,
         sendingReady: pre.sending.state === 'ready',
+        sendingOnly,
         pendingLabel: '(no rule yet)',
       }),
     );
     if (pre.ready) {
       log.info(`Email is set up on ${pre.domain}.`);
       return;
+    }
+    if (awaitingOnboarding) {
+      log.warn(formatSendingOnlyPaidHint(pre.domain).join('\n'));
+      return exit(1);
     }
     log.warn(
       `Email is not set up on ${pre.domain} yet — run \`void email setup --platform cloudflare\`.`,
@@ -1154,7 +1163,8 @@ async function runEmailCloudflareCommandInConfig(
   }
 
   // 4. Confirm. A ready preflight needs no prompt, except a sending onboarding the committed
-  //    binding records as refused: apply would retry it, so it gets its own prompt.
+  //    binding records as refused: apply would retry it, so it gets its own prompt. So does
+  //    a saved sending-only setup still waiting for onboarding (deploys never retry it).
   if (pre.blockers.some((b) => b.scope === 'all')) {
     return fail('email: nothing was changed — fix the ✘ rows above and rerun.');
   }
@@ -1173,7 +1183,9 @@ async function runEmailCloudflareCommandInConfig(
       });
     const question = pre.ready
       ? `Onboard ${pre.domain} for Email Sending? Inbound already works; onboarding needs Workers Paid.`
-      : `Set up email on ${pre.domain}?`;
+      : awaitingOnboarding
+        ? `Onboard ${pre.domain} for Email Sending? Sending-only apps need Workers Paid.`
+        : `Set up email on ${pre.domain}?`;
     if (!(await ask(question))) {
       log.info('Nothing changed.');
       return;
@@ -1199,14 +1211,18 @@ async function runEmailCloudflareCommandInConfig(
       routes: pre.derived.routes,
       addresses: out.patch.addresses ?? [],
       sendingReady: out.sendingReady,
+      sendingOnly,
       pendingLabel: '(no rule yet)',
     }),
   );
   // Match deploy's capability checks. Apps receiving mail can retain their Workers Free
   // setup when sending onboarding fails; sending-only apps must verify sending itself.
-  if (!out.ready && pre.usage.handlers.length === 0) {
+  // A refused onboarding has already printed the Workers Paid steps with the apply rows.
+  if (!out.ready && sendingOnly) {
     log.warn(
-      `Email Sending is not configured on ${pre.domain}. Check the sending status above, then retry \`void email setup --platform cloudflare\`.`,
+      pre.sendingRetryable
+        ? `Email Sending is not onboarded on ${pre.domain}; sendEmail() needs it in apps without email/ handlers. Follow the Workers Paid steps above.`
+        : `Email Sending is not configured on ${pre.domain}. Check the sending status above, then retry \`void email setup --platform cloudflare\`.`,
     );
     return exit(1);
   }

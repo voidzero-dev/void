@@ -1,7 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
@@ -132,8 +131,6 @@ export { mutate as "action" };
           join(directory, 'queues'),
           null,
           {
-            honoPath: fileURLToPath(import.meta.resolve('hono')),
-            honoRoutePath: fileURLToPath(import.meta.resolve('hono/route')),
             runtimeEnvPath: source('env/runtime.ts'),
             projectRoot: directory,
             homeDir: tmpdir(),

@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
-import { expect, it } from 'vite-plus/test';
+import { expect, it as serialIt } from 'vite-plus/test';
 import { isVoidSecretOnlyDraft } from '../../../deploy-cloudflare/src/secret-draft.ts';
 import { voidSecretDraftVersion } from '../../../deploy-cloudflare/test/secret-draft-fixture.ts';
 import {
@@ -23,6 +23,10 @@ import {
   temporaryDirectory,
   tokenEnv,
 } from '../helpers/cloudflare-operation-process.ts';
+
+// Each test waits for a real child process with its own directory and local API server.
+// Running them concurrently overlaps those waits; every test still spawns its own process.
+const it = serialIt.concurrent;
 
 const voidVersion = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
   .version as string;
@@ -875,6 +879,46 @@ it('sends D1 SQL that starts with a comment through the pinned cf', async () => 
   );
   expect(output.status, output.stderr).toBe(0);
   expect(bodies).toEqual([{ sql }]);
+}, 30_000);
+
+it('sends a CRLF D1 SQL file to the query API with LF outside quoted values', async () => {
+  const directory = temporaryDirectory('void-cf-d1-crlf-sql-');
+  const bodies: Array<unknown> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+      }
+      bodies.push(JSON.parse(body));
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ success: true, result: [{ results: [], success: true }] }));
+    }),
+  );
+  const configPath = join(directory, 'wrangler.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      account_id: 'test-account',
+      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+    }),
+  );
+  const file = join(directory, 'trigger.sql');
+  writeFileSync(
+    file,
+    "CREATE TRIGGER trg BEFORE DELETE ON probe_z\r\nBEGIN\r\n  SELECT RAISE(ABORT, 'no\r\nchange');\r\nEND;\r\n",
+  );
+  const output = await runOperation(
+    directory,
+    { type: 'd1.execute', database: 'DB', file, configPath },
+    tokenEnv(api),
+  );
+  expect(output.status, output.stderr).toBe(0);
+  expect(bodies).toEqual([
+    {
+      sql: "CREATE TRIGGER trg BEFORE DELETE ON probe_z\nBEGIN\n  SELECT RAISE(ABORT, 'no\r\nchange');\nEND;\n",
+    },
+  ]);
 }, 30_000);
 
 it('preserves rows from large D1 queries without importing or exceeding argv limits', async () => {

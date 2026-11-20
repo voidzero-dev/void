@@ -1,9 +1,10 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { collectMigrations } from '../../src/migrations/collect.ts';
 
-const TMP_DIR = join(import.meta.dirname, '.tmp-collect-test');
+const TMP_DIR = packageFixturePath(import.meta.dirname, '.tmp-collect-test');
 
 function setup(files: Record<string, string>) {
   rmSync(TMP_DIR, { recursive: true, force: true });

@@ -1,10 +1,11 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { canRewriteVoidProjectConfig, writeVoidProjectConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
 
-const root = join(import.meta.dirname, '.tmp-config-write-test');
+const root = packageFixturePath(import.meta.dirname, '.tmp-config-write-test');
 
 function setup(source: string): void {
   rmSync(root, { recursive: true, force: true });

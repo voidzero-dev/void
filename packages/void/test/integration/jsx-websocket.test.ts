@@ -77,8 +77,6 @@ export default ${helper}({
         join(root, 'queues'),
         null,
         {
-          honoPath: import.meta.resolve('hono'),
-          honoRoutePath: import.meta.resolve('hono/route'),
           runtimeEnvPath,
           webSocketRuntimePath: join(repository, 'packages/void/src/runtime/ws/server.ts'),
           projectRoot: root,

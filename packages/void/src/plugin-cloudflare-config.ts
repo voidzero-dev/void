@@ -49,7 +49,7 @@ export function mergeCloudflareConfig(patch: object, fallback: object): Record<s
   return result;
 }
 
-/** Use Cloudflare's public migration API rather than maintaining a second binding translator. */
+/** Translate Void's Wrangler-shaped settings to the configuration that the Cloudflare plugin takes. */
 export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): CloudflareConfig {
   const packagePath = join(root, 'package.json');
   const packageName = existsSync(packagePath)
@@ -89,8 +89,7 @@ export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): Cloud
   if (!config.worker) {
     throw new Error('Void requires a Cloudflare Worker configuration.');
   }
-  // The codemod uses disposable files. Keep all variable values, including
-  // local development credentials, out of those files as well as the root config.
+  // `vars` was left out of the translation above; add the values here.
   for (const [name, value] of Object.entries(values ?? {})) {
     config.worker.env ??= {};
     config.worker.env[name] =

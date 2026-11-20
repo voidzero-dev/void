@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { verifyManagedDurableObjectApplicationBindings } from '../../src/provisioning/durable-objects.ts';
 import {
   buildDurableObjectUploadMigrations,
   buildLiveUploadBindings,
@@ -632,5 +633,113 @@ describe('validateManifestShape sandbox + static/spa rejection', () => {
         sandbox,
       }),
     ).toBeNull();
+  });
+});
+
+describe('verifyManagedDurableObjectApplicationBindings', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const env = {
+    CF_ACCOUNT_ID: 'acc-123',
+    CF_API_TOKEN: 'tok-123',
+    DISPATCH_NAMESPACE: 'void-prod',
+  };
+  const manifest: DeployManifest = {
+    version: 3,
+    bindings: {},
+    durableObjects: {
+      bindings: [{ bindingName: 'TRACKER', className: 'TrackerDo', storage: 'sqlite' }],
+      runtime: { protocol: 1, namespaces: { TrackerDo: 'ns-expected' } },
+    },
+  };
+
+  it('resolves on first read when bindings match immediately', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        success: true,
+        errors: [],
+        result: [
+          { name: 'TRACKER', type: 'durable_object_namespace', namespace_id: 'ns-expected' },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest),
+    ).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries empty application bindings without looking up Worker settings', async () => {
+    let bindingCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toMatch(/\/scripts\/worker-1\/bindings$/);
+      bindingCalls += 1;
+      return Response.json({
+        success: true,
+        errors: [],
+        result:
+          bindingCalls === 1
+            ? []
+            : [{ name: 'TRACKER', type: 'durable_object_namespace', namespace_id: 'ns-expected' }],
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, { delaysMs: [0] }),
+    ).resolves.toBeUndefined();
+    expect(bindingCalls).toBe(2);
+  });
+
+  it('rejects when bindings never match across all retry attempts', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        success: true,
+        errors: [],
+        result: [{ name: 'TRACKER', type: 'durable_object_namespace', namespace_id: 'ns-stale' }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, {
+        delaysMs: [0, 0, 0],
+      }),
+    ).rejects.toThrow('Application custom Durable Object binding could not be verified.');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it.each(['response body', 'retry delay'])('honors the deadline during a %s', async (phase) => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      if (phase === 'retry delay') {
+        return Response.json({ success: true, errors: [], result: [] });
+      }
+      const signal = init.signal!;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const rejected = expect(
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, {
+        deadline: Date.now() + 100,
+      }),
+    ).rejects.toThrow(
+      'The deployment reached its time limit while verifying application Durable Object bindings.',
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    await rejected;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
