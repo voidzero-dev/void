@@ -33,14 +33,14 @@ void init [--tsconfig] [--github] [--git | --no-git]
           [--toolchain <name>] [--framework <name>] [--starter <name>] [--deploy <target>]
 ```
 
-Set up a new or existing Void project. In an empty directory, choose Vite+ or Vite, a framework, and a D1, PostgreSQL, MySQL, or Static Pages starter. The new app's `void.config.ts` turns on [`routing.typedRoutes`](../config.md#routing-typedroutes).
+Set up a new or existing Void project. In an empty directory, choose Vite+ or Vite, a framework (or **None** for built-in [Server Components](../../guide/pages-routing/server-components)), and a D1, PostgreSQL, MySQL, or Static Pages starter. The new app's `void.config.ts` turns on [`routing.typedRoutes`](../config.md#routing-typedroutes).
 
 Pass your choices as flags to scaffold from a script or coding agent:
 
 | Flag          | Values                                    |
 | ------------- | ----------------------------------------- |
 | `--toolchain` | `vite-plus`, `vite`                       |
-| `--framework` | `react`, `vue`, `svelte`, `solid`         |
+| `--framework` | `none`, `react`, `vue`, `svelte`, `solid` |
 | `--starter`   | `sqlite`, `postgresql`, `mysql`, `static` |
 | `--deploy`    | `cloudflare`, `void`, `none`              |
 

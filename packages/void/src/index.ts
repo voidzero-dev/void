@@ -33,6 +33,7 @@ import { inferBindingsFromSource } from './inference/walk.ts';
 import { resolveLocalD1Target, writeLocalD1PersistState } from './local-d1.ts';
 import { voidLog, voidWarn } from './log.ts';
 import { pagesDevCssAssetsPlugin } from './pages/dev-css-assets.ts';
+import { serverComponentsPlugin } from './pages/server-components-plugin.ts';
 import { readVoidDevCredentials, runAiSetupPrompt } from './plugin-ai-setup.ts';
 import { bindingRuntimePlugin } from './plugin-binding-runtime.ts';
 import { createClientStubsPlugin } from './plugin-client-stubs.ts';
@@ -859,6 +860,7 @@ export function voidPlugin(options?: {
       envPlugin,
       serverRuntimeOptimizerPlugin,
       envSchemaPlugin(root),
+      ...serverComponentsPlugin(root, paths.pagesDir),
       ...pagesDevCssAssetsPlugin(root, devTriggerToken),
       routingPlugin(root, {
         getApplicationAnalysis,
@@ -1016,6 +1018,7 @@ export function voidPlugin(options?: {
     serverRuntimeOptimizerPlugin,
     bindingRuntimePlugin(bindingNames),
     ...(bindings.needsSandbox ? [createSandboxSdkResolvePlugin()] : []),
+    ...serverComponentsPlugin(root, paths.pagesDir),
     ...pagesDevCssAssetsPlugin(root, devTriggerToken),
     routes,
     drizzlePlugin(root, true, dialect, {
@@ -1085,7 +1088,7 @@ export type { QueueMap } from './runtime/queues/index.ts';
 
 export { defer } from './pages/defer.ts';
 
-export type { Deferred, DeferredState, InferProps } from './pages/defer.ts';
+export type { Deferred, DeferredState, InferProps, InferServerProps } from './pages/defer.ts';
 
 export type { HeadConfig, HeadDescriptor } from './pages/head.ts';
 

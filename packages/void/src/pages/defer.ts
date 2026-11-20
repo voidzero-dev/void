@@ -1,6 +1,7 @@
 import type { CloudContext } from '../runtime/handler/index.ts';
 
-export const DEFERRED: unique symbol = Symbol('deferred');
+// User handlers and the generated renderer can load separate runtime module instances.
+export const DEFERRED: unique symbol = Symbol.for('void.pages.deferred.v1');
 
 export type DeferredSentinel = {
   [DEFERRED]: true;
@@ -23,6 +24,16 @@ export type Deferred<T> = DeferredState<T> & Promise<T>;
 
 /** Extract the props type from a typed handler (loader). */
 export type InferProps<T> = T extends { __output: infer R } ? R : never;
+
+type ResolveDeferredProp<T> =
+  T extends Deferred<infer Value> ? (undefined extends Value ? Value | null : Value) : T;
+
+/** Extract server page props, with top-level deferred fields unwrapped. */
+export type InferServerProps<T> = ResolveDeferredProps<InferProps<T>>;
+
+type ResolveDeferredProps<Props> = {
+  [Key in keyof Props]: ResolveDeferredProp<Props[Key]>;
+};
 
 export function defer<T>(resolver: (c: CloudContext) => Promise<T>): Deferred<T>;
 export function defer<T>(group: string, resolver: (c: CloudContext) => Promise<T>): Deferred<T>;
@@ -52,7 +63,7 @@ export function separateDeferred(props: Record<string, unknown>): {
   deferredMap: Record<string, ResolvedDeferredGroup>;
 } {
   const immediateProps: Record<string, unknown> = {};
-  const deferredMap: Record<string, ResolvedDeferredGroup> = {};
+  const deferredMap: Record<string, ResolvedDeferredGroup> = Object.create(null);
 
   for (const [key, value] of Object.entries(props)) {
     if (value && typeof value === 'object' && DEFERRED in value) {
