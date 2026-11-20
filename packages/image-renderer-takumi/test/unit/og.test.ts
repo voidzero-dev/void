@@ -29,7 +29,6 @@ describe('OgImageResponse', () => {
     const response = new OgImageResponse(jsx(component, {}), { renderer: takumiRenderer });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(component).not.toHaveBeenCalled();
-    expect(response.headers.get('cache-control')).toBe('public, max-age=86400');
     await response.arrayBuffer();
     expect(component).toHaveBeenCalledTimes(1);
   });
@@ -61,10 +60,9 @@ describe('OgImageResponse', () => {
     }
   });
 
-  it('caches public images for 24 hours by default', async () => {
+  it('omits the default cache header when Vite sets DEV', () => {
     const response = new OgImageResponse(card, { renderer: takumiRenderer });
-    expect(response.headers.get('cache-control')).toBe('public, max-age=86400');
-    await response.arrayBuffer();
+    expect(response.headers.get('cache-control')).toBeNull();
   });
 
   it.each([

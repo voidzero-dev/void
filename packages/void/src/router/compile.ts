@@ -328,10 +328,8 @@ export function compileRouteTable(
     lines.push('');
   }
 
-  if (headerRules?.length || options.dev) {
-    lines.push(
-      `app.use("*", __routingRuntime.headerMiddleware(${headerRules?.length ? '__headerRules' : '[]'}));`,
-    );
+  if (headerRules?.length) {
+    lines.push('app.use("*", __routingRuntime.headerMiddleware(__headerRules));');
   }
 
   for (let i = 0; i < scan.middleware.length; i++) {

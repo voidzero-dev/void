@@ -4,7 +4,7 @@ outline: deep
 
 # Open Graph Images
 
-Use `OgImageResponse` from `void/image` to generate Open Graph and social preview images in a route handler. It extends [`ImageResponse`](./image-generation.md) with a default size of 1200 × 630 and a public cache lifetime of 24 hours.
+Use `OgImageResponse` from `void/image` to generate Open Graph and social preview images in a route handler. It extends [`ImageResponse`](./image-generation.md) with a default size of 1200 × 630 and a default public cache lifetime of 24 hours in production.
 
 Void renders the image to PNG with Cloudflare Browser Run.
 
@@ -164,7 +164,7 @@ See [Image Generation options](./image-generation.md#options) for all other opti
 
 ## Caching
 
-`OgImageResponse` allows browsers and shared caches to reuse an image for 24 hours by default:
+In production, `OgImageResponse` allows browsers and shared caches to reuse an image for 24 hours by default:
 
 ```http
 Cache-Control: public, max-age=86400
@@ -183,7 +183,7 @@ return new OgImageResponse(html`<div>${title}</div>`, {
 });
 ```
 
-In `void dev`, generated image responses use `Cache-Control: no-store` so previews refresh as you edit. To avoid rendering every request that reaches your server, also [cache generated images at the edge](./image-generation.md#cache-generated-images).
+In development (`void dev` or a build with `NODE_ENV=development`), `OgImageResponse` adds no default `Cache-Control` header. You can still set your own, for example `Cache-Control: no-store` if you want previews to always fetch a fresh response. To avoid rendering every request that reaches your server in production, also [cache generated images at the edge](./image-generation.md#cache-generated-images).
 
 ## Learn More
 

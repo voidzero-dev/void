@@ -292,24 +292,23 @@ describe('typed HTTP execution', () => {
       dev ? 'c.rewrite -> /new (middleware)' : null,
     );
   });
-  it.each([true, false])('disables generated image caching only in dev=%s', async (dev) => {
+  it('preserves a plain SVG route’s cache header in dev', async () => {
     const app = new Hono();
-    const runtime = createRoutingRuntime(app, { nodeTarget: true, dev });
+    const runtime = createRoutingRuntime(app, { nodeTarget: true, dev: true });
     app.use(runtime.headerMiddleware([]));
     app.get(
-      '/image',
+      '/logo.svg',
       () =>
-        new Response('image', {
-          headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=31536000' },
+        new Response('<svg/>', {
+          headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=60' },
         }),
     );
-    const response = await app.request('/image');
-    expect(response.headers.get('cache-control')).toBe(
-      dev ? 'no-store' : 'public, max-age=31536000',
+    expect((await app.request('/logo.svg')).headers.get('cache-control')).toBe(
+      'public, max-age=60',
     );
   });
 
-  it('does not let header rules re-enable generated image caching in dev', async () => {
+  it('applies explicit cache header rules to images in dev', async () => {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true, dev: true });
     app.use(
@@ -318,7 +317,7 @@ describe('typed HTTP execution', () => {
       ]),
     );
     app.get('/image', () => new Response('image', { headers: { 'Content-Type': 'image/png' } }));
-    expect((await app.request('/image')).headers.get('cache-control')).toBe('no-store');
+    expect((await app.request('/image')).headers.get('cache-control')).toBe('public, max-age=60');
   });
 
   it('preserves static image and non-image cache policies in dev', async () => {
