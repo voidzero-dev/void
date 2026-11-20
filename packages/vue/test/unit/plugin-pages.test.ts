@@ -308,6 +308,24 @@ describe('pagesPlugin dev HMR', () => {
     rmSync(TMP, { recursive: true, force: true });
   });
 
+  it('names Vue for the client and its server renderer for the Worker in dev', async () => {
+    writePage('index.vue', '<template><h1>Home</h1></template>\n');
+
+    const plugin = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages') as
+      | PagesPluginHooks
+      | undefined;
+    if (!plugin) {
+      throw new Error('Expected void-vue:pages plugin.');
+    }
+
+    expect(await getHookHandler(plugin.config)({}, { command: 'serve' })).toMatchObject({
+      optimizeDeps: { include: ['vue'] },
+      environments: {
+        void_worker: { optimizeDeps: { include: ['vue', 'vue/server-renderer'] } },
+      },
+    });
+  });
+
   it('rescans dev renderer loads after adding a page file', async () => {
     writePage('index.vue', '<template><h1>Home</h1></template>\n');
 

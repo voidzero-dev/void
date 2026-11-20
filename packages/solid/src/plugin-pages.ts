@@ -34,6 +34,13 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
             // Pre-include Solid entries discovered late via dynamic imports
             include: ['solid-js', 'solid-js/web', 'solid-js/store'],
           },
+          environments: {
+            void_worker: {
+              // The Worker renders with the same entries. Name them so it has them before its
+              // first request.
+              optimizeDeps: { include: ['solid-js', 'solid-js/web', 'solid-js/store'] },
+            },
+          },
         };
       }
 
