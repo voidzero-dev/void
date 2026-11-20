@@ -23,7 +23,8 @@ const REASONS: Record<string, 'fixed' | 'false_positive' | 'accepted_risk'> = {
   'false-positive': 'false_positive',
   'accepted-risk': 'accepted_risk',
 };
-const MAX_BUDGET_USD = 10_000;
+// The platform takes up to $1,000,000 a month (`MAX_CAP_CENTS`); "any amount" when no ceiling applies.
+const MAX_BUDGET_USD = 1_000_000;
 
 export type SecurityResolutionReason = 'fixed' | 'false_positive' | 'accepted_risk';
 

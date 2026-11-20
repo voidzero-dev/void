@@ -111,6 +111,13 @@ describe('judgeGate', () => {
       reason: 'backlog',
       queue: true,
     });
+    // No input left to scan the next part from: only a deploy moves it on.
+    expect(judgeGate(input({ scan: scan({ backlogFiles: 4 }), hasInput: false }))).toMatchObject({
+      state: 'needs_deploy',
+      reason: 'no_input',
+      queue: false,
+      scanId: 'ss_1',
+    });
     expect(judgeGate(input({ scan: scan({ capped: true }) }))).toMatchObject({
       state: 'held_no_result',
       reason: 'findings_capped',

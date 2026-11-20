@@ -86,6 +86,8 @@ export type SecuritySourceDiffInput = Readonly<{
   /** Secret-like files in scope, never read; listed in the coverage notes. */
   secret: ReadonlyArray<Readonly<{ path: string; bytes: number }>>;
   notes: ReadonlyArray<string>;
+  /** The repo lockfile read with the files (`null`: none, too big or not understood). */
+  lockfile?: SecurityLockfileIndex | null;
 }>;
 
 export type SecurityInputPlan = Readonly<{

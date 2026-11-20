@@ -3,6 +3,7 @@ import { getPlatformCapabilities } from '../capabilities.ts';
 import type { ApiEnv } from '../env.ts';
 import { OperatorError } from '../operator/common.ts';
 import {
+  hasProjectCapability,
   ProjectAccessDeniedError,
   ProjectNotFoundError,
   projectAccessErrorBody,
@@ -142,6 +143,10 @@ const app = new Hono<ApiEnv>()
     return context.json({
       ...status,
       publicRequest: await openPublicRequestView(context.get('db'), projectId),
+      // The caller may resolve findings (`settings`, a user session): the deploy notice
+      // then names the resolve command (spec §11.1).
+      canResolve:
+        context.get('deployScope') === undefined && hasProjectCapability(access.role, 'settings'),
       // What the model picker lists (page, dashboard); the PUT checks the same rules.
       modelChoices: await readSecurityProjectModelChoices(context.get('db'), projectId),
     });

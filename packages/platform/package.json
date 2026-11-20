@@ -52,6 +52,10 @@
     "./security-local-check": {
       "types": "./dist/security-local-check.d.mts",
       "import": "./dist/security-local-check.mjs"
+    },
+    "./security-lockfile": {
+      "types": "./dist/security-lockfile.d.mts",
+      "import": "./dist/security-lockfile.mjs"
     }
   },
   "publishConfig": {

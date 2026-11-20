@@ -125,6 +125,9 @@ export const SECURITY_PROJECT_EVENT_ACTIONS = [
   'public_passed',
   'public_canceled',
   'scan_bypassed',
+  /** Zero Trust protection turned on / off for the project (silent-gap flag, spec edge #39). */
+  'protection_on',
+  'protection_off',
 ] as const;
 export type SecurityProjectEventAction = (typeof SECURITY_PROJECT_EVENT_ACTIONS)[number];
 

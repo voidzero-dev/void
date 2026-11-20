@@ -65,7 +65,7 @@ Platform administrators can also manage all of this from **Security** in the adm
 
 A scan starts when a deploy goes live. Rollbacks, failed deploys, and `preview-*` projects are not scanned. A newer deploy replaces a scan that is still queued. A redeploy with no code change is recorded as "no changes" and costs nothing.
 
-Void reviews the source that changed when it can see it, and otherwise the built output mapped back to source. Third-party package code, lockfiles, binaries, and secret-like files are left out, and stored secret values are replaced before any model sees the code. A full rescan can also review the sources of the client bundles, from the source maps deployed with them: `void project security scan --client-assets`. Each result states what it covered, such as `Changes since dpl_7c20 · source diff · 14 files · complete`. Large changes are scanned in parts, and the page shows the files still waiting.
+Void reviews the source that changed when it can see it, and otherwise the built output mapped back to source. Third-party package code, lockfiles, binaries, and secret-like files are left out, and stored secret values are replaced before any model sees the code. Void tells registry packages from your own code by the project's `pnpm-lock.yaml` or `package-lock.json`; without one of those, package code is reviewed too and the result notes `third-party-unverified`. A full rescan can also review the sources of the client bundles, from the source maps deployed with them: `void project security scan --client-assets`. Each result states what it covered, such as `Changes since dpl_7c20 · source diff · 14 files · complete`. Large changes are scanned in parts, and the page shows the files still waiting.
 
 ### Check code before you deploy
 
@@ -164,7 +164,7 @@ The platform pays for scans, and they do not count against the plan's AI limits.
 - A **platform cap** that stops all scans when it is used up.
 - A **project cap**, with a default amount for every project. A project owner or administrator can set a lower cap for their own project. The most they can set is the limit you give that project, else the cap of the owner's plan, else the default when project caps are on.
 
-A scan starts only if its worst case fits under both caps. A used-up cap skips scans, never deploys, and the first scan after the reset or a raise covers what was skipped. Rescans and scans before public count too. At 80% and 100% of a cap, the owner and project administrators (project cap) or platform administrators (platform cap) get one email per month.
+A scan starts only if its worst case fits under both caps. The Scans page in the administrator UI shows the metered cost next to what AI Gateway reports, which arrives about an hour after a scan ends. A used-up cap skips scans, never deploys, and the first scan after the reset or a raise covers what was skipped. Rescans and scans before public count too. At 80% and 100% of a cap, the owner and project administrators (project cap) or platform administrators (platform cap) get one email per month.
 
 ```sh
 void platform security budget --platform-usd 500 --project-default-usd 50
@@ -187,7 +187,7 @@ A plan cap applies to each project whose owner is on that plan, even with projec
 | Many scans failed for a platform reason, at most once a day            | Platform administrators                            |
 | Weekly summary, when turned on with `void platform security digest on` | Platform administrators                            |
 
-Emails carry titles, severity, and file paths, never code. Without a configured [email domain](./email.md) the same information is in the CLI and on the project page, and bypasses still show in the admin pages. A `void project security check` sends no email.
+Emails carry titles, severity, and file paths, never code. A scan that finishes after the scan mode was set to Off sends no email. Without a configured [email domain](./email.md) the same information is in the CLI and on the project page, and bypasses still show in the admin pages. A `void project security check` sends no email.
 
 To send these events to your own system, set a webhook with `void platform security webhook <https-url>`. Its signed body holds ids and counts only, and it is sent even without an email domain. See [Alerts, summary, and webhook](/reference/cli/platform-security#alerts).
 

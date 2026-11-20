@@ -226,7 +226,10 @@ function urgentLines(slug: string, status: ProjectSecurityStatus, counts: boolea
     '  They come from earlier scans and still need a fix. Your deploy went out.',
     `    Read:  void project security show ${ids[0] ?? 'F-1'}`,
     '    Page:  void project security open',
-    '    A project admin or owner can resolve them.',
+    // The server says whether this caller may resolve (`settings`); older platforms do not.
+    status.canResolve === true
+      ? `    Fixed?  void project security resolve ${ids[0] ?? 'F-1'} --reason fixed --comment "…"`
+      : '    A project admin or owner can resolve them.',
   );
   if (publicRequest) {
     lines.push(

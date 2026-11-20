@@ -732,8 +732,13 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   diff re-checks the files of `fixed` findings resolved since the base; with none it runs
   in full (`gate-recheck`, #85). Filters: `id_*` matches only key files (no extension or
   `.pub`) so `id_utils.ts` stays; binary = NUL or U+FFFD in the first 8 KiB. Third-party:
-  `package-lock.json` and `pnpm-lock.yaml` readers exist, but no lockfile reaches the
-  platform yet (S7), so `lockfile` is `null` and `node_modules/…` sources stay as
+  `package-lock.json` and `pnpm-lock.yaml` readers (completeness review: now in
+  `@void/platform/security-lockfile`, and `pnpm-lock.yaml` also reads `packages`, so
+  transitive packages are placed). T1 reads the repo lockfile nearest the project folder
+  from the same tarball pass; a CLI deploy sends `securityPackages` (`{registry, local}`
+  for the packages its source maps name, read from the nearest lockfile up to the repo
+  root), kept as `packages.json` next to the head snapshot for retries. With neither (old
+  CLI, yarn or bun lockfile, recovered inline deploy) `node_modules/…` sources stay as
   unverified. Read set: 32 MB, and the runner's 16 MB a file (after redaction) and 20,000
   entries with memory (`security-scanner/src/runner/limits.ts`, shared by both sides);
   assets: 400 files / 16 MB. A changed or backlogged file left out (`input-capped`), and
@@ -1178,9 +1183,15 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   a pass with too little budget commits its checkpoint and the project stays reconciling,
   as the checkpoint already does. Any `trigger=exposure` scan of the live deployment stops
   further catch-up scans. `held_reason` for a failed gate scan is `failed_installation` or
-  `failed_project`; copy varies on it. Still not built: the race tests (#64, #72, #89, #90,
-  #93, #94, the two lock-based races), the strict-reader 503, the rollback retarget test and
-  the operator 202 and dry-run shapes; the route test covers 403, 422 and 409 only.
+  `failed_project`; copy varies on it. Added afterwards (commit 3fddc9dba): the race tests (#64, #72, #89, #90, #93, #94) in
+  `security-gate-bypass.test.ts` and `security-gate-zero-trust.test.ts`, the strict-reader
+  503, the deploy and rollback admission cases and the operator 202 and dry-run shapes.
+  Completeness review: `security-gate-resolve.test.ts` runs Q13 end to end (real resolve,
+  ingest and flip). A rollback to a deployment with no past scan queues a gate scan when its
+  code is kept, else `needs_deploy` (recorded deviation from §12.4, which says
+  `needs_deploy`: the scan can only hold or pass on a clean result, so nothing goes public
+  sooner). A succeeded scan with a backlog and no kept input is `needs_deploy` (`no_input`),
+  not a `waiting_scan` with no scan queued.
   The scheduler poke after the hourly backstop runs only when a request was judged.
 
 **M17 Operator security routes (rest).**
@@ -1251,7 +1262,10 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   <time>)" because the policy stores the last check time, not when it began to fail, and the cause
   text comes from the failed check name; (3) the silent-gap flags are the 3-project-cause-failures
   streak and the installation failure rate over 20% in 24 h; the "protection changed 2+ times in 7
-  days" flag has no stored history to read, so it is not built; (4) Findings sort is the operator
+  days" flag was added in the completeness review: the Zero Trust checkpoint writes
+  `protection_on` / `protection_off` project events (migration 0065 changed in place, still
+  unreleased) for each asked-for change, and the Scans page flags projects with 2+ in 7 days
+  and an urgent finding open (installation-wide enable / disable is not counted); (4) Findings sort is the operator
   list order (oldest first), with the Urgent preset as a filter, not "urgent first"; (5) the
   "public-only switch" on the Zero Trust page is not a control in the admin form (blank fields only
   re-save an installation that is already public-only, which the gate cannot coexist with), so only
@@ -1314,7 +1328,8 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   the `Public` line. (2) The M19 page said `void project security findings`; the command is
   `list` (page text and its test fixed). (3) `status` cannot know the caller's role, so the
   public request lines always name the next command; a caller without `settings` gets the 403 copy
-  when running it. (4) `--usd` is capped at 10000 in the parser (the API limit); a project ceiling
+  when running it. (4) `--usd` is capped at 1,000,000 in the parser (the API limit, `MAX_CAP_CENTS`; was
+  10000 until the completeness review); a project ceiling
   comes back as the platform's 422 copy.
 
 **M21 CLI `void project zero-trust` changes.**
@@ -1367,11 +1382,10 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   `GITHUB_ACTIONS` is set. Rows: the server's findings re-sorted critical first, then
   oldest `firstSeenAt` first (a missing date keeps the server order), 5 at most, rest as
   "… and N more". The queued case ends with `Check it:  void project security status`. The
-  "A project admin or owner can resolve them" line always prints. Known gap: spec §11.1 wants
-  `Fixed?  void project security resolve F-12 --reason fixed --comment "…"` for a caller with
-  `settings`, but neither the `/security` reply nor the project response carries the caller's
-  role (`requestedByRole` is the requester's). Closing it needs the server to add the caller's
-  permission to the reply. `void project status` prints the `Security` line above the
+  last line is "A project admin or owner can resolve them", or, since the completeness review,
+  `Fixed?  void project security resolve F-12 --reason fixed --comment "…"` when the
+  `/security` reply says `canResolve: true` (`settings` on a user session; a deploy token
+  never). Older platforms send no `canResolve`, so the old line prints. `void project status` prints the `Security` line above the
   deployment table, only for managed platforms (the direct Cloudflare listing has no security).
   `cloudflare-deploy.test.ts` gained one regression: a native deploy makes no `/security` or
   `/containers/` request, no `containers` Wrangler call and emits no `ai` binding.
@@ -2129,6 +2143,38 @@ docs table "Phase 2/3" row
   `platform/scripts/security-smoke-test.ts` were never written: capability-off cases live in
   `security-enqueue.test.ts`, `api-project-security.test.ts` and the operator probe and policy
   tests, and the smoke script is still open (listed below). No code change in M36.
+
+### Completeness review (2026-11-20)
+
+Gaps a review of the branch against the PRD found, closed in one commit:
+
+```
+PRD / spec                       as built
+§5.4 Off: running scans, no email   ingest queues no findings email while the mode is Off
+§10.6, §16 gateway cost             hourly `gateway-cost.ts`: ended scans 1 h – 7 d old,
+                                    `sum { cost }` by the scan's signed `securityScan` tag
+§8.1 low-confirmation warning       Settings banner while < half of the model findings of
+                                    30 days are confirmed (or none yet)
+§10.3 protection-change flag        `protection_on/off` project events, Scans page flag
+§7.3 third party by lockfile        T1 repo lockfile; CLI `securityPackages` (see M10)
+§16 "high refusal" badge            pickers: > 30% refused over ≥ 10 ended scans in 30 days
+platform cap banner at 100%         "used up" once the next default-model scan's reserve
+                                    no longer fits (holds keep spend under the cap)
+§12.4 backlog, no input             `needs_deploy` (`no_input`)
+§13.2 budget "any amount"           `--usd` up to 1,000,000
+§11.1 `Fixed?` line                 server `canResolve`, CLI prints it
+```
+
+- The admin bypass with the capability off: the route is outside the capability guard, so it
+  answers the request's real state, not 501. With the capability off the gate reads off, so the
+  request no longer holds and the bypass is refused as "already canceled"; asking to go public
+  again goes straight through. The earlier comment said the bypass lets such a request out;
+  comment and test are corrected.
+- Gateway cost needs `CF_API_TOKEN` with Analytics read (the usage query already needs it). A
+  failed query stops that hour's run and the rows stay unknown; after 7 days they stay `NULL`.
+  BYOK calls are counted as the gateway reports them.
+- Not done here: admin finding detail and resolve forms (M18 (1), spec §13.1 only), the
+  release smoke script and the live S1 / S10 checks (release items, listed below).
 
 ### Live check status
 

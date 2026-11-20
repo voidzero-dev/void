@@ -23,6 +23,7 @@ export default defineConfig({
       'src/security-models.ts',
       'src/security-policy.ts',
       'src/security-local-check.ts',
+      'src/security-lockfile.ts',
     ],
     format: 'esm',
     dts: true,

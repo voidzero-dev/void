@@ -222,6 +222,17 @@ describe('deploy security notice', () => {
     expect(text).toContain('src/a.ts:4');
     expect(text).toContain('Your deploy went out.');
     expect(text).toContain('void project security show F-2');
+    expect(text).toContain('A project admin or owner can resolve them.');
+    expect(text).not.toContain('Fixed?');
+  });
+
+  it('names the resolve command for a caller who can resolve (settings)', async () => {
+    const reply = status({ urgent: urgent(2), lastScan: null, canResolve: true });
+    const text = (await run(async () => reply)).lines.join('\n');
+    expect(text).toContain(
+      '    Fixed?  void project security resolve F-2 --reason fixed --comment "…"',
+    );
+    expect(text).not.toContain('A project admin or owner can resolve them.');
   });
 
   it('cuts to five rows and counts the rest', async () => {

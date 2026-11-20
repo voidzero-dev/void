@@ -1132,8 +1132,9 @@ async function storeOutcome(
     })
     .where(eq(securityScans.id, scanId));
   await releaseSecurityScanReserveIn(tx, scanId);
-  if (result.news.length > 0) {
-    // One findings email per scan; the outbox row commits with the findings (M15).
+  // One findings email per scan; the outbox row commits with the findings (M15). A scan
+  // that finishes after the policy went Off is stored with no email (spec §5.4).
+  if (result.news.length > 0 && (await readSecurityPolicyLenient(tx)).mode !== 'disabled') {
     await enqueueSecurityNotification(tx, { kind: 'findings', projectId, scanId });
   }
   return { ...result, capped };

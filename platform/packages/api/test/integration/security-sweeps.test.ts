@@ -409,6 +409,7 @@ describe('scheduled sweeps', () => {
       poke: async () => {},
       probe: async () => {},
       reapCopies: async () => 0,
+      gatewayCosts: async () => 0,
     });
     expect(report?.sweepsQueued).toBe(1);
     expect(await scansOf('sweep')).toHaveLength(1);

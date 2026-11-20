@@ -80,6 +80,7 @@ import {
   type SecurityModuleFile,
 } from './t2.ts';
 import { assertTarEntries, tarStream } from './tar.ts';
+import { parseSecurityPackageClaims, type SecurityLockfileIndex } from './third-party.ts';
 import { chooseSecurityTier, securityFallbackFullReason } from './tier.ts';
 
 export type SecurityInputEnv = Pick<
@@ -479,6 +480,56 @@ async function loadHeadModules(
   return copied;
 }
 
+/** Where a deployment's package claims (`securityPackages`) are kept with its snapshot. */
+function packagesKey(prefix: string): string {
+  return `${prefix}packages.json`;
+}
+
+/**
+ * The lockfile claims of the deploy (spec §7.4): what the CLI read from the project's
+ * lockfile for the packages its bundle names. Read from the staged deploy body the first
+ * time and kept next to the head snapshot, so a retry (and nothing else) reads it back.
+ * `null` (keep third-party code, ranked last) for an older CLI or a recovered inline
+ * deploy, which send none.
+ */
+async function loadPackageClaims(
+  db: Db,
+  r2: R2Bucket,
+  scan: ScanContext,
+): Promise<SecurityLockfileIndex | null> {
+  const prefix = securityScanInputPrefix(scan.projectId, scan.deploymentId);
+  if (scan.inputR2Key !== null) {
+    const text = await readText(r2, packagesKey(scan.inputR2Key));
+    if (text === null) {
+      return null;
+    }
+    try {
+      return parseSecurityPackageClaims(JSON.parse(text));
+    } catch {
+      return null;
+    }
+  }
+  if (scan.inputPrefix === null) {
+    return null;
+  }
+  const [operation] = await db
+    .select({ payload: deploymentOperations.payload })
+    .from(deploymentOperations)
+    .where(
+      and(
+        eq(deploymentOperations.project_id, scan.projectId),
+        eq(deploymentOperations.input_prefix, scan.inputPrefix),
+      ),
+    )
+    .limit(1);
+  const claims = operation?.payload.body?.securityPackages;
+  const index = parseSecurityPackageClaims(claims);
+  if (index !== null) {
+    await r2.put(packagesKey(prefix), JSON.stringify(claims));
+  }
+  return index;
+}
+
 type BaseScan = Readonly<{
   id: string;
   deploymentId: string;
@@ -778,6 +829,8 @@ export async function prepareSecurityScanInputFiles(
     return null;
   }
   const r2 = env.STATIC_ASSETS_R2;
+  // Before the head copy, which drops the staged input from the scan row.
+  const packageClaims = await loadPackageClaims(db, r2, scan);
   let head: HeadInput | null;
   try {
     head = await loadHeadModules(env, db, scan);
@@ -941,8 +994,9 @@ export async function prepareSecurityScanInputFiles(
     backlog,
     recheckFiles,
     secrets,
-    // No lockfile reaches the platform yet (spike S7): third-party code stays, ranked last.
-    lockfile: null,
+    // T1: the repo lockfile; else the deploy's claims from the project lockfile. With
+    // neither, third-party code stays, ranked last (`third-party-unverified`).
+    lockfile: sourceDiff?.lockfile ?? packageClaims,
     memory: {
       findings: memory.findings,
       events: memory.events,

@@ -244,6 +244,7 @@ export async function runFrameworkDeploy(
     gitMetadata,
     preflightUsed: skipped > 0,
     workerFiles,
+    root,
     spinner: s,
     cliLog,
   });

@@ -450,6 +450,7 @@ describe('queueing a fallback scan', () => {
       poke: async () => {},
       probe: async () => {},
       reapCopies: async () => 0,
+      gatewayCosts: async () => 0,
     });
     expect(report).toMatchObject({ reaped: 1, fallbacksQueued: 1 });
     expect(await fallbackScans(project.id)).toHaveLength(1);

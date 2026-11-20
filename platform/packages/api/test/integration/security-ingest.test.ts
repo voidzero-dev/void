@@ -425,6 +425,21 @@ describe('scan result ingest', () => {
     expect(await ingest('scan_exit', report)).toEqual({ ok: false });
   });
 
+  it('a scan that finishes after the policy went Off is stored with no email (spec §5.4)', async () => {
+    await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
+      ...defaultSecurityPolicy(),
+      mode: 'disabled',
+      revision: 2,
+    });
+    const { project } = await setup();
+    const deployment = await deploy(project.id);
+    await runningScan('scan_off', project.id, deployment.id);
+    expect(await ingest('scan_off', result('scan_off', [finding()]))).toMatchObject({ ok: true });
+    expect(await findingsOf(project.id)).toHaveLength(1);
+    expect((await scan('scan_off')).status).toBe('succeeded');
+    expect(await env.db.select().from(securityNotifications)).toEqual([]);
+  });
+
   it('writes all of a scan or nothing: a failed write leaves the scan running', async () => {
     const { project } = await setup();
     const deployment = await deploy(project.id);

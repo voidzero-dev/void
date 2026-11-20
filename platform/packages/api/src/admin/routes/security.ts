@@ -320,8 +320,10 @@ export default app;
 export const adminProjectSecurity = new Hono<ApiEnv>();
 adminProjectSecurity.onError(renderOperationError);
 // Scoped to the security paths: this app shares its mount point with the project routes.
-// The bypass stays open with the capability off, like the operator route: a request held
-// before the capability went off is no longer re-checked, and this is how an admin lets it out.
+// The bypass route is not behind the capability guard, like the operator route, so it
+// answers with the request's real state instead of 501. With the capability off the gate
+// reads off: a request held before that no longer holds anything (making the project
+// public goes straight through), and a bypass is refused as "already canceled".
 adminProjectSecurity.use('/:id/security/*', async (context, next) => {
   if (!context.req.path.endsWith('/security/bypass')) {
     requireCapability(context);

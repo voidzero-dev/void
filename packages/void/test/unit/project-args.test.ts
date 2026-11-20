@@ -455,6 +455,10 @@ describe('security', () => {
       change: 'set',
       usd: 12.5,
     });
+    // Up to what the platform takes (PRD §13.2: any amount when no ceiling applies).
+    expect(parseProjectArgs(['security', 'budget', '--usd', '1000000'])).toMatchObject({
+      usd: 1_000_000,
+    });
     expect(parseProjectArgs(['security', 'budget', '--off'])).toMatchObject({ change: 'off' });
     expect(
       parseProjectArgs(['security', 'model', '--default', '--accept-provider-notice']),
@@ -472,6 +476,7 @@ describe('security', () => {
     [['security', 'comment', 'F-1', 'a'.repeat(4001)], 'at most 4000'],
     [['security', 'scans', '--limit', '101'], '--limit'],
     [['security', 'budget', '--usd', '1.234'], '--usd'],
+    [['security', 'budget', '--usd', '1000001'], 'at most 1000000'],
     [['security', 'budget', '--usd', '5', '--off'], 'not both'],
     [['security', 'list', '--severity', 'bad'], '--severity'],
     [['security', 'status', '--urgent'], 'not used'],

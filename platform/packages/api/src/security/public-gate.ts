@@ -393,6 +393,26 @@ async function writeEvent(
 
 type Insert = typeof securityPublicRequests.$inferInsert;
 
+/**
+ * A change of the project's wanted Zero Trust protection, in the transaction that writes
+ * it. The admin panel flags 2+ of these in 7 days while urgent findings are open (spec
+ * §11.4, edge #39): with the gate off, a protect → deploy → unprotect skips the scan.
+ */
+export async function recordProtectionChange(
+  tx: DbOrTx,
+  input: Readonly<{ projectId: string; protectedNow: boolean; actor: GateActor | null }>,
+): Promise<void> {
+  const actor = input.actor ?? SYSTEM;
+  await tx.insert(securityProjectEvents).values({
+    id: generateId('spe'),
+    project_id: input.projectId,
+    actor_kind: actor.kind,
+    actor_user_id: actor.userId,
+    actor_role: actor.role,
+    action: input.protectedNow ? 'protection_on' : 'protection_off',
+  });
+}
+
 async function insertRequest(tx: DbOrTx, values: Insert): Promise<PublicRequestRow> {
   const [row] = await tx.insert(securityPublicRequests).values(values).returning();
   return row!;

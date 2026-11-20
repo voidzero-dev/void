@@ -11,6 +11,7 @@
  *   scan ended, not succeeded                  ► held_no_result (input_missing: needs_deploy)
  *   succeeded + unproven `fixed` claim ────────► needs_deploy
  *   succeeded + backlog ───────────────────────► waiting_scan, queue the next gate scan
+ *                                                 (input gone: needs_deploy)
  *   succeeded + findings capped ───────────────► held_no_result
  *   succeeded, nothing above ──────────────────► pass
  */
@@ -138,7 +139,10 @@ export function judgeGate(input: GateJudgeInput): GateVerdict {
     return hold('needs_deploy', 'unproven_fix', scan, { blockers: input.unproven });
   }
   if (scan.backlogFiles > 0) {
-    return hold('waiting_scan', 'backlog', scan, { queue: input.hasInput });
+    // With the input gone no next part can be scanned: only a deploy moves it on.
+    return input.hasInput
+      ? hold('waiting_scan', 'backlog', scan, { queue: true })
+      : hold('needs_deploy', 'no_input', scan);
   }
   if (scan.capped) {
     return hold('held_no_result', 'findings_capped', scan);

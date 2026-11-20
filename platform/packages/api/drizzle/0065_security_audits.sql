@@ -151,7 +151,7 @@ CREATE TABLE "security_project_events" (
 	"request_state" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "security_project_events_actor_kind" CHECK (("security_project_events"."actor_kind" IN ('user', 'installation_admin', 'system'))),
-	CONSTRAINT "security_project_events_action" CHECK (("security_project_events"."action" IN ('cap_changed', 'public_requested', 'public_held', 'public_passed', 'public_canceled', 'scan_bypassed'))),
+	CONSTRAINT "security_project_events_action" CHECK (("security_project_events"."action" IN ('cap_changed', 'public_requested', 'public_held', 'public_passed', 'public_canceled', 'scan_bypassed', 'protection_on', 'protection_off'))),
 	CONSTRAINT "security_project_events_cap_kind" CHECK (("security_project_events"."cap_kind" IS NULL OR ("security_project_events"."cap_kind" IN ('own', 'ceiling')))),
 	CONSTRAINT "security_project_events_old_cents" CHECK (("security_project_events"."old_cents" IS NULL OR "security_project_events"."old_cents" BETWEEN 0 AND 100000000)),
 	CONSTRAINT "security_project_events_new_cents" CHECK (("security_project_events"."new_cents" IS NULL OR "security_project_events"."new_cents" BETWEEN 0 AND 100000000)),

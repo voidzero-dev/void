@@ -8227,7 +8227,7 @@
         },
         "security_project_events_action": {
           "name": "security_project_events_action",
-          "value": "(\"security_project_events\".\"action\" IN ('cap_changed', 'public_requested', 'public_held', 'public_passed', 'public_canceled', 'scan_bypassed'))"
+          "value": "(\"security_project_events\".\"action\" IN ('cap_changed', 'public_requested', 'public_held', 'public_passed', 'public_canceled', 'scan_bypassed', 'protection_on', 'protection_off'))"
         },
         "security_project_events_cap_kind": {
           "name": "security_project_events_cap_kind",

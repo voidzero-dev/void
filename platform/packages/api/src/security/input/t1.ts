@@ -25,6 +25,7 @@ import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limit
 import { utf8Length } from './build.ts';
 import { securityInputFilter } from './filters.ts';
 import type { SecuritySourceFile } from './t2.ts';
+import { SECURITY_LOCKFILE_NAMES } from './third-party.ts';
 
 export const SECURITY_T1_NOTES = {
   commitMismatch: 'commit-mismatch',
@@ -131,6 +132,31 @@ export function securityCompareProblem(compare: SecurityCompareSummary | null): 
 /** One file of the head tarball. */
 export type SecurityRepoFile = Readonly<{ sha256: string; size: number }>;
 export type SecurityRepoIndex = ReadonlyMap<string, SecurityRepoFile>;
+
+/** A lockfile bigger than this is not read (T1); its packages stay unverified. */
+export const SECURITY_LOCKFILE_MAX_BYTES = 32 * 1024 * 1024;
+
+/**
+ * The lockfile nearest the project's folder in the repository, walking up to the repo
+ * root (a monorepo keeps one at its root); `null` when there is none.
+ */
+export function pickSecurityLockfile(repo: SecurityRepoIndex, root: string): string | null {
+  let folder = root;
+  for (;;) {
+    for (const name of SECURITY_LOCKFILE_NAMES) {
+      const file = repo.get(`${folder}${name}`);
+      if (file && file.size <= SECURITY_LOCKFILE_MAX_BYTES) {
+        return `${folder}${name}`;
+      }
+    }
+    if (folder === '') {
+      return null;
+    }
+    const trimmed = folder.slice(0, -1);
+    const slash = trimmed.lastIndexOf('/');
+    folder = slash === -1 ? '' : trimmed.slice(0, slash + 1);
+  }
+}
 
 export type SecurityRepoMapping = Readonly<{
   ok: true;

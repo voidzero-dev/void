@@ -11,6 +11,7 @@ import {
   formatStreamDeployError,
 } from './deploy-errors.ts';
 import { log, DeployEventError } from './deploy-helpers.ts';
+import { readSecurityPackageClaims } from './deploy-security-packages.ts';
 import { type ApplyDeployEventResult, type StreamDeployResult } from './deploy-types.ts';
 import { uploadAssetsToR2, type DirectR2PutItem } from './direct-r2-upload.ts';
 import { type GitDeployMetadata } from './git-metadata.ts';
@@ -283,6 +284,7 @@ export async function streamDirectR2Deploy({
   gitMetadata,
   preflightUsed,
   workerFiles,
+  root,
   spinner: s,
   cliLog,
 }: {
@@ -296,9 +298,16 @@ export async function streamDirectR2Deploy({
   /** Whether preflight let the server reuse any stored asset. */
   preflightUsed: boolean;
   workerFiles?: Map<string, Buffer>;
+  /** The project folder: its nearest lockfile gives the security package claims. */
+  root?: string;
   spinner: SpinnerResult;
   cliLog?: CliLogger;
 }): Promise<StreamDeployResult> {
+  // Read before the upload, which empties `workerFiles`.
+  const securityPackages =
+    root && workerFiles && workerFiles.size > 0
+      ? readSecurityPackageClaims(root, workerFiles)
+      : null;
   const workerInput =
     workerFiles && workerFiles.size > 0 && (await client.supportsDirectWorkerUpload())
       ? await uploadWorkerModules(client, projectId, workerFiles, s, cliLog)
@@ -431,6 +440,9 @@ export async function streamDirectR2Deploy({
     },
     workerInput,
   );
+  if (securityPackages) {
+    payload.securityPackages = securityPackages;
+  }
 
   s.message('Finalizing deploy...');
   cliLog?.info('finalize_start', {

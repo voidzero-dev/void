@@ -11,6 +11,7 @@ import {
   gateFlip,
   readGateState,
   readOpenPublicRequest,
+  recordProtectionChange,
   type GateActor,
   type GateEffects,
   type GateRequestedVia,
@@ -231,6 +232,21 @@ async function checkpointProjectReconciliation(
       values.protected_application_name = await applicationName(env, `protected-${project.id}`);
     }
     const row = await putProjectState(lockedDb, projectId, values);
+    // An asked-for change only: a first reconcile that applies the initial protection is not one.
+    if (
+      options?.desiredProtection !== undefined &&
+      (existing?.desired_protected ?? false) !== options.desiredProtection
+    ) {
+      await recordProtectionChange(lockedDb, {
+        projectId,
+        protectedNow: desired,
+        actor: options?.requester
+          ? { kind: 'installation_admin', userId: options.requester.userId, role: null }
+          : options?.actorUserId
+            ? { kind: 'user', userId: options.actorUserId, role: access?.role ?? null }
+            : null,
+      });
+    }
     // The request closes in the transaction that writes `desired_protected = false`.
     const request = step.kind === 'go' ? await step.complete(lockedDb) : null;
     return {

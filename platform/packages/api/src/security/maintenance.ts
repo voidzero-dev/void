@@ -9,6 +9,7 @@
  *   ─ ended rows still holding a reserve → released
  *   ─ runtime copies of attempts no longer running → deleted (M30)
  *   ─ raw output sweep (30 d)       ─ daily probe (entitlement older than 24 h)
+ *   ─ gateway cost of ended scans
  *   ─ local checks (M32): stale uploads canceled, ended trees deleted
  *                                   ─ scheduled full sweeps (policy `sweeps.on`)
  *                                   ─ fallback backstop (policy `fallbackToCf`)
@@ -28,10 +29,12 @@ import { paginatedR2Delete } from '../assets.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
+import { deriveSecurityScanTag } from '../proxy-token.ts';
 import { queueSecurityDigest, queueSecurityStreakNotifications } from './alerts.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
 import { queueExposureCatchUpScans } from './exposure.ts';
 import { queueSecurityFallbackScans } from './fallback.ts';
+import { fillSecurityGatewayCosts, queryAiGatewayTagCost } from './gateway-cost.ts';
 import { sweepSecurityLocalChecks } from './local-check.ts';
 import { hasPendingSecurityNotifications } from './notifications.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
@@ -83,12 +86,15 @@ export type SecurityMaintenanceDeps = Readonly<{
   probe(): Promise<unknown>;
   /** Deletes runtime copies whose attempt is not running; returns how many. */
   reapCopies(): Promise<number>;
+  /** Fills the gateway cost of ended scans; returns how many (`0` with no API token). */
+  gatewayCosts(now: number): Promise<number>;
 }>;
 
 export type SecurityMaintenanceReport = Readonly<{
   reaped: number;
   reservesReleased: number;
   copiesReaped: number;
+  gatewayCosts: number;
   repoked: number;
   backlogged: number;
   sweepsQueued: number;
@@ -111,6 +117,24 @@ function realDeps(env: ApiEnv['Bindings'], db: Db): SecurityMaintenanceDeps {
     poke: () => pokeSecurityScanScheduler(env),
     probe: () => probeAndRecord(env, db),
     reapCopies: () => reapSecurityRuntimeCopies(env, db),
+    gatewayCosts: async (now) => {
+      if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) {
+        return 0;
+      }
+      const gateway = {
+        accountId: env.CF_ACCOUNT_ID,
+        apiToken: env.CF_API_TOKEN,
+        gatewayId: env.AI_GATEWAY_ID ?? 'void',
+      };
+      return fillSecurityGatewayCosts(
+        db,
+        {
+          query: (tag, since, until) => queryAiGatewayTagCost(gateway, tag, since, until),
+          scanTag: (scanId) => deriveSecurityScanTag(env.JWT_SECRET, scanId),
+        },
+        now,
+      );
+    },
   };
 }
 
@@ -147,6 +171,8 @@ export async function runSecurityMaintenance(
   );
   // After the reaper, so a copy of a scan it just ended goes in the same run.
   const copiesReaped = await step('runtime copies', 0, () => deps.reapCopies());
+  // Ended scans keep their cost row while the policy is Off too (Scans screen, spec §16).
+  const gatewayCosts = await step('gateway cost', 0, () => deps.gatewayCosts(now));
   // Email rows wait for the alarm whatever the policy says: a lost poke is retried here.
   const notificationPoke = () =>
     step('notification poke', undefined, async () => {
@@ -206,6 +232,7 @@ export async function runSecurityMaintenance(
     reaped,
     reservesReleased,
     copiesReaped,
+    gatewayCosts,
     repoked,
     backlogged,
     sweepsQueued,

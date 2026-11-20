@@ -84,6 +84,8 @@ export type ProjectSecurityStatus = {
     urgent: number;
   };
   publicRequest: SecurityPublicRequest | null;
+  /** The caller may resolve findings (`settings`, a user session); older platforms do not send it. */
+  canResolve?: boolean;
 };
 
 export type SecurityFinding = {

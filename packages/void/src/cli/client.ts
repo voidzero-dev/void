@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import type { SecurityPackageClaims } from '@void/platform/security-lockfile';
 import { join } from 'pathslash';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { getPackageDir } from './agents.ts';
@@ -624,7 +625,14 @@ export type GithubConnection = {
   updated_at: string;
 };
 
-export type ManifestOnlyDeployPayload = DeployUploadPayload;
+/**
+ * `securityPackages`: what the project lockfile says about the packages the Worker
+ * bundle names, for security scans (`deploy-security-packages.ts`). Older platforms
+ * ignore it.
+ */
+export type ManifestOnlyDeployPayload = DeployUploadPayload & {
+  securityPackages?: SecurityPackageClaims;
+};
 
 // Only fetch rejections (TypeError, including a headers timeout) are retried; any
 // HTTP response is final. Every attempt sends the same idempotency key, so the

@@ -208,6 +208,8 @@ describe('GET /projects/:id/security: who sees what', () => {
       expect(body.urgent.findings.map((row: { id: string }) => row.id)).toEqual(['F-1', 'F-2']);
       expect(body.lastSuccessfulScan).toMatchObject({ status: 'succeeded', filesScanned: 12 });
       expect(body.publicRequest).toBeNull();
+      // Who may resolve: `settings` (admin, owner), which the deploy notice names.
+      expect(body.canResolve, role).toBe(role === 'admin' || role === 'owner');
       if (role === 'reader') {
         expect(body.urgent.detail).toBe('counts');
         expect(body.budget).toBeNull();
@@ -258,6 +260,8 @@ describe('GET /projects/:id/security: who sees what', () => {
     expect(body.urgent.detail).toBe('counts');
     expect(body.urgent.findings).toEqual([{ id: 'F-7', severity: 'critical' }]);
     expect(body.budget).toBeNull();
+    // A deploy token cannot resolve, even for the owner.
+    expect(body.canResolve).toBe(false);
     expect(JSON.stringify(body)).not.toContain('SECRET TITLE');
     // The token reaches the notice read and nothing else under /security.
     expect((await call(`/projects/${project.id}/security/findings`, token)).status).toBe(403);

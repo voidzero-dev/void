@@ -472,6 +472,57 @@ describe('T1 source diff with GitHub', () => {
     ]);
   });
 
+  it('drops registry packages by the repo lockfile read from the same tarball (spec §7.4)', async () => {
+    const { user, project } = await setup();
+    await baseScan(project.id, user.id);
+    const vendor = {
+      'chunks/vendor.js': `export const v = 1;\n${MAP_URL}vendor.js.map`,
+      'chunks/vendor.js.map': JSON.stringify({
+        version: 3,
+        sources: [
+          '../../../../node_modules/.pnpm/hono@4.0.0/node_modules/hono/dist/index.js',
+          '../../../../node_modules/.pnpm/zod@3.0.0/node_modules/zod/index.js',
+        ],
+        sourcesContent: ['export class Hono {}', 'export const z = 1'],
+        mappings: '',
+      }),
+    };
+    const { deployment, prefix } = await deploy(
+      project.id,
+      user.id,
+      { ...appModules(USERS_V2), ...vendor },
+      { commit: HEAD },
+    );
+    await runningScan('scan_head', project.id, deployment.id, prefix);
+    // The lockfile sits at the monorepo root, above the project folder.
+    stubGithub({
+      repo: {
+        ...REPO,
+        'pnpm-lock.yaml': [
+          "lockfileVersion: '9.0'",
+          'importers:',
+          '  apps/web:',
+          '    dependencies:',
+          '      hono:',
+          '        specifier: ^4.0.0',
+          '        version: 4.0.0',
+          'packages:',
+          '  hono@4.0.0:',
+          '    resolution: {integrity: sha512-x}',
+        ].join('\n'),
+      },
+    });
+    const files = await unpack((await prepareSecurityScanInput(onEnv, env.db, 'scan_head', 1))!);
+    const sent = [...files.keys()];
+    expect(sent.some((path) => path.includes('/hono/'))).toBe(false);
+    // Not in the lockfile: kept, ranked last.
+    expect(sent.some((path) => path.includes('/zod/'))).toBe(true);
+    expect(files.has('input/pnpm-lock.yaml')).toBe(false);
+    const row = await scanRow();
+    expect(row.tier).toBe('source_diff');
+    expect(row.coverage_notes).toContain('third-party-unverified 1 files');
+  });
+
   it('falls back to T2 on a truncated compare (#9)', async () => {
     const { user, project } = await setup();
     await baseScan(project.id, user.id);

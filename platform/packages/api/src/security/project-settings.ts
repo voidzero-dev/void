@@ -15,7 +15,7 @@ import {
   type SecurityModelId,
 } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import { generateId } from '../id.ts';
 import type { ProjectRole } from '../types.ts';
@@ -32,7 +32,12 @@ import {
   securityProjectModelView,
   readSecurityProjectSettings,
 } from './project-view.ts';
-import { MAX_CAP_CENTS, projectSecuritySettings, securityProjectEvents } from './schema.ts';
+import {
+  MAX_CAP_CENTS,
+  projectSecuritySettings,
+  securityProjectEvents,
+  securityScans,
+} from './schema.ts';
 
 // ---------------------------------------------------------------------------
 // Model
@@ -63,6 +68,69 @@ export function parseSecurityModelRequest(body: unknown): SecurityModelRequest {
   return { model: record.model, acceptProviderNoticeVersion: accept ?? null };
 }
 
+// ---------------------------------------------------------------------------
+// Refusal rate (PRD §16: "high refusal" badge above 30%)
+// ---------------------------------------------------------------------------
+
+/** A model is badged "High refusal" above this share of refused scans… */
+export const SECURITY_HIGH_REFUSAL_RATE = 0.3;
+/** …over the scans that ended in these many days… */
+export const SECURITY_HIGH_REFUSAL_DAYS = 30;
+/** …once at least this many ended (fewer says nothing). */
+export const SECURITY_HIGH_REFUSAL_MIN_SCANS = 10;
+export const SECURITY_HIGH_REFUSAL_BADGE = 'High refusal';
+
+/** Models whose scans of the last 30 days were refused more than 30% of the time. */
+export async function readSecurityHighRefusalModels(
+  db: Db,
+  now: number = Date.now(),
+): Promise<ReadonlySet<string>> {
+  const since = new Date(now - SECURITY_HIGH_REFUSAL_DAYS * 24 * 60 * 60_000).toISOString();
+  const rows = await db
+    .select({
+      model: securityScans.model_used,
+      ended: sql<number>`count(*)::int`,
+      refused: sql<number>`count(*) FILTER (WHERE ${securityScans.status} = 'refused')::int`,
+    })
+    .from(securityScans)
+    .where(
+      and(
+        isNotNull(securityScans.model_used),
+        gte(securityScans.finished_at, since),
+        inArray(securityScans.status, [
+          'succeeded',
+          'refused',
+          'failed',
+          'timed_out',
+          'incomplete',
+        ]),
+      ),
+    )
+    .groupBy(securityScans.model_used);
+  return new Set(
+    rows
+      .filter(
+        (row) =>
+          row.model !== null &&
+          row.ended >= SECURITY_HIGH_REFUSAL_MIN_SCANS &&
+          row.refused > row.ended * SECURITY_HIGH_REFUSAL_RATE,
+      )
+      .map((row) => row.model!),
+  );
+}
+
+/** The picker badges of a model, with "High refusal" when its measured rate is high. */
+export function securityPickerBadges(
+  id: SecurityModelId,
+  highRefusal: ReadonlySet<string>,
+): Array<string> {
+  const badges = [...securityModelBadges(id)];
+  if (highRefusal.has(id)) {
+    badges.push(SECURITY_HIGH_REFUSAL_BADGE);
+  }
+  return badges;
+}
+
 /** One model a project admin may pick now: the same rules `setProjectSecurityModel` checks. */
 export type SecurityModelChoice = Readonly<{
   id: SecurityModelId;
@@ -91,6 +159,7 @@ export type SecurityModelChoices = Readonly<{
 export function securityProjectModelChoices(
   policy: SecurityPolicy,
   saved: string | null,
+  highRefusal: ReadonlySet<string> = new Set(),
 ): SecurityModelChoices {
   const choices = SECURITY_MODELS.flatMap((model): Array<SecurityModelChoice> => {
     if (!isSecurityModelPriced(model.id) || policy.blockedModels.includes(model.id)) {
@@ -105,7 +174,7 @@ export function securityProjectModelChoices(
         id: model.id,
         provider: SECURITY_PROVIDER_NAMES[model.host],
         thirdParty: host !== null,
-        badges: securityModelBadges(model.id),
+        badges: securityPickerBadges(model.id, highRefusal),
         notice: host ? securityProviderNotice(host) : null,
       },
     ];
@@ -131,14 +200,15 @@ export async function readSecurityProjectModelChoices(
   projectId: string,
   policy?: SecurityPolicy,
 ): Promise<SecurityModelChoices> {
-  const [current, [row]] = await Promise.all([
+  const [current, [row], highRefusal] = await Promise.all([
     policy ?? readSecurityPolicyLenient(db),
     db
       .select({ model: projectSecuritySettings.model })
       .from(projectSecuritySettings)
       .where(eq(projectSecuritySettings.project_id, projectId)),
+    readSecurityHighRefusalModels(db),
   ]);
-  return securityProjectModelChoices(current, row?.model ?? null);
+  return securityProjectModelChoices(current, row?.model ?? null, highRefusal);
 }
 
 /** `PUT /projects/:id/security/model`. */

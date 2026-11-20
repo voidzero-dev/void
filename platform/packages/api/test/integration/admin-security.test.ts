@@ -27,8 +27,9 @@ import {
   securityScanBypasses,
   securityScans,
 } from '../../src/schema.ts';
+import { securityScanReserveNano } from '../../src/security/budget.ts';
 import { cancelSecurityScanRows } from '../../src/security/queue.ts';
-import { projectSecuritySettings } from '../../src/security/schema.ts';
+import { projectSecuritySettings, securityProjectEvents } from '../../src/security/schema.ts';
 import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
 import { setProjectZeroTrustProtection } from '../../src/zero-trust/project.ts';
 import {
@@ -582,14 +583,8 @@ describe('admin security: every write refuses while the capability is off', () =
     expect(await audit()).toEqual([]);
   });
 
-  it('still lets an admin bypass a request that was held before the capability went off', async () => {
-    const { project } = await gateSetup();
-    const response = await post(
-      `/admin/projects/${project.id}/security/bypass`,
-      { reason: 'capability removed while held' },
-      withScheduler({}),
-    );
-    expect(response.status).not.toBe(501);
+  it('answers the real state, not 501, to a bypass with the capability off: the request no longer holds', async () => {
+    const { owner, project } = await gateSetup();
     const off = {
       ...onEnv,
       PLATFORM_CAPABILITIES: JSON.stringify({
@@ -598,9 +593,22 @@ describe('admin security: every write refuses while the capability is off', () =
       }),
     } as unknown as TestEnv;
     // The route guard does not depend on the capability; the operator route does the same.
-    expect((await post(`/admin/projects/${project.id}/security/bypass`, {}, off)).status).not.toBe(
-      501,
+    const response = await post(
+      `/admin/projects/${project.id}/security/bypass`,
+      { reason: 'capability removed while held' },
+      off,
     );
+    expect(response.status).toBe(409);
+    expect(text(await response.text())).toContain('The public request is already canceled.');
+    // With the gate read as off, asking to go public again is not held.
+    const result = await setProjectZeroTrustProtection(
+      off as unknown as ApiEnv['Bindings'],
+      env.db,
+      project.id,
+      false,
+      { actorUserId: owner.id },
+    );
+    expect(result.held).toBe(false);
   });
 });
 
@@ -821,5 +829,113 @@ describe('admin security: paging', () => {
     for (const bad of ['0', '-1', '1e3', '%202', '0x10', '1.5', '1000001']) {
       expect([bad, (await get(`/admin/security/scans?page=${bad}`)).status]).toEqual([bad, 400]);
     }
+  });
+});
+
+describe('admin security: completeness review gaps', () => {
+  function urgentFinding(projectId: string, number: number, verdict = 'confirmed') {
+    return {
+      id: `sf_gap${number}`,
+      project_id: projectId,
+      number,
+      fingerprint_key: `fp-gap-${number}`,
+      verdict: verdict as 'confirmed' | 'needs_validation',
+      severity: verdict === 'confirmed' ? ('high' as const) : null,
+      title: `Gap finding ${number}`,
+      category: 'auth',
+      file: 'src/a.ts',
+      first_scan_id: 'ss_x',
+      last_seen_scan_id: 'ss_x',
+    };
+  }
+
+  it('warns in Settings while few findings are confirmed (PRD §8.1)', async () => {
+    await savePolicy();
+    const copy = 'Few findings are confirmed; most results are leads that need a human look.';
+    // No findings yet: the target is not met.
+    expect(text(await (await get('/admin/security')).text())).toContain(copy);
+    const { project } = await projectWithDeployment();
+    await env.db
+      .insert(securityFindings)
+      .values([
+        urgentFinding(project.id, 1),
+        urgentFinding(project.id, 2, 'needs_validation'),
+        urgentFinding(project.id, 3, 'needs_validation'),
+      ]);
+    expect(text(await (await get('/admin/security')).text())).toContain(copy);
+    await env.db.insert(securityFindings).values(urgentFinding(project.id, 4));
+    expect(text(await (await get('/admin/security')).text())).not.toContain(copy);
+  });
+
+  it('shows the platform cap as used up once the next default scan no longer fits', async () => {
+    await savePolicy({
+      budgets: { ...defaultSecurityPolicy().budgets, platformCapOn: true, platformMonthlyUsd: 100 },
+    });
+    const policy = await readPolicy();
+    const reserve = securityScanReserveNano(policy.defaultModel, policy.limits)!;
+    expect(reserve).toBeGreaterThan(0);
+    await env.db.insert(securityPlatformSpend).values({
+      month: `${new Date().toISOString().slice(0, 7)}-01`,
+      // Under the cap, as holds keep it, but with less room than one scan's reserve.
+      spent_nano_usd: 100_000_000_000 - reserve + 1,
+    });
+    const html = text(await (await get('/admin/users')).text());
+    expect(html).toContain('Security scans stopped: platform monthly budget used up ($100.00)');
+    expect(html).not.toContain("of the platform's monthly budget used");
+  });
+
+  it('flags 2+ protection changes in 7 days while urgent findings are open (edge #39)', async () => {
+    const { project } = await gateSetup();
+    const events = await env.db
+      .select({ action: securityProjectEvents.action })
+      .from(securityProjectEvents)
+      .where(eq(securityProjectEvents.project_id, project.id));
+    // gateSetup protects the project once; the unprotect is held by the gate (a request).
+    expect(events.map((event) => event.action)).toContain('protection_on');
+    await env.db.insert(securityProjectEvents).values({
+      id: 'spe_gap_off',
+      project_id: project.id,
+      actor_kind: 'user',
+      action: 'protection_off',
+    });
+    const title = 'Projects switching Zero Trust protection';
+    expect(text(await (await get('/admin/security/scans')).text())).not.toContain(title);
+    await env.db.insert(securityFindings).values(urgentFinding(project.id, 1));
+    const scans = text(await (await get('/admin/security/scans')).text());
+    expect(scans).toContain(title);
+    expect(scans).toContain(`${project.slug} (`);
+  });
+
+  it('badges a model refused in over 30% of its recent scans as High refusal (PRD §16)', async () => {
+    await savePolicy({
+      entitlement: {
+        checkedAt: new Date().toISOString(),
+        ok: true,
+        missing: [],
+        hosts: { openai: false, anthropic: false },
+      },
+    });
+    const policy = await readPolicy();
+    const { project, deployment } = await projectWithDeployment();
+    const finished = new Date().toISOString();
+    await env.db.insert(securityScans).values(
+      Array.from({ length: 10 }, (_, index) => ({
+        id: `ss_refusal_${index}`,
+        project_id: project.id,
+        deployment_id: deployment.id,
+        trigger: 'deploy' as const,
+        status: index < 4 ? ('refused' as const) : ('succeeded' as const),
+        model_used: policy.defaultModel,
+        finished_at: finished,
+      })),
+    );
+    expect(text(await (await get('/admin/security')).text())).toContain('High refusal');
+    const detail = text(await (await get(`/admin/projects/${project.id}`)).text());
+    expect(detail).toContain('High refusal');
+    await env.db
+      .update(securityScans)
+      .set({ status: 'succeeded' })
+      .where(eq(securityScans.id, 'ss_refusal_0'));
+    expect(text(await (await get('/admin/security')).text())).not.toContain('High refusal');
   });
 });

@@ -33,6 +33,7 @@ import {
   claimedCommitMismatch,
   comparisonChangedPaths,
   mapBundleToRepo,
+  pickSecurityLockfile,
   planSecuritySourceDiff,
   SECURITY_T1_NOTES,
   securityCompareProblem,
@@ -47,6 +48,7 @@ import {
   type SecurityBundleSources,
   type SecuritySourceFile,
 } from './t2.ts';
+import { parseSecurityLockfile } from './third-party.ts';
 
 export type SecuritySourceDiffEnv = Pick<
   ApiEnv['Bindings'],
@@ -388,11 +390,19 @@ export async function loadSecuritySourceDiff(
       builtChanged,
       budget: request.budget,
     });
-    const texts = await readTarballFiles(
-      r2,
-      key,
-      new Map(plan.read.map((file) => [file.repoPath, file.sha256])),
-    );
+    // The repo lockfile comes along in the same pass: registry packages are dropped by
+    // package identity (spec §7.4), never by path text.
+    const lockfilePath = pickSecurityLockfile(repo, mapping.root);
+    const wanted = new Map(plan.read.map((file) => [file.repoPath, file.sha256]));
+    if (lockfilePath !== null) {
+      wanted.set(lockfilePath, repo.get(lockfilePath)!.sha256);
+    }
+    const texts = await readTarballFiles(r2, key, wanted);
+    const lockText = lockfilePath === null ? undefined : texts.get(lockfilePath);
+    const lockfile =
+      lockfilePath === null || lockText === undefined
+        ? null
+        : parseSecurityLockfile(lockfilePath, lockText);
     const files: Array<SecuritySourceFile> = [];
     const unread = [...plan.unread];
     for (const file of plan.read) {
@@ -413,7 +423,7 @@ export async function loadSecuritySourceDiff(
     files.push(...plan.bundleOnly);
     return {
       ok: true,
-      diff: { files, changed: plan.changed, unread, secret: plan.secret, notes: [] },
+      diff: { files, changed: plan.changed, unread, secret: plan.secret, notes: [], lockfile },
     };
   } catch (error) {
     if (error instanceof SourceTarballTooLarge) {

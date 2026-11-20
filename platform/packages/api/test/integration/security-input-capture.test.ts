@@ -140,10 +140,10 @@ async function stage(
   projectId: string,
   deploymentId: string,
   modules: Record<string, string>,
-  options: { recordSizes?: boolean } = {},
+  options: { recordSizes?: boolean; body?: Record<string, unknown> } = {},
 ) {
   const prefix = `deployment-inputs/${projectId}/${deploymentId}/`;
-  const payload = { body: {}, modules: [] as Array<Record<string, unknown>> };
+  const payload = { body: options.body ?? {}, modules: [] as Array<Record<string, unknown>> };
   for (const [index, [name, text]] of Object.entries(modules).entries()) {
     const key = `${prefix}${index}`;
     await env.STATIC_ASSETS_R2.put(key, text);
@@ -353,6 +353,77 @@ describe('scan input capture', () => {
     ]);
     expect(await r2Text(`${raw}server-leads.json`)).not.toContain(SECRET);
     expect(JSON.parse((await r2Text(`${raw}backlog.json`))!)).toEqual({ version: 1, paths: [] });
+  });
+
+  it('drops registry packages the deploy claims from its lockfile, also on a retry (spec §7.4)', async () => {
+    const { project } = await setup();
+    const deployment = await deploy(project.id);
+    const modules = {
+      'index.js': `export default{}\n${MAP_URL}index.js.map`,
+      'index.js.map': JSON.stringify({
+        version: 3,
+        sources: [
+          '../src/server.ts',
+          '../node_modules/.pnpm/hono@4.0.0/node_modules/hono/dist/index.js',
+          '../node_modules/zod/index.js',
+          '../node_modules/@acme/shared/src/auth.ts',
+        ],
+        sourcesContent: [
+          'export default { fetch }',
+          'export class Hono {}',
+          'export const z = 1',
+          'export const requireAdmin = () => {}',
+        ],
+        mappings: '',
+      }),
+    };
+    const securityPackages = { registry: ['hono'], local: ['@acme/shared'] };
+    const prefix = await stage(project.id, deployment.id, modules, {
+      body: { securityPackages },
+    });
+    await runningScan('scan_claims', project.id, deployment.id, { input_prefix: prefix });
+    const files = await unpack((await prepareSecurityScanInput(onEnv, env.db, 'scan_claims', 1))!);
+    const sent = [...files.keys()].filter((path) => path.startsWith('input/')).sort();
+    expect(sent).toEqual([
+      'input/node_modules/@acme/shared/src/auth.ts',
+      'input/node_modules/zod/index.js',
+      'input/src/server.ts',
+    ]);
+    expect((await scan('scan_claims')).coverage_notes).toContain('third-party-unverified 1 files');
+    // Kept with the snapshot: a retry reads the input back from there.
+    const snapshot = securityScanInputPrefix(project.id, deployment.id);
+    expect(JSON.parse((await r2Text(`${snapshot}packages.json`))!)).toEqual(securityPackages);
+    await env.db
+      .update(securityScans)
+      .set({ attempt: 2 })
+      .where(eq(securityScans.id, 'scan_claims'));
+    const retry = await unpack((await prepareSecurityScanInput(onEnv, env.db, 'scan_claims', 2))!);
+    expect([...retry.keys()].some((path) => path.includes('hono'))).toBe(false);
+  });
+
+  it('keeps third-party code when the claims are malformed (old or broken CLI)', async () => {
+    const { project } = await setup();
+    const deployment = await deploy(project.id);
+    const modules = {
+      'index.js': `export default{}\n${MAP_URL}index.js.map`,
+      'index.js.map': JSON.stringify({
+        version: 3,
+        sources: ['../src/server.ts', '../node_modules/hono/dist/index.js'],
+        sourcesContent: ['export default { fetch }', 'export class Hono {}'],
+        mappings: '',
+      }),
+    };
+    const prefix = await stage(project.id, deployment.id, modules, {
+      body: { securityPackages: { registry: ['../src'], local: [] } },
+    });
+    await runningScan('scan_bad_claims', project.id, deployment.id, { input_prefix: prefix });
+    const files = await unpack(
+      (await prepareSecurityScanInput(onEnv, env.db, 'scan_bad_claims', 1))!,
+    );
+    expect(files.has('input/node_modules/hono/dist/index.js')).toBe(true);
+    expect(
+      await r2Text(`${securityScanInputPrefix(project.id, deployment.id)}packages.json`),
+    ).toBeNull();
   });
 
   it('diffs the next deploy against the last succeeded scan, backlog first', async () => {

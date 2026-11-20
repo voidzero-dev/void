@@ -263,6 +263,13 @@ function SettingsSection({
             description="Scans treat it as off. Saving a policy below replaces it."
           />
         )}
+        {capability && settings.lowConfirmation && (
+          <Banner
+            status="warning"
+            title="Few findings are confirmed; most results are leads that need a human look."
+            description="Scans read the code only. Check each lead before acting on it."
+          />
+        )}
         {!capability ? (
           <p>
             Capability: not installed. Run: <code>{UPGRADE}</code>
@@ -546,6 +553,13 @@ function ScansSection({
           status="warning"
           title="Projects with a scan gap"
           description={`Three scans in a row did not succeed: ${scans.silentGaps.map((gap) => gap.slug).join(', ')}.`}
+        />
+      )}
+      {scans.protectionChurn.length > 0 && (
+        <Banner
+          status="warning"
+          title="Projects switching Zero Trust protection"
+          description={`Protection changed 2 or more times in 7 days while urgent findings are open, so some deploys may not have been scanned: ${scans.protectionChurn.map((project) => `${project.slug} (${project.changes} changes)`).join(', ')}.`}
         />
       )}
       <AdminCard

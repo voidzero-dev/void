@@ -5,12 +5,11 @@
  */
 import {
   getSecurityModel,
-  securityModelBadges,
   securityProviderNotice,
   securityModelThirdPartyHost,
   SECURITY_PROVIDER_NOTICE_VERSION,
 } from '@void/platform/security-models';
-import { count, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db } from '../db.ts';
@@ -22,6 +21,7 @@ import {
   formatSecurityUsd,
   NANO_USD_PER_USD,
   securityBudgetResetLabel,
+  securityScanReserveNano,
   SECURITY_BUDGET_THRESHOLDS,
 } from '../security/budget.ts';
 import {
@@ -41,11 +41,18 @@ import {
   securityPolicyView,
   securityStatus,
 } from '../security/policy.ts';
+import {
+  readSecurityHighRefusalModels,
+  SECURITY_HIGH_REFUSAL_BADGE,
+  securityPickerBadges,
+} from '../security/project-settings.ts';
 import { projectSecurityStatus, listSecurityScans } from '../security/project-view.ts';
 import { publicRequestCopy } from '../security/public-gate-copy.ts';
 import { openPublicRequestView, openUrgentFindingLabels } from '../security/public-gate.ts';
 import {
+  securityFindings,
   securityPlatformSpend,
+  securityProjectEvents,
   securityPublicRequests,
   securityScanBypasses,
   securityScans,
@@ -209,7 +216,10 @@ export async function loadSecurityChrome(context: AdminContext): Promise<Securit
       const spent = spend?.spent ?? 0;
       const capNano = policy.budgets.platformMonthlyUsd * NANO_USD_PER_USD;
       const [warn, stop] = SECURITY_BUDGET_THRESHOLDS;
-      if (capNano > 0 && spent >= capNano) {
+      // Holds keep spend at or under the cap, so "used up" is: the next scan on the
+      // default model no longer fits (the scheduler then skips it, `skipped:budget`).
+      const nextScan = securityScanReserveNano(policy.defaultModel, policy.limits) ?? 0;
+      if (capNano > 0 && (spent >= capNano || spent + nextScan > capNano)) {
         banners.push({
           status: 'error',
           text: `Security scans stopped: platform monthly budget used up (${formatSecurityUsd(capNano)}). Raise it: Security → Settings, or void platform security budget --platform-usd ${Math.ceil(policy.budgets.platformMonthlyUsd * 1.5)}`,
@@ -285,6 +295,39 @@ async function silentGapProjects(db: Db) {
   }));
 }
 
+/** Days of Zero Trust protection changes the churn flag looks at. */
+export const SECURITY_PROTECTION_CHURN_DAYS = 7;
+
+/**
+ * Projects with 2+ protection changes in 7 days and an urgent finding open (spec §11.4,
+ * edge #39): a protect → deploy → unprotect with the gate off skips the scan.
+ */
+async function protectionChurnProjects(db: Db, now: number) {
+  const since = new Date(now - SECURITY_PROTECTION_CHURN_DAYS * DAY_MS).toISOString();
+  const result = await db.execute(sql`
+    SELECT p.id, p.slug, count(*)::int AS changes
+    FROM ${securityProjectEvents} e
+    JOIN ${projects} p ON p.id = e.project_id
+    WHERE e.action IN ('protection_on', 'protection_off')
+      AND e.created_at >= ${since}::timestamptz
+      AND EXISTS (
+        SELECT 1 FROM ${securityFindings} f
+        WHERE f.project_id = e.project_id
+          AND f.state = 'open'
+          AND f.verdict = 'confirmed'
+          AND COALESCE(f.severity_override, f.severity) IN ('critical', 'high')
+      )
+    GROUP BY p.id, p.slug
+    HAVING count(*) >= 2
+    ORDER BY p.slug
+    LIMIT 20`);
+  return (result.rows as Array<{ id: string; slug: string; changes: number }>).map((row) => ({
+    projectId: row.id,
+    slug: row.slug,
+    changes: Number(row.changes),
+  }));
+}
+
 export async function loadSecurityAdminPage(context: AdminContext, path: string) {
   const { url, section } = securityLocation(path);
   const db = context.get('db');
@@ -343,6 +386,28 @@ export async function loadSecurityAdminPage(context: AdminContext, path: string)
   return { ...base, requests, page: requests.page, totalPages: requests.totalPages };
 }
 
+/** Days of model findings the low-confirmation warning looks at. */
+export const SECURITY_LOW_CONFIRMATION_DAYS = 30;
+
+/**
+ * The Settings warning of PRD §8.1 (D44): static-only scans rarely confirm, so it shows
+ * while fewer than half of the model's findings of the last 30 days are confirmed, and
+ * while there are none yet. Server findings (secrets) are always confirmed; they do not
+ * count.
+ */
+async function fewFindingsConfirmed(db: Db, now: number): Promise<boolean> {
+  const since = new Date(now - SECURITY_LOW_CONFIRMATION_DAYS * DAY_MS).toISOString();
+  const [row] = await db
+    .select({
+      total: count(),
+      confirmed: sql<number>`count(*) FILTER (WHERE ${securityFindings.verdict} = 'confirmed')::int`,
+    })
+    .from(securityFindings)
+    .where(and(eq(securityFindings.source, 'scanner'), gte(securityFindings.created_at, since)));
+  const total = row?.total ?? 0;
+  return total === 0 || (row?.confirmed ?? 0) * 2 < total;
+}
+
 async function loadSettings(
   context: AdminContext,
   stored: Awaited<ReturnType<typeof readStoredSecurityPolicy>>,
@@ -350,12 +415,15 @@ async function loadSettings(
 ) {
   const db = context.get('db');
   const capability = capabilityOn(context);
-  const [status, budget, zeroTrustFact, zeroTrust] = await Promise.all([
-    securityStatus(db, capability, now),
-    securityBudgetStatus(db, now),
-    readSecurityZeroTrustFact(db),
-    readZeroTrustConfigurationStrict(db).catch(() => null),
-  ]);
+  const [status, budget, zeroTrustFact, zeroTrust, lowConfirmation, highRefusal] =
+    await Promise.all([
+      securityStatus(db, capability, now),
+      securityBudgetStatus(db, now),
+      readSecurityZeroTrustFact(db),
+      readZeroTrustConfigurationStrict(db).catch(() => null),
+      fewFindingsConfirmed(db, now),
+      readSecurityHighRefusalModels(db, now),
+    ]);
   const view = securityPolicyView(stored, capability, now);
   return {
     unreadable: stored.unreadable,
@@ -378,7 +446,9 @@ async function loadSettings(
     models: view.models.map((model) => ({
       id: model.id,
       host: model.host,
-      badges: [...model.badges],
+      badges: highRefusal.has(model.id)
+        ? [...model.badges, SECURITY_HIGH_REFUSAL_BADGE]
+        : [...model.badges],
       blocked: model.blocked,
       hostOk: model.hostOk,
       priced: model.priced,
@@ -395,6 +465,7 @@ async function loadSettings(
     platformSpent: budget.platform.spentUsd,
     resetsAt: budget.resetsAt,
     lastDayFailureRate: status.last24h.failureRate,
+    lowConfirmation,
   };
 }
 
@@ -405,11 +476,12 @@ async function loadScans(
   now: number,
 ) {
   const filter = parseOperatorScanFilter(query);
-  const [list, budget, status, gaps] = await Promise.all([
+  const [list, budget, status, gaps, churn] = await Promise.all([
     listOperatorSecurityScans(db, filter, paging(url), now),
     securityBudgetStatus(db, now),
     securityStatus(db, true, now),
     silentGapProjects(db),
+    protectionChurnProjects(db, now),
   ]);
   return {
     ...list,
@@ -419,6 +491,7 @@ async function loadScans(
         ? { rate: status.last24h.failureRate, finished: status.last24h.finished }
         : null,
     silentGaps: gaps,
+    protectionChurn: churn,
     filter: { status: filter.status, gate: filter.gate },
   };
 }
@@ -526,7 +599,7 @@ export async function loadProjectSecurity(
   const db = context.get('db');
   const now = Date.now();
   const stored = await readStoredSecurityPolicy(db);
-  const [status, scans, bypasses] = await Promise.all([
+  const [status, scans, bypasses, highRefusal] = await Promise.all([
     projectSecurityStatus({
       db,
       project,
@@ -537,13 +610,14 @@ export async function loadProjectSecurity(
     }),
     listSecurityScans(db, project.id, 'full', { limit: 5, cursor: null }),
     listOperatorBypasses(db, { project: project.id }, { page: 1, limit: 5, offset: 0 }),
+    readSecurityHighRefusalModels(db, now),
   ]);
   const view = securityPolicyView(stored, true, now);
   const models = view.models.map((model) => {
     const host = securityModelThirdPartyHost(model.id);
     return {
       id: model.id,
-      badges: [...securityModelBadges(model.id)],
+      badges: securityPickerBadges(model.id, highRefusal),
       pickable: model.pickable,
       thirdParty: host !== null,
       notice: host === null ? null : [...securityProviderNotice(host)],
