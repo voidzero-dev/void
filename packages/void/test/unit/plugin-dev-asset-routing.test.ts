@@ -254,7 +254,7 @@ describe('voidPlugin dev asset routing', () => {
     const workerdOptimizer = {
       optimizeDeps: {
         exclude: ['void', 'better-auth'],
-        include: ['void > email-validator', 'void > hono', 'void > hono/route'],
+        include: ['void > devalue', 'void > email-validator', 'void > hono', 'void > hono/route'],
       },
     };
     const nodeOptimizer = { optimizeDeps: { exclude: ['void'] } };
@@ -295,11 +295,31 @@ describe('voidPlugin dev asset routing', () => {
         optimizeDeps: drivers
           ? {
               exclude: ['void', 'better-auth'],
-              include: ['void > email-validator', 'void > hono', 'void > hono/route', ...drivers],
+              include: [
+                'void > devalue',
+                'void > email-validator',
+                'void > hono',
+                'void > hono/route',
+                ...drivers,
+              ],
             }
           : { exclude: ['void'] },
       });
     }
+  });
+
+  it('scans the SSR entry for dependencies of the Worker', async () => {
+    const root = createApiOnlyProjectRoot();
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(
+      join(root, 'src/main.ssr.tsx'),
+      'export function render() { return new Response(null); }',
+    );
+    writeFileSync(join(root, 'src/main.client.tsx'), 'export {};');
+
+    await expect(
+      resolveRuntimeOptimizerConfig(root, 'void_worker', workerd),
+    ).resolves.toMatchObject({ optimizeDeps: { entries: [join(root, 'src/main.ssr.tsx')] } });
   });
 
   it('leaves client dependency optimization unchanged', async () => {
