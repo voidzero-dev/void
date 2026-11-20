@@ -1,0 +1,21 @@
+# Spike S2 image: Engine A (Claude Agent SDK). Build from this folder:
+#   docker build --platform linux/amd64 -f Dockerfile.claude -t void-spike-sa-claude .
+# Cloudflare runs linux/amd64; the spike's --local mode builds the host arch (arm64 on
+# Apple silicon), because Bun under qemu crashes. Exact pins in claude/package.json;
+# install scripts off; non-root `scanner` user.
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
+ARG TARGETARCH
+RUN useradd --create-home --uid 10001 scanner \
+  && mkdir -p /scan/input /work /opt/scanner \
+  && chmod 755 /scan /scan/input /work
+WORKDIR /opt/scanner
+COPY claude/package.json ./package.json
+RUN CPU=$([ "$TARGETARCH" = "arm64" ] && echo arm64 || echo x64) \
+  && npm install --omit=dev --ignore-scripts --no-audit --no-fund --os=linux --cpu=$CPU --libc=glibc \
+  && npm cache clean --force \
+  && rm -rf node_modules/@anthropic-ai/claude-agent-sdk-linux-*-musl
+COPY common/ ./
+COPY claude/run-claude.mjs ./run-claude.mjs
+COPY claude/plugin ./plugin
+USER scanner
+CMD ["sleep", "infinity"]

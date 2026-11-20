@@ -267,7 +267,9 @@ import {
   writePendingInstallationSecrets,
 } from '../../src/cli/platform-registry.ts';
 
-const upgrade = (overrides: { plan?: boolean; yes?: boolean; customDomains?: true } = {}) =>
+const upgrade = (
+  overrides: { plan?: boolean; yes?: boolean; customDomains?: true; securityAudits?: true } = {},
+) =>
   runInstalledPlatformCommand({
     subcommand: 'upgrade',
     selector: state.manifest!.id,
@@ -296,6 +298,49 @@ describe('installed platform upgrade', () => {
       ).toBe(`void platform upgrade installation --storage-location ${storageLocation} --yes`);
     },
   );
+  it('replays --security-audits in the upgrade and repair resume commands', () => {
+    for (const subcommand of ['upgrade', 'repair'] as const) {
+      expect(
+        platformLifecycleResumeCommand(
+          { subcommand, selector: '', plan: false, yes: true, runtime: '', securityAudits: true },
+          'installation',
+        ),
+      ).toBe(`void platform ${subcommand} installation --security-audits --yes`);
+    }
+  });
+  describe('allowing security audits', () => {
+    it('passes the flag to the plan and omits it when not given', async () => {
+      await upgrade({ securityAudits: true, plan: true });
+      expect(vi.mocked(createPlatformInstallPlan).mock.calls.at(-1)![1]).toMatchObject({
+        securityAudits: true,
+      });
+      await upgrade({ plan: true });
+      expect(vi.mocked(createPlatformInstallPlan).mock.calls.at(-1)![1]).not.toHaveProperty(
+        'securityAudits',
+      );
+    });
+
+    it('refuses a runtime without the scanner before anything changes', async () => {
+      const planner = vi.mocked(createPlatformInstallPlan).getMockImplementation()!;
+      vi.mocked(createPlatformInstallPlan).mockImplementationOnce(async (...args) => {
+        const plan = await planner(...args);
+        return {
+          ...plan,
+          deployment: createPlatformDeploymentManifest({
+            ...plan.deployment,
+            capabilities: { ...plan.deployment.capabilities, securityAudits: true },
+          }),
+        };
+      });
+      const { securityAudits: _omitted, ...manifest } = state.runtime!.manifest;
+      state.runtime = { ...state.runtime!, manifest };
+      await expect(upgrade({ securityAudits: true })).rejects.toThrow(
+        'does not include security audits',
+      );
+      expect(installPlatform).not.toHaveBeenCalled();
+      expect(state.events.filter((event) => event.startsWith('put:'))).toEqual([]);
+    });
+  });
   it('prints an exact rollback resume command with quoted custom runtime paths', () => {
     expect(
       platformLifecycleResumeCommand(

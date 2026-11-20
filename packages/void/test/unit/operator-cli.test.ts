@@ -8,7 +8,11 @@ import {
 } from '@void/platform';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { hasHelpPage } from '../../src/cli/help.ts';
-import { operatorCommands, parseOperatorArgs } from '../../src/cli/operator-args.ts';
+import {
+  operatorCommands,
+  operatorGroups,
+  parseOperatorArgs,
+} from '../../src/cli/operator-args.ts';
 import {
   OPERATOR_KEYRING_SERVICE,
   readOperatorToken,
@@ -123,13 +127,45 @@ describe('operator mutation completion output', () => {
   });
 });
 
+/** Arguments after `security <action>` that each security command accepts. */
+const SECURITY_SAMPLES: Record<string, Array<string>> = {
+  status: [],
+  probe: [],
+  policy: ['public'],
+  models: ['--default', '@cf/zai-org/glm-5.3'],
+  limits: ['--concurrency', '3'],
+  budget: [],
+  findings: [],
+  show: ['p1', 'F-1'],
+  resolve: ['p1', 'F-1', '--reason', 'fixed', '--comment', 'done'],
+  reopen: ['p1', 'F-1', '--comment', 'again'],
+  comment: ['p1', 'F-1', 'note'],
+  model: ['p1', '--default'],
+  scans: [],
+  rescan: ['p1'],
+  backfill: [],
+  sweeps: ['on'],
+  fallback: ['on'],
+  digest: ['off'],
+  webhook: ['https://hooks.example.com/void'],
+  cancel: ['scan-1'],
+  'public-gate': ['on'],
+  'public-requests': [],
+  bypass: ['p1', '--reason', 'launch'],
+  bypasses: [],
+};
+
 describe('operator argument and help coverage', () => {
   it('has nested help and routable arguments for every operation', () => {
     for (const command of operatorCommands) {
       expect(hasHelpPage(['platform', command.group, command.action])).toBe(true);
-      const parameters = (command.positional ?? []).map((name) =>
-        name === 'type' ? 'email' : `${name}-value`,
-      );
+      // Security commands check their own words and flags; each has a sample.
+      const security = command.group === 'security' ? SECURITY_SAMPLES[command.action] : [];
+      expect(command.group !== 'security' || security !== undefined).toBe(true);
+      const parameters =
+        command.group === 'security'
+          ? security!
+          : (command.positional ?? []).map((name) => (name === 'type' ? 'email' : `${name}-value`));
       const configureFlags =
         command.group === 'zero-trust' && command.action === 'configure'
           ? [
@@ -1952,4 +1988,761 @@ describe('project AI logging commands', () => {
       expect(output).not.toContain('Ai logging');
     },
   );
+});
+
+describe('platform security arguments', () => {
+  const parse = (...args: Array<string>) => parseOperatorArgs(['security', ...args]);
+
+  it('routes the scan mode, models and limits to the policy route', () => {
+    expect(parse('policy', 'public')).toMatchObject({
+      method: 'POST',
+      path: '/security/policy',
+      body: { mode: 'public' },
+    });
+    expect(() => parse('policy', 'everything')).toThrow('disabled|public|all');
+    // One project's own rule (M34) has its own route.
+    expect(parse('policy', '--project', 'proj_1', 'never')).toMatchObject({
+      method: 'POST',
+      action: 'project-policy',
+      path: '/projects/proj_1/security/policy',
+      body: { override: 'never' },
+    });
+    expect(() => parse('policy', '--project', 'proj_1', 'public')).toThrow(
+      '--project <project-id> <inherit|always|never>',
+    );
+    expect(() => parse('policy', 'always')).toThrow('name the project');
+    expect(() => parse('policy', '--project', '..', 'always')).toThrow('dot path segment');
+    expect(
+      parse(
+        'models',
+        '--default',
+        '@cf/zai-org/glm-5.3',
+        '--block',
+        'a, b',
+        '--unblock',
+        'c',
+        '--accept-provider-notice',
+      ).body,
+    ).toEqual({
+      defaultModel: '@cf/zai-org/glm-5.3',
+      block: ['a', 'b'],
+      unblock: ['c'],
+      acceptProviderNotice: true,
+    });
+    expect(() => parse('models')).toThrow('Usage');
+    // `--timeout` is the request deadline; the scan time limit has its own name.
+    expect(
+      parse('limits', '--concurrency', '4', '--scan-timeout', '30', '--timeout', '60'),
+    ).toMatchObject({
+      body: { limits: { concurrency: 4, timeoutMinutes: 30 } },
+      timeoutMs: 60_000,
+    });
+    expect(() => parse('limits')).toThrow('Usage');
+    expect(() => parse('limits', '--concurrency', 'many')).toThrow('whole number');
+    expect(parse('public-gate', 'off').body).toEqual({ publicGate: false });
+    expect(() => parse('public-gate', 'maybe')).toThrow('on|off');
+    expect(parse('sweeps', 'on', '--every-days', '14')).toMatchObject({
+      method: 'POST',
+      path: '/security/policy',
+      body: { sweeps: { on: true, everyDays: 14 } },
+    });
+    expect(parse('sweeps', 'off').body).toEqual({ sweeps: { on: false } });
+    expect(() => parse('sweeps', 'weekly')).toThrow('on|off');
+    expect(() => parse('sweeps', 'on', '--every-days', 'often')).toThrow('whole number');
+    expect(parse('backfill')).toMatchObject({ method: 'POST', path: '/security/backfill' });
+    // M26: fallback and digest are policy switches; the webhook has its own route.
+    expect(parse('fallback', 'on')).toMatchObject({
+      method: 'POST',
+      path: '/security/policy',
+      body: { fallbackToCf: true },
+    });
+    expect(parse('digest', 'off').body).toEqual({ digest: false });
+    expect(() => parse('fallback', 'sometimes')).toThrow('fallback <on|off>');
+    expect(parse('webhook', 'https://hooks.example.com/void')).toMatchObject({
+      method: 'POST',
+      path: '/security/webhook',
+      body: { url: 'https://hooks.example.com/void' },
+    });
+    expect(parse('webhook', 'off').body).toEqual({ url: null });
+    expect(() => parse('webhook', 'http://hooks.example.com/')).toThrow('https-url|off');
+  });
+
+  it('routes a provider key change apart from the model policy (M33)', () => {
+    expect(parse('models', '--provider', 'anthropic', '--key-stdin')).toMatchObject({
+      method: 'POST',
+      action: 'provider-key',
+      path: '/security/provider-keys',
+      body: { host: 'anthropic', keyStdin: true },
+    });
+    expect(parse('models', '--provider', 'openai', '--remove-key')).toMatchObject({
+      action: 'provider-key',
+      path: '/security/provider-keys',
+      body: { host: 'openai', key: null },
+    });
+    expect(() => parse('models', '--provider', 'google', '--key-stdin')).toThrow(
+      '--provider must be openai or anthropic',
+    );
+    expect(() => parse('models', '--provider', 'openai')).toThrow('--key-stdin | --remove-key');
+    expect(() => parse('models', '--provider', 'openai', '--key-stdin', '--remove-key')).toThrow(
+      '--key-stdin | --remove-key',
+    );
+    expect(() => parse('models', '--key-stdin')).toThrow('--provider must be');
+    expect(() =>
+      parse('models', '--provider', 'openai', '--key-stdin', '--default', '@cf/zai-org/glm-5.3'),
+    ).toThrow('on its own');
+    // Without a provider flag, models still changes the policy.
+    expect(parse('models', '--default', '@cf/zai-org/glm-5.3')).toMatchObject({
+      action: 'models',
+      path: '/security/policy',
+    });
+  });
+
+  it('reads --default as a switch for one project and as a value for the platform', () => {
+    expect(parse('model', 'p1', '--default')).toMatchObject({
+      path: '/projects/p1/security/model',
+      body: { model: null },
+    });
+    expect(parse('model', 'p1', '@cf/zai-org/glm-5.3').body).toEqual({
+      model: '@cf/zai-org/glm-5.3',
+    });
+    expect(() => parse('model', 'p1')).toThrow('Usage');
+    expect(() => parse('model', 'p1', 'm', '--default')).toThrow('Usage');
+    expect(parse('models', '--default', 'm').body).toEqual({ defaultModel: 'm' });
+  });
+
+  it('builds budget changes for the platform, the default and one project', () => {
+    expect(parse('budget', '--platform-usd', '500', '--project-default-usd', '25.5').body).toEqual({
+      platformMonthlyUsd: 500,
+      projectDefaultMonthlyUsd: 25.5,
+    });
+    expect(parse('budget', '--platform-off', '--project-caps', 'off').body).toEqual({
+      platformMonthlyUsd: null,
+      projectDefaultMonthlyUsd: null,
+    });
+    expect(parse('budget', '--project-caps', 'on').body).toEqual({ projectCapsOn: true });
+    expect(parse('budget', '--project', 'p/1', '--usd', '150')).toMatchObject({
+      path: '/projects/p%2F1/security/budget',
+      body: { monthlyUsd: 150 },
+    });
+    expect(parse('budget', '--project', 'p1', '--clear').body).toEqual({ monthlyUsd: null });
+    expect(parse('budget')).toMatchObject({ method: 'GET', path: '/security/budget' });
+    expect(parse('budget', '--platform-off')).toMatchObject({ method: 'POST' });
+    expect(() => parse('budget', '--platform-usd', '1', '--platform-off')).toThrow('not both');
+    expect(() => parse('budget', '--project', 'p1')).toThrow('Usage');
+    expect(() => parse('budget', '--project', 'p1', '--usd', '5', '--clear')).toThrow('Usage');
+    expect(() => parse('budget', '--project', 'p1', '--usd', '5', '--platform-usd', '5')).toThrow(
+      'do not combine',
+    );
+    expect(() => parse('budget', '--usd', '5')).toThrow('--project');
+    expect(() => parse('budget', '--platform-usd', '1.234')).toThrow('dollar amount');
+    expect(() => parse('budget', '--project-caps', 'maybe')).toThrow('on or off');
+  });
+
+  it('moves --urgent to the query and pages the lists', () => {
+    expect(
+      parse('findings', '--urgent', '--project', 'acme', '--limit', '50', '--page', '2'),
+    ).toMatchObject({
+      method: 'GET',
+      path: '/security/findings',
+      query: { urgent: 'true', project: 'acme', limit: '50', page: '2' },
+      body: {},
+    });
+    expect(() => parse('findings', '--state', 'gone')).toThrow('--state');
+    expect(() => parse('findings', '--severity', 'info')).toThrow('--severity');
+    for (const list of ['scans', 'public-requests', 'bypasses']) {
+      expect(parse(list, '--limit', '10').query).toEqual({ limit: '10' });
+    }
+    expect(() => parse('status', '--limit', '10')).toThrow("Unknown flag '--limit'");
+    expect(() => parse('scans', '--trigger', 'sweep')).toThrow('gate');
+  });
+
+  it('takes comma-separated finding ids and requires the words a change needs', () => {
+    const resolve = parse(
+      'resolve',
+      'p1',
+      'F-1,F-2,F-1',
+      '--reason',
+      'false-positive',
+      '--comment',
+      'Reviewed',
+    );
+    expect(resolve).toMatchObject({
+      path: '/projects/p1/security/findings/:fid/resolve',
+      body: { findingIds: ['F-1', 'F-2'], reason: 'false_positive', comment: 'Reviewed' },
+    });
+    expect(() => parse('resolve', 'p1', 'F-1', '--comment', 'x')).toThrow('--reason');
+    expect(() => parse('resolve', 'p1', 'F-1', '--reason', 'meh', '--comment', 'x')).toThrow(
+      '--reason',
+    );
+    expect(() => parse('resolve', 'p1', 'F-1', '--reason', 'fixed')).toThrow('comment');
+    expect(() => parse('reopen', 'p1', 'F-1')).toThrow('comment');
+    expect(parse('comment', 'p1', 'F-1,F-2', 'Looks real').body).toEqual({
+      findingIds: ['F-1', 'F-2'],
+      text: 'Looks real',
+    });
+    expect(parse('show', 'p1', 'F-3')).toMatchObject({
+      method: 'GET',
+      path: '/projects/p1/security/findings/:fid',
+    });
+    expect(() => parse('show', 'p1', ',')).toThrow('at least one id');
+    expect(() =>
+      parse('show', 'p1', Array.from({ length: 21 }, (_, i) => `F-${i}`).join(',')),
+    ).toThrow('at most 20');
+    expect(parse('bypass', 'p1', '--reason', 'launch').body).toEqual({ reason: 'launch' });
+    expect(() => parse('bypass', 'p1')).toThrow('reason');
+    expect(parse('cancel', 'scan/1').path).toBe('/security/scans/scan%2F1/cancel');
+  });
+
+  it('joins the operator groups, which feed the platform hint in the interactive menu', () => {
+    expect(operatorGroups).toContain('security');
+  });
+
+  it('makes the probe a check without --plan or --yes', () => {
+    expect(parse('probe')).toMatchObject({ method: 'POST', path: '/security/probe' });
+    expect(() => parse('probe', '--yes')).toThrow("Unknown flag '--yes'");
+    expect(() => parse('probe', '--plan')).toThrow("Unknown flag '--plan'");
+    expect(parse('probe', '--timeout', '600').timeoutMs).toBe(600_000);
+  });
+});
+
+describe('platform security commands', () => {
+  type Call = { method: string; path: string; query: string; body: Record<string, unknown> | null };
+
+  /** Serves operator replies in order and records each request. */
+  function serve(replies: Array<Record<string, unknown> | Response>) {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    const queue = [...replies];
+    const calls: Array<Call> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+        const url = new URL(String(input));
+        calls.push({
+          method: init?.method ?? 'GET',
+          path: url.pathname.replace('/operator/v1', ''),
+          query: url.search,
+          body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null,
+        });
+        const reply = queue.shift() ?? { error: 'unexpected_request' };
+        return reply instanceof Response ? reply : Response.json(reply);
+      }),
+    );
+    return calls;
+  }
+
+  function quiet() {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    return {
+      log,
+      stderr,
+      stdout,
+      printed: () => log.mock.calls.map(([line]) => String(line)).join('\n'),
+      errors: () => stderr.mock.calls.map(([chunk]) => String(chunk)).join(''),
+      terminal: () => stripVTControlCharacters(stdout.mock.calls.map(([c]) => String(c)).join('')),
+    };
+  }
+
+  const run = (...args: Array<string>) =>
+    runOperatorCommand(parseOperatorArgs(['security', ...args]));
+
+  it('previews a mode change, then applies it at the previewed revision', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.policy',
+        target: 'platform',
+        expectedRevision: 7,
+        policy: { mode: 'disabled' },
+        preview: ['Mode: disabled → public'],
+      },
+      { ok: true, policy: { mode: 'public' } },
+    ]);
+    await run('policy', 'public', '--yes');
+    expect(calls.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      'POST /security/policy',
+      'POST /security/policy',
+    ]);
+    expect(calls[0]!.body).toEqual({ mode: 'public', dryRun: true });
+    expect(calls[1]!.body).toEqual({ mode: 'public', expectedRevision: 7 });
+    // The preview is shown without the whole stored policy.
+    expect(out.errors()).toContain('Mode: disabled → public');
+    expect(out.errors()).not.toContain('"policy"');
+    expect(out.terminal()).toContain('Platform security policy completed.');
+  });
+
+  it('previews a project scan rule, then sends the same body (M34)', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.project-policy',
+        target: 'proj_1',
+        override: { from: 'inherit', to: 'always' },
+        preview: ['acme: always scanned, also while Zero Trust protects it.'],
+      },
+      { ok: true, slug: 'acme', override: { from: 'inherit', to: 'always' } },
+    ]);
+    await run('policy', '--project', 'proj_1', 'always', '--yes');
+    expect(calls.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      'POST /projects/proj_1/security/policy',
+      'POST /projects/proj_1/security/policy',
+    ]);
+    expect(calls[0]!.body).toEqual({ override: 'always', dryRun: true });
+    expect(calls[1]!.body).toEqual({ override: 'always' });
+    expect(out.errors()).toContain('always scanned, also while Zero Trust protects it');
+    expect(out.terminal()).toContain('Platform security project-policy completed.');
+  });
+
+  it('reads a provider key from stdin once, sends it for the preview and the change, never prints it', async () => {
+    const out = quiet();
+    const stdin = vi
+      .spyOn(process.stdin, Symbol.asyncIterator)
+      .mockImplementation(async function* () {
+        yield 'sk-ant-secret-value-123\n';
+        return undefined;
+      });
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.provider-key',
+        target: 'anthropic',
+        providerKey: null,
+        preview: ['Save: your own Anthropic key for anthropic/* scans.'],
+      },
+      {
+        ok: true,
+        host: 'anthropic',
+        providerKey: { setAt: '2026-11-20T00:00:00.000Z' },
+        probeNeeded: false,
+        message: 'Saved your own Anthropic key.',
+      },
+    ]);
+    await run('models', '--provider', 'anthropic', '--key-stdin', '--yes');
+    expect(stdin).toHaveBeenCalledTimes(1);
+    expect(calls.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      'POST /security/provider-keys',
+      'POST /security/provider-keys',
+    ]);
+    expect(calls[0]!.body).toEqual({
+      host: 'anthropic',
+      key: 'sk-ant-secret-value-123',
+      dryRun: true,
+    });
+    expect(calls[1]!.body).toEqual({ host: 'anthropic', key: 'sk-ant-secret-value-123' });
+    expect(out.errors()).toContain('Saved your own Anthropic key.');
+    expect(out.printed() + out.errors() + out.terminal()).not.toContain('sk-ant-secret-value-123');
+  });
+
+  it('refuses an empty or multi-word key on stdin before any request', async () => {
+    quiet();
+    vi.spyOn(process.stdin, Symbol.asyncIterator).mockImplementation(async function* () {
+      yield 'two words\n';
+      return undefined;
+    });
+    const calls = serve([]);
+    await expect(run('models', '--provider', 'openai', '--key-stdin', '--yes')).rejects.toThrow(
+      'one API key on one line',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('applies nothing for --plan and needs --yes without a terminal', async () => {
+    const out = quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.policy', target: 'platform', expectedRevision: 2 },
+    ]);
+    await run('policy', 'all', '--plan');
+    expect(calls).toHaveLength(1);
+    expect(out.printed()).toContain('security.policy');
+    calls.length = 0;
+    await expect(run('policy', 'all')).rejects.toThrow('--yes');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('reads the provider notice version before accepting it', async () => {
+    quiet();
+    const calls = serve([
+      { providerNotice: { version: 3, accepted: false } },
+      { dryRun: true, action: 'security.policy', target: 'platform', expectedRevision: 4 },
+      { ok: true },
+    ]);
+    await run(
+      'models',
+      '--default',
+      'anthropic/claude-opus-5.5',
+      '--accept-provider-notice',
+      '--yes',
+    );
+    expect(calls.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      'GET /security/policy',
+      'POST /security/policy',
+      'POST /security/policy',
+    ]);
+    expect(calls[2]!.body).toEqual({
+      defaultModel: 'anthropic/claude-opus-5.5',
+      acceptProviderNoticeVersion: 3,
+      expectedRevision: 4,
+    });
+  });
+
+  it('sends the gate switch and the limits as policy changes', async () => {
+    quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.policy', target: 'platform', expectedRevision: 1 },
+      { ok: true },
+      { dryRun: true, action: 'security.policy', target: 'platform', expectedRevision: 2 },
+      { ok: true },
+    ]);
+    await run('public-gate', 'on', '--yes');
+    await run('limits', '--scan-timeout', '30', '--yes');
+    expect(calls[1]!.body).toEqual({ publicGate: true, expectedRevision: 1 });
+    expect(calls[3]!.body).toEqual({ limits: { timeoutMinutes: 30 }, expectedRevision: 2 });
+  });
+
+  it('applies the saved default project cap for --project-caps on', async () => {
+    quiet();
+    const calls = serve([
+      { projectDefault: { capsOn: false, monthlyUsd: 40 } },
+      { dryRun: true, action: 'security.budget', target: 'platform', expectedRevision: 9 },
+      { ok: true },
+    ]);
+    await run('budget', '--project-caps', 'on', '--yes');
+    expect(calls[0]).toMatchObject({ method: 'GET', path: '/security/budget' });
+    expect(calls[2]!.body).toEqual({ projectDefaultMonthlyUsd: 40, expectedRevision: 9 });
+  });
+
+  it('sets a project limit and says when the project’s own lower cap still wins', async () => {
+    const out = quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.project-budget', target: 'p1', budget: {} },
+      { ok: true, budget: { capSource: 'own', capUsd: 40, ceilingUsd: 150 } },
+    ]);
+    await run('budget', '--project', 'p1', '--usd', '150', '--yes');
+    expect(calls[1]).toMatchObject({
+      path: '/projects/p1/security/budget',
+      body: { monthlyUsd: 150 },
+    });
+    expect(out.printed()).toContain("p1's own cap ($40.00) is lower and still applies");
+    expect(out.printed()).toContain('void project security budget --usd 150');
+  });
+
+  it('resolves several findings with each one’s own revision, after previewing all of them', async () => {
+    const out = quiet();
+    const calls = serve([
+      { finding: { id: 'F-1', revision: 3 } },
+      {
+        dryRun: true,
+        action: 'security.finding-resolve',
+        target: { projectId: 'p1', finding: 'F-1' },
+      },
+      { finding: { id: 'F-2', revision: 5 } },
+      {
+        dryRun: true,
+        action: 'security.finding-resolve',
+        target: { projectId: 'p1', finding: 'F-2' },
+      },
+      { ok: true, id: 'F-1', state: 'resolved' },
+      { ok: true, id: 'F-2', state: 'resolved' },
+    ]);
+    await run(
+      'resolve',
+      'p1',
+      'F-1,F-2',
+      '--reason',
+      'accepted-risk',
+      '--comment',
+      'Known',
+      '--yes',
+    );
+    expect(calls.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      'GET /projects/p1/security/findings/F-1',
+      'POST /projects/p1/security/findings/F-1/resolve',
+      'GET /projects/p1/security/findings/F-2',
+      'POST /projects/p1/security/findings/F-2/resolve',
+      'POST /projects/p1/security/findings/F-1/resolve',
+      'POST /projects/p1/security/findings/F-2/resolve',
+    ]);
+    expect(calls[4]!.body).toEqual({
+      reason: 'accepted_risk',
+      comment: 'Known',
+      expectedRevision: 3,
+    });
+    expect(calls[5]!.body).toMatchObject({ expectedRevision: 5 });
+    expect(out.terminal()).toContain('Platform security resolve completed.');
+  });
+
+  it('changes nothing when one finding fails its preview', async () => {
+    quiet();
+    const calls = serve([
+      { finding: { id: 'F-1', revision: 3 } },
+      { dryRun: true, action: 'security.finding-resolve', target: 'F-1' },
+      Response.json({ error: 'not_found', message: 'Finding not found.' }, { status: 404 }),
+    ]);
+    await expect(
+      run('resolve', 'p1', 'F-1,F-9', '--reason', 'fixed', '--comment', 'ok', '--yes'),
+    ).rejects.toThrow('Finding not found.');
+    expect(calls.filter(({ body }) => body && !body.dryRun)).toHaveLength(0);
+  });
+
+  it('reports the findings that changed when a later write fails', async () => {
+    const out = quiet();
+    serve([
+      { finding: { revision: 1 } },
+      { dryRun: true, action: 'security.finding-reopen', target: 'F-1' },
+      { finding: { revision: 2 } },
+      { dryRun: true, action: 'security.finding-reopen', target: 'F-2' },
+      { ok: true, id: 'F-1' },
+      Response.json({ error: 'finding changed', message: 'Finding changed.' }, { status: 409 }),
+    ]);
+    await expect(
+      run('reopen', 'p1', 'F-1,F-2', '--comment', 'again', '--yes'),
+    ).rejects.toMatchObject({ code: 'partial_failure' });
+    const printed = out.printed();
+    expect(printed).toContain('F-1');
+    expect(printed).toContain('Finding changed.');
+  });
+
+  it('comments without reading a revision', async () => {
+    quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.finding-comment', target: {} },
+      { ok: true, id: 'F-1' },
+    ]);
+    await run('comment', 'p1', 'F-1', 'Please look', '--yes');
+    expect(calls.map(({ method }) => method)).toEqual(['POST', 'POST']);
+    expect(calls[1]!.body).toEqual({ text: 'Please look' });
+  });
+
+  it('shows several findings and reads the lists with their filters', async () => {
+    const out = quiet();
+    const calls = serve([
+      { finding: { id: 'F-1' } },
+      { finding: { id: 'F-2' } },
+      { findings: [], total: 0 },
+    ]);
+    await run('show', 'p1', 'F-1,F-2', '--json');
+    expect(JSON.parse(out.printed())).toEqual({
+      findings: [{ finding: { id: 'F-1' } }, { finding: { id: 'F-2' } }],
+    });
+    await run('findings', '--urgent', '--project', 'acme');
+    expect(calls[2]).toMatchObject({
+      path: '/security/findings',
+      query: '?project=acme&urgent=true',
+    });
+  });
+
+  it('asks before a rescan and names the model and the most it can cost', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.rescan',
+        target: 'p1',
+        deploymentId: 'dpl_9a1d',
+        alreadyScanned: true,
+        model: 'anthropic/claude-opus-5.5',
+        worstCaseUsd: 12,
+      },
+      { ok: true, scanId: 'scan-1' },
+    ]);
+    await run('rescan', 'p1', '--yes');
+    expect(out.errors()).toContain(
+      'Live deployment dpl_9a1d was already scanned. Run a full scan with anthropic/claude-opus-5.5? This reviews the whole app. It can cost up to $12.00.',
+    );
+    expect(calls[1]).toMatchObject({ path: '/projects/p1/security/scans', body: {} });
+  });
+
+  it('asks before a backfill and says how many and the most it can cost', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.backfill',
+        target: 'platform',
+        projects: 53,
+        willQueue: 50,
+        remaining: 3,
+        worstCaseUsd: 40,
+      },
+      { ok: true, queued: [], skipped: {}, remaining: 3 },
+    ]);
+    await run('backfill', '--yes');
+    expect(out.errors()).toContain(
+      'Scan 50 live deployments that were never scanned? Together they can cost up to $40.00. 3 more wait for the next backfill.',
+    );
+    expect(calls[1]).toMatchObject({ method: 'POST', path: '/security/backfill', body: {} });
+  });
+
+  it('does not ask or queue when nothing needs a backfill', async () => {
+    const out = quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.backfill', target: 'platform', willQueue: 0 },
+    ]);
+    await run('backfill', '--yes');
+    expect(calls).toHaveLength(1);
+    expect(out.errors()).toContain('Nothing to backfill.');
+  });
+
+  it('names the never-scanned deployments whose code is no longer stored', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.backfill',
+        target: 'platform',
+        willQueue: 0,
+        noStoredCode: 2,
+      },
+    ]);
+    await run('backfill', '--yes');
+    expect(calls).toHaveLength(1);
+    expect(out.errors()).toContain('Nothing to backfill.');
+    expect(out.errors()).not.toContain('already has a scan');
+    expect(out.errors()).toContain(
+      '2 never-scanned live deployments have no stored code, so they cannot be scanned. Deploy those projects again.',
+    );
+  });
+
+  it('asks for the client asset pass on a rescan, and refuses it on an old platform (M31)', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.rescan',
+        target: 'p1',
+        deploymentId: 'dpl_9a1d',
+        model: 'm',
+        clientAssets: true,
+      },
+      { ok: true, scanId: 'scan-1', clientAssets: true },
+      { dryRun: true, action: 'security.rescan', target: 'p1', deploymentId: 'dpl_9a1d' },
+    ]);
+    await run('rescan', 'p1', '--client-assets', '--yes');
+    expect(calls[0]!.body).toEqual({ clientAssets: true, dryRun: true });
+    expect(calls[1]).toMatchObject({ body: { clientAssets: true } });
+    expect(out.errors()).toContain('and the sources of its client bundles');
+    await expect(run('rescan', 'p1', '--client-assets', '--yes')).rejects.toThrow(
+      'cannot read client bundle sources yet',
+    );
+    expect(calls).toHaveLength(3);
+  });
+
+  it('exports every matching finding as one SARIF log with --format sarif (M31)', async () => {
+    const out = quiet();
+    const row = (id: string, project: string) => ({
+      id,
+      project,
+      verdict: 'confirmed',
+      severity: 'high',
+      state: 'open',
+      title: `title ${id}`,
+      category: 'xss',
+      file: 'src/a.ts',
+      line: 2,
+    });
+    const calls = serve([
+      { findings: [row('F-1', 'acme')], page: 1, limit: 100, total: 2, totalPages: 2 },
+      { findings: [row('F-1', 'beta')], page: 2, limit: 100, total: 2, totalPages: 2 },
+    ]);
+    await run('findings', '--format', 'sarif', '--urgent');
+    expect(calls.map(({ query }) => query)).toEqual([
+      '?urgent=true&page=1&limit=100',
+      '?urgent=true&page=2&limit=100',
+    ]);
+    const log = JSON.parse(out.printed());
+    expect(
+      log.runs[0].results.map(
+        (result: { partialFingerprints: Record<string, string> }) =>
+          result.partialFingerprints['voidFinding/v1'],
+      ),
+    ).toEqual(['acme/F-1', 'beta/F-1']);
+    expect(() => run('findings', '--format', 'csv')).toThrow('--format must be sarif');
+    expect(() => run('findings', '--format', 'sarif', '--page', '2')).toThrow(
+      'drop --page and --limit',
+    );
+    expect(() => run('findings', '--format', 'sarif', '--json')).toThrow(
+      'Use --format sarif or --json, not both.',
+    );
+  });
+
+  it('does not rescan for --plan', async () => {
+    quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.rescan', target: 'p1', deploymentId: 'dpl_1', model: 'm' },
+    ]);
+    await run('rescan', 'p1', '--plan');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('runs the probe once, without a preview or --yes', async () => {
+    const out = quiet();
+    const calls = serve([{ ok: true, checks: [] }]);
+    await run('probe');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ method: 'POST', path: '/security/probe', body: {} });
+    expect(out.printed()).toContain('Ok: true');
+  });
+
+  it('sets a project model, accepting the notice at the current version', async () => {
+    quiet();
+    const calls = serve([
+      { providerNotice: { version: 2 } },
+      { dryRun: true, action: 'security.project-model', target: 'p1' },
+      { ok: true },
+    ]);
+    await run('model', 'p1', 'anthropic/claude-opus-5.5', '--accept-provider-notice', '--yes');
+    expect(calls[2]!.body).toEqual({
+      model: 'anthropic/claude-opus-5.5',
+      acceptProviderNoticeVersion: 2,
+    });
+  });
+
+  it('cancels a scan and bypasses a request with a preview first', async () => {
+    quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.scan-cancel', target: 'scan-1' },
+      { ok: true, canceled: 1 },
+      { dryRun: true, action: 'security.public-request-bypass', target: 'p1' },
+      { ok: true, project: { state: 'ready' } },
+    ]);
+    await run('cancel', 'scan-1', '--yes');
+    await run('bypass', 'p1', '--reason', 'launch today', '--yes');
+    expect(calls[1]).toMatchObject({ path: '/security/scans/scan-1/cancel', body: {} });
+    expect(calls[3]).toMatchObject({
+      path: '/projects/p1/security/public-request/bypass',
+      body: { reason: 'launch today' },
+    });
+  });
+
+  it('does not claim success while a public request is still open', async () => {
+    const out = quiet();
+    serve([
+      { finding: { revision: 1 } },
+      { dryRun: true, action: 'security.finding-resolve', target: 'F-1' },
+      { ok: true, id: 'F-1', publicRequest: { state: 'held_findings' } },
+    ]);
+    await run('resolve', 'p1', 'F-1', '--reason', 'fixed', '--comment', 'ok', '--yes');
+    expect(out.terminal()).not.toContain('✓');
+  });
+
+  it('names the upgrade command when security audits are not installed', async () => {
+    quiet();
+    serve([
+      Response.json(
+        {
+          error: 'platform capability unavailable',
+          capability: 'securityAudits',
+          message: 'This Void platform does not enable securityAudits.',
+        },
+        { status: 501 },
+      ),
+    ]);
+    await expect(run('probe')).rejects.toThrow(
+      'Security audits are not installed. Run: void platform upgrade --security-audits',
+    );
+  });
 });

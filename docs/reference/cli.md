@@ -59,13 +59,15 @@ Use this page as a command reference. If you are setting up a project for the fi
 | `void account login`              | Authenticate with a Void platform                                             |
 | `void cloudflare login`           | Authenticate with Cloudflare through Void                                     |
 | `void platform install`           | Install a company Void platform in Cloudflare                                 |
+| `void platform security`          | Administer security audits: scan mode, models, caps, findings, and alerts     |
 | `void connect <url>`              | Connect the CLI to a Void platform; hostnames default to HTTPS                |
 | `void project link`               | Link directory to a project                                                   |
 | `void project logs`               | Show runtime logs from deployed project                                       |
 | `void project requests`           | Show request-level traffic (status, method, timing)                           |
 | `void project rollback`           | Roll back to a previous deployment                                            |
 | `void project cancel`             | Cancel an active deployment                                                   |
-| `void project zero-trust`         | Inspect or override project Zero Trust protection                             |
+| `void project zero-trust`         | Inspect or override project Zero Trust protection, or bypass a security scan  |
+| `void project security`           | Review findings and scans, set model and budget, scan, check code pre-deploy  |
 | `void project purge-cache`        | Purge all cached pages (Void platform)                                        |
 | `void build logs`                 | Stream, tail, or download build logs                                          |
 | `void email status`               | Show email readiness on your own Cloudflare account (`--platform cloudflare`) |

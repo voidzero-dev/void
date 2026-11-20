@@ -89,6 +89,11 @@ import {
   shouldUpdateProjectWorkerRuntimeLogs,
   updateProjectWorkerRuntimeLogs,
 } from './platform-runtime-logs.ts';
+import {
+  assertPlatformSecurityAuditsSupported,
+  deletePlatformSecurityScanner,
+  type SecurityScannerTeardown,
+} from './platform-security-audits.ts';
 import { assertPlatformStorageSupported } from './platform-storage.ts';
 import {
   assertNoPlatformProjects,
@@ -218,6 +223,10 @@ type PlatformManagementDependencies = Readonly<{
   readProjects?: () => Promise<ReadonlyArray<string>>;
   /** Where the operator credential came from; --purge-resources checks it before any change. */
   credential?: PurgeResourcesCredential;
+  /** Deletes the security scanner Worker and container application; required when security audits are on. */
+  deleteSecurityScanner?: (
+    manifest: PlatformInstallationManifest,
+  ) => Promise<SecurityScannerTeardown>;
 }>;
 
 export function selectAuthoritativePlatformManifest(
@@ -260,6 +269,9 @@ export function platformLifecycleResumeCommand(
   }
   if ('customDomains' in args && args.customDomains) {
     command.push('--custom-domains');
+  }
+  if ('securityAudits' in args && args.securityAudits) {
+    command.push('--security-audits');
   }
   if ('runtimeLogs' in args && args.runtimeLogs) {
     command.push('--runtime-logs', args.runtimeLogs);
@@ -368,6 +380,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
           ? databaseLock.readProjects
           : () => readPlatformProjectSlugs(databaseUrl, manifest.id, manifest.ownershipNonce),
         credential: { source: operatorCredential.source, aiGatewayToken: !!gatewayToken },
+        deleteSecurityScanner: (current) => deletePlatformSecurityScanner(client, current),
         ...(apiUrl && appAccessSetupToken
           ? {
               turnOffProjectZeroTrust: async () => {
@@ -447,6 +460,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         ? { dashboardUrl: args.dashboardUrl }
         : {}),
       ...(args.subcommand !== 'rollback' && args.customDomains ? { customDomains: true } : {}),
+      ...(args.subcommand !== 'rollback' && args.securityAudits ? { securityAudits: true } : {}),
       ...(args.subcommand === 'upgrade' && args.storageLocation !== undefined
         ? { storageLocation: args.storageLocation }
         : {}),
@@ -471,6 +485,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       }),
     );
     assertPlatformRuntimeLogsSupported(plan.deployment, runtime!.manifest);
+    assertPlatformSecurityAuditsSupported(plan.deployment, runtime!.manifest);
     assertPlatformStorageSupported(plan.deployment, runtime!.manifest);
     markPhase('plan');
     note(
@@ -1006,6 +1021,17 @@ export function assertPlatformRollbackCompatibility(
       'platform: The rollback target predates the installed sandbox-drain safety protocol.',
     );
   }
+  // The API Worker keeps the SecurityScanScheduler Durable Object once its
+  // migration ran. Cloudflare refuses an upload that no longer exports the
+  // class, so a rollback across that release would stop half way.
+  if (
+    target.manifest.securityAudits !== 1 &&
+    (source.manifest.securityAudits === 1 || installation.deployment.capabilities.securityAudits)
+  ) {
+    throw new Error(
+      'platform: The rollback target predates security audits and cannot replace this installation. Roll forward to a runtime with security audits instead.',
+    );
+  }
 }
 
 export function resolvePlatformRuntimeTokenToPreflight(
@@ -1163,6 +1189,12 @@ export async function uninstallPlatform(
     writeRemoteManifest(client, state, dependencies.checkpoint);
   const retainData = !args.purgeData;
   const purgeResources = args.purgeResources;
+  const securityAudits = manifest.deployment.capabilities.securityAudits === true;
+  if (securityAudits && !dependencies.deleteSecurityScanner) {
+    throw new Error(
+      'platform: Refusing to uninstall because the security scanner cannot be removed from here.',
+    );
+  }
   const routingKv = manifest.resources.find((resource) => resource.key === 'routing-kv');
   // --purge-resources also uses routing KV that an uninstall which stopped before it
   // finished recorded as retained.
@@ -1193,6 +1225,11 @@ export async function uninstallPlatform(
                 formatZeroTrustApplications(zeroTrust.turnOff),
               ]
             : ['Turn off project Zero Trust; no platform user exists yet.']
+          : []),
+        ...(securityAudits
+          ? [
+              'Delete the security scanner Worker, its container applications, and the scanner images it copied.',
+            ]
           : []),
         purgeResources
           ? purgeResourcesPlanText(manifest)
@@ -1407,6 +1444,14 @@ export async function uninstallPlatform(
           next = recordLifecycleStep(next, `uninstall:routes:${worker.key}`);
           await saveCheckpoint(next);
         }
+      }
+    }
+    if (securityAudits) {
+      // The scanner holds no data. It is billable, so uninstall always removes it; an
+      // object that is not this installation's is left alone.
+      const teardown = await dependencies.deleteSecurityScanner!(next);
+      for (const entry of teardown.kept) {
+        log.warn(`Kept ${entry}: it does not belong to this installation.`);
       }
     }
     if (purgeResources && hasRoutingCheckpoint) {

@@ -1,0 +1,14 @@
+{
+  "base": "svelte-pages",
+  "framework": "svelte",
+  "kind": "clean",
+  "planted": [],
+  "decoys": [
+    {
+      "file": "lib/jwt.ts",
+      "note": "HS256 verified with crypto.subtle.verify, alg pinned, exp checked."
+    },
+    { "file": "routes/auth/login.ts", "note": "next= checked to be a same-site path." },
+    { "file": "routes/api/admin/export.ts", "note": "role comes from a verified token." }
+  ]
+}

@@ -54,15 +54,19 @@ function operatorHelpTree(): HelpTree {
                   },
                   ...(entry.method
                     ? [
-                        {
-                          command: '--plan',
-                          description: 'Validate and preview without changing anything',
-                        },
-                        {
-                          command: '--yes',
-                          description:
-                            'Apply after preview without prompting; required in unattended scripts',
-                        },
+                        ...(entry.noConfirm
+                          ? []
+                          : [
+                              {
+                                command: '--plan',
+                                description: 'Validate and preview without changing anything',
+                              },
+                              {
+                                command: '--yes',
+                                description:
+                                  'Apply after preview without prompting; required in unattended scripts',
+                              },
+                            ]),
                         {
                           command: '--timeout <seconds>',
                           description:
@@ -70,9 +74,8 @@ function operatorHelpTree(): HelpTree {
                         },
                       ]
                     : []),
-                  ...(['list', 'events', 'logs', 'attempts', 'shared-recipients'].includes(
-                    entry.action,
-                  )
+                  ...(entry.paged ||
+                  ['list', 'events', 'logs', 'attempts', 'shared-recipients'].includes(entry.action)
                     ? [
                         {
                           command: '--limit <number>',
@@ -337,7 +340,8 @@ const HELP_TREE: HelpTree = {
               },
               {
                 command: 'set <id>',
-                description: 'Edit a plan name, limits, build size, or AI Gateway logging default',
+                description:
+                  'Edit a plan name, limits, build size, AI Gateway logging default, or security scan cap',
               },
               {
                 command: 'reset <id>',
@@ -368,13 +372,19 @@ const HELP_TREE: HelpTree = {
               },
               {
                 command: '--file <path>',
-                description: 'Read plan settings, partial limits, and aiLogging from JSON',
+                description:
+                  'Read plan settings, partial limits, aiLogging, and securityCap from JSON',
               },
               {
                 command: '--name <name>',
                 description: 'Set the display name when adding or editing',
               },
               { command: '--copy <id>', description: 'Copy this plan when adding a new one' },
+              {
+                command: '--security-cap <usd|none|inherit>',
+                description:
+                  'Monthly security scan cap for each project on the plan (inherit = policy default)',
+              },
               {
                 command: '--replacement <id>',
                 description: 'Move accounts and any default before removing a plan',
@@ -549,6 +559,11 @@ const HELP_TREE: HelpTree = {
             command: '--custom-domains',
             description: 'Let projects add their own domains (requires --dedicated-zone)',
           },
+          {
+            command: '--security-audits',
+            description:
+              'Allow security audits. Needs Cloudflare Containers and Workers AI; it turns nothing on until an administrator sets a scan mode',
+          },
           { command: '--control-plane-domain <domain>', description: 'Optional API hostname' },
           {
             command: '--no-control-plane-domain',
@@ -638,6 +653,7 @@ const HELP_TREE: HelpTree = {
         command: 'zero-trust <command>',
         description: 'Inspect or override Cloudflare Zero Trust protection',
       },
+      { command: 'security <command>', description: 'Review security audit findings and settings' },
       { command: 'logs', description: 'Show runtime logs from the deployed project' },
       { command: 'requests', description: 'Show request-level traffic (status, method, timing)' },
       { command: 'rollback [deployId]', description: 'Roll back to a previous deployment' },
@@ -735,29 +751,160 @@ const HELP_TREE: HelpTree = {
       },
       'zero-trust': {
         summary: 'Inspect and manage Zero Trust protection for a Void platform project.',
-        usage: ['void project zero-trust <status|protect|public|reconcile> [options]'],
+        usage: ['void project zero-trust <status|protect|public|bypass|reconcile> [options]'],
         commands: [
           { command: 'status', description: 'Show desired and effective protection state' },
           { command: 'protect', description: 'Protect the project' },
-          { command: 'public', description: 'Make the project public' },
+          {
+            command: 'public',
+            description: 'Make the project public (may wait for a security scan)',
+          },
+          {
+            command: 'bypass --reason "<text>"',
+            description: 'Skip the security scan for a waiting request (admin or owner)',
+          },
           { command: 'reconcile', description: 'Repair Cloudflare Access configuration drift' },
         ],
-        options: [{ command: '--project <name>', description: 'Project name override' }],
-        children: Object.fromEntries(
-          ['status', 'protect', 'public', 'reconcile'].map((action) => [
-            action,
-            withProjectOption(
-              action === 'status'
-                ? 'Show desired and effective Zero Trust protection.'
-                : action === 'protect'
-                  ? 'Protect the project with the platform Access policy.'
-                  : action === 'public'
-                    ? 'Make the project public with a managed Access bypass.'
-                    : 'Repair Cloudflare Access configuration drift for the project.',
-              `void project zero-trust ${action} [options]`,
-            ),
-          ]),
-        ),
+        options: [
+          { command: '--project <name>', description: 'Project name override' },
+          { command: '--json', description: 'Print machine-readable output' },
+          { command: '--reason <text>', description: 'bypass: why the scan is skipped (required)' },
+          { command: '--yes', description: 'bypass: skip the confirmation prompt' },
+        ],
+        children: {
+          status: zeroTrustHelp(
+            'Show desired and effective Zero Trust protection and any open public request.',
+            'void project zero-trust status [options]',
+          ),
+          protect: zeroTrustHelp(
+            'Protect the project with the platform Access policy.',
+            'void project zero-trust protect [options]',
+          ),
+          public: zeroTrustHelp(
+            'Make the project public with a managed Access bypass. When the platform scans projects before they go public, the project stays protected until the scan passes.',
+            'void project zero-trust public [options]',
+          ),
+          bypass: {
+            summary:
+              'Skip the security scan for the open public request and make the project public. Not allowed while urgent findings are open. Platform admins are emailed with your reason, and the bypass is recorded.',
+            usage: ['void project zero-trust bypass --reason "<text>" [--yes] [options]'],
+            options: [
+              { command: '--reason <text>', description: 'Why the scan is skipped (required)' },
+              { command: '--yes', description: 'Skip the confirmation prompt (needed in CI)' },
+              { command: '--project <name>', description: 'Project name override' },
+              { command: '--json', description: 'Print machine-readable output' },
+            ],
+          },
+          reconcile: zeroTrustHelp(
+            'Repair Cloudflare Access configuration drift for the project.',
+            'void project zero-trust reconcile [options]',
+          ),
+        },
+      },
+      security: {
+        summary:
+          'Review security audit findings, scans, model and budget for a Void platform project.',
+        usage: ['void project security <command> [options]'],
+        commands: [
+          {
+            command: 'status',
+            description: 'Urgent findings, policy, model, budget and last scan',
+          },
+          {
+            command: 'list',
+            description: 'List findings (--urgent, --state, --severity, --leads, --format sarif)',
+          },
+          { command: 'show <F-id>', description: 'Show one finding with its history' },
+          {
+            command: 'comment <F-id> "<text>"',
+            description: 'Add a comment (collaborator or higher)',
+          },
+          {
+            command: 'resolve <F-id>...',
+            description: 'Resolve findings with --reason and --comment',
+          },
+          { command: 'reopen <F-id>', description: 'Reopen a resolved finding with --comment' },
+          {
+            command: 'severity <F-id> <level|scan>',
+            description:
+              'Set the severity of an open finding with --comment (scan: use the scan value)',
+          },
+          { command: 'scans', description: 'Show scan history (--limit, up to 100)' },
+          {
+            command: 'scan',
+            description:
+              'Run a full scan of the live deployment (asks first; it costs money; --client-assets)',
+          },
+          {
+            command: 'check [<check-id>]',
+            description:
+              'Scan the git-tracked code in this folder before you deploy (asks first; uploads it), or show an earlier check',
+          },
+          { command: 'model [<id> | --default]', description: 'Show or set the scan model' },
+          {
+            command: 'budget [--usd N | --off]',
+            description: 'Show or set this project monthly scan budget',
+          },
+          {
+            command: 'open',
+            description: 'Open the read-only security page (link works for 15 minutes)',
+          },
+        ],
+        options: [
+          { command: '--project <name>', description: 'Project name override' },
+          { command: '--json', description: 'Print machine-readable output' },
+          { command: '--urgent', description: 'list: only urgent findings' },
+          {
+            command: '--state <state>',
+            description: 'list: open, resolved or all (default: open)',
+          },
+          {
+            command: '--severity <level>',
+            description: 'list: critical, high, medium, low or informational',
+          },
+          { command: '--leads', description: 'list: include leads that need a human look' },
+          {
+            command: '--format sarif',
+            description: 'list: print a SARIF 2.1.0 file for code scanning tools',
+          },
+          {
+            command: '--reason <reason>',
+            description: 'resolve: fixed, false-positive or accepted-risk',
+          },
+          {
+            command: '--comment <text>',
+            description: 'resolve, reopen, severity: why (up to 4,000 characters)',
+          },
+          { command: '--limit <n>', description: 'scans: how many scans, 1 to 100' },
+          { command: '--default', description: 'model: use the platform default model' },
+          {
+            command: '--accept-provider-notice',
+            description: 'model: accept the third-party provider notice',
+          },
+          { command: '--usd <amount>', description: 'budget: monthly cap in dollars' },
+          { command: '--off', description: 'budget: clear this project own cap' },
+          { command: '--yes', description: 'scan, check: start without the prompt' },
+          { command: '--no-wait', description: 'check: queue it and return without waiting' },
+          {
+            command: '--client-assets',
+            description: 'scan: also review client bundle sources from their source maps',
+          },
+        ],
+        examples: [
+          {
+            command: 'void project security list --urgent',
+            description: 'Show findings to fix first',
+          },
+          {
+            command:
+              'void project security resolve F-12 --reason fixed --comment "Bound params in 4e1b9a3"',
+            description: 'Resolve a finding',
+          },
+          {
+            command: 'void project security check',
+            description: 'Check the code in this folder before you deploy it',
+          },
+        ],
       },
       logs: {
         summary: 'Show runtime logs from the deployed project.',
@@ -1490,6 +1637,17 @@ function basicSubcommand(summary: string, usage: string, example?: string): Help
   };
 }
 
+function zeroTrustHelp(summary: string, usage: string): HelpPage {
+  return {
+    summary,
+    usage: [usage],
+    options: [
+      { command: '--project <name>', description: 'Project name override' },
+      { command: '--json', description: 'Print machine-readable output' },
+    ],
+  };
+}
+
 function withProjectOption(summary: string, usage: string): HelpPage {
   return {
     summary,
@@ -1505,7 +1663,7 @@ function lifecycleHelp(
   return {
     summary,
     usage: [
-      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>] [--custom-domains]' : ''}${command === 'upgrade' ? ' [--runtime-logs <full|minimal>] [--storage-location <hint|automatic>]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
+      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>] [--custom-domains] [--security-audits]' : ''}${command === 'upgrade' ? ' [--runtime-logs <full|minimal>] [--storage-location <hint|automatic>]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
     ],
     options: [
       { command: '--plan', description: 'Print the exact plan without making changes' },
@@ -1527,6 +1685,11 @@ function lifecycleHelp(
             {
               command: '--custom-domains',
               description: 'Turn on project custom domains; omission keeps the saved setting',
+            },
+            {
+              command: '--security-audits',
+              description:
+                'Allow security audits (needs Containers and Workers AI); omission keeps the saved setting',
             },
           ]
         : []),

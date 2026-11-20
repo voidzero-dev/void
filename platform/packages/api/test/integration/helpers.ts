@@ -33,6 +33,7 @@ import {
   githubInstallationRevocations,
   githubWebhookRedeliveries,
 } from '../../src/schema.ts';
+import type { SecurityScanScheduler } from '../../src/security/scheduler.ts';
 import type { PlanId } from '../../src/tiers.ts';
 import type { Build, GitHubInstallationMember } from '../../src/types.ts';
 import { loadPGliteTemplateBundle } from './db-template.ts';
@@ -100,6 +101,7 @@ export type TestEnv = {
   CRON_SCHEDULER: DurableObjectNamespace;
   ERROR_ALERT_MONITOR: DurableObjectNamespace;
   SANDBOX_CONCURRENCY_COUNTER: DurableObjectNamespace<SandboxConcurrencyCounter>;
+  SECURITY_SCAN_SCHEDULER: DurableObjectNamespace<SecurityScanScheduler>;
   BUILD_SCHEDULER: DurableObjectNamespace;
   BUILD_MANAGER: DurableObjectNamespace;
   BUILD_MANAGER_LARGE: DurableObjectNamespace;
@@ -166,6 +168,9 @@ type StoredValue = {
   value: string | ArrayBuffer;
   metadata?: unknown;
 };
+
+/** R2 refuses multipart parts below this size, apart from the last. */
+const MEMORY_R2_MIN_PART_BYTES = 5 * 1024 * 1024;
 
 function toArrayBuffer(value: ArrayBuffer | ArrayBufferView): ArrayBuffer {
   if (value instanceof ArrayBuffer) {
@@ -429,6 +434,65 @@ class MemoryR2Bucket {
       this.store.delete(key);
     }
   }
+
+  /**
+   * Multipart upload: parts are kept until `complete` joins them in part order.
+   * Like R2, `complete` refuses a non-last part under 5 MiB or one whose size
+   * differs from the others (error 10048).
+   */
+  async createMultipartUpload(key: string): Promise<{
+    uploadPart(
+      partNumber: number,
+      value: ArrayBuffer | ArrayBufferView | string,
+    ): Promise<{
+      partNumber: number;
+      etag: string;
+    }>;
+    complete(parts: Array<{ partNumber: number; etag: string }>): Promise<unknown>;
+    abort(): Promise<void>;
+  }> {
+    const parts = new Map<number, { etag: string; body: Uint8Array }>();
+    return {
+      uploadPart: async (partNumber, value) => {
+        const body =
+          typeof value === 'string'
+            ? new TextEncoder().encode(value)
+            : new Uint8Array(toArrayBuffer(value));
+        const etag = memoryR2Etag();
+        parts.set(partNumber, { etag, body });
+        return { partNumber, etag };
+      },
+      complete: async (uploaded) => {
+        const chunks = uploaded
+          .slice()
+          .sort((left, right) => left.partNumber - right.partNumber)
+          .map((part) => {
+            const stored = parts.get(part.partNumber);
+            if (!stored || stored.etag !== part.etag) {
+              throw new Error(`unknown part ${part.partNumber}`);
+            }
+            return stored.body;
+          });
+        const leading = chunks.slice(0, -1);
+        for (const chunk of leading) {
+          if (chunk.length < MEMORY_R2_MIN_PART_BYTES) {
+            throw new Error(
+              'Your proposed upload is smaller than the minimum allowed object size.',
+            );
+          }
+          if (chunk.length !== leading[0]!.length) {
+            throw new Error(
+              'completeMultipartUpload: All non-trailing parts must have the same size. (10048)',
+            );
+          }
+        }
+        return this.put(key, new Blob(chunks as Array<BlobPart>));
+      },
+      abort: async () => {
+        parts.clear();
+      },
+    };
+  }
 }
 
 let pglite: PGlite | undefined;
@@ -566,6 +630,8 @@ export async function setupEnv(options: SetupEnvOptions = {}): Promise<TestEnv> 
     ERROR_ALERT_MONITOR: createMockDoNamespace(),
     SANDBOX_CONCURRENCY_COUNTER:
       createMockDoNamespace() as unknown as DurableObjectNamespace<SandboxConcurrencyCounter>,
+    SECURITY_SCAN_SCHEDULER:
+      createMockDoNamespace() as unknown as DurableObjectNamespace<SecurityScanScheduler>,
     BUILD_SCHEDULER: createMockDoNamespace(),
     BUILD_MANAGER: createMockDoNamespace(),
     BUILD_MANAGER_LARGE: createMockDoNamespace(),
@@ -603,6 +669,9 @@ export async function clearTables(db: Db): Promise<void> {
     schema.emailReceipts,
     schema.emailProjectControls,
     schema.emailMonthlyUsage,
+    // Not removed by the project cascade: platform cap emails and the month total.
+    schema.securityNotifications,
+    schema.securityPlatformSpend,
     sandboxDrainCheckpoints,
     domains,
     resources,
@@ -1651,6 +1720,8 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     ...overrides,
   };
 
+  const dispatchNamespaces = new Set<string>();
+
   const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -1764,6 +1835,58 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return mocks.createContainerApp!(url, init);
     }
 
+    // Dispatch namespaces themselves (the security scanner's copy namespace, M30) and
+    // the list calls its reaper makes. Copy scripts and stores start empty.
+    {
+      const path = new URL(url).pathname;
+      const namespaceAt = path.indexOf('/workers/dispatch/namespaces');
+      if (namespaceAt !== -1) {
+        const rest = path.slice(namespaceAt + '/workers/dispatch/namespaces'.length);
+        const parts = rest.split('/').filter(Boolean);
+        if (parts.length === 0 && method === 'POST') {
+          const name = String(JSON.parse(String(init?.body ?? '{}')).name ?? '');
+          dispatchNamespaces.add(name);
+          return cfSuccess({ namespace_name: name });
+        }
+        if (parts.length === 1 && method === 'GET') {
+          return dispatchNamespaces.has(parts[0]!)
+            ? cfSuccess({ namespace_name: parts[0] })
+            : Response.json(
+                { success: false, errors: [{ code: 100119, message: 'namespace not found' }] },
+                { status: 404 },
+              );
+        }
+        if (parts.length === 1 && method === 'DELETE') {
+          dispatchNamespaces.delete(parts[0]!);
+          return cfSuccess(null);
+        }
+        if (parts.length === 2 && parts[1] === 'scripts' && method === 'GET') {
+          return cfSuccess([]);
+        }
+        // A scan result deletes its copy by reading the copy script's settings first.
+        if (
+          parts.length === 4 &&
+          parts[1] === 'scripts' &&
+          parts[2]!.startsWith('void-sec-copy-') &&
+          parts[3] === 'settings' &&
+          method === 'GET'
+        ) {
+          return Response.json(
+            { success: false, errors: [{ code: 10007, message: 'script not found' }] },
+            { status: 404 },
+          );
+        }
+      }
+      if (method === 'GET' && path.endsWith('/d1/database')) {
+        return cfSuccess([]);
+      }
+      if (method === 'GET' && path.endsWith('/storage/kv/namespaces')) {
+        return cfSuccess([]);
+      }
+      if (method === 'GET' && path.endsWith('/r2/buckets')) {
+        return cfSuccess({ buckets: [] });
+      }
+    }
     if (method === 'GET' && url.includes('/workers/dispatch/') && url.includes('/secrets')) {
       return mocks.listWorkerSecrets(url, init);
     }

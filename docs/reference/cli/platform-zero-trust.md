@@ -41,6 +41,8 @@ Public-only rules cannot be combined with protected project choices. To switch a
 already protected configuration to public-only rules, first disable it; Access may
 block traffic during that transition in a Default-Deny account.
 
+`project-public` follows the same [scan before public](./platform-security.md#public-gate) rule as the project command. With it on, the project stays protected and the command reports the waiting request; use `void platform security bypass` to skip the scan. `disable` and public-only `configure` are refused while the gate is on. Turn it off first with `void platform security public-gate off`.
+
 Mutations support `--plan`, `--yes`, and `--timeout`; use `--plan` instead of
 `--yes` to inspect this change without applying it. The Access management token
 is accepted only on standard input. Zero Trust uses the Cloudflare account that

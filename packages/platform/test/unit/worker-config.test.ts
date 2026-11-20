@@ -203,11 +203,104 @@ describe('platform usage queue bindings', () => {
   });
 
   it('creates core Durable Objects with SQLite while preserving migration tags', () => {
-    expect(workerConfigs().api.migrations).toEqual([
+    const core = [
       { tag: 'v1', new_sqlite_classes: ['UsageCounter'] },
       { tag: 'v2', new_sqlite_classes: ['CronScheduler'] },
       { tag: 'v3', new_sqlite_classes: ['ErrorAlertMonitor'] },
       { tag: 'v4', new_sqlite_classes: ['SandboxConcurrencyCounter'] },
+    ];
+    // A runtime released before security audits has no scheduler class to migrate.
+    expect(workerConfigs().api.migrations).toEqual(core);
+    expect(workerConfigs({ securityScanScheduler: true }).api.migrations).toEqual([
+      ...core,
+      { tag: 'security-audits-v1', new_sqlite_classes: ['SecurityScanScheduler'] },
     ]);
+  });
+});
+
+describe('security audits Worker configs', () => {
+  const workers = ['api', 'dispatch', 'emailGateway', 'proxy', 'tail'] as const;
+  const current = () => workerConfigs({ securityScanScheduler: true });
+  const enabled = () =>
+    workerConfigs({
+      securityScanScheduler: true,
+      deployment: createPlatformDeploymentManifest({
+        ...deploymentInput,
+        capabilities: { securityAudits: true },
+      }),
+    });
+  // PLATFORM_CAPABILITIES as written before security audits existed.
+  const legacyCapabilities = JSON.stringify({
+    ai: true,
+    customDomains: false,
+    email: false,
+    githubActions: false,
+    githubOAuth: true,
+    googleOAuth: false,
+    managedBuilds: false,
+    sandbox: false,
+  });
+
+  it('adds only the scheduler binding and its migration when the capability is off', () => {
+    const configs = current();
+    const older = workerConfigs();
+    const { durable_objects: _bindings, migrations, ...rest } = configs.api;
+    const {
+      durable_objects: _olderBindings,
+      migrations: olderMigrations,
+      ...olderRest
+    } = older.api;
+    expect(rest).toEqual(olderRest);
+    expect(migrations).toEqual([
+      ...(olderMigrations as Array<unknown>),
+      { tag: 'security-audits-v1', new_sqlite_classes: ['SecurityScanScheduler'] },
+    ]);
+    for (const worker of ['dispatch', 'emailGateway', 'proxy', 'tail'] as const) {
+      expect(configs[worker]).toEqual(older[worker]);
+    }
+    expect(Object.keys(configs).sort()).toEqual([...workers]);
+    expect((configs.api.durable_objects as { bindings: Array<unknown> }).bindings).toEqual([
+      { name: 'USAGE_COUNTER', class_name: 'UsageCounter' },
+      { name: 'CRON_SCHEDULER', class_name: 'CronScheduler' },
+      { name: 'ERROR_ALERT_MONITOR', class_name: 'ErrorAlertMonitor' },
+      { name: 'SANDBOX_CONCURRENCY_COUNTER', class_name: 'SandboxConcurrencyCounter' },
+      { name: 'SECURITY_SCAN_SCHEDULER', class_name: 'SecurityScanScheduler' },
+    ]);
+    expect(configs.api).not.toHaveProperty('ai');
+    expect(configs.api).not.toHaveProperty('containers');
+    for (const worker of ['api', 'proxy', 'emailGateway'] as const) {
+      expect((configs[worker].vars as Record<string, unknown>).PLATFORM_CAPABILITIES).toBe(
+        legacyCapabilities,
+      );
+    }
+    expect(JSON.stringify(configs)).not.toContain('securityAudits');
+  });
+
+  it('adds only the AI binding on the API Worker when the capability is on', () => {
+    const off = current();
+    const on = enabled();
+    expect(Object.keys(on).sort()).toEqual([...workers]);
+    expect(on.api.ai).toEqual({ binding: 'AI' });
+    for (const worker of workers) {
+      const { ai, vars, ...rest } = on[worker];
+      const { ai: offAi, vars: offVars, ...offRest } = off[worker];
+      expect(rest).toEqual(offRest);
+      expect(ai).toEqual(worker === 'api' ? { binding: 'AI' } : offAi);
+      const { PLATFORM_CAPABILITIES: capabilities, ...otherVars } = (vars ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const { PLATFORM_CAPABILITIES: offCapabilities, ...offOtherVars } = (offVars ?? {}) as Record<
+        string,
+        unknown
+      >;
+      expect(otherVars).toEqual(offOtherVars);
+      if (offCapabilities !== undefined) {
+        expect(JSON.parse(String(capabilities))).toEqual({
+          ...JSON.parse(String(offCapabilities)),
+          securityAudits: true,
+        });
+      }
+    }
   });
 });

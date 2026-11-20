@@ -107,6 +107,8 @@ import {
   computeDispatchLimits,
   resolveRoutingUndo,
 } from '../routing.ts';
+import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
+import { retargetOpenPublicRequest } from '../security/public-gate.ts';
 import type { Build, DeployManifest, Project, ProjectRole, User } from '../types.ts';
 import { ZeroTrustUnavailableError, zeroTrustNotReadyMessage } from '../zero-trust/errors.ts';
 import { lockZeroTrustConfiguration } from '../zero-trust/lock.ts';
@@ -1282,6 +1284,8 @@ const app = new Hono<ApiEnv>()
           await updateProjectType(tx, projectId, targetType);
           await requestRotationIfReplacingUntrustedCode(tx, projectId, target.id);
           await setActiveDeployment(tx, projectId, target.id);
+          // An open public request follows the live deployment (spec §5.5, edge #73).
+          await retargetOpenPublicRequest(tx, projectId, target.id);
 
           const snapshottedRoutingKeys = new Set<string>();
           const snapshotRoutingKey = async (key: string): Promise<void> => {
@@ -1785,6 +1789,8 @@ const app = new Hono<ApiEnv>()
     if (!rollbackResult) {
       throw new Error('rollback completed without a result');
     }
+    // The rolled-back deployment is judged by its own past scan; never fails the rollback.
+    await recheckPublicRequestBestEffort(context.env, context.get('db'), projectId, 'a rollback');
     return context.json({
       ok: true,
       deploymentId,

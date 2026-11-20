@@ -1,0 +1,31 @@
+{
+  "base": "solid-pages",
+  "framework": "solid",
+  "kind": "seeded",
+  "planted": [
+    {
+      "id": "r2-key-traversal",
+      "class": "path_traversal",
+      "severity": "high",
+      "file": "routes/api/files/index.ts",
+      "alsoFiles": ["lib/keys.ts"],
+      "cwe": ["CWE-22", "CWE-23", "CWE-639", "CWE-284"],
+      "keywords": ["travers", "..", "path", "key", "other users"]
+    },
+    {
+      "id": "ssrf-link-preview",
+      "class": "ssrf",
+      "severity": "high",
+      "file": "routes/api/link-preview.ts",
+      "cwe": ["CWE-918"],
+      "keywords": ["ssrf", "server-side request", "fetch", "url"]
+    }
+  ],
+  "decoys": [
+    {
+      "file": "routes/api/avatar.ts",
+      "note": "fetch to a fixed host; the user part is a checked hex hash."
+    },
+    { "file": "routes/api/files/list.ts", "note": "prefix comes from the session." }
+  ]
+}

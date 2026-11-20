@@ -20,7 +20,9 @@ async function getSigningKey(privateKeyPem: string): Promise<CryptoKey> {
  * issued 60s in the past to tolerate clock skew, expiring in 9 minutes
  * (GitHub caps App JWTs at 10 minutes).
  */
-export async function createAppJwt(env: ApiEnv['Bindings']): Promise<string> {
+export type GithubAppEnv = Pick<ApiEnv['Bindings'], 'GITHUB_APP_ID' | 'GITHUB_APP_PRIVATE_KEY'>;
+
+export async function createAppJwt(env: GithubAppEnv): Promise<string> {
   const key = await getSigningKey(env.GITHUB_APP_PRIVATE_KEY!);
   const now = Math.floor(Date.now() / 1000);
 

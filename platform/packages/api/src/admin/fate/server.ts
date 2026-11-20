@@ -43,6 +43,7 @@ export type {
   AdminAuthEdit,
   AdminEmailSettings,
   AdminEmailProject,
+  AdminSecurity,
   AdminZeroTrust,
 } from './page-server.ts';
 export type { AdminBuildLogs, AdminBuildStatus, AdminDeploymentLogs } from './telemetry.ts';

@@ -22,6 +22,7 @@ import type {
   AdminEmailSettings,
   AdminEmailProject,
   AdminZeroTrust,
+  AdminSecurity,
   AdminBuildLogs,
   AdminDeploymentLogs,
 } from './server.ts';
@@ -141,6 +142,7 @@ export const ProjectDetailView = view<AdminProjectDetail>()({
   domains: true,
   builds: true,
   zeroTrust: true,
+  security: true,
   aiLogging: true,
   cfAccountId: true,
   deployUrl: true,
@@ -298,6 +300,7 @@ export const emailProjectRequest = (path: string) =>
 
 export const ZeroTrustView = view<AdminZeroTrust>()({
   id: true,
+  publicGate: true,
   configured: true,
   enabled: true,
   status: true,
@@ -313,6 +316,30 @@ export const ZeroTrustView = view<AdminZeroTrust>()({
   projects: true,
 });
 
+export const SecurityView = view<AdminSecurity>()({
+  id: true,
+  section: true,
+  capability: true,
+  emailEnabled: true,
+  urgentTotal: true,
+  unseenBypasses: true,
+  seenAt: true,
+  revision: true,
+  tz: true,
+  page: true,
+  totalPages: true,
+  settings: true,
+  findings: true,
+  findingFilter: true,
+  scans: true,
+  requests: true,
+});
+
+export const securityRequest = (path: string) =>
+  ({
+    security: { view: SecurityView, args: { path } },
+  }) as const;
+
 export const zeroTrustRequest = (path: string) =>
   ({
     zeroTrust: { view: ZeroTrustView, args: { path } },
@@ -323,6 +350,8 @@ export const PlansView = view<AdminPlans>()({
   catalog: true,
   accounts: true,
   aiLogging: true,
+  securityCaps: true,
+  securityAudits: true,
   selectedPlanId: true,
 });
 export const plansRequest = (path: string) =>

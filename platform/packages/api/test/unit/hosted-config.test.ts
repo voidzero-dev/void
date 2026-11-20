@@ -42,3 +42,74 @@ it.each([
   expect(routingId(api)).toBeTruthy();
   expect(routingId(proxy)).toBe(routingId(api));
 });
+
+type DurableObjectConfig = {
+  durable_objects?: { bindings?: Array<{ name: string; class_name: string }> };
+  ai?: unknown;
+};
+type Migration = { tag: string; new_classes?: Array<string>; new_sqlite_classes?: Array<string> };
+const migrations = (config as unknown as { migrations: Array<Migration> }).migrations;
+
+// Hosted keeps `securityAudits` off: the scheduler class ships idle and no AI binding is added.
+it.each([
+  ['default', config as DurableObjectConfig],
+  ['production', config.env.production as DurableObjectConfig],
+  ['staging', config.env.staging as DurableObjectConfig],
+])('binds the idle security scan scheduler without AI in %s', (_name, worker) => {
+  expect(worker.durable_objects?.bindings).toContainEqual({
+    name: 'SECURITY_SCAN_SCHEDULER',
+    class_name: 'SecurityScanScheduler',
+  });
+  expect(worker.ai).toBeUndefined();
+});
+
+it('adds the security scan scheduler in its own SQLite migration after v6', () => {
+  expect(migrations.map((migration) => migration.tag)).toEqual([
+    'v1',
+    'v2',
+    'v3',
+    'v4',
+    'v5',
+    'v6',
+    'security-audits-v1',
+  ]);
+  expect(migrations.at(-1)).toEqual({
+    tag: 'security-audits-v1',
+    new_sqlite_classes: ['SecurityScanScheduler'],
+  });
+});
+
+// Workerd refuses a bound Durable Object class that the entry module does not export.
+it('exports every bound Durable Object class from the Worker entry module', () => {
+  const source = readFileSync(resolve(import.meta.dirname, '../../src/worker/index.ts'), 'utf8');
+  const start = source.indexOf('export {');
+  const end = source.indexOf('}', start);
+  const exported = new Set(
+    source
+      .slice(start + 'export {'.length, end)
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean),
+  );
+  const bound = new Set<string>();
+  for (const worker of [
+    config,
+    config.env.production,
+    config.env.staging,
+  ] as Array<DurableObjectConfig>) {
+    for (const binding of worker.durable_objects?.bindings ?? []) {
+      bound.add(binding.class_name);
+    }
+  }
+  for (const className of bound) {
+    expect(exported, className).toContain(className);
+    expect(
+      migrations.some(
+        (migration) =>
+          migration.new_classes?.includes(className) ||
+          migration.new_sqlite_classes?.includes(className),
+      ),
+      className,
+    ).toBe(true);
+  }
+});

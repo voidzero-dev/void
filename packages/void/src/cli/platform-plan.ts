@@ -73,6 +73,8 @@ type PlatformInstallPlanInput = Readonly<{
   controlPlaneDomain: string;
   dashboardUrl?: string;
   customDomains?: boolean;
+  /** Turns the security audits capability on; omitted keeps the recorded value. */
+  securityAudits?: boolean;
   dedicatedZone: boolean;
   displayName: string;
   externalHyperdrive?: PlatformExternalHyperdrive;
@@ -211,6 +213,7 @@ export async function createPlatformInstallPlan(
       : {}),
     ...(enableEmail ? { email: true } : {}),
     ...(input.customDomains ? { customDomains: true } : {}),
+    ...(input.securityAudits ? { securityAudits: true } : {}),
   };
   // Custom hostnames reach dispatch through the dedicated zone's catch-all routes.
   if (capabilities.customDomains && (testing || !input.dedicatedZone)) {
@@ -319,6 +322,18 @@ export async function createPlatformInstallPlan(
           capabilities: { ...existingWithCustomDomains.capabilities, email: true },
         }
       : existingWithCustomDomains;
+  // Turning security audits on is the one change here that also moves the schema
+  // version (7), so an older CLI refuses the document instead of dropping the flag.
+  const existingWithSecurityAudits =
+    existing &&
+    deployment.capabilities.securityAudits &&
+    !existing.deployment.capabilities.securityAudits
+      ? {
+          ...existingWithEmail,
+          capabilities: { ...existingWithEmail.capabilities, securityAudits: true },
+          schemaVersion: deployment.schemaVersion,
+        }
+      : existingWithEmail;
   // Upgrade may change runtime logs. The setting also moves the schema version,
   // so leave both out of the comparison.
   const comparable = (
@@ -339,7 +354,7 @@ export async function createPlatformInstallPlan(
   };
   if (
     existing &&
-    (comparable(existingWithEmail) !== comparable(deploymentWithoutEmailZone) ||
+    (comparable(existingWithSecurityAudits) !== comparable(deploymentWithoutEmailZone) ||
       (recordedEmailZone !== undefined && recordedEmailZone !== configuredEmailZone) ||
       (recordedSenderDomain !== undefined && recordedSenderDomain !== configuredSenderDomain))
   ) {

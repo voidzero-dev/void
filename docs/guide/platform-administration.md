@@ -15,5 +15,6 @@ The operator commands for users, projects, deployments, and system status requir
 - [Users and Projects](/guide/platform/administration/projects)
 - [Plans and Limits](/guide/platform/administration/plans)
 - [Project Zero Trust](/guide/platform/administration/zero-trust)
+- [Security Audits](/guide/platform/administration/security-audits)
 - [Email](/guide/platform/administration/email)
 - [Operations](/guide/platform/administration/operations)

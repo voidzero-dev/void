@@ -611,6 +611,7 @@ describe('Worker module uploads', () => {
     origin: string,
     files: Map<string, Buffer>,
     needed: Array<string> = [],
+    root?: string,
   ): Promise<void> {
     const { assetManifest, assetFiles } = await collectAndHashAssets(assetsDir);
     await streamDirectR2Deploy({
@@ -622,6 +623,7 @@ describe('Worker module uploads', () => {
       needed,
       preflightUsed: false,
       workerFiles: files,
+      root,
       spinner: noopSpinner as unknown as SpinnerResult,
     });
   }
@@ -658,8 +660,39 @@ describe('Worker module uploads', () => {
     const body = JSON.parse(state.finalizeCalls[0].init.body as string);
     expect(body.workerInput).toEqual({ id: 'wup_test', modules });
     expect(body).not.toHaveProperty('workerFiles');
+    // No lockfile root given: no security package claims.
+    expect(body).not.toHaveProperty('securityPackages');
     // Each buffer is released once R2 has it.
     expect(files.size).toBe(0);
+  });
+
+  it('sends the security package claims of the bundle, read from the project lockfile', async () => {
+    advertiseDirectWorkerUpload();
+    const state = installPlatformMocks();
+    const root = mkdtempSync(join(tmpdir(), 'void-deploy-claims-'));
+    try {
+      mkdirSync(join(root, '.git'));
+      writeFileSync(
+        join(root, 'pnpm-lock.yaml'),
+        ['packages:', '  hono@4.0.0:', '    resolution: {integrity: sha512-x}'].join('\n'),
+      );
+      const files = workerFiles();
+      files.set(
+        'index.js.map',
+        Buffer.from(
+          JSON.stringify({
+            version: 3,
+            sources: ['../node_modules/hono/dist/index.js'],
+            mappings: '',
+          }),
+        ),
+      );
+      await deployWorker(directOrigin, files, [], root);
+      const body = JSON.parse(state.finalizeCalls[0].init.body as string);
+      expect(body.securityPackages).toEqual({ registry: ['hono'], local: [] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('keeps sending modules inline when discovery does not advertise direct uploads', async () => {

@@ -81,6 +81,10 @@ project is created. The same applies to `VOID_PROJECT` and to another project on
 the current platform. A first deployment still links the project when no destination
 is configured. See [Deploy to another Void platform](../../guide/deployment.md#deploy-to-another-void-platform).
 
+### Security notice
+
+When the platform has [security audits](../../guide/platform/administration/security-audits.md) turned on, `void deploy` prints the scan state and any open urgent findings after the deploy is live. The deploy has already gone out, and the notice never changes the exit code. In a signed-in terminal it lists finding titles and files. In CI, and for readers, it prints counts and finding ids only. Review them with `void project security list --urgent`.
+
 ## `void deploy --platform cloudflare` {#void-deploy-platform-cloudflare}
 
 Build and deploy to your Cloudflare account using `void.config.ts`:

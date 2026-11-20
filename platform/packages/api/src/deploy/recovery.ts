@@ -33,6 +33,7 @@ import { reconcileManagedDurableObjects } from '../provisioning/durable-objects.
 import { requestRotationIfReplacingUntrustedCode } from '../proxy-token-rotation.ts';
 import { projectRouteKey } from '../routing.ts';
 import { buildRoutingJson, buildStaticRoutingJson, computeDispatchLimits } from '../routing.ts';
+import { enqueueSecurityScanInTx, type SecurityScanEnqueued } from '../security/enqueue.ts';
 import { type DeployManifest, type Deployment, type Project } from '../types.ts';
 import {
   resolveProjectZeroTrustRouting,
@@ -60,6 +61,9 @@ export const cutoverCompensatedKey = (deploymentId: string): string =>
  * Flip a protected cutover to live under the project lock. Aborts when the
  * project is being deleted, another owner took over the cutover markers, the
  * deployment was canceled, or the bound build was superseded.
+ *
+ * Writes the security scan row in the same transaction (spec §6.1) and returns it;
+ * the caller hands it to `finishSecurityScanEnqueue` after this resolves.
  */
 export async function commitCutoverLive(
   db: Db,
@@ -71,10 +75,11 @@ export async function commitCutoverLive(
     cutoverOwnerId: string;
     deployBuild: string | undefined;
     projectType: Project['type'];
+    env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>;
   }>,
-): Promise<void> {
+): Promise<SecurityScanEnqueued | null> {
   const { projectId, deploymentId, cutoverOwnerId } = input;
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
     const lockedProject = await getProject(tx, projectId);
     if (!lockedProject || lockedProject.status === 'deleting') {
@@ -108,6 +113,7 @@ export async function commitCutoverLive(
     await requestRotationIfReplacingUntrustedCode(tx, projectId, deploymentId);
     await setActiveDeployment(tx, projectId, deploymentId);
     await markDeploymentRetained(tx, deploymentId, true);
+    return enqueueSecurityScanInTx(tx, input.env, { projectId, deploymentId, trigger: 'deploy' });
   });
 }
 

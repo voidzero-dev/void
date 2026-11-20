@@ -15,10 +15,12 @@ import { decodePageData } from 'void/pages-server';
 import type { AdminPlanPreview, AdminPlanProgress } from '../../src/admin/plans.ts';
 import { PLAN_AI_LOGGING_PAGE_SIZE } from '../../src/ai-logging-plans.ts';
 import { PLAN_AI_LOGGING_SETTING } from '../../src/ai-logging-policy.ts';
+import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { app } from '../../src/index.ts';
 import { readPlanCatalog } from '../../src/plans.ts';
 import { getPlatformSetting } from '../../src/platform-settings.ts';
 import { operatorEvents, users } from '../../src/schema.ts';
+import { PLAN_SECURITY_CAPS_SETTING } from '../../src/security/plan-caps.ts';
 import {
   clearTables,
   createTestProject,
@@ -567,4 +569,108 @@ describe('administrator plan dashboard', () => {
       await browser.close();
     }
   }, 30_000);
+});
+
+describe('administrator plan security scan cap (M27)', () => {
+  function withSecurityAudits(on: boolean) {
+    env.PLATFORM_CAPABILITIES = JSON.stringify({
+      ...getPlatformCapabilities({ PLATFORM_CAPABILITIES: undefined }),
+      securityAudits: on,
+    });
+  }
+  afterEach(() => {
+    delete env.PLATFORM_CAPABILITIES;
+  });
+
+  test('shows the field only while security audits are on', async () => {
+    withSecurityAudits(false);
+    expect(await (await request(`${home}/pro/edit`)).text()).not.toContain('Security scan cap');
+    expect(await (await request(home)).text()).not.toContain('Security scan cap');
+    withSecurityAudits(true);
+    const edit = await (await request(`${home}/pro/edit`)).text();
+    expect(edit).toContain('Security scan cap');
+    expect(edit).toContain('name="securityCapInitial"');
+  });
+
+  test('leaves the scan cap row out of an add review while security audits are off', async () => {
+    const addReview = async () => {
+      const response = await request(`${home}/preview`, {
+        action: 'add',
+        id: 'team',
+        revision: String((await readPlanCatalog(env.db)).revision),
+        name: 'Team',
+        copyFrom: 'pro',
+      });
+      expect(response.status).toBe(200);
+      return response.text();
+    };
+    withSecurityAudits(false);
+    expect(await addReview()).not.toContain('Security scan cap');
+    withSecurityAudits(true);
+    expect(await addReview()).toContain('Security scan cap');
+  });
+
+  test('reviews and saves a plan cap, and an untouched field keeps a newer saved cap', async () => {
+    withSecurityAudits(true);
+    const fields = {
+      ...(await editFields('pro')),
+      securityCapMode: 'amount',
+      securityCapUsd: '25',
+      securityCapInitial: 'inherit',
+    };
+    const proposed = await preview('set', 'pro', fields);
+    expect(proposed.body).toMatchObject({ securityCap: 25 });
+    expect(proposed.securityCapsBefore).toEqual({});
+    expect(proposed.securityCapsAfter).toEqual({ pro: 2500 });
+    const review = await request(`${home}/preview`, {
+      ...fields,
+      action: 'set',
+      id: 'pro',
+      revision: '0',
+    });
+    const html = (await review.text()).replaceAll('<!-- -->', '');
+    expect(html).toContain('Security scan cap');
+    expect(html).toContain('Policy default');
+    expect(html).toContain('$25.00 / month');
+    expect((await apply(proposed)).status).toBe(303);
+    expect(await getPlatformSetting(env.db, PLAN_SECURITY_CAPS_SETTING)).toEqual({ pro: 2500 });
+    expect((await (await request(home)).text()).replaceAll('<!-- -->', '')).toContain(
+      '$25.00 / month',
+    );
+    // A form loaded before that change still says Policy default; renaming must keep the cap.
+    const renamed = await preview('set', 'pro', {
+      ...(await editFields('pro')),
+      name: 'Pro renamed',
+      securityCapMode: 'inherit',
+      securityCapUsd: '',
+      securityCapInitial: 'inherit',
+    });
+    expect(renamed.body).not.toHaveProperty('securityCap');
+    expect(renamed.securityCapsAfter).toEqual({ pro: 2500 });
+    const none = await preview('set', 'pro', {
+      ...(await editFields('pro')),
+      securityCapMode: 'none',
+      securityCapUsd: '25',
+      securityCapInitial: '2500',
+    });
+    expect(none.body).toMatchObject({ securityCap: 'none' });
+    expect(none.securityCapsAfter).toEqual({ pro: null });
+  });
+
+  test('refuses an amount that is not dollars and cents', async () => {
+    withSecurityAudits(true);
+    for (const securityCapUsd of ['', 'ten', '-5', '12.345']) {
+      const response = await request(`${home}/preview`, {
+        ...(await editFields('pro')),
+        action: 'set',
+        id: 'pro',
+        revision: '0',
+        securityCapMode: 'amount',
+        securityCapUsd,
+        securityCapInitial: 'inherit',
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(await getPlatformSetting(env.db, PLAN_SECURITY_CAPS_SETTING)).toBeNull();
+  });
 });

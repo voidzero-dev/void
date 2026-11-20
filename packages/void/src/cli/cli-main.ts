@@ -96,6 +96,22 @@ async function runSubcommandGroup<T>(
       process.exit(1);
     }
     const message = formatCloudflareUserMessage(err instanceof Error ? err.message : String(err));
+    if (
+      command === 'project' &&
+      (args[1] === 'zero-trust' || args[1] === 'security') &&
+      args.includes('--json')
+    ) {
+      const status = (err as { status?: unknown }).status;
+      const code = (err as { code?: unknown }).code;
+      console.error(
+        JSON.stringify({
+          error: typeof code === 'string' ? code : 'invalid_command',
+          message,
+          ...(typeof status === 'number' ? { status } : {}),
+        }),
+      );
+      process.exit(1);
+    }
     if (command === 'platform') {
       const platformMessage = message.replace(/^platform:/, pc.bold(pc.red('platform:')));
       console.error(
@@ -310,7 +326,7 @@ if (helpPath) {
     },
     {
       name: 'project',
-      hint: 'status | link | list | team | token | zero-trust | logs | requests | rollback | cancel | delete | purge-cache',
+      hint: 'status | link | list | team | token | zero-trust | security | logs | requests | rollback | cancel | delete | purge-cache',
       description: 'Manage projects, teams, deployments, and scoped CI credentials',
     },
     { name: 'secret', hint: 'list | put | delete | sync', description: 'Manage project secrets' },

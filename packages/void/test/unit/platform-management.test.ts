@@ -18,7 +18,7 @@ import {
   type PlatformInstallationManifest,
   type ResourceOwnership,
 } from '@void/platform';
-import { note } from '@voidzero-dev/vite-plus-prompts';
+import { log, note } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { printSuccess } from '../../src/cli/output.ts';
 import {
@@ -1934,5 +1934,120 @@ describe('platform lifecycle management', () => {
     expect(trafficRetentionSteps()).toEqual(['disable:0:routes']);
     expect(second.disabledWrites).toHaveLength(1);
     expect(listInstallationManifests()[0]?.status).toBe('disabled');
+  });
+});
+
+describe('uninstall with security audits', () => {
+  function withSecurityAudits(securityAudits: boolean) {
+    const manifest = installedManifest();
+    const installed = {
+      ...manifest,
+      deployment: {
+        ...manifest.deployment,
+        capabilities: { ...manifest.deployment.capabilities, securityAudits },
+        ...(securityAudits ? { schemaVersion: 7 as const } : {}),
+      },
+    };
+    persistInstallation(installed, directories);
+    return installed;
+  }
+
+  it('removes the scanner after traffic stops and before any resource is deleted', async () => {
+    const manifest = withSecurityAudits(true);
+    const fake = client(manifest);
+    const seen: Array<{ disabledWrites: number; deleted: number }> = [];
+    const deleteSecurityScanner = vi.fn(async () => {
+      seen.push({ disabledWrites: fake.disabledWrites.length, deleted: fake.deleted.length });
+      return { deleted: ['gate', 'controller'] as Array<'gate' | 'controller'>, kept: [] };
+    });
+    await uninstallPlatform(fake, manifest, uninstallArgs, {
+      ...uninstallDependencies,
+      deleteSecurityScanner,
+    });
+    expect(deleteSecurityScanner).toHaveBeenCalledTimes(1);
+    expect(deleteSecurityScanner).toHaveBeenCalledWith(
+      expect.objectContaining({ id: manifest.id }),
+    );
+    expect(seen).toEqual([{ disabledWrites: 1, deleted: 0 }]);
+    expect(listInstallationManifests()[0]?.status).toBe('uninstalled');
+  });
+
+  it('does not touch the scanner when security audits were never allowed', async () => {
+    const manifest = withSecurityAudits(false);
+    const fake = client(manifest);
+    const deleteSecurityScanner = vi.fn();
+    await uninstallPlatform(fake, manifest, uninstallArgs, {
+      ...uninstallDependencies,
+      deleteSecurityScanner,
+    });
+    expect(deleteSecurityScanner).not.toHaveBeenCalled();
+    expect(listInstallationManifests()[0]?.status).toBe('uninstalled');
+  });
+
+  it('refuses before any change when the scanner cannot be removed from here', async () => {
+    const manifest = withSecurityAudits(true);
+    const fake = client(manifest);
+    await expect(
+      uninstallPlatform(fake, manifest, uninstallArgs, uninstallDependencies),
+    ).rejects.toThrow('security scanner cannot be removed');
+    expect(fake.disabledWrites).toEqual([]);
+    expect(fake.deleted).toEqual([]);
+    expect(listInstallationManifests()[0]?.status).toBe('installed');
+  });
+
+  it('fails the uninstall so it can be run again when the scanner delete fails', async () => {
+    const manifest = withSecurityAudits(true);
+    const fake = client(manifest);
+    await expect(
+      uninstallPlatform(fake, manifest, uninstallArgs, {
+        ...uninstallDependencies,
+        deleteSecurityScanner: async () => {
+          throw new Error('Cloudflare API error: forbidden (HTTP 403)');
+        },
+      }),
+    ).rejects.toThrow('HTTP 403');
+    expect(fake.deleted).toEqual([]);
+    expect(listInstallationManifests()[0]?.status).toBe('failed');
+  });
+
+  it('names a scanner object of another installation and keeps it', async () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const manifest = withSecurityAudits(true);
+    await uninstallPlatform(client(manifest), manifest, uninstallArgs, {
+      ...uninstallDependencies,
+      deleteSecurityScanner: async () => ({
+        deleted: [],
+        kept: ['security scanner gate void-security-scanner-gate-abc'],
+      }),
+    });
+    expect(warn).toHaveBeenCalledWith(
+      'Kept security scanner gate void-security-scanner-gate-abc: it does not belong to this installation.',
+    );
+    warn.mockRestore();
+  });
+
+  it('lists the scanner in the uninstall plan only when it applies', async () => {
+    for (const [securityAudits, listed] of [
+      [true, true],
+      [false, false],
+    ] as const) {
+      vi.mocked(note).mockClear();
+      const manifest = withSecurityAudits(securityAudits);
+      await uninstallPlatform(
+        client(manifest),
+        manifest,
+        { ...uninstallArgs, plan: true },
+        { ...uninstallDependencies, deleteSecurityScanner: vi.fn() },
+      );
+      const plan = vi
+        .mocked(note)
+        .mock.calls.map(([text]) => String(text))
+        .join('\n');
+      expect(
+        plan.includes(
+          'Delete the security scanner Worker, its container applications, and the scanner images it copied.',
+        ),
+      ).toBe(listed);
+    }
   });
 });

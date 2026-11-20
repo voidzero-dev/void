@@ -14,6 +14,11 @@ export type PlatformCapabilities = Readonly<{
   googleOAuth: boolean;
   managedBuilds: boolean;
   sandbox: boolean;
+  /**
+   * The installation may run security audits. Optional in stored documents:
+   * missing means `false`. `true` requires deployment schema version 7.
+   */
+  securityAudits: boolean;
 }>;
 
 export type PlatformControlPlane = Readonly<{
@@ -75,7 +80,11 @@ export type PlatformDeploymentManifest = Readonly<{
   runtimeLogs?: PlatformRuntimeLogs;
   /** Requires schema version 6 so older CLIs cannot silently drop this setting. */
   storageLocationHint?: R2LocationHint;
-  schemaVersion: typeof PLATFORM_DEPLOYMENT_SCHEMA_VERSION | 2 | 3 | 4 | 5 | 6;
+  /**
+   * Version 7 means `capabilities.securityAudits` is on, so an older CLI refuses
+   * the manifest instead of dropping the capability.
+   */
+  schemaVersion: typeof PLATFORM_DEPLOYMENT_SCHEMA_VERSION | 2 | 3 | 4 | 5 | 6 | 7;
 }>;
 
 export type PlatformDeploymentManifestInput = Readonly<{
@@ -117,7 +126,38 @@ const CORE_CAPABILITIES: PlatformCapabilities = {
   googleOAuth: false,
   managedBuilds: false,
   sandbox: false,
+  securityAudits: false,
 };
+
+/** Capabilities that older documents may omit; a missing value means `false`. */
+const OPTIONAL_CAPABILITIES: ReadonlySet<keyof PlatformCapabilities> = new Set(['securityAudits']);
+
+/**
+ * Reads one capability from an untrusted record. An optional capability that
+ * older documents omit reads as `false`; anything else is returned unchanged
+ * for the caller to validate.
+ */
+export function readPlatformCapability(
+  record: Readonly<Record<string, unknown>>,
+  name: keyof PlatformCapabilities,
+): unknown {
+  const value = record[name];
+  return value === undefined && OPTIONAL_CAPABILITIES.has(name) ? false : value;
+}
+
+/**
+ * `PLATFORM_CAPABILITIES` for the platform Workers. An optional capability that
+ * is off is left out, so an installation without it gets the same value as before.
+ */
+export function serializePlatformCapabilities(capabilities: PlatformCapabilities): string {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(capabilities).filter(
+        ([key, value]) => value || !OPTIONAL_CAPABILITIES.has(key as keyof PlatformCapabilities),
+      ),
+    ),
+  );
+}
 
 const CONTROL_PLANE_DEFAULTS: PlatformControlPlane = {
   apiHostname: null,
@@ -349,17 +389,19 @@ export function createPlatformDeploymentManifest(
     resources,
     ...(input.runtimeLogs ? { runtimeLogs: input.runtimeLogs } : {}),
     ...(input.storageLocationHint ? { storageLocationHint: input.storageLocationHint } : {}),
-    schemaVersion: input.storageLocationHint
-      ? 6
-      : input.runtimeLogs
-        ? 5
-        : input.appAccess !== undefined
-          ? 4
-          : configurable
-            ? 3
-            : workersDev
-              ? 2
-              : PLATFORM_DEPLOYMENT_SCHEMA_VERSION,
+    schemaVersion: capabilities.securityAudits
+      ? 7
+      : input.storageLocationHint
+        ? 6
+        : input.runtimeLogs
+          ? 5
+          : input.appAccess !== undefined
+            ? 4
+            : configurable
+              ? 3
+              : workersDev
+                ? 2
+                : PLATFORM_DEPLOYMENT_SCHEMA_VERSION,
   };
   createApplicationRoutes(manifest.application);
   for (const [key, value] of Object.entries(manifest.controlPlane)) {
@@ -390,7 +432,8 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     value.schemaVersion !== 3 &&
     value.schemaVersion !== 4 &&
     value.schemaVersion !== 5 &&
-    value.schemaVersion !== 6
+    value.schemaVersion !== 6 &&
+    value.schemaVersion !== 7
   ) {
     throw new Error(
       `Unsupported platform deployment schema version: ${String(value.schemaVersion)}.`,
@@ -425,11 +468,17 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   const capabilityKeys = Object.keys(CORE_CAPABILITIES) as Array<keyof PlatformCapabilities>;
   const capabilities: Partial<Record<keyof PlatformCapabilities, boolean>> = {};
   for (const key of capabilityKeys) {
-    const entry = rawCapabilities[key];
+    const entry = readPlatformCapability(rawCapabilities, key);
     if (typeof entry !== 'boolean') {
       throw new Error(`capabilities.${key} must be a boolean.`);
     }
     capabilities[key] = entry;
+  }
+  if (capabilities.securityAudits && Number(value.schemaVersion) < 7) {
+    throw new Error('Security audits require deployment schema version 7.');
+  }
+  if (value.schemaVersion === 7 && !capabilities.securityAudits) {
+    throw new Error('Deployment schema version 7 requires capabilities.securityAudits.');
   }
   const providers = authentication.providers;
   if (
@@ -469,7 +518,7 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   if (
     value.schemaVersion === 5
       ? value.runtimeLogs !== 'minimal'
-      : value.schemaVersion === 6
+      : Number(value.schemaVersion) >= 6
         ? value.runtimeLogs !== undefined && value.runtimeLogs !== 'minimal'
         : value.runtimeLogs !== undefined
   ) {
@@ -478,7 +527,9 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   if (
     value.schemaVersion === 6
       ? !isR2LocationHint(value.storageLocationHint)
-      : value.storageLocationHint !== undefined
+      : value.schemaVersion === 7
+        ? value.storageLocationHint !== undefined && !isR2LocationHint(value.storageLocationHint)
+        : value.storageLocationHint !== undefined
   ) {
     throw new Error(
       'storageLocationHint requires deployment schema version 6 and a valid R2 location hint.',
@@ -541,7 +592,7 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     installationSlug: requiredString(value.installationSlug, 'installationSlug'),
     resources,
     ...(value.runtimeLogs === 'minimal' ? { runtimeLogs: 'minimal' as const } : {}),
-    ...(value.schemaVersion === 6
+    ...(Number(value.schemaVersion) >= 6 && value.storageLocationHint !== undefined
       ? { storageLocationHint: value.storageLocationHint as R2LocationHint }
       : {}),
   });

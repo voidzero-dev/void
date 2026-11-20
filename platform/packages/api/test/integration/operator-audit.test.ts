@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
+import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { app } from '../../src/index.ts';
 import { operatorEvents, projects } from '../../src/schema.ts';
 import {
@@ -433,4 +434,137 @@ test('records the project scope of a proxy token rotation and nothing for its pr
     ]),
   );
   expect(events).toHaveLength(2);
+});
+
+test('records security policy changes as known ids and new state, nothing for previews', async () => {
+  const bindings = {
+    ...env,
+    PLATFORM_CAPABILITIES: JSON.stringify({
+      ...getPlatformCapabilities(env),
+      securityAudits: true,
+    }),
+  };
+  expect(
+    (await request('/security/policy', { dryRun: true, limits: { concurrency: 3 } }, bindings))
+      .status,
+  ).toBe(200);
+  expect(await env.db.select().from(operatorEvents)).toHaveLength(0);
+
+  const response = await request(
+    '/security/policy',
+    {
+      expectedRevision: 0,
+      block: ['openai/gpt-6.1-sol', 'not-a-model'],
+      limits: { concurrency: 3, retries: 9 },
+      note: 'must-not-be-audited',
+    },
+    bindings,
+  );
+  // The unknown field is refused, and the attempt is still recorded.
+  expect(response.status).toBe(400);
+  const accepted = await request(
+    '/security/policy',
+    { expectedRevision: 0, block: ['openai/gpt-6.1-sol'], limits: { concurrency: 3 } },
+    bindings,
+  );
+  expect(accepted.status).toBe(200);
+  const sweeps = await request(
+    '/security/policy',
+    { expectedRevision: 1, sweeps: { on: true, everyDays: 14, note: 'must-not-be-audited' } },
+    bindings,
+  );
+  // The unknown sweeps field is refused; the attempt keeps only the known values.
+  expect(sweeps.status).toBe(400);
+
+  const events = await env.db.select().from(operatorEvents);
+  expect(events.map((event) => [event.action, JSON.parse(event.target), event.status])).toEqual(
+    expect.arrayContaining([
+      [
+        'security/policy',
+        { expectedRevision: 0, block: ['openai/gpt-6.1-sol'], limits: { concurrency: 3 } },
+        'failed',
+      ],
+      [
+        'security/policy',
+        { expectedRevision: 0, block: ['openai/gpt-6.1-sol'], limits: { concurrency: 3 } },
+        'success',
+      ],
+      ['security/policy', { expectedRevision: 1, sweeps: { on: true, everyDays: 14 } }, 'failed'],
+    ]),
+  );
+  expect(JSON.stringify(events)).not.toContain('must-not-be-audited');
+});
+
+test('records every operator security write as ids and known values, never text', async () => {
+  const bindings = {
+    ...env,
+    PLATFORM_CAPABILITIES: JSON.stringify({
+      ...getPlatformCapabilities(env),
+      securityAudits: true,
+    }),
+  } as TestEnv;
+  const owner = await createTestUser(env.db, 'security-owner');
+  const project = await createTestProject(env.db, owner.id, 'audited');
+  const base = `/projects/${project.id}/security`;
+  const secret = 'must-not-be-audited';
+  const calls: Array<[string, Record<string, unknown>]> = [
+    ['/security/budget', { expectedRevision: 2, platformMonthlyUsd: 50, note: secret }],
+    ['/security/probe', { note: secret }],
+    ['/security/backfill', { note: secret }],
+    ['/security/scans/ss_one/cancel', { note: secret }],
+    [
+      `${base}/findings/F-3/resolve`,
+      { reason: 'accepted_risk', comment: secret, expectedRevision: 4 },
+    ],
+    [`${base}/findings/F-3/reopen`, { comment: secret, expectedRevision: 5 }],
+    [`${base}/findings/F-3/comments`, { text: secret }],
+    [`${base}/scans`, { note: secret }],
+    [`${base}/model`, { model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017', note: secret }],
+    [`${base}/budget`, { monthlyUsd: 25, note: secret }],
+    [`${base}/public-request/bypass`, { reason: secret }],
+  ];
+  for (const [path, body] of calls) {
+    // The outcome does not matter here (most are refused); the attempt is what is recorded.
+    await request(path, { dryRun: true, ...body }, bindings);
+  }
+  expect(await env.db.select().from(operatorEvents)).toHaveLength(0);
+  for (const [path, body] of calls) {
+    await request(path, body, bindings);
+  }
+  const events = await env.db.select().from(operatorEvents);
+  const targets = new Map(events.map((event) => [event.action, JSON.parse(event.target)]));
+  expect([...targets.keys()].sort()).toEqual(calls.map(([path]) => path.replace(/^\//, '')).sort());
+  expect(targets.get('security/budget')).toEqual({ expectedRevision: 2, platformMonthlyUsd: 50 });
+  expect(targets.get('security/probe')).toEqual({ installation: 'platform' });
+  expect(targets.get('security/backfill')).toEqual({ installation: 'platform', backfill: true });
+  expect(targets.get('security/scans/ss_one/cancel')).toEqual({ scanId: 'ss_one' });
+  expect(targets.get(`projects/${project.id}/security/findings/F-3/resolve`)).toEqual({
+    projectId: project.id,
+    finding: 'F-3',
+    action: 'resolve',
+    reason: 'accepted_risk',
+    expectedRevision: 4,
+  });
+  expect(targets.get(`projects/${project.id}/security/findings/F-3/comments`)).toEqual({
+    projectId: project.id,
+    finding: 'F-3',
+    action: 'comments',
+  });
+  expect(targets.get(`projects/${project.id}/security/scans`)).toEqual({
+    projectId: project.id,
+    rescan: true,
+  });
+  expect(targets.get(`projects/${project.id}/security/model`)).toEqual({
+    projectId: project.id,
+    model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+  });
+  expect(targets.get(`projects/${project.id}/security/budget`)).toEqual({
+    projectId: project.id,
+    monthlyUsd: 25,
+  });
+  expect(targets.get(`projects/${project.id}/security/public-request/bypass`)).toEqual({
+    projectId: project.id,
+  });
+  expect(JSON.stringify(events)).not.toContain(secret);
+  expect(events.every((event) => event.status !== 'pending')).toBe(true);
 });

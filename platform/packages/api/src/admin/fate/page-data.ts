@@ -37,6 +37,12 @@ import { getPlatformApiUrl, platformConnectCommand } from '../../platform-identi
 import { projectUrl, projectWithUrl } from '../../project-url.ts';
 import { invitations, platformLoginTests } from '../../schema.ts';
 import type { DeployManifest } from '../../types.ts';
+import {
+  loadProjectGate,
+  loadProjectSecurity,
+  loadPublicGateOn,
+  loadSecurityAdminPage,
+} from '../security-data.ts';
 
 type AdminContext = Context<ApiEnv>;
 const PAGE_SIZE = 20;
@@ -214,6 +220,10 @@ export async function loadProjectDetailPage(context: AdminContext, path: string)
     getPendingProjectInvitations(db, id),
     loadProjectZeroTrust(db, id),
   ]);
+  const [gate, security] = await Promise.all([
+    loadProjectGate(context, detail.project),
+    loadProjectSecurity(context, detail.project),
+  ]);
   return {
     id: path,
     ...detail,
@@ -229,7 +239,8 @@ export async function loadProjectDetailPage(context: AdminContext, path: string)
       role: invitation.role,
       expiresAt: invitation.expires_at,
     })),
-    zeroTrust,
+    zeroTrust: { ...zeroTrust, gate },
+    security,
     cfAccountId: context.env.CF_ACCOUNT_ID,
     deployUrl: projectUrl(detail.project, context.env),
     tz: requestTimezone(context),
@@ -471,6 +482,7 @@ export async function loadZeroTrustPage(context: AdminContext, path: string) {
   const saved = 'accountId' in status ? status : null;
   return {
     id: path,
+    publicGate: await loadPublicGateOn(context),
     configured: status.configured,
     enabled: status.enabled,
     status: 'status' in status ? status.status : null,
@@ -498,6 +510,10 @@ export async function loadZeroTrustPage(context: AdminContext, path: string) {
   };
 }
 
+export async function loadSecurityPage(context: AdminContext, path: string) {
+  return loadSecurityAdminPage(context, path);
+}
+
 export async function loadPlansPage(context: AdminContext, path: string) {
   const url = new URL(path, 'https://admin.invalid');
   const home = '/admin/config/plans';
@@ -510,13 +526,22 @@ export async function loadPlansPage(context: AdminContext, path: string) {
   }
   const initialPlanDefault = initialPlanDefaultFor(context.env);
   const { readPlanAiLoggingProgress } = await import('../../ai-logging-plans.ts');
-  const [data, aiLogging] = await Promise.all([
+  const { readSecurityPlanCaps } = await import('../../security/plan-caps.ts');
+  const [data, aiLogging, securityCaps] = await Promise.all([
     readPlanCatalogWithAccounts(context.get('db'), initialPlanDefault),
     readPlanAiLoggingProgress(context.get('db'), initialPlanDefault),
+    readSecurityPlanCaps(context.get('db')),
   ]);
+  // The scan cap column and field show only while security audits are on (M27).
+  let securityAudits = false;
+  try {
+    securityAudits = getPlatformCapabilities(context.env).securityAudits;
+  } catch {
+    securityAudits = false;
+  }
   const selectedPlanId = match?.[1] ?? null;
   if (selectedPlanId && !data.catalog.plans.some((plan) => plan.id === selectedPlanId)) {
     throw new OperatorError(404, 'Plan not found.');
   }
-  return { id: path, ...data, aiLogging, selectedPlanId };
+  return { id: path, ...data, aiLogging, securityCaps, securityAudits, selectedPlanId };
 }

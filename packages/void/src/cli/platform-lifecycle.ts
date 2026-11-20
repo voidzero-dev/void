@@ -87,6 +87,7 @@ import {
   savePlatformInstallChoices,
   removeSavedPlatformInstallPlan,
 } from './platform-saved-plans.ts';
+import { assertPlatformSecurityAuditsSupported } from './platform-security-audits.ts';
 import {
   completePlatformSetupDraft,
   isPlatformSetupDraft,
@@ -255,6 +256,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           !args.dedicatedZoneSpecified &&
           args.dashboardUrl === undefined &&
           !args.customDomains &&
+          !args.securityAudits &&
           args.runtimeLogs === undefined &&
           args.storageLocation === undefined
             ? listSavedPlatformInstallPlans().filter(
@@ -789,6 +791,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       controlPlaneDomain,
       ...(args.dashboardUrl !== undefined ? { dashboardUrl: args.dashboardUrl } : {}),
       ...(args.customDomains ? { customDomains: true } : {}),
+      ...(args.securityAudits ? { securityAudits: true } : {}),
       dedicatedZone,
       displayName,
       ...(externalHyperdrive ? { externalHyperdrive } : {}),
@@ -815,6 +818,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       createPlatformInstallPlan(client, planInput, existing, planOptions),
     );
     assertPlatformRuntimeLogsSupported(plan.deployment, runtime.manifest);
+    assertPlatformSecurityAuditsSupported(plan.deployment, runtime.manifest);
     assertPlatformStorageSupported(plan.deployment, runtime.manifest);
     const commandOptions = {
       commandName: cliCommandName(),
@@ -826,6 +830,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       controlPlaneDomain,
       ...(args.dashboardUrl !== undefined ? { dashboardUrl: args.dashboardUrl } : {}),
       ...(args.customDomains ? { customDomains: true } : {}),
+      ...(args.securityAudits ? { securityAudits: true } : {}),
       dedicatedZone,
       workersDev,
       authConfig: args.authConfig,

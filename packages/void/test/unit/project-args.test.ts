@@ -126,20 +126,63 @@ describe('parseProjectArgs', () => {
         subcommand: 'zero-trust',
         action: '',
         projectSlug: '',
+        json: false,
       });
       for (const action of ['status', 'protect', 'public', 'reconcile'] as const) {
         expect(parseProjectArgs(['zero-trust', action, '--project', 'my-app'])).toEqual({
           subcommand: 'zero-trust',
           action,
           projectSlug: 'my-app',
+          json: false,
         });
       }
+    });
+
+    it('parses --json and the bypass flags', () => {
+      expect(parseProjectArgs(['zero-trust', 'status', '--json'])).toMatchObject({ json: true });
+      expect(
+        parseProjectArgs(['zero-trust', 'bypass', '--reason', ' Scanner down ', '--yes']),
+      ).toEqual({
+        subcommand: 'zero-trust',
+        action: 'bypass',
+        projectSlug: '',
+        json: false,
+        reason: 'Scanner down',
+        yes: true,
+      });
+      expect(
+        parseProjectArgs(['zero-trust', 'bypass', '--reason', '- one', '--json']),
+      ).toMatchObject({ reason: '- one', yes: false, json: true });
+    });
+
+    it('requires a bypass reason and keeps bypass flags off other actions', () => {
+      expect(() => parseProjectArgs(['zero-trust', 'bypass'])).toThrow(
+        'A reason is required. Say why, for example: --reason "Launch today; scanner is down. Will re-check."',
+      );
+      expect(() => parseProjectArgs(['zero-trust', 'bypass', '--reason', '  '])).toThrow(
+        'A reason is required',
+      );
+      expect(() => parseProjectArgs(['zero-trust', 'bypass', '--reason'])).toThrow(
+        '--reason requires a value',
+      );
+      expect(() =>
+        parseProjectArgs(['zero-trust', 'bypass', '--reason', 'x'.repeat(4001)]),
+      ).toThrow('at most 4000 characters');
+      expect(() =>
+        parseProjectArgs(['zero-trust', 'bypass', '--reason', 'a', '--reason', 'b']),
+      ).toThrow("Duplicate flag '--reason'");
+      expect(() => parseProjectArgs(['zero-trust', 'public', '--yes'])).toThrow(
+        '--yes is not used with zero-trust public',
+      );
+      expect(() => parseProjectArgs(['zero-trust', 'status', '--reason', 'x'])).toThrow(
+        '--reason is not used',
+      );
     });
 
     it('rejects unknown operations and malformed project selection', () => {
       for (const action of ['remove', 'enable', 'disable']) {
         expect(() => parseProjectArgs(['zero-trust', action])).toThrow(
-          'status|protect|public|reconcile',
+          'status|protect|public|bypass|reconcile',
         );
       }
       expect(() => parseProjectArgs(['zero-trust', 'status', '--project'])).toThrow(
@@ -374,5 +417,72 @@ describe('parseProjectArgs', () => {
         name: 'my-app',
       });
     });
+  });
+});
+
+describe('security', () => {
+  const base = { subcommand: 'security', projectSlug: '', json: false };
+  it('parses the actions', () => {
+    expect(parseProjectArgs(['security'])).toEqual({ ...base, action: '' });
+    expect(parseProjectArgs(['security', 'status', '--json', '--project', 'a'])).toEqual({
+      ...base,
+      json: true,
+      projectSlug: 'a',
+      action: 'status',
+    });
+    expect(parseProjectArgs(['security', 'list', '--urgent', '--state', 'all'])).toMatchObject({
+      action: 'list',
+      urgent: true,
+      state: 'all',
+    });
+    expect(
+      parseProjectArgs([
+        'security',
+        'resolve',
+        'F-12,13',
+        'f-12',
+        '--reason',
+        'false-positive',
+        '--comment',
+        '- ok',
+      ]),
+    ).toMatchObject({ ids: ['F-12', 'F-13'], reason: 'false_positive', comment: '- ok' });
+    expect(parseProjectArgs(['security', 'comment', '12', '-dash text'])).toMatchObject({
+      id: 'F-12',
+      text: '-dash text',
+    });
+    expect(parseProjectArgs(['security', 'budget', '--usd', '12.50'])).toMatchObject({
+      change: 'set',
+      usd: 12.5,
+    });
+    // Up to what the platform takes (PRD §13.2: any amount when no ceiling applies).
+    expect(parseProjectArgs(['security', 'budget', '--usd', '1000000'])).toMatchObject({
+      usd: 1_000_000,
+    });
+    expect(parseProjectArgs(['security', 'budget', '--off'])).toMatchObject({ change: 'off' });
+    expect(
+      parseProjectArgs(['security', 'model', '--default', '--accept-provider-notice']),
+    ).toMatchObject({
+      change: 'default',
+      acceptNotice: true,
+    });
+    expect(parseProjectArgs(['security', 'scans', '--limit', '100'])).toMatchObject({ limit: 100 });
+  });
+  it.each([
+    [['security', 'bogus'], 'Usage'],
+    [['security', 'resolve', 'F-1', '--reason', 'fixed'], 'comment is required'],
+    [['security', 'resolve', 'F-1', '--comment', 'x'], '--reason is required'],
+    [['security', 'resolve', 'x1', '--reason', 'fixed', '--comment', 'x'], 'not a finding id'],
+    [['security', 'comment', 'F-1', 'a'.repeat(4001)], 'at most 4000'],
+    [['security', 'scans', '--limit', '101'], '--limit'],
+    [['security', 'budget', '--usd', '1.234'], '--usd'],
+    [['security', 'budget', '--usd', '1000001'], 'at most 1000000'],
+    [['security', 'budget', '--usd', '5', '--off'], 'not both'],
+    [['security', 'list', '--severity', 'bad'], '--severity'],
+    [['security', 'status', '--urgent'], 'not used'],
+    [['security', 'model', 'x', '--default'], 'not both'],
+    [['security', 'model', '--accept-provider-notice'], 'needs a model id'],
+  ])('rejects %j', (args, text) => {
+    expect(() => parseProjectArgs(args)).toThrow(text);
   });
 });
