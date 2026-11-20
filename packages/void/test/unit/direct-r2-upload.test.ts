@@ -122,6 +122,8 @@ describe('uploadAssetsToR2', () => {
     [403, 'AccessDenied'],
     [403, 'InvalidAccessKeyId'],
     [401, 'Unauthorized'],
+    [400, 'InvalidArgument'],
+    [400, 'AuthorizationHeaderMalformed'],
   ])('names the platform R2 credentials for HTTP %s %s', async (status, code) => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(r2ErrorXml(code), { status }));
 

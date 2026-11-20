@@ -87,6 +87,32 @@ describe('verifyPlatformR2Credentials', () => {
     );
   });
 
+  it.each(['InvalidArgument', 'AuthorizationHeaderMalformed'])(
+    'stops on HTTP 400 %s and says the Access Key ID is the token ID',
+    async (code) => {
+      const { result, warn } = verify(new Response(r2ErrorXml(code), { status: 400 }));
+
+      await expect(result).rejects.toThrow(
+        `platform: R2 rejected the R2 key pair from the VOID_PLATFORM_R2_* environment variables (${code}) on bucket void-example-assets. ` +
+          'Void did not change the platform. ' +
+          'The Access Key ID is the 32-character token ID, not the token value. ' +
+          'Create an R2 API token with Object Read & Write on this bucket.',
+      );
+      expect(warn).not.toHaveBeenCalled();
+    },
+  );
+
+  it('warns with a clock hint and continues on RequestTimeTooSkewed', async () => {
+    const { result, warn } = verify(
+      new Response(r2ErrorXml('RequestTimeTooSkewed'), { status: 403 }),
+    );
+
+    await expect(result).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      'Void could not check the R2 key pair from the VOID_PLATFORM_R2_* environment variables on bucket void-example-assets (HTTP 403 RequestTimeTooSkewed: the clock on this machine is likely wrong; set it to the correct time). It continues without this check.',
+    );
+  });
+
   it('names the pair saved on this machine and falls back to the HTTP status', async () => {
     const { result } = verify(new Response('denied', { status: 403 }), { source: 'saved' });
 
@@ -102,6 +128,11 @@ describe('verifyPlatformR2Credentials', () => {
       'an unexpected answer',
       new Response(r2ErrorXml('InvalidRequest'), { status: 400 }),
       'HTTP 400 InvalidRequest',
+    ],
+    [
+      'another 403 code',
+      new Response(r2ErrorXml('ExpiredRequest'), { status: 403 }),
+      'HTTP 403 ExpiredRequest',
     ],
   ])('warns and continues on %s', async (_name, response, reason) => {
     const { result, warn } = verify(response);

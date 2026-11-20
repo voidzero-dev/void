@@ -29,12 +29,32 @@ export const R2_CREDENTIALS_DOCS_URL =
  * these usually point at that pair. Expiry and clock-skew codes are left out:
  * they have other causes.
  */
-const R2_CREDENTIAL_ERROR_CODES = new Set([
+export const R2_CREDENTIAL_ERROR_CODES: ReadonlySet<string> = new Set([
   'Unauthorized',
   'AccessDenied',
   'SignatureDoesNotMatch',
   'InvalidAccessKeyId',
 ]);
+
+/**
+ * S3 error codes R2 answers with HTTP 400 when the Access Key ID is malformed,
+ * for example the token value pasted in place of the 32-character key ID.
+ */
+export const R2_MALFORMED_CREDENTIAL_ERROR_CODES: ReadonlySet<string> = new Set([
+  'InvalidArgument',
+  'AuthorizationHeaderMalformed',
+]);
+
+/** Whether an R2 error answer means R2 rejected the key pair itself. */
+export function isR2CredentialRejection(status: number, code: string | undefined): boolean {
+  if (!code) {
+    return false;
+  }
+  if (status === 401 || status === 403) {
+    return R2_CREDENTIAL_ERROR_CODES.has(code);
+  }
+  return status === 400 && R2_MALFORMED_CREDENTIAL_ERROR_CODES.has(code);
+}
 
 /**
  * Read the `<Code>` value from an S3-style XML error body. Returns
@@ -62,7 +82,7 @@ function directR2PutErrorMessage(
   body: string,
   code: string | undefined,
 ): string {
-  if ((status === 401 || status === 403) && code && R2_CREDENTIAL_ERROR_CODES.has(code)) {
+  if (isR2CredentialRejection(status, code)) {
     return (
       `R2 rejected the upload signature (${code}) for ${path} (${hash}). ` +
       "This usually means the platform's R2 upload credentials are wrong. " +

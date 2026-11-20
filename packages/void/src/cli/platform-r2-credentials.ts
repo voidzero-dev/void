@@ -1,6 +1,11 @@
 import { createHash, createHmac } from 'node:crypto';
 import { log } from '@voidzero-dev/vite-plus-prompts';
-import { R2_CREDENTIALS_DOCS_URL, r2ErrorCode } from './direct-r2-upload.ts';
+import {
+  isR2CredentialRejection,
+  R2_CREDENTIALS_DOCS_URL,
+  R2_MALFORMED_CREDENTIAL_ERROR_CODES,
+  r2ErrorCode,
+} from './direct-r2-upload.ts';
 
 /** Where the R2 key pair under test came from, for the error message. */
 export type PlatformR2CredentialSource = 'environment' | 'saved';
@@ -79,8 +84,9 @@ function hmac(key: string | Buffer, data: string): Buffer {
 
 /**
  * Check that R2 accepts the platform's R2 key pair before it is sent to the
- * Workers. A rejected signature stops the command. A network error or an R2
- * outage only warns, so a check that cannot run never blocks the command.
+ * Workers. A rejected or malformed key pair stops the command. A clock that R2
+ * finds too far off, a network error, an R2 outage or any other answer only
+ * warns, so a check that cannot run never blocks the command.
  */
 export async function verifyPlatformR2Credentials(
   input: PlatformR2CredentialCheck,
@@ -116,14 +122,23 @@ export async function verifyPlatformR2Credentials(
   if (response.status === 404 && code === 'NoSuchBucket') {
     return;
   }
-  if (response.status === 401 || response.status === 403) {
+  const denied = response.status === 401 || response.status === 403;
+  if ((denied && !code) || isR2CredentialRejection(response.status, code)) {
+    const malformed = code !== undefined && R2_MALFORMED_CREDENTIAL_ERROR_CODES.has(code);
     throw new Error(
       `platform: R2 rejected the R2 key pair ${from} (${code ?? `HTTP ${response.status}`}) on bucket ${input.bucket}. ` +
         'Void did not change the platform. ' +
+        (malformed ? 'The Access Key ID is the 32-character token ID, not the token value. ' : '') +
         'Create an R2 API token with Object Read & Write on this bucket. ' +
         'Then set VOID_PLATFORM_R2_ACCESS_KEY_ID to its Access Key ID and VOID_PLATFORM_R2_SECRET_ACCESS_KEY to its Secret Access Key (not the token value), and run this command again. ' +
         `See ${R2_CREDENTIALS_DOCS_URL}`,
     );
+  }
+  if (code === 'RequestTimeTooSkewed') {
+    skip(
+      `HTTP ${response.status} ${code}: the clock on this machine is likely wrong; set it to the correct time`,
+    );
+    return;
   }
   skip(`HTTP ${response.status}${code ? ` ${code}` : ''}`);
 }
