@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { securityFingerprintKey } from '../../src/security/findings.ts';
 import {
   buildSecurityMemory,
   SECURITY_MEMORY_HISTORY_MAX_FILES,
@@ -18,6 +19,7 @@ function finding(overrides: Partial<SecurityMemoryFinding> = {}): SecurityMemory
     id: `fnd_${number}`,
     number,
     fingerprintKey: `key-${number}`,
+    modelFingerprint: `model-${number}`,
     verdict: 'confirmed',
     severity: 'medium',
     title: `Finding ${number}`,
@@ -264,6 +266,25 @@ describe('buildSecurityMemory', () => {
     expect(parsed.backlog.length).toBeGreaterThan(0);
     expect(parsed.backlog.length).toBeLessThan(10_000);
     expect(parsed.backlog[0]).toBe('src/backlog/0.ts');
+  });
+
+  it('hands back the model fingerprint, so a reused one keys to the same finding', () => {
+    const sinkPath = 'src/db.ts';
+    const stored = finding({
+      number: 1,
+      modelFingerprint: 'sqli-invoices-query',
+      fingerprintKey: securityFingerprintKey('prj_1', 'sqli-invoices-query', sinkPath),
+      sinkPath,
+    });
+    const files = buildSecurityMemory(input({ findings: [stored] }));
+    const record = index(files).records[0]!;
+    const history = JSON.parse(files.history[0]!.text) as { fingerprint: string };
+    expect(record.fingerprint).toBe('sqli-invoices-query');
+    expect(history.fingerprint).toBe('sqli-invoices-query');
+    // Ingest hashes what the model sends back: it must land on the stored key.
+    expect(securityFingerprintKey('prj_1', record.fingerprint as string, sinkPath)).toBe(
+      stored.fingerprintKey,
+    );
   });
 });
 

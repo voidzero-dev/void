@@ -38,6 +38,12 @@ export type SecurityMemoryFinding = Readonly<{
   id: string;
   number: number;
   fingerprintKey: string;
+  /**
+   * What the model reported. Ingest keys a finding by hashing this with the project and
+   * sink, so memory must hand back this value, not `fingerprintKey`, or a model that
+   * reuses it makes a new finding. Null for rows with no model value (server findings).
+   */
+  modelFingerprint: string | null;
   verdict: 'confirmed' | 'needs_validation';
   /** The effective severity (a human override wins). */
   severity: SecuritySeverity | null;
@@ -128,6 +134,10 @@ function untrusted(event: SecurityMemoryEvent, max: number): UntrustedText | nul
   };
 }
 
+function memoryFingerprint(finding: SecurityMemoryFinding): string {
+  return finding.modelFingerprint ?? finding.fingerprintKey;
+}
+
 function findingId(finding: SecurityMemoryFinding): string {
   return `F-${finding.number}`;
 }
@@ -177,7 +187,7 @@ function indexRecord(
   const record: Record<string, unknown> = {
     id: findingId(finding),
     group,
-    fingerprint: finding.fingerprintKey,
+    fingerprint: memoryFingerprint(finding),
     title: finding.title,
     category: finding.category,
     severity: finding.severity,
@@ -217,7 +227,7 @@ function historyFile(
 ): string {
   return JSON.stringify({
     id: findingId(finding),
-    fingerprint: finding.fingerprintKey,
+    fingerprint: memoryFingerprint(finding),
     title: finding.title,
     category: finding.category,
     cwe: finding.cwe,

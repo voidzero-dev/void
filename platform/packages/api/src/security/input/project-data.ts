@@ -52,6 +52,7 @@ export async function loadSecurityMemory(
       id: row.id,
       number: row.number,
       fingerprintKey: row.fingerprint_key,
+      modelFingerprint: row.model_fingerprint,
       verdict: row.verdict,
       severity: row.severity_override ?? row.severity,
       title: row.title,
