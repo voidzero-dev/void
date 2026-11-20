@@ -910,6 +910,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       operatorCredential.source === 'oauth' ? checkpoint?.managementApiToken || '' : '';
     if (needsManagementToken || managementApiToken) {
       let token = managementApiToken;
+      // A token from the checkpoint was saved on this machine by an earlier run.
+      let tokenSource: 'saved' | 'entered' = token ? 'saved' : 'entered';
       let openedManagementPage = false;
       const forgetRejectedManagementToken = () => {
         managementApiToken = '';
@@ -932,8 +934,12 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
               value.trim() ? undefined : 'A value is required.',
             )
           ).trim();
+          tokenSource = 'entered';
         }
-        const management = new PlatformCloudflareClient(token, { apiBase: client.apiBaseUrl });
+        const management = new PlatformCloudflareClient(token, {
+          apiBase: client.apiBaseUrl,
+          credential: { role: 'management', source: tokenSource },
+        });
         try {
           const authorizedAccounts = await management.listAccounts();
           if (!authorizedAccounts.some((account) => account.id === accountId)) {
@@ -961,13 +967,17 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           if (!isPlatformTokenAuthorizationError(error)) {
             throw error;
           }
-          const details = new Set<string>();
+          const details: Array<string> = [];
           for (
             let cause = error, depth = 0;
             depth < 5 && cause instanceof Error;
             depth++, cause = cause.cause
           ) {
-            details.add(cause.message.replaceAll(token, '[redacted]'));
+            const message = cause.message.replaceAll(token, '[redacted]');
+            // A wrapping error often repeats its cause's message.
+            if (!details.some((detail) => detail.includes(message))) {
+              details.push(message);
+            }
           }
           forgetRejectedManagementToken();
           log.warn(
