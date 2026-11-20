@@ -35,10 +35,6 @@ export type AuthCompileOptions = {
 
 export type CompileOptions = {
   trailingSlash?: boolean;
-  /** Absolute path to the hono module entry */
-  honoPath: string;
-  /** Absolute path to `hono/route` from the same Hono copy as `honoPath` */
-  honoRoutePath: string;
   /** Absolute path to the void/_env module */
   runtimeEnvPath: string;
   /** Absolute path to the project's `email/` directory; enables `__emailHandler`. */
@@ -192,9 +188,8 @@ export function compileRouteTable(
     options.nodeTarget !== true && options.dev !== true && options.managedDispatch === true;
 
   lines.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
-  lines.push(`import { Hono } from ${JSON.stringify(options.honoPath)};`);
   lines.push(
-    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createStaticNotFound as __createStaticNotFound, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    `import { Hono, createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createStaticNotFound as __createStaticNotFound, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
   if (pages) {
     lines.push(
@@ -312,7 +307,7 @@ export function compileRouteTable(
   // and before auth and user middleware, so their c.redirect() drops it too.
   if (pages) {
     lines.push(
-      `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(options.honoRoutePath)};`,
+      `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
     );
     if (scan.pages.pages.some((page) => page.methods.includes('actions'))) {
       lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
@@ -1478,7 +1473,6 @@ ${entryClass}`;
  */
 export function compileNodeApp(
   target: 'node' | 'bun' | 'deno',
-  honoPath: string,
   envSchemaModule?: { importPath: string; helperPath: string },
 ): string {
   const staticImport =
@@ -1502,9 +1496,8 @@ export function compileNodeApp(
 
   return `${staticImport}
 import { fileURLToPath } from "node:url";
-import { Hono } from ${JSON.stringify(honoPath)};
 import innerApp, { __voidCollectPrerenderPaths, __voidRenderStaticNotFound } from "virtual:void-routes";
-import { prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};
+import { Hono, prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};
 ${envSchemaImport}
 // dist/client, created on first use so a server that supplies its own ASSETS
 // (a single executable, for one) never looks for a directory it doesn't have.

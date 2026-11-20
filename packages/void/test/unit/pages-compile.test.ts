@@ -5,9 +5,6 @@ import { compileRouteTable, type PagesCompileOptions } from '../../src/router/co
 import type { ScanResult } from '../../src/router/scan.ts';
 
 const testOptions = {
-  honoPath: '/resolved/hono/index.mjs',
-  honoRoutePath: '/resolved/hono/route.mjs',
-
   runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
   projectRoot: '/project',
   homeDir: '/Users/test',
@@ -88,11 +85,9 @@ describe('Pages metadata wiring', () => {
       );
       const marker = code.indexOf('app.use(__createNamedActionMarker(__matchedRoutes));');
       expect(marker !== -1).toBe(marked);
-      expect(
-        code.includes(
-          'import { matchedRoutes as __matchedRoutes } from "/resolved/hono/route.mjs";',
-        ),
-      ).toBe(true);
+      expect(code).toMatch(
+        /import \{ matchedRoutes as __matchedRoutes \} from "[^"]*runtime\/routing\/index\.[a-z]+";/,
+      );
       if (marked) {
         expect(marker).toBeGreaterThan(code.indexOf('__routingRuntime.routingMiddleware('));
         expect(marker).toBeLessThan(code.indexOf('app.use(middleware0);'));

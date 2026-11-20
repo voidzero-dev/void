@@ -29,6 +29,10 @@ import { toUrlString } from './route-url.ts';
 import { isUnchangedStaticAsset, markStaticAsset } from './static-asset-marker.ts';
 import { intentionalNotFoundRequests } from './worker.ts';
 export { createErrorRenderer } from './errors.ts';
+// Generated routes take Hono from here. Importing it by file path instead gives a dev Worker a
+// second copy beside the one this runtime imports, loaded as one request for each Hono file.
+export { Hono } from 'hono';
+export { matchedRoutes } from 'hono/route';
 
 export type RoutingRule = {
   source: string;

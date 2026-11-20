@@ -39,8 +39,6 @@ function compileNativeScheduled(jobsDir: string, load: LoadJob): Scheduled {
     '/queues',
     null,
     {
-      honoPath: '/hono',
-      honoRoutePath: '/hono/route',
       runtimeEnvPath: '/env',
       projectRoot: '/project',
       homeDir: '/home',

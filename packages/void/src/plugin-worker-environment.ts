@@ -219,7 +219,15 @@ export function createServerRuntimeOptimizerPlugin(
           exclude: ['void', 'better-auth'],
           // Excluding void also skips converting its CommonJS dependencies, which workerd cannot
           // evaluate: an installed void/email fails with "exports is not defined".
-          include: ['void > email-validator', ...DATABASE_DRIVER_DEPS[dialect]],
+          //
+          // Void's routing runtime imports Hono for itself and for the generated routes. Naming
+          // it here prebundles it before the Worker starts, not on its first request.
+          include: [
+            'void > email-validator',
+            'void > hono',
+            'void > hono/route',
+            ...DATABASE_DRIVER_DEPS[dialect],
+          ],
         },
       };
     },

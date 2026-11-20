@@ -266,8 +266,6 @@ export function routingPlugin(
   const runtimeEmailPath = resolveFile('#self/email');
   const compileOptions: CompileOptions = {
     trailingSlash: options.routing?.trailingSlash,
-    honoPath: resolveFile('hono'),
-    honoRoutePath: resolveFile('hono/route'),
     runtimeEnvPath: resolveFile('#self/_env'),
     emailDir,
     projectRoot: root,
@@ -626,10 +624,7 @@ export function routingPlugin(
     : false;
 
   function writeNodeEntries(target: NonNullable<RoutingPluginOptions['target']>): void {
-    writeFileIfChanged(
-      join(outDir, 'app.ts'),
-      compileNodeApp(target, compileOptions.honoPath, getEnvSchemaModule()),
-    );
+    writeFileIfChanged(join(outDir, 'app.ts'), compileNodeApp(target, getEnvSchemaModule()));
     writeFileIfChanged(join(outDir, 'index.ts'), compileNodeServer(target));
   }
 

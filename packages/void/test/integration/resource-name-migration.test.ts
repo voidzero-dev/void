@@ -160,8 +160,6 @@ export default defineRoom({
           join(directory, 'queues'),
           null,
           {
-            honoPath: import.meta.resolve('hono'),
-            honoRoutePath: import.meta.resolve('hono/route'),
             runtimeEnvPath: runtimePath('env/runtime.ts'),
             webSocketRuntimePath: runtimePath('ws/server.ts'),
             projectRoot: directory,
