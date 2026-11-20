@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Plugin } from 'vite';
+import { normalizePath, type Plugin } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
@@ -310,16 +310,14 @@ describe('voidPlugin dev asset routing', () => {
 
   it('scans the SSR entry for dependencies of the Worker', async () => {
     const root = createApiOnlyProjectRoot();
+    const ssrEntry = join(root, 'src/main.ssr.tsx');
     mkdirSync(join(root, 'src'), { recursive: true });
-    writeFileSync(
-      join(root, 'src/main.ssr.tsx'),
-      'export function render() { return new Response(null); }',
-    );
+    writeFileSync(ssrEntry, 'export function render() { return new Response(null); }');
     writeFileSync(join(root, 'src/main.client.tsx'), 'export {};');
 
     await expect(
       resolveRuntimeOptimizerConfig(root, 'void_worker', workerd),
-    ).resolves.toMatchObject({ optimizeDeps: { entries: [join(root, 'src/main.ssr.tsx')] } });
+    ).resolves.toMatchObject({ optimizeDeps: { entries: [normalizePath(ssrEntry)] } });
   });
 
   it('leaves client dependency optimization unchanged', async () => {
