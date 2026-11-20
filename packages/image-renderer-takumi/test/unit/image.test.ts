@@ -976,14 +976,28 @@ describe('ImageResponse fallback fonts', () => {
     expect(second).not.toEqual(first);
   });
 
-  it('fails on an emoji that cannot download, unless told to leave it out', async () => {
+  it.each([undefined, true, false])(
+    'omits unavailable emoji with images.throwOnError=%s',
+    async (throwOnError) => {
+      const requests = stubFetch(() => new Response(null, { status: 404 }));
+      const response = new ImageResponse(html`<div style="display:flex">🪅</div>`, {
+        renderer: [takumiRenderer, { images: { throwOnError } }],
+        width: 320,
+        height: 168,
+      });
+      await expectPng(response);
+      expect(requests).toEqual([expect.stringContaining('/assets/svg/1fa85.svg')]);
+    },
+  );
+
+  it('still fails on an ordinary image that cannot download unless told to omit it', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     stubFetch(() => new Response(null, { status: 404 }));
-    const emoji = html`<div style="display:flex">🪅</div>`;
+    const image = html`<img src="https://example.com/missing.png" width="32" height="32" />`;
     await expect(
-      new ImageResponse(emoji, { renderer: takumiRenderer, width: 320, height: 168 }).arrayBuffer(),
+      new ImageResponse(image, { renderer: takumiRenderer, width: 320, height: 168 }).arrayBuffer(),
     ).rejects.toThrow();
-    const response = new ImageResponse(emoji, {
+    const response = new ImageResponse(image, {
       renderer: [takumiRenderer, { images: { throwOnError: false } }],
       width: 320,
       height: 168,
@@ -1051,7 +1065,11 @@ describe('ImageResponse fallback fonts', () => {
       .mock.calls.map(([, options]) =>
         ((options?.fonts ?? []) as Array<{ name?: string }>).map((font) => font.name),
       );
-    expect(attempts.map((fonts) => fonts.length)).toEqual([4, 2]);
+    expect(attempts[0]).toHaveLength(4);
+    for (let index = 1; index < attempts.length; index++) {
+      expect(attempts[index]!.length).toBeLessThan(attempts[index - 1]!.length);
+      expect(attempts[index]).toContain('@void/image Roboto fallback Noto Sans JP');
+    }
     expect(attempts.at(-1)).toEqual([
       '@void/image Roboto',
       '@void/image Roboto fallback Noto Sans JP',
@@ -1061,12 +1079,16 @@ describe('ImageResponse fallback fonts', () => {
       requests.filter((url) => url.includes('Symbols')).filter((url) => url.endsWith('.woff2')),
     ).toHaveLength(2);
     expect(requests.filter((url) => url.endsWith('Noto-Sans-JP.woff2'))).toHaveLength(1);
-    expect(warned).toHaveBeenCalledTimes(2);
+    expect(
+      warned.mock.calls.filter(([message]) =>
+        String(message).startsWith('@void/image: could not download '),
+      ),
+    ).toHaveLength(2);
   });
 
   it('records shared fallback download failures separately for concurrent images', async () => {
     const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const requests = stubFetch((url) => {
+    const requests = stubFetch(async (url) => {
       if (url.startsWith('https://fonts.googleapis.com/')) {
         const family = new URL(url).searchParams.get('family')!.split(':')[0]!;
         const range = family === 'Noto Sans JP' ? 'U+65E5, U+672C' : 'U+265C';
@@ -1074,6 +1096,8 @@ describe('ImageResponse fallback fonts', () => {
           `@font-face { font-family: '${family}'; src: url(https://fonts.gstatic.com/concurrent/${family.replaceAll(' ', '-')}.woff2); unicode-range: ${range}; }`,
         );
       }
+      // Let both renderers join the same downloads before any settles.
+      await setImmediate();
       return url.endsWith('Noto-Sans-JP.woff2')
         ? new Response(new Uint8Array(robotoData()))
         : new Response(null, { status: 404 });
@@ -1092,13 +1116,17 @@ describe('ImageResponse fallback fonts', () => {
     const retries = vi
       .mocked(render)
       .mock.calls.map(([, options]) => (options?.fonts ?? []) as Array<{ name?: string }>)
-      .filter((fonts) => fonts.length < 4);
+      .filter((fonts) => fonts.length === 2);
     expect(retries.map((fonts) => fonts.map((font) => font.name))).toEqual([
       ['@void/image Roboto', '@void/image Roboto fallback Noto Sans JP'],
       ['@void/image Roboto', '@void/image Roboto fallback Noto Sans JP'],
     ]);
     expect(requests.filter((url) => url.endsWith('.woff2'))).toHaveLength(3);
-    expect(warned).toHaveBeenCalledTimes(4);
+    expect(
+      warned.mock.calls.filter(([message]) =>
+        String(message).startsWith('@void/image: could not download '),
+      ),
+    ).toHaveLength(4);
   });
 
   it('renders without fallback fonts when Google Fonts cannot be reached', async () => {
@@ -1118,3 +1146,4 @@ describe('ImageResponse fallback fonts', () => {
     );
   });
 });
+import { setImmediate } from 'node:timers/promises';

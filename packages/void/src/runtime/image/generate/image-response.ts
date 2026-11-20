@@ -1,4 +1,4 @@
-import { renderImage, RenderOgImageOptions, resolveOgImageOptions } from './render-image.ts';
+import { renderImage, type RenderOgImageOptions, resolveOgImageOptions } from './render-image.ts';
 import type {
   AnyImageRenderer,
   DefaultImageRenderer,
@@ -29,6 +29,10 @@ export class ImageResponse<
     if (!headers.has('content-type')) {
       headers.set('content-type', 'image/png');
     }
+
+    // Async templates are already running even while rendering stays lazy.
+    // Observe their rejection now; reading the original input still throws it.
+    void Promise.resolve(element).catch(() => {});
 
     super(
       lazyImageBody(() => renderImage(element, imageOptions)),

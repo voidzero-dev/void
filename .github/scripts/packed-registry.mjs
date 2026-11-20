@@ -31,7 +31,7 @@ export function inspectPackage(tarball) {
 
   if (manifest.name === 'void') {
     assert.equal(manifest.dependencies?.['takumi-js'], undefined);
-    assert.equal(manifest.exports['./image'], undefined);
+    assert(manifest.exports['./image'], 'void: missing image export');
     assert.equal(manifest.exports['./og'], undefined);
     for (const file of [
       'docs/guide/quickstart.md',
