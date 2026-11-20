@@ -804,9 +804,6 @@ importers:
       '@cloudflare/build-output-utils':
         specifier: 'catalog:'
         version: 1.0.0-rc.0
-      '@cloudflare/codemods':
-        specifier: 'catalog:'
-        version: 0.8.0
       '@cloudflare/config':
         specifier: 'catalog:'
         version: 1.0.0-rc.0
@@ -925,6 +922,9 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
     devDependencies:
+      '@cloudflare/codemods':
+        specifier: 'catalog:'
+        version: 0.8.0
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.16

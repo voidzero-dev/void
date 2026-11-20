@@ -355,7 +355,6 @@
   },
   "dependencies": {
     "@cloudflare/build-output-utils": "catalog:",
-    "@cloudflare/codemods": "catalog:",
     "@cloudflare/config": "catalog:",
     "@cloudflare/sandbox": "catalog:",
     "@cloudflare/vite-plugin": "catalog:",
@@ -396,6 +395,7 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@cloudflare/codemods": "catalog:",
     "@electric-sql/pglite": "catalog:",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "catalog:",
