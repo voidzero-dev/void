@@ -20,7 +20,7 @@ const MAX_R2_PUT_RETRIES = 3;
  */
 const RETRY_BACKOFF_MS = [250, 500, 1000];
 
-const R2_CREDENTIALS_DOCS_URL =
+export const R2_CREDENTIALS_DOCS_URL =
   'https://void.cloud/guide/platform/installation/credentials#r2-upload-credentials';
 
 /**
