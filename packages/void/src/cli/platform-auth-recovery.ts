@@ -16,7 +16,10 @@ import {
   transaction,
   type Connection,
 } from './platform-auth-recovery-core.ts';
-import { resolvePlatformCloudflareCredential } from './platform-auth.ts';
+import {
+  platformOperatorCredentialLabel,
+  resolvePlatformCloudflareCredential,
+} from './platform-auth.ts';
 import { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import type { PlatformConfigArgs } from './platform-config-args.ts';
 import {
@@ -85,7 +88,9 @@ export async function runPlatformAuthRecovery(args: PlatformConfigArgs): Promise
           releaseDatabase.authoritativeManifest,
         );
         await verifyPlatformInstallationOwnership(
-          new PlatformCloudflareClient(credential.token),
+          new PlatformCloudflareClient(credential.token, {
+            credential: platformOperatorCredentialLabel(credential),
+          }),
           manifest,
           { databaseUrl },
         );

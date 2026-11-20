@@ -27,6 +27,7 @@ import {
 } from './platform-auth-database.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
+  platformOperatorCredentialLabel,
   platformOperatorNeedsManagementToken,
   verifyPlatformManagementAccess,
   resolvePlatformCloudflareCredential,
@@ -40,6 +41,7 @@ import {
   verifyPlatformRuntimeTokenPermissions,
   type CloudflareAccount,
 } from './platform-cloudflare.ts';
+import { platformCredentialHelp } from './platform-credential-label.ts';
 import {
   selectInstallationAuthentication,
   collectInstallationAuthentication,
@@ -163,7 +165,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
   if (commandArgs.subcommand === 'discover') {
     log.step('Preparing platform discovery');
     const credential = await resolvePlatformCloudflareCredential();
-    const client = new PlatformCloudflareClient(credential.token);
+    const client = new PlatformCloudflareClient(credential.token, {
+      credential: platformOperatorCredentialLabel(credential),
+    });
     const accounts = await withPlatformProgress('Reading Cloudflare accounts', () =>
       readAccounts(client),
     );
@@ -378,7 +382,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       }
       return existing.deployment.installationSlug;
     });
-  let client = new PlatformCloudflareClient(operatorCredential.token);
+  let client = new PlatformCloudflareClient(operatorCredential.token, {
+    credential: platformOperatorCredentialLabel(operatorCredential),
+  });
   const accounts = await withPlatformProgress('Reading Cloudflare accounts', () =>
     readAccounts(client),
   );
@@ -904,6 +910,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       operatorCredential.source === 'oauth' ? checkpoint?.managementApiToken || '' : '';
     if (needsManagementToken || managementApiToken) {
       let token = managementApiToken;
+      // A token from the checkpoint was saved on this machine by an earlier run.
+      let tokenSource: 'saved' | 'entered' = token ? 'saved' : 'entered';
       let openedManagementPage = false;
       const forgetRejectedManagementToken = () => {
         managementApiToken = '';
@@ -926,8 +934,12 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
               value.trim() ? undefined : 'A value is required.',
             )
           ).trim();
+          tokenSource = 'entered';
         }
-        const management = new PlatformCloudflareClient(token, { apiBase: client.apiBaseUrl });
+        const management = new PlatformCloudflareClient(token, {
+          apiBase: client.apiBaseUrl,
+          credential: { role: 'management', source: tokenSource },
+        });
         try {
           const authorizedAccounts = await management.listAccounts();
           if (!authorizedAccounts.some((account) => account.id === accountId)) {
@@ -955,13 +967,27 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           if (!isPlatformTokenAuthorizationError(error)) {
             throw error;
           }
-          const details = new Set<string>();
+          const details: Array<string> = [];
+          // Errors an AggregateError above already lists in its own message.
+          const listed = new Set<unknown>();
           for (
             let cause = error, depth = 0;
             depth < 5 && cause instanceof Error;
             depth++, cause = cause.cause
           ) {
-            details.add(cause.message.replaceAll(token, '[redacted]'));
+            if (listed.has(cause)) {
+              continue;
+            }
+            if (cause instanceof AggregateError) {
+              for (const listedError of cause.errors) {
+                listed.add(listedError);
+              }
+            }
+            const message = cause.message.replaceAll(token, '[redacted]');
+            // A wrapping error often repeats its cause's message.
+            if (!details.some((detail) => detail.includes(message))) {
+              details.push(message);
+            }
           }
           forgetRejectedManagementToken();
           log.warn(
@@ -1052,19 +1078,32 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
     let rejectedSavedRuntimeToken = false;
     const verifyRuntimeToken = async (token: string) => {
       let checkingRuntimePermissions = true;
+      const credential = {
+        role: 'runtime',
+        source:
+          token === process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN
+            ? 'environment'
+            : token === values.cloudflareApiToken
+              ? 'saved'
+              : 'entered',
+      } as const;
       try {
-        await verifyPlatformRuntimeTokenPermissions(new PlatformCloudflareClient(token), {
-          accountId,
-          applicationDomain,
-          customDomains: plan.deployment.capabilities.customDomains,
-          ...(plan.deployment.capabilities.email && plan.deployment.emailSharedZoneId
-            ? { emailZoneId: plan.deployment.emailSharedZoneId }
-            : {}),
-          zoneId: plan.zone?.id ?? null,
-        });
+        await verifyPlatformRuntimeTokenPermissions(
+          new PlatformCloudflareClient(token, { credential }),
+          {
+            accountId,
+            applicationDomain,
+            credential,
+            customDomains: plan.deployment.capabilities.customDomains,
+            ...(plan.deployment.capabilities.email && plan.deployment.emailSharedZoneId
+              ? { emailZoneId: plan.deployment.emailSharedZoneId }
+              : {}),
+            zoneId: plan.zone?.id ?? null,
+          },
+        );
         checkingRuntimePermissions = false;
         if (plan.actions.some((action) => action.action === 'inspect')) {
-          client = client.withAiGatewayToken(token);
+          client = client.withAiGatewayToken(token, credential);
           plan = await verifyPlatformAiGatewayPlan(
             client,
             planInput,
@@ -1513,16 +1552,31 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
 }
 
 function isPlatformTokenAuthorizationError(error: unknown, requestPathIncludes?: string): boolean {
+  return !!findPlatformTokenAuthorizationError(error, requestPathIncludes);
+}
+
+function findPlatformTokenAuthorizationError(
+  error: unknown,
+  requestPathIncludes?: string,
+): PlatformCloudflareApiError | undefined {
   for (let depth = 0; depth < 5 && error instanceof Error; depth++, error = error.cause) {
     if (
       error instanceof PlatformCloudflareApiError &&
       [401, 403].includes(error.status) &&
       (!requestPathIncludes || error.requestPath?.includes(requestPathIncludes))
     ) {
-      return true;
+      return error;
     }
   }
-  return false;
+  return undefined;
+}
+
+/** What the client said about the AI Gateway credential it used, if it knew it. */
+function platformCredentialHelpInChain(error: unknown): string | undefined {
+  const denied = findPlatformTokenAuthorizationError(error, '/ai-gateway/');
+  return denied?.credential
+    ? platformCredentialHelp(denied.credential, denied.status, denied.requestPath)
+    : undefined;
 }
 
 function formatPlatformRuntime(runtime: ReturnType<typeof loadPlatformRuntime>): string {
@@ -1551,8 +1605,12 @@ export async function verifyPlatformAiGatewayPlan(
     });
   } catch (error) {
     if (isPlatformTokenAuthorizationError(error, '/ai-gateway/')) {
+      // The client already named the token and how to fix it.
+      const help = platformCredentialHelpInChain(error);
       throw new Error(
-        'platform: The runtime token could not verify AI Gateway access. Include Account → AI Gateway → Edit for this account, then retry. No platform resources were created.',
+        help
+          ? `platform: The runtime token could not verify AI Gateway access. ${help} No platform resources were created.`
+          : 'platform: The runtime token could not verify AI Gateway access. Include Account → AI Gateway → Edit for this account, then retry. No platform resources were created.',
         { cause: error },
       );
     }

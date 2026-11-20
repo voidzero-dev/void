@@ -18,6 +18,7 @@ import {
   PlatformCloudflareClient,
   verifyPlatformRuntimeTokenEmailPermissions,
 } from '../../src/cli/platform-cloudflare.ts';
+import { formatPlatformCredentialDenials } from '../../src/cli/platform-credential-label.ts';
 import { recordWorkerCutoverStage } from '../../src/cli/platform-installer-cutover.ts';
 import { PlatformAccessBlockedError } from '../../src/cli/platform-installer.ts';
 import { runPlatformLifecycleCommand } from '../../src/cli/platform-lifecycle.ts';
@@ -116,6 +117,9 @@ vi.mock('../../src/cli/platform-plan.ts', async (original) => ({
   ...(await original<typeof import('../../src/cli/platform-plan.ts')>()),
   createPlatformInstallPlan: mocks.plan,
 }));
+const expectedFailure = (): never => {
+  throw new Error('expected a failure');
+};
 let directory: string;
 const tty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
 const args = [
@@ -734,6 +738,17 @@ describe('platform credential onboarding', () => {
         headers: expect.objectContaining({ Authorization: 'Bearer management-secret' }),
       }),
     );
+    fetcher.mockResolvedValueOnce(
+      Response.json(
+        { success: false, errors: [{ message: 'Authentication error' }] },
+        { status: 403 },
+      ),
+    );
+    const denied = await management
+      .request('/accounts/account/queues')
+      .then(expectedFailure, (error: PlatformCloudflareApiError) => error);
+    expect(denied.credential).toEqual({ role: 'management', source: 'entered' });
+    expect(denied.message).toContain('Void used the management token you entered.');
     expect(mocks.open).toHaveBeenCalledWith(expect.stringContaining('name=Test+Management'));
     const secrets = readPendingInstallationSecrets(listInstallationManifests()[0]!);
     expect(secrets?.cloudflareApiToken).toBe(
@@ -786,6 +801,17 @@ describe('platform credential onboarding', () => {
           headers: expect.objectContaining({ Authorization: 'Bearer saved-management-secret' }),
         }),
       );
+      fetcher.mockResolvedValueOnce(
+        Response.json(
+          { success: false, errors: [{ message: 'Authentication error' }] },
+          { status: 403 },
+        ),
+      );
+      const denied = await client
+        .request('/accounts/account/queues')
+        .then(expectedFailure, (error: PlatformCloudflareApiError) => error);
+      expect(denied.credential).toEqual({ role: 'management', source: 'saved' });
+      expect(denied.message).toContain('Void used the management token saved on this machine.');
       expect(mocks.install.mock.calls[0]![1].cloudflareApiToken).toBe('saved-runtime-token');
       expect(readPendingInstallationSecrets(manifest)?.managementApiToken).toBe(
         'saved-management-secret',
@@ -975,6 +1001,56 @@ describe('platform credential onboarding', () => {
     expect(warning).not.toContain('query-value');
     expect(mocks.install).not.toHaveBeenCalled();
     expect(listInstallationManifests()).toEqual([]);
+  });
+
+  it('prints a denial once when the error that wraps it repeats its message', async () => {
+    requireManagementToken();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const original = mocks.plan.getMockImplementation()!;
+    mocks.plan.mockImplementationOnce(original).mockImplementationOnce(async (client) => {
+      const deny = (path: string) =>
+        client
+          .request(path)
+          .catch((error: unknown) => error) as Promise<PlatformCloudflareApiError>;
+      const denied = [
+        await deny('/accounts/account/queues'),
+        await deny('/accounts/account/storage/kv/namespaces'),
+      ];
+      // The shape the plan throws for several reads denied to a labeled client.
+      throw new AggregateError(
+        denied,
+        `platform: Cloudflare denied reads the plan needs.\n\n${formatPlatformCredentialDenials(
+          denied[0]!.credential!,
+          denied.map((error) => ({
+            permission: 'a permission this read needs',
+            request: `GET ${error.requestPath}`,
+            status: error.status,
+          })),
+        )}`,
+        { cause: denied[0] },
+      );
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        Response.json(
+          { success: false, errors: [{ message: 'Authentication error' }] },
+          { status: 403 },
+        ),
+      ),
+    );
+    mocks.password.mockResolvedValueOnce('rejected-secret').mockResolvedValueOnce(Symbol('cancel'));
+
+    await expect(runPlatformLifecycleCommand(parsePlatformArgs(args))).rejects.toThrow('Cancelled');
+
+    expect(warn).toHaveBeenCalledOnce();
+    const warning = warn.mock.calls[0]![0] as string;
+    // The list already names each request; the first denial is not repeated under it.
+    expect(warning).not.toContain('Cloudflare API error: Authentication error');
+    expect(warning).toContain('GET /accounts/account/queues');
+    expect(warning).toContain('GET /accounts/account/storage/kv/namespaces');
+    expect(warning.split('management token you entered')).toHaveLength(2);
+    expect(warning).toContain('Check the token permissions and account/zone scope');
   });
 
   it('leaves no draft when management token input is cancelled', async () => {
