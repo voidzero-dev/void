@@ -71,10 +71,15 @@ export function formatPlatformCredentialDenials(
   label: PlatformCredentialLabel,
   denials: ReadonlyArray<PlatformCredentialDenial>,
 ): string {
-  const lines = denials.map(
-    (denial) =>
-      `- ${denial.permission} (HTTP ${denial.status}${denial.request ? `; ${denial.request}` : ''})`,
-  );
+  // Several checks can share one permission, status and request; list it once.
+  const lines = [
+    ...new Set(
+      denials.map(
+        (denial) =>
+          `- ${denial.permission} (HTTP ${denial.status}${denial.request ? `; ${denial.request}` : ''})`,
+      ),
+    ),
+  ];
   const help: Array<string> = [];
   if (label.aiGatewayFor) {
     help.push(aiGatewayStandIn(label));

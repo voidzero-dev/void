@@ -137,7 +137,7 @@ function formatPlanDenials(denied: ReadonlyArray<PlatformCloudflareApiError>): A
             status: error.status,
           })),
         )
-      : errors.map((error) => error.message).join('\n'),
+      : [...new Set(errors.map((error) => error.message))].join('\n'),
   );
 }
 

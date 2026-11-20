@@ -912,15 +912,8 @@ describe('platform installation planning', () => {
         'platform: Cloudflare denied reads the plan needs.',
         '',
         'Cloudflare denied the management token saved on this machine:',
-        ...Array.from(
-          { length: 3 },
-          () =>
-            '- Account → Workers KV Storage → Edit (HTTP 403; GET /accounts/account/storage/kv/namespaces)',
-        ),
-        ...Array.from(
-          { length: 2 },
-          () => '- Account → Queues → Edit (HTTP 403; GET /accounts/account/queues)',
-        ),
+        '- Account → Workers KV Storage → Edit (HTTP 403; GET /accounts/account/storage/kv/namespaces)',
+        '- Account → Queues → Edit (HTTP 403; GET /accounts/account/queues)',
         'HTTP 403 means the token works but is missing the permissions listed above, or is not scoped to this account or zone. Add them to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has them, then retry.',
       ].join('\n'),
     );
