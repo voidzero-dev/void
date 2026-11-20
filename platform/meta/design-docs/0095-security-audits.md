@@ -1935,6 +1935,62 @@ API: claim as any scan ─► input/local.ts (walk tar, full scan, reason local)
 host; BYOK spend still metered and counted (R14). Operator
 `security models --provider anthropic --key-stdin`. Tests: `security-byok.test.ts`.
 
+As built (M33):
+
+```
+CLI: models --provider <host> --key-stdin ─► read stdin once ─► POST provider-keys {dryRun} ─► confirm
+     ─► POST provider-keys {host, key} ─► 1-token test call on the key ─ fail ─► 422, nothing saved
+                                                                       └ ok ──► encrypted, policy lock
+proxy (messages / responses): key saved? ─ no ─► REST /ai/v1/* + CF token (Unified Billing, as before)
+                                          └ yes ► env.AI.gateway(id).run({provider, endpoint, headers + key})
+probe check 5: same split per host; report.keyIds ─► stored under the policy lock, a host whose key
+               changed meanwhile keeps the value the key write stored (save: kept, removal: false)
+```
+
+- Storage: `security/provider-keys.ts`, `platform_settings['securityAudits.providerKeys']`,
+  one entry per host `{key: encryptPlatformCredential, keyId, setAt, setByUserId}`. The
+  credential id is `security-provider-key:<host>`, so one host's ciphertext never opens as
+  the other's. A malformed entry is a saved key that cannot be used, never "no key": the
+  proxy refuses the call (503), the probe shows `ownKeyUnreadable` (key id `malformed`), and
+  reads show `{setAt: null, unreadable: true}`; a save replaces it. Reads (`GET /security/policy`,
+  `status`) show `setAt` only.
+- Route (deviation): the plan said "proxy adds the key". The REST `/ai/v1/*` routes the proxy
+  uses only read keys stored in AI Gateway itself (Cloudflare docs: request keys count on
+  provider-native routes only). So a saved key goes to the provider-native route through the
+  AI binding's gateway `run` (`anthropic` `v1/messages` with `x-api-key`, `openai` `responses`
+  with a bearer key), which authenticates to the gateway itself: the runtime token needs no AI
+  Gateway Run permission. The same fixed `cf-aig-*` headers go along, plus
+  `cf-aig-no-wholesale: true`, so the gateway refuses instead of billing credits if it ever
+  does not read the key. The model is named the provider's way there
+  (`claude-opus-5-5`, `claude-sonnet-5-5`, `gpt-6.1-*`; table in `provider-keys.ts`). The
+  `access_programs` field is still added for `openai/*`; the save-time test call and the probe
+  send it, so an org that rejects it is caught there. Not run live yet (needs a real provider
+  key): the first live probe with a saved key is the check.
+- Proxy: `deps.providerKey(host)` is read per call before the policy read and the hold. A
+  removal clears the host's probe result in the key's transaction, so a policy read after the
+  key read sees it; the other order could pass the check and then find no key (Unified Billing). A saved key that cannot
+  be opened fails the call (503 `upstream_failed`, no hold, no Unified Billing fallback). Caps,
+  holds, settle and the ledger are unchanged, so BYOK spend is metered and counted (R14).
+- Operator route `POST /operator/v1/security/provider-keys` (`capability`; `{host, key}` or
+  `{host, key: null}`, `dryRun` preview). Save runs a 1-token test call first (the probe's
+  call); a non-2xx or unreachable gateway is 422 `security provider key rejected` and nothing
+  is stored. A save keeps the host's probe result (same image, key just checked); a host that
+  never passed still needs the probe (`probeNeeded`). Removing a saved key clears the host's
+  probe result (its scans go back to Unified Billing, unchecked); removing none changes
+  nothing. Audit target: `{installation, host, key: set|removed}`, never the key.
+- Probe: `runSecurityProbe(env, db, policy, deps?)` now takes the db and reads the key slots
+  once (`loadSecurityProviderKeySlots`). A host with a key shows `Own key     <host>/*` and its
+  own copy (refused key, failed call, unreadable key); no Unified Billing link. Key writes and
+  entitlement writes both take the policy lock; `recordSecurityEntitlement` and the turn-on
+  probe in `changeSecurityPolicy` compare the probe's `keyIds` with the saved ones under it. A
+  host whose key changed keeps its stored value (`entitlementForSavedKeys`): the key write set
+  it under the same lock, so a long probe on the old key never undoes a save reported as OK.
+- CLI: `void platform security models --provider <openai|anthropic> (--key-stdin | --remove-key)`,
+  its own action `provider-key`, not combinable with `--default/--block/--unblock`. The key is
+  read once from stdin (one line, no spaces) before any request, sent for the preview and the
+  change, and never printed. Non-interactive runs need `--yes` (stdin is the key). No admin
+  panel form: operator CLI only, as planned.
+
 **M34 Per-project policy override.** `project_security_settings.policy_override`
 (`inherit|always|never`, installation admin only); enqueue reads it; `never` never
 skips a gate scan (D46). Operator `security policy --project`, admin Project detail.

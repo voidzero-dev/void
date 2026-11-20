@@ -3,6 +3,11 @@ import { Hono } from 'hono';
 import { capabilityMiddleware, getPlatformCapabilities } from '../capabilities.ts';
 import { getProject, type Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
+import {
+  changeSecurityProviderKey,
+  parseSecurityProviderKeyRequest,
+  previewSecurityProviderKey,
+} from '../security/byok.ts';
 import { pokeSecurityScanScheduler } from '../security/enqueue.ts';
 import { SecurityApiError } from '../security/errors.ts';
 import {
@@ -42,6 +47,7 @@ import {
   parseSecurityModelRequest,
   setProjectSecurityModel,
 } from '../security/project-settings.ts';
+import { securityProviderKeysView } from '../security/provider-keys.ts';
 import {
   bypassPublicRequest,
   recheckPublicRequestBestEffort,
@@ -74,13 +80,14 @@ securityOperatorRoutes.get('/security/status', async (context) =>
 );
 
 securityOperatorRoutes.get('/security/policy', async (context) =>
-  context.json(
-    securityPolicyView(
+  context.json({
+    ...securityPolicyView(
       await readStoredSecurityPolicy(context.get('db')),
       getPlatformCapabilities(context.env).securityAudits,
       Date.now(),
     ),
-  ),
+    providerKeys: await securityProviderKeysView(context.get('db')),
+  }),
 );
 
 securityOperatorRoutes.post(
@@ -94,7 +101,11 @@ securityOperatorRoutes.post(
         preview: dryRun(body),
         // Leaving `disabled` re-runs the probe (and provisions the scanner) first.
         probe: async () =>
-          runSecurityProbe(context.env, (await readStoredSecurityPolicy(context.get('db'))).policy),
+          runSecurityProbe(
+            context.env,
+            context.get('db'),
+            (await readStoredSecurityPolicy(context.get('db'))).policy,
+          ),
       });
       // Canceled requests queued their emails in the policy transaction.
       if ('canceledRequests' in result && result.canceledRequests > 0) {
@@ -167,6 +178,33 @@ securityOperatorRoutes.post(
       now: Date.now(),
     });
     return context.json({ ok: true as const, ...result });
+  },
+);
+
+/**
+ * Installation provider keys (M33): `{host, key}` saves one after a 1-token test call,
+ * `{host, key: null}` removes it. Answers never hold the key.
+ */
+securityOperatorRoutes.post(
+  '/security/provider-keys',
+  capabilityMiddleware('securityAudits'),
+  async (context) => {
+    const body = await readBody(context);
+    try {
+      const request = parseSecurityProviderKeyRequest(body);
+      const db = context.get('db');
+      if (dryRun(body)) {
+        return context.json(await previewSecurityProviderKey(db, request));
+      }
+      return context.json(
+        await changeSecurityProviderKey(context.env, db, request, {
+          userId: context.get('user').id,
+          now: Date.now(),
+        }),
+      );
+    } catch (error) {
+      throw securityOperatorError(error);
+    }
   },
 );
 

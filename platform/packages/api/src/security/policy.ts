@@ -48,6 +48,12 @@ import { lockZeroTrustConfiguration } from '../zero-trust/lock.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
 import { readSecurityPlanCaps } from './plan-caps.ts';
 import type { SecurityProbeReport } from './probe.ts';
+import {
+  entitlementForSavedKeys,
+  securityProviderKeyIds,
+  securityProviderKeysView,
+  type SecurityProviderKeyIds,
+} from './provider-keys.ts';
 import { cancelAllOpenRequests, listOpenRequestSlugs } from './public-gate.ts';
 import { countSecurityScanCandidates } from './scan-candidates.ts';
 import {
@@ -1246,6 +1252,7 @@ export async function changeSecurityPolicy(
   const leavesDisabled = (policy: SecurityPolicy) =>
     policy.mode === 'disabled' && request.mode !== undefined && request.mode !== 'disabled';
   let entitlement: SecurityEntitlement | undefined;
+  let keyIds: SecurityProviderKeyIds | undefined;
   if (options.probe && !options.preview) {
     const before = await readStoredSecurityPolicy(db);
     if (leavesDisabled(before.policy) && request.expectedRevision === before.policy.revision) {
@@ -1261,8 +1268,9 @@ export async function changeSecurityPolicy(
       // revision check below still refuses the write if the policy changed meanwhile.
       const report = await options.probe();
       entitlement = report.entitlement;
+      keyIds = report.keyIds;
       if (!entitlement.ok) {
-        await recordSecurityEntitlement(db, entitlement);
+        await recordSecurityEntitlement(db, entitlement, keyIds);
         throw probeFailedError(report);
       }
     }
@@ -1282,6 +1290,16 @@ export async function changeSecurityPolicy(
     const current = stored.policy;
     if (request.expectedRevision !== undefined && request.expectedRevision !== current.revision) {
       throw new SecurityPolicyRevisionError(request.expectedRevision, current.revision);
+    }
+    if (entitlement && keyIds) {
+      // Key writes take the policy lock too: read under it, a key changed during the
+      // probe is seen here, and that host keeps the value the key write stored.
+      entitlement = entitlementForSavedKeys(
+        entitlement,
+        keyIds,
+        await securityProviderKeyIds(tx),
+        current.entitlement?.hosts,
+      );
     }
     const { next, changes } = proposeSecurityPolicyChange(stored, request, {
       userId: options.userId,
@@ -1385,11 +1403,14 @@ function withProbeLine(lines: ReadonlyArray<string>): Array<string> {
 
 /**
  * Stores a probe result (`entitlement`, revision + 1) under the policy lock. A stored
- * row that cannot be read is left alone: the operator saves the policy first.
+ * row that cannot be read is left alone: the operator saves the policy first. With the
+ * provider key ids the probe ran with, a host whose key changed meanwhile keeps its
+ * stored value, which the key write set (M33).
  */
 export async function recordSecurityEntitlement(
   db: Db,
   entitlement: SecurityEntitlement,
+  keyIds?: SecurityProviderKeyIds,
 ): Promise<Readonly<{ saved: boolean; revision: number | null }>> {
   return db.transaction(async (tx) => {
     await lockSecurityPolicy(tx);
@@ -1399,7 +1420,14 @@ export async function recordSecurityEntitlement(
     }
     const written = await replaceSecurityPolicy(tx, stored.policy, {
       ...stored.policy,
-      entitlement,
+      entitlement: keyIds
+        ? entitlementForSavedKeys(
+            entitlement,
+            keyIds,
+            await securityProviderKeyIds(tx),
+            stored.policy.entitlement?.hosts,
+          )
+        : entitlement,
     });
     return { saved: true, revision: written.revision };
   });
@@ -1459,6 +1487,7 @@ export async function securityStatus(db: DbOrTx, capability: boolean, now = Date
     fallbackToCf: policy.fallbackToCf,
     digest: policy.digest,
     webhook: await securityWebhookView(db),
+    providerKeys: await securityProviderKeysView(db),
     revision: policy.revision,
     probe: policy.entitlement
       ? { ...policy.entitlement, fresh: isSecurityEntitlementFresh(policy.entitlement, now) }

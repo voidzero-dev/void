@@ -2055,6 +2055,36 @@ describe('platform security arguments', () => {
     expect(() => parse('webhook', 'http://hooks.example.com/')).toThrow('https-url|off');
   });
 
+  it('routes a provider key change apart from the model policy (M33)', () => {
+    expect(parse('models', '--provider', 'anthropic', '--key-stdin')).toMatchObject({
+      method: 'POST',
+      action: 'provider-key',
+      path: '/security/provider-keys',
+      body: { host: 'anthropic', keyStdin: true },
+    });
+    expect(parse('models', '--provider', 'openai', '--remove-key')).toMatchObject({
+      action: 'provider-key',
+      path: '/security/provider-keys',
+      body: { host: 'openai', key: null },
+    });
+    expect(() => parse('models', '--provider', 'google', '--key-stdin')).toThrow(
+      '--provider must be openai or anthropic',
+    );
+    expect(() => parse('models', '--provider', 'openai')).toThrow('--key-stdin | --remove-key');
+    expect(() => parse('models', '--provider', 'openai', '--key-stdin', '--remove-key')).toThrow(
+      '--key-stdin | --remove-key',
+    );
+    expect(() => parse('models', '--key-stdin')).toThrow('--provider must be');
+    expect(() =>
+      parse('models', '--provider', 'openai', '--key-stdin', '--default', '@cf/zai-org/glm-5.3'),
+    ).toThrow('on its own');
+    // Without a provider flag, models still changes the policy.
+    expect(parse('models', '--default', '@cf/zai-org/glm-5.3')).toMatchObject({
+      action: 'models',
+      path: '/security/policy',
+    });
+  });
+
   it('reads --default as a switch for one project and as a value for the platform', () => {
     expect(parse('model', 'p1', '--default')).toMatchObject({
       path: '/projects/p1/security/model',
@@ -2230,6 +2260,59 @@ describe('platform security commands', () => {
     expect(out.errors()).toContain('Mode: disabled → public');
     expect(out.errors()).not.toContain('"policy"');
     expect(out.terminal()).toContain('Platform security policy completed.');
+  });
+
+  it('reads a provider key from stdin once, sends it for the preview and the change, never prints it', async () => {
+    const out = quiet();
+    const stdin = vi
+      .spyOn(process.stdin, Symbol.asyncIterator)
+      .mockImplementation(async function* () {
+        yield 'sk-ant-secret-value-123\n';
+        return undefined;
+      });
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.provider-key',
+        target: 'anthropic',
+        providerKey: null,
+        preview: ['Save: your own Anthropic key for anthropic/* scans.'],
+      },
+      {
+        ok: true,
+        host: 'anthropic',
+        providerKey: { setAt: '2026-11-20T00:00:00.000Z' },
+        probeNeeded: false,
+        message: 'Saved your own Anthropic key.',
+      },
+    ]);
+    await run('models', '--provider', 'anthropic', '--key-stdin', '--yes');
+    expect(stdin).toHaveBeenCalledTimes(1);
+    expect(calls.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      'POST /security/provider-keys',
+      'POST /security/provider-keys',
+    ]);
+    expect(calls[0]!.body).toEqual({
+      host: 'anthropic',
+      key: 'sk-ant-secret-value-123',
+      dryRun: true,
+    });
+    expect(calls[1]!.body).toEqual({ host: 'anthropic', key: 'sk-ant-secret-value-123' });
+    expect(out.errors()).toContain('Saved your own Anthropic key.');
+    expect(out.printed() + out.errors() + out.terminal()).not.toContain('sk-ant-secret-value-123');
+  });
+
+  it('refuses an empty or multi-word key on stdin before any request', async () => {
+    quiet();
+    vi.spyOn(process.stdin, Symbol.asyncIterator).mockImplementation(async function* () {
+      yield 'two words\n';
+      return undefined;
+    });
+    const calls = serve([]);
+    await expect(run('models', '--provider', 'openai', '--key-stdin', '--yes')).rejects.toThrow(
+      'one API key on one line',
+    );
+    expect(calls).toEqual([]);
   });
 
   it('applies nothing for --plan and needs --yes without a terminal', async () => {

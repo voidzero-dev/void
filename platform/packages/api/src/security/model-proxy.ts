@@ -15,6 +15,8 @@
  *   @cf/*        env.AI.run, gateway options set here
  *   anthropic/*  REST /ai/v1/messages  ┐ fixed cf-aig-* headers, the caller's dropped
  *   openai/*     REST /ai/v1/responses ┘ + access_programs {cyber: standard}
+ *     │ saved provider key (M33): the provider-native route through the AI binding,
+ *     │        the key added here (provider-keys.ts); metered and capped the same
  *     │ body:  only function / custom tools; no mcp_servers, container, background;
  *     │        anthropic-beta values on an allowlist (provider-run tools reach other
  *     │        hosts the container egress lock cannot see, spec T2)
@@ -35,6 +37,7 @@ import {
   securityModelCostNanoUsd,
   type SecurityModelHost,
   type SecurityModelId,
+  type SecurityThirdPartyHost,
 } from '@void/platform/security-models';
 import {
   SECURITY_ERRORS,
@@ -68,6 +71,12 @@ import { pokeSecurityScanScheduler } from './enqueue.ts';
 import { enqueueSecurityCapNotifications } from './notifications.ts';
 import { readSecurityPlanCapCell, securityPlanCapSql } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
+import {
+  callWithSecurityProviderKey,
+  loadSecurityProviderKey,
+  securityProviderModelName,
+  type SecurityProviderKey,
+} from './provider-keys.ts';
 import { projectSecuritySettings, securityScans } from './schema.ts';
 
 export const SECURITY_STOP_HEADER = 'x-void-scan-stop';
@@ -168,6 +177,11 @@ export type SecurityModelProxyDeps = Readonly<{
     }>,
   ): Promise<void>;
   scanTag(scanId: string): Promise<string>;
+  /**
+   * The saved provider key of a third-party host (M33), or `null` for Unified Billing.
+   * Throws when a saved key cannot be read. Absent: no host has a key.
+   */
+  providerKey?(host: SecurityThirdPartyHost): Promise<SecurityProviderKey | null>;
   gatewayId: string;
   accountId: string;
   apiToken: string;
@@ -206,6 +220,7 @@ export function securityModelProxyDeps(env: ApiEnv['Bindings']): SecurityModelPr
       }
     },
     scanTag: (scanId) => deriveSecurityScanTag(env.JWT_SECRET, scanId),
+    providerKey: (host) => loadSecurityProviderKey(env, db, host),
     gatewayId: env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID,
     accountId: env.CF_ACCOUNT_ID,
     apiToken: env.CF_API_TOKEN,
@@ -687,6 +702,8 @@ type CallPlan = Readonly<{
   body: Record<string, unknown>;
   stream: boolean;
   headers: Headers;
+  /** A saved provider key: the call goes to the provider-native route on it. */
+  ownKey: SecurityProviderKey | null;
 }>;
 
 /** What the upstream answered, before metering. */
@@ -912,11 +929,22 @@ async function callGateway(
   const path = plan.route === 'messages' ? 'messages' : 'responses';
   let response: Response;
   try {
-    response = await deps.fetch(`${CF_API_BASE}/${deps.accountId}/ai/v1/${path}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(plan.body),
-    });
+    if (plan.ownKey) {
+      // The provider-native route on the saved key: no Cloudflare token goes upstream.
+      headers.delete('authorization');
+      headers.delete('cf-aig-gateway-id');
+      response = await callWithSecurityProviderKey(deps.ai, deps.gatewayId, {
+        key: plan.ownKey,
+        body: plan.body,
+        headers: Object.fromEntries(headers),
+      });
+    } else {
+      response = await deps.fetch(`${CF_API_BASE}/${deps.accountId}/ai/v1/${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(plan.body),
+      });
+    }
   } catch (error) {
     return {
       kind: 'failed',
@@ -1019,6 +1047,27 @@ export async function handleSecurityModelRequest(
   if (!scan || !fence.ok) {
     return refuse(409, 'scan_not_running', 'This scan attempt is not running.');
   }
+  // The key before the policy: a removal clears the host's probe result in the same
+  // transaction, so a key read before it is still saved, and a policy read after it sees
+  // the cleared result. Read the other way round, a call could pass the check and then
+  // find no key, and run on Unified Billing credits the probe never checked.
+  let ownKey: SecurityProviderKey | null = null;
+  if (route !== 'chat' && deps.providerKey) {
+    try {
+      ownKey = await deps.providerKey(ROUTE_HOST[route] as SecurityThirdPartyHost);
+    } catch (error) {
+      // Never a quiet move to Unified Billing credits: the call fails, the runner retries.
+      console.error('[security-model-proxy] saved provider key unreadable', {
+        scanId,
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return failed(
+        'upstream',
+        refuse(503, 'upstream_failed', 'The platform could not read its saved provider key.'),
+      );
+    }
+  }
   const policy = await deps.readPolicy();
   const verdict = judgeSecurityModelCall({ route, bodyModel: body.model, scan, policy });
   if (!verdict.ok) {
@@ -1042,7 +1091,7 @@ export async function handleSecurityModelRequest(
     body.access_programs = { cyber: 'standard' };
   }
   if (route !== 'chat') {
-    body.model = gatewayModelName(model);
+    body.model = ownKey ? securityProviderModelName(model) : gatewayModelName(model);
   }
   const callOutput = clampCallOutput(route, body, limits.maxOutputTokens - scan.tokensOut);
   if (callOutput === null) {
@@ -1137,7 +1186,15 @@ export async function handleSecurityModelRequest(
   };
 
   const tag = await deps.scanTag(scanId);
-  const plan: CallPlan = { scanId, model, route, body, stream, headers: request.headers };
+  const plan: CallPlan = {
+    scanId,
+    model,
+    route,
+    body,
+    stream,
+    headers: request.headers,
+    ownKey,
+  };
   const upstream =
     route === 'chat' ? await callWorkersAi(deps, plan, tag) : await callGateway(deps, plan, tag);
 

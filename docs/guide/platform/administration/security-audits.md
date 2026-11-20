@@ -74,9 +74,22 @@ It sends the git-tracked files of the current folder, as they are on disk, to th
 
 A model run by a third party sees the project's changed code, the files it uses, and past findings and comments. The provider may keep request data for a limited time and may refuse security-looking code. A refused scan shows as refused, never as passed. For that reason code does not go to a third party until someone has accepted the notice: you accept it once for a third-party platform default, and a project owner or administrator accepts it once per project. Until then the project uses a Cloudflare model. To keep all code in Cloudflare, block the third-party models.
 
-A project that picks a third-party model also needs an AI permission on the platform's runtime token. See [Permissions to select for each token](/guide/platform/installation/credentials). The probe names a missing permission and lists models that cannot be picked yet. For these models the probe also copies a scanner image into the account's container registry. The first copy can take more than one probe run; until it is done, those models cannot be picked. When you block every model of one provider, the probe does not copy that provider's image.
+A project that picks a third-party model also needs an AI permission on the platform's runtime token, unless you [saved your own key](#own-provider-key) for that provider. See [Permissions to select for each token](/guide/platform/installation/credentials). The probe names a missing permission and lists models that cannot be picked yet. For these models the probe also copies a scanner image into the account's container registry. The first copy can take more than one probe run; until it is done, those models cannot be picked. When you block every model of one provider, the probe does not copy that provider's image.
 
 Project owners and administrators pick their project's model from the same list with `void project security model`.
+
+### Use your own provider key {#own-provider-key}
+
+By default, OpenAI and Anthropic models are paid from the platform account's [AI Gateway Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/) credits. To use your own API key and your own agreement with the provider instead, save the key:
+
+```sh
+printf "%s" "$ANTHROPIC_API_KEY" | void platform security models --provider anthropic --key-stdin --yes
+void platform security probe
+```
+
+Void makes a 1-token test call with the key and saves it only if the call works. The key is stored encrypted and never reaches the scanner; the platform adds it to each model call. Scans with that provider then bill to your key, still through AI Gateway. They are still metered at list price and count toward the [spending caps](#spending-caps). The provider notice and model blocking work the same way.
+
+Run the probe after saving a key if that provider's models could not be picked before. Saving a new key replaces the old one right away. `void platform security models --provider anthropic --remove-key` deletes it: that provider's scans go back to Unified Billing credits, and its models cannot be picked until the probe passes again. `void platform security status` shows which keys are saved and when, never the key itself.
 
 ## Findings
 

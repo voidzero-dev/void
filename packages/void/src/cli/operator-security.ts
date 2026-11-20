@@ -404,6 +404,62 @@ async function runWebhook(
   }
 }
 
+/** Longest provider key read from stdin; the server takes at most 1,024 characters. */
+const MAX_PROVIDER_KEY_INPUT = 8_192;
+
+/** Reads one provider API key piped on stdin. The key is never printed. */
+export async function readProviderKeyStdin(
+  stdin: NodeJS.ReadableStream & { isTTY?: boolean } = process.stdin,
+): Promise<string> {
+  if (stdin.isTTY) {
+    throw new OperatorClientError(
+      '--key-stdin needs the key piped on standard input, for example from your password manager.',
+      'invalid_key_input',
+    );
+  }
+  let input = '';
+  for await (const chunk of stdin) {
+    input += String(chunk);
+    if (input.length > MAX_PROVIDER_KEY_INPUT) {
+      throw new OperatorClientError('The key on standard input is too long.', 'invalid_key_input');
+    }
+  }
+  const key = input.trim();
+  if (!key || [...key].some((char) => char <= ' ')) {
+    throw new OperatorClientError(
+      'Standard input must hold one API key on one line.',
+      'invalid_key_input',
+    );
+  }
+  return key;
+}
+
+/** `models --provider <host> --key-stdin | --remove-key`: preview, confirm, apply. */
+async function runProviderKey(
+  client: OperatorClient,
+  origin: string,
+  args: OperatorArgs,
+  io: SecurityIo,
+): Promise<void> {
+  const { keyStdin, ...fields } = args.body;
+  // Read before any request, once for the preview and the change.
+  const body: Result =
+    keyStdin === true ? { ...fields, key: await readProviderKeyStdin() } : fields;
+  const preview = await previewOf(client, args, args.path, body);
+  if (!(await io.confirm(origin, preview, args))) {
+    return;
+  }
+  const result = await client.request(args.path, {
+    method: 'POST',
+    body,
+    timeoutMs: args.timeoutMs,
+  });
+  io.outputMutation(result, args);
+  if (!args.json && typeof result.message === 'string') {
+    process.stderr.write(`${dim(result.message)}\n`);
+  }
+}
+
 async function runModel(
   client: OperatorClient,
   origin: string,
@@ -451,6 +507,8 @@ async function runMutation(
       return changeWithRevision(client, origin, args, io, { ...args.body });
     case 'webhook':
       return runWebhook(client, origin, args, io);
+    case 'provider-key':
+      return runProviderKey(client, origin, args, io);
     case 'models': {
       const { acceptProviderNotice, ...fields } = args.body;
       const body: Result = { ...fields };

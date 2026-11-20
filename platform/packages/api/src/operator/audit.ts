@@ -377,6 +377,14 @@ function auditTarget(
       host,
     });
   }
+  if (segments[0] === 'security' && segments[1] === 'provider-keys' && segments.length === 2) {
+    // The host and set or removed; never the key.
+    return JSON.stringify({
+      installation: 'platform',
+      host: body.host === 'openai' || body.host === 'anthropic' ? body.host : undefined,
+      key: body.key === null ? 'removed' : 'set',
+    });
+  }
   if (segments[0] === 'security' && segments[1] === 'backfill' && segments.length === 2) {
     return JSON.stringify({ installation: 'platform', backfill: true });
   }

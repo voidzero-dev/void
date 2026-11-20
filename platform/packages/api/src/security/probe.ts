@@ -16,6 +16,8 @@
  * The controller keeps every engine image it already runs at the current release pin, so a
  * failed call or copy only decides whether the host can be picked, never what is deployed.
  * A third-party host can be picked only when its call and its engine image both pass.
+ * With a saved provider key (M33) the host's call goes out on that key, the way its scans
+ * do; the report keeps the key ids it ran with, so a key changed meanwhile is not covered.
  */
 import {
   getSecurityModel,
@@ -26,7 +28,7 @@ import {
 } from '@void/platform/security-models';
 import type { SecurityEntitlement, SecurityPolicy } from '@void/platform/security-policy';
 import { getPlatformCapabilities } from '../capabilities.ts';
-import type { Db } from '../db.ts';
+import type { Db, DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import { CF_API_BASE } from '../provisioning/cloudflare-api.ts';
@@ -50,6 +52,13 @@ import {
   recordSecurityEntitlement,
   securityFallbackModel,
 } from './policy.ts';
+import {
+  loadSecurityProviderKeySlots,
+  securityProviderKeySlotIds,
+  testSecurityProviderKey,
+  type SecurityProviderKeyIds,
+  type SecurityProviderKeySlots,
+} from './provider-keys.ts';
 import {
   securityImageEngineForHost,
   securityScannerImagePins,
@@ -96,6 +105,8 @@ export type SecurityProbeReport = Readonly<{
   checks: ReadonlyArray<SecurityProbeCheck>;
   entitlement: SecurityEntitlement;
   coldStartMs: number | null;
+  /** The saved provider key per host the probe ran with (`null`: Unified Billing). */
+  keyIds: SecurityProviderKeyIds;
 }>;
 
 export type SecurityProbeProvisioned = Readonly<{
@@ -116,7 +127,10 @@ export type SecurityProbeDeps = Readonly<{
     engine: ScannerEngine,
   ): Promise<SelfTestResult>;
   workersAi(model: SecurityModelId): Promise<void>;
+  /** The HTTP status of the host's 1-token call (on its saved key when there is one). */
   thirdParty(host: SecurityThirdPartyHost, model: SecurityModelId): Promise<number>;
+  /** The saved provider keys, read once before the checks. */
+  keys: SecurityProviderKeySlots;
 }>;
 
 export const SECURITY_PROBE_COPY = {
@@ -132,6 +146,12 @@ export const SECURITY_PROBE_COPY = {
     `No AI Gateway credits for ${host}/*. Load Unified Billing credits to let projects pick these models.`,
   creditsPermission: (host: SecurityThirdPartyHost) =>
     `The runtime API token cannot call AI Gateway for ${host}/*. Add Account → Workers AI → Read to the token, then run the probe again.`,
+  ownKeyRefused: (host: SecurityThirdPartyHost, status: number) =>
+    `The ${host} provider refused your saved key (HTTP ${status}). Save a working key: void platform security models --provider ${host} --key-stdin`,
+  ownKeyFailed: (host: SecurityThirdPartyHost, detail: string) =>
+    `The ${host}/* call on your saved key failed (${detail}). Check the key and its quota at the provider, then run void platform security probe again.`,
+  ownKeyUnreadable: (host: SecurityThirdPartyHost) =>
+    `The saved ${host} key cannot be read with the platform encryption keys. Save it again: void platform security models --provider ${host} --key-stdin`,
   email: 'Email is off. Owners will see findings only in the CLI and project page.',
   skipped: 'Not checked: security audits are not installed.',
   imageNoCredits: (host: SecurityThirdPartyHost) =>
@@ -275,8 +295,14 @@ function gatewayId(env: ApiEnv['Bindings']): string {
   return env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID;
 }
 
-/** The real calls: Cloudflare API, the dispatch gate, Workers AI and AI Gateway REST. */
-export function securityProbeDeps(env: ApiEnv['Bindings']): SecurityProbeDeps {
+/**
+ * The real calls: Cloudflare API, the dispatch gate, Workers AI and AI Gateway REST, or
+ * the provider-native route on a saved key (`keys`, read by `loadSecurityProviderKeySlots`).
+ */
+export function securityProbeDeps(
+  env: ApiEnv['Bindings'],
+  keys: SecurityProviderKeySlots,
+): SecurityProbeDeps {
   const target = securityScannerTarget(env);
   // No image is copied into an account that cannot run containers (checked once).
   let containers: Promise<void> | undefined;
@@ -340,7 +366,15 @@ export function securityProbeDeps(env: ApiEnv['Bindings']): SecurityProbeDeps {
         },
       );
     },
+    keys,
     async thirdParty(host, model) {
+      const slot = keys[host];
+      if (slot && 'unreadable' in slot) {
+        throw new Error('the saved key cannot be read');
+      }
+      if (slot) {
+        return testSecurityProviderKey(env.AI, gatewayId(env), slot, model);
+      }
       // The routes and bodies the engines use: Messages for anthropic/* (Engine A),
       // Responses with the cyber access program for openai/* (Engine C).
       const [path, body] =
@@ -381,6 +415,7 @@ const HOSTS: ReadonlyArray<SecurityThirdPartyHost> = ['openai', 'anthropic'];
 const CONTAINER_LABEL = 'Container + token permissions';
 
 const creditsLabel = (host: SecurityThirdPartyHost) => `Credits     ${host}/*`;
+const ownKeyLabel = (host: SecurityThirdPartyHost) => `Own key     ${host}/*`;
 const imageLabel = (host: SecurityThirdPartyHost) => `Image       ${host}/*`;
 
 type Timed<T> = Readonly<{ value?: T; error?: unknown; ms: number }>;
@@ -464,10 +499,12 @@ function imageCheck(input: {
 /** Runs checks 1–6. Never throws for a failing check; it reports it. */
 export async function runSecurityProbe(
   env: ApiEnv['Bindings'],
+  db: DbOrTx,
   policy: SecurityPolicy,
-  deps: SecurityProbeDeps = securityProbeDeps(env),
+  given?: SecurityProbeDeps,
   now: () => number = Date.now,
 ): Promise<SecurityProbeReport> {
+  const deps = given ?? securityProbeDeps(env, await loadSecurityProviderKeySlots(env, db));
   const probeId = generateId('pr');
   const capability = getPlatformCapabilities(env).securityAudits;
   const aiModel = securityProbeWorkersAiModel(policy);
@@ -654,23 +691,36 @@ export async function runSecurityProbe(
       const status = result.value;
       const ok = creditsOk[index]!;
       const permission = status === 401 || status === 403;
+      const detail = result.error !== undefined ? errorText(result.error) : `HTTP ${status}`;
+      const slot = deps.keys[host];
       checks.push({
         check: 5,
         name: 'credits',
-        label: creditsLabel(host),
+        label: slot ? ownKeyLabel(host) : creditsLabel(host),
         host,
         model: securityProbeHostModel(host),
         status: ok ? 'ok' : 'fail',
         ms: result.ms,
         ...(ok
           ? {}
-          : {
-              message: permission
-                ? SECURITY_PROBE_COPY.creditsPermission(host)
-                : SECURITY_PROBE_COPY.credits(host),
-              detail: result.error !== undefined ? errorText(result.error) : `HTTP ${status}`,
-              ...(permission ? {} : { link: SECURITY_CREDITS_LINK }),
-            }),
+          : slot
+            ? {
+                // A saved key: its own copy, never the credits or token one.
+                message:
+                  'unreadable' in slot
+                    ? SECURITY_PROBE_COPY.ownKeyUnreadable(host)
+                    : permission
+                      ? SECURITY_PROBE_COPY.ownKeyRefused(host, status ?? 0)
+                      : SECURITY_PROBE_COPY.ownKeyFailed(host, detail),
+                detail,
+              }
+            : {
+                message: permission
+                  ? SECURITY_PROBE_COPY.creditsPermission(host)
+                  : SECURITY_PROBE_COPY.credits(host),
+                detail,
+                ...(permission ? {} : { link: SECURITY_CREDITS_LINK }),
+              }),
       });
       checks.push(
         imageCheck({
@@ -708,7 +758,15 @@ export async function runSecurityProbe(
     missing,
     hosts: { openai: hostOk('openai'), anthropic: hostOk('anthropic') },
   };
-  return { probeId, checkedAt, ok: entitlement.ok, checks, entitlement, coldStartMs };
+  return {
+    probeId,
+    checkedAt,
+    ok: entitlement.ok,
+    checks,
+    entitlement,
+    coldStartMs,
+    keyIds: securityProviderKeySlotIds(deps.keys),
+  };
 }
 
 /** `POST /operator/v1/security/probe`: run and store. */
@@ -718,11 +776,11 @@ export async function probeAndRecord(
   deps?: SecurityProbeDeps,
 ): Promise<SecurityProbeReport & Readonly<{ saved: boolean; revision: number | null }>> {
   const stored = await readStoredSecurityPolicy(db);
-  const report = await runSecurityProbe(env, stored.policy, deps);
+  const report = await runSecurityProbe(env, db, stored.policy, deps);
   if (!getPlatformCapabilities(env).securityAudits) {
     // Capability off: nothing ran, nothing is stored.
     return { ...report, saved: false, revision: null };
   }
-  const saved = await recordSecurityEntitlement(db, report.entitlement);
+  const saved = await recordSecurityEntitlement(db, report.entitlement, report.keyIds);
   return { ...report, ...saved };
 }

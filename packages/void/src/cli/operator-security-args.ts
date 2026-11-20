@@ -34,16 +34,24 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
   {
     group: 'security',
     action: 'models',
-    description: 'Set the default model and block or unblock models',
+    description:
+      'Set the default model, block or unblock models, or save your own OpenAI or Anthropic key',
     path: '/security/policy',
+    usage: [
+      'void platform security models [--default <id>] [--block <id,…>] [--unblock <id,…>] [--accept-provider-notice] [options]',
+      'void platform security models --provider <openai|anthropic> (--key-stdin | --remove-key) [options]',
+    ],
     values: {
       default: 'Default model id',
       block: 'Comma-separated model ids to block',
       unblock: 'Comma-separated model ids to unblock',
+      provider: 'openai or anthropic: the provider whose key --key-stdin or --remove-key changes',
     },
     booleans: {
       'accept-provider-notice':
         'Accept the current provider notice (needed for a third-party model)',
+      'key-stdin': 'Read your own provider API key from stdin; scans with that provider bill to it',
+      'remove-key': 'Remove your saved provider key; scans go back to Unified Billing credits',
     },
     method: 'POST',
   },
@@ -321,7 +329,7 @@ export type SecurityParsed = {
  * Fills the request for one security command. The path keeps `:fid` when the command
  * takes finding ids, and the ids ride the body as `findingIds` for the runner, which
  * sends one request per id. Internal body keys (`findingIds`, `acceptProviderNotice`,
- * `projectCapsOn`) never reach the server.
+ * `projectCapsOn`, `keyStdin`) never reach the server.
  */
 export function applySecurityArgs(
   command: OperatorCommand,
@@ -457,9 +465,38 @@ export function applySecurityArgs(
       return;
     }
     case 'models': {
+      const provider = values.provider;
+      const keyStdin = flags.has('key-stdin');
+      const removeKey = flags.has('remove-key');
+      if (provider !== undefined || keyStdin || removeKey) {
+        // A provider key has its own route and is changed apart from the policy.
+        if (
+          values.default ||
+          values.block ||
+          values.unblock ||
+          flags.has('accept-provider-notice')
+        ) {
+          throw new Error(
+            'platform: Change a provider key on its own; set models in a separate command.',
+          );
+        }
+        if (provider !== 'openai' && provider !== 'anthropic') {
+          throw new Error('platform: --provider must be openai or anthropic.');
+        }
+        if (keyStdin === removeKey) {
+          throw new Error(
+            'platform: Usage: void platform security models --provider <openai|anthropic> (--key-stdin | --remove-key).',
+          );
+        }
+        parsed.action = 'provider-key';
+        parsed.path = '/security/provider-keys';
+        // `keyStdin` is internal: the runner reads the key and sends it as `key`.
+        parsed.body = keyStdin ? { host: provider, keyStdin: true } : { host: provider, key: null };
+        return;
+      }
       if (!values.default && !values.block && !values.unblock) {
         throw new Error(
-          'platform: Usage: void platform security models [--default <id>] [--block <id,…>] [--unblock <id,…>] [--accept-provider-notice].',
+          'platform: Usage: void platform security models [--default <id>] [--block <id,…>] [--unblock <id,…>] [--accept-provider-notice], or --provider <openai|anthropic> (--key-stdin | --remove-key).',
         );
       }
       parsed.body = {

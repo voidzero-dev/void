@@ -33,13 +33,14 @@ void platform security status
 
 ```sh
 void platform security models [--default <id>] [--block <id,...>] [--unblock <id,...>] [--accept-provider-notice] [--plan] [--yes]
+void platform security models --provider <openai|anthropic> (--key-stdin | --remove-key) [--plan] [--yes]
 void platform security limits [--concurrency <n>] [--scan-timeout <minutes>] [--plan] [--yes]
 void platform security budget [--platform-usd <n> | --platform-off] [--project-default-usd <n> | --project-caps <on|off>] [--plan] [--yes]
 void platform security budget --project <project-id> (--usd <n> | --clear) [--plan] [--yes]
 void platform security model <project-id> <model-id|--default> [--accept-provider-notice] [--plan] [--yes]
 ```
 
-A model run by a third party needs its provider notice accepted with `--accept-provider-notice`. `budget` with no flags shows the caps and this month's spend; with a cap flag it changes them. `--platform-usd` sets the platform cap and turns it on. `--project-default-usd` sets the default cap for every project and turns project caps on; `--project-caps off` removes it. `--project <id> --usd <n>` sets the most that project's admins may give it, and `--clear` removes that limit. A lower cap that a project admin set for their own project still applies. Without a project limit, a project gets the [plan cap](./platform-config.md#plans) of its owner's plan, then the default.
+A model run by a third party needs its provider notice accepted with `--accept-provider-notice`. `--provider <name> --key-stdin` saves your own OpenAI or Anthropic API key, read from standard input, for that provider's models; pipe it from your password manager and add `--yes`. Void makes a 1-token test call with the key and saves it only if the call works. `--remove-key` deletes it. See [Use your own provider key](/guide/platform/administration/security-audits#own-provider-key). `budget` with no flags shows the caps and this month's spend; with a cap flag it changes them. `--platform-usd` sets the platform cap and turns it on. `--project-default-usd` sets the default cap for every project and turns project caps on; `--project-caps off` removes it. `--project <id> --usd <n>` sets the most that project's admins may give it, and `--clear` removes that limit. A lower cap that a project admin set for their own project still applies. Without a project limit, a project gets the [plan cap](./platform-config.md#plans) of its owner's plan, then the default.
 
 ## Findings and scans {#findings-scans}
 

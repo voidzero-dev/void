@@ -187,7 +187,7 @@ app.post('/policy', async (context) => {
         preview: false,
         // Leaving `disabled` re-runs the probe (and provisions the scanner) first.
         probe: async () =>
-          runSecurityProbe(context.env, (await readStoredSecurityPolicy(db)).policy),
+          runSecurityProbe(context.env, db, (await readStoredSecurityPolicy(db)).policy),
       });
       if ('canceledRequests' in result && result.canceledRequests > 0) {
         await pokeSecurityScanScheduler(context.env);
