@@ -476,15 +476,61 @@ describe.each(['node', 'bun', 'deno'] as const)(
     });
 
     it.skipIf(spawn.sync(target, ['--version']).status !== 0)(
-      'renders installed WASM without app-installed Takumi, even after moving the output',
+      'renders bundled WASM without app-installed Takumi, even after moving the output',
       async () => {
         const root = createApp(
-          { 'routes/api/image.ts': IMAGE_ROUTE },
+          {
+            'package.json': JSON.stringify({
+              name: 'image-versions',
+              private: true,
+              type: 'module',
+              dependencies: {
+                void: 'workspace:*',
+                '@void/image-renderer-takumi': 'workspace:*',
+                'card-library': '1.0.0',
+              },
+            }),
+            'routes/api/image.ts': IMAGE_ROUTE,
+            'routes/api/library.ts': IMAGE_ROUTE.replace(
+              "from '@void/image-renderer-takumi'",
+              "from 'card-library'",
+            ),
+            'node_modules/card-library/package.json': JSON.stringify({
+              name: 'card-library',
+              version: '1.0.0',
+              type: 'module',
+              exports: './index.mjs',
+              dependencies: { '@void/image-renderer-takumi': '0.0.0-test' },
+            }),
+            'node_modules/card-library/index.mjs':
+              "export { takumiRenderer } from '@void/image-renderer-takumi';",
+            'node_modules/card-library/node_modules/@void/image-renderer-takumi/package.json':
+              JSON.stringify({
+                name: '@void/image-renderer-takumi',
+                version: '0.0.0-test',
+                type: 'module',
+                exports: './index.mjs',
+                dependencies: { 'takumi-js': '~2.21.0' },
+              }),
+            // A distinct installed version with observable behavior: it always
+            // uses Geist, while the app's renderer defaults to Roboto.
+            'node_modules/card-library/node_modules/@void/image-renderer-takumi/index.mjs': `
+import { takumiRenderer as render } from './dist/index.mjs';
+export const takumiRenderer = (input, options) => render(input, { ...options, font: 'Geist' });
+`,
+          },
           {
             hono: 'packages/void/node_modules/hono',
             '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server',
+            'card-library/node_modules/@void/image-renderer-takumi/node_modules/takumi-js':
+              'packages/image-renderer-takumi/node_modules/takumi-js',
           },
           `{ target: '${target}' }`,
+        );
+        cpSync(
+          join(repository, 'packages/image-renderer-takumi/dist'),
+          join(root, 'node_modules/card-library/node_modules/@void/image-renderer-takumi/dist'),
+          { recursive: true },
         );
         build(root);
         expect(builtFiles(root).filter((file) => file.endsWith('.node'))).toEqual([]);
@@ -492,20 +538,14 @@ describe.each(['node', 'bun', 'deno'] as const)(
           .filter((file) => file.endsWith('.js'))
           .map((file) => readFileSync(join(root, 'dist/ssr', file), 'utf8'))
           .join('\n');
-        expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(0);
-        expect(code).not.toContain('@takumi-rs/core');
+        expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(1);
         expect(code).not.toMatch(/^import .* from ["']takumi-js/m);
-        expect(code).toContain('@void/image-renderer-takumi');
+        expect(code).not.toMatch(/from ["']@void\/image-renderer-takumi["']/);
         const relocated = mkdtempSync(join(tmpdir(), 'void-image-output-'));
         fixtures.push(relocated);
         cpSync(join(root, 'dist'), join(relocated, 'dist'), { recursive: true });
-        // Install the image package with its own transitive dependencies, not app-owned Takumi.
-        mkdirSync(join(relocated, 'node_modules/@void'), { recursive: true });
-        symlinkSync(
-          realpathSync(join(repository, 'packages/image-renderer-takumi')),
-          join(relocated, 'node_modules/@void/image-renderer-takumi'),
-          process.platform === 'win32' ? 'junction' : 'dir',
-        );
+        // Only the HTTP server dependencies remain installed; the renderer and
+        // its WASM must travel with dist, independently of the source checkout.
         mkdirSync(join(relocated, 'node_modules/@hono'), { recursive: true });
         symlinkSync(
           realpathSync(join(repository, 'playground/node-app/node_modules/@hono/node-server')),
@@ -524,7 +564,6 @@ describe.each(['node', 'bun', 'deno'] as const)(
             dependencies: {
               hono: '*',
               '@hono/node-server': '*',
-              '@void/image-renderer-takumi': '*',
             },
           }),
         );
@@ -538,17 +577,25 @@ describe.each(['node', 'bun', 'deno'] as const)(
           return child;
         }, 20_000);
         await expectFontSelection((query) => fetch(`${server.base}/api/image${query}`));
+        const library = await expectImage(await fetch(`${server.base}/api/library`), CACHE_HEADER);
+        const appRoboto = await expectImage(await fetch(`${server.base}/api/image`), CACHE_HEADER);
+        const appGeist = await expectImage(
+          await fetch(`${server.base}/api/image?font=Geist`),
+          CACHE_HEADER,
+        );
+        expect(library).toEqual(appGeist);
+        expect(library).not.toEqual(appRoboto);
       },
     );
 
-    it.runIf(target === 'node')(
+    it.skipIf(target === 'deno' || spawn.sync(target, ['--version']).status !== 0)(
       'keeps an app-owned incompatible Takumi separate in build and dev',
       async () => {
         const root = createApp(
           {
             'routes/api/image.ts': IMAGE_ROUTE,
             'routes/api/renderer.ts':
-              "import { renderer } from 'takumi-js'; export const GET = () => renderer;",
+              "import { renderer } from 'takumi-js'; import { wasm } from '@takumi-rs/wasm'; export const GET = () => `${renderer}:${wasm}`;",
             'node_modules/takumi-js/package.json': JSON.stringify({
               name: 'takumi-js',
               version: '3.0.0',
@@ -556,19 +603,44 @@ describe.each(['node', 'bun', 'deno'] as const)(
               exports: './index.mjs',
             }),
             'node_modules/takumi-js/index.mjs': "export const renderer = 'app-owned';",
+            'node_modules/@takumi-rs/wasm/package.json': JSON.stringify({
+              name: '@takumi-rs/wasm',
+              version: '3.0.0',
+              type: 'module',
+              exports: './index.mjs',
+            }),
+            'node_modules/@takumi-rs/wasm/index.mjs': "export const wasm = 'app-owned-wasm';",
           },
-          { '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server' },
-          `{ target: 'node' }`,
+          {
+            hono: 'packages/void/node_modules/hono',
+            '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server',
+          },
+          `{ target: '${target}' }`,
         );
         build(root);
         const code = builtFiles(root)
           .filter((file) => file.endsWith('.js'))
           .map((file) => readFileSync(join(root, 'dist/ssr', file), 'utf8'))
           .join('\n');
-        expect(code).toMatch(/^import .* from ["']takumi-js/m);
+        expect(code).not.toMatch(/^import .* from ["']takumi-js/m);
         if (child) {
           await killChild(child);
         }
+        const built = await startServer((port) => {
+          child = spawn(target, [join(root, 'dist/ssr/index.js')], {
+            cwd: repository,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            env: { ...userEnv, PORT: String(port) },
+          });
+          return child;
+        }, 20_000);
+        const builtImage = await fetch(`${built.base}/api/image`);
+        expect(builtImage.status, built.output()).toBe(200);
+        await expectImage(builtImage, CACHE_HEADER);
+        expect(await (await fetch(`${built.base}/api/renderer`)).text()).toBe(
+          'app-owned:app-owned-wasm',
+        );
+        await killChild(child!);
         const server = await startServer((port) => {
           child = spawn(
             'vp',
@@ -584,7 +656,7 @@ describe.each(['node', 'bun', 'deno'] as const)(
         await expectImage(await fetch(`${server.base}/api/image`), 'no-store');
         const response = await fetch(`${server.base}/api/renderer`);
         expect(response.status, server.output()).toBe(200);
-        expect(await response.text()).toBe('app-owned');
+        expect(await response.text()).toBe('app-owned:app-owned-wasm');
       },
     );
   },

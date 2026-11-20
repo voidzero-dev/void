@@ -265,7 +265,7 @@ describe('OgImageResponse on the Node.js target', () => {
     }
   });
 
-  it('renders installed WASM without app-installed Takumi', async () => {
+  it('renders bundled WASM without app-installed Takumi', async () => {
     const root = createApp(
       { 'routes/api/og.ts': OG_ROUTE },
       {
@@ -275,7 +275,7 @@ describe('OgImageResponse on the Node.js target', () => {
     );
     build(root);
     expect(builtFiles(root).filter((file) => file.endsWith('.node'))).toEqual([]);
-    expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(0);
+    expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(1);
     const server = await startServer((port) => {
       child = spawn('node', ['dist/ssr/index.js'], {
         cwd: root,
