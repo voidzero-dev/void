@@ -17,6 +17,9 @@ import type {
   ProjectSecurityStatus,
   SecurityPublicRequest,
   SecurityBudgetChange,
+  SecurityCheckCreated,
+  SecurityCheckPreview,
+  SecurityCheckView,
   SecurityFindingChange,
   SecurityFindingDetail,
   SecurityFindingList,
@@ -184,7 +187,7 @@ export function securityApiError(error: unknown): unknown {
     );
   }
   const message = platformErrorMessage(parsed);
-  if (message && [400, 409, 422, 501, 503].includes(error.status)) {
+  if (message && [400, 409, 413, 422, 501, 503].includes(error.status)) {
     error.message = message;
   }
   return error;
@@ -1109,6 +1112,83 @@ export class PlatformClient {
       body: options.clientAssets ? { clientAssets: true } : {},
       permission: 'settings',
     });
+  }
+
+  /**
+   * M32 local check. A platform without the check routes answers a plain 404: it is
+   * named as too old, not as one without security audits.
+   */
+  private async securityCheck<T>(
+    path: string,
+    action: string,
+    options: { method?: string; body?: unknown },
+  ): Promise<T> {
+    try {
+      return await this.json<T>(`${this.baseUrl}/projects/${path}`, action, {
+        ...options,
+        permission: 'deploy',
+      });
+    } catch (error) {
+      if (
+        error instanceof PlatformApiError &&
+        error.status === 404 &&
+        parsePlatformErrorBody(error.body) === null
+      ) {
+        throw new Error(
+          'project: This Void platform cannot run local security checks yet. Ask its administrator to upgrade with `void platform upgrade`.',
+        );
+      }
+      throw securityApiError(error);
+    }
+  }
+
+  /** What a local check would run (model, provider notice, most it can cost). Sends no code. */
+  async previewProjectSecurityCheck(
+    projectId: string,
+    tree: { files: number; bytes: number; size: number; md5: string },
+  ): Promise<SecurityCheckPreview> {
+    return this.securityCheck(
+      `${projectId}/security/checks`,
+      'Failed to prepare the security check',
+      {
+        method: 'POST',
+        body: { dryRun: true, ...tree },
+      },
+    );
+  }
+
+  /** Stores the check and returns the one presigned upload for its archive. */
+  async createProjectSecurityCheck(
+    projectId: string,
+    tree: { files: number; bytes: number; size: number; md5: string },
+  ): Promise<SecurityCheckCreated> {
+    return this.securityCheck(
+      `${projectId}/security/checks`,
+      'Failed to start the security check',
+      {
+        method: 'POST',
+        body: tree,
+      },
+    );
+  }
+
+  async startProjectSecurityCheck(
+    projectId: string,
+    checkId: string,
+  ): Promise<{ checkId: string; status: string }> {
+    return this.securityCheck(
+      `${projectId}/security/checks/${encodeURIComponent(checkId)}/start`,
+      'Failed to start the security check',
+      { method: 'POST', body: {} },
+    );
+  }
+
+  async getProjectSecurityCheck(projectId: string, checkId: string): Promise<SecurityCheckView> {
+    return this.securityCheck(
+      `${projectId}/security/checks/${encodeURIComponent(checkId)}`,
+      'Failed to read the security check',
+      {},
+    );
   }
 
   async setProjectSecurityModel(

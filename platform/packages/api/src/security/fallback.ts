@@ -83,7 +83,8 @@ export async function queueSecurityFallbackScans(
   const project =
     options.projectId === undefined ? sql`` : sql`AND s.project_id = ${options.projectId}`;
   // The project's newest scan, if it is a third-party failure of the live deployment
-  // (the same rule as `securityScanWantsFallback`).
+  // (the same rule as `securityScanWantsFallback`). A local check (M32) scans no
+  // deployment, so a newer one never hides the deploy scan's failure.
   const result = await db.execute(sql`
     SELECT latest.project_id, latest.id, latest.trigger, latest.coverage_notes,
            (SELECT r.id FROM security_public_requests r
@@ -95,14 +96,14 @@ export async function queueSecurityFallbackScans(
              s.project_id, s.id, s.status, s.status_reason, s.trigger, s.model_used,
              s.finished_at, s.deployment_id, s.coverage_notes
       FROM security_scans s
-      WHERE TRUE ${project}
+      WHERE s.trigger <> 'local' ${project}
       ORDER BY s.project_id, s.created_at DESC, s.id DESC
     ) latest
     JOIN projects p ON p.id = latest.project_id AND p.active_deployment_id = latest.deployment_id
     WHERE latest.finished_at > ${since}::timestamptz
       AND (latest.status IN ('refused', 'timed_out')
            OR (latest.status = 'failed' AND latest.status_reason = 'bad_output'))
-      AND latest.trigger NOT IN ('fallback', 'local')
+      AND latest.trigger <> 'fallback'
       AND latest.model_used IS NOT NULL AND latest.model_used NOT LIKE '@cf/%'
     ORDER BY latest.finished_at ASC
     LIMIT 50`);

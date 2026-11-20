@@ -3,6 +3,7 @@
  *
  *   rescan (operator or project) ────────────────────────────► T3 full   (edge #43)
  *   sweep (scheduled, M25) ──────────────────────────────────► T3 full, `standard` profile
+ *   local check of a working tree (M32) ─────────────────────► T3 full, never a base
  *   fallback (M26) of a rescan or a sweep ───────────────────► T3 full, as the failed scan
  *   no succeeded scan yet ───────────────────────────────────► T3 full (first scan)
  *   base snapshot gone ──────────────────────────────────────► T3 full (no usable base)
@@ -22,7 +23,9 @@ export type SecurityFullReason =
   | 'no_usable_base'
   | 'rescan'
   | 'sweep'
-  | 'gate_recheck';
+  | 'gate_recheck'
+  /** M32: a local check of a working tree; it has no deployment, so no base. */
+  | 'local';
 
 /** The full reasons a fallback scan carries over from the scan it re-runs. */
 export type SecurityFallbackFullReason = Extract<SecurityFullReason, 'rescan' | 'sweep'>;
@@ -70,6 +73,9 @@ export function chooseSecurityTier(
   if (input.trigger === 'sweep') {
     return { tier: 'full', fullReason: 'sweep' };
   }
+  if (input.trigger === 'local') {
+    return { tier: 'full', fullReason: 'local' };
+  }
   if (input.trigger === 'fallback' && input.fallbackOf) {
     return { tier: 'full', fullReason: input.fallbackOf };
   }
@@ -92,6 +98,7 @@ export const SECURITY_FULL_REASON_NOTES = {
   rescan: 'rescan',
   sweep: 'sweep',
   gate_recheck: 'gate-recheck',
+  local: 'local-check',
 } as const satisfies Record<SecurityFullReason, string>;
 
 export type SecurityCoverageRow = Readonly<{
@@ -125,7 +132,9 @@ export function securityCoverageLabel(row: SecurityCoverageRow): string | null {
           ? 'sweep'
           : notes.includes(SECURITY_FULL_REASON_NOTES.gate_recheck)
             ? 're-check'
-            : 'no usable base';
+            : notes.includes(SECURITY_FULL_REASON_NOTES.local)
+              ? 'local check'
+              : 'no usable base';
     label = `full scan (${reason})`;
   } else {
     const name = row.tier === 'source_diff' ? 'source diff' : 'built-output diff';

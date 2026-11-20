@@ -9,6 +9,7 @@
  *   ─ ended rows still holding a reserve → released
  *   ─ runtime copies of attempts no longer running → deleted (M30)
  *   ─ raw output sweep (30 d)       ─ daily probe (entitlement older than 24 h)
+ *   ─ local checks (M32): stale uploads canceled, ended trees deleted
  *                                   ─ scheduled full sweeps (policy `sweeps.on`)
  *                                   ─ fallback backstop (policy `fallbackToCf`)
  *   ─ failure-streak emails, weekly digest (policy `digest`), M26
@@ -31,6 +32,7 @@ import { queueSecurityDigest, queueSecurityStreakNotifications } from './alerts.
 import { pokeSecurityScanScheduler } from './enqueue.ts';
 import { queueExposureCatchUpScans } from './exposure.ts';
 import { queueSecurityFallbackScans } from './fallback.ts';
+import { sweepSecurityLocalChecks } from './local-check.ts';
 import { hasPendingSecurityNotifications } from './notifications.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import { probeAndRecord } from './probe.ts';
@@ -93,6 +95,8 @@ export type SecurityMaintenanceReport = Readonly<{
   fallbacksQueued: number;
   alertsQueued: number;
   rawSwept: number;
+  /** Uploaded trees of ended local checks deleted (M32). */
+  localTreesDeleted: number;
   scanRowsDeleted: number;
   requestsDeleted: number;
   probed: boolean;
@@ -189,6 +193,9 @@ export async function runSecurityMaintenance(
   const rawSwept = await step('raw output sweep', 0, () =>
     sweepSecurityRawOutputs(db, env.STATIC_ASSETS_R2, env.ROUTING, now),
   );
+  const localTreesDeleted = await step('local checks', 0, () =>
+    sweepSecurityLocalChecks(db, env.STATIC_ASSETS_R2, now),
+  );
   const scanRowsDeleted = await step('scan retention', 0, () =>
     deleteOldSecurityScanRows(db, env.ROUTING, now),
   );
@@ -205,6 +212,7 @@ export async function runSecurityMaintenance(
     fallbacksQueued,
     alertsQueued,
     rawSwept,
+    localTreesDeleted,
     scanRowsDeleted,
     requestsDeleted,
     probed,
@@ -274,9 +282,10 @@ export async function sweepSecurityRawOutputs(
 }
 
 /**
- * Scan rows (spec §14): a row goes once it is outside its project's newest 200 or
- * older than 180 days, at most 500 a run. Never a waiting or running scan, a
- * project's current base (its latest succeeded scan) or an open request's gate scan.
+ * Scan rows (spec §14): a row goes once it is outside its project's newest 200 (local
+ * checks and deployment scans counted apart) or older than 180 days, at most 500 a
+ * run. Never a waiting or running scan, a project's current base (its latest
+ * succeeded scan of a deployment) or an open request's gate scan.
  * Only rows the raw output sweep has passed, so a deleted row never leaves its raw
  * output behind.
  */
@@ -294,7 +303,10 @@ export async function deleteOldSecurityScanRows(
     DELETE FROM security_scans WHERE id IN (
       SELECT ranked.id FROM (
         SELECT id, finished_at, status,
-          row_number() OVER (PARTITION BY project_id ORDER BY created_at DESC, id DESC) AS rank
+          -- Local checks (M32) are ranked apart: they never push deployment scans out.
+          row_number() OVER (
+            PARTITION BY project_id, (trigger = 'local') ORDER BY created_at DESC, id DESC
+          ) AS rank
         FROM security_scans
       ) ranked
       WHERE ranked.status NOT IN ('pending_input', 'queued', 'running')
@@ -303,7 +315,7 @@ export async function deleteOldSecurityScanRows(
         AND (ranked.rank > ${SECURITY_SCAN_ROWS_KEPT} OR ranked.finished_at < ${maxAge}::timestamptz)
         AND ranked.id NOT IN (
           SELECT DISTINCT ON (project_id) id FROM security_scans
-          WHERE status = 'succeeded'
+          WHERE status = 'succeeded' AND deployment_id IS NOT NULL
           ORDER BY project_id, finished_at DESC NULLS LAST, id DESC
         )
         AND NOT EXISTS (

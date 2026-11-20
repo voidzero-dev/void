@@ -12,7 +12,7 @@ import {
   type SecurityModelId,
 } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
-import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import { hasProjectCapability } from '../project-access.ts';
 import { deployments, projectZeroTrust } from '../schema.ts';
@@ -617,16 +617,23 @@ export async function projectSecurityStatus(input: SecurityStatusInput) {
       .select({ oldest: sql<string | null>`min(${securityFindings.created_at})` })
       .from(securityFindings)
       .where(and(eq(securityFindings.project_id, project.id), urgentCondition)),
+    // The last scan of what the project serves: a local check (M32) is a separate result.
     db
       .select(scanColumns)
       .from(securityScans)
-      .where(eq(securityScans.project_id, project.id))
+      .where(and(eq(securityScans.project_id, project.id), ne(securityScans.trigger, 'local')))
       .orderBy(desc(securityScans.created_at), desc(securityScans.id))
       .limit(1),
     db
       .select(scanColumns)
       .from(securityScans)
-      .where(and(eq(securityScans.project_id, project.id), eq(securityScans.status, 'succeeded')))
+      .where(
+        and(
+          eq(securityScans.project_id, project.id),
+          eq(securityScans.status, 'succeeded'),
+          ne(securityScans.trigger, 'local'),
+        ),
+      )
       .orderBy(desc(securityScans.finished_at), desc(securityScans.id))
       .limit(1),
   ]);

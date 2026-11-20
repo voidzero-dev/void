@@ -22,6 +22,7 @@ export default defineConfig({
       'src/browser-page.ts',
       'src/security-models.ts',
       'src/security-policy.ts',
+      'src/security-local-check.ts',
     ],
     format: 'esm',
     dts: true,

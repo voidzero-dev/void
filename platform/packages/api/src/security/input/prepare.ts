@@ -31,10 +31,8 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
 import type { Db } from '../../db.ts';
-import { getProjectSecrets } from '../../db/secrets.ts';
 import { parseManifest } from '../../deploy/serving-assets.ts';
 import type { ApiEnv } from '../../env.ts';
-import { decryptProjectSecret } from '../../project-secrets.ts';
 import { loadStoredWorkerModules } from '../../provisioning/durable-objects.ts';
 import { deploymentOperations, deployments } from '../../schema.ts';
 import { WorkerModuleIntegrityError } from '../../worker-upload.ts';
@@ -48,12 +46,7 @@ import { ingestSecurityScanResult, serializeSecurityScanScope } from '../ingest.
 import { securityRawOutputPrefix } from '../maintenance.ts';
 import { endSecurityScanAttempt } from '../queue.ts';
 import { securityRuntimeCopyWanted } from '../runtime-copy-plan.ts';
-import {
-  securityFindingEvents,
-  securityFindings,
-  securityScans,
-  type SecurityScanTrigger,
-} from '../schema.ts';
+import { securityScans, type SecurityScanTrigger } from '../schema.ts';
 import { parseSecurityBacklog, serializeSecurityBacklog } from './backlog.ts';
 import {
   buildSecurityScanInput,
@@ -66,11 +59,9 @@ import {
   type SecuritySourceDiffInput,
 } from './build.ts';
 import { looksBinary, securityInputFilter } from './filters.ts';
-import {
-  SECURITY_MEMORY_HISTORY_MAX_FILES,
-  type SecurityMemoryEvent,
-  type SecurityMemoryFinding,
-} from './memory.ts';
+import { prepareLocalCheckInputFiles } from './local.ts';
+import { SECURITY_MEMORY_HISTORY_MAX_FILES } from './memory.ts';
+import { loadSecurityMemory, loadSecuritySecrets } from './project-data.ts';
 import { createSecurityRedactor, type SecuritySecret, type SecuritySecretHit } from './redact.ts';
 import { loadSecuritySourceDiff, type SecuritySourceDiffEnv } from './t1-github.ts';
 import {
@@ -216,7 +207,12 @@ export function parseSnapshotModules(text: string | null): Array<SnapshotModule>
   }
 }
 
-async function loadContext(db: Db, scanId: string, attempt: number): Promise<ScanContext | null> {
+/** `local` for a running local check (M32): it has no deployment and its own input. */
+async function loadContext(
+  db: Db,
+  scanId: string,
+  attempt: number,
+): Promise<ScanContext | 'local' | null> {
   const [row] = await db
     .select({
       id: securityScans.id,
@@ -240,6 +236,9 @@ async function loadContext(db: Db, scanId: string, attempt: number): Promise<Sca
     .leftJoin(deployments, eq(deployments.id, securityScans.deployment_id))
     .where(eq(securityScans.id, scanId))
     .limit(1);
+  if (row?.trigger === 'local' && row.status === 'running' && row.attempt === attempt) {
+    return 'local';
+  }
   if (
     !row ||
     row.status !== 'running' ||
@@ -574,69 +573,6 @@ async function readAsset(
   return stored ? decoder.decode(stored) : null;
 }
 
-async function loadSecrets(
-  env: SecurityInputEnv,
-  db: Db,
-  projectId: string,
-): Promise<Array<SecuritySecret>> {
-  const rows = await getProjectSecrets(db, projectId);
-  const out: Array<SecuritySecret> = [];
-  for (const row of rows) {
-    // A secret that cannot be read cannot be redacted: the input is not built.
-    out.push({ name: row.name, value: await decryptProjectSecret(env, projectId, row) });
-  }
-  return out;
-}
-
-async function loadMemory(
-  db: Db,
-  projectId: string,
-): Promise<{ findings: Array<SecurityMemoryFinding>; events: Array<SecurityMemoryEvent> }> {
-  const findings = await db
-    .select()
-    .from(securityFindings)
-    .where(eq(securityFindings.project_id, projectId));
-  const events = await db
-    .select({
-      findingId: securityFindingEvents.finding_id,
-      action: securityFindingEvents.action,
-      actorKind: securityFindingEvents.actor_kind,
-      actorRole: securityFindingEvents.actor_role,
-      resolution: securityFindingEvents.resolution,
-      comment: securityFindingEvents.comment,
-      scanId: securityFindingEvents.scan_id,
-      createdAt: securityFindingEvents.created_at,
-    })
-    .from(securityFindingEvents)
-    .where(eq(securityFindingEvents.project_id, projectId));
-  return {
-    findings: findings.map((row) => ({
-      id: row.id,
-      number: row.number,
-      fingerprintKey: row.fingerprint_key,
-      verdict: row.verdict,
-      severity: row.severity_override ?? row.severity,
-      title: row.title,
-      category: row.category,
-      cwe: row.cwe,
-      file: row.file,
-      lineStart: row.line_start,
-      lineEnd: row.line_end,
-      sinkPath: row.sink_path,
-      detail: row.detail,
-      source: row.source,
-      state: row.state,
-      resolution: row.resolution,
-      resolvedAt: row.resolved_at,
-      resolvedSinkHash: row.resolved_sink_hash,
-      notSeenInLatest: row.not_seen_in_latest,
-      reopenCount: row.reopen_count,
-      createdAt: row.created_at,
-    })),
-    events,
-  };
-}
-
 /**
  * The text assets this scan reads: backlog ones first (they may be unchanged since),
  * then changed ones, at most 400 files and 16 MB. The rest, and any that storage no
@@ -834,6 +770,10 @@ export async function prepareSecurityScanInputFiles(
   attempt: number,
 ): Promise<SecurityPreparedInput | null> {
   const scan = await loadContext(db, scanId, attempt);
+  if (scan === 'local') {
+    // M32: a working tree the CLI uploaded, not a deployment.
+    return prepareLocalCheckInputFiles(env, db, scanId, attempt);
+  }
   if (!scan) {
     return null;
   }
@@ -886,7 +826,7 @@ export async function prepareSecurityScanInputFiles(
     diffBase?.assets ?? null,
     backlog,
   );
-  const memory = await loadMemory(db, scan.projectId);
+  const memory = await loadSecurityMemory(db, scan.projectId);
   const lastSucceededAt = base?.finishedAt ?? null;
   const recheckFiles = memory.findings
     .filter(
@@ -942,7 +882,7 @@ export async function prepareSecurityScanInputFiles(
     }
   }
 
-  const secrets = await loadSecrets(env, db, scan.projectId);
+  const secrets = await loadSecuritySecrets(env, db, scan.projectId);
   // M31: text assets too big to read are still searched for the stored secret values.
   const large = await searchLargeAssets(
     env,

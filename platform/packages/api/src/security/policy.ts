@@ -1003,7 +1003,7 @@ async function countScans(
   return row?.total ?? 0;
 }
 
-const noSucceededScan = sql`NOT EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.status = 'succeeded')`;
+const noSucceededScan = sql`NOT EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.status = 'succeeded' AND s.deployment_id IS NOT NULL)`;
 const openUrgentFinding = sql`EXISTS (SELECT 1 FROM security_findings f WHERE f.project_id = ${projects.id} AND f.verdict = 'confirmed' AND COALESCE(f.severity_override, f.severity) IN ('critical', 'high') AND f.state = 'open')`;
 
 /** Counts behind the preview lines. Only the counts a change needs are read. */

@@ -1862,6 +1862,74 @@ presigned R2 URLs), scan `trigger=local`, `deployment_id` null. Results are a se
 short-lived result: they never open, reopen, prove or hold anything (R13). CLI polls and
 prints. Tests: `security-local-check.test.ts`, `project-security-check-command.test.ts`.
 
+As built (M32):
+
+```
+CLI: git ls-files ─► securityInputFilter ─► tar (tree/) + gzip ─► POST checks {dryRun} ─► confirm
+     ─► POST checks (row: local, no deployment, pending_input; presigned PUT, md5 + length signed)
+     ─► PUT R2 scans/{scan}/local-tree.tar.gz ─► POST checks/:id/start (head ok ─► queued, poke)
+     ─► GET checks/:id every 5 s, up to 60 min
+API: claim as any scan ─► input/local.ts (walk tar, full scan, reason local) ─► runner
+     ─► ingest: R2 local-result.{attempt}.json ─► storeLocalOutcome (row + reserve only)
+     ─► tree deleted
+```
+
+- Shared code: the path filter moved to `packages/platform/src/security-local-check.ts`
+  (`@void/platform/security-local-check`, new subpath) with the limits (10,000 files,
+  32 MB code, 32 MB archive) and a small ustar writer. `input/filters.ts` re-exports the
+  filter, so the CLI and every scan drop the same files.
+- API: `security/local-check.ts` (parse, preview, create, start, read, hourly sweep),
+  `security/input/local.ts` (input), `security/input/project-data.ts` (secrets and
+  memory loaders moved out of `prepare.ts` so both inputs share them). Routes in
+  `routes/project-security.ts`, all `deploy`: `POST /checks` (`dryRun` preview: model,
+  provider notice lines, worst-case cost, budget), `POST /checks/:id/start`,
+  `GET /checks/:id`. The plan named one route; the upload needs a second step (start after
+  the PUT) and a read for polling.
+- Scope as a rescan: the policy must apply to the project (so `public` mode is kept), the owner
+  not suspended, a model must resolve. One queued or running local check per project (409
+  `security_check_in_progress`); a new check cancels one still waiting for its upload
+  (`upload_replaced`: it never ran and holds no reserve). Create re-reads the policy under
+  the project lock and the shared policy lock (same order as a deploy enqueue), so a
+  check never outlives a policy Off; start does the same and cancels (`policy_off`)
+  instead of queueing. Too large is 413 `security_check_too_large` (413 added to
+  `SecurityApiError`). Deploy tokens cannot call the routes (not on the allowlist).
+- Input: tier `full`, new full reason `local` (note `local-check`, label
+  `full scan (local check)`), no `no-commit` note, no base snapshot, backlog, scope file
+  or runtime copy. Order: files under `routes|server|api|middleware|functions` or
+  `*.server.*` first, then `securityRepoRank`. Past findings are read as memory only.
+  Server leads (secret values in the tree, reviewer text) go to `server-leads.json`.
+  Nothing readable ─► no model run, `succeeded`.
+- Result (R13): `storeLocalOutcome` ends the row and releases the reserve only: no finding,
+  event, ledger, email, backlog promote or fallback. `local-result.{attempt}.json` holds at
+  most 200 records (same store rules as a deploy scan: all when succeeded, confirmed when
+  incomplete), confirmed first by severity, and is written before the transaction that
+  ends the row (a failed write fails the ingest, which the controller retries), so an
+  ended check always has its result; per attempt, so a fenced-off attempt replaces
+  nothing. Secret findings say "your code (not deployed yet)". Kept with the raw output
+  (30-day sweep). The tree is deleted at ingest; the hourly `sweepSecurityLocalChecks`
+  cancels a check still waiting for its upload 35 min after create (upload URL 30 min +
+  margin, `upload_missing`) and deletes trees of checks that ended elsewhere (claim
+  refusal, policy Off, reaper).
+- Kept apart from deployment scans: a deploy no longer supersedes a waiting local check;
+  rescan busy checks, the stale `pending_input` re-poke, project streaks, the sweep
+  "recent full scan" rule, the retention "keep last succeeded" row, the policy preview
+  "never scanned" count, the `@cf` fallback's "newest scan" pick, and `status` last
+  scan / last successful scan all skip `trigger = 'local'` (or `deployment_id IS NULL`).
+  Retention ranks local checks and deployment scans apart (200 rows each).
+  `scans` history still lists it.
+  The installation failure rate and the digest count it like any scan.
+- CLI: `void project security check [<check-id>] [--yes] [--no-wait]` in
+  `project-security-check.ts` (collect, pack, upload with `uploadAssetsToR2`, poll, print).
+  Only `git ls-files --cached` paths under the folder, read from disk; symlinks, deleted
+  files and NUL-byte files are skipped; the size limit is checked from `lstat` before a
+  file is read. Always asks (it costs money and sends code); `--json` / non-interactive
+  need `--yes`, checked before any request. A 412 on the archive PUT (`If-None-Match: *`:
+  an earlier PUT landed, its reply was lost) counts as uploaded. `check <id>` on a
+  `pending_input` check calls start once. Exits non-zero when the check ends without a
+  result, including a succeeded check whose result is missing. A platform without the routes (plain 404) is named as
+  too old. Help, `docs/reference/cli/project.md`, `docs/reference/cli.md` and the
+  security guide are updated; the no-args hint lists groups, so it is unchanged.
+
 **M33 BYOK.** Encrypted provider keys in `platform_settings['securityAudits.providerKeys']`
 (`encryptPlatformCredential`); proxy adds the key server-side; probe check 5 per BYOK
 host; BYOK spend still metered and counted (R14). Operator

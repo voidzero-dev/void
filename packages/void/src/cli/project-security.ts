@@ -4,6 +4,17 @@ import { isCI } from 'ci-info';
 import { getToken, openBrowser } from './auth.ts';
 import { PlatformApiError, PlatformClient } from './client.ts';
 import type { ProjectSecurityArgs } from './project-security-args.ts';
+import {
+  checkEndedWithResult,
+  checkFailureMessage,
+  checkResultLines,
+  checkSummaryLines,
+  collectSecurityLocalTree,
+  packSecurityLocalTree,
+  sendSecurityLocalCheck,
+  waitForSecurityLocalCheck,
+  type SecurityCheckDeps,
+} from './project-security-check.ts';
 import { readProjectConfig } from './project.ts';
 import { getRequestedProjectSlug, requireProjectBySlug } from './resolve-project.ts';
 import type {
@@ -496,6 +507,8 @@ export type ProjectSecurityDeps = {
   openUrl?: (url: string) => void;
   interactive?: boolean;
   confirm?: (message: string) => Promise<boolean>;
+  /** M32 local check: poll timing, the upload fetch, the file list. */
+  check?: SecurityCheckDeps;
 };
 
 /** The rescan cost confirm (spec §13.4 rescan rule): what it runs and what it can cost. */
@@ -718,6 +731,11 @@ export async function runProjectSecurityCommand(
     return;
   }
 
+  if (args.action === 'check') {
+    await runSecurityCheck(root, client, projectId, slug, args, deps);
+    return;
+  }
+
   if (args.action === 'model') {
     if (args.change === 'show') {
       const { model } = await client.getProjectSecurity(projectId);
@@ -854,5 +872,104 @@ export async function runProjectSecurityCommand(
 
   if (args.action === '') {
     return;
+  }
+}
+
+async function askYesNo(deps: ProjectSecurityDeps, message: string): Promise<boolean> {
+  const ask =
+    deps.confirm ??
+    (async (text: string) => {
+      const answer = await confirm({ message: text, initialValue: false });
+      return !isCancel(answer) && answer;
+    });
+  return ask(message);
+}
+
+/**
+ * `void project security check [<check-id>]` (M32). Without an id: pack this folder's
+ * git-tracked files, say what is sent and to which model, confirm, upload, wait.
+ * With an id: show (and wait for) that check.
+ */
+async function runSecurityCheck(
+  root: string,
+  client: PlatformClient,
+  projectId: string,
+  slug: string,
+  args: Extract<Args, { action: 'check' }>,
+  deps: ProjectSecurityDeps,
+): Promise<void> {
+  const log = (lines: Array<string>) => {
+    if (!args.json) {
+      console.log(lines.join('\n'));
+    }
+  };
+  let checkId = args.checkId;
+  const fresh = checkId === '';
+  if (fresh) {
+    const interactive = deps.interactive ?? (Boolean(process.stdout.isTTY) && !isCI);
+    if (!args.yes && (args.json || !interactive)) {
+      throw new Error('project: Add --yes to send the code without a prompt.');
+    }
+    const tree = collectSecurityLocalTree(root, deps.check?.listFiles);
+    if (tree.files.length === 0) {
+      throw new Error(
+        'project: No git-tracked code to check in this folder. Add your code with git add first.',
+      );
+    }
+    const packed = packSecurityLocalTree(tree);
+    const preview = await client.previewProjectSecurityCheck(projectId, packed.request);
+    const model = cleanLine(preview.model);
+    const lines = ['', ...checkSummaryLines(slug, tree, cleanLine)];
+    if (preview.notice) {
+      lines.push('', ...preview.notice.map((line) => `  ${cleanLine(line)}`));
+    }
+    lines.push(
+      '',
+      `  The code goes to the platform and is reviewed by ${model}.${typeof preview.worstCaseUsd === 'number' ? ` It can cost up to ${usd(preview.worstCaseUsd)}; monthly caps apply.` : ' Monthly caps apply.'}`,
+      '  The result is not saved as project findings. The platform keeps it for 30 days.',
+    );
+    if (!args.yes) {
+      log(lines);
+      if (!(await askYesNo(deps, `Send these files for a security check with ${model}?`))) {
+        console.log('Nothing was sent.');
+        return;
+      }
+    } else {
+      log(lines);
+    }
+    checkId = await sendSecurityLocalCheck(client, projectId, packed, deps.check);
+    log([`✓ Check ${cleanLine(checkId)} queued. It waits its turn like any scan.`]);
+  } else {
+    // An earlier check whose start never came (Ctrl-C, a lost reply): start it now.
+    // The platform checks the upload is there, and a second start only reads the state.
+    const earlier = await client.getProjectSecurityCheck(projectId, checkId);
+    if (earlier.check.status === 'pending_input') {
+      await client.startProjectSecurityCheck(projectId, checkId);
+    }
+  }
+  if (!args.wait) {
+    const view = await client.getProjectSecurityCheck(projectId, checkId);
+    print(args, view, [
+      `  Check ${cleanLine(checkId)}: ${cleanLine(view.check.status)}.`,
+      `  See the result: void project security check ${cleanLine(checkId)}`,
+    ]);
+    return;
+  }
+  const view = await waitForSecurityLocalCheck(
+    client,
+    projectId,
+    checkId,
+    (status) => log([status === 'running' ? '  Running…' : '  Waiting in the scan queue…']),
+    deps.check,
+  );
+  if (view === null) {
+    print(args, { checkId, ended: false }, [
+      `  Still not done. See it later: void project security check ${cleanLine(checkId)}`,
+    ]);
+    return;
+  }
+  print(args, view, checkResultLines(slug, view, cleanLine, { fresh }));
+  if (!checkEndedWithResult(view)) {
+    throw new Error(checkFailureMessage(view, cleanLine, { fresh }));
   }
 }

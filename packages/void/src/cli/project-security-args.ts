@@ -10,6 +10,7 @@ const SECURITY_ACTIONS = [
   'reopen',
   'scans',
   'scan',
+  'check',
   'model',
   'budget',
   'open',
@@ -46,6 +47,8 @@ export type ProjectSecurityArgs = {
   | { action: 'reopen'; id: string; comment: string }
   | { action: 'scans'; limit: number }
   | { action: 'scan'; yes: boolean; clientAssets: boolean }
+  /** M32: scan the local tree (`checkId` empty), or show / wait for an earlier check. */
+  | { action: 'check'; checkId: string; yes: boolean; wait: boolean }
   | {
       action: 'model';
       change: 'show' | 'set' | 'default';
@@ -74,6 +77,7 @@ const BOOLEAN_FLAGS = new Set([
   '--off',
   '--yes',
   '--client-assets',
+  '--no-wait',
 ]);
 // Flags each action accepts besides `--project` and `--json`.
 const ACTION_FLAGS: Record<string, Array<string>> = {
@@ -86,6 +90,7 @@ const ACTION_FLAGS: Record<string, Array<string>> = {
   reopen: ['--comment'],
   scans: ['--limit'],
   scan: ['--yes', '--client-assets'],
+  check: ['--yes', '--no-wait'],
   model: ['--default', '--accept-provider-notice'],
   budget: ['--usd', '--off'],
 };
@@ -306,6 +311,26 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
       action,
       yes: flags.has('--yes'),
       clientAssets: flags.has('--client-assets'),
+    };
+  }
+  if (action === 'check') {
+    if (positionals.length > 1) {
+      throw new Error(`project: Unexpected argument '${positionals[1]}'.`);
+    }
+    const checkId = positionals[0] ?? '';
+    if (checkId.length > 64) {
+      throw new Error(`project: '${checkId.slice(0, 64)}…' is not a check id.`);
+    }
+    if (checkId !== '' && flags.has('--yes')) {
+      throw new Error('project: --yes is used only when a new check starts.');
+    }
+    return {
+      ...base,
+      json,
+      action,
+      checkId,
+      yes: flags.has('--yes'),
+      wait: !flags.has('--no-wait'),
     };
   }
   if (action === 'model') {

@@ -8,7 +8,7 @@
  * savepoint and a failure there is logged and leaves no row; the after-commit part
  * never throws.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { paginatedR2Delete } from '../assets.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db, DbOrTx } from '../db.ts';
@@ -256,7 +256,8 @@ async function enqueueInSavepoint(
   // Coalesce (§6.2): a newer live deploy replaces the waiting scan and keeps its
   // place in the queue. A running scan is never replaced. A `skipped:protected` row
   // replaces it too: the old deployment is no longer live and the project is now
-  // out of scope, so the old scan must not run or keep holding its input.
+  // out of scope, so the old scan must not run or keep holding its input. A local
+  // check (M32) is not a scan of a deployment: it keeps waiting.
   const replaced = await tx
     .update(securityScans)
     .set({ status: 'superseded', superseded_by_scan_id: scanId, finished_at: sql`now()` })
@@ -264,6 +265,7 @@ async function enqueueInSavepoint(
       and(
         eq(securityScans.project_id, projectId),
         inArray(securityScans.status, [...SECURITY_SCAN_WAITING_STATUSES]),
+        ne(securityScans.trigger, 'local'),
       ),
     )
     .returning({ firstQueuedAt: securityScans.first_queued_at });

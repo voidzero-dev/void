@@ -830,6 +830,11 @@ const HELP_TREE: HelpTree = {
             description:
               'Run a full scan of the live deployment (asks first; it costs money; --client-assets)',
           },
+          {
+            command: 'check [<check-id>]',
+            description:
+              'Scan the git-tracked code in this folder before you deploy (asks first; uploads it), or show an earlier check',
+          },
           { command: 'model [<id> | --default]', description: 'Show or set the scan model' },
           {
             command: 'budget [--usd N | --off]',
@@ -873,7 +878,8 @@ const HELP_TREE: HelpTree = {
           },
           { command: '--usd <amount>', description: 'budget: monthly cap in dollars' },
           { command: '--off', description: 'budget: clear this project own cap' },
-          { command: '--yes', description: 'scan: start without the cost prompt' },
+          { command: '--yes', description: 'scan, check: start without the prompt' },
+          { command: '--no-wait', description: 'check: queue it and return without waiting' },
           {
             command: '--client-assets',
             description: 'scan: also review client bundle sources from their source maps',
@@ -888,6 +894,10 @@ const HELP_TREE: HelpTree = {
             command:
               'void project security resolve F-12 --reason fixed --comment "Bound params in 4e1b9a3"',
             description: 'Resolve a finding',
+          },
+          {
+            command: 'void project security check',
+            description: 'Check the code in this folder before you deploy it',
           },
         ],
       },

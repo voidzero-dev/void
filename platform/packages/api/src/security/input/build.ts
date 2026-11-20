@@ -636,7 +636,8 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   if (noSourceMaps > 0) {
     notes.push('no-source-maps');
   }
-  if (plan.scan.commit === null) {
+  // A local check (M32) sends a working tree, not a deployment: there is no claimed commit.
+  if (plan.scan.commit === null && plan.scan.trigger !== 'local') {
     notes.push('no-commit');
   }
   if (unverified.length > 0) {

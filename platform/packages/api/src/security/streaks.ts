@@ -30,9 +30,12 @@ export const SECURITY_STREAK_FRESH_MS = 48 * 60 * 60_000;
 export const SECURITY_INSTALLATION_FAILURE_MIN = 3;
 export const SECURITY_INSTALLATION_FAILURE_RATE = 0.2;
 
-/** Statuses that end a scan with a result: the project streak reads only these. */
+/**
+ * Statuses that end a scan with a result: the project streak reads only these. A local
+ * check (M32) is not a scan of what the project serves, so it neither counts nor breaks one.
+ */
 const PROJECT_ENDED_SQL = sql.raw(
-  `(status IN ('succeeded', 'incomplete', 'failed', 'refused', 'timed_out'))`,
+  `(status IN ('succeeded', 'incomplete', 'failed', 'refused', 'timed_out') AND trigger <> 'local')`,
 );
 /** For the installation flag a backlog skip counts too; superseded, canceled and other skips do not. */
 const ENDED_SQL = sql.raw(

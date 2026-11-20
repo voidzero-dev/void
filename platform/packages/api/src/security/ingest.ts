@@ -63,6 +63,13 @@ import {
 import { parseSecurityBacklog } from './input/backlog.ts';
 import type { SecurityServerLead } from './input/phrase-check.ts';
 import { SECURITY_SECRET_FORMS, type SecuritySecretForm } from './input/redact.ts';
+import {
+  deleteSecurityLocalTree,
+  SECURITY_LOCAL_RESULT_MAX_FINDINGS,
+  securityLocalResultKey,
+  type SecurityLocalCheckFinding,
+  type SecurityLocalCheckResult,
+} from './local-check.ts';
 import { securityRawOutputPrefix } from './maintenance.ts';
 import { enqueueSecurityNotification } from './notifications.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
@@ -442,10 +449,10 @@ export function recordFromServerLead(
   projectId: string,
   lead: SecurityServerLead,
   hashes: ReadonlyMap<string, string>,
-  options: Readonly<{ isPublic?: boolean | null }> = {},
+  options: Readonly<{ isPublic?: boolean | null; local?: boolean }> = {},
 ): SecurityIngestRecord {
   if (lead.kind === 'secret_in_output') {
-    return recordFromSecretLead(projectId, lead, options.isPublic ?? null);
+    return recordFromSecretLead(projectId, lead, options.isPublic ?? null, options.local === true);
   }
   const hits = lead.hits.slice(0, 20).map((hit) => ({
     phrase: String(hit.phrase).slice(0, 40),
@@ -487,6 +494,8 @@ function recordFromSecretLead(
   projectId: string,
   lead: Extract<SecurityServerLead, { kind: 'secret_in_output' }>,
   isPublic: boolean | null,
+  /** A local check (M32): the code is a working tree, not deployed yet. */
+  local = false,
 ): SecurityIngestRecord {
   const fingerprint = `server:secret_in_output:${lead.secret}`;
   const line = lead.line > 0 ? lead.line : null;
@@ -498,11 +507,16 @@ function recordFromSecretLead(
     files > 1
       ? ` It is in ${files - 1} more ${files === 2 ? 'file' : 'files'}${alsoIn.length > 0 ? `, such as ${alsoIn.join(', ')}` : ''}.`
       : '';
-  const title = lead.client
-    ? isPublic === true
-      ? `Secret ${lead.secret} is in a public file: ${lead.file}`
-      : `Secret ${lead.secret} is in a static asset: ${lead.file}`
-    : `Secret ${lead.secret} is written into the deployed code: ${lead.file}`;
+  const title = local
+    ? `Secret ${lead.secret} is written into your code (not deployed yet): ${lead.file}`
+    : lead.client
+      ? isPublic === true
+        ? `Secret ${lead.secret} is in a public file: ${lead.file}`
+        : `Secret ${lead.secret} is in a static asset: ${lead.file}`
+      : `Secret ${lead.secret} is written into the deployed code: ${lead.file}`;
+  const of = local
+    ? 'of your code (not deployed yet)'
+    : `of the deployed ${lead.client ? 'static assets' : 'Worker'}`;
   const fix = lead.client
     ? `${isPublic === true ? 'Anyone can download this file' : 'Static assets are public once the project is public'}, so treat ${lead.secret} as leaked: rotate it, and keep it on the server (read it from env in a server route). Stop the build from writing it into client code.`
     : `Read ${lead.secret} from env at run time instead of writing its value into the code or the build. If the code was shared, rotate it.`;
@@ -534,11 +548,84 @@ function recordFromSecretLead(
       forms: [...lead.forms],
       client: lead.client,
       ...(files > 1 ? { files, also_in: [...alsoIn] } : {}),
-      evidence: `The stored value of project secret ${lead.secret} (${forms.join(', ') || 'as is'}) is in ${where} of the deployed ${lead.client ? 'static assets' : 'Worker'}.${more} The platform found it before the scan; the value is not stored with this finding.`,
+      evidence: `The stored value of project secret ${lead.secret} (${forms.join(', ') || 'as is'}) is in ${where} ${of}.${more} The platform found it before the scan; the value is not stored with this finding.`,
       fix,
     },
     source: 'server',
     moves: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Local check result (M32)
+// ---------------------------------------------------------------------------
+
+const SEVERITY_ORDER: ReadonlyArray<string> = [
+  'critical',
+  'high',
+  'medium',
+  'low',
+  'informational',
+];
+
+function severityRank(severity: string | null): number {
+  const rank = severity === null ? -1 : SEVERITY_ORDER.indexOf(severity);
+  return rank === -1 ? SEVERITY_ORDER.length : rank;
+}
+
+/**
+ * What a local check found, for the CLI (`local-result.{attempt}.json`): the records a scan of a
+ * deployment would store (all of them when it succeeded, validated confirmed ones when
+ * it was incomplete, none otherwise), with the server's own leads, confirmed first and
+ * by severity. Never written to the project's findings.
+ */
+export function securityLocalCheckResult(
+  projectId: string,
+  outcome: SecurityScanOutcome,
+  leads: ReadonlyArray<SecurityServerLead>,
+): SecurityLocalCheckResult {
+  if (outcome.store === 'none' || outcome.report === null) {
+    return { version: 1, findings: [], total: 0, capped: false };
+  }
+  const hashes = new Map<string, string>();
+  const records: Array<SecurityIngestRecord> = leads.map((lead) =>
+    recordFromServerLead(projectId, lead, hashes, { local: true }),
+  );
+  for (const record of outcome.report.findings) {
+    const stored = recordFromReport(projectId, record, hashes);
+    if (stored) {
+      records.push(stored);
+    }
+  }
+  const unique = uniqueStoredRecords(records, { confirmedOnly: outcome.store === 'confirmed' });
+  unique.sort(
+    (a, b) =>
+      Number(b.verdict === 'confirmed') - Number(a.verdict === 'confirmed') ||
+      severityRank(a.severity) - severityRank(b.severity) ||
+      (a.file < b.file ? -1 : a.file > b.file ? 1 : 0) ||
+      (a.lineStart ?? 0) - (b.lineStart ?? 0),
+  );
+  const findings = unique
+    .slice(0, SECURITY_LOCAL_RESULT_MAX_FINDINGS)
+    .map((record): SecurityLocalCheckFinding => ({
+      verdict: record.verdict,
+      severity: record.severity,
+      confidence: record.confidence,
+      title: record.title,
+      category: record.category,
+      cwe: record.cwe,
+      file: record.file,
+      lineStart: record.lineStart,
+      lineEnd: record.lineEnd,
+      source: record.source,
+      verdictSource: record.verdictSource ?? 'static',
+      detail: record.detail,
+    }));
+  return {
+    version: 1,
+    findings,
+    total: unique.length,
+    capped: unique.length > findings.length,
   };
 }
 
@@ -741,7 +828,7 @@ export async function ingestSecurityScanResult(
 
   // Files the input builder left for this scan (read before the transaction).
   const [head] = await db
-    .select({ projectId: securityScans.project_id })
+    .select({ projectId: securityScans.project_id, trigger: securityScans.trigger })
     .from(securityScans)
     .where(eq(securityScans.id, scanId))
     .limit(1);
@@ -762,6 +849,15 @@ export async function ingestSecurityScanResult(
     // An `incomplete` scan keeps confirmed records only: the server's secret findings
     // (M31) are confirmed, its reviewer-text leads are dropped with the model's leads.
     leads = parseServerLeads(await readR2Text(r2, `${scanPrefix}server-leads.json`));
+  }
+  if (head.trigger === 'local') {
+    // M32: the result the CLI polls for is written before the row ends, so an ended
+    // check always has one. Not best effort: a failed write fails this ingest, which
+    // the controller retries. Per attempt, so a fenced-off attempt replaces nothing.
+    await r2.put(
+      securityLocalResultKey(head.projectId, scanId, attempt),
+      JSON.stringify(securityLocalCheckResult(head.projectId, outcome, leads)),
+    );
   }
 
   const stored = await db.transaction(async (tx) => {
@@ -798,13 +894,23 @@ export async function ingestSecurityScanResult(
     if (!row || !fence.ok) {
       return null;
     }
+    if (row.trigger === 'local') {
+      // M32: a local check stores its own result, never project findings (R13).
+      return storeLocalOutcome(tx, scanId, outcome, status, noModelRun);
+    }
     return storeOutcome(tx, scanId, row, outcome, status, scope, leads, noModelRun);
   });
   if (stored === null) {
     return { ok: false };
   }
 
-  if (outcome.status === 'succeeded' && backlogText !== null) {
+  if (stored.local) {
+    // The check is over: its uploaded tree goes (the hourly sweep retries).
+    await bestEffort('local tree delete', scanId, () =>
+      deleteSecurityLocalTree(db, r2, head.projectId, scanId),
+    );
+  }
+  if (!stored.local && outcome.status === 'succeeded' && backlogText !== null) {
     // The project's backlog becomes what this scan left (spec §7.4). Only now: a
     // failed scan must lose no file. A lost write (or a scan file that is gone) leaves
     // the older, longer backlog.
@@ -822,9 +928,10 @@ export async function ingestSecurityScanResult(
     });
   }
   if (
-    outcome.status === 'refused' ||
-    outcome.status === 'timed_out' ||
-    (outcome.status === 'failed' && outcome.reason === 'bad_output')
+    !stored.local &&
+    (outcome.status === 'refused' ||
+      outcome.status === 'timed_out' ||
+      (outcome.status === 'failed' && outcome.reason === 'bad_output'))
   ) {
     // Opt-in (M26): one more scan on the `@cf` default, queued before the poke below
     // and before the public gate judges this result, so a held request waits for it.
@@ -881,7 +988,36 @@ type StoreResult = Readonly<{
   news: Array<string>;
   reopened: Array<string>;
   capped: boolean;
+  /** A local check (M32): its result was written before the transaction. */
+  local?: true;
 }>;
+
+/**
+ * A local check's row ends like any scan (status, reason, reserve back), but nothing
+ * else moves: no finding, no event, no ledger, no email, no base (R13).
+ */
+async function storeLocalOutcome(
+  tx: DbOrTx,
+  scanId: string,
+  outcome: SecurityScanOutcome,
+  status: SecurityParsedStatus,
+  noModelRun: Readonly<{ noChanges: boolean }> | null,
+): Promise<StoreResult> {
+  await tx
+    .update(securityScans)
+    .set({
+      status: outcome.status,
+      status_reason: noModelRun ? null : outcome.reason,
+      error_class: outcome.errorClass,
+      failure_cause: outcome.failureCause,
+      refusal_category: outcome.refusalCategory,
+      engine_version: status.engineVersion ?? sql`${securityScans.engine_version}`,
+      finished_at: sql`now()`,
+    })
+    .where(eq(securityScans.id, scanId));
+  await releaseSecurityScanReserveIn(tx, scanId);
+  return { news: [], reopened: [], capped: false, local: true };
+}
 
 async function storeOutcome(
   tx: DbOrTx,

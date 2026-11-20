@@ -14,6 +14,7 @@ import {
   desc,
   eq,
   inArray,
+  ne,
   sql,
   TransactionRollbackError,
   type SQL,
@@ -859,6 +860,8 @@ export async function previewSecurityRescan(
       and(
         eq(securityScans.project_id, projectId),
         inArray(securityScans.status, [...WAITING_OR_RUNNING]),
+        // A local check (M32) waits in the same queue but scans no deployment.
+        ne(securityScans.trigger, 'local'),
       ),
     )
     .limit(1);
@@ -948,6 +951,7 @@ export async function queueSecurityRescan(
         and(
           eq(securityScans.project_id, projectId),
           inArray(securityScans.status, [...WAITING_OR_RUNNING]),
+          ne(securityScans.trigger, 'local'),
         ),
       )
       .limit(1);

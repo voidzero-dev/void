@@ -52,6 +52,16 @@ A scan starts when a deploy goes live. Rollbacks, failed deploys, and `preview-*
 
 Void reviews the source that changed when it can see it, and otherwise the built output mapped back to source. Third-party package code, lockfiles, binaries, and secret-like files are left out, and stored secret values are replaced before any model sees the code. A full rescan can also review the sources of the client bundles, from the source maps deployed with them: `void project security scan --client-assets`. Each result states what it covered, such as `Changes since dpl_7c20 · source diff · 14 files · complete`. Large changes are scanned in parts, and the page shows the files still waiting.
 
+### Check code before you deploy
+
+Developers who can deploy a project can scan their code before it goes out:
+
+```sh
+void project security check
+```
+
+It sends the git-tracked files of the current folder, as they are on disk, to the platform, and the scan runs on the project's model. Untracked files, secret-like files, lockfiles, and binaries stay on the developer's machine. The command shows what it sends, which model reviews it, and the most it can cost, then asks before it uploads anything. The check needs the policy to apply to the project, waits in the queue like any scan, and counts toward the monthly caps. Its result is shown in the terminal and kept for 30 days. It is not saved as project findings, sends no email, and does not affect a request to go public. See [`void project security check`](../../../reference/cli/project.md#void-project-security).
+
 ## Models and the provider notice
 
 | Model                                                | Run by     |

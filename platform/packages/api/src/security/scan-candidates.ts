@@ -74,7 +74,8 @@ function conditions(
     // for the next window instead of being retried every hour. One that never got to
     // run does not: replaced by a deploy scan (`superseded`) or canceled by policy Off.
     const sweptRow = sql`s.trigger = 'sweep' AND s.created_at > ${since}::timestamptz AND s.status <> 'superseded' AND NOT (s.status = 'canceled' AND s.status_reason IS NOT DISTINCT FROM 'policy_off')`;
-    const fullRow = sql`s.tier = 'full' AND s.status = 'succeeded' AND s.finished_at > ${since}::timestamptz`;
+    // A local check (M32) is a full scan of a working tree, not of the live deployment.
+    const fullRow = sql`s.tier = 'full' AND s.status = 'succeeded' AND s.trigger <> 'local' AND s.finished_at > ${since}::timestamptz`;
     due = sql`NOT EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND ((${sweptRow}) OR (${fullRow})))`;
   }
   return and(

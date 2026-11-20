@@ -184,3 +184,50 @@ export type SecurityFindingQuery = {
   limit: number;
   cursor: string | null;
 };
+
+/** M32: what a local check would run, before any code is sent. */
+export type SecurityCheckPreview = {
+  dryRun: true;
+  model: string;
+  thirdParty: boolean;
+  /** The provider notice, for a third-party model; `null` for a Cloudflare model. */
+  notice: Array<string> | null;
+  worstCaseUsd: number | null;
+  budget: ProjectSecurityStatus['budget'];
+  limits: { maxFiles: number; maxBytes: number; maxArchiveBytes: number };
+};
+
+export type SecurityCheckCreated = {
+  ok: true;
+  checkId: string;
+  upload: { url: string; headers: Record<string, string> };
+  expiresAt: string;
+  model: string;
+  thirdParty: boolean;
+};
+
+export type SecurityCheckFinding = {
+  verdict: 'confirmed' | 'needs_validation';
+  severity: string | null;
+  confidence: string | null;
+  title: string;
+  category: string;
+  cwe: string | null;
+  file: string;
+  lineStart: number | null;
+  lineEnd: number | null;
+  source: 'scanner' | 'server';
+  verdictSource: 'static' | 'runtime';
+  detail: Record<string, unknown>;
+};
+
+export type SecurityCheckView = {
+  check: SecurityScanSummary & { coverageNotes: Array<string> };
+  ended: boolean;
+  result: {
+    version: 1;
+    findings: Array<SecurityCheckFinding>;
+    total: number;
+    capped: boolean;
+  } | null;
+};

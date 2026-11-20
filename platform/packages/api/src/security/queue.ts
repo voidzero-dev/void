@@ -13,7 +13,7 @@ import type {
  *     │                  └──requeue (one infra retry)──► queued
  *     └──claim refuses──► skipped:protected | skipped:backlog | canceled
  */
-import { and, asc, eq, gt, inArray, lt, notExists, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lt, ne, notExists, notInArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Db, DbOrTx } from '../db.ts';
 import { hasSqlState } from '../pg-errors.ts';
@@ -565,7 +565,8 @@ export async function skipBackloggedSecurityScans(db: DbOrTx, now: number): Prom
 
 /**
  * Hourly re-poke: a `pending_input` row whose after-commit step was lost moves to
- * `queued`. Only rows already waiting; a deployment with no row is never picked.
+ * `queued`. Only rows already waiting; a deployment with no row is never picked. A
+ * local check (M32) waits for its upload instead (`sweepSecurityLocalChecks`).
  */
 export async function queueStalePendingSecurityScans(db: DbOrTx, now: number): Promise<number> {
   const moved = await db
@@ -574,6 +575,7 @@ export async function queueStalePendingSecurityScans(db: DbOrTx, now: number): P
     .where(
       and(
         eq(securityScans.status, 'pending_input'),
+        ne(securityScans.trigger, 'local'),
         lt(
           securityScans.created_at,
           new Date(now - SECURITY_SCAN_PENDING_INPUT_REPOKE_MS).toISOString(),

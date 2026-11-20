@@ -268,6 +268,31 @@ describe('queueing a fallback scan', () => {
     expect(await fallbackScans(project.id)).toHaveLength(1);
   });
 
+  it('is not hidden by a newer local check (M32)', async () => {
+    const policy = await savePolicy();
+    const { project, deployment } = await liveProject();
+    const failed = await endedScan(project.id, deployment.id, {
+      created_at: new Date(Date.now() - 60_000).toISOString(),
+    });
+    // A developer started a check after the deploy scan was queued; it scans no deployment.
+    await env.db.insert(securityScans).values({
+      id: 'scan_local_newer',
+      project_id: project.id,
+      deployment_id: null,
+      status: 'refused',
+      trigger: 'local',
+      model_used: OPUS,
+      finished_at: new Date().toISOString(),
+    });
+    const queued = await queueSecurityFallbackScans(onEnv, env.db, policy, {
+      now: Date.now(),
+      projectId: project.id,
+    });
+    expect(queued).toEqual([
+      { projectId: project.id, fromScanId: failed, scanId: expect.any(String) },
+    ]);
+  });
+
   it('marks the fallback of a rescan or a sweep as that full scan', async () => {
     const policy = await savePolicy();
     for (const trigger of ['rescan', 'sweep'] as const) {

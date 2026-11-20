@@ -6,7 +6,7 @@ import { SECURITY_ERRORS, type SecurityErrorName } from '@void/platform/security
  * fields the spec names for that code (for example `missing` for an entitlement miss).
  */
 export class SecurityApiError extends Error {
-  readonly status: 400 | 404 | 409 | 422 | 503;
+  readonly status: 400 | 404 | 409 | 413 | 422 | 503;
   readonly code: string;
   readonly details?: Record<string, unknown>;
 

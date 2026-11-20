@@ -9,6 +9,13 @@ import {
 } from '../project-access.ts';
 import { pokeSecurityScanScheduler } from '../security/enqueue.ts';
 import { SecurityApiError } from '../security/errors.ts';
+import {
+  createSecurityLocalCheck,
+  parseSecurityLocalCheckRequest,
+  previewSecurityLocalCheck,
+  readSecurityLocalCheck,
+  startSecurityLocalCheck,
+} from '../security/local-check.ts';
 import { previewSecurityRescan, queueSecurityRescan } from '../security/operator.ts';
 import { mintSecurityPageToken } from '../security/page-token.ts';
 import {
@@ -355,6 +362,79 @@ const app = new Hono<ApiEnv>()
           alreadyScanned: preview.alreadyScanned,
         },
         202,
+      );
+    } catch (error) {
+      return failure(context, error);
+    }
+  })
+  /**
+   * Local check (M32): a scan of the caller's working tree, uploaded by the CLI. `dryRun`
+   * says what it would run (model, provider notice, cost) before any code is sent.
+   */
+  .post('/:id/security/checks', async (context) => {
+    const projectId = context.req.param('id');
+    const access = await requireProjectRouteCapability(context, projectId, 'deploy');
+    if (access instanceof Response) {
+      return access;
+    }
+    if (!capabilityOn(context)) {
+      return capabilityOff(context);
+    }
+    try {
+      const request = parseSecurityLocalCheckRequest(await readJson(context));
+      const project = { id: projectId, slug: access.project.slug };
+      const db = context.get('db');
+      if (request.dryRun) {
+        return context.json({ dryRun: true, ...(await previewSecurityLocalCheck(db, project)) });
+      }
+      return context.json(
+        { ok: true, ...(await createSecurityLocalCheck(context.env, db, project, request)) },
+        201,
+      );
+    } catch (error) {
+      return failure(context, error);
+    }
+  })
+  .post('/:id/security/checks/:checkId/start', async (context) => {
+    const projectId = context.req.param('id');
+    const access = await requireProjectRouteCapability(context, projectId, 'deploy');
+    if (access instanceof Response) {
+      return access;
+    }
+    if (!capabilityOn(context)) {
+      return capabilityOff(context);
+    }
+    try {
+      return context.json(
+        await startSecurityLocalCheck(
+          context.env,
+          context.get('db'),
+          projectId,
+          context.req.param('checkId'),
+        ),
+        202,
+      );
+    } catch (error) {
+      return failure(context, error);
+    }
+  })
+  .get('/:id/security/checks/:checkId', async (context) => {
+    const projectId = context.req.param('id');
+    const access = await requireProjectRouteCapability(context, projectId, 'deploy');
+    if (access instanceof Response) {
+      return access;
+    }
+    if (!capabilityOn(context)) {
+      return capabilityOff(context);
+    }
+    try {
+      return context.json(
+        await readSecurityLocalCheck(
+          context.env,
+          context.get('db'),
+          projectId,
+          context.req.param('checkId'),
+        ),
       );
     } catch (error) {
       return failure(context, error);

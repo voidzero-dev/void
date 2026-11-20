@@ -48,6 +48,10 @@
     "./security-policy": {
       "types": "./dist/security-policy.d.mts",
       "import": "./dist/security-policy.mjs"
+    },
+    "./security-local-check": {
+      "types": "./dist/security-local-check.d.mts",
+      "import": "./dist/security-local-check.mjs"
     }
   },
   "publishConfig": {

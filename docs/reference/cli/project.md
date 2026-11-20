@@ -100,6 +100,7 @@ void project security resolve <F-id>... --reason fixed|false-positive|accepted-r
 void project security reopen <F-id> --comment "<text>"
 void project security scans [--limit <n>]
 void project security scan [--client-assets] [--yes]
+void project security check [<check-id>] [--yes] [--no-wait]
 void project security model [<id> | --default] [--accept-provider-notice]
 void project security budget [--usd <amount> | --off]
 void project security open
@@ -113,13 +114,14 @@ Every command takes `--project <slug>` (then `VOID_PROJECT`, then the linked pro
 | `show`                                                     | Any project member. Collaborators and up see title, file and details. |
 | `comment`                                                  | Collaborators, admins and the owner.                                  |
 | `resolve`, `reopen`, `scan`, `model` (set), `budget` (set) | Project admins and the owner.                                         |
-| `scans`, `budget` (show)                                   | Collaborators, admins and the owner.                                  |
+| `scans`, `check`, `budget` (show)                          | Collaborators, admins and the owner.                                  |
 
 - `resolve` needs `--reason` and a `--comment` of up to 4,000 characters. Pass several ids to resolve them together.
 - `list` hides leads unless you pass `--leads`. `--format sarif` prints the list as a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) file for code scanning tools, such as GitHub code scanning: `void project security list --format sarif > void-security.sarif`. Resolved findings in it are marked as suppressed. Notes go to stderr.
 - `model` with a third-party model prints the provider notice. Repeat the command with `--accept-provider-notice` to accept it.
 - `budget --usd` cannot exceed the platform limit. `--off` clears this project's own cap.
 - `scan` runs a full scan of the live deployment. It names the model and the most the scan can cost, then asks first; `--json` and non-interactive shells need `--yes`. Monthly caps apply. `--client-assets` also reviews the sources of your client bundles, read from the source maps deployed with them (`app.js.map` next to `app.js`, or the bundle's `sourceMappingURL`). Without deployed source maps it reviews the bundles only. It sends more code, so it can cost more.
+- `check` scans the code in the current folder before you deploy it. It sends only git-tracked files, as they are on disk now (uncommitted edits included); untracked files, secret-like files (`.env*`, keys, `.npmrc`), lockfiles, binaries and media stay on your machine. It lists what it sends, names the model (with the provider notice for a third-party model) and the most it can cost, then asks first; `--json` and non-interactive shells need `--yes`. Up to 10,000 files and 32 MB of code; run it from the app's folder in a large repository. It waits in the scan queue like any scan, monthly caps apply, and the command waits for the result unless you pass `--no-wait`. The result lists what it found but is not saved as project findings: it does not change the findings list, emails, or a public request. The platform keeps it for 30 days; show it again with `void project security check <check-id>`. The command fails when the check ends without a result, for example when the model refuses it.
 - `open` prints a page link that works for 15 minutes and opens it in a browser when run in a terminal. On the page, members can do what the commands above allow their role: comment, resolve, pick the model, set the budget, and bypass a held public request.
 
 On a platform without security audits, these commands tell you to ask the administrator to upgrade. They do not apply to direct Cloudflare deployments.
