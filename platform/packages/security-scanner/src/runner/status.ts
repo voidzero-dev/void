@@ -214,13 +214,16 @@ export type CodexRunSignal = {
 const CODEX_POLICY_CODES = ['cyber_policy', 'trusted_access_for_cyber'];
 
 /**
- * The failure text with spaces and dashes read as `_`: Codex prints its own
- * `CyberPolicy` error as `cyber policy: <message>`, not as the API code (spike S9).
+ * The failure text as lower-case letters and digits only, so `cyber_policy`, Codex's own
+ * `cyber policy: <message>` (spike S9), `cyber  policy`, a line break between the words
+ * and the Debug form `CyberPolicy { … }` all read the same.
  */
 function policyText(value: string): string {
   let out = '';
   for (const char of value.toLowerCase()) {
-    out += char === ' ' || char === '-' ? '_' : char;
+    if ((char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')) {
+      out += char;
+    }
   }
   return out;
 }
@@ -233,7 +236,7 @@ export function classifyCodexRun(signal: CodexRunSignal): OutcomeBody {
     }
   }
   const failureText = policyText(`${signal.failure?.code ?? ''} ${signal.failure?.message ?? ''}`);
-  const policyCode = CODEX_POLICY_CODES.find((code) => failureText.includes(code));
+  const policyCode = CODEX_POLICY_CODES.find((code) => failureText.includes(policyText(code)));
   if (policyCode) {
     return { kind: 'refused', category: policyCode };
   }

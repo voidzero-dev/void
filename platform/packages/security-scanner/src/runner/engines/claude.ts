@@ -79,6 +79,8 @@ export function claudeOptions(input: {
   caFile: string;
   abortController: AbortController;
   hook: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /** PostToolUse: sees what a Read returned (`stats.reads`). */
+  afterTool: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
   onStderr: (data: string) => void;
 }): Record<string, unknown> {
   const { root } = input;
@@ -98,7 +100,10 @@ export function claudeOptions(input: {
     outputFormat: { type: 'json_schema', schema: structuredOutputSchema() },
     maxTurns: input.maxTurns,
     abortController: input.abortController,
-    hooks: { PreToolUse: [{ hooks: [input.hook] }] },
+    hooks: {
+      PreToolUse: [{ hooks: [input.hook] }],
+      PostToolUse: [{ matcher: 'Read', hooks: [input.afterTool] }],
+    },
     stderr: input.onStderr,
     // Replaces the environment: no token of any kind, only the proxy route.
     env: {
@@ -110,6 +115,8 @@ export function claudeOptions(input: {
       ANTHROPIC_CUSTOM_HEADERS: `x-void-scan-session: ${input.session}`,
       // A refused call is retried a little, not for minutes (spike S2: a 401 took 120 s).
       CLAUDE_CODE_MAX_RETRIES: '2',
+      // A refused turn ends refused; it is never retried on another model.
+      CLAUDE_CODE_REFUSAL_FALLBACK_CATCH_ALL: '0',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
       CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
       CLAUDE_CODE_DISABLE_BUNDLED_SKILLS: '1',
@@ -134,8 +141,14 @@ export function createPathHook(root: string) {
   };
   const allowed = [`${root}/input`, `${root}/memory`].map(real);
   const under = (candidate: unknown): boolean => {
-    if (typeof candidate !== 'string' || candidate === '') {
+    if (candidate === undefined || candidate === '') {
       return true;
+    }
+    if (typeof candidate !== 'string' || candidate !== candidate.trim()) {
+      // Claude Code trims a Glob or Grep `path` before it reads `~` or resolves it, and
+      // Glob and Grep reach the hook untrimmed: ` /etc` would resolve to a folder named
+      // ` ` under input here and to `/etc` there. Read reaches it already normalized.
+      return false;
     }
     if (candidate.startsWith('~')) {
       // Claude Code reads `~` as its home (the config folder), not as a name in the cwd.
@@ -172,20 +185,41 @@ export function createPathHook(root: string) {
   };
 }
 
-/** The hook, counting the Read / Glob / Grep calls it lets through (`stats.reads`). */
-export function countReads(
-  hook: (input: Record<string, unknown>) => Promise<Record<string, unknown>>,
-  onRead: () => void,
-) {
-  return async (input: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const answer = await hook(input);
+/**
+ * PostToolUse hook: counts a Read that returned text from a file under `<root>/input`
+ * (`stats.reads`). A list, a search, a memory read, a failed Read or an empty answer
+ * does not count: a session must have seen code before its report can clear any.
+ */
+export function createReadCounter(root: string, onRead: () => void) {
+  const real = (path: string): string => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return path;
+    }
+  };
+  const input = real(`${root}/input`);
+  return async (event: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    if (event.tool_name !== 'Read') {
+      return {};
+    }
+    // Read reaches the hooks with `file_path` already made absolute (S11 follow-up probe).
+    const path = (event.tool_input as Record<string, unknown> | undefined)?.file_path;
+    const response = event.tool_response as Record<string, unknown> | undefined;
+    const file = response?.file as Record<string, unknown> | undefined;
     if (
-      answer.hookSpecificOutput === undefined &&
-      (CLAUDE_TOOLS as ReadonlyArray<unknown>).includes(input.tool_name)
+      typeof path !== 'string' ||
+      response?.type !== 'text' ||
+      typeof file?.content !== 'string' ||
+      file.content.trim() === ''
     ) {
+      return {};
+    }
+    const resolved = real(resolve(input, path));
+    if (resolved.startsWith(`${input}/`)) {
       onRead();
     }
-    return answer;
+    return {};
   };
 }
 
@@ -273,14 +307,20 @@ function stopCategory(details: unknown): string | null {
     : null;
 }
 
+function assistantRefused(message: ClaudeMessage): boolean {
+  const inner = message.message;
+  return (
+    typeof inner === 'object' &&
+    inner !== null &&
+    (inner as Record<string, unknown>).stop_reason === 'refusal'
+  );
+}
+
 /** The refusal category on an assistant message that stopped with `refusal`. */
 function assistantRefusalCategory(message: ClaudeMessage): string | null {
-  const inner = message.message;
-  if (typeof inner !== 'object' || inner === null) {
-    return null;
-  }
-  const { stop_reason, stop_details } = inner as Record<string, unknown>;
-  return stop_reason === 'refusal' ? stopCategory(stop_details) : null;
+  return assistantRefused(message)
+    ? stopCategory((message.message as Record<string, unknown>).stop_details)
+    : null;
 }
 
 function count(value: unknown): number {
@@ -318,6 +358,7 @@ export function createClaudeEngine(options: ClaudeEngineOptions): Engine {
       const before = await readLastFailure(baseUrl, doFetch, spec.signal);
       let result: ClaudeMessage | null = null;
       // Claude Code puts `stop_details` on the assistant message, not on the result.
+      let refusalSeen = false;
       let refusalCategory: string | null = null;
       let failed = false;
       try {
@@ -333,14 +374,16 @@ export function createClaudeEngine(options: ClaudeEngineOptions): Engine {
             configDir,
             caFile: options.caFile ?? CLAUDE_CA_FILE,
             abortController,
-            hook: countReads(createPathHook(options.root), () => stats.reads++),
+            hook: createPathHook(options.root),
+            afterTool: createReadCounter(options.root, () => stats.reads++),
             onStderr: () => undefined,
           }),
         });
         for await (const message of messages) {
           if (message.type === 'result') {
             result = message;
-          } else if (message.type === 'assistant') {
+          } else if (message.type === 'assistant' && assistantRefused(message)) {
+            refusalSeen = true;
             refusalCategory = assistantRefusalCategory(message) ?? refusalCategory;
           }
         }
@@ -383,7 +426,10 @@ export function createClaudeEngine(options: ClaudeEngineOptions): Engine {
       }
       const outcome = classifyClaudeResult({
         subtype: safeLabel(String(result.subtype ?? '')),
-        stopReason: text(result.stop_reason),
+        // A refused turn with no report is a refusal, whatever the result says after it
+        // (an `is_error` result, or a stop reason a later turn wrote over).
+        stopReason:
+          refusalSeen && submittedOutput === undefined ? 'refusal' : text(result.stop_reason),
         stopCategory: stopCategory(result.stop_details) ?? refusalCategory,
         structuredOutput: submittedOutput,
         isError: result.is_error === true,

@@ -7,8 +7,8 @@ import {
   CLAUDE_TOOLS,
   claudeOptions,
   createClaudeEngine,
-  countReads,
   createPathHook,
+  createReadCounter,
   gatewayName,
   structuredOutputSchema,
   type ClaudeMessage,
@@ -100,6 +100,7 @@ describe('Engine A options (spec §15.3)', () => {
     caFile: '/ca.crt',
     abortController: new AbortController(),
     hook: async () => ({}),
+    afterTool: async () => ({}),
     onStderr: () => undefined,
   });
 
@@ -144,6 +145,7 @@ describe('Engine A options (spec §15.3)', () => {
         'CLAUDE_CODE_DISABLE_BUNDLED_SKILLS',
         'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
         'CLAUDE_CODE_MAX_RETRIES',
+        'CLAUDE_CODE_REFUSAL_FALLBACK_CATCH_ALL',
         'CLAUDE_CONFIG_DIR',
         'DISABLE_AUTOUPDATER',
         'DISABLE_ERROR_REPORTING',
@@ -157,6 +159,8 @@ describe('Engine A options (spec §15.3)', () => {
     expect(env.ANTHROPIC_BASE_URL).toBe('http://model.void.internal');
     expect(env.ANTHROPIC_CUSTOM_HEADERS).toBe('x-void-scan-session: 3');
     expect(env.CLAUDE_CODE_MAX_RETRIES).toBe('2');
+    expect(env.CLAUDE_CODE_REFUSAL_FALLBACK_CATCH_ALL).toBe('0');
+    expect(options.hooks).toMatchObject({ PostToolUse: [{ matcher: 'Read' }] });
   });
 
   test('the structured output schema drops size keywords and still takes a real report', () => {
@@ -224,30 +228,101 @@ describe('Engine A path hook', () => {
     expect(await hook({ tool_name: 'Read', tool_input: { file_path: 'src/~x.ts' } })).toEqual({});
   });
 
-  test('counts only the scan tool calls the hook lets through', async () => {
+  test('a Glob or Grep path with whitespace at either end is refused (Claude Code trims it)', async () => {
+    const hook = createPathHook(root);
+    const deny = { hookSpecificOutput: { permissionDecision: 'deny' } };
+    const outside = join(dir, 'outside');
+    for (const path of [
+      ` ${outside}`,
+      `\t${outside}`,
+      `\n${outside}`,
+      `\u00a0${outside}`,
+      `\ufeff${outside}`,
+      ' ../../outside',
+      ' ~',
+      '.. ',
+      ' /',
+      `${join(root, 'input')} `,
+    ]) {
+      expect(
+        await hook({ tool_name: 'Grep', tool_input: { pattern: 'x', path } }),
+        path,
+      ).toMatchObject(deny);
+      expect(
+        await hook({ tool_name: 'Glob', tool_input: { pattern: '**/*', path } }),
+        path,
+      ).toMatchObject(deny);
+    }
+    // Spaces inside a path are fine.
+    expect(
+      await hook({ tool_name: 'Grep', tool_input: { pattern: 'x', path: 'src/a b' } }),
+    ).toEqual({});
+  });
+
+  test('a path that is not a string is refused', async () => {
+    const hook = createPathHook(root);
+    const deny = { hookSpecificOutput: { permissionDecision: 'deny' } };
+    for (const path of [['/etc'], { p: '/etc' }, 1, null]) {
+      expect(await hook({ tool_name: 'Grep', tool_input: { pattern: 'x', path } })).toMatchObject(
+        deny,
+      );
+    }
+    expect(await hook({ tool_name: 'Grep', tool_input: { pattern: 'x' } })).toEqual({});
+  });
+
+  test('counts only a Read that returned code under /scan/input (S9 B5 follow-up)', async () => {
+    await writeFile(join(root, 'input/empty.ts'), '  \n');
+    await writeFile(join(root, 'memory/index.json'), '{"findings":[]}');
     let reads = 0;
-    const hook = countReads(createPathHook(root), () => reads++);
-    await hook({ tool_name: 'Read', tool_input: { file_path: join(root, 'input/a.ts') } });
-    await hook({ tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } });
-    await hook({ tool_name: 'Read', tool_input: { file_path: '/etc/passwd' } });
-    await hook({ tool_name: 'StructuredOutput', tool_input: {} });
-    expect(reads).toBe(2);
+    const counter = createReadCounter(root, () => reads++);
+    // The shape Claude Code 2.1.328 hands a PostToolUse hook for a Read.
+    const read = (file_path: string, content: string, type = 'text') =>
+      counter({
+        tool_name: 'Read',
+        tool_input: { file_path },
+        tool_response: { type, file: { filePath: file_path, content } },
+      });
+    await read(join(root, 'input/a.ts'), 'export {};');
+    expect(reads).toBe(1);
+    await read(join(root, 'memory/index.json'), '{"findings":[]}');
+    await read(join(root, 'input/empty.ts'), '  \n');
+    await read(join(root, 'input/a.ts'), '');
+    await read(join(dir, 'secret.txt'), 'token');
+    await read(join(root, 'input/../../secret.txt'), 'token');
+    await read(join(root, 'input/a.ts'), 'x', 'image');
+    await counter({
+      tool_name: 'Glob',
+      tool_input: { pattern: '**/*' },
+      tool_response: { filenames: ['a.ts'] },
+    });
+    await counter({
+      tool_name: 'Grep',
+      tool_input: { pattern: 'x' },
+      tool_response: { content: 'a.ts:1:x' },
+    });
+    await counter({ tool_name: 'Read', tool_input: { file_path: join(root, 'input/a.ts') } });
+    expect(reads).toBe(1);
   });
 });
 
 describe('Engine A sessions', () => {
-  test('the session counts the reads its hook let through', async () => {
+  test('the session counts the Reads that returned code, not the calls the hook let through', async () => {
+    type Hook = (input: Record<string, unknown>) => Promise<unknown>;
     const sdk: ClaudeSdk = {
       query: ({ options }) =>
         (async function* () {
-          const hooks = options.hooks as {
-            PreToolUse: Array<{
-              hooks: Array<(input: Record<string, unknown>) => Promise<unknown>>;
-            }>;
-          };
-          const hook = hooks.PreToolUse[0]!.hooks[0]!;
-          await hook({ tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } });
-          await hook({ tool_name: 'Glob', tool_input: { pattern: '../../**/*' } });
+          const hooks = options.hooks as Record<string, Array<{ hooks: Array<Hook> }>>;
+          const before = hooks.PreToolUse![0]!.hooks[0]!;
+          const after = hooks.PostToolUse![0]!.hooks[0]!;
+          await before({ tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } });
+          await after({ tool_name: 'Glob', tool_input: { pattern: '**/*.ts' }, tool_response: {} });
+          const file_path = join(root, 'input/a.ts');
+          await before({ tool_name: 'Read', tool_input: { file_path } });
+          await after({
+            tool_name: 'Read',
+            tool_input: { file_path },
+            tool_response: { type: 'text', file: { filePath: file_path, content: 'export {};' } },
+          });
           yield RESULT_OK;
         })(),
     };
@@ -339,6 +414,37 @@ describe('Engine A sessions', () => {
     expect(await engine(sdkOf([])).runSession(spec())).toMatchObject({
       kind: 'infrastructure',
       errorClass: 'agent_sdk_error',
+    });
+  });
+
+  test('a refused turn with no report ends refused whatever the result says', async () => {
+    const refusedTurn = {
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [],
+        stop_reason: 'refusal',
+        stop_details: { type: 'refusal', category: 'cyber' },
+      },
+    } satisfies ClaudeMessage;
+    for (const result of [
+      {
+        type: 'result',
+        subtype: 'success',
+        is_error: true,
+        stop_reason: null,
+        result: 'API Error: Claude Code is unable to respond to this request',
+      },
+      { type: 'result', subtype: 'success', is_error: false, stop_reason: 'end_turn' },
+    ]) {
+      expect(await engine(sdkOf([refusedTurn, result])).runSession(spec())).toMatchObject({
+        kind: 'refused',
+        category: 'cyber',
+      });
+    }
+    // A later turn that submitted a report keeps it.
+    expect(await engine(sdkOf([refusedTurn, RESULT_OK])).runSession(spec())).toMatchObject({
+      kind: 'submitted',
     });
   });
 

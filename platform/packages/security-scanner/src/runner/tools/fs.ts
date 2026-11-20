@@ -10,7 +10,12 @@ import { constants } from 'node:fs';
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export type ToolResult = { ok: boolean; text: string };
+export type ToolResult = {
+  ok: boolean;
+  text: string;
+  /** A read_file that returned non-blank lines of a file under /scan/input (`stats.reads`). */
+  code?: boolean;
+};
 
 export type FsToolsOptions = {
   /** The real directory that stands for `/scan`. */
@@ -229,7 +234,14 @@ export function createFsTools(options: FsToolsOptions): FsTools {
         if (last < lines.length) {
           out.push(`[more lines; call read_file with offset=${last + 1}]`);
         }
-        return { ok: true, text: cap(out.join('\n'), 'read fewer lines with offset and limit') };
+        const code =
+          target.segments[0] === 'input' &&
+          lines.slice(offset - 1, last).some((line) => line.trim() !== '');
+        return {
+          ok: true,
+          text: cap(out.join('\n'), 'read fewer lines with offset and limit'),
+          ...(code ? { code: true } : {}),
+        };
       }),
 
     listFiles: (args) =>

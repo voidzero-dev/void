@@ -142,10 +142,14 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
 }
 
 /**
- * A session that read no file cannot clear code: the prompt names files but never holds
+ * A session that read no code cannot clear any: the prompt names files but never holds
  * their text. A report from it with nothing but rejections (an empty hunt, or a verify
  * that drops its candidate) is bad output, not a clean result. Spike S9 B5: a model that
- * declines by handing in an empty report would otherwise pass the public gate.
+ * declines by handing in an empty report would otherwise pass the public gate. Only a
+ * read that returned lines of a file under /scan/input counts (`SessionStats.reads`):
+ * reading the memory index, listing or searching first and then declining is still a
+ * decline. A model that reads one file and then declines still looks clean; the plan
+ * names that as the remaining risk.
  */
 export function readNothing(outcome: SessionOutcome): SessionOutcome {
   if (
@@ -158,7 +162,7 @@ export function readNothing(outcome: SessionOutcome): SessionOutcome {
   return {
     kind: 'bad_output',
     errorKind: 'nothing_read',
-    message: 'the session cleared the code without reading any file',
+    message: 'the session cleared the code without reading any code file',
     stats: outcome.stats,
   };
 }

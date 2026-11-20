@@ -199,6 +199,26 @@ describe('Engine C (Codex SDK) run mapping', () => {
     ).toBe('infrastructure');
   });
 
+  test('the cyber policy text reads the same with any spacing or in its Debug form', () => {
+    for (const message of [
+      'cyber  policy: flagged',
+      'cyber\npolicy: flagged',
+      'CyberPolicy { message: "flagged" }',
+      'Cyber_Policy',
+    ]) {
+      expect(classifyCodexRun({ ...base, failure: { message } }), message).toEqual({
+        kind: 'refused',
+        category: 'cyber_policy',
+      });
+    }
+    expect(
+      classifyCodexRun({ ...base, failure: { message: 'TrustedAccessForCyber required' } }),
+    ).toEqual({ kind: 'refused', category: 'trusted_access_for_cyber' });
+    expect(
+      classifyCodexRun({ ...base, failure: { message: 'policy on cyber attacks' } }).kind,
+    ).toBe('infrastructure');
+  });
+
   test('a submitted report wins over a plain final message', () => {
     const validated = classifyClaudeResult({ subtype: 'success', structuredOutput: report([]) });
     if (validated.kind !== 'submitted') {

@@ -158,6 +158,73 @@
       ]
     },
     {
+      "id": "B6-decline-after-memory-list-grep",
+      "engine": "void_loop",
+      "kind": "unsignalled",
+      "source": "review after S9: reads the memory index as the hunt prompt asks, lists and searches, then declines with an empty report; only a read of code under /scan/input counts",
+      "replies": [
+        {
+          "json": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "c0",
+                      "type": "function",
+                      "function": {
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"/scan/memory/index.json\"}"
+                      }
+                    },
+                    {
+                      "id": "c1",
+                      "type": "function",
+                      "function": {
+                        "name": "list_files",
+                        "arguments": "{\"path\":\"/scan/input\"}"
+                      }
+                    },
+                    {
+                      "id": "c2",
+                      "type": "function",
+                      "function": { "name": "grep", "arguments": "{\"pattern\":\"no-such-text\"}" }
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ]
+          }
+        },
+        {
+          "json": {
+            "choices": [
+              {
+                "message": {
+                  "role": "assistant",
+                  "content": "I won't analyze this for vulnerabilities.",
+                  "tool_calls": [
+                    {
+                      "id": "c3",
+                      "type": "function",
+                      "function": {
+                        "name": "submit_findings",
+                        "arguments": "{\"run_status\":\"complete\",\"findings\":[],\"notes\":\"declined\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
       "id": "A1-stop-reason-refusal",
       "engine": "agent_sdk",
       "kind": "refusal",
@@ -272,6 +339,48 @@
       ]
     },
     {
+      "id": "A6-decline-after-memory-read-and-glob",
+      "engine": "agent_sdk",
+      "kind": "unsignalled",
+      "source": "review after S9: a Read of the memory index, a Read of a missing file and a Glob that matches nothing, then an empty structured report",
+      "messages": [
+        {
+          "type": "assistant",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "Read",
+                "input": { "file_path": "../memory/index.json" }
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_2",
+                "name": "Read",
+                "input": { "file_path": "missing.ts" }
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_3",
+                "name": "Glob",
+                "input": { "pattern": "nomatch*" }
+              }
+            ],
+            "stop_reason": "tool_use"
+          }
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "num_turns": 2,
+          "structured_output": { "run_status": "complete", "findings": [], "notes": "declined" }
+        }
+      ]
+    },
+    {
       "id": "C1-cyber-policy-turn-failed",
       "engine": "codex_sdk",
       "kind": "refusal",
@@ -362,7 +471,60 @@
       "events": [
         {
           "type": "item.completed",
-          "item": { "type": "mcp_tool_call", "tool": "read_file", "status": "completed" }
+          "item": {
+            "type": "mcp_tool_call",
+            "tool": "read_file",
+            "status": "completed",
+            "arguments": { "path": "/scan/input/app.ts" }
+          }
+        },
+        {
+          "type": "item.completed",
+          "item": { "type": "mcp_tool_call", "tool": "submit_findings" }
+        },
+        {
+          "type": "item.completed",
+          "item": {
+            "type": "agent_message",
+            "text": "{\"run_status\":\"complete\",\"finding_count\":0}"
+          }
+        },
+        { "type": "turn.completed", "usage": { "input_tokens": 4000, "output_tokens": 40 } }
+      ]
+    },
+    {
+      "id": "C9-decline-after-memory-list-grep",
+      "engine": "codex_sdk",
+      "kind": "unsignalled",
+      "source": "review after S9: read_file of the memory index, list_files and a grep with no match, then submit_findings with an empty report",
+      "report": { "run_status": "complete", "findings": [], "notes": "declined" },
+      "events": [
+        {
+          "type": "item.completed",
+          "item": {
+            "type": "mcp_tool_call",
+            "tool": "read_file",
+            "status": "completed",
+            "arguments": { "path": "/scan/memory/index.json" }
+          }
+        },
+        {
+          "type": "item.completed",
+          "item": {
+            "type": "mcp_tool_call",
+            "tool": "list_files",
+            "status": "completed",
+            "arguments": { "path": "/scan/input" }
+          }
+        },
+        {
+          "type": "item.completed",
+          "item": {
+            "type": "mcp_tool_call",
+            "tool": "grep",
+            "status": "completed",
+            "arguments": { "pattern": "no-such-text" }
+          }
         },
         {
           "type": "item.completed",

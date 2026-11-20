@@ -235,7 +235,8 @@ async function toolsSection(work: string) {
   }
 
   // Through Engine B and runScan: one hostile turn with every attempt, unknown tools and
-  // a forged tool name, then a submit.
+  // a forged tool name, then a submit. One plain read of code is in the turn too: a
+  // session that read no code cannot end clean (phases.ts readNothing).
   const calls = [
     ...ESCAPE_ATTEMPTS.map((attempt, index) => ({
       id: `e${index}`,
@@ -261,6 +262,11 @@ async function toolsSection(work: string) {
         }),
       },
     })),
+    {
+      id: 'r0',
+      type: 'function',
+      function: { name: 'read_file', arguments: JSON.stringify({ path: 'src/app.ts' }) },
+    },
   ];
   const requests: Array<{ url: string; body: string }> = [];
   writeFileSync(
@@ -343,7 +349,7 @@ async function toolsSection(work: string) {
     leaks(allText).length === 0,
     { leaked: leaks(allText) },
   );
-  const unknown = toolMessages.slice(ESCAPE_ATTEMPTS.length).map((message) => message.content);
+  const unknown = toolMessages.slice(ESCAPE_ATTEMPTS.length, -1).map((message) => message.content);
   check(
     'tools',
     'engine B: bash/fetch/web_search/write tools do not exist',
@@ -798,6 +804,7 @@ async function enginesSection(work: string) {
     caFile: '/etc/ca.crt',
     abortController: new AbortController(),
     hook: async () => ({}),
+    afterTool: async () => ({}),
     onStderr: () => undefined,
   }) as Record<string, unknown>;
   const env = options.env as Record<string, string>;
@@ -887,6 +894,21 @@ async function enginesSection(work: string) {
       input: { pattern: '*', path: '..' },
       deny: true,
     },
+    // Claude Code trims a Glob or Grep path before resolving it (review after S11).
+    ...[' /', '\t/', '\u00a0/', ' ../..', ' ~'].flatMap((path) => [
+      {
+        label: `Grep path ${JSON.stringify(path)}`,
+        tool: 'Grep',
+        input: { pattern: 'canary', path },
+        deny: true,
+      },
+      {
+        label: `Glob path ${JSON.stringify(path)}`,
+        tool: 'Glob',
+        input: { pattern: '**/*', path },
+        deny: true,
+      },
+    ]),
     {
       label: 'Read input file',
       tool: 'Read',

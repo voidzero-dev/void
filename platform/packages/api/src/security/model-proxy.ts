@@ -700,23 +700,55 @@ type Upstream =
 /** Provider error codes that mean a policy refusal (spec §8.4). */
 const PROVIDER_POLICY_CODES = ['cyber_policy', 'trusted_access_for_cyber'] as const;
 
-/** The policy code in a provider error body (`{"error":{"code":"cyber_policy"}}`), or `null`. */
+/**
+ * The policy code in a provider error body, or `null`. The live gateway shape is not
+ * recorded yet (no refusal has been seen through `/ai/v1`), so any `code` or `type`
+ * field at any depth counts: `{"error":{"code":…}}`, a list of those, a Cloudflare
+ * `{"errors":[{"code":…}]}` envelope, or a provider body held as JSON text inside a
+ * message. A body cut short is searched for the code as a whole JSON string.
+ */
 export function providerPolicyCode(detail: string): string | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(detail);
   } catch {
+    // Quoted, so the code inside an escaped echo of the request (`\"cyber_policy\"`) is not read.
+    return PROVIDER_POLICY_CODES.find((known) => detail.includes(`"${known}"`)) ?? null;
+  }
+  return policyCodeIn(parsed, 0);
+}
+
+function policyCodeIn(value: unknown, depth: number): string | null {
+  if (depth > 6) {
     return null;
   }
-  // The gateway may hand the provider body back as one item of a list.
-  for (const item of Array.isArray(parsed) ? parsed : [parsed]) {
-    const error =
-      typeof item === 'object' && item !== null ? (item as Record<string, unknown>).error : null;
-    const code =
-      typeof error === 'object' && error !== null ? (error as Record<string, unknown>).code : null;
-    const match = PROVIDER_POLICY_CODES.find((known) => known === code);
-    if (match) {
-      return match;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text.startsWith('{') && !text.startsWith('[')) {
+      return null;
+    }
+    try {
+      return policyCodeIn(JSON.parse(text), depth + 1);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+  const entries = Array.isArray(value)
+    ? value.map((item) => ['', item] as const)
+    : Object.entries(value as Record<string, unknown>);
+  for (const [key, item] of entries) {
+    if (key === 'code' || key === 'type') {
+      const match = PROVIDER_POLICY_CODES.find((known) => known === item);
+      if (match) {
+        return match;
+      }
+    }
+    const nested = policyCodeIn(item, depth + 1);
+    if (nested) {
+      return nested;
     }
   }
   return null;
@@ -894,7 +926,7 @@ async function callGateway(
     };
   }
   if (!response.ok) {
-    const detail = (await response.text().catch(() => '')).slice(0, 2000);
+    const detail = (await response.text().catch(() => '')).slice(0, 8000);
     return { kind: 'failed', status: response.status, credits: response.status === 402, detail };
   }
   if (plan.stream && response.body) {
@@ -1131,11 +1163,12 @@ export async function handleSecurityModelRequest(
     const policyCode = providerPolicyCode(upstream.detail);
     if (policyCode) {
       // A refusal, not an outage: the code goes on so Engine C reads it in the error text
-      // and the scan ends `refused` instead of being retried (spike S9).
+      // and the scan ends `refused` instead of being retried (spike S9). A 402 never gets
+      // here: the credits stop above wins over a policy code in its body.
       return failed(
         'refused',
         refuse(
-          status === 402 || status === 401 ? 400 : status,
+          status === 401 ? 400 : status,
           policyCode,
           'The model provider refused this request.',
         ),

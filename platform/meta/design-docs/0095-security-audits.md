@@ -2244,6 +2244,44 @@ real model proxy. Live refusal rates stay BLOCKED (no Unified Billing credits, s
 The S11 egress harness now expects the M30 copy-host intercept (`copy.void.internal`)
 between the model host and the catch-alls.
 
+**Fixed after a review of those fixes** (re-run: S9 24/24, S11 160/160):
+
+1. Glob and Grep `path` with whitespace at either end is refused. Claude Code trims a
+   Glob or Grep `path` before it reads `~` or resolves it, and those two tools reach
+   the hook untrimmed (Read reaches it already made absolute). `path: " /"` passed as a
+   folder named ` ` under input and searched `/`; `" ~"` and `".. "` the same way.
+   Checked live against Claude Code 2.1.328 with a fake Messages API. A `path` that is
+   not a string is refused too.
+2. `stats.reads` now counts only reads that returned code: a read of a file under
+   `/scan/input` with non-blank lines. Reading the memory index (the hunt prompt asks for
+   it first), listing, searching, a failed read or a Glob that matched nothing does not
+   count, so "obey step 1, then decline" no longer passes. Engine B: `FsTools.readFile`
+   marks such a result. Engine C: the void-scan server writes the count to
+   `<out>.reads`; Codex events are not read for it. Engine A: a PostToolUse hook on Read
+   reads `tool_response.file.content` (PreToolUse runs before the tool, so it cannot
+   see whether the read worked). S9 fixtures B6, A6 and C9 cover the three engines.
+   Remaining risk: a model that reads one file and then declines still looks like a
+   clean scan. A deployment whose `/scan/input` holds no non-blank file cannot end clean.
+3. Engine A: a turn that stopped with `refusal` and no report ends `refused`, even when
+   the result after it says `is_error` or `end_turn`. The env pins
+   `CLAUDE_CODE_REFUSAL_FALLBACK_CATCH_ALL=0` so a refused turn is not retried on
+   another model (no `fallbackModel` is set either).
+4. `classifyCodexRun` compares letters and digits only, so `cyber  policy`, a line break
+   between the words and the Debug form `CyberPolicy { … }` all end `refused`.
+5. The proxy looks for `cyber_policy` / `trusted_access_for_cyber` in any `code` or
+   `type` field at any depth (a Cloudflare `errors[]` envelope, `error[]`, a provider
+   body held as JSON text in a message), keeps 8000 characters of the body instead of
+   2000, and searches a body that does not parse for the quoted code. A 402 stays a
+   credits stop even with a policy code in its body (the dead 402 mapping is gone).
+   Release check: compare with a recorded `/ai/v1` refusal 400 once credits allow; the
+   real shape has not been seen.
+
+Handed back, not changed: Codex also prints `bio policy: …`, `misalignment policy
+violation: …`, `invalid prompt: …` and `Incomplete response returned, reason:
+content_filter`, and the provider can answer `invalid_prompt` / `bio_policy`. These end
+`failed (infrastructure)` and are retried. Spec §8.4 names only the two cyber codes, so
+whether they count as refusals is a product decision. None of them opens the gate.
+
 ### S12 legal checklist (open questions for the user)
 
 Not decided here. Each needs a written answer before MVP.

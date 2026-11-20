@@ -44,9 +44,6 @@ const NO_SUBMIT_NUDGE =
 const LAST_TURN_NOTE =
   'This is your last turn. Call submit_findings now with what you have found so far; set run_status to incomplete if you did not finish.';
 
-/** The tools that read the scan input; a call that answered counts in `stats.reads`. */
-const SCAN_TOOLS = new Set(['read_file', 'list_files', 'grep']);
-
 export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
   const baseUrl = options.baseUrl ?? MODEL_BASE_URL;
   const doFetch = options.fetch ?? fetch;
@@ -288,7 +285,13 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
             args === null
               ? { ok: false, text: 'error: tool arguments must be a JSON object' }
               : await runTool(name, args, extra);
-          if (result.ok && SCAN_TOOLS.has(name) && !extra.some((tool) => tool.name === name)) {
+          // Only a read_file that returned code counts (FsTools sets `code`).
+          if (
+            'code' in result &&
+            result.code === true &&
+            name === 'read_file' &&
+            !extra.some((tool) => tool.name === name)
+          ) {
             stats.reads++;
           }
           messages.push({ role: 'tool', tool_call_id: toolCall.id, content: result.text });

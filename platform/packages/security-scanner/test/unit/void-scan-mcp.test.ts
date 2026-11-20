@@ -71,6 +71,22 @@ describe('void-scan MCP server', () => {
     expect((await call('shell', { cmd: 'id' })).result.isError).toBe(true);
   });
 
+  test('counts in <out>.reads only the read_file calls that returned code', async () => {
+    await mkdir(join(dir, 'scan/memory'), { recursive: true });
+    await writeFile(join(dir, 'scan/memory/index.json'), '{"findings":[]}');
+    await writeFile(join(dir, 'scan/input/blank.ts'), '\n');
+    await call('list_files', {});
+    await call('grep', { pattern: 'one' });
+    await call('read_file', { path: '/scan/memory/index.json' });
+    await call('read_file', { path: 'blank.ts' });
+    await call('read_file', { path: 'missing.ts' });
+    await call('read_file', { path: '../../secret.txt' });
+    expect(existsSync(`${out}.reads`)).toBe(false);
+    await call('read_file', { path: 'a.ts' });
+    await call('read_file', { path: '/scan/input/a.ts', offset: 2 });
+    expect(JSON.parse(await readFile(`${out}.reads`, 'utf8'))).toEqual({ count: 2 });
+  });
+
   test('submit_findings writes an accepted report whole and refuses a second one', async () => {
     const accepted = await call('submit_findings', report([confirmed()]));
     expect(accepted.result.isError).toBe(false);

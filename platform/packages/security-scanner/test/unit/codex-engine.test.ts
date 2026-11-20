@@ -202,11 +202,29 @@ describe('Engine C config (spec §15.4)', () => {
 });
 
 describe('Engine C sessions', () => {
+  test('reads come from the void-scan count, not from tool call events (S9 B5 follow-up)', async () => {
+    const listed: Array<CodexEvent> = [
+      {
+        type: 'item.completed',
+        item: { type: 'mcp_tool_call', tool: 'list_files', status: 'completed' },
+      },
+      {
+        type: 'item.completed',
+        item: { type: 'mcp_tool_call', tool: 'read_file', status: 'completed' },
+      },
+      ...DONE,
+    ];
+    const outcome = await engine(sdkOf(listed, {}, writeReport(report([])))).runSession(spec());
+    expect(outcome).toMatchObject({ kind: 'submitted', stats: { reads: 0 } });
+  });
+
   test('a report the MCP server accepted is submitted; Codex gets the bare model name', async () => {
     const seen: Seen = {};
-    const outcome = await engine(sdkOf(DONE, seen, writeReport(report([confirmed()])))).runSession(
-      spec({ index: 1 }),
-    );
+    const act = async (path: string) => {
+      await writeReport(report([confirmed()]))(path);
+      await writeFile(`${path}.reads`, JSON.stringify({ count: 1 }));
+    };
+    const outcome = await engine(sdkOf(DONE, seen, act)).runSession(spec({ index: 1 }));
     expect(outcome).toMatchObject({
       kind: 'submitted',
       stats: { turns: 1, modelCalls: 2, inputTokens: 900, outputTokens: 40, reads: 1 },

@@ -16,7 +16,10 @@ export const MCP_SERVER_VERSION = '1';
 
 export type McpServerOptions = {
   tools: FsTools;
-  /** Where an accepted report goes. A refused one is noted in `<outPath>.rejected`. */
+  /**
+   * Where an accepted report goes. A refused one is noted in `<outPath>.rejected`, and the
+   * number of read_file calls that returned code in `<outPath>.reads` (`stats.reads`).
+   */
   outPath: string;
   /** A verify session submits one record at most. */
   maxRecords?: number;
@@ -52,6 +55,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
   const definitions = scanToolDefinitions();
   let submitted = false;
   let rejections = 0;
+  let codeReads = 0;
 
   async function submit(args: Json): Promise<ToolResult> {
     if (submitted) {
@@ -92,8 +96,14 @@ export function createMcpServer(options: McpServerOptions): McpServer {
 
   async function call(name: unknown, args: Json): Promise<ToolResult> {
     switch (name) {
-      case 'read_file':
-        return options.tools.readFile(args);
+      case 'read_file': {
+        const result = await options.tools.readFile(args);
+        if (result.code === true) {
+          codeReads++;
+          await writeWhole(`${options.outPath}.reads`, JSON.stringify({ count: codeReads }));
+        }
+        return result;
+      }
       case 'list_files':
         return options.tools.listFiles(args);
       case 'grep':

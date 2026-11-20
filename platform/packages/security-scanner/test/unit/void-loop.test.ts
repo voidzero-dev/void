@@ -192,10 +192,18 @@ describe('Engine B on the fake model', () => {
     expect(outcome.stats.reads).toBe(0);
   });
 
-  test('counts the scan tool calls that answered', async () => {
+  test('counts only the read_file calls that returned code under /scan/input', async () => {
+    await mkdir(join(root, 'memory'), { recursive: true });
+    await writeFile(join(root, 'memory/index.json'), '{"findings":[]}');
+    await writeFile(join(root, 'input/src/blank.ts'), '\n  \n');
     const engine = await engineWith([
       chatToolCalls([
         { name: 'list_files', arguments: { recursive: true } },
+        { name: 'grep', arguments: { pattern: 'no-such-text' } },
+        { name: 'grep', arguments: { pattern: 'export' } },
+        { name: 'read_file', arguments: { path: '/scan/memory/index.json' } },
+        { name: 'read_file', arguments: { path: '/scan/input/src/blank.ts' } },
+        { name: 'read_file', arguments: { path: '/scan/input/src/missing.ts' } },
         { name: 'read_file', arguments: { path: '/scan/input/src/users.ts' } },
         { name: 'read_file', arguments: { path: '/etc/passwd' } },
       ]),
@@ -203,8 +211,30 @@ describe('Engine B on the fake model', () => {
     ]);
     expect(await engine.runSession(spec())).toMatchObject({
       kind: 'submitted',
-      stats: { reads: 2 },
+      stats: { reads: 1 },
     });
+  });
+
+  test('reading the memory index, listing or searching and then declining fails the scan', async () => {
+    await mkdir(join(root, 'memory'), { recursive: true });
+    await writeFile(join(root, 'memory/index.json'), '{"findings":[]}');
+    for (const call of [
+      { name: 'read_file', arguments: { path: '/scan/memory/index.json' } },
+      { name: 'list_files', arguments: { path: '/scan/input' } },
+      { name: 'grep', arguments: { pattern: 'no-such-text' } },
+    ]) {
+      await model?.close();
+      model = await startFakeModel([
+        chatToolCalls([call]),
+        chatToolCall('submit_findings', report([])),
+      ]);
+      const status = await runScan({ root, baseUrl: model.url, retryDelayMs: 0 });
+      expect(status, call.name).toMatchObject({
+        status: 'failed',
+        reason: 'bad_output',
+        error_class: 'nothing_read',
+      });
+    }
   });
 
   test('a decline sent as an empty report with no file read fails the scan (spike S9 B5)', async () => {

@@ -755,6 +755,35 @@ describe('third-party calls through AI Gateway REST', () => {
     expect(providerPolicyCode('overloaded')).toBeNull();
   });
 
+  it('reads a policy code from other error envelopes and from a body cut short', () => {
+    expect(providerPolicyCode('{"errors":[{"code":"cyber_policy","message":"x"}]}')).toBe(
+      'cyber_policy',
+    );
+    expect(providerPolicyCode('{"error":[{"code":"cyber_policy"}]}')).toBe('cyber_policy');
+    expect(providerPolicyCode('{"error":{"type":"cyber_policy"}}')).toBe('cyber_policy');
+    const nested = JSON.stringify({ error: { code: 'cyber_policy', message: 'flagged' } });
+    expect(providerPolicyCode(JSON.stringify({ errors: [{ code: 7000, message: nested }] }))).toBe(
+      'cyber_policy',
+    );
+    const long = `{"error":{"code":"trusted_access_for_cyber","message":"${'x'.repeat(9000)}"}}`;
+    expect(providerPolicyCode(long.slice(0, 8000))).toBe('trusted_access_for_cyber');
+    // An escaped echo of the request text is not a code.
+    expect(
+      providerPolicyCode(`{"error":{"message":"bad input: \\"cyber_policy\\" ${'x'.repeat(10)}`),
+    ).toBeNull();
+    expect(
+      providerPolicyCode('{"type":"error","error":{"type":"invalid_request_error"}}'),
+    ).toBeNull();
+  });
+
+  it('keeps a 402 with a policy code a credits stop', async () => {
+    h.fetch.mockResolvedValue(new Response('{"error":{"code":"cyber_policy"}}', { status: 402 }));
+    const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
+    expect(response.status).toBe(402);
+    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('credits');
+    expect(h.failures.at(-1)?.reason).toBe('credits');
+  });
+
   it('passes another upstream failure as a plain failure the runner retries', async () => {
     h.fetch.mockResolvedValue(new Response('overloaded', { status: 529 }));
     const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });

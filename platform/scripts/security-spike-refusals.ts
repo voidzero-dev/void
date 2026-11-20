@@ -39,6 +39,8 @@ const { createClaudeEngine } =
   await import('../packages/security-scanner/src/runner/engines/claude.ts');
 const { createCodexEngine } =
   await import('../packages/security-scanner/src/runner/engines/codex.ts');
+const { createMcpServer } = await import('../packages/security-scanner/src/runner/mcp/server.ts');
+const { createFsTools } = await import('../packages/security-scanner/src/runner/tools/fs.ts');
 const proxy = await import('../packages/api/src/security/model-proxy.ts');
 const ledger = await import('../packages/api/src/security/call-ledger.ts');
 const ingest = await import('../packages/api/src/security/ingest.ts');
@@ -108,6 +110,7 @@ async function runFixture(fixture: Fixture, work: string): Promise<Mapped> {
     join(root, 'input', 'app.ts'),
     'export default { fetch() { return new Response("ok"); } };\n',
   );
+  writeFileSync(join(root, 'memory', 'index.json'), '{"findings":[]}\n');
   writeFileSync(
     join(root, 'task.json'),
     JSON.stringify({
@@ -158,20 +161,41 @@ async function runFixture(fixture: Fixture, work: string): Promise<Mapped> {
           loadSdk: async () => ({
             query: ({ options }: { options: Record<string, unknown> }) =>
               (async function* () {
-                // Claude Code runs the PreToolUse hook before each tool call.
-                const hooks = options.hooks as {
-                  PreToolUse: Array<{
-                    hooks: Array<(input: Record<string, unknown>) => Promise<unknown>>;
-                  }>;
-                };
-                const hook = hooks.PreToolUse[0]!.hooks[0]!;
+                // Claude Code runs the PreToolUse hook before each tool call and, for a
+                // Read that worked, the PostToolUse hook with what it read.
+                type Hook = (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+                const hooks = options.hooks as Record<string, Array<{ hooks: Array<Hook> }>>;
+                const before = hooks.PreToolUse![0]!.hooks[0]!;
+                const after = hooks.PostToolUse![0]!.hooks[0]!;
                 for (const message of fixture.messages ?? []) {
                   const inner = message.message as { content?: unknown } | undefined;
                   for (const block of Array.isArray(inner?.content) ? inner.content : []) {
                     const part = block as { type?: string; name?: string; input?: unknown };
-                    if (part.type === 'tool_use') {
-                      await hook({ tool_name: part.name, tool_input: part.input });
+                    if (part.type !== 'tool_use') {
+                      continue;
                     }
+                    const answer = await before({ tool_name: part.name, tool_input: part.input });
+                    const asked = (part.input as { file_path?: unknown } | undefined)?.file_path;
+                    if (
+                      answer.hookSpecificOutput !== undefined ||
+                      part.name !== 'Read' ||
+                      typeof asked !== 'string'
+                    ) {
+                      continue;
+                    }
+                    // Claude Code hands the hooks an absolute file_path.
+                    const file_path = asked.startsWith('/') ? asked : join(root, 'input', asked);
+                    let content: string;
+                    try {
+                      content = readFileSync(file_path, 'utf8');
+                    } catch {
+                      continue; // a failed Read gets PostToolUseFailure, not PostToolUse
+                    }
+                    await after({
+                      tool_name: 'Read',
+                      tool_input: { ...(part.input as object), file_path },
+                      tool_response: { type: 'text', file: { filePath: file_path, content } },
+                    });
                   }
                   yield message as { type: string };
                 }
@@ -195,11 +219,32 @@ async function runFixture(fixture: Fixture, work: string): Promise<Mapped> {
               const config = this.config;
               return {
                 runStreamed: async () => {
+                  const servers = config.mcp_servers as Record<string, { args: Array<string> }>;
+                  const args = servers['void-scan']!.args;
+                  const outPath = args[args.indexOf('--out') + 1]!;
+                  // The read, list and search calls go through the real void-scan server,
+                  // which counts the reads that returned code.
+                  const server = createMcpServer({ tools: createFsTools({ root }), outPath });
+                  for (const event of fixture.events ?? []) {
+                    const item = event.item as
+                      | { type?: string; tool?: string; arguments?: unknown }
+                      | undefined;
+                    if (
+                      item?.type === 'mcp_tool_call' &&
+                      item.tool !== 'submit_findings' &&
+                      item.arguments !== undefined
+                    ) {
+                      await server.handle({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'tools/call',
+                        params: { name: item.tool, arguments: item.arguments },
+                      });
+                    }
+                  }
                   if (fixture.report !== undefined) {
                     // What the void-scan MCP server writes when submit_findings is accepted.
-                    const servers = config.mcp_servers as Record<string, { args: Array<string> }>;
-                    const args = servers['void-scan']!.args;
-                    writeFileSync(args[args.indexOf('--out') + 1]!, JSON.stringify(fixture.report));
+                    writeFileSync(outPath, JSON.stringify(fixture.report));
                   }
                   return {
                     events: (async function* () {
