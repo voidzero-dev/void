@@ -1,6 +1,6 @@
 # baseline-void benchmark report
 
-Successful run: **2026-11-19T09:06:47.086Z**
+Successful run: **2026-11-20T07:51:38.075Z**
 
 Source measurements: [report.json](report.json).
 
@@ -11,8 +11,8 @@ Source measurements: [report.json](report.json).
 
 | Field                                 | Value                                                            |
 | ------------------------------------- | ---------------------------------------------------------------- |
-| Run started (UTC)                     | 2026-11-19T08:49:50.309Z                                         |
-| Run finished (UTC)                    | 2026-11-19T09:06:47.086Z                                         |
+| Run started (UTC)                     | 2026-11-20T07:27:48.795Z                                         |
+| Run finished (UTC)                    | 2026-11-20T07:51:38.075Z                                         |
 | Platform                              | darwin                                                           |
 | OS release                            | 25.6.0                                                           |
 | Node.js                               | v24.22.1                                                         |
@@ -20,7 +20,7 @@ Source measurements: [report.json](report.json).
 | CPU                                   | Apple M5 Pro                                                     |
 | Architecture                          | arm64                                                            |
 | Logical cores / available parallelism | 18 / 18                                                          |
-| Network type / interface              | wifi / en0                                                       |
+| Network type / interface              | ethernet / en7                                                   |
 | Hostname SHA-256                      | ac84d7c6ed5458a31e79a25f931f16b87220758dc1677e9cdf9022505db370aa |
 
 Network information describes the local default route, not a verified end-to-end path.
@@ -56,17 +56,17 @@ Network information describes the local default route, not a verified end-to-end
 
 | Format | Size (Median) |
 | ------ | ------------- |
-| Raw    | 143,638 bytes |
-| Gzip   | 40,206 bytes  |
+| Raw    | 143,403 bytes |
+| Gzip   | 40,150 bytes  |
 
 ### Timing summary
 
-| Phase          | Mean          | Mean 95% CI                 | Median        |
-| -------------- | ------------- | --------------------------- | ------------- |
-| Build          | 154.333 ms    | [143.733, 166.667] ms       | 141.5 ms      |
-| Upload         | 7,713.333 ms  | [7,332.333, 8,004.008] ms   | 7,685 ms      |
-| Worker startup | 3.667 ms      | [3.267, 4.133] ms           | 3 ms          |
-| `cf deploy`    | 14,281.199 ms | [13,746.388, 14,652.424] ms | 14,382.012 ms |
+| Phase          | Mean          | Mean 95% CI                | Median        |
+| -------------- | ------------- | -------------------------- | ------------- |
+| Build          | 162.967 ms    | [151.567, 175.068] ms      | 151 ms        |
+| Upload         | 7,304.333 ms  | [6,879.992, 7,614] ms      | 7,540 ms      |
+| Worker startup | 3.7 ms        | [3.3, 4.167] ms            | 3.5 ms        |
+| `cf deploy`    | 13,234.209 ms | [12,667.17, 13,646.146] ms | 13,459.425 ms |
 
 ### Details
 
@@ -79,10 +79,10 @@ Network information describes the local default route, not a verified end-to-end
 | --------------------------------------------------------------- | ------------------------------------------------------------------- |
 | Worker                                                          | void-perf-baseline-void                                             |
 | Worker ID                                                       | 564710ff32b14cbdb179ca5ea82f80f4                                    |
-| Version ID                                                      | 1a50310e-fb3e-47a1-ac36-1e7fa16024cc                                |
+| Version ID                                                      | 4eb37fe2-21f6-49c4-a4be-53135a8f3cbc                                |
 | Origin                                                          | https://void-perf-baseline-void.cloudflare-internal-11e.workers.dev |
-| Final run Access setup/check (excluded from command timing)     | 3,129.261 ms                                                        |
-| Final run workflow wall time (includes cleanup, lookup, Access) | 18,496.843 ms                                                       |
+| Final run Access setup/check (excluded from command timing)     | 4,250.229 ms                                                        |
+| Final run workflow wall time (includes cleanup, lookup, Access) | 19,373.64 ms                                                        |
 
 The final run's version is used for the latency measurement. Access is configured/checked only after the final deployment.
 
@@ -94,29 +94,29 @@ Medians use successful deployments with recorded sizes.
 
 | Format | Final deployment | Batch range           |
 | ------ | ---------------- | --------------------- |
-| Raw    | 143,638 bytes    | 143,638–143,638 bytes |
-| Gzip   | 40,206 bytes     | 40,206–40,206 bytes   |
+| Raw    | 143,403 bytes    | 143,403–143,403 bytes |
+| Gzip   | 40,150 bytes     | 40,150–40,150 bytes   |
 
 Bundle-size variation: None observed.
 
 #### Full timing statistics
 
-| Phase                       | Valid / missing | Mean          | Mean 95% CI                 | Median        | Median 95% CI               | Sample SD    | IQR        | Min–max                 | Mean CI half-width / mean | ±5% target |
-| --------------------------- | --------------- | ------------- | --------------------------- | ------------- | --------------------------- | ------------ | ---------- | ----------------------- | ------------------------- | ---------- |
-| Build                       | 30 / 0          | 154.333 ms    | [143.733, 166.667] ms       | 141.5 ms      | [136, 149] ms               | 32.715 ms    | 25 ms      | 129–248 ms              | 7.43%                     | Not met    |
-| Upload                      | 30 / 0          | 7,713.333 ms  | [7,332.333, 8,004.008] ms   | 7,685 ms      | [7,615, 7,920] ms           | 959.275 ms   | 447.5 ms   | 3,350–9,980 ms          | 4.35%                     | Met        |
-| Deploy triggers             | 30 / 0          | 1,950 ms      | [1,848.992, 2,015.333] ms   | 2,005 ms      | [1,925, 2,030] ms           | 249.883 ms   | 130 ms     | 700–2,200 ms            | 4.27%                     | Met        |
-| Worker startup              | 30 / 0          | 3.667 ms      | [3.267, 4.133] ms           | 3 ms          | [3, 4] ms                   | 1.241 ms     | 1 ms       | 2–8 ms                  | 11.82%                    | Not met    |
-| `cf deploy`                 | 30 / 0          | 14,281.199 ms | [13,746.388, 14,652.424] ms | 14,382.012 ms | [14,150.336, 14,604.754] ms | 1,330.089 ms | 554.862 ms | 7,888.365–16,601.707 ms | 3.17%                     | Met        |
-| Local preparation + cleanup | 30 / 0          | 6.158 ms      | [5.602, 6.715] ms           | 5.767 ms      | [5.323, 6.644] ms           | 1.582 ms     | 1.857 ms   | 2.137–9.421 ms          | 9.03%                     | Not met    |
-| Worker lookup               | 30 / 0          | 1,287.398 ms  | [1,233.948, 1,327.11] ms    | 1,312.844 ms  | [1,281.368, 1,329.946] ms   | 134.982 ms   | 73.095 ms  | 719.494–1,421.36 ms     | 3.62%                     | Met        |
+| Phase                       | Valid / missing | Mean          | Mean 95% CI                | Median        | Median 95% CI               | Sample SD    | IQR        | Min–max                 | Mean CI half-width / mean | ±5% target |
+| --------------------------- | --------------- | ------------- | -------------------------- | ------------- | --------------------------- | ------------ | ---------- | ----------------------- | ------------------------- | ---------- |
+| Build                       | 30 / 0          | 162.967 ms    | [151.567, 175.068] ms      | 151 ms        | [143.5, 161] ms             | 33.345 ms    | 25.75 ms   | 130–235 ms              | 7.21%                     | Not met    |
+| Upload                      | 30 / 0          | 7,304.333 ms  | [6,879.992, 7,614] ms      | 7,540 ms      | [7,385, 7,575] ms           | 1,055.399 ms | 272.5 ms   | 3,540–8,180 ms          | 5.02%                     | Not met    |
+| Deploy triggers             | 30 / 0          | 1,852.667 ms  | [1,725.658, 1,947.333] ms  | 1,895 ms      | [1,860, 1,915] ms           | 319.395 ms   | 165 ms     | 730–2,270 ms            | 5.98%                     | Not met    |
+| Worker startup              | 30 / 0          | 3.7 ms        | [3.3, 4.167] ms            | 3.5 ms        | [3, 4] ms                   | 1.236 ms     | 1 ms       | 2–8 ms                  | 11.71%                    | Not met    |
+| `cf deploy`                 | 30 / 0          | 13,234.209 ms | [12,667.17, 13,646.146] ms | 13,459.425 ms | [13,359.256, 13,636.894] ms | 1,405.411 ms | 392.755 ms | 7,886.582–14,296.407 ms | 3.7%                      | Met        |
+| Local preparation + cleanup | 30 / 0          | 6.753 ms      | [6.327, 7.176] ms          | 6.875 ms      | [6.053, 7.126] ms           | 1.202 ms     | 1.632 ms   | 3.999–9.532 ms          | 6.28%                     | Not met    |
+| Worker lookup               | 30 / 0          | 1,269.413 ms  | [1,210.297, 1,317.958] ms  | 1,318.19 ms   | [1,286.105, 1,332.46] ms    | 155.733 ms   | 71.456 ms  | 776.002–1,405.234 ms    | 4.24%                     | Met        |
 
 #### Batch context
 
 | Field                                    | Value                                               |
 | ---------------------------------------- | --------------------------------------------------- |
 | Requested / completed / failed / not run | 30 / 30 / 0 / 0                                     |
-| Batch start / finish (UTC)               | 2026-11-19T08:49:50.808Z / 2026-11-19T08:57:41.208Z |
+| Batch start / finish (UTC)               | 2026-11-20T07:27:49.251Z / 2026-11-20T07:35:08.859Z |
 
 #### Timing methodology
 
@@ -132,44 +132,44 @@ These IID bootstrap intervals describe uncertainty within this sequential batch,
 
 | Run       | Outcome | Started (UTC)            | Build  | Upload   | Deploy triggers | `cf deploy`   | Raw / gzip                   | Version                              |
 | --------- | ------- | ------------------------ | ------ | -------- | --------------- | ------------- | ---------------------------- | ------------------------------------ |
-| 1 (first) | success | 2026-11-19T08:49:50.809Z | 132 ms | 8,420 ms | 1,870 ms        | 15,344.609 ms | 143,638 bytes / 40,206 bytes | 671785ff-302a-4431-91fa-38af9e6c768f |
-| 2         | success | 2026-11-19T08:50:07.494Z | 138 ms | 8,250 ms | 1,950 ms        | 14,851.455 ms | 143,638 bytes / 40,206 bytes | 4a928e5e-adc9-4c55-9eeb-57ea3ac35cee |
-| 3         | success | 2026-11-19T08:50:23.778Z | 135 ms | 8,280 ms | 2,080 ms        | 15,070.249 ms | 143,638 bytes / 40,206 bytes | 35dc9a7b-1879-47b2-b172-037805049522 |
-| 4         | success | 2026-11-19T08:50:40.182Z | 157 ms | 7,980 ms | 1,900 ms        | 14,639.596 ms | 143,638 bytes / 40,206 bytes | f32754a8-015d-49ae-a973-4c842d232396 |
-| 5         | success | 2026-11-19T08:50:56.089Z | 224 ms | 8,160 ms | 2,200 ms        | 14,904.893 ms | 143,638 bytes / 40,206 bytes | 7c754971-7770-4eab-af8a-c49418df60fa |
-| 6         | success | 2026-11-19T08:51:12.424Z | 145 ms | 7,670 ms | 2,040 ms        | 14,276.85 ms  | 143,638 bytes / 40,206 bytes | 6979ec15-3522-46e2-bd63-67944a7ee3a8 |
-| 7         | success | 2026-11-19T08:51:27.972Z | 144 ms | 7,610 ms | 1,890 ms        | 14,332.135 ms | 143,638 bytes / 40,206 bytes | 3306952f-c942-4b8e-b907-fa80a5ea2c2f |
-| 8         | success | 2026-11-19T08:51:43.633Z | 146 ms | 7,740 ms | 2,040 ms        | 15,014.597 ms | 143,638 bytes / 40,206 bytes | 43520863-cce0-4205-b68f-b59f091e7b8b |
-| 9         | success | 2026-11-19T08:51:59.916Z | 136 ms | 8,020 ms | 2,020 ms        | 14,633.246 ms | 143,638 bytes / 40,206 bytes | da99a9cb-ccb4-4880-a9ba-6b8936ae946e |
-| 10        | success | 2026-11-19T08:52:15.908Z | 151 ms | 7,320 ms | 1,890 ms        | 14,061.896 ms | 143,638 bytes / 40,206 bytes | 9b5a4685-076f-411f-8a2e-ec746770dda3 |
-| 11        | success | 2026-11-19T08:52:31.257Z | 161 ms | 7,650 ms | 2,020 ms        | 14,614.094 ms | 143,638 bytes / 40,206 bytes | ca4d5bb2-7720-4f67-939e-e94868a45041 |
-| 12        | success | 2026-11-19T08:52:47.210Z | 235 ms | 7,670 ms | 2,030 ms        | 14,497.686 ms | 143,638 bytes / 40,206 bytes | 4f6c0964-1f8d-486a-8390-f0ad93c231d9 |
-| 13        | success | 2026-11-19T08:53:03.072Z | 248 ms | 7,700 ms | 1,930 ms        | 14,552.758 ms | 143,638 bytes / 40,206 bytes | 060b7f9f-88df-4016-b9c4-9675efebb4e0 |
-| 14        | success | 2026-11-19T08:53:18.975Z | 135 ms | 7,620 ms | 1,950 ms        | 14,107.775 ms | 143,638 bytes / 40,206 bytes | 293cf258-302a-43b9-b24e-d15576c17876 |
-| 15        | success | 2026-11-19T08:53:34.456Z | 134 ms | 7,560 ms | 2,070 ms        | 14,079.904 ms | 143,638 bytes / 40,206 bytes | d5d8e766-ff91-4936-af6f-2aa2f1e8e788 |
-| 16        | success | 2026-11-19T08:53:49.937Z | 161 ms | 7,650 ms | 2,030 ms        | 14,259.676 ms | 143,638 bytes / 40,206 bytes | 8d873254-09c5-4298-b44d-924640090cf9 |
-| 17        | success | 2026-11-19T08:54:05.530Z | 133 ms | 7,490 ms | 2,160 ms        | 14,092.871 ms | 143,638 bytes / 40,206 bytes | 496d4db8-1174-44f0-8582-53c76ba9968a |
-| 18        | success | 2026-11-19T08:54:20.925Z | 161 ms | 8,100 ms | 2,050 ms        | 14,595.413 ms | 143,638 bytes / 40,206 bytes | d151ae8c-11da-4a17-8a28-47960c592b70 |
-| 19        | success | 2026-11-19T08:54:36.829Z | 133 ms | 7,330 ms | 1,920 ms        | 13,633.289 ms | 143,638 bytes / 40,206 bytes | 88a3dba2-1349-43d4-8d13-2a7b7f912de5 |
-| 20        | success | 2026-11-19T08:54:51.778Z | 147 ms | 9,980 ms | 1,990 ms        | 16,601.707 ms | 143,638 bytes / 40,206 bytes | b2880be5-4d2e-4c48-a30c-8d667de0901f |
-| 21        | success | 2026-11-19T08:55:09.647Z | 162 ms | 7,580 ms | 1,910 ms        | 13,966.048 ms | 143,638 bytes / 40,206 bytes | fe661e07-8a24-40f6-a793-626ef352ef28 |
-| 22        | success | 2026-11-19T08:55:24.584Z | 133 ms | 8,200 ms | 2,060 ms        | 14,957.056 ms | 143,638 bytes / 40,206 bytes | 7a7b62eb-1156-4e59-9404-949071e6328e |
-| 23        | success | 2026-11-19T08:55:40.970Z | 133 ms | 8,030 ms | 2,030 ms        | 14,511.095 ms | 143,638 bytes / 40,206 bytes | 29b1301c-4744-4168-8c37-c57f1e01da4d |
-| 24        | success | 2026-11-19T08:55:56.778Z | 221 ms | 7,860 ms | 1,910 ms        | 14,347.625 ms | 143,638 bytes / 40,206 bytes | 8ab987de-1001-46d6-b5fa-c5a39d735044 |
-| 25        | success | 2026-11-19T08:56:11.853Z | 129 ms | 3,350 ms | 700 ms          | 7,888.365 ms  | 143,638 bytes / 40,206 bytes | cb7cf2dc-bb07-470e-ad97-61a47b2e33e7 |
-| 26        | success | 2026-11-19T08:56:21.065Z | 136 ms | 7,550 ms | 1,900 ms        | 13,937.211 ms | 143,638 bytes / 40,206 bytes | 13fa5950-65b4-42a9-8ace-7ed8b03d0001 |
-| 27        | success | 2026-11-19T08:56:36.281Z | 137 ms | 7,790 ms | 1,970 ms        | 14,192.898 ms | 143,638 bytes / 40,206 bytes | 1d27a3ae-9916-4002-ba2d-1c567f50e101 |
-| 28        | success | 2026-11-19T08:56:51.720Z | 146 ms | 7,770 ms | 2,030 ms        | 14,416.4 ms   | 143,638 bytes / 40,206 bytes | 0f68cd6e-deee-455e-855f-b5062d3ca0a2 |
-| 29        | success | 2026-11-19T08:57:07.404Z | 138 ms | 7,580 ms | 1,910 ms        | 14,019.232 ms | 143,638 bytes / 40,206 bytes | 7637d68a-21c5-477f-9ccd-c7d42e578c35 |
-| 30        | success | 2026-11-19T08:57:22.711Z | 139 ms | 7,490 ms | 2,050 ms        | 14,035.333 ms | 143,638 bytes / 40,206 bytes | 1a50310e-fb3e-47a1-ac36-1e7fa16024cc |
+| 1 (first) | success | 2026-11-20T07:27:49.252Z | 161 ms | 3,540 ms | 760 ms          | 7,886.582 ms  | 143,403 bytes / 40,150 bytes | 5ced7d21-b188-4689-a82c-e7def63e3589 |
+| 2         | success | 2026-11-20T07:27:58.468Z | 225 ms | 8,000 ms | 2,030 ms        | 14,155.359 ms | 143,403 bytes / 40,150 bytes | 4439ca5e-9c0e-4fdc-a052-68fd6887e194 |
+| 3         | success | 2026-11-20T07:28:14.016Z | 148 ms | 7,420 ms | 1,880 ms        | 13,377.069 ms | 143,403 bytes / 40,150 bytes | 62e33a12-5fa5-43b3-a532-d878e6580f80 |
+| 4         | success | 2026-11-20T07:28:28.720Z | 161 ms | 7,610 ms | 1,820 ms        | 13,446.115 ms | 143,403 bytes / 40,150 bytes | e2b7aa68-d7aa-4f49-b44c-66dbfdbbf5cd |
+| 5         | success | 2026-11-20T07:28:43.474Z | 165 ms | 7,400 ms | 1,910 ms        | 13,256.584 ms | 143,403 bytes / 40,150 bytes | baabfb1b-cd72-4e32-88e7-c1285e5d2387 |
+| 6         | success | 2026-11-20T07:28:57.564Z | 130 ms | 7,220 ms | 2,270 ms        | 13,694.957 ms | 143,403 bytes / 40,150 bytes | 3268c11d-f26d-4b66-b093-2d7517f74647 |
+| 7         | success | 2026-11-20T07:29:12.509Z | 235 ms | 7,330 ms | 1,900 ms        | 13,384.741 ms | 143,403 bytes / 40,150 bytes | 828a8d4f-337d-42dd-8426-0fe340c0dd72 |
+| 8         | success | 2026-11-20T07:29:27.181Z | 131 ms | 7,130 ms | 1,990 ms        | 12,974.609 ms | 143,403 bytes / 40,150 bytes | 15388944-a1c2-4f81-93b5-e24559ffc28b |
+| 9         | success | 2026-11-20T07:29:41.441Z | 146 ms | 7,500 ms | 1,840 ms        | 13,371.394 ms | 143,403 bytes / 40,150 bytes | 1b7f7dc2-6b4b-4000-b633-c6afe5969962 |
+| 10        | success | 2026-11-20T07:29:56.113Z | 226 ms | 8,170 ms | 1,910 ms        | 14,296.407 ms | 143,403 bytes / 40,150 bytes | 5daed7b0-0f2f-4357-86cd-2258e7239671 |
+| 11        | success | 2026-11-20T07:30:11.790Z | 169 ms | 7,960 ms | 2,130 ms        | 14,106.083 ms | 143,403 bytes / 40,150 bytes | 5e4a7738-1b02-4a07-8542-4ace766d0452 |
+| 12        | success | 2026-11-20T07:30:27.160Z | 133 ms | 7,540 ms | 1,920 ms        | 13,312.955 ms | 143,403 bytes / 40,150 bytes | 5d97b9c0-87f2-4235-b90c-a38ab2e29c8a |
+| 13        | success | 2026-11-20T07:30:41.787Z | 140 ms | 8,180 ms | 2,050 ms        | 14,201.55 ms  | 143,403 bytes / 40,150 bytes | 05d5e88e-d339-42a7-93f4-fb7c60285b18 |
+| 14        | success | 2026-11-20T07:30:57.290Z | 134 ms | 7,770 ms | 1,820 ms        | 13,592.811 ms | 143,403 bytes / 40,150 bytes | e85bdbc3-3451-4971-a1a9-edc9ff010987 |
+| 15        | success | 2026-11-20T07:31:12.149Z | 160 ms | 7,490 ms | 1,910 ms        | 13,272.64 ms  | 143,403 bytes / 40,150 bytes | 27d741fb-bbdf-4ecb-818c-5f9c091aece9 |
+| 16        | success | 2026-11-20T07:31:26.205Z | 136 ms | 7,300 ms | 1,890 ms        | 13,205.794 ms | 143,403 bytes / 40,150 bytes | 5e155aa5-cf86-405a-ae32-f3a166e93aa0 |
+| 17        | success | 2026-11-20T07:31:40.301Z | 151 ms | 7,210 ms | 1,840 ms        | 13,236.522 ms | 143,403 bytes / 40,150 bytes | befe2ff9-5ffb-40ba-a306-2444336a2778 |
+| 18        | success | 2026-11-20T07:31:54.873Z | 158 ms | 7,560 ms | 1,830 ms        | 13,942.501 ms | 143,403 bytes / 40,150 bytes | 4cb73c73-ac9c-4208-aac0-ff751bfe9892 |
+| 19        | success | 2026-11-20T07:32:10.090Z | 211 ms | 7,760 ms | 1,870 ms        | 13,851.067 ms | 143,403 bytes / 40,150 bytes | 53e26eab-4980-4ae2-a4f4-e046e7f52d7e |
+| 20        | success | 2026-11-20T07:32:25.301Z | 157 ms | 3,580 ms | 730 ms          | 8,579.562 ms  | 143,403 bytes / 40,150 bytes | b0ccd8dd-f1f5-44e1-a70e-2f24bd366f7c |
+| 21        | success | 2026-11-20T07:32:35.224Z | 149 ms | 7,540 ms | 1,860 ms        | 13,472.734 ms | 143,403 bytes / 40,150 bytes | cf9dc635-90b9-4005-8f9a-f1fbde7115b3 |
+| 22        | success | 2026-11-20T07:32:50.065Z | 132 ms | 7,570 ms | 1,890 ms        | 13,680.978 ms | 143,403 bytes / 40,150 bytes | 2af22499-9280-43ae-8741-ab39cf1057ff |
+| 23        | success | 2026-11-20T07:33:05.158Z | 134 ms | 7,540 ms | 1,860 ms        | 13,546.092 ms | 143,403 bytes / 40,150 bytes | a7f8e76e-be0d-4794-a702-5a90fe80dcac |
+| 24        | success | 2026-11-20T07:33:20.037Z | 223 ms | 7,370 ms | 2,010 ms        | 13,437.095 ms | 143,403 bytes / 40,150 bytes | ca6be30e-9c82-414b-9fff-88204d04bc26 |
+| 25        | success | 2026-11-20T07:33:34.832Z | 227 ms | 7,540 ms | 1,830 ms        | 13,493.989 ms | 143,403 bytes / 40,150 bytes | c6ee4f7e-a7a0-4c56-8654-129cbde3ddd0 |
+| 26        | success | 2026-11-20T07:33:49.666Z | 166 ms | 7,340 ms | 1,900 ms        | 13,347.118 ms | 143,403 bytes / 40,150 bytes | c1c57ebb-fbcd-45a2-b753-b116deaf50ec |
+| 27        | success | 2026-11-20T07:34:04.364Z | 149 ms | 7,280 ms | 2,020 ms        | 13,338.451 ms | 143,403 bytes / 40,150 bytes | 9eeaeb1e-3eb0-4b22-96fa-382a0ef757e2 |
+| 28        | success | 2026-11-20T07:34:19.031Z | 151 ms | 7,590 ms | 1,800 ms        | 13,556.823 ms | 143,403 bytes / 40,150 bytes | a9ccf99c-f745-4a60-84f4-c34e308c56c3 |
+| 29        | success | 2026-11-20T07:34:33.855Z | 140 ms | 8,110 ms | 2,060 ms        | 14,289.903 ms | 143,403 bytes / 40,150 bytes | 0e695a97-2df1-4241-bb36-312c714476a6 |
+| 30        | success | 2026-11-20T07:34:49.485Z | 141 ms | 7,580 ms | 2,050 ms        | 13,717.794 ms | 143,403 bytes / 40,150 bytes | 4eb37fe2-21f6-49c4-a4be-53135a8f3cbc |
 
 </details>
 
 ## Latency workload summary
 
-| Workload | URL                                                                  | Mean      | P50       | P95       |
-| -------- | -------------------------------------------------------------------- | --------- | --------- | --------- |
-| baseline | https://void-perf-baseline-void.cloudflare-internal-11e.workers.dev/ | 24.933 ms | 21.655 ms | 43.513 ms |
+| Workload | URL                                                                  | Mean      | P50       | P95        |
+| -------- | -------------------------------------------------------------------- | --------- | --------- | ---------- |
+| baseline | https://void-perf-baseline-void.cloudflare-internal-11e.workers.dev/ | 66.643 ms | 57.787 ms | 118.306 ms |
 
 ### Details
 
@@ -188,16 +188,16 @@ Empty Void response
 
 ### Client latency
 
-| Measurement       | Value        |
-| ----------------- | ------------ |
-| Mean              | 24.933 ms    |
-| Minimum           | 16.059 ms    |
-| P50               | 21.655 ms    |
-| P95               | 43.513 ms    |
-| P99               | 79.275 ms    |
-| Maximum           | 346.467 ms   |
-| Throughput        | 40.082 req/s |
-| Measured duration | 249.491 s    |
+| Measurement       | Value      |
+| ----------------- | ---------- |
+| Mean              | 66.643 ms  |
+| Minimum           | 28.384 ms  |
+| P50               | 57.787 ms  |
+| P95               | 118.306 ms |
+| P99               | 206.603 ms |
+| Maximum           | 923.248 ms |
+| Throughput        | 15 req/s   |
+| Measured duration | 666.668 s  |
 
 #### Details
 
@@ -212,11 +212,11 @@ Client latency includes network and Access overhead. Throughput at the selected 
 
 10 rounds; 10,000 measured requests pooled. Confidence intervals resample whole rounds, retaining within-round dependence.
 
-| Measurement | Estimate  | 95% CI              | CI half-width / estimate | ±5% target |
-| ----------- | --------- | ------------------- | ------------------------ | ---------- |
-| Mean        | 24.933 ms | [22.97, 27.477] ms  | 9.04%                    | Not met    |
-| P50         | 21.655 ms | [21.358, 22.139] ms | 1.8%                     | Met        |
-| P95         | 43.513 ms | [29.224, 53.849] ms | 28.3%                    | Not met    |
+| Measurement | Estimate   | 95% CI                | CI half-width / estimate | ±5% target |
+| ----------- | ---------- | --------------------- | ------------------------ | ---------- |
+| Mean        | 66.643 ms  | [64.888, 68.267] ms   | 2.54%                    | Met        |
+| P50         | 57.787 ms  | [56.093, 59.454] ms   | 2.91%                    | Met        |
+| P95         | 118.306 ms | [112.779, 122.736] ms | 4.21%                    | Met        |
 
 95% percentile cluster-bootstrap intervals use 10,000 resamples and seed 1987012964. Pooled request quantiles use R-7 interpolation; round percentiles are not averaged. At least two rounds are needed for intervals; ten rounds are a starting sample, not a guarantee of coverage or precision. Relative precision is unavailable for a zero estimate.
 
@@ -226,16 +226,16 @@ Rounds are assumed independent and exchangeable. Sequential rounds can still sha
 
 | Round | Outcome | Measured requests | Measurement start (UTC)  |
 | ----- | ------- | ----------------- | ------------------------ |
-| 1     | success | 1,000             | 2026-11-19T08:57:50.715Z |
-| 2     | success | 1,000             | 2026-11-19T08:58:14.670Z |
-| 3     | success | 1,000             | 2026-11-19T08:58:38.799Z |
-| 4     | success | 1,000             | 2026-11-19T08:59:12.951Z |
-| 5     | success | 1,000             | 2026-11-19T08:59:47.263Z |
-| 6     | success | 1,000             | 2026-11-19T09:00:12.421Z |
-| 7     | success | 1,000             | 2026-11-19T09:00:36.848Z |
-| 8     | success | 1,000             | 2026-11-19T09:01:00.631Z |
-| 9     | success | 1,000             | 2026-11-19T09:01:27.060Z |
-| 10    | success | 1,000             | 2026-11-19T09:01:52.962Z |
+| 1     | success | 1,000             | 2026-11-20T07:35:22.186Z |
+| 2     | success | 1,000             | 2026-11-20T07:36:31.983Z |
+| 3     | success | 1,000             | 2026-11-20T07:37:44.908Z |
+| 4     | success | 1,000             | 2026-11-20T07:38:59.185Z |
+| 5     | success | 1,000             | 2026-11-20T07:40:11.042Z |
+| 6     | success | 1,000             | 2026-11-20T07:41:26.784Z |
+| 7     | success | 1,000             | 2026-11-20T07:42:34.866Z |
+| 8     | success | 1,000             | 2026-11-20T07:43:39.739Z |
+| 9     | success | 1,000             | 2026-11-20T07:44:47.058Z |
+| 10    | success | 1,000             | 2026-11-20T07:46:00.951Z |
 
 Warmup runs precede each measured round in a separate oha process: they exercise the application but do not preserve the measured connection. Each measured round includes new-connection effects and keeps connections alive within that round. Warmup does not guarantee a warm isolate. Client statistics exclude warmup; measured duration is the sum of measured oha durations, excluding warmup and inter-round gaps.
 
@@ -245,13 +245,13 @@ Warmup runs precede each measured round in a separate oha process: they exercise
 
 | Requests | Errors | Subrequests |
 | -------- | ------ | ----------- |
-| 10,492   | 0      | 0           |
+| 10,586   | 0      | 0           |
 
-| Measurement    | P50       | P90       | P99       | P99.9     |
-| -------------- | --------- | --------- | --------- | --------- |
-| CPU            | 235 µs    | 359 µs    | 1,201 µs  | 3,483 µs  |
-| Wall time      | 541 µs    | 896 µs    | 2,103 µs  | 4,758 µs  |
-| Isolate memory | 3.508 MiB | 4.508 MiB | 5.008 MiB | 5.258 MiB |
+| Measurement    | P50       | P90        | P99        | P99.9      |
+| -------------- | --------- | ---------- | ---------- | ---------- |
+| CPU            | 501 µs    | 914 µs     | 1,826 µs   | 8,771 µs   |
+| Wall time      | 1,325 µs  | 2,729 µs   | 6,093 µs   | 13,021 µs  |
+| Isolate memory | 7.008 MiB | 10.758 MiB | 12.508 MiB | 12.758 MiB |
 
 #### Details
 
@@ -262,10 +262,10 @@ Warmup runs precede each measured round in a separate oha process: they exercise
 
 | Field                                | Value                    |
 | ------------------------------------ | ------------------------ |
-| Measurement start (UTC)              | 2026-11-19T08:57:49.199Z |
-| Measurement end (UTC)                | 2026-11-19T09:02:15.859Z |
-| Query start, inclusive (UTC)         | 2026-11-19T08:56:19.000Z |
-| Query end, inclusive (UTC)           | 2026-11-19T09:03:46.000Z |
+| Measurement start (UTC)              | 2026-11-20T07:35:18.540Z |
+| Measurement end (UTC)                | 2026-11-20T07:47:06.602Z |
+| Query start, inclusive (UTC)         | 2026-11-20T07:33:48.000Z |
+| Query end, inclusive (UTC)           | 2026-11-20T07:48:37.000Z |
 | Padding per side                     | 90 s                     |
 | Ingestion wait after query end       | 180 s                    |
 | Retry interval                       | 10 s                     |
