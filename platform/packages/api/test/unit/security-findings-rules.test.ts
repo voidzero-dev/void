@@ -287,6 +287,81 @@ describe('a key the project already has', () => {
   });
 });
 
+describe('a human severity (M35)', () => {
+  it('sticks: a scan reporting higher keeps the scan value under it, with no event and no "new"', () => {
+    const decision = decideSeenFinding(
+      stored({ severity: 'high', severityOverride: 'medium' }),
+      record({ severity: 'critical' }),
+      scan(),
+    );
+    // The scan value is still kept (shown as "scans said"), the human value is not touched.
+    expect(decision.patch.severity).toBe('critical');
+    expect(decision.patch).not.toHaveProperty('severityOverride');
+    expect(decision.events).toEqual([]);
+    expect(decision.news).toBe(false);
+    // Without the human value the same report is a severity_changed event.
+    const plain = decideSeenFinding(
+      stored({ severity: 'high' }),
+      record({ severity: 'critical' }),
+      scan(),
+    );
+    expect(plain.events).toEqual(['severity_changed']);
+  });
+
+  it('the reopen rule compares the human value, not the scan value', () => {
+    // Resolved as accepted risk at the human value medium; the scan now says critical.
+    const kept = decideSeenFinding(
+      resolved('accepted_risk', {
+        severity: 'high',
+        severityOverride: 'medium',
+        resolvedSeverity: 'medium',
+      }),
+      record({ severity: 'critical' }),
+      scan(),
+    );
+    expect(kept.reopened).toBe(false);
+    expect(kept.events).toEqual(['seen_again']);
+    // The file changing still reopens it.
+    const changed = decideSeenFinding(
+      resolved('accepted_risk', {
+        severityOverride: 'medium',
+        resolvedSeverity: 'medium',
+      }),
+      record({}, 'hash-2'),
+      scan(),
+    );
+    expect(changed.reopened).toBe(true);
+    // Raised by a human to critical, resolved there: a scan saying high does not reopen it.
+    const raised = decideSeenFinding(
+      resolved('false_positive', { severityOverride: 'critical', resolvedSeverity: 'critical' }),
+      record({ severity: 'high' }),
+      scan(),
+    );
+    expect(raised.reopened).toBe(false);
+  });
+
+  it('a reopened finding is new only when the human value is urgent', () => {
+    const lowered = decideSeenFinding(
+      resolved('fixed', { severityOverride: 'low', resolvedSeverity: 'low' }),
+      record({ severity: 'high' }),
+      scan(),
+    );
+    expect(lowered.reopened).toBe(true);
+    expect(lowered.news).toBe(false);
+    const raised = decideSeenFinding(
+      resolved('fixed', {
+        severity: 'low',
+        severityOverride: 'critical',
+        resolvedSeverity: 'critical',
+      }),
+      record({ severity: 'low' }),
+      scan(),
+    );
+    expect(raised.reopened).toBe(true);
+    expect(raised.news).toBe(true);
+  });
+});
+
 describe('"new" (spec §9.4)', () => {
   it('a new key is new when confirmed and not informational; leads never', () => {
     expect(isNewRecord(record())).toBe(true);

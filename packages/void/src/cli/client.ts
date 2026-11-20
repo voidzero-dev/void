@@ -28,6 +28,7 @@ import type {
   SecurityRescanPreview,
   SecurityRescanQueued,
   SecurityScanList,
+  SecuritySeverityChange,
 } from './security-api-types.ts';
 import type {
   DeployAssetUploadRequest,
@@ -1081,6 +1082,33 @@ export class PlatformClient {
       'Failed to reopen security finding',
       { method: 'POST', body, permission: 'settings' },
     );
+  }
+
+  /** Sets a finding's severity (`null`: back to the scan value). */
+  async editProjectSecurityFindingSeverity(
+    projectId: string,
+    findingId: string,
+    body: { severity: string | null; comment: string; expectedRevision: number },
+  ): Promise<SecuritySeverityChange> {
+    try {
+      return await this.json<SecuritySeverityChange>(
+        `${this.baseUrl}/projects/${projectId}/security/findings/${encodeURIComponent(findingId)}/severity`,
+        'Failed to change the severity of the security finding',
+        { method: 'POST', body, permission: 'settings' },
+      );
+    } catch (error) {
+      // The finding was read just before, so a 404 with no JSON body is a platform without this route.
+      if (
+        error instanceof PlatformApiError &&
+        error.status === 404 &&
+        parsePlatformErrorBody(error.body) === null
+      ) {
+        throw new Error(
+          'project: This Void platform cannot change finding severity yet. Ask its administrator to upgrade with `void platform upgrade`.',
+        );
+      }
+      throw securityApiError(error);
+    }
   }
 
   async listProjectSecurityScans(projectId: string, limit: number): Promise<SecurityScanList> {

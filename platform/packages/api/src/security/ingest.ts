@@ -1211,6 +1211,7 @@ async function upsertFindings(
       notSeenInLatest: finding.not_seen_in_latest,
       seenSinceResolve: seenSince.has(finding.id),
       verdictSource: finding.verdict_source,
+      severityOverride: finding.severity_override,
     };
     const decision = decideSeenFinding(stored, record, scan);
     await tx

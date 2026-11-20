@@ -8,6 +8,7 @@ const SECURITY_ACTIONS = [
   'comment',
   'resolve',
   'reopen',
+  'severity',
   'scans',
   'scan',
   'check',
@@ -45,6 +46,8 @@ export type ProjectSecurityArgs = {
   | { action: 'comment'; id: string; text: string }
   | { action: 'resolve'; ids: Array<string>; reason: SecurityResolutionReason; comment: string }
   | { action: 'reopen'; id: string; comment: string }
+  /** M35: `severity` is `null` for `scan` (use the scan value again). */
+  | { action: 'severity'; id: string; severity: string | null; comment: string }
   | { action: 'scans'; limit: number }
   | { action: 'scan'; yes: boolean; clientAssets: boolean }
   /** M32: scan the local tree (`checkId` empty), or show / wait for an earlier check. */
@@ -88,6 +91,7 @@ const ACTION_FLAGS: Record<string, Array<string>> = {
   comment: [],
   resolve: ['--reason', '--comment'],
   reopen: ['--comment'],
+  severity: ['--comment'],
   scans: ['--limit'],
   scan: ['--yes', '--client-assets'],
   check: ['--yes', '--no-wait'],
@@ -290,6 +294,30 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
       throw new Error('project: --reason is required: fixed, false-positive or accepted-risk.');
     }
     return { ...base, json, action, ids, reason, comment: requireComment(values.get('--comment')) };
+  }
+  if (action === 'severity') {
+    const usage = `project: Usage: void project security severity <F-id> <${SEVERITIES.join('|')}|scan> --comment "<text>".`;
+    if (positionals.length !== 2) {
+      throw new Error(usage);
+    }
+    const id = parseFindingIds([positionals[0]!])[0];
+    if (!id) {
+      throw new Error(`project: '${positionals[0]}' is not a finding id. Use a form like F-12.`);
+    }
+    const level = positionals[1]!;
+    if (level !== 'scan' && !SEVERITIES.includes(level)) {
+      throw new Error(
+        `project: Invalid severity '${level}'. Use one of ${SEVERITIES.join('|')}, or scan to use the scan severity again.`,
+      );
+    }
+    return {
+      ...base,
+      json,
+      action,
+      id,
+      severity: level === 'scan' ? null : level,
+      comment: requireComment(values.get('--comment')),
+    };
   }
   if (action === 'scans') {
     noPositionals();

@@ -98,6 +98,7 @@ void project security show <F-id>
 void project security comment <F-id> "<text>"
 void project security resolve <F-id>... --reason fixed|false-positive|accepted-risk --comment "<text>"
 void project security reopen <F-id> --comment "<text>"
+void project security severity <F-id> <critical|high|medium|low|informational|scan> --comment "<text>"
 void project security scans [--limit <n>]
 void project security scan [--client-assets] [--yes]
 void project security check [<check-id>] [--yes] [--no-wait]
@@ -108,15 +109,16 @@ void project security open
 
 Every command takes `--project <slug>` (then `VOID_PROJECT`, then the linked project) and `--json`.
 
-| Command                                                    | Who can run it                                                        |
-| ---------------------------------------------------------- | --------------------------------------------------------------------- |
-| `status`, `list`, `open`                                   | Any project member. Readers see finding ids, severity and state only. |
-| `show`                                                     | Any project member. Collaborators and up see title, file and details. |
-| `comment`                                                  | Collaborators, admins and the owner.                                  |
-| `resolve`, `reopen`, `scan`, `model` (set), `budget` (set) | Project admins and the owner.                                         |
-| `scans`, `check`, `budget` (show)                          | Collaborators, admins and the owner.                                  |
+| Command                                                                | Who can run it                                                        |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `status`, `list`, `open`                                               | Any project member. Readers see finding ids, severity and state only. |
+| `show`                                                                 | Any project member. Collaborators and up see title, file and details. |
+| `comment`                                                              | Collaborators, admins and the owner.                                  |
+| `resolve`, `reopen`, `severity`, `scan`, `model` (set), `budget` (set) | Project admins and the owner.                                         |
+| `scans`, `check`, `budget` (show)                                      | Collaborators, admins and the owner.                                  |
 
 - `resolve` needs `--reason` and a `--comment` of up to 4,000 characters. Pass several ids to resolve them together.
+- `severity` changes the severity of an open, confirmed finding and needs a `--comment` of up to 4,000 characters. Your value is what everyone sees from then on: later scans do not change it, and if you then resolve it as false-positive or accepted-risk, a scan reporting a higher severity does not reopen it (a change to its file still does). Lowering a critical or high finding to medium or below takes it out of the urgent count, as a resolve does, so it no longer holds a public request. `scan` goes back to the severity the scans report. Leads have no severity; resolved findings must be reopened first.
 - `list` hides leads unless you pass `--leads`. `--format sarif` prints the list as a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) file for code scanning tools, such as GitHub code scanning: `void project security list --format sarif > void-security.sarif`. Resolved findings in it are marked as suppressed. Notes go to stderr.
 - `model` with a third-party model prints the provider notice. Repeat the command with `--accept-provider-notice` to accept it.
 - `budget --usd` cannot exceed the platform limit. `--off` clears this project's own cap.

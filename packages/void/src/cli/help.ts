@@ -824,6 +824,11 @@ const HELP_TREE: HelpTree = {
             description: 'Resolve findings with --reason and --comment',
           },
           { command: 'reopen <F-id>', description: 'Reopen a resolved finding with --comment' },
+          {
+            command: 'severity <F-id> <level|scan>',
+            description:
+              'Set the severity of an open finding with --comment (scan: use the scan value)',
+          },
           { command: 'scans', description: 'Show scan history (--limit, up to 100)' },
           {
             command: 'scan',
@@ -868,7 +873,7 @@ const HELP_TREE: HelpTree = {
           },
           {
             command: '--comment <text>',
-            description: 'resolve, reopen: why (up to 4,000 characters)',
+            description: 'resolve, reopen, severity: why (up to 4,000 characters)',
           },
           { command: '--limit <n>', description: 'scans: how many scans, 1 to 100' },
           { command: '--default', description: 'model: use the platform default model' },

@@ -2042,6 +2042,42 @@ lowering crit/high counts like a resolve for the gate (comment required, recorde
 reopen rule uses the human value). CLI `void project security severity`. Tests:
 `security-findings-rules.test.ts`, `api-project-security.test.ts`.
 
+- As built:
+
+```
+POST /projects/:id/security/findings/:fid/severity {severity: level | null, comment, expectedRevision}
+  settings (re-checked under the project lock) ─ revision ─ confirmed? ─ open? ─► severity_override
+  null = back to the scan value · same value = 200 {changed:false}, no event, revision kept
+  change ─► revision + 1 · event severity_edited {severity_from, severity_to, comment}
+         └► after commit: public request re-check (as resolve)
+```
+
+- `editSecurityFindingSeverity` (`project-findings.ts`) uses the resolve locks and revision
+  check. A lead (no severity) or a resolved finding (reopen first) answers 409
+  `finding severity not editable`, an ad-hoc code like M34's `security_not_in_scope`. Open while
+  the capability is off, like resolve. The reply is `{id, severity, scanSeverity, severityEdited,
+  urgent, revision, changed, publicRequest?}`.
+- Sticky across scans (`findings.ts` `decideSeenFinding`, `severityOverride` on the stored
+  finding): a scan still raises the `severity` column (the "scans said" value) but under a human
+  value writes no `severity_changed` event, moves no revision and is not "new". The reopen rule
+  compares the human value, so a false-positive / accepted-risk finding resolved at it reopens on a
+  sink change only. Everything else already read `COALESCE(severity_override, severity)`.
+- **Deviation:** migration 0065 (not released) gains `security_finding_events.severity_from` /
+  `severity_to` (nullable, checked against the severity list) so the history shows the edit;
+  `db:generate` reports no drift. The plan said no schema change.
+- Views: full level adds `severityEdited` and `scanSeverity`; history events of
+  `severity_edited` add `severityFrom` / `severityTo`. Readers see the shown severity only.
+- Not emailed: a human edit queues no notification (raising into high/critical by a person is not
+  "new"; §9.4 news are scan events). No operator route, admin form or page form: the plan lists
+  the project route and the CLI only. Memory: the edit and its comment reach the next scan in
+  the finding's history file, like other events; the index shows the human severity.
+- CLI: `void project security severity <F-id> <critical|high|medium|low|informational|scan>
+  --comment "<text>"` (reads the revision first, like reopen; `scan` sends `null`). A 404 with no
+  JSON body says the platform cannot change severity yet. `show` prints
+  `Severity set by a person (scans said high).` and `severity_edited (high → low)` in the history.
+  Help and `docs/reference/cli/project.md` updated; the no-args hint lists the `security` group
+  already.
+
 **M36 Final docs and full verification.** Phase 2/3 docs; `vp run test --base origin/main`,
 `vp check`, then `vp test run` once.
 

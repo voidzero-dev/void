@@ -20,9 +20,11 @@ import { previewSecurityRescan, queueSecurityRescan } from '../security/operator
 import { mintSecurityPageToken } from '../security/page-token.ts';
 import {
   commentOnSecurityFinding,
+  editSecurityFindingSeverity,
   listSecurityFindings,
   parseSecurityComment,
   parseSecurityResolution,
+  parseSecuritySeverityEdit,
   reopenSecurityFinding,
   resolveSecurityFinding,
   showSecurityFinding,
@@ -272,6 +274,45 @@ const app = new Hono<ApiEnv>()
       );
       return context.json({
         ...reopened,
+        ...(request ? { publicRequest: await publicRequestView(context.get('db'), request) } : {}),
+      });
+    } catch (error) {
+      return failure(context, error);
+    }
+  })
+  /**
+   * Severity edit (M35): a person sets the severity of an open finding (`null`: back to
+   * the scan value). Open while the capability is off, like resolve.
+   */
+  .post('/:id/security/findings/:fid/severity', async (context) => {
+    const projectId = context.req.param('id');
+    const access = await requireProjectRouteCapability(context, projectId, 'settings');
+    if (access instanceof Response) {
+      return access;
+    }
+    try {
+      const body = await readJson(context);
+      const severity = parseSecuritySeverityEdit(field(body, 'severity'));
+      const comment = parseSecurityComment(field(body, 'comment'), 'comment');
+      const edited = await editSecurityFindingSeverity(context.get('db'), {
+        projectId,
+        ref: context.req.param('fid'),
+        userId: context.get('user').id,
+        severity,
+        comment,
+        expectedRevision: field(body, 'expectedRevision'),
+      });
+      // Lowering the last urgent finding frees a held public request, as a resolve does.
+      const request = edited.changed
+        ? await recheckPublicRequestBestEffort(
+            context.env,
+            context.get('db'),
+            projectId,
+            'a severity edit',
+          )
+        : null;
+      return context.json({
+        ...edited,
         ...(request ? { publicRequest: await publicRequestView(context.get('db'), request) } : {}),
       });
     } catch (error) {

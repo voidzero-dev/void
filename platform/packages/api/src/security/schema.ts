@@ -650,6 +650,9 @@ export const securityFindingEvents = pgTable(
     action: text('action').notNull().$type<SecurityFindingEventAction>(),
     resolution: text('resolution').$type<SecurityResolution>(),
     comment: text('comment'),
+    // M35 `severity_edited`: the shown severity before and after the human edit.
+    severity_from: text('severity_from').$type<SecuritySeverity>(),
+    severity_to: text('severity_to').$type<SecuritySeverity>(),
     created_at: createdAt(),
   },
   (table) => [
@@ -663,6 +666,14 @@ export const securityFindingEvents = pgTable(
     check(
       'security_finding_events_resolution',
       nullOrOneOf(table.resolution, SECURITY_RESOLUTIONS),
+    ),
+    check(
+      'security_finding_events_severity_from',
+      nullOrOneOf(table.severity_from, SECURITY_SEVERITIES),
+    ),
+    check(
+      'security_finding_events_severity_to',
+      nullOrOneOf(table.severity_to, SECURITY_SEVERITIES),
     ),
     check(
       'security_finding_events_comment',

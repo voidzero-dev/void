@@ -34,6 +34,13 @@ import {
   teardownEnv,
   type TestEnv,
 } from './helpers.ts';
+import {
+  askPublic,
+  setupGate,
+  succeededScan,
+  urgentFinding,
+  ztRow,
+} from './security-gate-fixtures.ts';
 
 let env: TestEnv;
 let onEnv: TestEnv;
@@ -663,6 +670,215 @@ describe('comment, resolve, reopen', () => {
   });
 });
 
+describe('severity edit (M35)', () => {
+  const edit = (projectId: string, ref = 'F-1') =>
+    `/projects/${projectId}/security/findings/${ref}/severity`;
+
+  it('needs settings, a level or null, a comment and the revision', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1 });
+    for (const role of ['reader', 'collaborator'] as const) {
+      const denied = await call(edit(project.id), people[role].jwt, {
+        method: 'POST',
+        body: { severity: 'low', comment: 'only admins', expectedRevision: 1 },
+      });
+      expect(denied.status, role).toBe(403);
+    }
+    for (const body of [
+      { comment: 'ok', expectedRevision: 1 },
+      { severity: 'urgent', comment: 'ok', expectedRevision: 1 },
+      { severity: 'low', comment: '  ', expectedRevision: 1 },
+      { severity: 'low', comment: 'x'.repeat(4001), expectedRevision: 1 },
+      { severity: 'low', comment: 'ok' },
+    ]) {
+      const response = await call(edit(project.id), people.admin.jwt, { method: 'POST', body });
+      expect(response.status, JSON.stringify(body)).toBe(400);
+    }
+    expect(
+      (
+        await call(edit(project.id, 'F-99'), people.admin.jwt, {
+          method: 'POST',
+          body: { severity: 'low', comment: 'ok', expectedRevision: 1 },
+        })
+      ).status,
+    ).toBe(404);
+    const [row] = await env.db.select().from(securityFindings);
+    expect(row).toMatchObject({ severity_override: null, revision: 1 });
+    expect(await env.db.select().from(securityFindingEvents)).toEqual([]);
+  });
+
+  it('lowers an urgent finding out of the urgent count, records it, and goes back to the scan value', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1, severity: 'critical' });
+    const before = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
+    expect(before.urgent.count).toBe(1);
+
+    const lowered = await call(edit(project.id), people.admin.jwt, {
+      method: 'POST',
+      body: { severity: 'low', comment: 'Only reachable by admins', expectedRevision: 1 },
+    });
+    expect(lowered.status).toBe(200);
+    expect(await json(lowered)).toMatchObject({
+      id: 'F-1',
+      severity: 'low',
+      scanSeverity: 'critical',
+      severityEdited: true,
+      urgent: false,
+      revision: 2,
+      changed: true,
+    });
+    const [row] = await env.db.select().from(securityFindings);
+    expect(row).toMatchObject({ severity: 'critical', severity_override: 'low', revision: 2 });
+    const after = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
+    expect(after.urgent.count).toBe(0);
+    expect(after.counts.open.low).toBe(1);
+    // A reader sees the shown severity only.
+    const reader = await json(
+      await call(`/projects/${project.id}/security/findings/F-1`, people.reader.jwt),
+    );
+    expect(reader.finding).toMatchObject({ severity: 'low', urgent: false });
+    expect(reader.finding).not.toHaveProperty('scanSeverity');
+    const shown = await json(
+      await call(`/projects/${project.id}/security/findings/F-1`, people.collaborator.jwt),
+    );
+    expect(shown.finding).toMatchObject({
+      severity: 'low',
+      severityEdited: true,
+      scanSeverity: 'critical',
+      urgent: false,
+    });
+    expect(shown.events).toMatchObject([
+      {
+        action: 'severity_edited',
+        actorRole: 'admin',
+        actor: people.admin.login,
+        comment: 'Only reachable by admins',
+        severityFrom: 'critical',
+        severityTo: 'low',
+      },
+    ]);
+    // A list filtered by the shown severity finds it; the urgent list does not.
+    const low = await json(
+      await call(`/projects/${project.id}/security/findings?severity=low`, people.admin.jwt),
+    );
+    expect(low.findings.map((finding: { id: string }) => finding.id)).toEqual(['F-1']);
+    const urgent = await json(
+      await call(`/projects/${project.id}/security/findings?urgent=1`, people.admin.jwt),
+    );
+    expect(urgent.findings).toEqual([]);
+
+    // The same value again changes nothing.
+    const same = await json(
+      await call(edit(project.id), people.owner.jwt, {
+        method: 'POST',
+        body: { severity: 'low', comment: 'again', expectedRevision: 2 },
+      }),
+    );
+    expect(same).toMatchObject({ changed: false, revision: 2, severity: 'low' });
+    // A stale revision loses, as for resolve.
+    const stale = await call(edit(project.id), people.owner.jwt, {
+      method: 'POST',
+      body: { severity: 'medium', comment: 'me too', expectedRevision: 1 },
+    });
+    expect(stale.status).toBe(409);
+    // The reply names who made revision 2: the admin's severity edit.
+    expect(await json(stale)).toMatchObject({
+      error: 'finding changed',
+      revision: 2,
+      byRole: 'admin',
+    });
+
+    // null: back to what the scans say.
+    const back = await json(
+      await call(edit(project.id), people.owner.jwt, {
+        method: 'POST',
+        body: { severity: null, comment: 'Admins are not trusted after all', expectedRevision: 2 },
+      }),
+    );
+    expect(back).toMatchObject({
+      severity: 'critical',
+      severityEdited: false,
+      urgent: true,
+      revision: 3,
+      changed: true,
+    });
+    const events = await env.db.select().from(securityFindingEvents);
+    expect(
+      events
+        .map((event) => [event.action, event.severity_from, event.severity_to, event.actor_role])
+        .sort(),
+    ).toEqual([
+      ['severity_edited', 'critical', 'low', 'admin'],
+      ['severity_edited', 'low', 'critical', 'owner'],
+    ]);
+    // A severity edit is not emailed.
+    expect(await env.db.select().from(securityNotifications)).toEqual([]);
+  });
+
+  it('refuses leads and resolved findings, and stays open while the capability is off', async () => {
+    await savePolicy({ mode: 'disabled' });
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1, verdict: 'needs_validation', severity: null });
+    await addFinding(project.id, {
+      number: 2,
+      state: 'resolved',
+      resolution: 'accepted_risk',
+      resolved_at: new Date().toISOString(),
+    });
+    await addFinding(project.id, { number: 3 });
+    const body = { severity: 'medium', comment: 'ok', expectedRevision: 1 };
+    const lead = await call(edit(project.id, 'F-1'), people.admin.jwt, {
+      method: 'POST',
+      body,
+      bindings: env,
+    });
+    expect(lead.status).toBe(409);
+    expect(await json(lead)).toMatchObject({ error: 'finding severity not editable', id: 'F-1' });
+    const closed = await call(edit(project.id, 'F-2'), people.admin.jwt, {
+      method: 'POST',
+      body,
+      bindings: env,
+    });
+    expect(closed.status).toBe(409);
+    expect((await json(closed)).message).toContain('Reopen it first');
+    const open = await call(edit(project.id, 'F-3'), people.admin.jwt, {
+      method: 'POST',
+      body,
+      bindings: env,
+    });
+    expect(open.status).toBe(200);
+    const rows = await env.db
+      .select({ number: securityFindings.number, override: securityFindings.severity_override })
+      .from(securityFindings)
+      .orderBy(securityFindings.number);
+    expect(rows).toEqual([
+      { number: 1, override: null },
+      { number: 2, override: null },
+      { number: 3, override: 'medium' },
+    ]);
+  });
+
+  it('lowering the last urgent finding frees a held public request, as a resolve does', async () => {
+    const s = await setupGate(env);
+    await succeededScan(s);
+    await urgentFinding(s);
+    expect((await askPublic(s)).publicRequest?.state).toBe('held_findings');
+
+    const response = await call(edit(s.project.id), s.user.jwt, {
+      method: 'POST',
+      body: { severity: 'medium', comment: 'Behind admin auth', expectedRevision: 1 },
+      bindings: s.platform as unknown as TestEnv,
+    });
+    expect(response.status).toBe(200);
+    const body = await json(response);
+    expect(body).toMatchObject({ severity: 'medium', urgent: false });
+    expect(body.publicRequest.state).toBe('passed');
+    expect((await ztRow(s)).desired_protected).toBe(false);
+  });
+});
+
 describe('scans', () => {
   it('needs deploy, pages, and shows spend only through this level', async () => {
     await savePolicy();
@@ -1129,6 +1345,15 @@ describe('role matrix', () => {
         path: finding(id, '/reopen'),
         method: 'POST',
         body: { comment: 'again', expectedRevision: 2 },
+      }),
+    },
+    {
+      name: 'severity',
+      allowed: ['owner', 'admin'],
+      request: (id) => ({
+        path: finding(id, '/severity'),
+        method: 'POST',
+        body: { severity: 'medium', comment: 'lower', expectedRevision: 1 },
       }),
     },
     {

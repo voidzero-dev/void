@@ -30,10 +30,14 @@ CREATE TABLE "security_finding_events" (
 	"action" text NOT NULL,
 	"resolution" text,
 	"comment" text,
+	"severity_from" text,
+	"severity_to" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "security_finding_events_actor_kind" CHECK (("security_finding_events"."actor_kind" IN ('user', 'installation_admin', 'scanner', 'system'))),
 	CONSTRAINT "security_finding_events_action" CHECK (("security_finding_events"."action" IN ('created', 'seen_again', 'seen_again_stale', 'severity_changed', 'promoted', 'not_seen', 'resolved', 'reopened', 'commented', 'severity_edited'))),
 	CONSTRAINT "security_finding_events_resolution" CHECK (("security_finding_events"."resolution" IS NULL OR ("security_finding_events"."resolution" IN ('fixed', 'false_positive', 'accepted_risk')))),
+	CONSTRAINT "security_finding_events_severity_from" CHECK (("security_finding_events"."severity_from" IS NULL OR ("security_finding_events"."severity_from" IN ('critical', 'high', 'medium', 'low', 'informational')))),
+	CONSTRAINT "security_finding_events_severity_to" CHECK (("security_finding_events"."severity_to" IS NULL OR ("security_finding_events"."severity_to" IN ('critical', 'high', 'medium', 'low', 'informational')))),
 	CONSTRAINT "security_finding_events_comment" CHECK ("security_finding_events"."comment" IS NULL OR char_length("security_finding_events"."comment") BETWEEN 1 AND 4000)
 );
 --> statement-breakpoint

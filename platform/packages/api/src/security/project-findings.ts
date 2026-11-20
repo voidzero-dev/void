@@ -1,6 +1,6 @@
 /**
  * Findings for the project API (spec §9, §13.5): paged lists, one finding, comments,
- * resolve and reopen. The role filter is `securityDetailLevel`:
+ * resolve, reopen and severity edits (M35). The role filter is `securityDetailLevel`:
  *
  *   counts: open findings show F-id, severity, verdict and state only; resolved ones
  *           also show the title (spec §3)
@@ -28,6 +28,7 @@ import {
   type SecurityDuplicateHint,
 } from './project-view.ts';
 import {
+  SECURITY_SEVERITIES,
   securityFindingEvents,
   securityFindings,
   type SecurityResolution,
@@ -48,6 +49,9 @@ const findingColumns = {
   number: securityFindings.number,
   verdict: securityFindings.verdict,
   severity: effectiveSeverity,
+  /** The scan's own value; `severity` above is the human one when set (M35). */
+  scanSeverity: securityFindings.severity,
+  severityOverride: securityFindings.severity_override,
   confidence: securityFindings.confidence,
   title: securityFindings.title,
   category: securityFindings.category,
@@ -80,6 +84,8 @@ type FindingRow = Readonly<{
   number: number;
   verdict: 'confirmed' | 'needs_validation';
   severity: SecuritySeverity | null;
+  scanSeverity: SecuritySeverity | null;
+  severityOverride: SecuritySeverity | null;
   confidence: string | null;
   title: string;
   category: string;
@@ -154,6 +160,9 @@ export function securityFindingView(
     resolution: row.resolution,
     resolvedAt: securityIso(row.resolvedAt),
     resolvedBy,
+    // M35: `severity` was set by a person; `scanSeverity` is what the scans said.
+    severityEdited: row.severityOverride !== null,
+    scanSeverity: row.scanSeverity,
     notSeenInLatest: row.notSeenInLatest,
     possibleDuplicateOf: duplicate,
     reopenCount: row.reopenCount,
@@ -300,6 +309,8 @@ export async function showSecurityFinding(
         scanId: securityFindingEvents.scan_id,
         resolution: securityFindingEvents.resolution,
         comment: securityFindingEvents.comment,
+        severityFrom: securityFindingEvents.severity_from,
+        severityTo: securityFindingEvents.severity_to,
         createdAt: securityFindingEvents.created_at,
       })
       .from(securityFindingEvents)
@@ -319,6 +330,9 @@ export async function showSecurityFinding(
       scanId: event.scanId,
       resolution: event.resolution,
       comment: event.comment,
+      ...(event.action === 'severity_edited'
+        ? { severityFrom: event.severityFrom, severityTo: event.severityTo }
+        : {}),
       createdAt: securityIso(event.createdAt),
     }));
   }
@@ -400,7 +414,7 @@ async function changedError(
     .where(
       and(
         eq(securityFindingEvents.finding_id, row.id),
-        inArray(securityFindingEvents.action, ['resolved', 'reopened']),
+        inArray(securityFindingEvents.action, ['resolved', 'reopened', 'severity_edited']),
       ),
     )
     .orderBy(desc(securityFindingEvents.created_at), desc(securityFindingEvents.id))
@@ -582,5 +596,104 @@ export async function reopenSecurityFinding(db: Db, input: ChangeInput) {
       resolution: null,
       revision: updated!.revision,
     };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Severity edit (M35)
+// ---------------------------------------------------------------------------
+
+/**
+ * The `severity` of an edit: one of the five levels, or `null` to drop the human value
+ * and show what the scans said again.
+ */
+export function parseSecuritySeverityEdit(value: unknown): SecuritySeverity | null {
+  if (value === null) {
+    return null;
+  }
+  const found = SECURITY_SEVERITIES.find((severity) => severity === value);
+  if (found === undefined) {
+    throw SecurityApiError.invalid(
+      `severity must be one of: ${SECURITY_SEVERITIES.join(', ')}, or null to use the scan value.`,
+    );
+  }
+  return found;
+}
+
+function notEditable(label: string, why: string): SecurityApiError {
+  return new SecurityApiError(409, 'finding severity not editable', `${label}: ${why}`, {
+    id: label,
+  });
+}
+
+/**
+ * A person sets the severity of an open, confirmed finding (M35):
+ *
+ *   severity_override = the value (null: back to the scan value), sticky across scans
+ *   event severity_edited {from, to, comment}, revision + 1
+ *
+ * Every rule reads `COALESCE(severity_override, severity)`, so lowering a critical or high
+ * finding takes it out of the urgent count the way a resolve does (the route re-checks an
+ * open public request after this returns), and the reopen rule compares the human value.
+ * Same locks and revision check as resolve. Leads (no severity) and resolved findings
+ * (reopen first) are refused.
+ */
+export async function editSecurityFindingSeverity(
+  db: Db,
+  input: ChangeInput & Readonly<{ severity: SecuritySeverity | null }>,
+) {
+  const revision = parseRevision(input.expectedRevision);
+  return db.transaction(async (tx) => {
+    const { access, row } = await lockFindingForChange(tx, input);
+    if (row.revision !== revision) {
+      throw await changedError(tx, row);
+    }
+    const label = securityFindingLabel(row.number);
+    if (row.verdict !== 'confirmed') {
+      throw notEditable(
+        label,
+        'a lead has no severity. Resolve it as false-positive, or wait for a scan to confirm it.',
+      );
+    }
+    if (row.state !== 'open') {
+      throw notEditable(label, 'it is resolved. Reopen it first to change its severity.');
+    }
+    const before = row.severity;
+    const after = input.severity ?? row.scanSeverity;
+    const result = (changedRevision: number) => ({
+      ok: true as const,
+      id: label,
+      severity: after,
+      scanSeverity: row.scanSeverity,
+      severityEdited: input.severity !== null,
+      urgent: isUrgentSeverity(after),
+      revision: changedRevision,
+    });
+    if (input.severity === row.severityOverride) {
+      // Nothing to change: no event, the revision stays.
+      return { ...result(row.revision), changed: false };
+    }
+    const [updated] = await tx
+      .update(securityFindings)
+      .set({
+        severity_override: input.severity,
+        revision: sql`${securityFindings.revision} + 1`,
+        updated_at: sql`now()`,
+      })
+      .where(eq(securityFindings.id, row.id))
+      .returning({ revision: securityFindings.revision });
+    await tx.insert(securityFindingEvents).values({
+      id: generateId('sfe'),
+      finding_id: row.id,
+      project_id: input.projectId,
+      actor_kind: input.actor ?? 'user',
+      actor_user_id: input.userId,
+      actor_role: access.role,
+      action: 'severity_edited',
+      comment: input.comment,
+      severity_from: before,
+      severity_to: after,
+    });
+    return { ...result(updated!.revision), changed: true };
   });
 }

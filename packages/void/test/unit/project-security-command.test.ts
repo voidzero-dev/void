@@ -800,3 +800,118 @@ describe('project security command paths', () => {
     expect(JSON.parse(out[0]!)).toMatchObject({ findings: [{ id: 'F-1' }], more: false });
   });
 });
+
+describe('project security severity (M35)', () => {
+  it('parses a level or scan, and needs a comment', () => {
+    expect(
+      parseProjectArgs(['security', 'severity', 'f-12', 'medium', '--comment', 'admins only']),
+    ).toMatchObject({ action: 'severity', id: 'F-12', severity: 'medium', comment: 'admins only' });
+    expect(
+      parseProjectArgs(['security', 'severity', 'F-12', 'scan', '--comment', 'undo']),
+    ).toMatchObject({ severity: null });
+    expect(() => parseProjectArgs(['security', 'severity', 'F-12', 'medium'])).toThrow(
+      'A comment is required',
+    );
+    expect(() =>
+      parseProjectArgs(['security', 'severity', 'F-12', 'urgent', '--comment', 'x']),
+    ).toThrow("Invalid severity 'urgent'");
+    expect(() => parseProjectArgs(['security', 'severity', 'F-12', '--comment', 'x'])).toThrow(
+      'Usage: void project security severity <F-id>',
+    );
+    expect(() =>
+      parseProjectArgs(['security', 'severity', 'F-12', 'low', '--reason', 'fixed']),
+    ).toThrow('--reason is not used with security severity');
+  });
+
+  it('sends the level with the revision it read and says what changed', async () => {
+    const root = linked();
+    const calls = route({
+      [`GET ${F}/F-12`]: () => Response.json({ finding: finding('F-12', { revision: 4 }) }),
+      [`POST ${F}/F-12/severity`]: () =>
+        Response.json({
+          ok: true,
+          id: 'F-12',
+          severity: 'medium',
+          scanSeverity: 'high',
+          severityEdited: true,
+          urgent: false,
+          revision: 5,
+          changed: true,
+        }),
+    });
+    const out = capture();
+    await run(root, ['security', 'severity', 'F-12', 'medium', '--comment', 'behind admin auth']);
+    expect(out.join('\n')).toContain(
+      '✓ F-12 severity set to medium (scans said high). Later scans keep it.',
+    );
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      `GET ${F}/F-12`,
+      `POST ${F}/F-12/severity`,
+    ]);
+    expect(calls[1]?.body).toEqual({
+      severity: 'medium',
+      comment: 'behind admin auth',
+      expectedRevision: 4,
+    });
+  });
+
+  it('says when it goes back to the scan value, when nothing changed, and on an old platform', async () => {
+    const root = linked();
+    let reply: Record<string, unknown> = {
+      ok: true,
+      id: 'F-12',
+      severity: 'high',
+      scanSeverity: 'high',
+      severityEdited: false,
+      urgent: true,
+      revision: 6,
+      changed: true,
+    };
+    const calls = route({
+      [`GET ${F}/F-12`]: () => Response.json({ finding: finding('F-12', { revision: 5 }) }),
+      [`POST ${F}/F-12/severity`]: () => Response.json(reply),
+    });
+    const out = capture();
+    await run(root, ['security', 'severity', 'F-12', 'scan', '--comment', 'undo']);
+    expect(out.join('\n')).toContain('✓ F-12 uses the scan severity again: high.');
+    expect(calls[1]?.body).toMatchObject({ severity: null });
+
+    out.length = 0;
+    reply = { ...reply, severity: 'low', severityEdited: true, changed: false };
+    await run(root, ['security', 'severity', 'F-12', 'low', '--comment', 'again']);
+    expect(out.join('\n')).toContain('F-12 is already low. Nothing changed.');
+
+    route({ [`GET ${F}/F-12`]: () => Response.json({ finding: finding('F-12') }) });
+    await expect(
+      run(root, ['security', 'severity', 'F-12', 'low', '--comment', 'x']),
+    ).rejects.toThrow('cannot change finding severity yet');
+  });
+
+  it('shows who set the severity and the change in the history', async () => {
+    const root = linked();
+    route({
+      [`GET ${F}/F-12`]: () =>
+        Response.json({
+          finding: finding('F-12', { severity: 'low', severityEdited: true, scanSeverity: 'high' }),
+          events: [
+            {
+              createdAt: '2026-11-17T10:00:00.000Z',
+              action: 'severity_edited',
+              actorKind: 'user',
+              actor: 'ana',
+              actorRole: 'admin',
+              resolution: null,
+              severityFrom: 'high',
+              severityTo: 'low',
+              comment: 'admins only',
+            },
+          ],
+        }),
+    });
+    const out = capture();
+    await run(root, ['security', 'show', 'F-12']);
+    const text = out.join('\n');
+    expect(text).toContain('Severity set by a person (scans said high).');
+    expect(text).toContain('severity_edited (high → low) · ana (admin)');
+  });
+});

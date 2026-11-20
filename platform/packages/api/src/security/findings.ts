@@ -6,7 +6,9 @@
  *        │
  *        ├─ no row ───────────────► created (F-n), possible duplicate hint
  *        ├─ open row ─────────────► last seen; lead → confirmed = promoted;
- *        │                          severity only rises (a scan never downgrades)
+ *        │                          severity only rises (a scan never downgrades);
+ *        │                          a human severity (M35) stays: the scan value is kept
+ *        │                          under it, with no event and no "new"
  *        └─ resolved row ─ stale scan ─────────────► seen_again_stale (no reopen)
  *                        ├ reopen rule matches (§9.3) ► reopened
  *                        └ else ────────────────────► seen_again (once per resolve)
@@ -309,6 +311,11 @@ export type SecurityStoredFinding = Readonly<{
   seenSinceResolve: boolean;
   /** M30: how the stored confirmation was reached; absent means static. */
   verdictSource?: 'static' | 'runtime';
+  /**
+   * M35: the severity a human set (`severity_override`). It is the severity people see and
+   * the rules use; a scan never changes it. Absent or `null`: the scan's value.
+   */
+  severityOverride?: SecuritySeverity | null;
 }>;
 
 /** Columns the ingest writes on an existing finding. */
@@ -375,6 +382,7 @@ export function decideSeenFinding(
       patch.runtimeProof = proof as Readonly<Record<string, unknown>>;
     }
   }
+  const human = stored.severityOverride ?? null;
   let severity = stored.severity;
   if (
     record.verdict === 'confirmed' &&
@@ -384,10 +392,13 @@ export function decideSeenFinding(
     // Severity only rises: a scan cannot downgrade a stored finding (§10.3).
     patch.severity = record.severity;
     severity = record.severity;
-    if (patch.verdict === undefined) {
+    // Under a human severity the shown value does not move: no event, no revision.
+    if (patch.verdict === undefined && human === null) {
       events.push('severity_changed');
     }
   }
+  // What people see and the rules use: the human value wins (M35).
+  const shown = human ?? severity;
   if (stored.state === 'resolved' && stored.resolution !== null) {
     if (isStaleForResolve(scan, stored.resolvedAt)) {
       if (!stored.seenSinceResolve) {
@@ -398,7 +409,8 @@ export function decideSeenFinding(
         resolution: stored.resolution,
         resolvedSeverity: stored.resolvedSeverity,
         resolvedSinkHash: stored.resolvedSinkHash,
-        severity: record.severity,
+        // "Severity rose" compares the human value when there is one (M35).
+        severity: human ?? record.severity,
         sinkHash: record.sinkHash,
       })
     ) {
@@ -409,15 +421,15 @@ export function decideSeenFinding(
       events.push('seen_again');
     }
   }
-  const urgentNow = verdict === 'confirmed' && isUrgentSeverity(severity);
+  const urgentNow = verdict === 'confirmed' && isUrgentSeverity(shown);
   if (reopened) {
     // A reopened finding is new (§9.4), but only for the confirmed crit/high email.
     news = urgentNow;
   } else if (stored.state === 'open') {
     if (patch.verdict === 'confirmed') {
       // First seen as confirmed in this project.
-      news = severity !== 'informational';
-    } else if (patch.severity !== undefined && verdict === 'confirmed') {
+      news = shown !== 'informational';
+    } else if (patch.severity !== undefined && verdict === 'confirmed' && human === null) {
       // Severity rose into high or critical.
       news = isUrgentSeverity(severity) && !isUrgentSeverity(stored.severity);
     }

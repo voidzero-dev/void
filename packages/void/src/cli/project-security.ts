@@ -401,6 +401,11 @@ export function formatFinding(
   if (meta.length > 0) {
     lines.push(`  ${meta.join(' · ')}`);
   }
+  if (finding.severityEdited) {
+    lines.push(
+      `  Severity set by a person${finding.scanSeverity ? ` (scans said ${cleanLine(finding.scanSeverity)})` : ''}.`,
+    );
+  }
   if (finding.notSeenInLatest) {
     lines.push('  Not seen in the latest scan.');
   }
@@ -432,7 +437,7 @@ export function formatFinding(
     for (const event of events) {
       const who = event.actor ?? event.actorKind;
       lines.push(
-        `    ${stamp(event.createdAt)} · ${cleanLine(event.action)}${event.resolution ? ` (${cleanLine(event.resolution).split('_').join('-')})` : ''} · ${cleanLine(who)}${event.actorRole ? ` (${cleanLine(event.actorRole)})` : ''}`,
+        `    ${stamp(event.createdAt)} · ${cleanLine(event.action)}${event.resolution ? ` (${cleanLine(event.resolution).split('_').join('-')})` : ''}${event.severityFrom && event.severityTo ? ` (${cleanLine(event.severityFrom)} → ${cleanLine(event.severityTo)})` : ''} · ${cleanLine(who)}${event.actorRole ? ` (${cleanLine(event.actorRole)})` : ''}`,
       );
       if (event.comment) {
         lines.push(...indent(event.comment).map((line) => `  ${line}`));
@@ -504,6 +509,23 @@ function noticeOf(error: unknown): { version: number; notice: Array<string> } | 
   } catch {
     return null;
   }
+}
+
+function severityChangeLine(
+  id: string,
+  level: string,
+  result: Readonly<{ changed: boolean; severityEdited: boolean; scanSeverity: string | null }>,
+): string {
+  if (!result.changed) {
+    return result.severityEdited
+      ? `${id} is already ${level}. Nothing changed.`
+      : `${id} already uses the scan severity (${level}). Nothing changed.`;
+  }
+  if (!result.severityEdited) {
+    return `✓ ${id} uses the scan severity again: ${level}.`;
+  }
+  const scans = result.scanSeverity ? cleanLine(result.scanSeverity) : null;
+  return `✓ ${id} severity set to ${level}${scans && scans !== level ? ` (scans said ${scans})` : ''}. Later scans keep it.`;
 }
 
 export type ProjectSecurityDeps = {
@@ -627,6 +649,34 @@ export async function runProjectSecurityCommand(
       expectedRevision: current.finding.revision,
     });
     print(args, result, [`✓ ${cleanLine(result.id)} reopened.`]);
+    return;
+  }
+
+  if (args.action === 'severity') {
+    const current = await client.getProjectSecurityFinding(projectId, args.id);
+    const result = await client.editProjectSecurityFindingSeverity(projectId, args.id, {
+      severity: args.severity,
+      comment: args.comment,
+      expectedRevision: current.finding.revision,
+    });
+    const id = cleanLine(result.id);
+    const level = cleanLine(result.severity ?? '-');
+    const lines = [severityChangeLine(id, level, result)];
+    if (result.publicRequest) {
+      let status: ProjectSecurityStatus | null = null;
+      try {
+        status = await client.getProjectSecurity(projectId);
+      } catch {
+        // The line below is extra; the edit already happened.
+      }
+      const [first = '', ...rest] = publicRequestLines(
+        slug,
+        result.publicRequest,
+        status ?? { backlogFiles: 0, budget: null },
+      );
+      lines.push(`  Public request: ${first}`, ...rest.map((line) => `  ${line}`));
+    }
+    print(args, result, lines);
     return;
   }
 

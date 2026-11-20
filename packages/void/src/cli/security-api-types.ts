@@ -103,6 +103,9 @@ export type SecurityFinding = {
   resolution?: string | null;
   resolvedAt?: string | null;
   resolvedBy?: string | null;
+  /** `severity` was set by a person; `scanSeverity` is what the scans said. Newer platforms only. */
+  severityEdited?: boolean;
+  scanSeverity?: string | null;
   notSeenInLatest?: boolean;
   possibleDuplicateOf?: { id: string; resolution: string | null } | null;
   reopenCount?: number;
@@ -125,6 +128,9 @@ export type SecurityFindingEvent = {
   actor: string | null;
   resolution: string | null;
   comment: string | null;
+  /** `severity_edited` only: the severity before and after. */
+  severityFrom?: string | null;
+  severityTo?: string | null;
   createdAt: string | null;
 };
 
@@ -141,6 +147,19 @@ export type SecurityFindingChange = {
   state: string;
   resolution: string | null;
   revision: number;
+  publicRequest?: SecurityPublicRequest;
+};
+
+/** `POST …/findings/:fid/severity`: the finding after a severity edit. */
+export type SecuritySeverityChange = {
+  ok: true;
+  id: string;
+  severity: string | null;
+  scanSeverity: string | null;
+  severityEdited: boolean;
+  urgent: boolean;
+  revision: number;
+  changed: boolean;
   publicRequest?: SecurityPublicRequest;
 };
 

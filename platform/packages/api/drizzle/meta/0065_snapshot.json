@@ -7319,6 +7319,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "severity_from": {
+          "name": "severity_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "severity_to": {
+          "name": "severity_to",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -7406,6 +7418,14 @@
         "security_finding_events_resolution": {
           "name": "security_finding_events_resolution",
           "value": "(\"security_finding_events\".\"resolution\" IS NULL OR (\"security_finding_events\".\"resolution\" IN ('fixed', 'false_positive', 'accepted_risk')))"
+        },
+        "security_finding_events_severity_from": {
+          "name": "security_finding_events_severity_from",
+          "value": "(\"security_finding_events\".\"severity_from\" IS NULL OR (\"security_finding_events\".\"severity_from\" IN ('critical', 'high', 'medium', 'low', 'informational')))"
+        },
+        "security_finding_events_severity_to": {
+          "name": "security_finding_events_severity_to",
+          "value": "(\"security_finding_events\".\"severity_to\" IS NULL OR (\"security_finding_events\".\"severity_to\" IN ('critical', 'high', 'medium', 'low', 'informational')))"
         },
         "security_finding_events_comment": {
           "name": "security_finding_events_comment",

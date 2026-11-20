@@ -531,6 +531,42 @@ describe('scan result ingest', () => {
     });
   });
 
+  it('a human severity sticks across scans: no event, no "new", no reopen on a higher scan value (M35)', async () => {
+    const { project } = await setup();
+    const deployment = await deploy(project.id, '2026-11-18T13:00:00.000Z');
+    await runningScan('scan_1', project.id, deployment.id);
+    await ingest('scan_1', result('scan_1', [finding()]));
+    const [created] = await findingsOf(project.id);
+    await env.db
+      .update(securityFindings)
+      .set({ severity_override: 'low' })
+      .where(eq(securityFindings.id, created!.id));
+    await runningScan('scan_2', project.id, deployment.id);
+    const raised = await ingest('scan_2', result('scan_2', [finding({ severity: 'critical' })]));
+    expect(raised).toMatchObject({ ok: true, news: [], reopened: [] });
+    let [row] = await findingsOf(project.id);
+    // The scan value is kept under the human one; the revision does not move.
+    expect(row).toMatchObject({ severity: 'critical', severity_override: 'low', revision: 1 });
+    expect(await eventsOf(row!.id)).toEqual(['created']);
+
+    // Resolved as accepted risk at the human value: a critical report does not reopen it.
+    await env.db
+      .update(securityFindings)
+      .set({
+        state: 'resolved',
+        resolution: 'accepted_risk',
+        resolved_at: '2026-11-18T12:00:00.000Z',
+        resolved_severity: 'low',
+        resolved_sink_hash: row!.sink_content_hash,
+      })
+      .where(eq(securityFindings.id, row!.id));
+    await runningScan('scan_3', project.id, deployment.id);
+    await ingest('scan_3', result('scan_3', [finding({ severity: 'critical' })]));
+    [row] = await findingsOf(project.id);
+    expect(row).toMatchObject({ state: 'resolved', severity_override: 'low' });
+    expect(await eventsOf(row!.id)).toEqual(['created', 'seen_again']);
+  });
+
   it('a static finding proven later at runtime keeps its detail and gets the proof (M30)', async () => {
     const { project } = await setup();
     const deployment = await deploy(project.id);
