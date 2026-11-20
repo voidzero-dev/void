@@ -297,7 +297,10 @@ import {
   platformLifecycleResumeCommand,
   runInstalledPlatformCommand,
 } from '../../src/cli/platform-management.ts';
-import { createPlatformInstallPlan } from '../../src/cli/platform-plan.ts';
+import {
+  createPlatformInstallPlan,
+  type PlatformInstallPlanAction,
+} from '../../src/cli/platform-plan.ts';
 import {
   acquirePlatformLifecycleLock,
   readInstallationRecoverySecrets,
@@ -2075,6 +2078,144 @@ describe('installed platform upgrade', () => {
           replaceOutsideChanges: [apiWorker()],
         });
       });
+    });
+  });
+  describe('R2 upload credentials', () => {
+    const r2Pair = { R2_ACCESS_KEY_ID: 'new-id', R2_SECRET_ACCESS_KEY: 'new-secret' };
+    const planWith = (...actions: Array<Omit<PlatformInstallPlanAction, 'id' | 'reason'>>) => {
+      const original = vi.mocked(createPlatformInstallPlan).getMockImplementation()!;
+      vi.mocked(createPlatformInstallPlan).mockImplementationOnce(async (...args) => {
+        const plan = await original(...args);
+        return {
+          ...plan,
+          actions: [
+            ...plan.actions,
+            ...actions.map((action) => ({ ...action, id: null, reason: 'test' })),
+          ],
+        };
+      });
+    };
+    const assetsBucket = (
+      action: 'create' | 'reuse' = 'reuse',
+    ): Omit<PlatformInstallPlanAction, 'id' | 'reason'> => ({
+      action,
+      key: 'assets-bucket',
+      kind: 'r2-bucket',
+      name: 'void-example-assets',
+    });
+    const repair = (r2Fetch: typeof fetch) =>
+      runInstalledPlatformCommand(
+        {
+          subcommand: 'repair',
+          selector: state.manifest!.id,
+          plan: false,
+          runtime: '',
+          yes: true,
+        },
+        { fetch: r2Fetch },
+      );
+
+    it('stops before any change when R2 rejects the pair from the environment', async () => {
+      state.createSecrets.mockReturnValue({ workerSecretUpdates: r2Pair });
+      planWith(assetsBucket());
+      const r2Fetch = vi.fn(
+        async () =>
+          new Response(
+            '<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code></Error>',
+            { status: 403 },
+          ),
+      );
+
+      await expect(repair(r2Fetch)).rejects.toThrow(
+        'platform: R2 rejected the R2 key pair from the VOID_PLATFORM_R2_* environment variables (SignatureDoesNotMatch) on bucket void-example-assets. Void did not change the platform.',
+      );
+
+      expect(r2Fetch).toHaveBeenCalledOnce();
+      expect(String((r2Fetch.mock.calls[0] as unknown as [string])[0])).toBe(
+        'https://account.r2.cloudflarestorage.com/void-example-assets?list-type=2&max-keys=1',
+      );
+      expect(installPlatform).not.toHaveBeenCalled();
+      expect(state.events.filter((event) => event.startsWith('put:'))).toEqual([]);
+      expect(state.progress.start).not.toHaveBeenCalledWith('Repairing the platform');
+      expect(vi.mocked(note).mock.calls).not.toContainEqual([expect.anything(), 'Recovery']);
+      expect(writeInstallationManifest).not.toHaveBeenCalled();
+      expect(state.manifest!.status).toBe('installed');
+      expect(state.events).toEqual(['outer-release', 'local-release']);
+    });
+
+    it('sends an accepted pair from the environment to the Workers', async () => {
+      state.createSecrets.mockReturnValue({ workerSecretUpdates: r2Pair });
+      planWith(assetsBucket());
+      const r2Fetch = vi.fn(async () => new Response('<ListBucketResult/>'));
+
+      await repair(r2Fetch);
+
+      expect(r2Fetch).toHaveBeenCalledOnce();
+      expect(installPlatform).toHaveBeenCalledOnce();
+      expect(vi.mocked(installPlatform).mock.calls[0]![1]).toMatchObject({
+        workerSecretUpdates: r2Pair,
+      });
+    });
+
+    it('makes no R2 request when the Workers keep their pair', async () => {
+      state.createSecrets.mockReturnValue({
+        r2AccessKeyId: 'saved-id',
+        r2SecretAccessKey: 'saved-secret',
+        workerSecretUpdates: {},
+      });
+      planWith(assetsBucket());
+      const r2Fetch = vi.fn();
+
+      await repair(r2Fetch);
+
+      expect(r2Fetch).not.toHaveBeenCalled();
+      expect(installPlatform).toHaveBeenCalledOnce();
+    });
+
+    it('checks the pair saved on this machine when the run creates the api Worker', async () => {
+      state.createSecrets.mockReturnValue({
+        r2AccessKeyId: 'saved-id',
+        r2SecretAccessKey: 'saved-secret',
+        workerSecretUpdates: {},
+      });
+      planWith(assetsBucket(), {
+        action: 'create',
+        key: 'api-worker',
+        kind: 'worker',
+        name: 'void-example-api',
+      });
+      const r2Fetch = vi.fn(async () => new Response('denied', { status: 401 }));
+
+      await expect(repair(r2Fetch)).rejects.toThrow(
+        'R2 rejected the R2 key pair saved on this machine (HTTP 401) on bucket void-example-assets.',
+      );
+      expect(installPlatform).not.toHaveBeenCalled();
+    });
+
+    it('makes no R2 request when the run creates the assets bucket', async () => {
+      state.createSecrets.mockReturnValue({ workerSecretUpdates: r2Pair });
+      planWith(assetsBucket('create'));
+      const r2Fetch = vi.fn();
+
+      await repair(r2Fetch);
+
+      expect(r2Fetch).not.toHaveBeenCalled();
+      expect(installPlatform).toHaveBeenCalledOnce();
+    });
+
+    it('warns and continues when R2 cannot answer', async () => {
+      state.createSecrets.mockReturnValue({ workerSecretUpdates: r2Pair });
+      planWith(assetsBucket());
+      const r2Fetch = vi.fn(async () => {
+        throw new TypeError('fetch failed');
+      });
+
+      await repair(r2Fetch);
+
+      expect(log.warn).toHaveBeenCalledWith(
+        'Void could not check the R2 key pair from the VOID_PLATFORM_R2_* environment variables on bucket void-example-assets (fetch failed). It continues without this check.',
+      );
+      expect(installPlatform).toHaveBeenCalledOnce();
     });
   });
 });

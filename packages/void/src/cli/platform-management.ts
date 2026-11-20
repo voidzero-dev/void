@@ -75,6 +75,10 @@ import {
 } from './platform-plan.ts';
 import { createPlatformProgress, withPlatformProgress } from './platform-progress.ts';
 import {
+  type PlatformR2CredentialCheck,
+  verifyPlatformR2Credentials,
+} from './platform-r2-credentials.ts';
+import {
   acquirePlatformLifecycleLock,
   listInstallationManifests,
   readInstallationRecoverySecrets,
@@ -274,7 +278,10 @@ export function platformLifecycleResumeCommand(
   return command.join(' ');
 }
 
-export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<void> {
+export async function runInstalledPlatformCommand(
+  args: PlatformArgs,
+  dependencies: { fetch?: typeof fetch } = {},
+): Promise<void> {
   if (
     args.subcommand !== 'upgrade' &&
     args.subcommand !== 'rollback' &&
@@ -684,6 +691,16 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       }
     }
     markPhase('runtime token');
+    // A pair R2 rejects would break every app deploy. Check it before traffic
+    // pauses, so a bad pair leaves the installation as it was.
+    const r2PairToPreflight = resolvePlatformR2PairToPreflight(plan, secrets);
+    if (r2PairToPreflight) {
+      await verifyPlatformR2Credentials(
+        { accountId: manifest.account.id, ...r2PairToPreflight },
+        dependencies.fetch,
+      );
+      markPhase('r2 credentials');
+    }
     if (!databaseLock?.readAuthenticationState) {
       throw new Error(
         'platform: The database lifecycle lock cannot read authoritative authentication settings.',
@@ -1061,6 +1078,45 @@ export function resolvePlatformRuntimeTokenToPreflight(
   )
     ? secrets.cloudflareApiToken
     : '';
+}
+
+/**
+ * The R2 key pair this run sends to the Workers, and the bucket to check it
+ * on. Returns nothing when the Workers keep their pair, or when the assets
+ * bucket is created by this run and cannot answer yet.
+ */
+export function resolvePlatformR2PairToPreflight(
+  plan: {
+    actions: ReadonlyArray<{ action: string; key: string; kind: string; name: string }>;
+  },
+  secrets: Pick<
+    ReturnType<typeof createPlatformInstallationSecrets>,
+    'r2AccessKeyId' | 'r2SecretAccessKey' | 'workerSecretUpdates'
+  >,
+): Omit<PlatformR2CredentialCheck, 'accountId'> | undefined {
+  const bucket = plan.actions.find(
+    (action) => action.key === 'assets-bucket' && action.kind === 'r2-bucket',
+  );
+  if (!bucket || bucket.action === 'create') {
+    return undefined;
+  }
+  const accessKeyId = secrets.workerSecretUpdates?.R2_ACCESS_KEY_ID;
+  const secretAccessKey = secrets.workerSecretUpdates?.R2_SECRET_ACCESS_KEY;
+  if (accessKeyId && secretAccessKey) {
+    return { bucket: bucket.name, accessKeyId, secretAccessKey, source: 'environment' };
+  }
+  const createsApiWorker = plan.actions.some(
+    (action) =>
+      action.kind === 'worker' && action.action === 'create' && action.key === 'api-worker',
+  );
+  return createsApiWorker && secrets.r2AccessKeyId && secrets.r2SecretAccessKey
+    ? {
+        bucket: bucket.name,
+        accessKeyId: secrets.r2AccessKeyId,
+        secretAccessKey: secrets.r2SecretAccessKey,
+        source: 'saved',
+      }
+    : undefined;
 }
 
 export async function resolveInstalledPlatformManifest(
