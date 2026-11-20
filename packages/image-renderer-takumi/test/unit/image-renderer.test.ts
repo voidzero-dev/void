@@ -3,6 +3,7 @@ import { Renderer } from 'takumi-js/wasm/no-init';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { withImageRenderer } from '../../src/image-renderer.ts';
 import { robotoData } from '../../src/roboto-font.ts';
+import { decodedFontSize, fontVariant } from '../fixtures/font-variants.ts';
 
 const options = { width: 320, height: 80 };
 const text: Node = { type: 'text', text: 'A Ω', style: { fontSize: 24 } };
@@ -120,41 +121,110 @@ describe('image renderer font retention', () => {
     expect(await draw([regular, heavy])).toEqual(both);
   });
 
-  it('keeps an oversized image correct, then releases its fonts', async () => {
-    const load = vi.fn(robotoData);
-    // WOFF2 stores the decoded SFNT size in its header. Exceed the 8 MiB budget
-    // even if the bundled font changes size.
-    const bytes = robotoData();
-    const decodedSize = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(
-      16,
-    );
-    const count = Math.floor((8 * 1024 * 1024) / decodedSize) + 1;
+  it('keeps an oversized image correct while evicting fonts between renders', async () => {
+    // Distinct binaries matter: Takumi deduplicates identical font contents,
+    // even when registered under different keys and family names.
+    const count = Math.floor((8 * 1024 * 1024) / decodedFontSize) + 1;
     const fonts = Array.from({ length: count }, (_, index) => ({
       name: `Oversized${index}`,
       key: `oversized-${index}`,
-      data: load,
+      data: () => fontVariant(index),
       weight: 100 + index * 50,
     }));
     const node: Node = {
       type: 'container',
+      style: { display: 'flex', flexDirection: 'column' },
       children: fonts.map((font) => ({
         ...text,
-        style: { ...text.style, fontFamily: font.name },
+        style: { ...text.style, fontFamily: font.name, height: 40 },
       })),
     };
+    const size = { ...options, height: count * 40 };
     const draw = () =>
-      withImageRenderer((renderer) => render(node, { ...options, fonts, renderer }));
+      withImageRenderer(async (renderer) => {
+        const bytes = await render(node, { ...size, fonts, renderer });
+        expect(renderer.cacheStats().memory.current).toBeLessThanOrEqual(8 * 1024 * 1024);
+        expect(renderer.cacheStats().fonts.evictions).toBeGreaterThan(0);
+        return bytes;
+      });
     const first = await draw();
-    expect(load).toHaveBeenCalledTimes(count);
     expect(await draw()).toEqual(first);
-    expect(load).toHaveBeenCalledTimes(count * 2);
 
-    // Compare with an unbounded renderer: merely limiting Takumi's font cache
-    // would evict some of this image's families before it draws them.
+    // A budget smaller than this image's working set must still draw every face.
     const reference = new Renderer();
     try {
-      expect(first).toEqual(await render(node, { ...options, fonts, renderer: reference }));
+      expect(first).toEqual(await render(node, { ...size, fonts, renderer: reference }));
     } finally {
+      reference.free();
+    }
+  });
+
+  it('bounds a warm renderer during same-family font churn without changing pixels', async () => {
+    let first: Uint8Array | undefined;
+    let previousEvictions = 0;
+    for (let index = 0; index < 80; index++) {
+      await withImageRenderer(async (renderer) => {
+        const bytes = await render(text, {
+          ...options,
+          renderer,
+          fontFamilies: ['Churn'],
+          fonts: [{ name: 'Churn', key: `churn-${index}`, data: () => fontVariant(index) }],
+        });
+        first ??= bytes;
+        expect(bytes).toEqual(first);
+        const stats = renderer.cacheStats();
+        expect(stats.memory.current).toBeLessThanOrEqual(8 * 1024 * 1024);
+        if (index === 39 || index === 79) {
+          expect(stats.fonts.evictions).toBeGreaterThan(previousEvictions);
+          previousEvictions = stats.fonts.evictions;
+        }
+      });
+    }
+  });
+
+  it('isolates overlapping requests with different faces of the same family', async () => {
+    const entered = deferred<void>();
+    const finish = deferred<void>();
+    const node: Node = {
+      ...text,
+      style: { ...text.style, fontFamily: 'Concurrent', fontWeight: 900 },
+    };
+    const regular = { name: 'Concurrent', key: 'concurrent-400', weight: 400, data: robotoData };
+    const heavy = { name: 'Concurrent', key: 'concurrent-900', weight: 900, data: robotoData };
+    const reference = new Renderer();
+    try {
+      const expectedRegular = await render(node, {
+        ...options,
+        fonts: [regular],
+        renderer: reference,
+      });
+      const expectedHeavy = await render(node, { ...options, fonts: [heavy], renderer: reference });
+      expect(expectedHeavy).not.toEqual(expectedRegular);
+      const first = withImageRenderer((renderer) =>
+        render(node, {
+          ...options,
+          renderer,
+          fonts: [
+            {
+              ...regular,
+              data: async () => {
+                entered.resolve();
+                await finish.promise;
+                return robotoData();
+              },
+            },
+          ],
+        }),
+      );
+      await entered.promise;
+      const second = await withImageRenderer((renderer) =>
+        render(node, { ...options, fonts: [heavy], renderer }),
+      );
+      finish.resolve();
+      expect(await first).toEqual(expectedRegular);
+      expect(second).toEqual(expectedHeavy);
+    } finally {
+      finish.resolve();
       reference.free();
     }
   });
@@ -181,34 +251,61 @@ describe('image renderer font retention', () => {
     free.mockRestore();
   });
 
-  it('waits for every font load before returning a failed image’s renderer', async () => {
-    const lateLoad = deferred<Uint8Array>();
-    const loading = deferred<void>();
-    const error = new Error('font download failed');
-    const fonts: Array<FontLoader> = [
-      { name: 'Failed', key: 'failed-download', data: () => Promise.reject(error) },
-      {
-        name: 'Late',
-        key: 'late-download',
-        data: () => {
-          loading.resolve();
-          return lateLoad.promise;
+  it.each(['download', 'decode'])(
+    'waits for every font load after a %s failure',
+    async (failure) => {
+      const lateLoad = deferred<Uint8Array>();
+      const loading = deferred<void>();
+      const error = new Error('font download failed');
+      const fonts: Array<FontLoader> = [
+        {
+          name: 'Failed',
+          key: `failed-${failure}`,
+          data: () => (failure === 'download' ? Promise.reject(error) : Uint8Array.of(0, 1, 2, 3)),
         },
-      },
-    ];
-    let returned = false;
-    const image = withImageRenderer((renderer) => render(text, { ...options, fonts, renderer }));
-    const result = image.catch((reason) => {
-      returned = true;
-      return reason;
-    });
-    await loading.promise;
-    await Promise.resolve();
-    expect(returned).toBe(false);
-    lateLoad.resolve(robotoData());
-    expect(await result).toBe(error);
-    await expect(
-      withImageRenderer((renderer) => render(text, { ...options, renderer })),
-    ).resolves.toBeInstanceOf(Uint8Array);
-  });
+        {
+          name: 'Late',
+          key: 'late-download',
+          data: () => {
+            loading.resolve();
+            return lateLoad.promise;
+          },
+        },
+      ];
+      let returned = false;
+      const image = withImageRenderer((renderer) => render(text, { ...options, fonts, renderer }));
+      const result = image.catch((reason) => {
+        returned = true;
+        return reason;
+      });
+      await loading.promise;
+      await setImmediate();
+      expect(returned).toBe(false);
+      // Fill the idle slot while the failed render still owns its renderer.
+      // Its eventual return must free it only after the late loader finishes.
+      const node: Node = { ...text, style: { ...text.style, fontFamily: 'Late', fontWeight: 900 } };
+      const otherFonts = [{ name: 'Late', key: 'other-late', weight: 900, data: robotoData }];
+      const reference = new Renderer();
+      try {
+        const other = await withImageRenderer((renderer) =>
+          render(node, { ...options, fonts: otherFonts, renderer }),
+        );
+        expect(other).toEqual(
+          await render(node, { ...options, fonts: otherFonts, renderer: reference }),
+        );
+      } finally {
+        lateLoad.resolve(robotoData());
+        reference.free();
+      }
+      if (failure === 'download') {
+        expect(await result).toBe(error);
+      } else {
+        expect(await result).toBeInstanceOf(Error);
+      }
+      await expect(
+        withImageRenderer((renderer) => render(text, { ...options, renderer })),
+      ).resolves.toBeInstanceOf(Uint8Array);
+    },
+  );
 });
+import { setImmediate } from 'node:timers/promises';

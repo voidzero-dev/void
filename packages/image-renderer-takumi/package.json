@@ -34,7 +34,7 @@
     "typecheck:watch": "tsc --noEmit --rootDir ../.. --watch"
   },
   "dependencies": {
-    "takumi-js": "~2.20.0"
+    "takumi-js": "~2.21.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

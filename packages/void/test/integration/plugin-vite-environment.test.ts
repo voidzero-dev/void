@@ -1094,7 +1094,7 @@ describe('voidPlugin Vite environments', () => {
       );
 
       expect(config.environments.ssr!.resolve.noExternal).toEqual(
-        expect.arrayContaining(['void', /^@void\/(?!image(?:\/|$))/, 'kv-lib']),
+        expect.arrayContaining(['void', /^@void\/(?!image-renderer-takumi(?:\/|$))/, 'kv-lib']),
       );
     });
 

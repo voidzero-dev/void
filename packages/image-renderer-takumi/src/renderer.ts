@@ -66,9 +66,8 @@ export const takumiRenderer: ImageRenderer<
         emoji,
         css,
         images: { fetchCache, allowUrl, maxBytes, timeout, throwOnError },
-        // Takumi uses every font registered in the process when it gets no list,
-        // which includes earlier images' fallback fonts:
-        // https://github.com/kane50613/takumi/blob/takumi@2.20.0/takumi-helpers/src/renderer.ts#L384-L412
+        // Each render names its own fonts; Takumi caches their files without
+        // making them available to unrelated requests.
         fonts,
         ...(fontStack.length > 0 && {
           fontFamilies: [...new Set([...fontStack, ...fallback.map(({ name }) => name)])],

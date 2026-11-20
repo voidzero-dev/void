@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { jsx } from 'hono/jsx';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { envContext } from '../../src/runtime/env/raw.ts';
@@ -39,6 +40,57 @@ describe('void/image', () => {
     await response.body?.cancel();
     expect(renderer).not.toHaveBeenCalled();
   });
+
+  it.each(['unread', 'cancelled', 'read later'] as const)(
+    'handles a rejected async template in a %s response without crashing Node',
+    (state) => {
+      const responseModule = new URL(
+        '../../src/runtime/image/generate/image-response.ts',
+        import.meta.url,
+      ).href;
+      const htmlModule = new URL('../../src/runtime/html.ts', import.meta.url).href;
+      // Run outside Vitest's rejection listener: Node must survive with strict
+      // unhandled-rejection handling, even if nobody ever consumes the body.
+      const script = `
+        import assert from 'node:assert/strict';
+        import { setImmediate } from 'node:timers/promises';
+        import { ImageResponse } from ${JSON.stringify(responseModule)};
+        import { html } from ${JSON.stringify(htmlModule)};
+        const { promise, reject } = Promise.withResolvers();
+        const failure = new Error('async template failed');
+        let renders = 0;
+        const response = new ImageResponse(html\`<div>\${promise}</div>\`, {
+          width: 320,
+          height: 200,
+          renderer: async (input) => {
+            renders++;
+            await input;
+            return new Uint8Array();
+          },
+        });
+        if (${JSON.stringify(state)} === 'cancelled') await response.body.cancel();
+        reject(failure);
+        await setImmediate();
+        assert.equal(renders, 0);
+        if (${JSON.stringify(state)} === 'read later') {
+          const errors = [];
+          console.error = (...args) => errors.push(args);
+          await assert.rejects(response.arrayBuffer(), (error) => error === failure);
+          assert.equal(renders, 1);
+          assert.equal(errors.length, 1);
+          assert.equal(errors[0][1], failure);
+        }
+      `;
+      const child = spawnSync(
+        process.execPath,
+        ['--unhandled-rejections=strict', '--input-type=module', '--eval', script],
+        { encoding: 'utf8', timeout: 10_000 },
+      );
+      expect(child.error).toBeUndefined();
+      expect(child.stderr).toBe('');
+      expect(child.status).toBe(0);
+    },
+  );
 
   it('sends escaped HTML to Browser Run', async () => {
     const quickAction = vi.fn(async () => new Response(png));

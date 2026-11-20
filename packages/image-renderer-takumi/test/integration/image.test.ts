@@ -16,6 +16,7 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { killChild, startServer, waitForServer } from '../../../../test/integration-helpers.ts';
 import { collectPrerenderWorkerModules } from '../../../void/src/prerender.ts';
+import { fontVariant } from '../fixtures/font-variants.ts';
 
 const repository = join(import.meta.dirname, '..', '..', '..', '..');
 const CACHE_HEADER = null;
@@ -73,7 +74,7 @@ export const GET = () => new ImageResponse(<Card title="Hello from JSX" />, { wi
 
 // Miniflare types its own Response, without Cloudflare's `cf`.
 type Runtime = {
-  dispatchFetch(input: string): Promise<Response>;
+  dispatchFetch(input: string, init?: RequestInit): Promise<Response>;
   dispose(): Promise<void>;
 };
 
@@ -219,6 +220,61 @@ function builtFiles(root: string): Array<string> {
 afterAll(() => {
   for (const root of fixtures) {
     rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  }
+});
+
+it('bounds same-family font churn in a warm workerd renderer without changing pixels', async () => {
+  const rendererSource = join(
+    repository,
+    'packages/image-renderer-takumi/src/image-renderer.ts',
+  ).replaceAll('\\', '/');
+  const root = createApp(
+    {
+      'routes/cache.ts': `
+import { render } from 'takumi-js';
+import { withImageRenderer } from ${JSON.stringify(rendererSource)};
+export const POST = async (c) => {
+  const data = new Uint8Array(await c.req.raw.arrayBuffer());
+  return withImageRenderer(async (renderer) => {
+    const bytes = await render(
+      { type: 'text', text: 'A Ω', style: { fontFamily: 'Churn', fontSize: 24 } },
+      {
+        width: 120, height: 48, renderer,
+        fonts: [{ name: 'Churn', key: c.req.query('sequence'), data: () => data }],
+      },
+    );
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
+      .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const stats = renderer.cacheStats();
+    return Response.json({ hash, bytes: stats.memory.current, evictions: stats.fonts.evictions });
+  });
+};
+`,
+    },
+    { 'takumi-js': 'packages/image-renderer-takumi/node_modules/takumi-js' },
+  );
+  build(root);
+  const { runtime } = builtRuntime(root);
+  try {
+    let first: string | undefined;
+    let previousEvictions = 0;
+    for (let index = 0; index < 48; index++) {
+      const response = await runtime.dispatchFetch(`http://localhost/cache?sequence=${index}`, {
+        method: 'POST',
+        body: fontVariant(index),
+      });
+      expect(response.status, response.ok ? undefined : await response.text()).toBe(200);
+      const sample = (await response.json()) as { hash: string; bytes: number; evictions: number };
+      first ??= sample.hash;
+      expect(sample.hash).toBe(first);
+      expect(sample.bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
+      if (index === 23 || index === 47) {
+        expect(sample.evictions).toBeGreaterThan(previousEvictions);
+        previousEvictions = sample.evictions;
+      }
+    }
+  } finally {
+    await runtime.dispose();
   }
 });
 
