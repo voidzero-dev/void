@@ -160,7 +160,7 @@ Use `RenderImageOptions` for rendering options and `ImageResponseOptions` for re
 | `debug`                           | `false`            | Draws outlines around elements.                                    |
 | `status`, `statusText`, `headers` |                    | HTTP options for `ImageResponse`.                                  |
 
-`ImageResponse` sets `Content-Type: image/png` unless you override it. It does not set `Cache-Control`. In `void dev`, generated image responses use `Cache-Control: no-store` so previews refresh as you edit.
+`ImageResponse` sets `Content-Type: image/png` unless you override it.
 
 ## Fonts
 

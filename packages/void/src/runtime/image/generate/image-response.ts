@@ -81,7 +81,7 @@ export type OgImageResponseOptions<
   FontFamily extends string = never,
 > = RenderOgImageOptions<Renderer, FontFamily> & ResponseInit;
 
-/** A lazy PNG response cached publicly for 24 hours: 1200 × 630 by default. */
+/** A lazy PNG response: 1200 × 630 by default, with a 24-hour public cache default outside dev. */
 export class OgImageResponse<
   Renderer extends AnyImageRenderer = DefaultImageRenderer,
   FontFamily extends string = never,
@@ -89,7 +89,8 @@ export class OgImageResponse<
   constructor(element: ImageInput, options: OgImageResponseOptions<Renderer, FontFamily> = {}) {
     const { status, statusText, headers, ...imageOptions } = options;
     const responseHeaders = new Headers(headers);
-    if (!responseHeaders.has('cache-control')) {
+    const dev = (import.meta as ImportMeta & { env?: { DEV: boolean } }).env?.DEV;
+    if (!dev && !responseHeaders.has('cache-control')) {
       responseHeaders.set('cache-control', 'public, max-age=86400');
     }
     super(element, {

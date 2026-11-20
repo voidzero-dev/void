@@ -404,8 +404,8 @@ describe('Takumi via void/image in a Cloudflare app', () => {
         expectStatus: 200,
         diagnostics: server.output,
       });
-      await expectFontSelection((query) => fetch(`${server.base}/api/image${query}`), 'no-store');
-      await expectImage(await fetch(`${server.base}/api/card`), 'no-store');
+      await expectFontSelection((query) => fetch(`${server.base}/api/image${query}`));
+      await expectImage(await fetch(`${server.base}/api/card`), CACHE_HEADER);
     });
   });
 
@@ -653,7 +653,7 @@ export const takumiRenderer = (input, options) => render(input, { ...options, fo
           );
           return child;
         }, 30_000);
-        await expectImage(await fetch(`${server.base}/api/image`), 'no-store');
+        await expectImage(await fetch(`${server.base}/api/image`), CACHE_HEADER);
         const response = await fetch(`${server.base}/api/renderer`);
         expect(response.status, server.output()).toBe(200);
         expect(await response.text()).toBe('app-owned:app-owned-wasm');
