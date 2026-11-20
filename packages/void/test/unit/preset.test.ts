@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { toSlash } from 'pathslash';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
+import { resolveCloudflareStaticPreset } from '../../src/cli/deploy-cloudflare-static.ts';
 import {
   detectPreset,
   findBackendSources,
@@ -11,6 +12,7 @@ import {
   hasBackendFiles,
   resolveProjectCommand,
 } from '../../src/cli/preset.ts';
+import type { VoidConfig } from '../../src/config.ts';
 
 const TMP = packageFixturePath(import.meta.dirname, '.tmp-preset');
 
@@ -263,6 +265,32 @@ describe('detectPreset — strictBackend', () => {
       dirs: ['routes'],
     });
     expect(detectPreset(root, { strictBackend: true })).toBeNull();
+  });
+});
+
+describe('resolveCloudflareStaticPreset — configured app type', () => {
+  const vitepressPkg = { devDependencies: { vitepress: '^1.0.0' } };
+
+  // The guide sends a VitePress site with `routes/` to `appType: "void"`, which this branch ignored.
+  it('returns null for a configured appType "void" with an SSG plus backend', () => {
+    const root = setupProject({ pkg: vitepressPkg, dirs: ['.vitepress', 'routes'] });
+    const voidConfig = { inference: { appType: 'void' } } as VoidConfig;
+    expect(resolveCloudflareStaticPreset(root, voidConfig, {})).toBeNull();
+  });
+
+  it('still refuses the unconfigured SSG plus backend case', () => {
+    const root = setupProject({ pkg: vitepressPkg, dirs: ['.vitepress', 'routes'] });
+    expect(() => resolveCloudflareStaticPreset(root, {} as VoidConfig, {})).toThrow('vitepress');
+  });
+
+  it('keeps resolving a configured static app that also has backend sources', () => {
+    const root = setupProject({ pkg: vitepressPkg, dirs: ['.vitepress', 'routes'] });
+    const voidConfig = { inference: { appType: 'static' } } as VoidConfig;
+    expect(resolveCloudflareStaticPreset(root, voidConfig, {})).toEqual({
+      buildCommand: 'vitepress build',
+      outputDir: toSlash(resolve(root, '.vitepress/dist')),
+      appType: 'static',
+    });
   });
 });
 
