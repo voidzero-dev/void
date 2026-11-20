@@ -8,10 +8,13 @@ const prefixMinimum = 8;
 /**
  * Divides test files into the chunks that `vp run test` caches separately. A chunk is rerun when
  * a file that one of its tests reads changes, so files that cover the same code belong together.
- * A directory is one chunk. A large directory is divided by the first word of the file name
- * (`deploy-*.test.ts`), and its remaining files by their first letter.
+ * A directory is one chunk. With `divideLargeDirectories`, a large directory is divided by the
+ * first word of the file name (`deploy-*.test.ts`), and its remaining files by their first letter.
  */
-export function chunkTestFiles(files: ReadonlyArray<string>): Map<string, Array<string>> {
+export function chunkTestFiles(
+  files: ReadonlyArray<string>,
+  { divideLargeDirectories }: { divideLargeDirectories: boolean },
+): Map<string, Array<string>> {
   const directories = new Map<string, Array<string>>();
   for (const file of [...files].sort()) {
     const directory = dirname(file);
@@ -20,7 +23,7 @@ export function chunkTestFiles(files: ReadonlyArray<string>): Map<string, Array<
 
   const chunks = new Map<string, Array<string>>();
   for (const [directory, directoryFiles] of directories) {
-    if (directoryFiles.length <= directoryLimit) {
+    if (!divideLargeDirectories || directoryFiles.length <= directoryLimit) {
       chunks.set(directory, directoryFiles);
       continue;
     }

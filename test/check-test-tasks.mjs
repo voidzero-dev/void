@@ -1,4 +1,4 @@
-// `vp run test` runs the unit and integration groups as many cached tasks, generated in the root
+// `vp run test` runs the unit, platform and integration groups as many cached tasks, generated in the root
 // `vite.config.ts`. This check runs after the tasks of a group and fails when one of the group's
 // Vitest projects collects a file that no task ran, so a new include pattern cannot leave tests out.
 import { execFileSync } from 'node:child_process';
@@ -7,6 +7,15 @@ import { fileURLToPath } from 'node:url';
 
 const groups = {
   unit: { projects: ['unit', 'unit-pglite', 'cli-unit'], prefix: 'test:unit:' },
+  platform: {
+    projects: [
+      'platform-unit',
+      'platform-unit-pglite',
+      'platform-api-integration',
+      'platform-api-integration-threads',
+    ],
+    prefix: 'test:platform:',
+  },
   integration: { projects: ['parallel-integration'], prefix: 'test:integration:' },
 };
 const group = groups[process.argv[2]];

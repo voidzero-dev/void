@@ -35,12 +35,18 @@ integration. Vite Task records the files each group reads and replays a group wh
 changed, so a platform-only change does not rerun the SDK groups and an unchanged checkout replays
 all three. A failed group is never replayed. `vpr test:all` adds formatting, lint, and typechecks.
 
-The unit and integration groups go further. The integration group caches every test file as its
-own task, generated from the directories in `test/integration-files.ts`. After a change, only the
-integration files that read a changed file run again: a framework adapter change reruns the files
-that build with that adapter, and an edited test file reruns alone. The unit group caches chunks
-of related files, one per directory and, in a large directory, one per file name prefix such as
-`deploy-*.test.ts` (see `test/test-chunks.ts`). A change reruns the chunks whose tests import it.
+Each group is itself a set of cached tasks, so a change reruns part of a group:
+
+- The integration group caches every test file on its own, generated from the directories in
+  `test/integration-files.ts`. A framework adapter change reruns the files that build with that
+  adapter, and an edited test file reruns alone.
+- The unit group caches chunks of related files: one per directory and, in a large directory, one
+  per file name prefix such as `deploy-*.test.ts` (see `test/test-chunks.ts`). A change reruns the
+  chunks whose tests import it.
+- The platform group caches one chunk per test directory. Every API integration test loads the
+  whole API, so a change to the API source reruns that directory (about 36 of the group's 42
+  seconds); a change to another package's tests or to the API unit tests does not.
+
 A check after each group fails when a collected test file has no task.
 
 ```sh

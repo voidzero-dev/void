@@ -111,27 +111,41 @@ const integrationFileTasks = Object.fromEntries(
   ]),
 );
 
-// The unit group runs as cached chunks of related files. One Vitest run per file would cost more
-// than the tests themselves, so files are chunked by directory and name instead. Many chunks with
-// two workers each finish sooner than a few chunks with many workers: most chunks are small.
+// The unit and platform groups run as cached chunks of related files. One Vitest run per file
+// would cost more than the tests themselves, so files are chunked by directory instead.
+//
+// A large directory of unit tests is divided further by file name: a source change then reruns
+// the chunks that import it. The platform group is not divided, because every API integration
+// test loads the whole API and an API change reruns all of them anyway.
+//
+// Chunks run side by side. A chunk gets workers for its size, and at least two: most are small.
 const unitTestGlobs = ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'];
-const unitChunkConcurrency = Math.max(2, maxWorkers - 1);
-const unitChunkWorkers = 2;
-const unitChunkTasks = Object.fromEntries(
-  [
-    ...chunkTestFiles(
-      globSync(unitTestGlobs, { cwd: import.meta.dirname }).map((file) =>
-        file.replaceAll('\\', '/'),
-      ),
-    ),
-  ].map(([chunk, files]) => [
-    `test:unit:${chunk}`,
-    {
-      command: `${testGroupCommand('unit')} --maxWorkers ${unitChunkWorkers} ${files.join(' ')}`,
-      cache: { input: testGroupInput, output: [] },
-    },
-  ]),
-);
+const platformTestGlobs = ['platform/packages/*/test/**/*.test.ts'];
+const chunkConcurrency = Math.max(2, maxWorkers - 1);
+
+function chunkTasks(group: 'unit' | 'platform', globs: Array<string>) {
+  const files = globSync(globs, { cwd: import.meta.dirname }).map((file) =>
+    file.replaceAll('\\', '/'),
+  );
+  const divideLargeDirectories = group === 'unit';
+  return Object.fromEntries(
+    [...chunkTestFiles(files, { divideLargeDirectories })].map(([chunk, chunkFiles]) => {
+      const workers = divideLargeDirectories
+        ? 2
+        : Math.min(maxWorkers, Math.max(2, Math.ceil(chunkFiles.length / 12)));
+      return [
+        `test:${group}:${chunk}`,
+        {
+          command: `${testGroupCommand(group)} --maxWorkers ${workers} ${chunkFiles.join(' ')}`,
+          cache: { input: testGroupInput, output: [] },
+        },
+      ];
+    }),
+  );
+}
+
+const unitChunkTasks = chunkTasks('unit', unitTestGlobs);
+const platformChunkTasks = chunkTasks('platform', platformTestGlobs);
 
 const config = defineConfig({
   run: {
@@ -145,9 +159,13 @@ const config = defineConfig({
       },
       // One cached task per test group, so `test:all` replays a group whose inputs did not change.
       // Test output is not restored on a hit.
+      ...platformChunkTasks,
+      'test:platform:chunks': {
+        command: 'node test/check-test-tasks.mjs platform',
+        dependsOn: Object.keys(platformChunkTasks),
+      },
       'test:group:platform': {
-        command: testGroupCommand('platform'),
-        cache: { input: testGroupInput, output: [] },
+        command: `vp run --concurrency-limit ${chunkConcurrency} test:platform:chunks`,
       },
       ...unitChunkTasks,
       'test:unit:chunks': {
@@ -155,7 +173,7 @@ const config = defineConfig({
         dependsOn: Object.keys(unitChunkTasks),
       },
       'test:group:unit': {
-        command: `vp run --concurrency-limit ${unitChunkConcurrency} test:unit:chunks`,
+        command: `vp run --concurrency-limit ${chunkConcurrency} test:unit:chunks`,
       },
       ...integrationFileTasks,
       // The check runs after every file passed and fails when a collected file has no task.
@@ -599,7 +617,7 @@ const config = defineConfig({
           name: 'platform-unit',
           fsModuleCache: true,
           pool: 'threads',
-          include: ['platform/packages/*/test/**/*.test.ts'],
+          include: platformTestGlobs,
           exclude: ['platform/packages/api/test/integration/**', ...pgliteUnitTests],
           maxWorkers,
         },
