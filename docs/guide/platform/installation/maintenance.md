@@ -116,7 +116,9 @@ An upgrade validates the runtime, applies supported pending migrations, deploys 
 
 Install, upgrade, and repair also publish saved [AI Gateway logging](/reference/cli/platform-users#ai-gateway-logging) settings. Affected projects may show `pending` for about 2 minutes afterward, including projects returning to `inherit`. Check progress with `void platform project show <project-id>`.
 
-Before starting, Void checks access to the installation's Cloudflare account, Workers, and existing R2 buckets. If credentials are rejected, set `CLOUDFLARE_API_TOKEN` to a management token scoped to that account and retry. This overrides the installation's saved management token.
+Before starting, Void checks access to the installation's Cloudflare account, Workers, and existing R2 buckets. It lists every missing permission at once and names the credential Cloudflare rejected. If the management credential is rejected, set `CLOUDFLARE_API_TOKEN` to a management token scoped to that account and retry. This overrides the installation's saved management token.
+
+With browser login, Void uses the runtime token for AI Gateway: `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`, or the one saved on this machine. If an error names the runtime token, set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to a valid runtime token. A management token does not fix it.
 
 Some upgrades pause application traffic until the new version passes health checks. If a command fails while traffic is paused:
 
