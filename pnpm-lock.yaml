@@ -879,6 +879,12 @@ importers:
       email-validator:
         specifier: ^2.0.4
         version: 2.0.4
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      get-tsconfig:
+        specifier: ^4.14.3
+        version: 4.14.3
       gray-matter:
         specifier: ^4.0.3
         version: 4.0.3

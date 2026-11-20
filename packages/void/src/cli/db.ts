@@ -11,7 +11,6 @@ import {
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { confirm, isCancel, outro, log, text } from '@voidzero-dev/vite-plus-prompts';
-import { createJiti } from 'jiti';
 import { basename, dirname, extname, join, relative, resolve } from 'pathslash';
 import {
   readConfig,
@@ -52,6 +51,7 @@ import {
   quoteSqlIdentifier,
   quoteSqlString,
 } from './db-export-sequences.ts';
+import type { SeedModuleImporter } from './db-seed-loader.ts';
 import { formatTimestamp } from './gen.ts';
 import { Buffer } from './node-buffer.ts';
 import { printSuccess, dim, formatCount, formatUrl, getErrorMessage, pc } from './output.ts';
@@ -777,45 +777,53 @@ async function runSeed(
   const seed = resolveSeedTarget(root, file);
   const sql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf-8') : undefined;
   await confirmReset(root, dialect, yes);
-  const seedFn = sql === undefined ? await loadSeedFunction(seed.path) : undefined;
+  const loader =
+    sql === undefined
+      ? (await import('./db-seed-loader.ts')).createSeedModuleLoader(root, seed.path)
+      : undefined;
+  try {
+    const seedFn = loader ? await loadSeedFunction(seed.path, loader.importModule) : undefined;
 
-  // Reset first (drop + re-run migrations). The drop is confirmed above, so do not ask again.
-  const migrationCount = await resetDatabase(root, dialect, true);
-  log.step(`Reset database. Applied ${formatCount(migrationCount, 'migration')}.`);
+    // Reset first (drop + re-run migrations). The drop is confirmed above, so do not ask again.
+    const migrationCount = await resetDatabase(root, dialect, true);
+    log.step(`Reset database. Applied ${formatCount(migrationCount, 'migration')}.`);
 
-  if (sql !== undefined) {
-    if (dialect === 'postgresql') {
-      await withPgClient(root, async (client) => {
-        await client.query(sql);
-      });
-      printSuccess(`Seeded from ${seed.displayPath}.`);
+    if (sql !== undefined) {
+      if (dialect === 'postgresql') {
+        await withPgClient(root, async (client) => {
+          await client.query(sql);
+        });
+        printSuccess(`Seeded from ${seed.displayPath}.`);
 
-      return;
+        return;
+      }
+
+      if (dialect === 'mysql') {
+        await withMySqlClient(root, async (client) => {
+          await client.query(sql);
+        });
+        printSuccess(`Seeded from ${seed.displayPath}.`);
+
+        return;
+      }
+
+      const { openSqliteDatabase } = await import('../migrations/runner.ts');
+      const { databasePath: dbPath } = getLocalD1Target(root);
+      const db = await openSqliteDatabase(dbPath);
+      try {
+        db.exec(sql);
+      } finally {
+        db.close();
+      }
+    } else {
+      await runSeedModule(root, seedFn!, dialect, loader!.importModule);
     }
 
-    if (dialect === 'mysql') {
-      await withMySqlClient(root, async (client) => {
-        await client.query(sql);
-      });
-      printSuccess(`Seeded from ${seed.displayPath}.`);
-
-      return;
-    }
-
-    const { openSqliteDatabase } = await import('../migrations/runner.ts');
-    const { databasePath: dbPath } = getLocalD1Target(root);
-    const db = await openSqliteDatabase(dbPath);
-    try {
-      db.exec(sql);
-    } finally {
-      db.close();
-    }
-  } else {
-    await runSeedModule(root, seedFn!, dialect);
+    log.info(dim("Restart your dev server if it's running."));
+    printSuccess(`Seeded from ${seed.displayPath}.`);
+  } finally {
+    loader?.close();
   }
-
-  log.info(dim("Restart your dev server if it's running."));
-  printSuccess(`Seeded from ${seed.displayPath}.`);
 }
 
 /**
@@ -2445,8 +2453,9 @@ async function runSeedModule(
   root: string,
   seed: SeedFn<Record<string, unknown>>,
   dialect: DatabaseDialect,
+  importModule: SeedModuleImporter,
 ): Promise<void> {
-  const schema = await loadSeedSchema(root);
+  const schema = await loadSeedSchema(root, importModule);
   const casing = getDatabaseCasing(readConfig(root));
 
   if (dialect === 'postgresql') {
@@ -2489,8 +2498,11 @@ async function runSeedModule(
   }
 }
 
-async function loadSeedFunction(seedPath: string): Promise<SeedFn<Record<string, unknown>>> {
-  const mod = await importLocalModule(seedPath);
+async function loadSeedFunction(
+  seedPath: string,
+  importModule: SeedModuleImporter,
+): Promise<SeedFn<Record<string, unknown>>> {
+  const mod = await importModule(seedPath);
   const seed =
     typeof mod.default === 'function'
       ? mod.default
@@ -2505,7 +2517,10 @@ async function loadSeedFunction(seedPath: string): Promise<SeedFn<Record<string,
   return seed as SeedFn<Record<string, unknown>>;
 }
 
-async function loadSeedSchema(root: string): Promise<Record<string, unknown>> {
+async function loadSeedSchema(
+  root: string,
+  importModule: SeedModuleImporter,
+): Promise<Record<string, unknown>> {
   const { discoverSchema } = await import('../drizzle/discover.ts');
   const paths = readProjectPaths(root);
   const location = discoverSchema(root, paths);
@@ -2514,14 +2529,14 @@ async function loadSeedSchema(root: string): Promise<Record<string, unknown>> {
   }
 
   if (location.type === 'file') {
-    const mod = await importLocalModule(location.path);
+    const mod = await importModule(location.path);
     return Object.fromEntries(
       Object.entries(mod).filter(([name]) => name !== 'default' && name !== '__esModule'),
     );
   }
 
   const files = collectSchemaModuleFiles(location.path);
-  const parts = await Promise.all(files.map((file) => importLocalModule(file)));
+  const parts = await Promise.all(files.map((file) => importModule(file)));
   return Object.assign(
     {},
     ...parts.map((mod) =>
@@ -2547,16 +2562,6 @@ function collectSchemaModuleFiles(dir: string): Array<string> {
     }
   }
   return files.sort();
-}
-
-async function importLocalModule(modulePath: string): Promise<Record<string, unknown>> {
-  // Native import() cannot resolve the extensionless re-exports that `void gen model` writes.
-  const jiti = createJiti(import.meta.url, {
-    fsCache: false,
-    moduleCache: false,
-    interopDefault: false,
-  });
-  return jiti.import<Record<string, unknown>>(modulePath);
 }
 
 /** The schema and casing that `void/db` gives drizzle, or undefined when neither is set. */
