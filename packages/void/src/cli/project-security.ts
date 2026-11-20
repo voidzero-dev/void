@@ -145,6 +145,9 @@ export function scanStatusCopy(status: ProjectSecurityStatus): string | null {
       if (reason === 'protected') {
         return 'Not scanned: this project is protected by Zero Trust and the platform scans public projects only.';
       }
+      if (reason === 'project_policy') {
+        return 'Not scanned: a platform admin turned scans off for this project.';
+      }
       return `Not scanned (${reason}).`;
     default:
       return null;

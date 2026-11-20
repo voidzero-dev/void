@@ -1996,6 +1996,46 @@ probe check 5: same split per host; report.keyIds ─► stored under the policy
 skips a gate scan (D46). Operator `security policy --project`, admin Project detail.
 Tests: `security-enqueue.test.ts`, `operator-security.test.ts`.
 
+As built (M34):
+
+```
+rule (project_security_settings.policy_override, no row = inherit), only while the mode is on:
+  inherit ─► the mode decides (as before)
+  always  ─► in scope like mode all: a protected project under public is scanned
+  never   ─► out of scope; gate scans and their fallback still run (D46)
+
+deploy go-live (enqueue, project lock) ─ open request? ─ yes ─► gate scan (any rule)
+                                         └ no ─ never ──────────────► skipped:project_policy (modules kept)
+                                                └ public+protected, not always ─► skipped:protected
+claim (project lock) ─ gate / gate fallback ─► runs
+                     └ never ─► skipped:project_policy · public+protected, not always ─► skipped:protected
+```
+
+- `security/project-policy.ts`: type, parser, reader, `securityProjectInScopeSql` (shared by the
+  sweep/backfill candidates and the policy preview counts) and the copy. The column was already in
+  migration 0065, so no schema change.
+- A `never` deploy writes a `skipped:project_policy` row instead of no row (plan said "enqueue reads
+  it"; the real code needed a row): like `skipped:protected` it supersedes the waiting scan and keeps
+  a copy of inline modules, so a later public request can still queue a gate scan of that deployment.
+  The gate's "newest scan" ignores both skip reasons; exposure catch-up leaves `never` projects out.
+- Rescan (project, operator, admin) and the local check refuse `never` with 409
+  `security_not_in_scope`, also while a public request is open (they are not gate scans); the
+  `@cf` fallback of a gate scan passes (`publicRequestId`). Sweeps and backfill use the same scope.
+- Write: `setProjectSecurityPolicyOverride` (`operator.ts`) under the project row lock, the lock
+  the enqueue and the claim read the rule under. It queues and cancels nothing: a waiting scan of a
+  `never` project is skipped at claim, a running one finishes. Recorded in `operator_events`
+  (target `{projectId, override}`), not as a project event (the event action list has no such
+  value and the operator audit already holds it).
+  Its preview says a waiting scan is skipped at claim, and, while a public request is open,
+  that the scan for that request still runs.
+- Routes: `POST /operator/v1/projects/:id/security/policy {override, dryRun}` (capability) and
+  the admin Project detail form (`/admin/projects/:id/security/policy`). Reads: the project
+  policy view gains `override` and its reason copy; `security status` lists
+  `projectOverrides` (≤ 100, by slug). The policy preview counts follow the rules.
+- CLI: `void platform security policy --project <project-id> <inherit|always|never>`
+  (action `project-policy`, preview then the same body). `void project security status` and the page say
+  `Not scanned: a platform admin turned scans off for this project.`
+
 **M35 Severity edits.** `POST …/findings/:fid/severity {severity, comment, expectedRevision}`
 (`settings`); `severity_override` sticky across scans; event `severity_edited`;
 lowering crit/high counts like a resolve for the gate (comment required, recorded,

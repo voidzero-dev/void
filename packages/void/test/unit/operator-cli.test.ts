@@ -2000,6 +2000,18 @@ describe('platform security arguments', () => {
       body: { mode: 'public' },
     });
     expect(() => parse('policy', 'everything')).toThrow('disabled|public|all');
+    // One project's own rule (M34) has its own route.
+    expect(parse('policy', '--project', 'proj_1', 'never')).toMatchObject({
+      method: 'POST',
+      action: 'project-policy',
+      path: '/projects/proj_1/security/policy',
+      body: { override: 'never' },
+    });
+    expect(() => parse('policy', '--project', 'proj_1', 'public')).toThrow(
+      '--project <project-id> <inherit|always|never>',
+    );
+    expect(() => parse('policy', 'always')).toThrow('name the project');
+    expect(() => parse('policy', '--project', '..', 'always')).toThrow('dot path segment');
     expect(
       parse(
         'models',
@@ -2260,6 +2272,29 @@ describe('platform security commands', () => {
     expect(out.errors()).toContain('Mode: disabled → public');
     expect(out.errors()).not.toContain('"policy"');
     expect(out.terminal()).toContain('Platform security policy completed.');
+  });
+
+  it('previews a project scan rule, then sends the same body (M34)', async () => {
+    const out = quiet();
+    const calls = serve([
+      {
+        dryRun: true,
+        action: 'security.project-policy',
+        target: 'proj_1',
+        override: { from: 'inherit', to: 'always' },
+        preview: ['acme: always scanned, also while Zero Trust protects it.'],
+      },
+      { ok: true, slug: 'acme', override: { from: 'inherit', to: 'always' } },
+    ]);
+    await run('policy', '--project', 'proj_1', 'always', '--yes');
+    expect(calls.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      'POST /projects/proj_1/security/policy',
+      'POST /projects/proj_1/security/policy',
+    ]);
+    expect(calls[0]!.body).toEqual({ override: 'always', dryRun: true });
+    expect(calls[1]!.body).toEqual({ override: 'always' });
+    expect(out.errors()).toContain('always scanned, also while Zero Trust protects it');
+    expect(out.terminal()).toContain('Platform security project-policy completed.');
   });
 
   it('reads a provider key from stdin once, sends it for the preview and the change, never prints it', async () => {

@@ -4,7 +4,8 @@
  *   backfill  live deployment has no succeeded scan       (admin "scan active deployments now")
  *   sweep     no sweep and no succeeded full scan within everyDays   (hourly, policy `sweeps`)
  *
- * Both need a project in scope (active, not a preview, public under `public` mode), a
+ * Both need a project in scope (active, not a preview, public under `public` mode or with
+ * the project rule `always`, never with the rule `never` (M34)), a
  * live deployment whose code is stored, an owner who is not suspended, and nothing
  * waiting or running. A project whose code is gone is left out (counted apart with
  * `code: 'missing'`): it would be refused every time and keep the head of the list. The
@@ -15,6 +16,7 @@ import type { SecurityMode } from '@void/platform/security-policy';
 import { and, asc, count, eq, isNull, notLike, sql, type SQL } from 'drizzle-orm';
 import type { DbOrTx } from '../db.ts';
 import { deployments, projects, projectZeroTrust, users } from '../schema.ts';
+import { securityProjectInScopeSql } from './project-policy.ts';
 import { projectSecuritySettings } from './schema.ts';
 
 export type SecurityCandidateKind = 'backfill' | 'sweep';
@@ -42,8 +44,6 @@ export type SecurityCandidate = Readonly<{
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const protectedRow = sql`(${projectZeroTrust.status} = 'ready' AND ${projectZeroTrust.desired_protected} AND ${projectZeroTrust.effective_protected})`;
-
 /**
  * The SQL side of `findLiveInput`: the stored Worker bundle, or a scan row of the
  * deployment that points at its snapshot. Every snapshot writer records its key on a
@@ -59,11 +59,7 @@ function conditions(
   code: SecurityCandidateCode = 'stored',
 ): SQL | undefined {
   const scope =
-    query.mode === 'disabled'
-      ? sql`false`
-      : query.mode === 'public' && query.protects
-        ? sql`NOT COALESCE(${protectedRow}, false)`
-        : undefined;
+    query.mode === 'disabled' ? sql`false` : securityProjectInScopeSql(query.mode, query.protects);
   const idle = sql`NOT EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.status IN ('pending_input', 'queued', 'running'))`;
   let due: SQL;
   if (query.kind === 'backfill') {

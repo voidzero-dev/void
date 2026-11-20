@@ -32,6 +32,10 @@ import { resolveSecurityScanModel } from './models.ts';
 import { readSecurityPlanCap } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import {
+  readSecurityProjectPolicyOverride,
+  type SecurityProjectPolicyOverride,
+} from './project-policy.ts';
+import {
   projectSecuritySettings,
   securityFindings,
   securityProjectSpend,
@@ -94,22 +98,28 @@ export type SecurityProjectPolicyView = Readonly<{
   applies: boolean;
   reason: string;
   publicGate: boolean;
+  /** The project's own rule, set by an installation admin (M34). */
+  override: SecurityProjectPolicyOverride;
 }>;
 
 /**
  * Whether scans apply to this project now, and why (spec §11.4 policy reason copy).
  * A project counts as protected only when every part says so; anything else is public.
+ * The project rule (M34) comes after the mode: `never` takes the project out (a public
+ * request still scans it), `always` keeps a protected project in under `public`.
  */
 export async function securityProjectPolicyView(
   db: DbOrTx,
   input: Readonly<{ projectId: string; slug: string; capability: boolean; policy: SecurityPolicy }>,
 ): Promise<SecurityProjectPolicyView> {
   const { policy } = input;
+  const override = await readSecurityProjectPolicyOverride(db, input.projectId);
   const view = (applies: boolean, reason: string): SecurityProjectPolicyView => ({
     mode: policy.mode,
     applies,
     reason,
     publicGate: input.capability && policy.publicGate,
+    override,
   });
   if (!input.capability || policy.mode === 'disabled') {
     return { ...view(false, 'Security audits are off on this platform.'), mode: 'disabled' };
@@ -117,8 +127,19 @@ export async function securityProjectPolicyView(
   if (input.slug.startsWith('preview-')) {
     return view(false, 'preview projects are not scanned');
   }
+  if (override === 'never') {
+    return (await hasOpenPublicRequest(db, input.projectId))
+      ? view(
+          true,
+          'a platform admin turned scans off for this project; it is still scanned before it goes public (public request)',
+        )
+      : view(false, 'a platform admin turned scans off for this project');
+  }
   if (policy.mode === 'all') {
     return view(true, 'the platform scans all projects');
+  }
+  if (override === 'always') {
+    return view(true, 'a platform admin turned scans on for this project');
   }
   const [row] = await db
     .select({
@@ -152,23 +173,27 @@ export async function securityProjectPolicyView(
   if (configuration.publicAccess) {
     return view(true, "the platform's Zero Trust is in public-only mode");
   }
-  const [open] = await db
-    .select({ id: securityPublicRequests.id })
-    .from(securityPublicRequests)
-    .where(
-      and(
-        eq(securityPublicRequests.project_id, input.projectId),
-        inArray(securityPublicRequests.state, [...SECURITY_PUBLIC_REQUEST_OPEN_STATES]),
-      ),
-    )
-    .limit(1);
-  if (open) {
+  if (await hasOpenPublicRequest(db, input.projectId)) {
     return view(true, 'scanned before it goes public (public request)');
   }
   return view(
     false,
     'this project is protected by Zero Trust and the platform scans public projects only',
   );
+}
+
+async function hasOpenPublicRequest(db: DbOrTx, projectId: string): Promise<boolean> {
+  const [open] = await db
+    .select({ id: securityPublicRequests.id })
+    .from(securityPublicRequests)
+    .where(
+      and(
+        eq(securityPublicRequests.project_id, projectId),
+        inArray(securityPublicRequests.state, [...SECURITY_PUBLIC_REQUEST_OPEN_STATES]),
+      ),
+    )
+    .limit(1);
+  return open !== undefined;
 }
 
 // ---------------------------------------------------------------------------

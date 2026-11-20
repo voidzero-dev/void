@@ -18,6 +18,10 @@ import { deploymentOperations, deployments, projects, projectZeroTrust, users } 
 import { withKnownLength, type WorkerModule } from '../worker-upload.ts';
 import { installationZeroTrustProtects, readSecurityPolicyLenient } from './policy.ts';
 import {
+  readSecurityProjectPolicyOverride,
+  SECURITY_PROJECT_POLICY_SKIP_REASON,
+} from './project-policy.ts';
+import {
   SECURITY_PUBLIC_REQUEST_OPEN_STATES,
   securityPublicRequests,
   securityScans,
@@ -55,7 +59,7 @@ export type SecurityScanEnqueued = Readonly<{
   scanId: string;
   projectId: string;
   deploymentId: string;
-  /** `skipped` = `skipped:protected`. */
+  /** `skipped` = `skipped:protected`, or `skipped:project_policy` (M34 `never`). */
   status: 'pending_input' | 'skipped';
   trigger: SecurityScanTrigger;
   /** The staged deploy input the row holds, if any. */
@@ -195,7 +199,8 @@ async function enqueueInSavepoint(
     const owed =
       existing.status === 'pending_input' ||
       (existing.status === 'skipped' &&
-        existing.statusReason === 'protected' &&
+        (existing.statusReason === 'protected' ||
+          existing.statusReason === SECURITY_PROJECT_POLICY_SKIP_REASON) &&
         existing.inputR2Key === null);
     return owed
       ? {
@@ -225,7 +230,8 @@ async function enqueueInSavepoint(
     )
     .limit(1);
   // An open public request makes every live deploy its gate scan (§5.5), also under
-  // `public`; otherwise a protected project under `public` is out of scope for now.
+  // `public` and under the project rule `never` (M34, D46); otherwise a protected
+  // project under `public` is out of scope for now, unless its rule is `always`.
   // The request follows the new live deployment; its re-check after the commit
   // (`public-gate-flow.ts`) sets the state.
   if (openRequest) {
@@ -239,7 +245,15 @@ async function enqueueInSavepoint(
       .where(eq(securityPublicRequests.id, openRequest.id));
   }
   const trigger: SecurityScanTrigger = openRequest ? 'gate' : input.trigger;
-  const skipped = !openRequest && policy.mode === 'public' && isProtected;
+  const override = await readSecurityProjectPolicyOverride(tx, projectId);
+  const skipReason = openRequest
+    ? null
+    : override === 'never'
+      ? SECURITY_PROJECT_POLICY_SKIP_REASON
+      : policy.mode === 'public' && isProtected && override !== 'always'
+        ? 'protected'
+        : null;
+  const skipped = skipReason !== null;
   const [operation] = await tx
     .select({ prefix: deploymentOperations.input_prefix })
     .from(deploymentOperations)
@@ -283,7 +297,7 @@ async function enqueueInSavepoint(
     project_id: projectId,
     deployment_id: deploymentId,
     status: skipped ? 'skipped' : 'pending_input',
-    status_reason: skipped ? 'protected' : null,
+    status_reason: skipReason,
     trigger,
     public_request_id: openRequest?.id ?? null,
     input_prefix: inputPrefix,

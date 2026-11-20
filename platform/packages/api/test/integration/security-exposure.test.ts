@@ -8,6 +8,7 @@ import { setPlatformSetting } from '../../src/platform-settings.ts';
 import { securityScans } from '../../src/schema.ts';
 import { securityScanInputPrefix } from '../../src/security/enqueue.ts';
 import { queueExposureCatchUpScans } from '../../src/security/exposure.ts';
+import { projectSecuritySettings } from '../../src/security/schema.ts';
 import {
   clearTables,
   createTestDeployment,
@@ -62,6 +63,14 @@ describe('exposure catch-up', () => {
       .from(securityScans)
       .where(eq(securityScans.project_id, project.id));
     expect(rows.filter((row) => row.trigger === 'exposure')).toHaveLength(1);
+  });
+
+  it('queues nothing for a project whose rule is never (M34)', async () => {
+    const { project } = await exposedProject();
+    await env.db
+      .insert(projectSecuritySettings)
+      .values({ project_id: project.id, policy_override: 'never' });
+    expect(await queueExposureCatchUpScans(env, env.db)).toBe(0);
   });
 
   it('does not queue another scan after a failed exposure scan', async () => {

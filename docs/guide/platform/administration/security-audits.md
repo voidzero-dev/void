@@ -44,6 +44,20 @@ Choose a scan mode:
 
 Turning a mode on scans nothing right away. Each project is scanned at its next deploy, and the first scan of a project reviews the whole deployment. Later scans review what changed since the last good scan. Use `--plan` to preview how many projects a change reaches.
 
+A platform admin can also give one project its own rule, from the project's **Security** section in the administrator UI or with the CLI:
+
+```sh
+void platform security policy --project <project-id> <inherit|always|never>
+```
+
+| Rule              | Scans                                                                   |
+| ----------------- | ----------------------------------------------------------------------- |
+| inherit (default) | What the scan mode says                                                 |
+| always            | Every deploy, also while Zero Trust protects the project                |
+| never             | Nothing, except the scan before the project goes public when that is on |
+
+A project's rule has no effect while the mode is Off. Its project page and `void project security status` say why the project is or is not scanned.
+
 Platform administrators can also manage all of this from **Security** in the administrator UI.
 
 ## What is scanned
@@ -60,7 +74,7 @@ Developers who can deploy a project can scan their code before it goes out:
 void project security check
 ```
 
-It sends the git-tracked files of the current folder, as they are on disk, to the platform, and the scan runs on the project's model. Untracked files, secret-like files, lockfiles, and binaries stay on the developer's machine. The command shows what it sends, which model reviews it, and the most it can cost, then asks before it uploads anything. The check needs the policy to apply to the project, waits in the queue like any scan, and counts toward the monthly caps. Its result is shown in the terminal and kept for 30 days. It is not saved as project findings, sends no email, and does not affect a request to go public. See [`void project security check`](../../../reference/cli/project.md#void-project-security).
+It sends the git-tracked files of the current folder, as they are on disk, to the platform, and the scan runs on the project's model. Untracked files, secret-like files, lockfiles, and binaries stay on the developer's machine. The command shows what it sends, which model reviews it, and the most it can cost, then asks before it uploads anything. The check needs the policy to apply to the project, and is refused while a platform admin has set the project's rule to `never`. It waits in the queue like any scan and counts toward the monthly caps. Its result is shown in the terminal and kept for 30 days. It is not saved as project findings, sends no email, and does not affect a request to go public. See [`void project security check`](../../../reference/cli/project.md#void-project-security).
 
 ## Models and the provider notice
 

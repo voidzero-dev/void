@@ -38,6 +38,9 @@ import {
   securityScanInputPrefix,
 } from '../../src/security/enqueue.ts';
 import { changeSecurityPolicy } from '../../src/security/policy.ts';
+import type { SecurityProjectPolicyOverride } from '../../src/security/project-policy.ts';
+import { claimSecurityScan } from '../../src/security/queue.ts';
+import { projectSecuritySettings } from '../../src/security/schema.ts';
 import { blobWorkerModule } from '../../src/worker-upload.ts';
 import {
   clearTables,
@@ -426,6 +429,179 @@ describe('enqueue in the go-live transaction', () => {
         deploymentId: live.id,
       }),
     ).toMatchObject({ status: 'pending_input', trigger: 'deploy', deploymentId: live.id });
+  });
+});
+
+describe('project scan rule (M34)', () => {
+  const CF = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
+
+  async function setRule(projectId: string, override: SecurityProjectPolicyOverride) {
+    await env.db
+      .insert(projectSecuritySettings)
+      .values({ project_id: projectId, policy_override: override })
+      .onConflictDoUpdate({
+        target: projectSecuritySettings.project_id,
+        set: { policy_override: override },
+      });
+  }
+
+  async function claim(scanId: string) {
+    return claimSecurityScan(env.db, {
+      scanId,
+      attempt: 0,
+      model: { requested: CF, used: CF, engine: 'void_loop' },
+      limits: { timeoutMinutes: 20 },
+      now: Date.now(),
+    });
+  }
+
+  async function queued(
+    projectId: string,
+    deploymentId: string,
+    trigger: 'deploy' | 'gate' | 'fallback',
+    publicRequestId: string | null = null,
+  ) {
+    const id = `scan_${crypto.randomUUID().slice(0, 8)}`;
+    await env.db.insert(securityScans).values({
+      id,
+      project_id: projectId,
+      deployment_id: deploymentId,
+      status: 'queued',
+      trigger,
+      public_request_id: publicRequestId,
+      policy_mode_at_enqueue: 'public',
+      public_at_enqueue: false,
+      first_queued_at: sql`now()`,
+      queued_at: sql`now()`,
+    });
+    return id;
+  }
+
+  it('never: a deploy gets skipped:project_policy, replaces the waiting scan and keeps its modules', async () => {
+    await savePolicy('all');
+    const { project } = await setup();
+    const old = await createTestDeployment(env.db, project.id);
+    const waiting = await enqueue(project.id, old.id);
+    await setRule(project.id, 'never');
+    const deployment = await createTestDeployment(env.db, project.id);
+    const row = await enqueue(project.id, deployment.id);
+    expect(row).toMatchObject({ status: 'skipped', trigger: 'deploy' });
+    expect(await scan(row!.scanId)).toMatchObject({
+      status: 'skipped',
+      status_reason: 'project_policy',
+      first_queued_at: null,
+    });
+    expect(await scan(waiting!.scanId)).toMatchObject({
+      status: 'superseded',
+      superseded_by_scan_id: row!.scanId,
+    });
+    // Like skipped:protected: compensation gets it back until its modules are copied, so a
+    // later gate scan can still read the code.
+    expect(await enqueue(project.id, deployment.id)).toEqual(row);
+    await finishSecurityScanEnqueue(onEnv, env.db, row, [
+      blobWorkerModule('index.js', new Blob(['export default {}'])),
+    ]);
+    expect((await scan(row!.scanId)).input_r2_key).toBe(
+      securityScanInputPrefix(project.id, deployment.id),
+    );
+    expect(await enqueue(project.id, deployment.id)).toBeNull();
+    expect(pokes).toBe(0);
+  });
+
+  it('never still writes the gate scan of an open public request (D46)', async () => {
+    await savePolicy('public', true);
+    const { project } = await setup();
+    await protect(project.id);
+    await setRule(project.id, 'never');
+    const deployment = await createTestDeployment(env.db, project.id);
+    await env.db.insert(securityPublicRequests).values({
+      id: 'spr_never',
+      project_id: project.id,
+      state: 'needs_deploy',
+      requested_via: 'project',
+      target_deployment_id: deployment.id,
+    });
+    expect(await enqueue(project.id, deployment.id)).toMatchObject({
+      status: 'pending_input',
+      trigger: 'gate',
+    });
+    expect(await scans(project.id)).toMatchObject([
+      { status: 'pending_input', trigger: 'gate', public_request_id: 'spr_never' },
+    ]);
+  });
+
+  it('always scans a protected project under public; Off still scans nothing', async () => {
+    await savePolicy('public');
+    const { project } = await setup();
+    await protect(project.id);
+    await setRule(project.id, 'always');
+    const deployment = await createTestDeployment(env.db, project.id);
+    expect(await enqueue(project.id, deployment.id)).toMatchObject({ status: 'pending_input' });
+    expect(await scans(project.id)).toMatchObject([
+      { status: 'pending_input', status_reason: null, public_at_enqueue: false },
+    ]);
+
+    await savePolicy('disabled');
+    const next = await createTestDeployment(env.db, project.id);
+    expect(await enqueue(project.id, next.id)).toBeNull();
+
+    // inherit is the plain policy again.
+    await savePolicy('public');
+    await setRule(project.id, 'inherit');
+    const third = await createTestDeployment(env.db, project.id);
+    expect(await enqueue(project.id, third.id)).toMatchObject({ status: 'skipped' });
+    expect((await scans(project.id)).at(-1)).toMatchObject({ status_reason: 'protected' });
+  });
+
+  it('the claim reads the rule again: never skips a waiting scan, a gate scan still runs', async () => {
+    await savePolicy('all', true);
+    const { project } = await setup();
+    const deployment = await createTestDeployment(env.db, project.id);
+    const deploy = await queued(project.id, deployment.id, 'deploy');
+    await setRule(project.id, 'never');
+    await expect(claim(deploy)).resolves.toEqual({
+      kind: 'ended',
+      status: 'skipped',
+      reason: 'project_policy',
+    });
+    expect(await scan(deploy)).toMatchObject({
+      status: 'skipped',
+      status_reason: 'project_policy',
+    });
+
+    const gate = await queued(project.id, deployment.id, 'gate');
+    await expect(claim(gate)).resolves.toMatchObject({ kind: 'claimed', attempt: 1 });
+  });
+
+  it('the claim under never runs a fallback of a public request, and skips any other', async () => {
+    await savePolicy('all', true);
+    const { project } = await setup();
+    const deployment = await createTestDeployment(env.db, project.id);
+    await setRule(project.id, 'never');
+    const plain = await queued(project.id, deployment.id, 'fallback');
+    await expect(claim(plain)).resolves.toEqual({
+      kind: 'ended',
+      status: 'skipped',
+      reason: 'project_policy',
+    });
+    expect(await scan(plain)).toMatchObject({
+      status: 'skipped',
+      status_reason: 'project_policy',
+    });
+    const forRequest = await queued(project.id, deployment.id, 'fallback', 'spr_open');
+    await expect(claim(forRequest)).resolves.toMatchObject({ kind: 'claimed' });
+  });
+
+  it('the claim of a protected project under public runs with always', async () => {
+    await savePolicy('public');
+    const { project } = await setup();
+    await protect(project.id);
+    const deployment = await createTestDeployment(env.db, project.id);
+    const skipped = await queued(project.id, deployment.id, 'deploy');
+    await expect(claim(skipped)).resolves.toMatchObject({ reason: 'protected' });
+    await setRule(project.id, 'always');
+    const runs = await queued(project.id, deployment.id, 'deploy');
+    await expect(claim(runs)).resolves.toMatchObject({ kind: 'claimed' });
   });
 });
 

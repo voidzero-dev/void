@@ -27,6 +27,7 @@ import {
   SECURITY_SCAN_CANCELABLE,
   securityBudgetStatus,
   setProjectSecurityCeiling,
+  setProjectSecurityPolicyOverride,
 } from '../security/operator.ts';
 import {
   changeSecurityPolicy,
@@ -43,6 +44,7 @@ import {
   resolveSecurityFinding,
   showSecurityFinding,
 } from '../security/project-findings.ts';
+import { parseSecurityProjectPolicyRequest } from '../security/project-policy.ts';
 import {
   parseSecurityModelRequest,
   setProjectSecurityModel,
@@ -565,6 +567,35 @@ securityOperatorRoutes.post(
         );
       }
       return context.json(await setProjectSecurityCeiling(db, input));
+    } catch (error) {
+      throw securityOperatorError(error);
+    }
+  },
+);
+
+/** Sets the project's own scan rule (M34): inherit, always or never. Installation admins only. */
+securityOperatorRoutes.post(
+  '/projects/:id/security/policy',
+  capabilityMiddleware('securityAudits'),
+  async (context) => {
+    const body = await readBody(context);
+    const projectId = context.req.param('id');
+    const db = context.get('db');
+    await requireProject(db, projectId);
+    try {
+      const input = {
+        projectId,
+        userId: context.get('user').id,
+        override: parseSecurityProjectPolicyRequest(body),
+      };
+      if (dryRun(body)) {
+        const result = await previewInRollback(db, (tx) =>
+          setProjectSecurityPolicyOverride(tx, input),
+        );
+        const { ok: _ok, ...shown } = result;
+        return context.json(preview('security.project-policy', projectId, shown));
+      }
+      return context.json(await setProjectSecurityPolicyOverride(db, input));
     } catch (error) {
       throw securityOperatorError(error);
     }

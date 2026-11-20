@@ -42,7 +42,7 @@ export type GateJudgeInput = Readonly<{
   zeroTrustReady: boolean;
   /**
    * The newest scan of the target deployment that is not `superseded` and not a
-   * `skipped:protected` row; `null` when there is none.
+   * `skipped:protected` or `skipped:project_policy` row; `null` when there is none.
    */
   scan: GateScanFacts | null;
   /** The live deployment's input is kept, so a gate scan can be queued for it. */

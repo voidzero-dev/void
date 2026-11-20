@@ -8,6 +8,7 @@ import { AuthenticationConfigurationError } from '../auth/configuration.ts';
 import type { ApiEnv } from '../env.ts';
 import { isProjectId } from '../id.ts';
 import { operatorEvents } from '../schema.ts';
+import { isSecurityProjectPolicyOverride } from '../security/project-policy.ts';
 import { dryRun, OperatorError, pagination, readBody } from './common.ts';
 
 const WORKER_NAMES = ['dispatch', 'dashboard', 'api', 'tail', 'proxy', 'email-gateway'] as const;
@@ -459,6 +460,12 @@ function auditTarget(
     }
     if (segments[3] === 'budget' && segments.length === 4) {
       return JSON.stringify({ projectId, monthlyUsd: securityUsdTarget(body.monthlyUsd) });
+    }
+    if (segments[3] === 'policy' && segments.length === 4) {
+      return JSON.stringify({
+        projectId,
+        override: isSecurityProjectPolicyOverride(body.override) ? body.override : undefined,
+      });
     }
     if (segments[3] === 'public-request' && segments[4] === 'bypass') {
       return JSON.stringify({ projectId });

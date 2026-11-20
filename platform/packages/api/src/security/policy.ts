@@ -36,7 +36,7 @@ import {
   type SecuritySweeps,
   type SecurityThirdPartyNotice,
 } from '@void/platform/security-policy';
-import { and, count, eq, gte, inArray, notLike, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, gte, inArray, ne, notLike, sql, type SQL } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
 import { projects, projectZeroTrust } from '../schema.ts';
@@ -48,6 +48,7 @@ import { lockZeroTrustConfiguration } from '../zero-trust/lock.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
 import { readSecurityPlanCaps } from './plan-caps.ts';
 import type { SecurityProbeReport } from './probe.ts';
+import { securityProjectHasOverrideSql, securityProjectInScopeSql } from './project-policy.ts';
 import {
   entitlementForSavedKeys,
   securityProviderKeyIds,
@@ -947,7 +948,7 @@ const FAILED_STATUSES = [
   'incomplete',
 ] as const satisfies ReadonlyArray<SecurityScanStatus>;
 
-type ProjectScope = 'all' | 'public' | 'protected';
+type ProjectScope = 'all' | 'protected';
 
 /**
  * Project protection as spec §4 defines it (fail-safe): protected only while
@@ -971,16 +972,7 @@ async function countProjects(
   protects: boolean,
   extra?: SQL,
 ): Promise<number> {
-  const scopeCondition =
-    scope === 'all'
-      ? undefined
-      : scope === 'protected'
-        ? protects
-          ? protectedRow
-          : sql`false`
-        : protects
-          ? sql`NOT COALESCE(${protectedRow}, false)`
-          : undefined;
+  const scopeCondition = scope === 'all' ? undefined : protects ? protectedRow : sql`false`;
   const [row] = await db
     .select({ total: count() })
     .from(projects)
@@ -1021,16 +1013,25 @@ export async function securityPolicyPreviewCounts(
 ): Promise<SecurityPolicyPreviewCounts> {
   const protects = await installationZeroTrustProtects(db);
   const turningOn = changes.mode?.from === 'disabled';
-  const scope: ProjectScope = next.mode === 'public' ? 'public' : 'all';
+  // The project rules (M34) count too: `never` is left out, `always` is in under `public`.
+  const inScope = securityProjectInScopeSql(next.mode === 'public' ? 'public' : 'all', protects);
   const [scannedProjects, firstFullScan, urgentProjects] = turningOn
     ? await Promise.all([
-        countProjects(db, scope, protects),
-        countProjects(db, scope, protects, noSucceededScan),
-        countProjects(db, scope, protects, openUrgentFinding),
+        countProjects(db, 'all', protects, inScope),
+        countProjects(db, 'all', protects, and(inScope, noSucceededScan)),
+        countProjects(db, 'all', protects, and(inScope, openUrgentFinding)),
       ])
     : [0, 0, 0];
   const betweenOnModes = !!changes.mode && !turningOn && next.mode !== 'disabled';
-  const protectedProjects = betweenOnModes ? await countProjects(db, 'protected', protects) : 0;
+  // A switch between Public and All moves only protected projects that follow the mode.
+  const protectedProjects = betweenOnModes
+    ? await countProjects(
+        db,
+        'protected',
+        protects,
+        sql`NOT ${securityProjectHasOverrideSql(projects.id, 'never')} AND NOT ${securityProjectHasOverrideSql(projects.id, 'always')}`,
+      )
+    : 0;
   const turningOff = changes.mode?.to === 'disabled' && current.mode !== 'disabled';
   const [queuedScans, runningScans] = turningOff
     ? await Promise.all([countScans(db, QUEUED_STATUSES), countScans(db, ['running'])])
@@ -1444,6 +1445,21 @@ export function securitySpendMonth(now: number): string {
 
 const NANO_PER_USD = 1_000_000_000;
 
+/** Projects with their own scan rule (M34), by slug; at most 100. */
+async function securitySettingsOverrides(db: DbOrTx) {
+  return db
+    .select({
+      projectId: projects.id,
+      slug: projects.slug,
+      override: projectSecuritySettings.policy_override,
+    })
+    .from(projectSecuritySettings)
+    .innerJoin(projects, eq(projects.id, projectSecuritySettings.project_id))
+    .where(ne(projectSecuritySettings.policy_override, 'inherit'))
+    .orderBy(asc(projects.slug))
+    .limit(100);
+}
+
 export async function securityStatus(db: DbOrTx, capability: boolean, now = Date.now()) {
   const stored = await readStoredSecurityPolicy(db);
   const { policy } = stored;
@@ -1488,6 +1504,7 @@ export async function securityStatus(db: DbOrTx, capability: boolean, now = Date
     digest: policy.digest,
     webhook: await securityWebhookView(db),
     providerKeys: await securityProviderKeysView(db),
+    projectOverrides: await securitySettingsOverrides(db),
     revision: policy.revision,
     probe: policy.entitlement
       ? { ...policy.entitlement, fresh: isSecurityEntitlementFresh(policy.entitlement, now) }

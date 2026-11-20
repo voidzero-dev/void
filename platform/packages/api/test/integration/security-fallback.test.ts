@@ -33,7 +33,7 @@ import {
   securityPolicyPreviewLines,
 } from '../../src/security/policy.ts';
 import { claimSecurityScan } from '../../src/security/queue.ts';
-import { securityPublicRequests } from '../../src/security/schema.ts';
+import { projectSecuritySettings, securityPublicRequests } from '../../src/security/schema.ts';
 import {
   clearTables,
   createTestDeployment,
@@ -457,7 +457,8 @@ describe('queueing a fallback scan', () => {
 });
 
 describe('a fallback of a gate scan', () => {
-  it('carries the open request, so a protected project still runs it under public', async () => {
+  /** A gate scan of an open public request that ended refused on a third-party model. */
+  async function refusedGateScan() {
     const s = await setupGate(env);
     // Stored code, so asking for public queues a gate scan.
     await env.db
@@ -478,7 +479,6 @@ describe('a fallback of a gate scan', () => {
       .from(securityScans)
       .where(eq(securityScans.project_id, s.project.id));
     expect(gate).toMatchObject({ trigger: 'gate', public_request_id: request!.id });
-    // The gate scan ended refused on a third-party model.
     await env.db
       .update(securityScans)
       .set({
@@ -499,24 +499,45 @@ describe('a fallback of a gate scan', () => {
         hosts: { openai: true, anthropic: true },
       },
     });
+    return { s, request: request!, gate: gate!, policy };
+  }
+
+  async function queueAndClaim({
+    s,
+    request,
+    gate,
+    policy,
+  }: Awaited<ReturnType<typeof refusedGateScan>>) {
     const [queued] = await queueSecurityFallbackScans(s.platform, env.db, policy, {
       now: Date.now(),
     });
-    expect(queued).toMatchObject({ fromScanId: gate!.id });
+    expect(queued).toMatchObject({ fromScanId: gate.id });
     const [row] = await fallbackScans(s.project.id);
     expect(row).toMatchObject({
       status: 'queued',
-      public_request_id: request!.id,
+      public_request_id: request.id,
       coverage_notes: [],
     });
-
-    const claim = await claimSecurityScan(env.db, {
+    return claimSecurityScan(env.db, {
       scanId: row!.id,
       attempt: row!.attempt,
       model: { requested: CF, used: CF, engine: 'void_loop' },
       limits: policy.limits,
       now: Date.now(),
     });
+  }
+
+  it('carries the open request, so a protected project still runs it under public', async () => {
+    const claim = await queueAndClaim(await refusedGateScan());
+    expect(claim.kind).toBe('claimed');
+  });
+
+  it('still runs for a project whose rule is never (M34, D46)', async () => {
+    const gate = await refusedGateScan();
+    await env.db
+      .insert(projectSecuritySettings)
+      .values({ project_id: gate.s.project.id, policy_override: 'never' });
+    const claim = await queueAndClaim(gate);
     expect(claim.kind).toBe('claimed');
   });
 });

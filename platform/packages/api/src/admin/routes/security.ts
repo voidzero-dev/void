@@ -18,6 +18,7 @@ import {
   readCancelableScan,
   SECURITY_SCAN_CANCELABLE,
   setProjectSecurityCeiling,
+  setProjectSecurityPolicyOverride,
 } from '../../security/operator.ts';
 import {
   changeSecurityPolicy,
@@ -25,6 +26,7 @@ import {
   type SecurityPolicyChangeResult,
 } from '../../security/policy.ts';
 import { probeAndRecord, runSecurityProbe } from '../../security/probe.ts';
+import { parseSecurityProjectPolicyRequest } from '../../security/project-policy.ts';
 import {
   parseSecurityModelRequest,
   setProjectSecurityModel,
@@ -383,6 +385,29 @@ adminProjectSecurity.post('/:id/security/budget', async (context) => {
           projectId,
           userId: context.get('user').id,
           cents: parseSecurityCeilingRequest(body),
+        });
+      } catch (error) {
+        throw securityOperatorError(error);
+      }
+      return { response: back(context, projectId, 'security'), succeeded: true };
+    },
+  );
+});
+
+adminProjectSecurity.post('/:id/security/policy', async (context) => {
+  const projectId = context.req.param('id');
+  const form = (await context.req.parseBody()) as Form;
+  const body = { override: text(form, 'override') };
+  return executeAuditedMutation(
+    context,
+    operatorAuditIntent(`projects/${projectId}/security/policy`, body),
+    async () => {
+      await requireProject(context, projectId);
+      try {
+        await setProjectSecurityPolicyOverride(context.get('db'), {
+          projectId,
+          userId: context.get('user').id,
+          override: parseSecurityProjectPolicyRequest(body),
         });
       } catch (error) {
         throw securityOperatorError(error);

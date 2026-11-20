@@ -536,6 +536,55 @@ describe('operator security policy', () => {
     expect(await env.db.select().from(operatorEvents)).toHaveLength(0);
   });
 
+  test('the preview counts follow the project rules (M34)', async () => {
+    await seedPolicy();
+    await seedZeroTrust();
+    const owner = await createTestUser(env.db, 'security-rule-owner');
+    await createTestProject(env.db, owner.id, 'sec-plain');
+    const never = await createTestProject(env.db, owner.id, 'sec-never');
+    const always = await createTestProject(env.db, owner.id, 'sec-always');
+    const guarded = await createTestProject(env.db, owner.id, 'sec-guarded');
+    await env.db.insert(projectZeroTrust).values(
+      [never, always, guarded].map((project) => ({
+        project_id: project.id,
+        desired_protected: true,
+        effective_protected: true,
+        status: 'ready' as const,
+      })),
+    );
+    await env.db.insert(projectSecuritySettings).values([
+      { project_id: never.id, policy_override: 'never' },
+      { project_id: always.id, policy_override: 'always' },
+    ]);
+
+    // Off → Public: the plain project and the protected `always` one.
+    const publicPreview = (await (
+      await request('/policy', { dryRun: true, mode: 'public' })
+    ).json()) as { counts: Record<string, number> };
+    expect(publicPreview.counts).toMatchObject({ scannedProjects: 2, firstFullScan: 2 });
+    // Off → All: every project but the `never` one.
+    const allPreview = (await (await request('/policy', { dryRun: true, mode: 'all' })).json()) as {
+      counts: Record<string, number>;
+    };
+    expect(allPreview.counts).toMatchObject({ scannedProjects: 3, firstFullScan: 3 });
+
+    // All → Public moves only the protected project that follows the mode.
+    await env.db
+      .delete(platformSettings)
+      .where(eq(platformSettings.key, SECURITY_POLICY_SETTINGS_KEY));
+    await seedPolicy({ mode: 'all' });
+    const toPublic = (await (
+      await request('/policy', { dryRun: true, mode: 'public' })
+    ).json()) as {
+      counts: Record<string, number>;
+      preview: Array<string>;
+    };
+    expect(toPublic.counts).toMatchObject({ protectedProjects: 1 });
+    expect(toPublic.preview).toContain(
+      '  1 protected project is no longer scanned at deploy. Running scans finish.',
+    );
+  });
+
   test('previews a third-party default for projects without their own model', async () => {
     await seedPolicy({ blockedModels: ['openai/gpt-6.1-sol'] });
     const owner = await createTestUser(env.db, 'security-model-owner');

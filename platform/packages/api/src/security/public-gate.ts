@@ -35,6 +35,7 @@ import { SecurityApiError } from './errors.ts';
 import { SECURITY_FINDINGS_CAPPED_NOTE } from './findings.ts';
 import { enqueueSecurityNotification } from './notifications.ts';
 import { lockSecurityPolicyShared, readSecurityPolicyStrict } from './policy.ts';
+import { SECURITY_PROJECT_POLICY_SKIP_REASON } from './project-policy.ts';
 import { urgentFindingsRefusal } from './public-gate-copy.ts';
 import {
   bypassSkips,
@@ -228,7 +229,8 @@ async function newestScan(
         eq(securityScans.project_id, projectId),
         eq(securityScans.deployment_id, deploymentId),
         ne(securityScans.status, 'superseded'),
-        sql`NOT (${securityScans.status} = 'skipped' AND ${securityScans.status_reason} = 'protected')`,
+        // Not a result: a deploy skipped while protected, or by the project rule `never` (M34).
+        sql`NOT (${securityScans.status} = 'skipped' AND ${securityScans.status_reason} IN ('protected', ${SECURITY_PROJECT_POLICY_SKIP_REASON}))`,
       ),
     )
     .orderBy(desc(securityScans.created_at), desc(securityScans.id))

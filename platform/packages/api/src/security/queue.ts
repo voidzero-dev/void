@@ -22,6 +22,10 @@ import { releaseSecurityScanReserve, releaseSecurityScanReserveIn } from './budg
 import type { SecurityScanModel } from './models.ts';
 import { readSecurityPlanCapCell, securityPlanCapSql } from './plan-caps.ts';
 import { installationZeroTrustProtects, readSecurityPolicyLenient } from './policy.ts';
+import {
+  readSecurityProjectPolicyOverride,
+  SECURITY_PROJECT_POLICY_SKIP_REASON,
+} from './project-policy.ts';
 import { projectSecuritySettings, securityScans, type SecurityScanTrigger } from './schema.ts';
 
 /** One start plus one retry after an infrastructure error (spec §6.2). */
@@ -149,7 +153,7 @@ export async function readSecurityScanQueue(
 
 export type SecurityClaimOutcome =
   | Readonly<{ kind: 'claimed'; attempt: number; times: SecurityScanTimes }>
-  /** Ended at claim: `skipped:protected`, `skipped:backlog` or `canceled`. */
+  /** Ended at claim: `skipped:protected`, `skipped:project_policy`, `skipped:backlog` or `canceled`. */
   | Readonly<{ kind: 'ended'; status: 'skipped' | 'canceled'; reason: string }>
   /** Another scan of the project is running; the row stays queued. */
   | Readonly<{ kind: 'busy' }>
@@ -180,7 +184,9 @@ async function projectIsProtected(tx: DbOrTx, projectId: string): Promise<boolea
  * row lock. The checks the enqueue made are made again, since the row may have waited:
  * a project being deleted or a suspended owner cancels it, a wait past 24 h skips it
  * (`backlog`), and under `public` a non-gate scan of a project that is now protected is
- * `skipped:protected` (spec §5.4 All → Public). A gate scan still runs (§5.5).
+ * `skipped:protected` (spec §5.4 All → Public), unless its project rule is `always`. A
+ * non-gate scan of a project whose rule is now `never` is `skipped:project_policy` (M34).
+ * A gate scan still runs (§5.5).
  */
 export async function claimSecurityScan(
   db: Db,
@@ -300,7 +306,15 @@ async function claimRefusal(
   // A fallback of a gate scan (M26) runs for the same public request.
   const forRequest =
     row.trigger === 'gate' || (row.trigger === 'fallback' && row.publicRequestId !== null);
-  if (mode === 'public' && !forRequest && (await projectIsProtected(tx, projectId))) {
+  if (forRequest) {
+    return null;
+  }
+  // Read under the project lock the rule write takes too (M34).
+  const override = await readSecurityProjectPolicyOverride(tx, projectId);
+  if (override === 'never') {
+    return { kind: 'ended', status: 'skipped', reason: SECURITY_PROJECT_POLICY_SKIP_REASON };
+  }
+  if (mode === 'public' && override !== 'always' && (await projectIsProtected(tx, projectId))) {
     return { kind: 'ended', status: 'skipped', reason: 'protected' };
   }
   return null;

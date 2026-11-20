@@ -449,6 +449,32 @@ describe('admin security: project detail', () => {
     ).toEqual([`projects/${project.id}/security/budget`, `projects/${project.id}/security/model`]);
   });
 
+  it('sets the project scan rule (M34) and shows why scans do not apply', async () => {
+    await savePolicy();
+    const { project } = await projectWithDeployment();
+    const page = text(await (await get(`/admin/projects/${project.id}`)).text());
+    expect(page).toContain('Scan rule for this project');
+    const set = await post(`/admin/projects/${project.id}/security/policy`, { override: 'never' });
+    expect(set.status).toBe(302);
+    const [settings] = await env.db
+      .select()
+      .from(projectSecuritySettings)
+      .where(eq(projectSecuritySettings.project_id, project.id));
+    expect(settings?.policy_override).toBe('never');
+    const after = text(await (await get(`/admin/projects/${project.id}`)).text());
+    expect(after).toContain('a platform admin turned scans off for this project');
+    expect(
+      (await env.db.select().from(operatorEvents)).map((event) => [
+        event.action,
+        JSON.parse(event.target),
+      ]),
+    ).toEqual([
+      [`projects/${project.id}/security/policy`, { projectId: project.id, override: 'never' }],
+    ]);
+    const bad = await post(`/admin/projects/${project.id}/security/policy`, { override: 'x' });
+    expect(bad.status).toBe(400);
+  });
+
   it('has no Security section while the capability is off', async () => {
     const { project } = await projectWithDeployment();
     const page = text(await (await get(`/admin/projects/${project.id}`, env)).text());
@@ -547,6 +573,7 @@ describe('admin security: every write refuses while the capability is off', () =
       '/admin/security/bypasses/seen',
       `/admin/projects/${project.id}/security/model`,
       `/admin/projects/${project.id}/security/budget`,
+      `/admin/projects/${project.id}/security/policy`,
       `/admin/projects/${project.id}/security/rescan`,
     ];
     for (const path of paths) {

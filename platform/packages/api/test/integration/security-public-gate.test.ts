@@ -30,6 +30,7 @@ import {
   reconcilePendingPublicRequests,
   recheckPublicRequest,
 } from '../../src/security/public-gate-flow.ts';
+import { projectSecuritySettings } from '../../src/security/schema.ts';
 import {
   configurePlatformZeroTrust,
   disablePlatformZeroTrust,
@@ -273,6 +274,34 @@ describe('public gate', () => {
     expect((await ztRow(s.project.id)).desired_protected).toBe(false);
     const [bypass] = await env.db.select().from(securityScanBypasses);
     expect(bypass).toMatchObject({ project_id: s.project.id, reason: 'launch day' });
+  });
+
+  it('the project rule never still scans before it goes public (M34, D46)', async () => {
+    const s = await setup();
+    await env.db
+      .insert(projectSecuritySettings)
+      .values({ project_id: s.project.id, policy_override: 'never' });
+    // The deploy was skipped by the rule; its modules were kept for a later gate scan.
+    const key = `security-scans/${s.project.id}/${s.deployment.id}/`;
+    await env.STATIC_ASSETS_R2.put(`${key}modules.json`, '{"version":1,"modules":[]}');
+    await env.db.insert(securityScans).values({
+      id: 'ss_rule',
+      project_id: s.project.id,
+      deployment_id: s.deployment.id,
+      status: 'skipped',
+      status_reason: 'project_policy',
+      trigger: 'deploy',
+      input_r2_key: key,
+      finished_at: new Date().toISOString(),
+    } as typeof securityScans.$inferInsert);
+    const asked = await ask(s);
+    expect(asked.held).toBe(true);
+    expect(asked.publicRequest?.state).toBe('waiting_scan');
+    const gate = await env.db.select().from(securityScans).where(eq(securityScans.trigger, 'gate'));
+    expect(gate).toMatchObject([
+      { deployment_id: s.deployment.id, status: 'queued', input_r2_key: key },
+    ]);
+    expect((await ztRow(s.project.id)).desired_protected).toBe(true);
   });
 
   it('protecting again cancels the open request and keeps the project protected', async () => {

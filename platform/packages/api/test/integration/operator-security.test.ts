@@ -19,7 +19,9 @@ import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
+  deployments,
   operatorEvents,
+  platformSettings,
   projects,
   projectZeroTrust,
   securityFindingEvents,
@@ -31,6 +33,7 @@ import {
 } from '../../src/schema.ts';
 import { cancelSecurityScanRows } from '../../src/security/queue.ts';
 import { projectSecuritySettings, securityPlatformSpend } from '../../src/security/schema.ts';
+import { previewSecurityBackfill } from '../../src/security/sweeps.ts';
 import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
 import { setProjectZeroTrustProtection } from '../../src/zero-trust/project.ts';
 import {
@@ -293,6 +296,175 @@ describe('operator security budget', () => {
     });
     expect(installation.status).toBe(501);
     expect(installation.body).toMatchObject({ capability: 'securityAudits' });
+  });
+});
+
+describe('operator project scan rule (M34)', () => {
+  /** Installation Zero Trust on (not public-only), and the project settled protected. */
+  async function protect(projectId: string) {
+    await env.db
+      .insert(platformSettings)
+      .values({
+        key: 'zeroTrust.configuration',
+        value: {
+          version: 1,
+          revision: 1,
+          enabled: true,
+          protectNewProjects: true,
+          accountId: env.CF_ACCOUNT_ID,
+          teamDomain: 'https://company.cloudflareaccess.com',
+          identityProviderIds: ['idp-1'],
+          policyIds: ['policy-1'],
+          credential: { ciphertext: 'unused', iv: 'unused', keyVersion: 'v1' },
+          wildcardApplicationName: 'void-test-projects',
+          wildcardApplication: {
+            id: 'access-wildcard',
+            name: 'void-test-projects',
+            audience: 'access-audience',
+            destinations: ['*.void.app'],
+          },
+          operation: null,
+          lastError: null,
+          updatedAt: new Date().toISOString(),
+        },
+      })
+      .onConflictDoNothing();
+    await env.db.insert(projectZeroTrust).values({
+      project_id: projectId,
+      desired_protected: true,
+      effective_protected: true,
+      status: 'ready',
+    });
+  }
+
+  async function storedProject(slug: string) {
+    const made = await projectWithDeployment(slug);
+    await env.db
+      .update(deployments)
+      .set({ bundle_stored: true })
+      .where(eq(deployments.id, made.deployment.id));
+    return made;
+  }
+
+  it('sets the rule with a preview first, audits it, and lists it in status', async () => {
+    await savePolicy({ mode: 'public', publicGate: true });
+    const { project } = await projectWithDeployment();
+    const path = `/projects/${project.id}/security/policy`;
+
+    const preview = await call(path, { body: { dryRun: true, override: 'never' } });
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({
+      dryRun: true,
+      action: 'security.project-policy',
+      target: project.id,
+      slug: project.slug,
+      override: { from: 'inherit', to: 'never' },
+      policy: { applies: false, override: 'never' },
+    });
+    expect(preview.body.preview[0]).toBe(
+      `${project.slug}: never scanned; a scan before it goes public still runs.`,
+    );
+    expect(await env.db.select().from(projectSecuritySettings)).toHaveLength(0);
+
+    const set = await call(path, { body: { override: 'never' } });
+    expect(set.status).toBe(200);
+    expect(set.body).toMatchObject({ ok: true, override: { from: 'inherit', to: 'never' } });
+    expect(await env.db.select().from(projectSecuritySettings)).toMatchObject([
+      { project_id: project.id, policy_override: 'never', updated_by_user_id: adminId },
+    ]);
+    // The project's own view says why, for the page, `status` and the admin panel.
+    expect(set.body.policy).toMatchObject({
+      applies: false,
+      reason: 'a platform admin turned scans off for this project',
+    });
+    const status = await call('/security/status');
+    expect(status.body.projectOverrides).toEqual([
+      { projectId: project.id, slug: project.slug, override: 'never' },
+    ]);
+    const audit = await env.db
+      .select()
+      .from(operatorEvents)
+      .where(eq(operatorEvents.action, `projects/${project.id}/security/policy`));
+    expect(audit.map((event) => [event.status, JSON.parse(event.target)])).toEqual([
+      ['success', { projectId: project.id, override: 'never' }],
+    ]);
+
+    // inherit puts the project back on the mode; the same value again changes nothing.
+    const back = await call(path, { body: { override: 'inherit' } });
+    expect(back.body.override).toEqual({ from: 'never', to: 'inherit' });
+    expect((await call(path, { body: { override: 'inherit' } })).body.override).toEqual({
+      from: 'inherit',
+      to: 'inherit',
+    });
+    expect((await call('/security/status')).body.projectOverrides).toEqual([]);
+
+    expect((await call(path, { body: { override: 'sometimes' } })).status).toBe(400);
+    expect((await call(path, { body: {} })).status).toBe(400);
+    expect(
+      (await call('/projects/proj_missing/security/policy', { body: { override: 'never' } }))
+        .status,
+    ).toBe(404);
+    expect((await call(path, { body: { override: 'never' }, bindings: env })).status).toBe(501);
+  });
+
+  it('never refuses a rescan and leaves the project out of a backfill', async () => {
+    await savePolicy();
+    const { project } = await storedProject('never-app');
+    await storedProject('other-app');
+    expect((await previewSecurityBackfill(env.db)).slugs).toEqual(
+      expect.arrayContaining(['never-app', 'other-app']),
+    );
+    await call(`/projects/${project.id}/security/policy`, { body: { override: 'never' } });
+    const rescan = await call(`/projects/${project.id}/security/scans`, { body: {} });
+    expect(rescan.status).toBe(409);
+    expect(rescan.body).toMatchObject({
+      error: 'security_not_in_scope',
+      message: 'never-app is not scanned: a platform admin turned scans off for this project.',
+    });
+    expect((await previewSecurityBackfill(env.db)).slugs).toEqual(['other-app']);
+    expect(await env.db.select().from(securityScans)).toHaveLength(0);
+  });
+
+  it('never refuses a plain rescan while a public request is open', async () => {
+    await savePolicy({ mode: 'public', publicGate: true });
+    const { project, deployment } = await storedProject('asking-app');
+    await env.db.insert(securityPublicRequests).values({
+      id: 'spr_asking',
+      project_id: project.id,
+      state: 'needs_deploy',
+      requested_via: 'project',
+      target_deployment_id: deployment.id,
+    });
+    const set = await call(`/projects/${project.id}/security/policy`, {
+      body: { override: 'never' },
+    });
+    // The request keeps the project in scope, for its gate scan only.
+    expect(set.body.policy).toMatchObject({ applies: true, override: 'never' });
+    expect(set.body.preview).toContain(
+      'A waiting scan of it is skipped when it would start, unless it is the scan for its request to go public; a running scan finishes.',
+    );
+    const rescan = await call(`/projects/${project.id}/security/scans`, { body: {} });
+    expect(rescan.status).toBe(409);
+    expect(rescan.body).toMatchObject({
+      error: 'security_not_in_scope',
+      message: 'asking-app is not scanned: a platform admin turned scans off for this project.',
+    });
+    expect(await env.db.select().from(securityScans)).toHaveLength(0);
+  });
+
+  it('always puts a protected project back in scope under public', async () => {
+    await savePolicy({ mode: 'public' });
+    const { project } = await storedProject('kept-app');
+    await protect(project.id);
+    expect((await previewSecurityBackfill(env.db)).slugs).toEqual([]);
+    const set = await call(`/projects/${project.id}/security/policy`, {
+      body: { override: 'always' },
+    });
+    expect(set.body.policy).toMatchObject({
+      applies: true,
+      reason: 'a platform admin turned scans on for this project',
+    });
+    expect((await previewSecurityBackfill(env.db)).slugs).toEqual(['kept-app']);
   });
 });
 

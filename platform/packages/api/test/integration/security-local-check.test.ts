@@ -323,6 +323,18 @@ describe('local check routes', () => {
     const off = await call(path, owner.jwt, { method: 'POST', body: request });
     expect(off.status).toBe(409);
     expect((await json(off)).error).toBe('security_not_in_scope');
+
+    // The project rule never (M34) refuses it too.
+    await savePolicy();
+    await env.db
+      .insert(projectSecuritySettings)
+      .values({ project_id: project.id, policy_override: 'never' });
+    const never = await call(path, owner.jwt, { method: 'POST', body: request });
+    expect(never.status).toBe(409);
+    expect(await json(never)).toMatchObject({
+      error: 'security_not_in_scope',
+      message: `${project.slug} is not scanned: a platform admin turned scans off for this project.`,
+    });
     expect(await env.db.select().from(securityScans)).toHaveLength(0);
   });
 

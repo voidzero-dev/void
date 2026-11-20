@@ -23,6 +23,7 @@ import {
   SECURITY_COMMENT_MAX_CHARS,
   type SecurityFindingView,
 } from './project-findings.ts';
+import { SECURITY_PROJECT_POLICY_SKIP_REASON } from './project-policy.ts';
 import { readSecurityProjectModelChoices, type SecurityModelChoices } from './project-settings.ts';
 import {
   listSecurityScans,
@@ -401,6 +402,9 @@ export function scanStatusCopy(data: SecurityPageData): string | null {
       }
       if (reason === 'protected') {
         return 'Not scanned: this project is protected by Zero Trust and the platform scans public projects only.';
+      }
+      if (reason === SECURITY_PROJECT_POLICY_SKIP_REASON) {
+        return 'Not scanned: a platform admin turned scans off for this project.';
       }
       return `Not scanned (${reason}).`;
     default:

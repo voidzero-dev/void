@@ -43,6 +43,10 @@ import {
   securitySpendMonth,
 } from './policy.ts';
 import {
+  SECURITY_PROJECT_POLICY_COPY,
+  type SecurityProjectPolicyOverride,
+} from './project-policy.ts';
+import {
   effectiveSeverity,
   readSecurityProjectSettings,
   scanColumns,
@@ -376,6 +380,93 @@ export async function setProjectSecurityCeiling(
   return {
     ok: true as const,
     budget: await securityProjectBudgetView(db, input.projectId, policy, caps),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Per-project scan rule (M34)
+// ---------------------------------------------------------------------------
+
+/**
+ * `POST /operator/v1/projects/:id/security/policy`: an installation admin sets the
+ * project's own scan rule (`inherit | always | never`, see `project-policy.ts`). It
+ * takes the project row lock, the lock a deploy enqueue and a scan claim read the rule
+ * under, so neither sees it half-written. Nothing is queued or canceled here: a waiting
+ * scan of a `never` project is skipped when it would start, and `always` scans from the
+ * next deploy, like turning a mode on. The operator audit row records the change.
+ */
+export async function setProjectSecurityPolicyOverride(
+  db: Db,
+  input: Readonly<{
+    projectId: string;
+    userId: string;
+    override: SecurityProjectPolicyOverride;
+  }>,
+) {
+  const from = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM projects WHERE id = ${input.projectId} FOR UPDATE`);
+    const [current] = await tx
+      .select({ override: projectSecuritySettings.policy_override })
+      .from(projectSecuritySettings)
+      .where(eq(projectSecuritySettings.project_id, input.projectId))
+      .for('update');
+    const before: SecurityProjectPolicyOverride = current?.override ?? 'inherit';
+    if (before === input.override) {
+      return before;
+    }
+    await tx
+      .insert(projectSecuritySettings)
+      .values({
+        project_id: input.projectId,
+        policy_override: input.override,
+        updated_by_user_id: input.userId,
+      })
+      .onConflictDoUpdate({
+        target: projectSecuritySettings.project_id,
+        set: {
+          policy_override: input.override,
+          updated_by_user_id: input.userId,
+          updated_at: sql`now()`,
+        },
+      });
+    return before;
+  });
+  const [project] = await db
+    .select({ slug: projects.slug })
+    .from(projects)
+    .where(eq(projects.id, input.projectId))
+    .limit(1);
+  const slug = project?.slug ?? input.projectId;
+  const policy = await readSecurityPolicyLenient(db);
+  const scope = await securityProjectPolicyView(db, {
+    projectId: input.projectId,
+    slug,
+    capability: true,
+    policy,
+  });
+  const lines = [`${slug}: ${SECURITY_PROJECT_POLICY_COPY[input.override]}.`];
+  lines.push(`Scans apply: ${scope.applies ? 'yes' : 'no'} (${scope.reason}).`);
+  if (from !== input.override) {
+    if (input.override === 'never') {
+      // `applies` under `never` means a public request is open: its gate scan (and the
+      // fallback of it) still runs (D46).
+      lines.push(
+        scope.applies
+          ? 'A waiting scan of it is skipped when it would start, unless it is the scan for its request to go public; a running scan finishes.'
+          : 'A waiting scan of it is skipped when it would start; a running scan finishes.',
+      );
+    } else if (scope.applies) {
+      lines.push(
+        `Nothing is scanned now: its next deploy is. To scan it now: void platform security rescan ${input.projectId}`,
+      );
+    }
+  }
+  return {
+    ok: true as const,
+    slug,
+    override: { from, to: input.override },
+    policy: scope,
+    preview: lines,
   };
 }
 
@@ -833,6 +924,15 @@ export async function previewSecurityRescan(
     throw new OperatorError(
       409,
       `${project.slug} is not scanned: ${scope.reason}.`,
+      'security_not_in_scope',
+    );
+  }
+  // The rule `never` (M34) leaves only the scans of a public request: a gate scan, and
+  // the fallback that re-runs it (`publicRequestId`).
+  if (scope.override === 'never' && !options.publicRequestId) {
+    throw new OperatorError(
+      409,
+      `${project.slug} is not scanned: a platform admin turned scans off for this project.`,
       'security_not_in_scope',
     );
   }

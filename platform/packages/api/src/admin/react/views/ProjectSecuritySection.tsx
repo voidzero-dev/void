@@ -15,7 +15,12 @@ import { FormCheckbox, FormSelector, FormTextInput } from './FormControls.tsx';
 import { SectionStack } from './SectionStack.tsx';
 
 type ProjectSecurity = Readonly<{
-  policy: Readonly<{ applies: boolean; reason: string; publicGate: boolean }>;
+  policy: Readonly<{
+    applies: boolean;
+    reason: string;
+    publicGate: boolean;
+    override: 'inherit' | 'always' | 'never';
+  }>;
   urgent: Readonly<{ count: number; oldestFirstSeenAt: string | null; ids: ReadonlyArray<string> }>;
   counts: Readonly<{ urgent: number; leads: number; resolved: number }>;
   model: Readonly<{
@@ -112,6 +117,26 @@ export function ProjectSecuritySection({
         {security.backlogFiles > 0 ? ` Unscanned backlog: ${security.backlogFiles} files.` : ''}
       </p>
       {gate.request && <p>Public request: {gate.copy ?? gate.request.state}</p>}
+
+      <SectionStack
+        as="form"
+        method="post"
+        action={`/admin/projects/${projectId}/security/policy`}
+        className="void-admin-security-form"
+      >
+        <FormSelector
+          label="Scan rule for this project"
+          name="override"
+          initialValue={security.policy.override}
+          width={420}
+          options={[
+            { value: 'inherit', label: 'Follow the platform scan mode' },
+            { value: 'always', label: 'Always scan, also while Zero Trust protects it' },
+            { value: 'never', label: 'Never scan (a scan before it goes public still runs)' },
+          ]}
+        />
+        <Button type="submit" label="Set scan rule" variant="secondary" />
+      </SectionStack>
 
       <SectionStack
         as="form"

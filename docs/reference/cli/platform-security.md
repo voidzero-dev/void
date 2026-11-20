@@ -24,10 +24,13 @@ Then check the account and choose a mode:
 ```sh
 void platform security probe
 void platform security policy <disabled|public|all> [--plan] [--yes]
+void platform security policy --project <project-id> <inherit|always|never> [--plan] [--yes]
 void platform security status
 ```
 
 `probe` checks that the account can run scans and reports each missing requirement. `policy` selects which projects are scanned, and `--plan` shows how many projects the change reaches. Turning the mode on runs the probe first and refuses when it fails.
+
+`policy --project` sets one project's own rule. `always` scans it at each deploy, also while Zero Trust protects it. `never` stops its scans: deploys, rescans, sweeps, backfill, and `void project security check`. With [Scan before a project goes public](/guide/platform/administration/security-audits#scan-before-public) on, a request to make it public still scans it first. `inherit` makes the project follow the scan mode again. The rule changes nothing while the mode is `disabled`. It starts no scan by itself; use `rescan` to scan the project now. `status` lists the projects that have their own rule.
 
 ## Models, limits, and spending {#models-limits-budget}
 

@@ -3,13 +3,15 @@
  * gets a `skipped:protected` row. When the project later counts as public with no
  * request involved (a reconcile error, the installation turning Zero Trust off, a
  * bypassed request), the live deployment is scanned once, `trigger=exposure`.
- * Findings it reports never re-protect the project (D51).
+ * Findings it reports never re-protect the project (D51). A project whose rule is
+ * `never` (M34) gets no catch-up scan.
  */
 import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import { deployments, projects, projectZeroTrust } from '../schema.ts';
+import { securityProjectHasOverrideSql } from './project-policy.ts';
 import { findLiveInput } from './public-gate.ts';
 import {
   SECURITY_PUBLIC_REQUEST_OPEN_STATES,
@@ -40,6 +42,7 @@ export async function queueExposureCatchUpScans(
         sql`EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.deployment_id = ${projects.active_deployment_id} AND ((s.status = 'skipped' AND s.status_reason = 'protected') OR (s.trigger = 'gate' AND s.status <> 'succeeded')))`,
         // And nothing since has scanned it or is about to.
         sql`NOT EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.deployment_id = ${projects.active_deployment_id} AND s.status IN ('pending_input', 'queued', 'running', 'succeeded'))`,
+        sql`NOT ${securityProjectHasOverrideSql(projects.id, 'never')}`,
         // A failed, refused, canceled or capped exposure scan is not retried every hour.
         sql`NOT EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.deployment_id = ${projects.active_deployment_id} AND s.trigger = 'exposure')`,
         sql`NOT EXISTS (SELECT 1 FROM security_public_requests r WHERE r.project_id = ${projects.id} AND r.state IN (${sql.join(

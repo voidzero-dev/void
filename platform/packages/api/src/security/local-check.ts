@@ -204,11 +204,13 @@ export async function previewSecurityLocalCheck(db: Db, project: CheckProject) {
     capability: true,
     policy,
   });
-  if (!scope.applies) {
+  // A local check is no scan of a public request, so the rule `never` (M34) refuses it
+  // even while a request is open.
+  if (!scope.applies || scope.override === 'never') {
     throw new SecurityApiError(
       409,
       'security_not_in_scope',
-      `${project.slug} is not scanned: ${scope.reason}.`,
+      `${project.slug} is not scanned: ${scope.override === 'never' ? 'a platform admin turned scans off for this project' : scope.reason}.`,
     );
   }
   if (row.suspended !== null) {
