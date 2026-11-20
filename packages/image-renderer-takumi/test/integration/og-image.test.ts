@@ -11,7 +11,7 @@ import {
 import { dirname, join } from 'node:path';
 import spawn from 'cross-spawn';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { killChild, startServer, waitForServer } from '../../../../test/integration-helpers.ts';
 import { collectPrerenderWorkerModules } from '../../../void/src/prerender.ts';
 
@@ -38,7 +38,8 @@ export const GET = async (c) => {
       return new Response('render failed', { status: 503 });
     }
   }
-  return new OgImageResponse(content, options);
+  const headers = c.req.query('cache') ? { 'Cache-Control': 'public, max-age=60' } : undefined;
+  return new OgImageResponse(content, { ...options, headers });
 };
 `;
 // A .tsx route, as the guide shows.
@@ -103,18 +104,18 @@ export default defineConfig({ oxc: { jsx: { runtime: 'automatic' } }, plugins: [
   return root;
 }
 
-function runBuild(root: string) {
+function runBuild(root: string, env = userEnv) {
   return spawn.sync('vp', ['build'], {
     cwd: root,
     encoding: 'utf8',
     timeout: 60_000,
     maxBuffer: 10 * 1024 * 1024,
-    env: { ...userEnv, VOID_INSPECTOR_PORT: 'false' },
+    env: { ...env, VOID_INSPECTOR_PORT: 'false' },
   });
 }
 
-function build(root: string) {
-  const result = runBuild(root);
+function build(root: string, env?: typeof userEnv) {
+  const result = runBuild(root, env);
   expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
 }
 
@@ -144,7 +145,7 @@ async function renderBuilt(root: string, path: string, cacheControl: string) {
   }
 }
 
-async function expectImage(response: Response, cacheControl: string) {
+async function expectImage(response: Response, cacheControl: string | null) {
   expect(response.status, response.ok ? undefined : await response.text()).toBe(200);
   expect(response.headers.get('content-type')).toBe('image/png');
   expect(response.headers.get('cache-control')).toBe(cacheControl);
@@ -160,13 +161,14 @@ async function expectImage(response: Response, cacheControl: string) {
 
 async function expectFontSelection(
   request: (query: string) => Promise<Response>,
-  cacheControl = CACHE_HEADER,
+  cacheControl: string | null = CACHE_HEADER,
 ) {
   const roboto = await expectImage(await request(''), cacheControl);
   const geist = await expectImage(await request('?font=Geist'), cacheControl);
   expect(roboto).not.toEqual(geist);
   expect(await expectImage(await request(''), cacheControl)).toEqual(roboto);
-  expect(await expectImage(await request('?render=async'), cacheControl)).toEqual(roboto);
+  expect(await expectImage(await request('?render=async'), CACHE_HEADER)).toEqual(roboto);
+  expect(await expectImage(await request('?cache=1'), 'public, max-age=60')).toEqual(roboto);
   const failed = await request('?render=async&fail=1');
   expect(failed.status).toBe(503);
   expect(await failed.text()).toBe('render failed');
@@ -220,8 +222,8 @@ describe('OgImageResponse in a Cloudflare app', () => {
         expectStatus: 200,
         diagnostics: server.output,
       });
-      await expectFontSelection((query) => fetch(`${server.base}/api/og${query}`), 'no-store');
-      await expectImage(await fetch(`${server.base}/api/card`), 'no-store');
+      await expectFontSelection((query) => fetch(`${server.base}/api/og${query}`), null);
+      await expectImage(await fetch(`${server.base}/api/card`), null);
     });
   });
 
@@ -259,13 +261,17 @@ describe('a Cloudflare app without image generation', () => {
 
 describe('OgImageResponse on the Node.js target', () => {
   let child: ReturnType<typeof spawn> | undefined;
-  afterAll(async () => {
+  afterEach(async () => {
     if (child) {
       await killChild(child);
+      child = undefined;
     }
   });
 
-  it('renders bundled WASM without app-installed Takumi', async () => {
+  it.each([
+    { nodeEnv: 'production', cacheControl: CACHE_HEADER },
+    { nodeEnv: 'development', cacheControl: null },
+  ])('renders bundled WASM and respects NODE_ENV=$nodeEnv', async ({ nodeEnv, cacheControl }) => {
     const root = createApp(
       { 'routes/api/og.ts': OG_ROUTE },
       {
@@ -273,7 +279,7 @@ describe('OgImageResponse on the Node.js target', () => {
       },
       `{ target: 'node' }`,
     );
-    build(root);
+    build(root, { ...userEnv, NODE_ENV: nodeEnv });
     expect(builtFiles(root).filter((file) => file.endsWith('.node'))).toEqual([]);
     expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(1);
     const server = await startServer((port) => {
@@ -284,7 +290,7 @@ describe('OgImageResponse on the Node.js target', () => {
       });
       return child;
     }, 20_000);
-    await expectFontSelection((query) => fetch(`${server.base}/api/og${query}`));
+    await expectFontSelection((query) => fetch(`${server.base}/api/og${query}`), cacheControl);
   });
 
   it('renders in the dev server without app-installed Takumi', async () => {
@@ -293,9 +299,6 @@ describe('OgImageResponse on the Node.js target', () => {
       { '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server' },
       `{ target: 'node' }`,
     );
-    if (child) {
-      await killChild(child);
-    }
     const server = await startServer((port) => {
       child = spawn('vp', ['dev', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
         cwd: root,
@@ -304,6 +307,7 @@ describe('OgImageResponse on the Node.js target', () => {
       });
       return child;
     }, 30_000);
-    await expectImage(await fetch(`${server.base}/api/og`), 'no-store');
+    await expectImage(await fetch(`${server.base}/api/og`), null);
+    await expectImage(await fetch(`${server.base}/api/og?cache=1`), 'public, max-age=60');
   });
 });
