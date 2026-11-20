@@ -5,11 +5,16 @@ import {
   parsePostgresConnectionString,
   PlatformCloudflareApiError,
   PlatformCloudflareClient,
+  PlatformCloudflarePrerequisiteError,
   PlatformRuntimeTokenEmailPermissionError,
   PlatformWorkerCustomDomainsChangedError,
   verifyPlatformRuntimeTokenEmailPermissions,
   verifyPlatformRuntimeTokenPermissions,
 } from '../../src/cli/platform-cloudflare.ts';
+
+const expectedRejection = (): never => {
+  throw new Error('expected a rejection');
+};
 
 describe('platform Cloudflare client', () => {
   it('uses the runtime credential only for AI Gateway operations while keeping the API origin pinned', async () => {
@@ -639,9 +644,11 @@ describe('platform Cloudflare client', () => {
       expect(message).not.toContain(secret);
       expect(message).not.toContain('upstream echoed');
       if (status === 401 || status === 403) {
-        expect(message).toContain('Cloudflare denied');
-        expect(message).toContain('token is valid, scoped to this account');
+        expect(message).toContain('Cloudflare denied the runtime token');
         expect(message).toContain('Hyperdrive → Write');
+        expect(message).toContain(
+          status === 401 ? 'did not accept the token' : 'the token works but is missing',
+        );
       } else if (status === 429) {
         expect(message).toContain('rate-limited');
       } else {
@@ -795,13 +802,13 @@ describe('platform Cloudflare client', () => {
         }).catch((error: Error) => error.message);
 
       await expect(check(true)).resolves.toBe(
-        'platform: The runtime API token saved on this machine cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.',
+        'platform: The runtime token saved on this machine cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.',
       );
       // A token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN, or one that
       // the run sends to the Workers, keeps the message.
       for (const savedToken of [undefined, false]) {
         await expect(check(savedToken)).resolves.toBe(
-          'platform: The runtime API token cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Check that the token is valid and that its zone permissions include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.',
+          'platform: The runtime token cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Check that the token is valid and that its zone permissions include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.',
         );
       }
     });
@@ -1849,6 +1856,212 @@ describe('platform Cloudflare client', () => {
     ]);
     expect(requestUrl).toContain(
       '/accounts/account/workers/services/worker/environments/production/routes?show_zonename=true',
+    );
+  });
+});
+
+describe('naming the Cloudflare credential in errors', () => {
+  const denyingFetcher =
+    (status: number, deny: (pathname: string) => boolean = () => true): typeof fetch =>
+    async (input) => {
+      const { pathname } = new URL(String(input));
+      return deny(pathname)
+        ? Response.json(
+            { success: false, errors: [{ message: 'Authentication error' }] },
+            { status },
+          )
+        : Response.json({ success: true, result: [] });
+    };
+  const failure = (promise: Promise<unknown>) =>
+    promise.then(
+      () => {
+        throw new Error('expected a failure');
+      },
+      (error: unknown) => error as PlatformCloudflareApiError,
+    );
+
+  it.each([
+    [
+      403,
+      'Void used the management token from CF_API_TOKEN. HTTP 403 means the token works but is missing Account → Queues → Edit',
+    ],
+    [
+      401,
+      'Void used the management token from CF_API_TOKEN. HTTP 401 means Cloudflare did not accept the token: it is not valid, has expired, or was replaced. Set CF_API_TOKEN to a valid management token, then retry.',
+    ],
+  ])(
+    'adds the credential and what to do to an HTTP %s answer, and keeps the error class',
+    async (status, help) => {
+      const client = new PlatformCloudflareClient('operator-token', {
+        credential: {
+          role: 'management',
+          source: 'environment',
+          environmentVariable: 'CF_API_TOKEN',
+        },
+        fetcher: denyingFetcher(status),
+      });
+      const error = await failure(client.listQueues('account', 'usage'));
+      expect(error).toBeInstanceOf(PlatformCloudflareApiError);
+      expect(error.status).toBe(status);
+      expect(error.requestPath).toBe('/accounts/account/queues');
+      expect(error.message).toContain(`(HTTP ${status}; GET /accounts/account/queues).`);
+      expect(error.message).toContain(help);
+      expect(error.message).not.toContain('operator-token');
+    },
+  );
+
+  it('leaves errors from a client without a label unchanged', async () => {
+    const client = new PlatformCloudflareClient('token', { fetcher: denyingFetcher(403) });
+    const error = await failure(client.listQueues('account', 'usage'));
+    expect(error.message).toBe(
+      'Cloudflare API error: Authentication error (HTTP 403; GET /accounts/account/queues).',
+    );
+  });
+
+  it('does not relabel a known account prerequisite', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      credential: { role: 'management', source: 'saved' },
+      fetcher: async () =>
+        Response.json(
+          { success: false, errors: [{ code: 10042, message: 'Please enable R2' }] },
+          { status: 403 },
+        ),
+    });
+    const error = await failure(client.listR2Buckets('account'));
+    expect(error).toBeInstanceOf(PlatformCloudflarePrerequisiteError);
+    expect(error.message).not.toContain('Void used');
+  });
+
+  it.each([
+    ['environment', 'runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN'],
+    ['saved', 'runtime token saved on this machine'],
+  ] as const)(
+    'says browser login used the %s runtime token for AI Gateway',
+    async (source, name) => {
+      const client = new PlatformCloudflareClient('browser-token', {
+        credential: { role: 'management', source: 'oauth' },
+        fetcher: denyingFetcher(401, (pathname) => pathname.includes('/ai-gateway/')),
+      }).withAiGatewayToken('runtime-token', { role: 'runtime', source });
+      const error = await failure(client.listAiGateways('account'));
+      expect(error).toBeInstanceOf(PlatformCloudflareApiError);
+      expect(error.status).toBe(401);
+      expect(error.requestPath).toBe('/accounts/account/ai-gateway/gateways');
+      expect(error.message).toContain(
+        `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token, not the management token. HTTP 401 means Cloudflare did not accept the token: it is not valid, has expired, or was replaced. Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token, then retry.`,
+      );
+      expect(error.message).not.toContain('management token from');
+      expect(error.message).not.toContain('runtime-token');
+      // Other requests still use browser login.
+      await expect(client.listWorkerNames('account')).resolves.toEqual([]);
+    },
+  );
+
+  it('says browser login cannot use AI Gateway when no runtime token is available', async () => {
+    const client = new PlatformCloudflareClient('browser-token', {
+      credential: { role: 'management', source: 'oauth' },
+      fetcher: denyingFetcher(403),
+    });
+    const error = await failure(client.createAiGateway('account', 'gateway'));
+    expect(error.status).toBe(403);
+    expect(error.message).toContain(
+      'Browser login cannot use AI Gateway. Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to the platform runtime token, or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit, then retry.',
+    );
+  });
+
+  it('lists every runtime-token permission Cloudflare denied', async () => {
+    const paths: Array<string> = [];
+    const client = new PlatformCloudflareClient('runtime-token', {
+      fetcher: async (input, init) => {
+        const { pathname } = new URL(String(input));
+        paths.push(`${init?.method ?? 'GET'} ${pathname}`);
+        return denyingFetcher(403, (path) => !path.includes('custom_hostnames'))(input, init);
+      },
+    });
+    const error = await verifyPlatformRuntimeTokenPermissions(client, {
+      accountId: 'account',
+      applicationDomain: 'apps.example.com',
+      credential: { role: 'runtime', source: 'environment' },
+      customDomains: true,
+      zoneId: 'zone',
+    }).then(expectedRejection, (error: Error) => error);
+    expect(paths).toEqual([
+      'GET /client/v4/accounts/account/hyperdrive/configs',
+      'POST /client/v4/zones/zone/purge_cache',
+      'GET /client/v4/zones/zone/custom_hostnames',
+    ]);
+    expect(error).not.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+    expect(error.message).toBe(
+      [
+        'platform: Cloudflare denied the runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN:',
+        '- Account → Hyperdrive → Write (HTTP 403)',
+        '- Zone → Cache Purge → Purge (HTTP 403)',
+        'HTTP 403 means the token works but is missing the permissions listed above, or is not scoped to this account or zone. Add them to the token in the Cloudflare dashboard (the token value stays the same), or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a runtime token that has them, then retry.',
+      ].join('\n'),
+    );
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+  });
+
+  it('names a saved runtime token in the preflight error', async () => {
+    const client = new PlatformCloudflareClient('runtime-token', { fetcher: denyingFetcher(401) });
+    const error = await verifyPlatformRuntimeTokenPermissions(client, {
+      accountId: 'account',
+      applicationDomain: '',
+      credential: { role: 'runtime', source: 'saved' },
+      customDomains: false,
+      zoneId: null,
+    }).then(expectedRejection, (error: Error) => error);
+    expect(error.message).toContain('Cloudflare denied the runtime token saved on this machine:');
+    expect(error.message).toContain(
+      'Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token, then retry.',
+    );
+  });
+
+  it('keeps the email error class only when email is the only problem', async () => {
+    const emailOnly = new PlatformCloudflareClient('runtime-token', {
+      fetcher: denyingFetcher(403, (path) => path.includes('/email/')),
+    });
+    const input = {
+      accountId: 'account',
+      applicationDomain: '',
+      credential: { role: 'runtime', source: 'saved' },
+      customDomains: false,
+      emailZoneId: 'mail-zone',
+      zoneId: null,
+    } as const;
+    await expect(verifyPlatformRuntimeTokenPermissions(emailOnly, input)).rejects.toBeInstanceOf(
+      PlatformRuntimeTokenEmailPermissionError,
+    );
+
+    const mixed = new PlatformCloudflareClient('runtime-token', {
+      fetcher: denyingFetcher(
+        403,
+        (path) => path.includes('/email/') || path.includes('/hyperdrive/'),
+      ),
+    });
+    const error = await verifyPlatformRuntimeTokenPermissions(mixed, input).then(
+      expectedRejection,
+      (error: Error) => error,
+    );
+    // Install drops a saved token that lacks more than email access.
+    expect(error).not.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+    expect(error.message).toContain('- Account → Hyperdrive → Write (HTTP 403)');
+    expect(error.message).toContain('- Zone → Email Routing Rules → Edit (HTTP 403)');
+    expect(error.message).toContain('- Account → Email Routing Addresses → Edit (HTTP 403)');
+  });
+
+  it('stops at a rate limit and says it is not a missing permission', async () => {
+    const client = new PlatformCloudflareClient('runtime-token', {
+      fetcher: denyingFetcher(429),
+    });
+    const error = await verifyPlatformRuntimeTokenPermissions(client, {
+      accountId: 'account',
+      applicationDomain: '',
+      credential: { role: 'runtime', source: 'environment' },
+      customDomains: false,
+      zoneId: null,
+    }).then(expectedRejection, (error: Error) => error);
+    expect(error.message).toBe(
+      'platform: Cloudflare rate-limited the check of the runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN for Account → Hyperdrive → Write (HTTP 429). Retry shortly; this does not mean the token is missing a permission.',
     );
   });
 });

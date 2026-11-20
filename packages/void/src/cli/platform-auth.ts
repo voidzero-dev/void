@@ -4,11 +4,19 @@ import {
   type CloudflareAccount,
   type PlatformCloudflareClient,
 } from './platform-cloudflare.ts';
+import {
+  describePlatformCredential,
+  formatPlatformCredentialDenials,
+  type PlatformCredentialDenial,
+  type PlatformCredentialLabel,
+} from './platform-credential-label.ts';
 import { planCreatesZone, planWritesDns } from './platform-plan-writes.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
 
 export type PlatformCloudflareCredential = Readonly<{
   source: 'environment' | 'saved' | 'oauth';
+  /** Which variable held an `environment` token. */
+  environmentVariable?: 'CLOUDFLARE_API_TOKEN' | 'CF_API_TOKEN';
   token: string;
 }>;
 
@@ -24,75 +32,101 @@ export type PlatformManagementAccess = Readonly<{
   readOnly: boolean;
 }>;
 
+/** The label of the operator credential, so Cloudflare errors can name it. */
+export function platformOperatorCredentialLabel(
+  credential: Pick<PlatformCloudflareCredential, 'environmentVariable' | 'source'>,
+): PlatformCredentialLabel {
+  return {
+    role: 'management',
+    source: credential.source,
+    ...(credential.environmentVariable
+      ? { environmentVariable: credential.environmentVariable }
+      : {}),
+  };
+}
+
 /** Use the selected credential for read-only checks before taking lifecycle locks. */
 export async function verifyPlatformCloudflareCredential(
   client: Pick<PlatformCloudflareClient, 'listAccounts' | 'listWorkerNames' | 'request'>,
   input: {
     account: CloudflareAccount;
     source: PlatformCloudflareCredential['source'];
+    environmentVariable?: PlatformCloudflareCredential['environmentVariable'];
     r2Buckets: ReadonlyArray<string>;
     allowMissingR2Buckets?: boolean;
   },
 ): Promise<void> {
-  const source =
-    input.source === 'saved'
-      ? 'saved management token'
-      : input.source === 'environment'
-        ? 'environment API token'
-        : 'Cloudflare browser login';
+  const label = platformOperatorCredentialLabel(input);
+  const name = describePlatformCredential(label);
   const retry =
     input.source === 'oauth'
       ? 'Run `void cloudflare login`, or set CLOUDFLARE_API_TOKEN for this account, then retry.'
-      : 'Set CLOUDFLARE_API_TOKEN for this account, then retry.';
+      : `Set ${input.environmentVariable ?? 'CLOUDFLARE_API_TOKEN'} for this account, then retry.`;
+  // Run every check, so one error lists every missing permission.
+  const denials: Array<PlatformCredentialDenial> = [];
+  let firstDenial: PlatformCloudflareApiError | undefined;
   const check = async (
-    label: string,
+    what: string,
     permission: string,
     action: () => Promise<unknown>,
     allowMissing = false,
-  ) => {
+  ): Promise<boolean> => {
     try {
       await action();
+      return true;
     } catch (cause) {
       const status = cause instanceof PlatformCloudflareApiError ? cause.status : null;
       if (status === 404 && allowMissing) {
-        return;
+        return true;
+      }
+      if (status === 401 || status === 403) {
+        denials.push({ permission, request: what, status });
+        firstDenial ??= cause as PlatformCloudflareApiError;
+        return false;
       }
       const detail =
-        status === 401 || status === 403
-          ? `Check that the credential is valid, scoped to this account, and includes ${permission}. ${retry}`
-          : status === 404
-            ? 'Check the bucket name and account scope before retrying.'
-            : status === 429
-              ? 'Cloudflare rate-limited this check. Retry shortly.'
-              : 'Retry the command after Cloudflare connectivity is restored.';
+        status === 404
+          ? 'Check the bucket name and account scope before retrying.'
+          : status === 429
+            ? 'Cloudflare rate-limited this check. Retry shortly.'
+            : 'Retry the command after Cloudflare connectivity is restored.';
       throw new Error(
-        `platform: ${label} is unavailable${status === null ? '' : ` (HTTP ${status})`} using the ${source}. ${detail}`,
+        `platform: ${what} is unavailable${status === null ? '' : ` (HTTP ${status})`} using the ${name}. ${detail}`,
         { cause },
       );
     }
   };
   let accounts: ReadonlyArray<CloudflareAccount> = [];
-  await check('Cloudflare account access', 'Account → Account Settings → Read', async () => {
-    accounts = await client.listAccounts();
-  });
-  if (!accounts.some((account) => account.id === input.account.id)) {
+  const listedAccounts = await check(
+    'Cloudflare account access',
+    'Account → Account Settings → Read',
+    async () => {
+      accounts = await client.listAccounts();
+    },
+  );
+  if (listedAccounts && !accounts.some((account) => account.id === input.account.id)) {
     throw new Error(
-      `platform: The ${source} cannot access Cloudflare account ${JSON.stringify(input.account.name)} (${input.account.id}). ${retry}`,
+      `platform: The ${name} cannot access Cloudflare account ${JSON.stringify(input.account.name)} (${input.account.id}). ${retry}`,
     );
   }
   await check('Cloudflare Workers access', 'Account → Workers Scripts → Edit', () =>
     client.listWorkerNames(input.account.id),
   );
-  for (const name of new Set(input.r2Buckets)) {
+  for (const bucket of new Set(input.r2Buckets)) {
     await check(
-      `R2 bucket ${JSON.stringify(name)}`,
+      `R2 bucket ${JSON.stringify(bucket)}`,
       'Account → Workers R2 Storage → Edit',
       () =>
         client.request(
-          `/accounts/${encodeURIComponent(input.account.id)}/r2/buckets/${encodeURIComponent(name)}`,
+          `/accounts/${encodeURIComponent(input.account.id)}/r2/buckets/${encodeURIComponent(bucket)}`,
         ),
       input.allowMissingR2Buckets,
     );
+  }
+  if (firstDenial) {
+    throw new Error(`platform: ${formatPlatformCredentialDenials(label, denials)}`, {
+      cause: firstDenial,
+    });
   }
 }
 
@@ -225,10 +259,11 @@ async function readExistingCredential(
   dependencies: PlatformCloudflareAuthDependencies,
   runWrangler: CloudflareAuthRunner,
 ): Promise<PlatformCloudflareCredential | null> {
-  const environmentToken =
-    process.env.CLOUDFLARE_API_TOKEN?.trim() || process.env.CF_API_TOKEN?.trim() || '';
-  if (environmentToken) {
-    return { source: 'environment', token: environmentToken };
+  for (const environmentVariable of ['CLOUDFLARE_API_TOKEN', 'CF_API_TOKEN'] as const) {
+    const environmentToken = process.env[environmentVariable]?.trim();
+    if (environmentToken) {
+      return { source: 'environment', environmentVariable, token: environmentToken };
+    }
   }
   const savedManagementToken = dependencies.savedManagementToken?.trim();
   if (savedManagementToken) {

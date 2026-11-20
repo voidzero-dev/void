@@ -21,6 +21,7 @@ import type { PlatformArgs } from './platform-args.ts';
 import { platformDatabaseNameFromOwnerUrl } from './platform-auth-database.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
+  platformOperatorCredentialLabel,
   resolvePlatformCloudflareCredential,
   verifyPlatformCloudflareCredential,
 } from './platform-auth.ts';
@@ -302,11 +303,16 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
   const operatorCredential = await resolvePlatformCloudflareCredential({
     savedManagementToken: readInstallationRecoverySecrets(manifest)?.managementApiToken,
   });
-  const operatorClient = new PlatformCloudflareClient(operatorCredential.token);
+  const operatorClient = new PlatformCloudflareClient(operatorCredential.token, {
+    credential: platformOperatorCredentialLabel(operatorCredential),
+  });
   await withPlatformProgress('Checking Cloudflare access', () =>
     verifyPlatformCloudflareCredential(operatorClient, {
       account: manifest.account,
       source: operatorCredential.source,
+      ...(operatorCredential.environmentVariable
+        ? { environmentVariable: operatorCredential.environmentVariable }
+        : {}),
       r2Buckets:
         args.subcommand === 'disable' || args.subcommand === 'uninstall'
           ? []
@@ -337,9 +343,15 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     const recovery = readInstallationRecoverySecrets(manifest);
     const gatewayToken =
       process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN || recovery?.cloudflareApiToken;
+    // Browser login cannot use AI Gateway, so the runtime token does it.
     const client =
       operatorCredential.source === 'oauth' && gatewayToken
-        ? operatorClient.withAiGatewayToken(gatewayToken)
+        ? operatorClient.withAiGatewayToken(gatewayToken, {
+            role: 'runtime',
+            source: process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN
+              ? 'environment'
+              : 'saved',
+          })
         : operatorClient;
     const databaseUrl = resolvePlatformInstallDatabaseUrl(recovery, manifest);
 
@@ -634,11 +646,20 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         ? plan.deployment.emailSharedZoneId
         : undefined;
     if (runtimeTokenToPreflight) {
+      // A token in VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is the explicit update.
+      const credential = {
+        role: 'runtime',
+        source:
+          runtimeTokenToPreflight === secrets.workerSecretUpdates?.CF_API_TOKEN
+            ? 'environment'
+            : 'saved',
+      } as const;
       await verifyPlatformRuntimeTokenPermissions(
-        new PlatformCloudflareClient(runtimeTokenToPreflight),
+        new PlatformCloudflareClient(runtimeTokenToPreflight, { credential }),
         {
           accountId: manifest.account.id,
           applicationDomain: deployment.application.baseDomain,
+          credential,
           customDomains: plan.deployment.capabilities.customDomains,
           ...(emailZoneId ? { emailZoneId } : {}),
           zoneId: plan.zone?.id ?? null,

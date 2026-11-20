@@ -24,6 +24,12 @@ const state = vi.hoisted(() => ({
   createSecrets: vi.fn(),
   getWorkerLastDeployedFrom: vi.fn(),
   clientTokens: [] as Array<string>,
+  clientCredentials: [] as Array<unknown>,
+  /** Answers browser-login AI Gateway requests through the real client. */
+  aiGatewayStatus: 0,
+  operatorCredential: undefined as
+    | { source: 'environment' | 'saved' | 'oauth'; token: string }
+    | undefined,
   listAccounts: vi.fn(),
   listWorkerNames: vi.fn(),
   listNamespaceScripts: vi.fn(),
@@ -74,18 +80,51 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   select: vi.fn(),
 }));
 
-vi.mock('../../src/cli/platform-auth.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/cli/platform-auth.ts')>()),
-  assertPlatformOperatorCredentialCanApplyPlan: vi.fn(),
-}));
+vi.mock('../../src/cli/platform-auth.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/cli/platform-auth.ts')>();
+  return {
+    ...actual,
+    assertPlatformOperatorCredentialCanApplyPlan: vi.fn(),
+    resolvePlatformCloudflareCredential: vi.fn(
+      async (...args: Parameters<typeof actual.resolvePlatformCloudflareCredential>) =>
+        state.operatorCredential ?? actual.resolvePlatformCloudflareCredential(...args),
+    ),
+  };
+});
 
 vi.mock('../../src/cli/platform-cloudflare.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/cli/platform-cloudflare.ts')>();
   return {
     ...actual,
     PlatformCloudflareClient: class {
-      constructor(private readonly token: string) {
+      constructor(
+        private readonly token: string,
+        private readonly options?: { credential?: unknown },
+      ) {
         state.clientTokens.push(token);
+        state.clientCredentials.push(options?.credential);
+      }
+
+      withAiGatewayToken(
+        token: string,
+        credential: ConstructorParameters<typeof actual.PlatformCloudflareClient>[1] extends
+          | { credential?: infer Label }
+          | undefined
+          ? Label
+          : never,
+      ) {
+        // The real client names the token when Cloudflare refuses it.
+        const real = new actual.PlatformCloudflareClient(this.token, {
+          credential: this.options?.credential as never,
+          fetcher: async () =>
+            Response.json(
+              { success: false, errors: [{ message: 'Authentication error' }] },
+              { status: state.aiGatewayStatus || 401 },
+            ),
+        }).withAiGatewayToken(token, credential);
+        return Object.assign(Object.create(this), {
+          listAiGateways: (accountId: string) => real.listAiGateways(accountId),
+        });
       }
       listAccounts = state.listAccounts;
       listWorkerNames = state.listWorkerNames;
@@ -267,6 +306,10 @@ import {
   writePendingInstallationSecrets,
 } from '../../src/cli/platform-registry.ts';
 
+const expectedRejection = (): never => {
+  throw new Error('expected a rejection');
+};
+
 const upgrade = (overrides: { plan?: boolean; yes?: boolean; customDomains?: true } = {}) =>
   runInstalledPlatformCommand({
     subcommand: 'upgrade',
@@ -333,6 +376,9 @@ describe('installed platform upgrade', () => {
     vi.stubEnv('CLOUDFLARE_API_TOKEN', 'token');
     vi.stubEnv('CF_API_TOKEN', '');
     state.clientTokens.length = 0;
+    state.clientCredentials.length = 0;
+    state.aiGatewayStatus = 0;
+    state.operatorCredential = undefined;
     state.requiredGatewayToken = '';
     state.listAccounts.mockReset().mockResolvedValue([{ id: 'account', name: 'Account' }]);
     state.listWorkerNames.mockReset().mockResolvedValue([]);
@@ -480,6 +526,96 @@ describe('installed platform upgrade', () => {
       expect(note).not.toHaveBeenCalled();
     },
   );
+
+  describe('naming the Cloudflare credential', () => {
+    const planReadsAiGateway = () => {
+      const original = vi.mocked(createPlatformInstallPlan).getMockImplementation()!;
+      vi.mocked(createPlatformInstallPlan).mockImplementationOnce(async (...args) => {
+        await args[0].listAiGateways(args[1].accountId);
+        return original(...args);
+      });
+    };
+
+    it('labels the operator client with the variable that held its token', async () => {
+      vi.stubEnv('CLOUDFLARE_API_TOKEN', '');
+      vi.stubEnv('CF_API_TOKEN', 'legacy-manager');
+      await upgrade({ plan: true });
+      expect(state.clientCredentials[0]).toEqual({
+        role: 'management',
+        source: 'environment',
+        environmentVariable: 'CF_API_TOKEN',
+      });
+    });
+
+    it('names both CF_API_TOKEN and every missing permission before taking locks', async () => {
+      vi.stubEnv('CLOUDFLARE_API_TOKEN', '');
+      vi.stubEnv('CF_API_TOKEN', 'legacy-manager');
+      state.manifest = recordInstallationResource(
+        state.manifest!,
+        {
+          configHash: 'hash',
+          id: 'assets',
+          key: 'assets-r2',
+          kind: 'r2-bucket',
+          name: 'assets',
+          ownership: 'created',
+          state: 'ready',
+        },
+        '2026-09-14T00:00:03.000Z',
+      );
+      state.listWorkerNames.mockRejectedValueOnce(
+        new PlatformCloudflareApiError('Authentication error', 403),
+      );
+      state.request.mockRejectedValueOnce(
+        new PlatformCloudflareApiError('Authentication error', 403),
+      );
+      const failure = await upgrade().then(expectedRejection, (error: Error) => error);
+      expect(failure?.message).toContain(
+        'Cloudflare denied the management token from CF_API_TOKEN:\n- Account → Workers Scripts → Edit (HTTP 403; Cloudflare Workers access)\n- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "assets")',
+      );
+      expect(acquirePlatformLifecycleLock).not.toHaveBeenCalled();
+      expect(installPlatform).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['upgrade', 'saved', 'runtime token saved on this machine'],
+      ['repair', 'saved', 'runtime token saved on this machine'],
+      ['upgrade', 'environment', 'runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN'],
+    ] as const)(
+      'under browser login, %s names the %s runtime token that AI Gateway used',
+      async (subcommand, source, name) => {
+        vi.stubEnv('CLOUDFLARE_API_TOKEN', '');
+        state.operatorCredential = { source: 'oauth', token: 'browser-login' };
+        if (source === 'environment') {
+          vi.stubEnv('VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN', 'env-runtime');
+        }
+        vi.mocked(readInstallationRecoverySecrets).mockReturnValue({
+          databaseUrl: 'postgres://database',
+          cloudflareApiToken: 'saved-runtime',
+        });
+        planReadsAiGateway();
+        const failure = await runInstalledPlatformCommand({
+          subcommand,
+          selector: state.manifest!.id,
+          plan: false,
+          runtime: '',
+          yes: true,
+        }).then(expectedRejection, (error: unknown) => error as PlatformCloudflareApiError);
+        expect(failure).toBeInstanceOf(PlatformCloudflareApiError);
+        expect(failure.status).toBe(401);
+        expect(failure.message).toContain(
+          `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token, not the management token.`,
+        );
+        expect(failure.message).toContain(
+          'Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token',
+        );
+        expect(failure.message).not.toContain(' CLOUDFLARE_API_TOKEN');
+        expect(failure.message).not.toContain('runtime-');
+        expect(installPlatform).not.toHaveBeenCalled();
+        expect(writeInstallationManifest).not.toHaveBeenCalled();
+      },
+    );
+  });
 
   it('includes shared email configuration when planning an upgrade', async () => {
     vi.stubEnv('VOID_EMAIL_SHARED_ZONE_ID', 'mail-zone');
@@ -1213,6 +1349,11 @@ describe('installed platform upgrade', () => {
         if (status === 403) {
           expect(String(failure)).toContain('SSL and Certificates → Edit');
         }
+        if (status === 401 || status === 403) {
+          expect(String(failure)).toContain(
+            'Cloudflare denied the runtime token saved on this machine:',
+          );
+        }
         expect(installPlatform).not.toHaveBeenCalled();
         expect(state.events.filter((event) => event.startsWith('put:'))).toEqual([]);
       },
@@ -1233,6 +1374,10 @@ describe('installed platform upgrade', () => {
       });
       await upgrade({ customDomains: true });
       expect(state.clientTokens).toContain('replacement-token');
+      expect(state.clientCredentials[state.clientTokens.indexOf('replacement-token')]).toEqual({
+        role: 'runtime',
+        source: 'environment',
+      });
       expect(state.clientTokens).not.toContain('saved-runtime-token');
       expect(state.events).toContain(`request:${customHostnamePath}`);
     });
@@ -1338,7 +1483,7 @@ describe('installed platform upgrade', () => {
 
       // The Workers can use a newer token than the one saved on this machine.
       await expect(upgrade()).rejects.toThrow(
-        'platform: The runtime API token saved on this machine cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead.',
+        'platform: The runtime token saved on this machine cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead.',
       );
       expect(installPlatform).not.toHaveBeenCalled();
 
@@ -1353,7 +1498,7 @@ describe('installed platform upgrade', () => {
         (failure: unknown) => failure as Error,
       );
       expect(explicit?.message).toContain(
-        'platform: The runtime API token cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Check that the token is valid',
+        'platform: The runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Check that the token is valid',
       );
       expect(explicit?.message).not.toContain('saved on this machine');
       expect(installPlatform).not.toHaveBeenCalled();

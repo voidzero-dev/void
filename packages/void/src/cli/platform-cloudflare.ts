@@ -1,5 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { formatUrl } from './output.ts';
+import {
+  describePlatformCredential,
+  formatPlatformCredentialDenials,
+  platformCredentialHelp,
+  type PlatformCredentialDenial,
+  type PlatformCredentialLabel,
+} from './platform-credential-label.ts';
 import { resolvePinnedApiBaseUrl } from './provision.ts';
 
 type CloudflareEnvelope<T> = Readonly<{
@@ -17,12 +24,22 @@ type CloudflareEnvelope<T> = Readonly<{
 export class PlatformCloudflareApiError extends Error {
   readonly status: number;
   readonly requestPath?: string;
+  /** The credential Cloudflare rejected, when the client knows it. */
+  readonly credential?: PlatformCredentialLabel;
 
-  constructor(message: string, status: number, requestPath?: string) {
+  constructor(
+    message: string,
+    status: number,
+    requestPath?: string,
+    credential?: PlatformCredentialLabel,
+  ) {
     super(message);
     this.name = 'PlatformCloudflareApiError';
     this.status = status;
     this.requestPath = requestPath;
+    if (credential) {
+      this.credential = credential;
+    }
   }
 }
 
@@ -57,11 +74,19 @@ export class PlatformWorkerRoutesChangedError extends Error {
 export class PlatformRuntimeTokenEmailPermissionError extends Error {
   /** Cloudflare answered HTTP 401 at least once: it did not accept the token. */
   readonly tokenNotValid: boolean;
+  /** Each email check Cloudflare denied. */
+  readonly denials: ReadonlyArray<PlatformCredentialDenial>;
 
-  constructor(message: string, tokenNotValid: boolean, options?: ErrorOptions) {
+  constructor(
+    message: string,
+    tokenNotValid: boolean,
+    options?: ErrorOptions,
+    denials: ReadonlyArray<PlatformCredentialDenial> = [],
+  ) {
     super(message, options);
     this.name = 'PlatformRuntimeTokenEmailPermissionError';
     this.tokenNotValid = tokenNotValid;
+    this.denials = denials;
   }
 }
 
@@ -177,47 +202,78 @@ export async function verifyPlatformRuntimeTokenPermissions(
     accountId: string;
     applicationDomain: string;
     customDomains: boolean;
+    /** Where the token came from, so a failure can name it. */
+    credential?: PlatformCredentialLabel;
     /** The shared email zone, only when platform email is on. */
     emailZoneId?: string;
     zoneId: string | null;
   },
 ): Promise<void> {
-  try {
-    await client.listHyperdriveConfigs(input.accountId);
-  } catch (error) {
-    throw runtimeTokenPreflightError('Account → Hyperdrive → Write', error);
-  }
-
-  if (input.emailZoneId) {
-    await verifyPlatformRuntimeTokenEmailPermissions(client, {
-      accountId: input.accountId,
-      zoneId: input.emailZoneId,
-    });
-  }
-
-  if (!input.zoneId) {
-    return;
-  }
-
-  const probeUrl = `https://${input.applicationDomain}/.well-known/void/runtime-token-preflight-${randomUUID()}`;
-  try {
-    await client.request(`/zones/${encodeURIComponent(input.zoneId)}/purge_cache`, {
-      body: JSON.stringify({ files: [probeUrl] }),
-      method: 'POST',
-    });
-  } catch (error) {
-    throw runtimeTokenPreflightError('Zone → Cache Purge → Purge', error);
-  }
-
-  if (input.customDomains) {
+  const credential = input.credential ?? { role: 'runtime' };
+  // Run every check, so one error lists every missing permission. Only an
+  // authorization answer shows a missing permission; anything else stops.
+  const denials: Array<PlatformCredentialDenial & { error: PlatformCloudflareApiError }> = [];
+  const check = async (permission: string, action: () => Promise<unknown>) => {
     try {
-      await client.request(
-        `/zones/${encodeURIComponent(input.zoneId)}/custom_hostnames?per_page=1`,
-      );
+      await action();
     } catch (error) {
-      throw runtimeTokenPreflightError('Zone → SSL and Certificates → Edit', error);
+      if (
+        error instanceof PlatformCloudflareApiError &&
+        (error.status === 401 || error.status === 403)
+      ) {
+        denials.push({ error, permission, status: error.status });
+        return;
+      }
+      throw runtimeTokenPreflightError(permission, error, credential);
+    }
+  };
+
+  await check('Account → Hyperdrive → Write', () => client.listHyperdriveConfigs(input.accountId));
+
+  let emailDenial: PlatformRuntimeTokenEmailPermissionError | undefined;
+  if (input.emailZoneId) {
+    try {
+      await verifyPlatformRuntimeTokenEmailPermissions(client, {
+        accountId: input.accountId,
+        credential,
+        zoneId: input.emailZoneId,
+      });
+    } catch (error) {
+      if (!(error instanceof PlatformRuntimeTokenEmailPermissionError)) {
+        throw error;
+      }
+      emailDenial = error;
     }
   }
+
+  if (input.zoneId) {
+    const zoneId = input.zoneId;
+    const probeUrl = `https://${input.applicationDomain}/.well-known/void/runtime-token-preflight-${randomUUID()}`;
+    await check('Zone → Cache Purge → Purge', () =>
+      client.request(`/zones/${encodeURIComponent(zoneId)}/purge_cache`, {
+        body: JSON.stringify({ files: [probeUrl] }),
+        method: 'POST',
+      }),
+    );
+    if (input.customDomains) {
+      await check('Zone → SSL and Certificates → Edit', () =>
+        client.request(`/zones/${encodeURIComponent(zoneId)}/custom_hostnames?per_page=1`),
+      );
+    }
+  }
+
+  if (denials.length === 0) {
+    // Callers keep a token that only lacks email access, so this error keeps
+    // its own class when email is the only problem.
+    if (emailDenial) {
+      throw emailDenial;
+    }
+    return;
+  }
+  throw new Error(
+    `platform: ${formatPlatformCredentialDenials(credential, [...denials, ...(emailDenial?.denials ?? [])])}`,
+    { cause: denials[0]!.error },
+  );
 }
 
 /**
@@ -230,6 +286,8 @@ export async function verifyPlatformRuntimeTokenEmailPermissions(
   client: Pick<PlatformCloudflareClient, 'request'>,
   input: {
     accountId: string;
+    /** Where the token came from, so a failure can name it. */
+    credential?: PlatformCredentialLabel;
     zoneId: string;
     /**
      * The token is the one saved on this machine, and the run does not send
@@ -248,7 +306,7 @@ export async function verifyPlatformRuntimeTokenEmailPermissions(
       `/accounts/${encodeURIComponent(input.accountId)}/email/routing/addresses?per_page=5`,
     ],
   ] as const;
-  const missing: Array<string> = [];
+  const denials: Array<PlatformCredentialDenial> = [];
   let denial: PlatformCloudflareApiError | undefined;
   let tokenNotValid = false;
   for (const [permission, path] of probes) {
@@ -261,7 +319,7 @@ export async function verifyPlatformRuntimeTokenEmailPermissions(
         error instanceof PlatformCloudflareApiError &&
         (error.status === 401 || error.status === 403)
       ) {
-        missing.push(permission);
+        denials.push({ permission, status: error.status });
         denial ??= error;
         // A token that is not valid gets 403 on the zone read, but 401 on
         // the Email Routing reads. A valid token without access gets 403.
@@ -270,25 +328,34 @@ export async function verifyPlatformRuntimeTokenEmailPermissions(
     }
   }
   if (denial) {
-    const denied = `Cloudflare denied: ${missing.join(', ')} (HTTP ${denial.status}).`;
+    const denied = `Cloudflare denied: ${denials.map((entry) => entry.permission).join(', ')} (HTTP ${denial.status}).`;
+    const name = describePlatformCredential(
+      input.savedToken
+        ? { role: 'runtime', source: 'saved' }
+        : (input.credential ?? { role: 'runtime' }),
+    );
     throw new PlatformRuntimeTokenEmailPermissionError(
       input.savedToken
-        ? `platform: The runtime API token saved on this machine cannot use platform email. ${denied} Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.`
-        : `platform: The runtime API token cannot use platform email. ${denied} Check that the token is valid and that its zone permissions include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.`,
+        ? `platform: The ${name} cannot use platform email. ${denied} Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.`
+        : `platform: The ${name} cannot use platform email. ${denied} Check that the token is valid and that its zone permissions include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.`,
       tokenNotValid,
       { cause: denial },
+      denials,
     );
   }
 }
 
-function runtimeTokenPreflightError(permission: string, cause: unknown): Error {
+function runtimeTokenPreflightError(
+  permission: string,
+  cause: unknown,
+  credential: PlatformCredentialLabel,
+): Error {
   const status = cause instanceof PlatformCloudflareApiError ? cause.status : null;
+  const name = describePlatformCredential(credential);
   const message =
-    status === 401 || status === 403
-      ? `Cloudflare denied the runtime-token check (HTTP ${status}). Check that the token is valid, scoped to this account, and includes ${permission}.`
-      : status === 429
-        ? `Cloudflare rate-limited the runtime-token check for ${permission} (HTTP 429). Retry shortly; this does not mean the token is missing a permission.`
-        : `Could not complete the runtime-token check for ${permission}${status === null ? '' : ` (Cloudflare HTTP ${status})`}. Retry the check; this failure does not establish that a permission is missing.`;
+    status === 429
+      ? `Cloudflare rate-limited the check of the ${name} for ${permission} (HTTP 429). Retry shortly; this does not mean the token is missing a permission.`
+      : `Could not complete the check of the ${name} for ${permission}${status === null ? '' : ` (Cloudflare HTTP ${status})`}. Retry the check; this failure does not establish that a permission is missing.`;
   return new Error(`platform: ${message}`, { cause });
 }
 
@@ -297,10 +364,22 @@ export class PlatformCloudflareClient {
   readonly #fetcher: typeof fetch;
   readonly #token: string;
   readonly #aiGatewayClient?: PlatformCloudflareClient;
+  readonly #credential?: PlatformCredentialLabel;
 
   constructor(
     token: string,
-    options?: { apiBase?: string; fetcher?: typeof fetch; aiGatewayToken?: string },
+    options?: {
+      apiBase?: string;
+      fetcher?: typeof fetch;
+      aiGatewayToken?: string;
+      /** Where the AI Gateway token came from. */
+      aiGatewayCredential?: PlatformCredentialLabel;
+      /**
+       * Where the token came from. A 401 or 403 answer then names it and
+       * says what to do.
+       */
+      credential?: PlatformCredentialLabel;
+    },
   ) {
     if (!token) {
       throw new Error(
@@ -310,20 +389,31 @@ export class PlatformCloudflareClient {
     this.#token = token;
     this.apiBaseUrl = (options?.apiBase ?? resolvePinnedApiBaseUrl()).replace(/\/+$/, '');
     this.#fetcher = options?.fetcher ?? fetch;
+    this.#credential = options?.credential;
     if (options?.aiGatewayToken) {
+      const aiGatewayCredential = options.aiGatewayCredential ?? { role: 'runtime' };
       this.#aiGatewayClient = new PlatformCloudflareClient(options.aiGatewayToken, {
         apiBase: this.apiBaseUrl,
         fetcher: this.#fetcher,
+        credential: {
+          ...aiGatewayCredential,
+          aiGatewayFor: this.#credential ?? { role: 'management' },
+        },
       });
     }
   }
 
   /** Keep operator auth for infrastructure; use the existing runtime credential only for AI Gateway. */
-  withAiGatewayToken(token: string): PlatformCloudflareClient {
+  withAiGatewayToken(
+    token: string,
+    credential?: PlatformCredentialLabel,
+  ): PlatformCloudflareClient {
     return new PlatformCloudflareClient(this.#token, {
       apiBase: this.apiBaseUrl,
       fetcher: this.#fetcher,
       aiGatewayToken: token,
+      ...(credential ? { aiGatewayCredential: credential } : {}),
+      ...(this.#credential ? { credential: this.#credential } : {}),
     });
   }
 
@@ -360,10 +450,17 @@ export class PlatformCloudflareClient {
     if (!response.ok || envelope.success !== true || envelope.result === undefined) {
       const details = cloudflareErrorDetails(envelope, response.status);
       const requestPath = path.split('?')[0];
+      // Name the credential Cloudflare rejected and how to fix it. The error
+      // keeps its class, status and path: callers decide on those.
+      const credential =
+        this.#credential && (response.status === 401 || response.status === 403)
+          ? this.#credential
+          : undefined;
       const error = new PlatformCloudflareApiError(
-        `Cloudflare API error: ${details} (HTTP ${response.status}; ${init?.method ?? 'GET'} ${requestPath}).`,
+        `Cloudflare API error: ${details} (HTTP ${response.status}; ${init?.method ?? 'GET'} ${requestPath}).${credential ? ` ${platformCredentialHelp(credential, response.status, requestPath)}` : ''}`,
         response.status,
         requestPath,
+        credential,
       );
       const prerequisite = cloudflarePrerequisiteHelp(envelope, response.status, requestPath);
       if (prerequisite) {
