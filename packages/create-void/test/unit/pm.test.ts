@@ -38,10 +38,38 @@ describe('create-void package manager bootstrap', () => {
       ],
     ],
     ['pnpm', ['pnpm', 'dlx', 'void@1.2.3', 'init', '--framework', 'react', '--no-install']],
-    ['yarn', ['yarn', 'dlx', 'void@1.2.3', 'init', '--framework', 'react', '--no-install']],
     ['bun', ['bunx', 'void@1.2.3', 'init', '--framework', 'react', '--no-install']],
   ] as const)('runs void init with %s dlx when installation is skipped', (manager, expected) => {
     expect(pmInitCommand(manager, '1.2.3', true, ['--framework', 'react'])).toEqual(expected);
+  });
+
+  it.each([
+    [
+      'yarn/1.22.22 npm/? node/v24.22.1',
+      [
+        'npm',
+        'exec',
+        '--yes',
+        '--package=void@1.2.3',
+        '--',
+        'void',
+        'init',
+        '--framework',
+        'react',
+        '--no-install',
+      ],
+    ],
+    [
+      'yarn/4.5.0 npm/? node/v24.22.1',
+      ['yarn', 'dlx', 'void@1.2.3', 'init', '--framework', 'react', '--no-install'],
+    ],
+  ] as const)('uses the matching temporary runner for %s', (userAgent, expected) => {
+    vi.stubEnv('npm_config_user_agent', userAgent);
+    try {
+      expect(pmInitCommand('yarn', '1.2.3', true, ['--framework', 'react'])).toEqual(expected);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it.each([

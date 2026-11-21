@@ -104,10 +104,14 @@ export function pmExec(pm: PM): ReadonlyArray<string> {
   }
 }
 
+function isYarnClassic(userAgent = process.env.npm_config_user_agent): boolean {
+  return /^yarn\/1(?:\.|$)/.test(userAgent ?? '');
+}
+
 /** Run the matching Void CLI without adding it to the generated project. */
 export function pmDlx(pm: PM, version: string): ReadonlyArray<string> {
   const pkg = `void@${version}`;
-  switch (pm) {
+  switch (isYarnClassic() ? 'npm' : pm) {
     case 'npm':
       return ['npm', 'exec', '--yes', `--package=${pkg}`, '--', 'void'];
     case 'pnpm':
