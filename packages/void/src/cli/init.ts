@@ -79,6 +79,7 @@ import {
 export type InitArgs = {
   tsconfig: boolean;
   github: boolean;
+  install?: boolean;
   git?: boolean;
   toolchain?: ScaffoldToolchain;
   framework?: ScaffoldFramework;
@@ -116,6 +117,7 @@ export function parseInitArgs(args: Array<string>): InitArgs {
       options: {
         tsconfig: { type: 'boolean' },
         github: { type: 'boolean' },
+        install: { type: 'boolean' },
         git: { type: 'boolean' },
         toolchain: { type: 'string' },
         framework: { type: 'string' },
@@ -133,6 +135,7 @@ export function parseInitArgs(args: Array<string>): InitArgs {
   return {
     tsconfig: parsed.values.tsconfig === true,
     github: parsed.values.github === true,
+    install: parsed.values.install as boolean | undefined,
     git: parsed.values.git as boolean | undefined,
     toolchain: parseChoice(
       'toolchain',
@@ -3155,7 +3158,14 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
         : './node_modules/.bin/void'
       : projectVoidRunner[state.packageManager];
   const manualMigration = `${voidRunner} db generate`;
-  if (scaffoldAddedDependencies) {
+  if (scaffoldAddedDependencies && initArgs?.install === false) {
+    const install = resolveProjectInstall(root, state.packageManager);
+    const manualInstall = commandInProject(root, install.manualCommand);
+    report.next(`Run \`${manualInstall}\` to install dependencies`);
+    if (migrationMode) {
+      report.next(`Then run \`${commandInProject(root, manualMigration)}\` to finish setup`);
+    }
+  } else if (scaffoldAddedDependencies) {
     const install = resolveProjectInstall(root, state.packageManager);
     const manualInstall = commandInProject(root, install.manualCommand);
     report.unfinished = migrationMode
@@ -3169,7 +3179,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     const manualInstall = commandInProject(root, `${installer} install`);
     report.next(`Run \`${manualInstall}\` to update your lockfile`);
   }
-  if (migrationMode) {
+  if (migrationMode && initArgs?.install !== false) {
     report.unfinished = `Run \`${commandInProject(root, manualMigration)}\` to finish setup`;
     await generateStarterMigration(root, migrationMode);
     report.done('Generated the initial database migration');
@@ -3200,6 +3210,10 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     }
   } else {
     const devCommand = commandInProject(root, getDevCommand(root, framework));
-    printSuccess(`Project initialized. Run \`${devCommand}\` to start developing.`);
+    printSuccess(
+      initArgs?.install === false && scaffoldAddedDependencies
+        ? 'Project initialized. Follow the next steps to finish setup.'
+        : `Project initialized. Run \`${devCommand}\` to start developing.`,
+    );
   }
 }
