@@ -648,6 +648,8 @@ export {
   formErrorMessage,
   formRetryMessage,
   formSubmissionBlocked,
+  isFormErrorWithin,
+  omitFormErrors,
   scheduleFormRetry,
   type FormErrorPath,
   type FormErrors,

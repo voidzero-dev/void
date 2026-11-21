@@ -18,6 +18,7 @@ type TestForm = {
   readonly pending: boolean;
   readonly wasSuccessful: boolean;
   setError(field: string, message: string): void;
+  clearErrors(...fields: Array<string>): void;
   reset(): void;
   post(): Promise<void>;
 };
@@ -152,6 +153,32 @@ describe('useForm field errors', () => {
     (form.data.profile as { name: string }).name = 'Alice';
     svelte.flushSync();
     expect({ ...form.errors }).toEqual({ name: 'Name invalid' });
+  });
+
+  it('clears nested errors below an edited parent field and a cleared parent', () => {
+    const form = mountForm({ profile: { name: '' }, contacts: [{ email: '' }] });
+    form.setError('profile.name', 'Required name');
+    form.setError('contacts.0.email', 'Required email');
+    form.setError('name', 'Unrelated');
+    svelte.flushSync();
+
+    form.data.profile = { name: 'Alex' };
+    svelte.flushSync();
+    expect({ ...form.errors }).toEqual({ 'contacts.0.email': 'Required email', name: 'Unrelated' });
+
+    form.data.contacts = [{ email: 'alex@example.com' }];
+    svelte.flushSync();
+    expect({ ...form.errors }).toEqual({ name: 'Unrelated' });
+
+    form.setError('profile.name', 'Required name');
+    form.setError('contacts.0.email', 'Required email');
+    form.clearErrors('profile');
+    svelte.flushSync();
+    expect({ ...form.errors }).toEqual({ 'contacts.0.email': 'Required email', name: 'Unrelated' });
+
+    form.clearErrors('contacts');
+    svelte.flushSync();
+    expect({ ...form.errors }).toEqual({ name: 'Unrelated' });
   });
 
   it('clears an error written before the field edit in the same handler', () => {

@@ -20,17 +20,17 @@ const useForm = typedUseForm as unknown as (
   defaults: Record<string, unknown>,
 ) => TestForm;
 
-function createForm() {
-  const [serverErrors, setServerErrors] = createSignal({
-    email: 'Invalid email',
-    name: 'Required',
-  });
+function createForm(
+  server: Record<string, string> = { email: 'Invalid email', name: 'Required' },
+  defaults: Record<string, unknown> = { email: '', name: '' },
+) {
+  const [serverErrors, setServerErrors] = createSignal(server);
   let form!: TestForm;
   const dispose = createRoot((dispose) => {
     createComponent(ErrorsContext.Provider, {
       value: serverErrors,
       get children() {
-        form = useForm('/test', { email: '', name: '' });
+        form = useForm('/test', defaults);
         return null;
       },
     });
@@ -60,6 +60,39 @@ describe('useForm router errors', () => {
       form.setData('email', 'other@example.com');
       expect(form.errors).toEqual({});
       form.clearErrors();
+      expect(form.errors).toEqual({});
+    } finally {
+      dispose();
+    }
+  });
+
+  it('clears nested errors below a replaced parent field and a cleared parent', () => {
+    const { form, dispose } = createForm(
+      {
+        'profile.name': 'Required name',
+        'contacts.0.email': 'Required email',
+        name: 'Unrelated',
+      },
+      { profile: { name: '' }, contacts: [{ email: '' }] },
+    );
+    try {
+      expect(form.errors).toEqual({
+        'profile.name': 'Required name',
+        'contacts.0.email': 'Required email',
+        name: 'Unrelated',
+      });
+
+      form.clearErrors('profile');
+      expect(form.errors).toEqual({ 'contacts.0.email': 'Required email', name: 'Unrelated' });
+
+      form.setError('profile.name', 'Required name');
+      form.setData('profile', { name: 'Alex' });
+      expect(form.errors).toEqual({ 'contacts.0.email': 'Required email', name: 'Unrelated' });
+
+      form.setData('contacts', [{ email: 'alex@example.com' }]);
+      expect(form.errors).toEqual({ name: 'Unrelated' });
+
+      form.clearErrors('name');
       expect(form.errors).toEqual({});
     } finally {
       dispose();

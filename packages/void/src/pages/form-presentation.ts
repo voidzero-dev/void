@@ -76,6 +76,23 @@ export type IslandFormState<TData, TEditing extends FormEditing> = FormStatus &
     delete(url: RouteUrl): Promise<void>;
   }>;
 
+/** Whether an error key names `field` or a nested field below it, such as `profile.name`. */
+export function isFormErrorWithin(key: string, field: string): boolean {
+  return key === field || key.startsWith(`${field}.`);
+}
+/**
+ * Removes the errors of `fields` and of the nested fields below them, keeping unrelated errors.
+ * Returns the same object when no error matched, so callers can skip an update.
+ */
+export function omitFormErrors(
+  errors: Record<string, string>,
+  fields: ReadonlyArray<string>,
+): Record<string, string> {
+  const kept = Object.entries(errors).filter(
+    ([key]) => !fields.some((field) => isFormErrorWithin(key, field)),
+  );
+  return kept.length === Object.keys(errors).length ? errors : Object.fromEntries(kept);
+}
 export function formErrorMessage(form: Pick<FormModel, 'error' | 'errors'>): string | null {
   return form.error?.message ?? (Object.values(form.errors).filter(Boolean).join('. ') || null);
 }

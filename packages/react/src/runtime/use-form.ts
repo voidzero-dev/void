@@ -15,6 +15,7 @@ import {
   isAbortError,
   isCallSiteActionError,
   isEqualFormValue,
+  omitFormErrors,
   parseFormResetArgs,
   submitAction,
   type FormResetOptions,
@@ -200,11 +201,10 @@ export function useForm(
       const target = callbackOutcomeRef.current ?? outcome;
       setErrorEdits((prev) => {
         const current = resolveOutcomeErrors(target, prev);
-        if (!(field in current)) {
+        const next = omitFormErrors(current, [field]);
+        if (next === current) {
           return prev;
         }
-        const next = { ...current };
-        delete next[field];
         return {
           ...(prev?.source === target ? prev : { source: target }),
           errors: next,
@@ -241,10 +241,7 @@ export function useForm(
         if (fields.length === 0) {
           return { ...base, errors: EMPTY_ERRORS };
         }
-        const next = { ...resolveOutcomeErrors(target, prev) };
-        for (const field of fields) {
-          delete next[field];
-        }
+        const next = omitFormErrors(resolveOutcomeErrors(target, prev), fields);
         return { ...base, errors: next };
       });
     },

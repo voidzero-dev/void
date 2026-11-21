@@ -8,6 +8,7 @@ import {
   isAbortError,
   isCallSiteActionError,
   isEqualFormValue,
+  omitFormErrors,
   parseFormResetArgs,
   submitAction,
   type FormResetOptions,
@@ -105,15 +106,7 @@ export function useForm(
   }
 
   function clearErrors(...fields: ReadonlyArray<string>) {
-    if (fields.length === 0) {
-      replaceErrors({});
-    } else {
-      const next = { ...errors() };
-      for (const field of fields) {
-        delete next[field];
-      }
-      replaceErrors(next);
-    }
+    replaceErrors(fields.length === 0 ? {} : omitFormErrors(errors(), fields));
   }
 
   function setFieldError(field: string, message: string) {
