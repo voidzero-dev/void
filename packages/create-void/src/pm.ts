@@ -104,6 +104,31 @@ export function pmExec(pm: PM): ReadonlyArray<string> {
   }
 }
 
+/** Run the matching Void CLI without adding it to the generated project. */
+export function pmDlx(pm: PM, version: string): ReadonlyArray<string> {
+  const pkg = `void@${version}`;
+  switch (pm) {
+    case 'npm':
+      return ['npm', 'exec', '--yes', `--package=${pkg}`, '--', 'void'];
+    case 'pnpm':
+      return ['pnpm', 'dlx', pkg];
+    case 'yarn':
+      return ['yarn', 'dlx', pkg];
+    case 'bun':
+      return ['bunx', pkg];
+  }
+}
+
+export function pmInitCommand(
+  pm: PM,
+  version: string,
+  noInstall: boolean,
+  initArgs: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const command = noInstall ? pmDlx(pm, version) : [...pmExec(pm), 'void'];
+  return [...command, 'init', ...initArgs, ...(noInstall ? ['--no-install'] : [])];
+}
+
 export function run(argv: ReadonlyArray<string>, cwd?: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const [cmd, ...args] = argv;

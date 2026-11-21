@@ -6,7 +6,7 @@ import { parseCreateArgs, validateProjectName } from './args.ts';
 import {
   detectPM,
   getPnpmWorkspaceRoot,
-  pmExec,
+  pmInitCommand,
   pmInstall,
   run,
   writePnpmBuildPolicy,
@@ -74,14 +74,25 @@ async function main() {
   // project can bootstrap without disabling pnpm's build-script protection.
   writePnpmBuildPolicy(workspaceRoot, pm);
 
-  p.log.step('Installing Void...');
-  await run(pmInstall(pm), targetDir);
+  if (createArgs.noInstall) {
+    p.log.step('Running Void temporarily...');
+  } else {
+    p.log.step('Installing Void...');
+    await run(pmInstall(pm), targetDir);
+  }
 
   p.log.step('Scaffolding starter...');
-  await run([...pmExec(pm), 'void', 'init', ...createArgs.initArgs], targetDir);
+  const initCommand = pmInitCommand(pm, voidVersion, !!createArgs.noInstall, createArgs.initArgs);
+  await run(initCommand, targetDir);
 
-  p.log.step('Installing starter dependencies...');
-  await run(pmInstall(pm), targetDir);
+  if (createArgs.noInstall) {
+    p.log.info(
+      `Skipped dependency installation. Run \`${pmInstall(pm).join(' ')}\` in ${appName} when ready.`,
+    );
+  } else {
+    p.log.step('Installing starter dependencies...');
+    await run(pmInstall(pm), workspaceRoot);
+  }
 
   p.outro(`\n${pc.green(`✓ Created ${appName}`)}`, { withGuide: false });
   p.outro(`cd ${appName} && ${pm === 'npm' ? 'npm run' : pm} dev`);
