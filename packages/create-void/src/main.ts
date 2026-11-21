@@ -3,7 +3,14 @@ import * as p from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
 import pc from 'picocolors';
 import { parseCreateArgs, validateProjectName } from './args.ts';
-import { detectPM, pmExec, pmInstall, run, writePnpmBuildPolicy } from './pm.ts';
+import {
+  detectPM,
+  getPnpmWorkspaceRoot,
+  pmExec,
+  pmInstall,
+  run,
+  writePnpmBuildPolicy,
+} from './pm.ts';
 
 const pm = detectPM();
 
@@ -33,6 +40,8 @@ async function main() {
   }
 
   const targetDir = resolve(appName);
+  const workspaceRoot =
+    pm === 'pnpm' ? (getPnpmWorkspaceRoot(process.cwd()) ?? targetDir) : targetDir;
 
   if (existsSync(targetDir)) {
     const entries = readdirSync(targetDir);
@@ -63,7 +72,7 @@ async function main() {
   // pnpm 12 fails the first install when a dependency has an unapproved build
   // script. Write Void's narrow policy before installing the CLI so a fresh
   // project can bootstrap without disabling pnpm's build-script protection.
-  writePnpmBuildPolicy(targetDir, pm);
+  writePnpmBuildPolicy(workspaceRoot, pm);
 
   p.log.step('Installing Void...');
   await run(pmInstall(pm), targetDir);
