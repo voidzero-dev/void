@@ -867,6 +867,11 @@ export type CloudflareVersionActivationOptions = {
   allowFirstDeploymentBootstrap?: boolean;
   fetch?: typeof globalThis.fetch;
   sleep?: (milliseconds: number) => Promise<void>;
+  /**
+   * Waits between reads of Cloudflare's Worker version list while it lags behind a write.
+   * Defaults to {@link STALE_VERSION_HISTORY_DELAYS_MS}.
+   */
+  versionHistoryRetryDelaysMs?: ReadonlyArray<number>;
   readinessAttempts?: number;
   /** Require readiness to report the uploaded Worker's actual version UUID. */
   requireVersionMetadata?: boolean;
@@ -969,7 +974,28 @@ async function activateCloudflareVersionWithSecretsFile(
   let activeSecretsPinned = false;
   let pinnedActiveSecrets: Array<{ name: string; type: 'secret_key' | 'secret_text' }> | undefined;
   if (options.expectedPreviousVersionId !== undefined || options.verifyInheritedSecrets === true) {
-    const recent = await readRecentCloudflareVersionIds(options);
+    let recent = await readRecentCloudflareVersionIds(options);
+    // The deployment status above names the active Worker Version. A version list that does not
+    // contain it is behind that write, so wait for it instead of failing the lineage check below.
+    // A list that never shows it still fails below, as before.
+    const delays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
+    for (
+      let attempt = 0;
+      previous.versionId !== null &&
+      recent !== null &&
+      !recent.some((version) => version.id === previous.versionId) &&
+      attempt < delays.length;
+      attempt++
+    ) {
+      if (attempt === 0) {
+        options.onProgress?.("Waiting for Cloudflare's Worker version list to catch up...");
+      }
+      await (options.sleep ?? delay)(delays[attempt]!);
+      if (!options.verifyUploader()) {
+        return { ok: false, reason: 'uploader-changed' };
+      }
+      recent = await readRecentCloudflareVersionIds(options);
+    }
     if (recent === null) {
       return { ok: false, reason: 'inheritance-source-unavailable' };
     }
@@ -1313,19 +1339,31 @@ async function activateCloudflareVersionWithSecretsFile(
   if (baseline) {
     // The list can still show the exact pre-upload history after a successful upload.
     // Wait for a fresh read, but pass any other history straight to the lineage check.
+    let stale = false;
     const readUpdatedHistory = async () => {
-      const recent = await readRecentCloudflareVersionIds(options);
+      const read = await readRecentCloudflareVersionIds(options);
       const unchanged =
-        recent?.length === baseline.length &&
-        recent.every(
+        read?.length === baseline.length &&
+        read.every(
           (version, index) =>
             version.id === baseline[index]!.id && version.number === baseline[index]!.number,
         );
-      return unchanged ? null : recent;
+      stale = unchanged;
+      return unchanged ? null : read;
     };
+    const historyDelays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
     let recent = await readUpdatedHistory();
-    for (let attempt = 0; recent === null && attempt < 2; attempt++) {
-      await (options.sleep ?? delay)(250 * 2 ** attempt);
+    for (
+      let attempt = 0;
+      recent === null &&
+      attempt < historyDelays.length &&
+      (stale || attempt < UNAVAILABLE_VERSION_HISTORY_RETRIES);
+      attempt++
+    ) {
+      if (attempt === 0 && stale) {
+        options.onProgress?.("Waiting for Cloudflare's Worker version list to catch up...");
+      }
+      await (options.sleep ?? delay)(historyDelays[attempt]!);
       if (!options.verifyUploader()) {
         return {
           ok: false,
@@ -2015,6 +2053,18 @@ async function isVoidSecretDraftPlaceholderVersion(
     return null;
   }
 }
+
+/**
+ * Cloudflare's Worker version list can trail a write by minutes (1.5 to 4 minutes were measured
+ * for a small Worker). The waits double up to 30 seconds and add up to about five and a half minutes.
+ */
+export const STALE_VERSION_HISTORY_DELAYS_MS: ReadonlyArray<number> = [
+  250, 500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000,
+  30_000, 30_000, 30_000, 30_000,
+];
+
+/** A failed read, as opposed to a stale one, is retried only this many times. */
+const UNAVAILABLE_VERSION_HISTORY_RETRIES = 2;
 
 async function readRecentCloudflareVersionIds(
   options: Pick<
