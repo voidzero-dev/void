@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { parse } from 'yaml';
-import { getPnpmWorkspaceRoot, writePnpmBuildPolicy } from '../../src/pm.ts';
+import { getPnpmWorkspaceRoot, pmInitCommand, writePnpmBuildPolicy } from '../../src/pm.ts';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -21,6 +21,41 @@ afterEach(() => {
 });
 
 describe('create-void package manager bootstrap', () => {
+  it.each([
+    [
+      'npm',
+      [
+        'npm',
+        'exec',
+        '--yes',
+        '--package=void@1.2.3',
+        '--',
+        'void',
+        'init',
+        '--framework',
+        'react',
+        '--no-install',
+      ],
+    ],
+    ['pnpm', ['pnpm', 'dlx', 'void@1.2.3', 'init', '--framework', 'react', '--no-install']],
+    ['yarn', ['yarn', 'dlx', 'void@1.2.3', 'init', '--framework', 'react', '--no-install']],
+    ['bun', ['bunx', 'void@1.2.3', 'init', '--framework', 'react', '--no-install']],
+  ] as const)('runs void init with %s dlx when installation is skipped', (manager, expected) => {
+    expect(pmInitCommand(manager, '1.2.3', true, ['--framework', 'react'])).toEqual(expected);
+  });
+
+  it.each([
+    ['npm', ['npx', 'void', 'init', '--framework', 'react']],
+    ['pnpm', ['pnpm', 'exec', 'void', 'init', '--framework', 'react']],
+    ['yarn', ['yarn', 'exec', 'void', 'init', '--framework', 'react']],
+    ['bun', ['bunx', 'void', 'init', '--framework', 'react']],
+  ] as const)(
+    'uses the installed void CLI with %s when installing dependencies',
+    (manager, expected) => {
+      expect(pmInitCommand(manager, '1.2.3', false, ['--framework', 'react'])).toEqual(expected);
+    },
+  );
+
   it('writes the narrow Void build policy for a standalone pnpm project', () => {
     const root = mkdtempSync(join(tmpdir(), 'create-void-pnpm-'));
     temporaryDirectories.push(root);
