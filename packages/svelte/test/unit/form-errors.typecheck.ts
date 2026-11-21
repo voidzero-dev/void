@@ -4,7 +4,28 @@ import { useForm } from '../../src/runtime/use-form.svelte.ts';
 declare module 'void/routes' {
   interface PageActionMap {
     '/__form-errors/svelte': { body: { email: string } };
+    '/__form-errors/svelte-nested': {
+      body: { profile: { name: string }; contacts: Array<{ email: string }> };
+    };
   }
+}
+
+export function checkNestedErrorPaths(): void {
+  const form = useForm('/__form-errors/svelte-nested', {
+    profile: { name: '' },
+    contacts: [{ email: '' }],
+  });
+  const name: string | undefined = form.errors['profile.name'];
+  const email: string | undefined = form.errors['contacts.0.email'];
+  void name;
+  void email;
+  form.errors['contacts.0.email'] = 'Required email';
+  form.setError('profile.name', 'Required name');
+  form.clearErrors('profile', 'contacts', 'contacts.0.email');
+  // @ts-expect-error Nested error paths must name a field in the action body.
+  form.setError('profile.missing', 'Invalid');
+  // @ts-expect-error Array segments must be numeric array indices.
+  form.clearErrors('contacts.first');
 }
 
 export function checkFieldErrors(): void {

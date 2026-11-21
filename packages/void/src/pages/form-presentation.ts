@@ -20,8 +20,23 @@ export type FormStatus = {
   readonly wasSuccessful: boolean;
   readonly recentlySuccessful: boolean;
 };
+/**
+ * A body field plus the dotted nested paths a validator reports for it, such as `profile.name`
+ * or `contacts.0.email`. The recursion is capped so a recursive body type stays cheap to check.
+ */
+export type FormErrorPath<T, Depth extends ReadonlyArray<unknown> = []> = Depth['length'] extends 6
+  ? never
+  : T extends ReadonlyArray<infer Item>
+    ? `${number}` | `${number}.${FormErrorPath<Item, [unknown, ...Depth]>}`
+    : T extends object
+      ? {
+          [K in keyof T & string]: T[K] extends (...args: Array<never>) => unknown
+            ? never
+            : K | `${K}.${FormErrorPath<T[K], [unknown, ...Depth]>}`;
+        }[keyof T & string]
+      : never;
 /** Field-keyed validation messages; a field without an error is absent. */
-export type FormErrors<TData> = Partial<Record<keyof TData & string, string>>;
+export type FormErrors<TData> = Partial<Record<FormErrorPath<TData>, string>>;
 /**
  * How an adapter's apps change `data` and `errors`, following its framework's idiom.
  * `'in-place'`: apps edit them directly (Vue, Svelte).
@@ -40,8 +55,8 @@ export type FormState<TData, TEditing extends FormEditing> = FormStatus &
   Readonly<{
     reset(options: FormResetOptions, ...fields: ReadonlyArray<keyof TData & string>): void;
     reset(...fields: ReadonlyArray<keyof TData & string>): void;
-    setError(field: keyof TData & string, message: string): void;
-    clearErrors(...fields: ReadonlyArray<keyof TData & string>): void;
+    setError(field: FormErrorPath<TData>, message: string): void;
+    clearErrors(...fields: ReadonlyArray<FormErrorPath<TData>>): void;
     clearError(): void;
   }>;
 /**
@@ -61,6 +76,23 @@ export type IslandFormState<TData, TEditing extends FormEditing> = FormStatus &
     delete(url: RouteUrl): Promise<void>;
   }>;
 
+/** Whether an error key names `field` or a nested field below it, such as `profile.name`. */
+export function isFormErrorWithin(key: string, field: string): boolean {
+  return key === field || key.startsWith(`${field}.`);
+}
+/**
+ * Removes the errors of `fields` and of the nested fields below them, keeping unrelated errors.
+ * Returns the same object when no error matched, so callers can skip an update.
+ */
+export function omitFormErrors(
+  errors: Record<string, string>,
+  fields: ReadonlyArray<string>,
+): Record<string, string> {
+  const kept = Object.entries(errors).filter(
+    ([key]) => !fields.some((field) => isFormErrorWithin(key, field)),
+  );
+  return kept.length === Object.keys(errors).length ? errors : Object.fromEntries(kept);
+}
 export function formErrorMessage(form: Pick<FormModel, 'error' | 'errors'>): string | null {
   return form.error?.message ?? (Object.values(form.errors).filter(Boolean).join('. ') || null);
 }

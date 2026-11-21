@@ -6,6 +6,7 @@ import {
   isAbortError,
   isCallSiteActionError,
   isEqualFormValue,
+  isFormErrorWithin,
   parseFormResetArgs,
   submitAction,
   type FormResetOptions,
@@ -54,7 +55,7 @@ export function useForm(
     (val) => {
       for (const key of new Set([...Object.keys(dataSnapshot), ...Object.keys(val)])) {
         if (!isEqualFormValue(val[key], dataSnapshot[key])) {
-          delete errors[key];
+          clearNestedErrors(key);
         }
       }
       dataSnapshot = val;
@@ -79,6 +80,14 @@ export function useForm(
     dataSnapshot = cloneFormValue(data);
   }
 
+  function clearNestedErrors(field: string) {
+    for (const key of Object.keys(errors)) {
+      if (isFormErrorWithin(key, field)) {
+        delete errors[key];
+      }
+    }
+  }
+
   function clearErrors(...fields: ReadonlyArray<string>) {
     if (fields.length === 0) {
       for (const key of Object.keys(errors)) {
@@ -86,7 +95,7 @@ export function useForm(
       }
     } else {
       for (const field of fields) {
-        delete errors[field];
+        clearNestedErrors(field);
       }
     }
   }

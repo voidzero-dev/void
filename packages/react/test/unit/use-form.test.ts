@@ -22,6 +22,9 @@ import { useIslandForm, type IslandFormReturn } from '../../src/runtime/use-isla
 declare module 'void/routes' {
   interface PageActionMap {
     '/__form-callbacks/notes': { actions: { create: { body: { title: string } } } };
+    '/__form-nested/contacts': {
+      body: { profile: { name: string }; contacts: Array<{ email: string }> };
+    };
   }
 }
 
@@ -245,6 +248,62 @@ describe('useForm callbacks', () => {
     await submitPost(formRef.current!);
     expect(onError).toHaveBeenCalledExactlyOnceWith(actionError);
     expect(formRef.current!.error).toBe(actionError);
+  });
+
+  it('clears nested errors below a replaced parent field and a cleared parent', async () => {
+    type NestedForm = ReturnType<typeof useForm<'/__form-nested/contacts'>>;
+    const formRef: { current: NestedForm | null } = { current: null };
+    function App() {
+      formRef.current = useForm('/__form-nested/contacts', {
+        profile: { name: '' },
+        contacts: [{ email: '' }],
+      });
+      return null;
+    }
+    const router = routerWithVisit(
+      vi.fn(async () => ({
+        errors: {
+          'profile.name': 'Required name',
+          'contacts.0.email': 'Required email',
+          title: 'Unrelated',
+        },
+      })),
+    );
+    await mountApp(createElement(RouterContext.Provider, { value: router }, createElement(App)));
+    const form = () => formRef.current!;
+    const submit = () =>
+      act(async () => {
+        startTransition(() => {
+          form().post(new FormData());
+        });
+      });
+
+    await submit();
+    expect(form().errors['profile.name']).toBe('Required name');
+    expect(form().errors['contacts.0.email']).toBe('Required email');
+
+    await act(async () => {
+      form().setData('profile', { name: 'Alex' });
+    });
+    expect(form().errors['profile.name']).toBeUndefined();
+    expect(form().errors['contacts.0.email']).toBe('Required email');
+
+    await act(async () => {
+      form().setData('contacts', [{ email: 'alex@example.com' }]);
+    });
+    expect(form().errors).toEqual({ title: 'Unrelated' });
+
+    await submit();
+    await act(async () => {
+      form().clearErrors('profile');
+    });
+    expect(form().errors['profile.name']).toBeUndefined();
+    expect(form().errors['contacts.0.email']).toBe('Required email');
+
+    await act(async () => {
+      form().clearErrors('contacts');
+    });
+    expect(form().errors).toEqual({ title: 'Unrelated' });
   });
 
   it('fires onSuccess on each successful submit', async () => {

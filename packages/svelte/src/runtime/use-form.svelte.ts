@@ -7,6 +7,7 @@ import {
   isAbortError,
   isCallSiteActionError,
   isEqualFormValue,
+  isFormErrorWithin,
   parseFormResetArgs,
   submitAction,
   type FormResetOptions,
@@ -57,7 +58,11 @@ export function useForm(
     untrack(() => {
       for (const key of new Set([...Object.keys(dataSnapshot), ...Object.keys(current)])) {
         if (!isEqualFormValue(current[key], dataSnapshot[key])) {
-          delete errors[key];
+          for (const errorKey of Object.keys(errors)) {
+            if (isFormErrorWithin(errorKey, key)) {
+              delete errors[errorKey];
+            }
+          }
         }
       }
       dataSnapshot = current;
@@ -65,9 +70,11 @@ export function useForm(
   });
 
   // An input handler may validate its new value before the change effect runs.
+  // Nested error keys snapshot the parent field, which owns the changed value.
   function snapshotField(field: string) {
+    const [parent] = field.split('.');
     untrack(() => {
-      dataSnapshot = { ...dataSnapshot, [field]: cloneFormValue(data[field]) };
+      dataSnapshot = { ...dataSnapshot, [parent]: cloneFormValue(data[parent]) };
     });
   }
 
@@ -106,7 +113,11 @@ export function useForm(
       errors = {};
     } else {
       for (const field of fields) {
-        delete errors[field];
+        for (const key of Object.keys(errors)) {
+          if (isFormErrorWithin(key, field)) {
+            delete errors[key];
+          }
+        }
       }
     }
   }
