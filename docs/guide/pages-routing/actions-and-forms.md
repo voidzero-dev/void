@@ -153,7 +153,7 @@ The types are inferred from your action's `withValidator()` schema in the compan
 | Property / Method                | Purpose                                                                                                                                                                                                  |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `data` / `setData`               | Current form values, typed to match the action's body schema.                                                                                                                                            |
-| `errors`                         | Field-level validation errors, keys typed to body field names.                                                                                                                                           |
+| `errors`                         | Field-level validation errors, keyed by body field and by nested paths such as `profile.name` or `contacts.0.email`.                                                                                     |
 | `error`                          | Action error, or `null`.                                                                                                                                                                                 |
 | `throwOnError` (option)          | Set to `false` to keep authentication and server failures in `form.error` instead of throwing them.                                                                                                      |
 | `post`, `put`, `patch`, `delete` | Submit the form with that method. In React these are native form action callbacks.                                                                                                                       |
@@ -163,11 +163,11 @@ The types are inferred from your action's `withValidator()` schema in the compan
 | `recentlySuccessful`             | `true` for 2 seconds after a successful submission. Useful for flash messages.                                                                                                                           |
 | `reset(...fields)`               | Reset form data to the current defaults (last submitted values after success). Field names autocomplete. Pass `{ initial: true }` first to reset to the values passed to `useForm`.                      |
 | `resetOnSuccess` (option)        | When `true`, a successful submit resets defaults to the mount-time values, and form data too unless it was edited during the submit. Useful for create forms that should clear after save.               |
-| `setError(field, message)`       | Set a client-side validation error on a field.                                                                                                                                                           |
-| `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete.                                                                                                                                                       |
+| `setError(field, message)`       | Set a client-side validation error on a field, including a nested path such as `profile.name`.                                                                                                           |
+| `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete. Clearing a parent field also clears the errors of its nested fields.                                                                                  |
 | `clearError()`                   | Clear `error`.                                                                                                                                                                                           |
 
-Use `setError()` for client-side validation. Editing a field clears its error automatically.
+Use `setError()` for client-side validation. Editing a field clears its error, including the errors of the fields nested below it.
 
 For a native React form, use `form.post`, `form.put`, `form.patch`, or `form.delete` as a native form action. For an awaitable mutation, use `action()`. In Vue, Svelte, and Solid, form submissions return `Promise<void>`; catch thrown errors or use your framework's error handling.
 
