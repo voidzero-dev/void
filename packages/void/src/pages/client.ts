@@ -649,6 +649,8 @@ export {
   formRetryMessage,
   formSubmissionBlocked,
   scheduleFormRetry,
+  type FormErrorPath,
+  type FormErrors,
   type FormModel,
   type FormMethod,
   type FormState,

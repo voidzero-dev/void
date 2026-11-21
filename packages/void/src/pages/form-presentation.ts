@@ -20,8 +20,23 @@ export type FormStatus = {
   readonly wasSuccessful: boolean;
   readonly recentlySuccessful: boolean;
 };
+/**
+ * A body field plus the dotted nested paths a validator reports for it, such as `profile.name`
+ * or `contacts.0.email`. The recursion is capped so a recursive body type stays cheap to check.
+ */
+export type FormErrorPath<T, Depth extends ReadonlyArray<unknown> = []> = Depth['length'] extends 6
+  ? never
+  : T extends ReadonlyArray<infer Item>
+    ? `${number}` | `${number}.${FormErrorPath<Item, [unknown, ...Depth]>}`
+    : T extends object
+      ? {
+          [K in keyof T & string]: T[K] extends (...args: Array<never>) => unknown
+            ? never
+            : K | `${K}.${FormErrorPath<T[K], [unknown, ...Depth]>}`;
+        }[keyof T & string]
+      : never;
 /** Field-keyed validation messages; a field without an error is absent. */
-export type FormErrors<TData> = Partial<Record<keyof TData & string, string>>;
+export type FormErrors<TData> = Partial<Record<FormErrorPath<TData>, string>>;
 /**
  * How an adapter's apps change `data` and `errors`, following its framework's idiom.
  * `'in-place'`: apps edit them directly (Vue, Svelte).
@@ -40,8 +55,8 @@ export type FormState<TData, TEditing extends FormEditing> = FormStatus &
   Readonly<{
     reset(options: FormResetOptions, ...fields: ReadonlyArray<keyof TData & string>): void;
     reset(...fields: ReadonlyArray<keyof TData & string>): void;
-    setError(field: keyof TData & string, message: string): void;
-    clearErrors(...fields: ReadonlyArray<keyof TData & string>): void;
+    setError(field: FormErrorPath<TData>, message: string): void;
+    clearErrors(...fields: ReadonlyArray<FormErrorPath<TData>>): void;
     clearError(): void;
   }>;
 /**
