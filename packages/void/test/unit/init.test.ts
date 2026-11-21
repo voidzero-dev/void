@@ -167,6 +167,43 @@ describe('init scaffold arguments', () => {
     expect(() => parseInitArgs(['--framework', 'angular'])).toThrow(
       'init: --framework must be one of react, vue, svelte, solid.',
     );
+    expect(parseInitArgs(['--no-install', '--no-git'])).toMatchObject({
+      install: false,
+      git: false,
+    });
+  });
+
+  it('scaffolds with --no-install without running the package manager install', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-no-install-'));
+    try {
+      await runInitCommand(
+        root,
+        parseInitArgs([
+          '--toolchain',
+          'vite',
+          '--framework',
+          'react',
+          '--starter',
+          'static',
+          '--deploy',
+          'none',
+          '--no-install',
+        ]),
+      );
+
+      expect(existsSync(join(root, 'pages', 'index.tsx'))).toBe(true);
+      expect(
+        mockSpawnSync.mock.calls.filter(([, args]) => Array.isArray(args) && args[0] === 'install'),
+      ).toEqual([]);
+      expect(summaryMessages('→').join('\n')).toContain('npm install');
+      expect(
+        summaryMessages('✓').some(
+          (message) => typeof message === 'string' && message.startsWith('Installed dependencies'),
+        ),
+      ).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('scaffolds from flags without prompting when stdin is not a terminal', async () => {
