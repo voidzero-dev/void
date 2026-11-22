@@ -72,6 +72,7 @@ import { repairEmailRecipientPolicyMirror } from './email/settings.ts';
 import { reconcileSharedEmailRecipients } from './email/shared-recipient-service.ts';
 import { isDevBypass, type ApiEnv } from './env.ts';
 import { ErrorAlertMonitor } from './error-alert-monitor.ts';
+import { armFastMaintenance, fastMaintenanceArmedAt } from './fast-maintenance.ts';
 import { cancelContainerBuildDos } from './github/cancel-builds.ts';
 import { authMiddleware } from './middleware/auth.ts';
 import { platformAccessProtection } from './middleware/platform-access.ts';
@@ -302,6 +303,21 @@ const app = new Hono<ApiEnv>()
   .use('*', async (context, next) => {
     context.set('db', createDb(context.env.HYPERDRIVE.connectionString));
     await next();
+  })
+
+  // Deploys, domains, email, deletions and operator commands all start as a
+  // mutating request, and leave work for the two-minute cron to continue. A
+  // request that failed on the server may have committed part of its work, so
+  // only a rejected one (4xx) is known to have left nothing behind.
+  .use('*', async (context, next) => {
+    await next();
+    const status = context.res.status;
+    if (
+      !['GET', 'HEAD', 'OPTIONS'].includes(context.req.method) &&
+      (status < 400 || status >= 500)
+    ) {
+      await armFastMaintenance(context.env);
+    }
   })
 
   .use('*', platformAccessProtection)
@@ -663,13 +679,43 @@ async function scheduled(
   env: ApiEnv['Bindings'],
   _ctx: ExecutionContext,
 ): Promise<void> {
+  // An idle fast tick must not query PostgreSQL: a query every two minutes
+  // keeps a scale-to-zero database running. See fast-maintenance.ts.
+  const armedAt = controller.cron === FAST_CRON ? await fastMaintenanceArmedAt(env) : undefined;
+  if (armedAt === null) {
+    return;
+  }
+  const fastTier = { unfinished: false };
+  try {
+    await runScheduledMaintenance(controller, env, fastTier);
+  } finally {
+    if (fastTier.unfinished) {
+      await armFastMaintenance(env, armedAt);
+    }
+  }
+}
+
+/**
+ * `fastTier.unfinished` is set when a step leaves work that the next
+ * two-minute tick should continue, and keeps that tier armed. Only work that
+ * ends by itself may set it. Retries that can repeat indefinitely (failed
+ * project cleanup, email operations awaiting recovery) rely on the request
+ * that created them and on the hourly cron.
+ */
+async function runScheduledMaintenance(
+  controller: ScheduledController,
+  env: ApiEnv['Bindings'],
+  fastTier: { unfinished: boolean },
+): Promise<void> {
   env = await resolvePlatformApplicationEnvironment(env);
   const deploymentDb = env.DEPLOYMENTS_QUEUE ? createDb(env.HYPERDRIVE.connectionString) : null;
   // Durable jobs admitted before maintenance must still execute and settle.
   if (deploymentDb) {
-    await dispatchPendingDeployments(env, deploymentDb).catch((error) =>
-      console.error('[scheduled] deployment outbox failed', error),
-    );
+    await dispatchPendingDeployments(env, deploymentDb)
+      .then((found) => {
+        fastTier.unfinished ||= found;
+      })
+      .catch((error) => console.error('[scheduled] deployment outbox failed', error));
   }
   if (
     env.PLATFORM_TRAFFIC_STATE === 'staging' ||
@@ -704,6 +750,7 @@ async function scheduled(
       return false;
     });
     if (zeroTrustProgressed) {
+      fastTier.unfinished = true;
       return;
     }
   }
@@ -711,9 +758,11 @@ async function scheduled(
   // Proxy token rotations, bounded per tick so deploys keep their share of the
   // Cloudflare API rate limit.
   if (!isDevBypass(env) && env.CF_API_TOKEN) {
-    await reconcileProxyTokenRotations(db, env, { maxCfCalls: 100, maxMs: 25_000 }).catch((error) =>
-      console.error('[scheduled] proxy token rotation failed:', error),
-    );
+    await reconcileProxyTokenRotations(db, env, { maxCfCalls: 100, maxMs: 25_000 })
+      .then((summary) => {
+        fastTier.unfinished ||= summary.done + summary.pending > 0;
+      })
+      .catch((error) => console.error('[scheduled] proxy token rotation failed:', error));
   }
 
   if (capabilities.email) {
@@ -753,6 +802,7 @@ async function scheduled(
     }
     const cutoff = new Date(controller.scheduledTime - RECENT_PENDING_WINDOW_MS).toISOString();
     const young = await getPendingDomainsNewerThan(db, cutoff, MAX_PENDING_RECONCILE_PER_RUN);
+    fastTier.unfinished ||= young.length > 0;
     if (young.length === MAX_PENDING_RECONCILE_PER_RUN) {
       console.warn(
         `[scheduled] fast pending-domain reconcile hit the per-run cap (${MAX_PENDING_RECONCILE_PER_RUN}); remaining pending domains will be processed on the next run`,
@@ -904,6 +954,8 @@ async function scheduled(
   // activated instead of garbage-collected.
   if (capabilities.customDomains) {
     const allPending = await getPendingDomains(db, MAX_PENDING_RECONCILE_PER_RUN);
+    const youngCutoff = new Date(Date.now() - RECENT_PENDING_WINDOW_MS).toISOString();
+    fastTier.unfinished ||= (await getPendingDomainsNewerThan(db, youngCutoff, 1)).length > 0;
     if (allPending.length === MAX_PENDING_RECONCILE_PER_RUN) {
       console.warn(
         `[scheduled] hourly pending-domain reconcile hit the per-run cap (${MAX_PENDING_RECONCILE_PER_RUN}); remaining pending domains will be processed on the next run`,

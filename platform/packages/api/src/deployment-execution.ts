@@ -481,9 +481,13 @@ async function deleteDeploymentInputs(
     .where(eq(deploymentOperations.id, operation.id));
 }
 
-export async function dispatchPendingDeployments(env: ApiEnv['Bindings'], db: Db): Promise<void> {
+/** Returns whether it found a deployment to send or clean up. */
+export async function dispatchPendingDeployments(
+  env: ApiEnv['Bindings'],
+  db: Db,
+): Promise<boolean> {
   if (!env.DEPLOYMENTS_QUEUE) {
-    return;
+    return false;
   }
   const pending = await db
     .select({ id: deploymentOperations.id })
@@ -507,6 +511,7 @@ export async function dispatchPendingDeployments(env: ApiEnv['Bindings'], db: Db
     await deleteDeploymentInputs(env, db, operation);
   }
   await sweepStaleDeploymentInputs(env, db);
+  return pending.length > 0 || completed.length > 0;
 }
 
 /**

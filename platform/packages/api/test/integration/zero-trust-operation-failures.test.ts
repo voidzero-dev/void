@@ -11,6 +11,7 @@ import {
 } from 'vite-plus/test';
 import * as db from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
+import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
 import app, { FAST_CRON, scheduled } from '../../src/index.ts';
 import { domains, platformSettings, projectZeroTrust } from '../../src/schema.ts';
 import * as zeroTrustConfiguration from '../../src/zero-trust/configuration.ts';
@@ -241,6 +242,7 @@ describe('Zero Trust operation failures', () => {
       })
       .where(eq(platformSettings.key, 'zeroTrust.configuration'));
     cloudflare.revoke(true);
+    await env.ROUTING.put(FAST_MAINTENANCE_KEY, 'armed');
     const pendingDomains = vi.spyOn(db, 'getPendingDomainsNewerThan');
     const fast = () =>
       scheduled(
