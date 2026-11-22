@@ -1,4 +1,9 @@
-import { matchSegmentPattern, PAGES_PROTOCOL_VERSION } from '@void/edge';
+import {
+  isStaleBuild,
+  matchSegmentPattern,
+  PAGES_BUILD_HEADER,
+  PAGES_PROTOCOL_VERSION,
+} from '@void/edge';
 import {
   buildVariantOriginalUrl,
   decodeIsrCacheEntry,
@@ -324,7 +329,12 @@ function sharedHtmlCacheHeaders(response: Response, ttl: number, state: 'HIT' | 
   return headers;
 }
 
-function jsonCacheResponse(pageData: string, ttl: number, state: 'HIT' | 'MISS'): Response {
+function jsonCacheResponse(
+  pageData: string,
+  ttl: number,
+  state: 'HIT' | 'MISS',
+  build: string | null,
+): Response {
   const response = new Response(pageData, {
     headers: {
       'content-type': 'application/json',
@@ -332,6 +342,9 @@ function jsonCacheResponse(pageData: string, ttl: number, state: 'HIT' | 'MISS')
       // `X-VoidPages` is present, and otherwise reloads the whole page.
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      // Kept with the payload: a hit for a client from another build must not
+      // pass off this render's props as its own.
+      ...(build ? { [PAGES_BUILD_HEADER]: build } : {}),
       Vary: 'X-VoidPages, X-VoidPages-Version',
       'Cache-Control': `public, s-maxage=${ttl}, max-age=0, must-revalidate`,
       'x-isr-cache': state,
@@ -357,6 +370,7 @@ export async function populateJsonEdgeCache(
     return;
   }
   try {
+    const build = response.headers.get(PAGES_BUILD_HEADER);
     const fromHeader = response.headers.get('x-void-page-data');
     const pageData = fromHeader
       ? normalizePageDataForJsonCache(fromHeader)
@@ -364,7 +378,7 @@ export async function populateJsonEdgeCache(
     if (!pageData) {
       return;
     }
-    await cache.put(cacheKey, jsonCacheResponse(pageData, ttl, state));
+    await cache.put(cacheKey, jsonCacheResponse(pageData, ttl, state, build));
   } catch {
     // Fail open.
   }
@@ -580,6 +594,12 @@ async function handleIsrInternal(
       return null; // fail open → caller renders live
     }
     if (jsonCached && hasCurrentSharedCachePolicy(jsonCached)) {
+      // A cached payload from another build would hand this client page props it
+      // has no components for. Let the app answer, which reloads a stale tab.
+      const cachedBuild = jsonCached.headers.get(PAGES_BUILD_HEADER) ?? '';
+      if (isStaleBuild(cachedBuild, request.headers.get(PAGES_BUILD_HEADER))) {
+        return render(request);
+      }
       return clientRevalidateResponse(jsonCached);
     }
     if (jsonCached) {

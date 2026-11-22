@@ -925,6 +925,83 @@ describe('handleIsr', () => {
     expect(await res!.text()).toBe('{"component":"Blog","props":{}}');
   });
 
+  it('bypasses a cached JSON variant that belongs to another build', async () => {
+    const { kv } = createKvMock();
+    const env = makeEnv(kv);
+    const { render } = createRender(
+      () =>
+        new Response('<html>live</html>', {
+          headers: {
+            'content-type': 'text/html',
+            'x-void-page-data': '{"component":"Blog","props":{}}',
+            'X-VoidPages-Build': 'build-1',
+          },
+        }),
+    );
+    const { ctx, flush } = createCtx();
+    await handleIsr(htmlRequest(), env, ctx, OPTS, render);
+    await flush();
+    expect(edge.store.has(jsonEdgeKey(HOST, '/blog/post', DPL))).toBe(true);
+
+    const pagesHeaders = (build: string) => ({
+      'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      'X-VoidPages-Build': build,
+    });
+
+    // Same build: the cached payload answers and names the build it came from.
+    const { render: hitRender, spy: hitSpy } = createRender(
+      () => new Response('SHOULD-NOT-RENDER'),
+    );
+    const hit = await handleIsr(
+      htmlRequest('/blog/post', pagesHeaders('build-1')),
+      env,
+      createCtx().ctx,
+      OPTS,
+      hitRender,
+    );
+    expect(hitSpy).not.toHaveBeenCalled();
+    expect(hit!.headers.get('X-VoidPages-Build')).toBe('build-1');
+
+    // A client that sends no build id cannot be shown a reload; the payload stays.
+    const { render: legacyRender, spy: legacySpy } = createRender(
+      () => new Response('SHOULD-NOT-RENDER'),
+    );
+    const legacy = await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      }),
+      env,
+      createCtx().ctx,
+      OPTS,
+      legacyRender,
+    );
+    expect(legacySpy).not.toHaveBeenCalled();
+    expect(legacy!.headers.get('X-VoidPages-Build')).toBe('build-1');
+
+    // Another build: the app answers instead, which reloads the stale tab.
+    const { render: liveRender, spy: liveSpy } = createRender(
+      () =>
+        new Response('{"component":"Blog","props":{"fresh":true}}', {
+          headers: {
+            'content-type': 'application/json',
+            'X-VoidPages': 'true',
+            'X-VoidPages-Build': 'build-2',
+          },
+        }),
+    );
+    const live = await handleIsr(
+      htmlRequest('/blog/post', pagesHeaders('build-2')),
+      env,
+      createCtx().ctx,
+      OPTS,
+      liveRender,
+    );
+    expect(liveSpy).toHaveBeenCalledTimes(1);
+    expect(live!.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
   it.each([
     ['getWithMetadata throws', true],
     ['the KV entry is from an older cache policy', false],
