@@ -3,7 +3,7 @@ import * as p from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
 import pc from 'picocolors';
 import { parseCreateArgs, validateProjectName } from './args.ts';
-import { detectPM, pmInitCommand, run } from './pm.ts';
+import { detectPM, runVoidInit } from './pm.ts';
 
 const pm = detectPM();
 
@@ -51,8 +51,7 @@ async function main() {
   mkdirSync(targetDir, { recursive: true });
 
   p.log.step('Scaffolding starter...');
-  const initCommand = pmInitCommand(pm, voidVersion, createArgs.initArgs);
-  await run(initCommand, targetDir);
+  await runVoidInit(pm, voidVersion, createArgs.initArgs, targetDir);
 
   p.outro(`\n${pc.green(`✓ Created ${appName}`)}`, { withGuide: false });
   p.outro(`cd ${appName} && ${pm === 'npm' ? 'npm run' : pm} dev`);

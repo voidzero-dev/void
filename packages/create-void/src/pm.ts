@@ -64,6 +64,18 @@ export function pmInitCommand(
   return [...pmDlx(pm, version), 'init', ...initArgs];
 }
 
+export type InitCommandRunner = (argv: ReadonlyArray<string>, cwd?: string) => Promise<void>;
+
+export function runVoidInit(
+  pm: PM,
+  version: string,
+  initArgs: ReadonlyArray<string>,
+  cwd: string,
+  runner: InitCommandRunner = run,
+): Promise<void> {
+  return runner(pmInitCommand(pm, version, initArgs), cwd);
+}
+
 export function run(argv: ReadonlyArray<string>, cwd?: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const [cmd, ...args] = argv;
