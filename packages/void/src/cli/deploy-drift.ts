@@ -162,13 +162,17 @@ function createDeployDriftProject(root: string, driftProjectRoot: string): void 
   }
 
   // The build-generated Better Auth schema participates in `void db generate`, so
-  // it must also participate in the isolated drift check. Copy only this known
-  // generated input; the rest of `.void` stays excluded.
-  const authSchemaPath = join(root, '.void', 'better-auth-schema.ts');
-  if (existsSync(authSchemaPath)) {
-    const target = join(driftProjectRoot, '.void', 'better-auth-schema.ts');
-    mkdirSync(dirname(target), { recursive: true });
-    cpSync(authSchemaPath, target);
+  // it must also participate in the isolated drift check. The generated tsconfig
+  // maps `@auth-schema`, and the app's tsconfig may extend it, so schema imports
+  // resolve only with it present. Copy only these known generated inputs; the rest
+  // of `.void` stays excluded.
+  for (const file of ['better-auth-schema.ts', 'tsconfig.json']) {
+    const source = join(root, '.void', file);
+    if (existsSync(source)) {
+      const target = join(driftProjectRoot, '.void', file);
+      mkdirSync(dirname(target), { recursive: true });
+      cpSync(source, target);
+    }
   }
 }
 
