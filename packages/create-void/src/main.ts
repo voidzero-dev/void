@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import * as p from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
 import pc from 'picocolors';
@@ -50,30 +50,9 @@ async function main() {
 
   mkdirSync(targetDir, { recursive: true });
 
-  const pkg = {
-    name: appName,
-    private: true,
-    type: 'module',
-    devDependencies: {
-      void: voidVersion,
-    },
-  };
-
-  writeFileSync(resolve(targetDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n');
-  // pnpm 12 fails the first install when a dependency has an unapproved build
-  // script. Write Void's narrow policy before installing the CLI so a fresh
-  // project can bootstrap without disabling pnpm's build-script protection.
-  writePnpmBuildPolicy(targetDir, pm);
-
-  p.log.step('Installing Void...');
-  await run(pmInstall(pm), targetDir);
-
   p.log.step('Scaffolding starter...');
   const initCommand = pmInitCommand(pm, voidVersion, createArgs.initArgs);
   await run(initCommand, targetDir);
-
-  p.log.step('Installing starter dependencies...');
-  await run(pmInstall(pm), targetDir);
 
   p.outro(`\n${pc.green(`✓ Created ${appName}`)}`, { withGuide: false });
   p.outro(`cd ${appName} && ${pm === 'npm' ? 'npm run' : pm} dev`);
