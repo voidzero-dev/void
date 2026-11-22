@@ -1,4 +1,5 @@
 import { relative } from 'pathslash';
+import type { PageDefinition } from '../pages/types.ts';
 import type { RouteDefinition } from '../router/parse-filename.ts';
 import type { ScanResult } from '../router/scan.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
@@ -45,6 +46,55 @@ function encodeRoutePattern(pattern: string): string {
       return url.pathname.slice(1);
     })
     .join('/');
+}
+
+/**
+ * One PageQueryMap entry per page whose loader validates its query. A page
+ * without a query schema is left out, so its links keep accepting any query.
+ * A `.dev` + `.prod` pair shares one pattern, so its two pages become a union.
+ */
+function pageQueryLines(
+  pages: Array<PageDefinition>,
+  pagesDir: string | undefined,
+  outDir: string,
+): Array<string> {
+  const loaderPages = pages.filter(
+    (page) => page.serverPath !== null && page.methods.includes('loader'),
+  );
+  if (loaderPages.length === 0 || !pagesDir) {
+    return [];
+  }
+
+  const entriesByPattern = new Map<string, Array<Array<string>>>();
+  for (const page of loaderPages) {
+    const importPath = relative(outDir, `${pagesDir}/${page.serverPath!}`);
+    const loader = `(typeof import(${JSON.stringify(importPath)}))["loader"]`;
+    const entry = [
+      `      input: ExtractInput<${loader}["__validators"]> extends { query: infer Q } ? Q : never;`,
+      `      output: ${loader}["__validators"] extends { query: infer S } ? ExtractOutput<S> : never;`,
+    ];
+    const entries = entriesByPattern.get(page.pattern);
+    if (entries) {
+      entries.push(entry);
+    } else {
+      entriesByPattern.set(page.pattern, [entry]);
+    }
+  }
+
+  const lines: Array<string> = ['  export interface PageQueryMap {'];
+  for (const [pattern, entries] of entriesByPattern) {
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: {`);
+    entries.forEach((entry, index) => {
+      if (index > 0) {
+        lines.push('    } | {');
+      }
+      lines.push(...entry);
+    });
+    lines.push('    };');
+    legacyRouteAlias(lines, 'PageQueryMap', pattern);
+  }
+  lines.push('  }');
+  return lines;
 }
 
 /**
@@ -146,12 +196,23 @@ export function generateRouteTypes(
   lines.push(
     '  export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;',
   );
+  lines.push('  type RouteQueryOptions<P> = P extends keyof PageQueryMap');
+  lines.push("    ? [PageQueryMap[P]['input']] extends [never]");
+  lines.push('      ? { query?: RouteQuery }');
+  lines.push("      : {} extends PageQueryMap[P]['input']");
+  lines.push("        ? { query?: PageQueryMap[P]['input'] }");
+  lines.push("        : { query: PageQueryMap[P]['input'] }");
+  lines.push('    : { query?: RouteQuery };');
   lines.push('  export type RouteOptions<P extends RoutePath> = {');
-  lines.push('    query?: RouteQuery;');
   lines.push('    hash?: string;');
+  lines.push('    query?: RouteQuery;');
   lines.push('  } & ([RoutePathMap[P]] extends [never]');
   lines.push('    ? { params?: never }');
   lines.push('    : { params: { [K in RoutePathMap[P] & string]: string | number } });');
+  lines.push('  export type RouteUrlArgs<P extends RoutePath> =');
+  lines.push('    {} extends (RouteOptions<P> & RouteQueryOptions<P>)');
+  lines.push('      ? [options?: RouteOptions<P> & RouteQueryOptions<P>]');
+  lines.push('      : [options: RouteOptions<P> & RouteQueryOptions<P>];');
   lines.push(
     '  export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath',
   );
@@ -198,11 +259,12 @@ export function generateRouteTypes(
   );
   lines.push('    : string;');
   lines.push('  export type RouteUrlInput = Href | URL | RouteDestination;');
+  lines.push('  export type RouteUrlArgs<P extends RoutePath> = {} extends RouteOptions<P>');
+  lines.push('    ? [options?: RouteOptions<P>]');
+  lines.push('    : [options: RouteOptions<P>];');
   lines.push('  export function routeUrl<P extends RoutePath>(');
   lines.push('    path: P,');
-  lines.push('    ...args: [RoutePathMap[NoInfer<P>]] extends [never]');
-  lines.push('      ? [options?: RouteOptions<P>]');
-  lines.push('      : [options: RouteOptions<P>]');
+  lines.push('    ...args: RouteUrlArgs<P>');
   lines.push('  ): RouteUrl;');
   lines.push('');
   lines.push('  export interface RouteTypesConfig {');
@@ -254,6 +316,20 @@ export function generateRouteTypes(
   lines.push('  export type PageParams<P extends PagePath> = P extends PagePath');
   lines.push('    ? { [K in Exclude<PagePathMap[P], "*"> & string]: string }');
   lines.push('    : never;');
+  lines.push('');
+  lines.push('  export interface PageQueryMap {}');
+  lines.push('  export type PageQueryInput<P> = P extends keyof PageQueryMap');
+  lines.push("    ? [PageQueryMap[P]['input']] extends [never]");
+  lines.push('      ? RouteQuery');
+  lines.push("      : PageQueryMap[P]['input']");
+  lines.push('    : RouteQuery;');
+  lines.push('  export type PageQuery<P> = P extends keyof PageQueryMap');
+  lines.push("    ? [PageQueryMap[P]['output']] extends [never]");
+  lines.push('      ? Record<string, string | Array<string>>');
+  lines.push("      : PageQueryMap[P]['output']");
+  lines.push('    : Record<string, string | Array<string>>;');
+  lines.push('');
+  lines.push(...pageQueryLines(scan.pages.pages, pagesDir, outDir));
   lines.push('');
   // `routeUrl()` returns `/caf%C3%A9%20menu` for `/café menu`, so accept that spelling too.
   lines.push('  export interface EncodedRoutePathMap {');

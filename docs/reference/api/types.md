@@ -112,13 +112,15 @@ routeUrl('/users/[id]', {
 // /users/42?tab=activity#details
 ```
 
-| Option   | Type           | Description                                                                        |
-| -------- | -------------- | ---------------------------------------------------------------------------------- |
-| `params` | Route-specific | Required for dynamic routes. Each parameter accepts a `string` or `number`.        |
-| `query`  | `RouteQuery`   | Query parameters. Arrays become repeated keys; `null` and `undefined` are omitted. |
-| `hash`   | `string`       | URL fragment, such as `'details'` or `'#details'`.                                 |
+| Option   | Type                | Description                                                                        |
+| -------- | ------------------- | ---------------------------------------------------------------------------------- |
+| `params` | Route-specific      | Required for dynamic routes. Each parameter accepts a `string` or `number`.        |
+| `query`  | `PageQueryInput<P>` | Query parameters. Arrays become repeated keys; `null` and `undefined` are omitted. |
+| `hash`   | `string`            | URL fragment, such as `'details'` or `'#details'`.                                 |
 
 Static routes accept optional `query` and `hash` options. Pass raw parameter values for URL encoding. Catch-all parameters preserve `/` separators between segments. Invalid or missing path parameters throw a `TypeError`.
+
+`PageQueryInput<P>` is `RouteQuery` unless the page at `P` validates its query, in which case it is that schema's input type. It also carries the required keys, so `query` cannot be omitted when the schema has one. See [Page query](../../guide/type-safety.md#page-query).
 
 Use the returned [`RouteUrl`](#route-types) with `Link`, `<a>`, and `c.redirect()`. See [Typed URLs and Navigation](../../guide/type-safety.md#typed-urls-and-navigation) for setup and examples.
 
@@ -133,6 +135,9 @@ Import these types from `void/routes`:
 | `PagePathMap`         | Generated map of page patterns to their parameter names.                                          |
 | `PagePath`            | Union of the page patterns in `PagePathMap`; accepted by `useParams()`.                           |
 | `PageParams<P>`       | The params page `P` receives, such as `{ id: string }` for `/users/[id]`.                         |
+| `PageQueryMap`        | Generated map of page patterns to a loader's query schema input and output types.                 |
+| `PageQueryInput<P>`   | Query values a link to page `P` accepts; `RouteQuery` when the page has no query schema.          |
+| `PageQuery<P>`        | Query values page `P` reads after validation; query string values when it has no schema.          |
 | `RouteOptions<P>`     | Options for a route pattern `P`, including its required `params`, optional `query`, and `hash`.   |
 | `RouteDestination<P>` | `{ pathname: P }` with `RouteOptions<P>`. Defaults to all known routes when `P` is omitted.       |
 | `RouteUrl`            | The URL of one of your routes, returned by `routeUrl()`. `string` unless `typedRoutes` is on.     |

@@ -38,6 +38,11 @@ export type PageObject = {
   component: string;
   props: Record<string, unknown>;
   params: Record<string, string>;
+  /**
+   * Query the page reads. The loader's `query` schema result when one exists,
+   * otherwise the request's raw query values.
+   */
+  query: Record<string, unknown>;
   shared: Record<string, unknown>;
   url: string;
   errors: Record<string, string> | null;
@@ -333,6 +338,25 @@ function requestParams(c: CloudContext): Record<string, string> {
   return c.req.param() as Record<string, string>;
 }
 
+/**
+ * The query the page reads. `withValidator` stores the slots its schema
+ * produced, so a validated query reaches the page already coerced and with its
+ * defaults applied. Pages without a query schema get the request's raw values,
+ * repeated keys as arrays.
+ */
+function requestQuery(c: CloudContext): Record<string, unknown> {
+  const validated = c.get('__voidValidatedInput') as { query?: unknown } | undefined;
+  if (validated && typeof validated.query === 'object' && validated.query !== null) {
+    return validated.query as Record<string, unknown>;
+  }
+  return Object.fromEntries(
+    Object.entries(c.req.queries()).map(([key, values]) => [
+      key,
+      values.length === 1 ? values[0] : values,
+    ]),
+  );
+}
+
 /** Extract props from a handler result, handling Response wrapping from withValidator */
 async function extractProps(result: unknown): Promise<Record<string, unknown>> {
   if (result instanceof Response) {
@@ -511,6 +535,7 @@ async function renderPageFailure(
       props: { error: { status, message } },
       shared,
       params: requestParams(c),
+      query: requestQuery(c),
       url: requestPathWithSearch(c),
       errors: null,
       head: {
@@ -822,6 +847,7 @@ async function runPageGet(
           component: componentId,
           props: immediateProps,
           params: requestParams(c),
+          query: requestQuery(c),
           shared,
           url: requestPathWithSearch(c),
           errors: null,
@@ -1005,6 +1031,7 @@ async function runPageMutation(
       component: componentId,
       props,
       params: requestParams(c),
+      query: requestQuery(c),
       shared,
       url: requestPathWithSearch(c, hasActionKey(c.req.raw)),
       errors,

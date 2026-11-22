@@ -1,11 +1,11 @@
 export { routeUrl } from './runtime/routing/route-url.ts';
 export type {
   Href,
-  RoutePath,
+  RouteDestination,
   RouteOptions,
+  RoutePath,
   RouteQuery,
   RouteQueryValue,
-  RouteDestination,
   RouteUrl,
   RouteUrlInput,
 } from './runtime/routing/route-url.ts';
@@ -26,6 +26,33 @@ export type PagePath = keyof PagePathMap & string;
 export type PageParams<P extends PagePath> = P extends PagePath
   ? { [K in Exclude<PagePathMap[P], '*'> & string]: string }
   : never;
+
+/**
+ * Query schema per page, augmented by .void/routes.d.ts when the page loader
+ * calls `defineHandler.withValidator({ query })`.
+ *
+ * `input` is what a link to the page may pass, `output` is what the page reads
+ * after validation, so defaults and coercions differ between the two.
+ */
+export interface PageQueryMap {}
+
+/** Query values a link or navigation to `P` accepts. Untyped pages take `RouteQuery`. */
+export type PageQueryInput<P> = P extends keyof PageQueryMap
+  ? [PageQueryMap[P]['input']] extends [never]
+    ? import('./runtime/routing/route-url.ts').RouteQuery
+    : PageQueryMap[P]['input']
+  : import('./runtime/routing/route-url.ts').RouteQuery;
+
+/**
+ * Query values the page at `P` reads. The loader's schema has already run, so
+ * defaults are applied and coercions are done. Pages without a query schema
+ * expose the request's raw query string values.
+ */
+export type PageQuery<P> = P extends keyof PageQueryMap
+  ? [PageQueryMap[P]['output']] extends [never]
+    ? Record<string, string | Array<string>>
+    : PageQueryMap[P]['output']
+  : Record<string, string | Array<string>>;
 
 /** Percent-encoded spellings of patterns with encoded fixed segments, augmented by .void/routes.d.ts. */
 export interface EncodedRoutePathMap {}

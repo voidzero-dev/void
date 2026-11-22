@@ -20,12 +20,14 @@ import {
   type CloudEnv,
 } from '../../src/runtime/handler/index.ts';
 import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
+import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type RenderPage = { component: string };
 type PageResponse = {
   component: string;
   props: Record<string, unknown>;
   params?: Record<string, string>;
+  query?: Record<string, unknown>;
   url: string;
   errors: Record<string, string> | null;
   shared?: Record<string, unknown>;
@@ -832,6 +834,57 @@ describe('handlePageMutation', () => {
 
     const body = await json<PageResponse>(response);
     expect(body.url).toBe('/users?page=2');
+  });
+
+  it("carries the loader's validated query into the page payload", async () => {
+    const query = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate(value: unknown) {
+          const raw = value as Record<string, string>;
+          const page = Number(raw.page ?? '1');
+          if (Number.isNaN(page)) {
+            return { issues: [{ message: 'page must be a number' }] };
+          }
+          return { value: { page, q: raw.q } };
+        },
+      },
+    } satisfies StandardSchemaV1;
+    const c = await createTestContext('GET', '/users?page=2&q=ada', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    const response = await handlePageGet(
+      defineHandler.withValidator({ query })(() => ({ users: [] })),
+      undefined,
+      c,
+      'users',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const body = await json<PageResponse>(response);
+    // The raw search is `page=2`, so a string here means the page read the URL instead.
+    expect(body.query).toEqual({ page: 2, q: 'ada' });
+  });
+
+  it('falls back to the raw request query when the loader has no schema', async () => {
+    const c = await createTestContext('GET', '/users?tag=a&tag=b&q=ada', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    const response = await handlePageGet(
+      () => ({ users: [] }),
+      undefined,
+      c,
+      'users',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const body = await json<PageResponse>(response);
+    expect(body.query).toEqual({ tag: ['a', 'b'], q: 'ada' });
   });
 
   it('Response redirect — passes through', async () => {

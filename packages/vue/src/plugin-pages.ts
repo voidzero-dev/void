@@ -310,7 +310,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
     setup() {
       provide("__void_shared", reactive(pageObj.shared || {}));
       provide("__void_params", reactive(pageObj.params || {}));
-      provide("__void_router", createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl));
+      provide("__void_router", createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl, pageObj.query || {}));
       provide("__void_navigation", idleNavigationState());
       return () => {
         patchProps(PageComponent, pageObj.props);
@@ -366,6 +366,7 @@ ${generateComponentManifest(scan, pagesDir)}
 
 const shared = reactive({});
 const params = reactive({});
+const query = reactive({});
 const currentComponent = shallowRef(null);
 const currentLayouts = shallowRef([]);
 const currentProps = shallowRef({});
@@ -395,6 +396,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
         if (!options?.preserveState) currentPageKey.value++;
         replaceRecord(shared, pageData.shared || {});
         replaceRecord(params, pageData.params || {});
+        replaceRecord(query, pageData.query || {});
         currentProps.value = pageData.props;
         currentLayouts.value = layouts;
         currentComponent.value = comp;
@@ -418,12 +420,13 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     },
   }).catch(error => { if (Object.keys(boundaryManifest.plans).length) showTerminalPageError(); throw error; });
 
-const reactiveRouter = createRouterFacade(router, () => routeUrl.value, () => params);
+const reactiveRouter = createRouterFacade(router, () => routeUrl.value, () => params, () => query);
 
 setActionRouter(reactiveRouter);
 
 Object.assign(shared, initialPageData.shared || {});
 replaceRecord(params, initialPageData.params || {});
+replaceRecord(query, initialPageData.query || {});
 currentPageId = initialPageData.component;
 currentProps.value = initialPageData.props;
 currentComponent.value = initialComponent;

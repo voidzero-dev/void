@@ -115,7 +115,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
       pageProps: pageObj.props,
       shared: pageObj.shared || {},
       params: pageObj.params || {},
-      router: createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl),
+      router: createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl, pageObj.query || {}),
       routeUrl: pageObj.url || "/",
       navigation: idleNavigationState(),
       stores: null,
@@ -165,8 +165,10 @@ const propsStore = writable({});
 const layoutsStore = writable([]);
 const sharedStore = writable({});
 const paramsStore = writable({});
+const queryStore = writable({});
 let routeUrl = window.location.pathname + window.location.search + window.location.hash;
 let routeParams = {};
+let routeQuery = {};
 const routeStore = writable(routeUrl);
 const navigationStore = writable(idleNavigationState());
 
@@ -184,6 +186,8 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
         sharedStore.set(pageData.shared || {});
         routeParams = pageData.params || {};
         paramsStore.set(routeParams);
+        routeQuery = pageData.query || {};
+        queryStore.set(routeQuery);
         layoutsStore.set(layouts);
         pageStore.set(comp);
       },
@@ -207,7 +211,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     },
   }).catch(error => { if (Object.keys(boundaryManifest.plans).length) showTerminalPageError(); throw error; });
 
-const reactiveRouter = createRouterFacade(router, () => routeUrl, () => routeParams);
+const reactiveRouter = createRouterFacade(router, () => routeUrl, () => routeParams, () => routeQuery);
 
 setActionRouter(router);
 
@@ -218,6 +222,8 @@ layoutsStore.set(initialLayouts);
 sharedStore.set(initialPageData.shared || {});
 routeParams = initialPageData.params || {};
 paramsStore.set(routeParams);
+routeQuery = initialPageData.query || {};
+queryStore.set(routeQuery);
 
 const appEl = document.getElementById("app");
 if (!appEl) throw new Error("pages: Missing #app element for Void Svelte pages hydration.");

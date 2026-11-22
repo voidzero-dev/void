@@ -22,6 +22,7 @@ export async function renderAdminPage(
     component,
     props,
     params: {},
+    query: Object.fromEntries(new URLSearchParams(search)),
     shared: {
       platformName,
       adminPageUrl: pathname + search,

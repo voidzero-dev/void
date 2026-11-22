@@ -38,6 +38,9 @@ function routerWithVisit(visit: VoidRouter['visit']): VoidRouter {
     get params() {
       return {};
     },
+    get _pageQuery() {
+      return {};
+    },
     visit,
     refresh: vi.fn(),
     prefetch: vi.fn(),

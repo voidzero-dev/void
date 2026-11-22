@@ -11,7 +11,15 @@ it('rejects with the error a page throws while rendering', async () => {
 
   await expect(
     renderReactPage({
-      pageObj: { component: 'page', props: {}, url: '/', params: {}, shared: {}, errors: null },
+      pageObj: {
+        component: 'page',
+        props: {},
+        url: '/',
+        params: {},
+        query: {},
+        shared: {},
+        errors: null,
+      },
       assetTags: { css: '', preloads: '', body: '' },
       components: { page: async () => ({ default: Page }) },
       layoutTree: {},
@@ -36,6 +44,7 @@ it('finishes deferred fallbacks without waiting for the separate deferred transp
       props: {},
       url: '/',
       params: {},
+      query: {},
       shared: {},
       errors: null,
       deferredKeys: { usage: 'usage' },

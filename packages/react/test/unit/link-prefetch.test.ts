@@ -35,6 +35,9 @@ function createRouter(defaultStrategy?: LinkPrefetchValue) {
     get params() {
       return {};
     },
+    get _pageQuery() {
+      return {};
+    },
     visit: vi.fn(),
     refresh: vi.fn(),
     prefetch,

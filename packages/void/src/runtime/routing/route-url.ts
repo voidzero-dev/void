@@ -138,6 +138,9 @@ export type RequestUrl = TypedRoutes extends true
 export type RouteQueryValue = string | number | boolean | null | undefined;
 export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;
 
+// The generated .void/routes.d.ts applies each page's query schema here. This
+// module stays free of PageQueryMap: page servers reach it through `void`, and
+// reading a page loader's inferred type back would make that loader circular.
 export type RouteOptions<P extends RoutePath> = {
   query?: RouteQuery;
   hash?: string;
@@ -190,6 +193,9 @@ function buildRouteUrl(path: string, options?: UrlOptions): string {
       return [name, String(value)];
     }),
   );
+  // The base is a fixed literal, so this cannot throw. Only its pathname and
+  // query are read back below.
+  // pi-lens-ignore: unchecked-throwing-call
   const url = new URL('https://void.invalid');
   url.pathname = interpolateRouteParams(path, params, true);
 
