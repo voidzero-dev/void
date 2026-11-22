@@ -18,11 +18,22 @@ export async function renderAdminPage(
 ): Promise<Response> {
   const platformName = String(props.platformName ?? 'Void');
   const { pathname, search } = new URL(context.req.url);
+  const query: Record<string, string | Array<string>> = {};
+  for (const [key, value] of new URLSearchParams(search)) {
+    const existing = query[key];
+    if (existing === undefined) {
+      query[key] = value;
+    } else if (Array.isArray(existing)) {
+      existing.push(value);
+    } else {
+      query[key] = [existing, value];
+    }
+  }
   const pageObj: PageObject = {
     component,
     props,
     params: {},
-    query: Object.fromEntries(new URLSearchParams(search)),
+    query,
     shared: {
       platformName,
       adminPageUrl: pathname + search,

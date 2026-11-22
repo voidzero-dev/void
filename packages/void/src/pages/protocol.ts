@@ -338,23 +338,36 @@ function requestParams(c: CloudContext): Record<string, string> {
   return c.req.param() as Record<string, string>;
 }
 
+/** The request's query string, including its leading `?` when it has one. */
+function requestSearch(c: CloudContext): string {
+  const index = c.req.url.indexOf('?');
+  return index === -1 ? '' : c.req.url.slice(index);
+}
+
 /**
- * The query the page reads. `withValidator` stores the slots its schema
- * produced, so a validated query reaches the page already coerced and with its
- * defaults applied. Pages without a query schema get the request's raw values,
- * repeated keys as arrays.
+ * The query the page reads. A loader's schema stores its result, so the page
+ * sees the same values the loader did, coerced and defaulted. Pages without a
+ * query schema get the request's raw values, repeated keys as arrays.
  */
-function requestQuery(c: CloudContext): Record<string, unknown> {
+function requestQuery(c: CloudContext, withoutActionKey = false): Record<string, unknown> {
   const validated = c.get('__voidValidatedInput') as { query?: unknown } | undefined;
   if (validated && typeof validated.query === 'object' && validated.query !== null) {
     return validated.query as Record<string, unknown>;
   }
-  return Object.fromEntries(
-    Object.entries(c.req.queries()).map(([key, values]) => [
-      key,
-      values.length === 1 ? values[0] : values,
-    ]),
-  );
+  const search = requestSearch(c);
+  const raw = new URLSearchParams(withoutActionKey ? searchWithoutActionKey(search) : search);
+  const query: Record<string, unknown> = {};
+  for (const [key, value] of raw) {
+    const existing = query[key];
+    if (existing === undefined) {
+      query[key] = value;
+    } else if (Array.isArray(existing)) {
+      (existing as Array<string>).push(value);
+    } else {
+      query[key] = [existing, value];
+    }
+  }
+  return query;
 }
 
 /** Extract props from a handler result, handling Response wrapping from withValidator */
@@ -386,6 +399,9 @@ async function runLoader(
   recover?: (error: unknown, response?: Response) => Promise<Response | undefined>,
   ownsNotFoundBoundary = false,
 ): Promise<Response> {
+  // A mutation re-render runs the action first, which validates its own slots.
+  // Clear them so the page only ever reads its loader's query.
+  c.set('__voidValidatedInput', undefined);
   if (!handler) {
     return render({});
   }
@@ -1031,7 +1047,7 @@ async function runPageMutation(
       component: componentId,
       props,
       params: requestParams(c),
-      query: requestQuery(c),
+      query: requestQuery(c, hasActionKey(c.req.raw)),
       shared,
       url: requestPathWithSearch(c, hasActionKey(c.req.raw)),
       errors,

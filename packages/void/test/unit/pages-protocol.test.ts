@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
+import { markActionKey } from '../../src/pages/action-key.ts';
 import { defer } from '../../src/pages/defer.ts';
 import {
   handlePageGet,
@@ -885,6 +886,60 @@ describe('handlePageMutation', () => {
 
     const body = await json<PageResponse>(response);
     expect(body.query).toEqual({ tag: ['a', 'b'], q: 'ada' });
+  });
+
+  it('drops the action key from the page query on a mutation re-render', async () => {
+    const c = await createTestContext('POST', '/books?delete&page=2', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+    markActionKey(c.req.raw);
+
+    const response = await handlePageMutation(
+      () => undefined,
+      () => ({ books: [] }),
+      undefined,
+      c,
+      'books',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const body = await json<PageResponse>(response);
+    // The page URL leaves the action key out, so the page query must too.
+    expect(body.url).toBe('/books?page=2');
+    expect(body.query).toEqual({ page: '2' });
+  });
+
+  it("never hands the page the action's validated query", async () => {
+    const coupon = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate(value: unknown) {
+          return { value: { coupon: `looked-up:${(value as Record<string, string>).coupon}` } };
+        },
+      },
+    } satisfies StandardSchemaV1;
+    const c = await createTestContext('POST', '/books?coupon=SPRING', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    const response = await handlePageMutation(
+      defineHandler.withValidator({ query: coupon })(() => undefined),
+      // The page loader validates nothing, so the action is the last writer.
+      () => ({ books: [] }),
+      undefined,
+      c,
+      'books',
+      mockRenderFn,
+      mockGetAssetTags,
+      undefined,
+      // The page publishes its query, so a stale action slot would leak it.
+      { exposeQuery: true },
+    );
+
+    const body = await json<PageResponse>(response);
+    expect(body.query).toEqual({ coupon: 'SPRING' });
   });
 
   it('Response redirect — passes through', async () => {
