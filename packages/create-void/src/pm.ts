@@ -76,11 +76,9 @@ export function pmDlx(pm: PM, version: string): ReadonlyArray<string> {
 export function pmInitCommand(
   pm: PM,
   version: string,
-  noInstall: boolean,
   initArgs: ReadonlyArray<string>,
 ): ReadonlyArray<string> {
-  const command = noInstall ? pmDlx(pm, version) : [...pmExec(pm), 'void'];
-  return [...command, 'init', ...initArgs, ...(noInstall ? ['--no-install'] : [])];
+  return [...pmDlx(pm, version), 'init', ...initArgs];
 }
 
 export function run(argv: ReadonlyArray<string>, cwd?: string): Promise<void> {

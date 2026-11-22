@@ -3,7 +3,7 @@ import * as p from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
 import pc from 'picocolors';
 import { parseCreateArgs, validateProjectName } from './args.ts';
-import { detectPM, pmExec, pmInstall, run, writePnpmBuildPolicy } from './pm.ts';
+import { detectPM, pmInitCommand, run } from './pm.ts';
 
 const pm = detectPM();
 
@@ -69,7 +69,7 @@ async function main() {
   await run(pmInstall(pm), targetDir);
 
   p.log.step('Scaffolding starter...');
-  const initCommand = pmInitCommand(pm, voidVersion, !!createArgs.noInstall, createArgs.initArgs);
+  const initCommand = pmInitCommand(pm, voidVersion, createArgs.initArgs);
   await run(initCommand, targetDir);
 
   p.log.step('Installing starter dependencies...');
