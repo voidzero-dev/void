@@ -188,9 +188,10 @@ export function generateRouteTypes(
     '  type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePath>>;',
   );
   lines.push('  type BuiltRouteUrl = string & { readonly __voidRouteUrl: true };');
+  lines.push('  type RouteUrlBase = BuiltRouteUrl | RoutePathUrl;');
   lines.push('  type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;');
   lines.push('  export type RouteUrl = TypedRoutes extends true');
-  lines.push('    ? BuiltRouteUrl | RoutePathUrl | `${RoutePathUrl}${"?" | "#"}${string}`');
+  lines.push('    ? RouteUrlBase | `${RouteUrlBase}${"?" | "#"}${string}`');
   lines.push('    : string;');
   lines.push('  export type Href = TypedRoutes extends true');
   lines.push(
