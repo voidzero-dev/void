@@ -10,6 +10,7 @@ import { cloudflareCommandDiagnostic } from './diagnostics.ts';
 import {
   isCleanCommandExit,
   isCompletedCommand,
+  isVersionHistoryChanged,
   isWorkerNotFound,
   type CloudflareCommandResult,
   type CloudflareCommandRunner,
@@ -974,16 +975,18 @@ async function activateCloudflareVersionWithSecretsFile(
   let activeSecretsPinned = false;
   let pinnedActiveSecrets: Array<{ name: string; type: 'secret_key' | 'secret_text' }> | undefined;
   if (options.expectedPreviousVersionId !== undefined || options.verifyInheritedSecrets === true) {
-    let recent = await readRecentCloudflareVersionIds(options);
+    let read = await readRecentCloudflareVersionHistory(options);
     // The deployment status above names the active Worker Version. A version list that does not
     // contain it is behind that write, so wait for it instead of failing the lineage check below.
-    // A list that never shows it still fails below, as before.
+    // Pages that disagree mean a write landed between the two page reads, so that read is retried
+    // on the same schedule. A list that never settles still fails below, as before.
     const delays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
     for (
       let attempt = 0;
-      previous.versionId !== null &&
-      recent !== null &&
-      !recent.some((version) => version.id === previous.versionId) &&
+      (read.changing ||
+        (previous.versionId !== null &&
+          read.versions !== null &&
+          !read.versions.some((version) => version.id === previous.versionId))) &&
       attempt < delays.length;
       attempt++
     ) {
@@ -994,8 +997,9 @@ async function activateCloudflareVersionWithSecretsFile(
       if (!options.verifyUploader()) {
         return { ok: false, reason: 'uploader-changed' };
       }
-      recent = await readRecentCloudflareVersionIds(options);
+      read = await readRecentCloudflareVersionHistory(options);
     }
+    const recent = read.versions;
     if (recent === null) {
       return { ok: false, reason: 'inheritance-source-unavailable' };
     }
@@ -1341,14 +1345,15 @@ async function activateCloudflareVersionWithSecretsFile(
     // Wait for a fresh read, but pass any other history straight to the lineage check.
     let stale = false;
     const readUpdatedHistory = async () => {
-      const read = await readRecentCloudflareVersionIds(options);
+      const { versions: read, changing } = await readRecentCloudflareVersionHistory(options);
       const unchanged =
         read?.length === baseline.length &&
         read.every(
           (version, index) =>
             version.id === baseline[index]!.id && version.number === baseline[index]!.number,
         );
-      stale = unchanged;
+      // Pages that disagree are a read that raced a write, so they wait like a stale list does.
+      stale = unchanged || changing;
       return unchanged ? null : read;
     };
     const historyDelays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
@@ -2066,23 +2071,33 @@ export const STALE_VERSION_HISTORY_DELAYS_MS: ReadonlyArray<number> = [
 /** A failed read, as opposed to a stale one, is retried only this many times. */
 const UNAVAILABLE_VERSION_HISTORY_RETRIES = 2;
 
-async function readRecentCloudflareVersionIds(
+/** `changing` marks a read that failed only because the list's pages moved during the read. */
+type RecentCloudflareVersionHistory = {
+  versions: Array<RecentCloudflareVersion> | null;
+  changing: boolean;
+};
+
+async function readRecentCloudflareVersionHistory(
   options: Pick<
     Parameters<typeof activateCloudflareVersion>[0],
     'configPath' | 'runWrangler' | 'workerName'
   >,
-): Promise<Array<RecentCloudflareVersion> | null> {
+): Promise<RecentCloudflareVersionHistory> {
   const result = await options.runWrangler(
     { type: 'versions.list', configPath: options.configPath, workerName: options.workerName },
     { capture: true },
   );
   if (!isCleanCommandExit(result)) {
     if (isWorkerNotFound(result)) {
-      return [];
+      return { versions: [], changing: false };
     }
-    return null;
+    return { versions: null, changing: isVersionHistoryChanged(result) };
   }
-  const versions = result.data;
+  return { versions: parseRecentCloudflareVersions(result.data), changing: false };
+}
+
+function parseRecentCloudflareVersions(data: unknown): Array<RecentCloudflareVersion> | null {
+  const versions = data;
   if (
     !Array.isArray(versions) ||
     !versions.every(

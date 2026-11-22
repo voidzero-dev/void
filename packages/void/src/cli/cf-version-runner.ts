@@ -636,7 +636,10 @@ export function createCfVersionRunner(options: {
               }
               const numbers = next.versions.map((item) => item.number as number);
               if (Math.min(...numbers) <= last) {
-                return failed('The Cloudflare Worker version history changed during inspection.');
+                return {
+                  ...failed('The Cloudflare Worker version history changed during inspection.'),
+                  failure: 'version-history-changed',
+                };
               }
               versions.push(...next.versions);
               last = Math.max(...numbers);
@@ -648,7 +651,10 @@ export function createCfVersionRunner(options: {
               }
             }
           } else if (Math.max(...secondNumbers) >= Math.min(...firstNumbers)) {
-            return failed('The Cloudflare Worker version history changed during inspection.');
+            return {
+              ...failed('The Cloudflare Worker version history changed during inspection.'),
+              failure: 'version-history-changed',
+            };
           }
         }
       }

@@ -1400,6 +1400,75 @@ describe('Cloudflare version activation', () => {
     },
   );
 
+  it.each([
+    { phase: 'before', failure: 'overlap', outcome: 'recovers' },
+    { phase: 'before', failure: 'overlap', outcome: 'exhausted' },
+    { phase: 'before', failure: 'other', outcome: 'exhausted' },
+    { phase: 'after', failure: 'overlap', outcome: 'recovers' },
+    { phase: 'after', failure: 'overlap', outcome: 'exhausted' },
+    { phase: 'after', failure: 'other', outcome: 'exhausted' },
+  ] as const)(
+    'retries a version list whose pages overlapped on the stale-list schedule ($phase upload, $failure failure, $outcome)',
+    async ({ phase, failure, outcome }) => {
+      const base = runner();
+      let uploaded = false;
+      let reads = 0;
+      const runWrangler = operationFixture((args: Array<string>) => {
+        if (args[0] === 'versions' && args[1] === 'upload') {
+          uploaded = true;
+        }
+        if (args[0] === 'versions' && args[1] === 'list' && uploaded === (phase === 'after')) {
+          reads++;
+          if (outcome === 'exhausted' || reads <= 2) {
+            return failure === 'overlap'
+              ? {
+                  status: 1,
+                  stdout: '',
+                  stderr: 'The Cloudflare Worker version history changed during inspection.',
+                  failure: 'version-history-changed',
+                }
+              : { status: 1, stdout: '', stderr: 'Version list rejected' };
+          }
+        }
+        return base(args);
+      });
+      const sleep = vi.fn(async (_milliseconds: number) => {});
+      const delays = [10, 20, 30];
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        workerName: 'my-worker',
+        verifyUploader: () => true,
+        ...(phase === 'before'
+          ? { expectedPreviousVersionId: CURRENT }
+          : { verifyInheritedSecrets: true }),
+        message: encodeCloudflareVersionMessage([], triggersWith()),
+        fetch: async () => Response.json({ ready: true }),
+        sleep,
+        versionHistoryRetryDelaysMs: delays,
+      });
+      expect(result).toMatchObject(
+        outcome === 'recovers'
+          ? { ok: true, versionId: NEXT }
+          : { ok: false, reason: 'inheritance-source-unavailable' },
+      );
+      // Only the overlap failure waits the whole schedule. Any other failure stops at once before
+      // the upload and keeps its two quick retries after it.
+      const waits =
+        outcome === 'recovers'
+          ? delays.slice(0, 2)
+          : failure === 'overlap'
+            ? delays
+            : phase === 'before'
+              ? []
+              : delays.slice(0, 2);
+      expect(sleep.mock.calls.map(([ms]) => ms)).toEqual(waits);
+      expect(reads).toBe(1 + waits.length);
+      expect(runWrangler.mock.calls.some(([args]) => args[1] === 'upload')).toBe(
+        outcome === 'recovers' || phase === 'after',
+      );
+    },
+  );
+
   it('waits on the default schedule of about five minutes for a version list that never catches up', async () => {
     const base = runner();
     const runWrangler = operationFixture((args: Array<string>) =>

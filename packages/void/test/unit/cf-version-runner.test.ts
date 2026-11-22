@@ -2212,6 +2212,39 @@ it('uses the configured HTTP proxy for direct cf activation reads', async () => 
   ]);
 }, 30_000);
 
+it('marks a version list whose pages overlap as a changed history', async () => {
+  const prepared = await output();
+  try {
+    const page = (first: number) =>
+      Array.from({ length: 10 }, (_, index) => ({
+        id: `v${first + index}`,
+        number: first + index,
+      }));
+    const runner = createCfVersionRunner({
+      output: prepared,
+      workerName: 'void-test',
+      verifyResources: async () => ({ status: 0, stdout: '', stderr: '' }),
+      runCf: (args) => ({
+        status: 0,
+        // A write between the reads moved page 2 up to overlap page 1.
+        stdout: JSON.stringify(args.at(-1) === '1' ? page(5) : page(10)),
+        stderr: '',
+      }),
+    });
+    const result = await runner(
+      { type: 'versions.list', configPath: 'generated.json', workerName: 'void-test' },
+      { capture: true },
+    );
+    expect(result).toMatchObject({
+      status: 1,
+      stderr: 'The Cloudflare Worker version history changed during inspection.',
+      failure: 'version-history-changed',
+    });
+  } finally {
+    await prepared.dispose();
+  }
+});
+
 it('preserves activation metadata and sorts cf version history for the existing protocol', async () => {
   const prepared = await output();
   try {
