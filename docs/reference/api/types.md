@@ -120,7 +120,7 @@ routeUrl('/users/[id]', {
 
 Static routes accept optional `query` and `hash` options. Pass raw parameter values for URL encoding. Catch-all parameters preserve `/` separators between segments. Invalid or missing path parameters throw a `TypeError`.
 
-`PageQueryInput<P>` is `RouteQuery` unless the page at `P` validates its query, in which case it is that schema's input type. It also carries the required keys, so `query` cannot be omitted when the schema has one. See [Page query](../../guide/type-safety.md#page-query).
+`PageQueryInput<P>` is `RouteQuery` unless the page at `P` exports a `query` schema, in which case it is that schema's input type. A key whose input is not a string, number, or boolean takes its string form, since a query string only carries text. The required keys carry over, so `query` cannot be omitted when the schema has one. See [Page query](../../guide/type-safety.md#page-query).
 
 Use the returned [`RouteUrl`](#route-types) with `Link`, `<a>`, and `c.redirect()`. See [Typed URLs and Navigation](../../guide/type-safety.md#typed-urls-and-navigation) for setup and examples.
 

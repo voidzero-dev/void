@@ -1,7 +1,6 @@
 /// <reference lib="dom" />
 
-import type { ActionUrl, ResolveActionBody, ResolveActionParams } from 'void/routes';
-import type { RouteNavigationInput } from '../runtime/routing/route-navigation.ts';
+import type { ActionUrl, ResolveActionBody, ResolveActionParams, RouteUrlInput } from 'void/routes';
 import { toUrlString } from '../runtime/routing/route-url.ts';
 import { interpolateRouteParams } from '../runtime/routing/route-url.ts';
 import { withPageQuery } from './action-key.ts';
@@ -97,10 +96,10 @@ export type VoidRouter = {
   /** Parsed query of the rendered page, read by `useQuery()`. */
   readonly _pageQuery: Record<string, unknown>;
   readonly params: Record<string, string>;
-  visit(url: RouteNavigationInput, options?: VisitOptions): Promise<unknown>;
+  visit(url: RouteUrlInput, options?: VisitOptions): Promise<unknown>;
   refresh(options?: VisitOptions): Promise<unknown>;
-  prefetch(url: RouteNavigationInput, options?: PrefetchOptions): Promise<unknown>;
-  flush(url: RouteNavigationInput, method?: string): void;
+  prefetch(url: RouteUrlInput, options?: PrefetchOptions): Promise<unknown>;
+  flush(url: RouteUrlInput, method?: string): void;
   flushAll(): void;
 };
 
@@ -136,7 +135,7 @@ function toUrl(value: string | URL): URL {
   return value instanceof URL ? new URL(value.href) : new URL(value || '/', getUrlBase());
 }
 
-function normalizeUrl(value: RouteNavigationInput): string {
+function normalizeUrl(value: RouteUrlInput): string {
   const urlString = toUrlString(value);
   if (urlString.startsWith('#')) {
     return urlString;

@@ -440,21 +440,26 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
-    const loader = '(typeof import("../pages/admin/payments.server.ts"))["loader"]';
+    const schema = 'PageQuerySchema<typeof import("../pages/admin/payments.server.ts")>';
 
     expect(dts).toContain(
       [
         '  export interface PageQueryMap {',
         '    "/admin/payments": {',
-        `      input: ExtractInput<${loader}["__validators"]> extends { query: infer Q } ? Q : never;`,
-        `      output: ${loader}["__validators"] extends { query: infer S } ? ExtractOutput<S> : never;`,
+        `      input: PageQueryInputFallback<PageQueryInputOf<${schema}>>;`,
+        `      output: PageQueryOutputFallback<PageQueryOutputOf<${schema}>>;`,
         '    };',
         '  }',
       ].join('\n'),
     );
+    // The schema comes from the page's exported value, never from the loader's
+    // inferred type, which would reference this file back through `void`.
+    expect(dts).not.toContain('["loader"]');
     // RouteOptions reads the map, so a page's link query is checked against its schema.
     expect(dts).toContain('  type RouteQueryOptions<P> = P extends keyof PageQueryMap');
     expect(dts).toContain("        : { query: PageQueryMap[P]['input'] }");
+    // One declaration only, or projects without skipLibCheck get TS2300.
+    expect(dts.match(/export type RouteUrlArgs/g)).toHaveLength(1);
   });
 
   it('leaves pages without a loader out of PageQueryMap', () => {

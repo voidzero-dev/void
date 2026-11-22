@@ -49,8 +49,14 @@ function encodeRoutePattern(pattern: string): string {
 }
 
 /**
- * One PageQueryMap entry per page whose loader validates its query. A page
- * without a query schema is left out, so its links keep accepting any query.
+ * One PageQueryMap entry per page whose loader could validate its query.
+ *
+ * The schema is read from the page server's exported `query` value, not from
+ * the loader. A page server reaches `void/routes` through `void`, so reading
+ * the loader's inferred type from there would make it refer to itself and
+ * TypeScript would infer `any` for the handler. A schema value has no such
+ * dependency.
+ *
  * A `.dev` + `.prod` pair shares one pattern, so its two pages become a union.
  */
 function pageQueryLines(
@@ -68,10 +74,10 @@ function pageQueryLines(
   const entriesByPattern = new Map<string, Array<Array<string>>>();
   for (const page of loaderPages) {
     const importPath = relative(outDir, `${pagesDir}/${page.serverPath!}`);
-    const loader = `(typeof import(${JSON.stringify(importPath)}))["loader"]`;
+    const schema = `PageQuerySchema<typeof import(${JSON.stringify(importPath)})>`;
     const entry = [
-      `      input: ExtractInput<${loader}["__validators"]> extends { query: infer Q } ? Q : never;`,
-      `      output: ${loader}["__validators"] extends { query: infer S } ? ExtractOutput<S> : never;`,
+      `      input: PageQueryInputFallback<PageQueryInputOf<${schema}>>;`,
+      `      output: PageQueryOutputFallback<PageQueryOutputOf<${schema}>>;`,
     ];
     const entries = entriesByPattern.get(page.pattern);
     if (entries) {
@@ -196,6 +202,29 @@ export function generateRouteTypes(
   lines.push(
     '  export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;',
   );
+  // A page's exported `query` schema, or never when it exports none.
+  lines.push(
+    '  type PageQuerySchema<M> = M extends { query: infer S } ? Extract<S, StandardSchemaV1> : never;',
+  );
+  // A query string carries text, so an input that is not a URL primitive (a
+  // Date, a class instance) is passed as a string.
+  lines.push(
+    '  type RouteQueryValueOf<T> = T extends RouteQueryValue | ReadonlyArray<RouteQueryValue> ? T : string;',
+  );
+  lines.push('  type PageQueryInputOf<S> = S extends StandardSchemaV1');
+  lines.push(
+    '    ? { [K in keyof StandardSchemaV1.InferInput<S>]: RouteQueryValueOf<StandardSchemaV1.InferInput<S>[K]> }',
+  );
+  lines.push('    : never;');
+  lines.push(
+    '  type PageQueryOutputOf<S> = S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : never;',
+  );
+  // A `.dev` + `.prod` pair shares one key, so a side without a schema has to
+  // keep accepting anything instead of vanishing into the union.
+  lines.push('  type PageQueryInputFallback<T> = [T] extends [never] ? RouteQuery : T;');
+  lines.push(
+    '  type PageQueryOutputFallback<T> = [T] extends [never] ? Record<string, string | Array<string>> : T;',
+  );
   lines.push('  type RouteQueryOptions<P> = P extends keyof PageQueryMap');
   lines.push("    ? [PageQueryMap[P]['input']] extends [never]");
   lines.push('      ? { query?: RouteQuery }');
@@ -205,14 +234,12 @@ export function generateRouteTypes(
   lines.push('    : { query?: RouteQuery };');
   lines.push('  export type RouteOptions<P extends RoutePath> = {');
   lines.push('    hash?: string;');
-  lines.push('    query?: RouteQuery;');
-  lines.push('  } & ([RoutePathMap[P]] extends [never]');
+  lines.push('  } & RouteQueryOptions<P> & ([RoutePathMap[P]] extends [never]');
   lines.push('    ? { params?: never }');
   lines.push('    : { params: { [K in RoutePathMap[P] & string]: string | number } });');
-  lines.push('  export type RouteUrlArgs<P extends RoutePath> =');
-  lines.push('    {} extends (RouteOptions<P> & RouteQueryOptions<P>)');
-  lines.push('      ? [options?: RouteOptions<P> & RouteQueryOptions<P>]');
-  lines.push('      : [options: RouteOptions<P> & RouteQueryOptions<P>];');
+  lines.push('  export type RouteUrlArgs<P extends RoutePath> = {} extends RouteOptions<P>');
+  lines.push('    ? [options?: RouteOptions<P>]');
+  lines.push('    : [options: RouteOptions<P>];');
   lines.push(
     '  export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath',
   );
@@ -259,9 +286,6 @@ export function generateRouteTypes(
   );
   lines.push('    : string;');
   lines.push('  export type RouteUrlInput = Href | URL | RouteDestination;');
-  lines.push('  export type RouteUrlArgs<P extends RoutePath> = {} extends RouteOptions<P>');
-  lines.push('    ? [options?: RouteOptions<P>]');
-  lines.push('    : [options: RouteOptions<P>];');
   lines.push('  export function routeUrl<P extends RoutePath>(');
   lines.push('    path: P,');
   lines.push('    ...args: RouteUrlArgs<P>');
