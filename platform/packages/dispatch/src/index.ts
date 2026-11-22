@@ -1,4 +1,10 @@
-import { matchLiteralPattern, PAGES_PROTOCOL_VERSION, redirectToHttps } from '@void/edge';
+import {
+  matchLiteralPattern,
+  pagesPayloadFitsBuild,
+  PAGES_BUILD_HEADER,
+  PAGES_PROTOCOL_VERSION,
+  redirectToHttps,
+} from '@void/edge';
 import { clientRevalidateResponse, isEventStreamResponse } from '@void/isr/runtime';
 import {
   PLATFORM_HEALTH_HOSTNAME_LABEL,
@@ -1207,7 +1213,16 @@ const dispatcher = {
         // Pages protocol: check JSON edge cache, fall through on miss
         if (isPagesRequest) {
           const jsonCached = await cache.match(jsonCacheKey);
-          if (jsonCached && hasCurrentSharedCachePolicy(jsonCached)) {
+          // A payload rendered by another build carries props this client cannot
+          // render. Fall through so the app answers and reloads the tab.
+          if (
+            jsonCached &&
+            hasCurrentSharedCachePolicy(jsonCached) &&
+            pagesPayloadFitsBuild(
+              jsonCached.headers.get(PAGES_BUILD_HEADER),
+              request.headers.get(PAGES_BUILD_HEADER),
+            )
+          ) {
             requestType = 'isr';
             return meter(clientRevalidateResponse(jsonCached));
           }
@@ -1798,8 +1813,11 @@ const dispatcher = {
         }
       }
 
+      // A Pages request only speaks for the JSON path. Its answer can be the app's
+      // reload response, which must not evict HTML that other tabs still use.
       if (
         sharedIsrEntry &&
+        !request.headers.has('X-VoidPages') &&
         response.status === 200 &&
         !writebackFallbackApplied &&
         (resolveRevalidateTtl(

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'pathslash';
-import { normalizePath } from 'vite';
+import { loadEnv, normalizePath } from 'vite';
 import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { computePagesBuildId } from './build-id-source.ts';
 import { PAGES_BUILD_ID_DEFINE } from './build-id.ts';
@@ -81,6 +81,20 @@ function buildIdExcludes(root: string, userConfig: UserConfig): Array<string> {
   }
   add(userConfig.publicDir === undefined ? 'public' : userConfig.publicDir);
   return [...dirs].map((dir) => (isAbsolute(dir) ? dir : join(root, dir)));
+}
+
+/**
+ * Values the client bundle inlines without appearing in a source file: the
+ * env vars Vite exposes, and the app's `define` entries. Two builds that differ
+ * only here still emit different chunks, so the id has to cover them.
+ */
+function clientBuildInputs(root: string, userConfig: UserConfig, mode: string): string {
+  const envDir = typeof userConfig.envDir === 'string' ? userConfig.envDir : root;
+  const env = Object.entries(loadEnv(mode, envDir, userConfig.envPrefix ?? 'VITE_')).sort(
+    ([a], [b]) => a.localeCompare(b),
+  );
+  const define = Object.entries(userConfig.define ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify({ env, define });
 }
 
 /** Shared Vite lifecycle; adapters own their generated code and environment configuration. */
@@ -216,7 +230,11 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
         if (dev || resolved == null || options.deployRecovery === false) {
           return resolved;
         }
-        buildId ??= computePagesBuildId(root, buildIdExcludes(root, userConfig));
+        buildId ??= computePagesBuildId(
+          root,
+          buildIdExcludes(root, userConfig),
+          clientBuildInputs(root, userConfig, env.mode),
+        );
         return {
           ...resolved,
           define: {

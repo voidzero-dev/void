@@ -21,3 +21,16 @@ export function isStaleBuild(buildId: string, seen: string | null | undefined): 
 export function buildHeaders(buildId: string): Record<string, string> {
   return buildId === '' ? {} : { [PAGES_BUILD_HEADER]: buildId };
 }
+
+/**
+ * Whether a cached Pages payload may answer a request. A client that names no
+ * build cannot tell builds apart, so it keeps the cached payload. A client that
+ * names one accepts only a payload from that same build, and an entry without an
+ * id predates ids, so it is not trusted either.
+ */
+export function pagesPayloadFitsBuild(
+  cachedBuild: string | null,
+  requestBuild: string | null,
+): boolean {
+  return requestBuild === null || cachedBuild === requestBuild;
+}

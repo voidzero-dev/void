@@ -43,7 +43,7 @@ type TestRouterConfig = Partial<Omit<VoidRouterConfig, 'adapter'>> & {
 
 function stubClientGlobals(origin = 'http://localhost') {
   const documentStub = {
-    createElement: vi.fn(() => ({})),
+    createElement: vi.fn(() => ({ appendChild: vi.fn(), style: {} })),
     getElementById: vi.fn((id: string) => {
       if (id === '__VOID_PAGE_DATA__') {
         return {
@@ -65,6 +65,7 @@ function stubClientGlobals(origin = 'http://localhost') {
       querySelector: vi.fn(() => null),
       querySelectorAll: vi.fn(() => []),
     },
+    body: { replaceChildren: vi.fn() },
     querySelector: vi.fn(() => null),
   };
 
@@ -205,18 +206,31 @@ describe('Pages build recovery', () => {
     expect(applyUpdate).toHaveBeenCalled();
   });
 
-  it('reloads a destination once, then lets the page render and fail on its own', async () => {
-    stubClientGlobals();
-    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+  function stubReloadGuard(): void {
     const stored = new Map<string, string>();
     vi.stubGlobal('sessionStorage', {
       getItem: (key: string) => stored.get(key) ?? null,
       setItem: (key: string, value: string) => void stored.set(key, value),
       removeItem: (key: string) => void stored.delete(key),
     });
+  }
+
+  // The shape the server actually sends: a reload response, not page props.
+  const staleReloadResponse = () =>
+    new Response(null, {
+      headers: { 'X-VoidPages-Build': 'build-1', 'Cache-Control': 'no-store' },
+    });
+
+  it.each([
+    ['page props from another build', () => staleJson(stalePage)],
+    ['a reload response for another build', staleReloadResponse],
+  ])('reloads a destination once, then stops on %s', async (_, response) => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => staleJson(stalePage)),
+      vi.fn(async () => response()),
     );
     const applyUpdate = vi.fn();
     const { router } = await createTestRouter({ adapter: { applyUpdate } });
@@ -224,11 +238,14 @@ describe('Pages build recovery', () => {
     await router.visit('/next');
     expect(window.location.href).toBe('/next');
 
-    // The document came back from the old build anyway: rendering must not loop.
-    (window.location as unknown as { href?: string }).href = undefined;
+    // The document came back from the old build anyway. Reloading again would
+    // loop, so the tab stops on the recovery page instead.
+    const documentUrl = 'http://localhost/';
+    (window.location as unknown as { href?: string }).href = documentUrl;
     await router.visit('/next');
-    expect(window.location.href).toBeUndefined();
-    expect(applyUpdate).toHaveBeenCalled();
+    expect(window.location.href).toBe(documentUrl);
+    expect(applyUpdate).not.toHaveBeenCalled();
+    expect(document.body.replaceChildren).toHaveBeenCalled();
   });
 
   it('applies a mutation answered by another build and never reloads', async () => {

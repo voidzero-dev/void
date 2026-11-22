@@ -1,6 +1,6 @@
 import {
-  isStaleBuild,
   matchSegmentPattern,
+  pagesPayloadFitsBuild,
   PAGES_BUILD_HEADER,
   PAGES_PROTOCOL_VERSION,
 } from '@void/edge';
@@ -596,8 +596,12 @@ async function handleIsrInternal(
     if (jsonCached && hasCurrentSharedCachePolicy(jsonCached)) {
       // A cached payload from another build would hand this client page props it
       // has no components for. Let the app answer, which reloads a stale tab.
-      const cachedBuild = jsonCached.headers.get(PAGES_BUILD_HEADER) ?? '';
-      if (isStaleBuild(cachedBuild, request.headers.get(PAGES_BUILD_HEADER))) {
+      if (
+        !pagesPayloadFitsBuild(
+          jsonCached.headers.get(PAGES_BUILD_HEADER),
+          request.headers.get(PAGES_BUILD_HEADER),
+        )
+      ) {
         return render(request);
       }
       return clientRevalidateResponse(jsonCached);
@@ -606,6 +610,11 @@ async function handleIsrInternal(
       await safeCacheDelete(cache, jsonKey);
     }
     const response = await render(request);
+    // The app answered a stale client with its reload response. That says nothing
+    // about this path's cached HTML, which other tabs can still use.
+    if (!response.headers.get('X-VoidPages')) {
+      return response;
+    }
     const ttl = resolveRevalidateTtl(response, isrTtl);
     if (isUncacheableRender(response, ttl, false)) {
       ctx.waitUntil(

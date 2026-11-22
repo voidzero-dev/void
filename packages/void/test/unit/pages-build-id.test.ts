@@ -115,7 +115,12 @@ describe('createPagesPlugin build id', () => {
       config: () => ({}),
       ...pluginOptions,
     });
-    return getHookHandler(plugin.config) as unknown as PagesConfigHook;
+    const hook = getHookHandler(plugin.config) as unknown as (
+      userConfig: Record<string, unknown>,
+      env: { command: 'build' | 'serve'; mode: string },
+    ) => ReturnType<PagesConfigHook>;
+    // Vite always passes a mode; the tests only vary the command.
+    return (userConfig, env) => hook(userConfig, { mode: 'production', ...env }) as never;
   }
 
   function createFixture(): string {
@@ -150,6 +155,29 @@ describe('createPagesPlugin build id', () => {
 
     writeFileSync(join(root, 'pages', 'index.tsx'), 'export default function Other() {}\n');
     expect(await idOf()).not.toBe(first);
+  });
+
+  it('changes the id for env values the client inlines', async () => {
+    const root = createFixture();
+    const idFor = async (value: string) => {
+      vi.stubEnv('VITE_PROBE', value);
+      // A new plugin per call: one plugin instance keeps the first id it made.
+      return (await createConfigHook(root)({}, { command: 'build' }))!.define![DEFINE];
+    };
+
+    // Two builds that differ only here still emit different chunks.
+    expect(await idFor('one')).not.toBe(await idFor('two'));
+  });
+
+  it('changes the id for an app define the client inlines', async () => {
+    const root = createFixture();
+    const idFor = async (value: string) =>
+      (await createConfigHook(root)(
+        { define: { __PROBE__: JSON.stringify(value) } },
+        { command: 'build' },
+      ))!.define![DEFINE];
+
+    expect(await idFor('one')).not.toBe(await idFor('two'));
   });
 
   it('defines nothing when deploy recovery is off', async () => {

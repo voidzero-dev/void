@@ -3405,6 +3405,78 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     expect(await response.json()).toEqual(JSON.parse(pageData));
   });
 
+  it('pages request ignores a JSON edge entry rendered by another build', async () => {
+    edgeCacheStore.set(
+      'https://my-app.void.app/dashboard?__void=json&__void_isr=legacy',
+      currentSharedCacheResponse(
+        new Response(pageData, {
+          headers: {
+            'content-type': 'application/json',
+            'x-isr-cache': 'HIT',
+            'X-VoidPages-Build': 'build-1',
+          },
+        }),
+      ),
+    );
+
+    const { env, workerFetch } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(pageData, {
+        headers: { 'content-type': 'application/json', 'X-VoidPages-Build': 'build-2' },
+      }),
+    });
+
+    const response = await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Build': 'build-2',
+        },
+      }),
+      env,
+      createCtx(),
+    );
+
+    // The entry holds props this client cannot render, so the app answers.
+    expect(workerFetch).toHaveBeenCalledOnce();
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it('keeps cached HTML when a stale client gets its reload response', async () => {
+    const htmlKey = 'https://my-app.void.app/dashboard?__void_isr=legacy';
+    edgeCacheStore.set(
+      htmlKey,
+      currentSharedCacheResponse(
+        new Response(pageHtml(), { headers: { 'Content-Type': 'text/html' } }),
+      ),
+    );
+
+    const { env, workerFetch } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(null, { headers: { 'Cache-Control': 'no-store' } }),
+    });
+    const ctx = createCtx();
+
+    const response = await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Build': 'build-2',
+        },
+      }),
+      env,
+      ctx,
+    );
+    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+
+    // The answer belongs to the JSON path; other tabs still hold this HTML.
+    expect(workerFetch).toHaveBeenCalledOnce();
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(edgeCacheStore.has(htmlKey)).toBe(true);
+  });
+
   it('pages request falls through to worker on JSON cache miss', async () => {
     const { env, workerFetch } = createEnv({
       routing: isrRouting,

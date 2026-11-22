@@ -29,16 +29,24 @@ type CacheEntry = {
  * turns the second pass into one stat walk, keyed by file size and modification
  * time. A write always moves the modification time, so a fingerprint that still
  * matches describes the same content.
+ *
+ * `buildInputs` carries what the client inlines without a source file of its
+ * own, such as env vars and `define` entries. Two builds that differ only there
+ * still emit different chunks.
  */
-export function computePagesBuildId(root: string, excludeDirs: Array<string>): string {
+export function computePagesBuildId(
+  root: string,
+  excludeDirs: Array<string>,
+  buildInputs = '',
+): string {
   const excluded = new Set(excludeDirs.map((dir) => (isAbsolute(dir) ? dir : join(root, dir))));
   const files = sourceFiles(root, excluded);
-  const fingerprint = fingerprintOf(root, files);
+  const fingerprint = fingerprintOf(root, files, buildInputs);
   const cached = readCachedId(root, fingerprint);
   if (cached) {
     return cached;
   }
-  const id = contentIdOf(root, files);
+  const id = contentIdOf(root, files, buildInputs);
   writeCachedId(root, fingerprint, id);
   return id;
 }
@@ -69,8 +77,10 @@ function sourceFiles(root: string, excluded: Set<string>): Array<string> {
   return files.sort();
 }
 
-function fingerprintOf(root: string, files: Array<string>): string {
+function fingerprintOf(root: string, files: Array<string>, buildInputs: string): string {
   const hash = createHash('sha256');
+  hash.update(buildInputs);
+  hash.update('\0');
   for (const file of files) {
     const stats = statSync(join(root, file));
     hash.update(`${file}\0${stats.size}\0${stats.mtimeMs}\0`);
@@ -78,8 +88,10 @@ function fingerprintOf(root: string, files: Array<string>): string {
   return hash.digest('hex');
 }
 
-function contentIdOf(root: string, files: Array<string>): string {
+function contentIdOf(root: string, files: Array<string>, buildInputs: string): string {
   const hash = createHash('sha256');
+  hash.update(buildInputs);
+  hash.update('\0');
   for (const file of files) {
     hash.update(file);
     hash.update('\0');

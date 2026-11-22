@@ -2,6 +2,7 @@ export type { ProjectZeroTrustRouting } from './access.ts';
 export {
   buildHeaders,
   isStaleBuild,
+  pagesPayloadFitsBuild,
   PAGES_BUILD_HEADER,
   PAGES_PROTOCOL_VERSION,
 } from './pages-protocol.ts';

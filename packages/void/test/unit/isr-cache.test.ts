@@ -13,6 +13,7 @@ import {
   markSharedCachePolicy,
   normalizeIsrPath,
   packIsrValue,
+  populateJsonEdgeCache,
   readIsrCache,
   SHARED_CACHE_POLICY_VERSION,
   writeIsrCache,
@@ -1000,6 +1001,75 @@ describe('handleIsr', () => {
     );
     expect(liveSpy).toHaveBeenCalledTimes(1);
     expect(live!.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it('leaves an entry with no build id to the app when the client names one', async () => {
+    // An entry from before ids existed cannot answer a client that has one.
+    await populateJsonEdgeCache(
+      edge.cache,
+      jsonEdgeKey(HOST, '/blog/post', DPL),
+      new Response('<html></html>', {
+        headers: { 'x-void-page-data': '{"component":"Blog","props":{}}' },
+      }),
+      60,
+      'HIT',
+    );
+    const env = makeEnv(createKvMock().kv);
+    const { render, spy } = createRender(
+      () =>
+        new Response('{"component":"Blog","props":{"fresh":true}}', {
+          headers: {
+            'content-type': 'application/json',
+            'X-VoidPages': 'true',
+            'X-VoidPages-Build': 'build-2',
+          },
+        }),
+    );
+
+    const res = await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'X-VoidPages-Build': 'build-2',
+      }),
+      env,
+      createCtx().ctx,
+      OPTS,
+      render,
+    );
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(res!.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it('keeps cached HTML when a stale client gets its reload response', async () => {
+    const { store, kv } = createKvMock();
+    store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0]!.seed());
+    const env = makeEnv(kv);
+    const htmlKey = htmlEdgeKey(HOST, '/blog/post', DPL);
+    edge.store.set(htmlKey, currentSharedCacheResponse(new Response('<html>cached</html>')));
+    const { render } = createRender(
+      () => new Response(null, { headers: { 'Cache-Control': 'no-store' } }),
+    );
+    const { ctx, flush } = createCtx();
+
+    const res = await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'X-VoidPages-Build': 'build-2',
+      }),
+      env,
+      ctx,
+      OPTS,
+      render,
+    );
+    await flush();
+
+    // The answer belongs to the JSON path only; other tabs still hold this HTML.
+    expect(res!.headers.get('Cache-Control')).toBe('no-store');
+    expect(await edge.store.get(htmlKey)!.text()).toBe('<html>cached</html>');
+    expect(store.has(isrKey(DPL, HOST, '/blog/post'))).toBe(true);
   });
 
   it.each([
