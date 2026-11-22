@@ -243,24 +243,24 @@ const { slug } = c.req.param() as PageParams<'/posts/[slug]'>;
 
 ### Page query
 
-A loader can validate its query with `defineHandler.withValidator({ query })`. That schema types the page's links and its own reads.
+A loader can validate its query with `defineHandler.withValidator({ query })`. Exporting the schema as `query` also types the page's links:
 
 ```ts
 // pages/admin/payments.server.ts
 import { defineHandler } from 'void';
 import { z } from 'zod';
 
-const search = z.object({
+export const query = z.object({
   status: z.enum(['paid', 'pending']),
   page: z.coerce.number().default(1),
 });
 
-export const loader = defineHandler.withValidator({ query: search })(async (c, { query }) => {
+export const loader = defineHandler.withValidator({ query })(async (c, { query }) => {
   return { payments: await listPayments(query) };
 });
 ```
 
-`routeUrl()` checks its `query` against that schema. A key outside it, a value outside it, or a missing required key is a type error:
+`routeUrl()`, `router.visit()`, and `c.redirect()` now check their `query` against that schema. A key outside it, a value outside it, or a missing required key is a type error:
 
 ```ts
 import { routeUrl } from 'void/routes';
@@ -271,14 +271,12 @@ routeUrl('/admin/payments', { query: { status: 'void' } }); // Type error: not i
 routeUrl('/admin/payments'); // Type error: `status` is required
 ```
 
-`router.visit()` takes the same destination object and applies the same checks.
-
-Read the values the loader validated with `useQuery()`. Pass the page pattern to type it.
+Read the values the loader validated with `usePageQuery()`. Pass the page pattern to type it.
 
 ```ts
-import { useQuery } from '@void/react'; // @void/vue, @void/svelte, @void/solid
+import { usePageQuery } from '@void/react'; // @void/vue, @void/svelte, @void/solid
 
-const query = useQuery<'/admin/payments'>();
+const query = usePageQuery<'/admin/payments'>();
 // { status: 'paid' | 'pending'; page: number }
 
 await router.visit({
@@ -289,7 +287,7 @@ await router.visit({
 
 The result is typed by the schema's output, so a coerced `page` is a number here even though the URL only carries text. Spreading it into a navigation changes one filter and keeps the rest.
 
-A page without a query schema keeps accepting any `RouteQuery`, and `useQuery()` returns the request's query values as strings. Routes served by an HTTP handler are not checked, because one URL can serve several methods with different query schemas.
+A page without a query schema keeps accepting any `RouteQuery`, and `usePageQuery()` returns the request's query values as strings. Routes served by an HTTP handler are not checked, because one URL can serve several methods with different query schemas.
 
 ### Prerender paths
 

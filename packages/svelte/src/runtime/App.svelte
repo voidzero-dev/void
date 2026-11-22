@@ -15,6 +15,7 @@
     pageProps: props.pageProps,
     shared: props.shared,
     params: props.params,
+    query: props.query,
     frontmatter: props.frontmatter,
     router: props.router,
     routeUrl: props.routeUrl,
@@ -37,9 +38,12 @@
   let currentPageProps = $state(init.pageProps);
   let shared = $state(init.shared);
   let params = $state(init.params || {});
+  let query = $state(init.query || {});
   let routeUrl = $state(init.routeUrl || "/");
   let navigation = $state(init.navigation || idleNavigationState());
-  const router = init.router ? createRouterFacade(init.router, () => routeUrl, () => params) : null;
+  const router = init.router
+    ? createRouterFacade(init.router, () => routeUrl, () => params, () => query)
+    : null;
 
   // Pages and layouts keep the objects returned by useShared() and useParams()
   // across navigations, so update them in place.
@@ -85,6 +89,9 @@
       init.stores.layouts.subscribe((v) => { currentLayouts = v; }),
       init.stores.shared.subscribe((v) => replaceInPlace(shared, v)),
       init.stores.params.subscribe((v) => replaceInPlace(params, v)),
+      ...(init.stores.query
+        ? [init.stores.query.subscribe((v) => replaceInPlace(query, v))]
+        : []),
       init.stores.route.subscribe((v) => { routeUrl = v; }),
       init.stores.navigation.subscribe((v) => { navigation = v; }),
     ];

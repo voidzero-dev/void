@@ -243,7 +243,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     },
   }).catch(error => { if (Object.keys(boundaryManifest.plans).length) showTerminalPageError(); throw error; });
 
-const reactiveRouter = createRouterFacade(router, () => routeUrl(), () => routeParams(), () => routeQuery());
+const reactiveRouter = createRouterFacade(router, () => routeUrl(), () => routeParams(), () => query);
 
 setActionRouter(reactiveRouter);
 

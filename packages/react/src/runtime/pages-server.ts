@@ -73,7 +73,14 @@ export async function renderReactPage({
 
   element = React.createElement(
     RouterContext.Provider,
-    { value: createSsrRouter(pageObj.url || '/', pageObj.params ?? {}, requestUrl) },
+    {
+      value: createSsrRouter(
+        pageObj.url || '/',
+        pageObj.params ?? {},
+        requestUrl,
+        pageObj.query ?? {},
+      ),
+    },
     React.createElement(
       NavigationContext.Provider,
       { value: idleNavigationState() },
