@@ -26,9 +26,6 @@
     "build": "vp pack",
     "typecheck": "tsrs --noEmit"
   },
-  "dependencies": {
-    "yaml": "^2.9.1"
-  },
   "devDependencies": {
     "@types/node": "catalog:",
     "@voidzero-dev/vite-plus-prompts": "catalog:",

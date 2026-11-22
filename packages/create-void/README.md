@@ -14,14 +14,6 @@ npm run dev
 
 Choose Vite+ or Vite, then React, Vue, Svelte, or Solid. Pick a D1, PostgreSQL, MySQL, or Static Pages starter. The wizard installs dependencies and sets up TypeScript and coding agents; choose Cloudflare to deploy to your account, or connect to a team platform.
 
-To skip installing dependencies, pass `--no-install`. The Void CLI runs temporarily to scaffold the project, without being installed into it. The same option works with `void init` in an existing project. Install the starter dependencies when you're ready:
-
-```sh
-npm create void@latest my-app -- --no-install
-cd my-app
-npm install
-```
-
 When you're ready to deploy:
 
 ```sh

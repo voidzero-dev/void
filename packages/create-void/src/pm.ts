@@ -1,72 +1,22 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { join } from 'pathslash';
-import { isMap, isScalar, parseDocument } from 'yaml';
 
 export type PM = 'npm' | 'pnpm' | 'yarn' | 'bun';
 
 const VOID_PNPM_ALLOWED_BUILDS = ['esbuild', 'sharp', 'workerd'] as const;
 
-/**
- * Add Void's build-script policy to the pnpm workspace that owns `cwd`.
- * Existing workspace settings and allowBuilds entries are preserved.
- */
+/** Write the explicit build-script policy required by a new pnpm project. */
 export function writePnpmBuildPolicy(root: string, pm: PM): void {
   if (pm !== 'pnpm') {
     return;
   }
-  const policyPath = join(root, 'pnpm-workspace.yaml');
-  const before = existsSync(policyPath) ? readFileSync(policyPath, 'utf8') : '';
-  const after = mergePnpmBuildPolicy(before);
-  if (after !== before) {
-    writeFileSync(policyPath, after);
-  }
-}
-
-function mergePnpmBuildPolicy(yaml: string): string {
-  const doc = parseDocument(yaml || '{}');
-  if (doc.errors.length > 0) {
-    throw new Error(`create-void: Could not parse pnpm-workspace.yaml: ${doc.errors[0].message}`);
-  }
-  let allowBuilds = doc.get('allowBuilds', true);
-  if (allowBuilds == null || (isScalar(allowBuilds) && allowBuilds.value === null)) {
-    doc.set('allowBuilds', doc.createNode({}));
-    allowBuilds = doc.get('allowBuilds', true);
-  }
-  if (!isMap(allowBuilds)) {
-    throw new Error('create-void: pnpm-workspace.yaml `allowBuilds` must be a mapping.');
-  }
-
-  const required: ReadonlyArray<readonly [string, boolean]> = [
-    ['better-sqlite3', false],
-    ...VOID_PNPM_ALLOWED_BUILDS.map((name) => [name, true] as const),
-  ];
-  let changed = false;
-  for (const [name, allowed] of required) {
-    if (!allowBuilds.has(name)) {
-      allowBuilds.set(name, allowed);
-      changed = true;
-    }
-  }
-  if (!changed && yaml !== '') {
-    return yaml;
-  }
-  return doc.toString();
-}
-
-export function getPnpmWorkspaceRoot(cwd: string): string | undefined {
-  const result = spawnSync('pnpm', ['--workspace-root', 'exec', 'node', '-p', 'process.cwd()'], {
-    cwd,
-    encoding: 'utf8',
-    shell: process.platform === 'win32',
-  });
-
-  if (result.error || result.status !== 0) {
-    return undefined;
-  }
-
-  const root = result.stdout.trim();
-  return root;
+  writeFileSync(
+    join(root, 'pnpm-workspace.yaml'),
+    // better-sqlite3 13 ships Node-API binaries and declares gypfile:false.
+    // Match the repository policy instead of invoking pnpm's implicit rebuild.
+    `allowBuilds:\n  better-sqlite3: false\n${VOID_PNPM_ALLOWED_BUILDS.map((name) => `  ${name}: true`).join('\n')}\n`,
+  );
 }
 
 export function detectPM(): PM {

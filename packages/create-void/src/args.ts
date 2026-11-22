@@ -1,7 +1,6 @@
 export type CreateArgs = {
   appName: string | undefined;
   initArgs: Array<string>;
-  noInstall?: true;
 };
 
 // run() spawns through a shell on Windows, so only forward plain flags such as
@@ -35,19 +34,17 @@ export function validateProjectName(value: string | undefined): string | undefin
 
 /** Split `create-void [name] [void init options]` into the name and the options. */
 export function parseCreateArgs(argv: ReadonlyArray<string>): CreateArgs {
-  const noInstall = argv.includes('--no-install');
-  const args = argv.filter((arg) => arg !== '--no-install');
-  const [first, ...rest] = args;
+  const [first, ...rest] = argv;
   const appName = first !== undefined && !first.startsWith('-') ? first : undefined;
   const nameError = validateProjectName(appName);
   if (nameError) {
     throw new Error(`create-void: ${nameError}`);
   }
-  const initArgs = appName === undefined ? args : rest;
+  const initArgs = appName === undefined ? [...argv] : rest;
   for (const arg of initArgs) {
     if (!INIT_ARG_PATTERN.test(arg)) {
       throw new Error(`create-void: Unsupported argument '${arg}'.`);
     }
   }
-  return { appName, initArgs, ...(noInstall ? { noInstall: true } : {}) };
+  return { appName, initArgs };
 }
