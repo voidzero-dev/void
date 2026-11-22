@@ -4,7 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, relative } from 'pathslash';
 import { normalizePath, type Plugin } from 'vite';
 import { DRIZZLE_OPERATORS, generateDbDts } from './codegen/db-types.ts';
-import { ensureProjectTsconfig } from './codegen/project-tsconfig.ts';
+import {
+  AUTH_SCHEMA_FILE,
+  AUTH_SCHEMA_ID,
+  ensureProjectTsconfig,
+} from './codegen/project-tsconfig.ts';
 import {
   getDatabaseCasing,
   getDatabaseDialect,
@@ -129,6 +133,13 @@ function createVoidDbModule(
           return schema.path;
         }
         return join(schema.path, id.slice('@schema/'.length));
+      }
+
+      // `@auth-schema` is the auth tables Void generates, for foreign keys from the app's
+      // own tables. Resolved here like `@schema`, so dev and builds need no tsconfig `paths`
+      // or `resolve.tsconfigPaths` for it (the type side is in .void/tsconfig.json).
+      if (id === AUTH_SCHEMA_ID) {
+        return join(root, '.void', AUTH_SCHEMA_FILE);
       }
     },
 
@@ -400,7 +411,7 @@ export function drizzlePlugin(
     },
 
     resolveId: {
-      filter: { id: /^(void\/db|@schema)/ },
+      filter: { id: /^(void\/db|@schema|@auth-schema$)/ },
       handler(id, importer) {
         // Only intercept void/db in server/worker environments (not client)
         if (id === 'void/db' && this.environment?.name === 'client') {
