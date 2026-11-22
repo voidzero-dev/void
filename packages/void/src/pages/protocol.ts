@@ -1,10 +1,11 @@
-import { PAGES_PROTOCOL_VERSION } from '@void/edge';
+import { buildHeaders, isStaleBuild, PAGES_BUILD_HEADER, PAGES_PROTOCOL_VERSION } from '@void/edge';
 import type { Context } from 'hono';
 import type { HTTPException } from 'hono/http-exception';
 import { executeComposedHandler, getHandlerComposition } from '../runtime/handler/composition.ts';
 import type { CloudBindings, CloudContext } from '../runtime/handler/index.ts';
 import { isConvertedResponse } from '../runtime/handler/response.ts';
 import { hasActionKey, searchWithoutActionKey } from './action-key.ts';
+import { pagesBuildId } from './build-id.ts';
 import { DEFERRED, separateDeferred } from './defer.ts';
 import type { ResolvedDeferredGroup } from './defer.ts';
 import {
@@ -97,7 +98,17 @@ function isPagesRequest(c: CloudContext): boolean {
 }
 
 function needsPageReload(c: CloudContext): boolean {
-  return isPagesRequest(c) && c.req.header('X-VoidPages-Version') !== PAGES_PROTOCOL_VERSION;
+  if (!isPagesRequest(c)) {
+    return false;
+  }
+  // A tab that outlived its deployment holds chunks that are gone. Its next GET
+  // navigation reloads the destination instead of importing a stale component.
+  // Mutations keep their response: the action already ran, and a page load would
+  // throw away its result.
+  return (
+    c.req.header('X-VoidPages-Version') !== PAGES_PROTOCOL_VERSION ||
+    (c.req.method === 'GET' && isStaleBuild(pagesBuildId(), c.req.header(PAGES_BUILD_HEADER)))
+  );
 }
 
 /** Old clients reload a successful non-Pages response; form errors stay readable. */
@@ -110,6 +121,8 @@ function legacyPageResponse(
     'Content-Type': errors ? 'application/json' : 'text/plain; charset=utf-8',
     'Cache-Control': 'no-store',
     Vary: 'X-VoidPages, X-VoidPages-Version',
+    // Tells the client why it is reloading, and from which build to reload.
+    ...buildHeaders(pagesBuildId()),
   });
   headers.delete('X-VoidPages');
   return new Response(errors ? JSON.stringify({ errors }) : null, {
@@ -301,7 +314,11 @@ function pageJsonResponse(c: CloudContext, pageObj: PageObject): Response {
     headers: pageResponseHeaders(c, {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      ...buildHeaders(pagesBuildId()),
       'Content-Type': 'application/json',
+      // Not in Vary: the body does not depend on the build, and a per-build key
+      // would split every shared cache entry. Only the reload response differs,
+      // and it is no-store.
       Vary: 'X-VoidPages, X-VoidPages-Version',
       ...POWERED_BY,
     }),
@@ -880,6 +897,10 @@ async function runPageGet(
           // Stream NDJSON: first line is PageObject, subsequent lines are deferred groups
           c.header('X-VoidPages', 'true');
           c.header('X-VoidPages-Version', PAGES_PROTOCOL_VERSION);
+          const build = pagesBuildId();
+          if (build !== '') {
+            c.header(PAGES_BUILD_HEADER, build);
+          }
           return streamDeferredResponse(
             serializePageData(pageObj) + '\n',
             deferredMap,

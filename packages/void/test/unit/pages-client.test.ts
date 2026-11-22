@@ -133,6 +133,120 @@ function createTestRouter({ adapter, ...config }: TestRouterConfig = {}) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+describe('Pages build recovery', () => {
+  function staleJson(body: unknown): Response {
+    return Response.json(body, {
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Build': 'build-1' },
+    });
+  }
+
+  const stalePage = {
+    component: 'home',
+    props: { title: 'post' },
+    url: '/next?tab=1',
+    errors: null,
+  };
+
+  it('reloads the destination when another build answered the navigation', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    const fetch = vi.fn(async () => staleJson(stalePage));
+    vi.stubGlobal('fetch', fetch);
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/next?tab=1#details');
+
+    // This tab names its own build, so the server can answer for it.
+    expect(fetch).toHaveBeenCalledWith(
+      '/next?tab=1',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-VoidPages-Build': 'build-2' }),
+      }),
+    );
+    // A document load keeps the query and the fragment, and never renders stale props.
+    expect(window.location.href).toBe('/next?tab=1#details');
+    expect(applyUpdate).not.toHaveBeenCalled();
+  });
+
+  it('drops a prefetch from another build and reloads on the visit instead', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleJson(stalePage)),
+    );
+    const { router } = await createTestRouter();
+
+    await router.prefetch('/next');
+    expect(window.location.href).toBeUndefined();
+
+    await router.visit('/next');
+    expect(window.location.href).toBe('/next');
+  });
+
+  it('treats a response from a server with no build id as unchanged', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    // An older Void names no build. It is not evidence of a new one.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(stalePage, { headers: { 'X-VoidPages': 'true' } })),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/next');
+
+    expect(window.location.href).toBeUndefined();
+    expect(applyUpdate).toHaveBeenCalled();
+  });
+
+  it('reloads a destination once, then lets the page render and fail on its own', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    const stored = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+      removeItem: (key: string) => void stored.delete(key),
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleJson(stalePage)),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/next');
+    expect(window.location.href).toBe('/next');
+
+    // The document came back from the old build anyway: rendering must not loop.
+    (window.location as unknown as { href?: string }).href = undefined;
+    await router.visit('/next');
+    expect(window.location.href).toBeUndefined();
+    expect(applyUpdate).toHaveBeenCalled();
+  });
+
+  it('applies a mutation answered by another build and never reloads', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleJson(stalePage)),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/next', { method: 'POST' });
+
+    // The action already ran: a page load would replay nothing and lose its result.
+    expect(window.location.href).toBeUndefined();
+    expect(applyUpdate).toHaveBeenCalled();
+  });
 });
 
 describe('Pages serialization compatibility', () => {

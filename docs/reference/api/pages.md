@@ -91,6 +91,7 @@ interface VoidVueOptions {
     hoverDelay?: number; // default: 75 (ms)
     cacheFor?: number | string | [string, string]; // default: '30s'
   };
+  deployRecovery?: boolean; // reload a tab whose build is gone. default: true
 }
 ```
 
@@ -147,6 +148,7 @@ interface VoidReactOptions {
     hoverDelay?: number; // default: 75 (ms)
     cacheFor?: number | string | [string, string]; // default: '30s'
   };
+  deployRecovery?: boolean; // reload a tab whose build is gone. default: true
 }
 ```
 
@@ -232,6 +234,7 @@ interface VoidSvelteOptions {
     hoverDelay?: number; // default: 75 (ms)
     cacheFor?: number | string | [string, string]; // default: '30s'
   };
+  deployRecovery?: boolean; // reload a tab whose build is gone. default: true
 }
 ```
 
@@ -286,6 +289,7 @@ interface VoidSolidOptions {
     hoverDelay?: number; // default: 75 (ms)
     cacheFor?: number | string | [string, string]; // default: '30s'
   };
+  deployRecovery?: boolean; // reload a tab whose build is gone. default: true
 }
 ```
 

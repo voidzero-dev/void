@@ -39,13 +39,14 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
     root = undefined;
   });
 
-  function setup() {
+  function setup(options: Record<string, unknown> = {}) {
     root = mkdtempSync(join(tmpdir(), `void-${adapter.name}-pages-plugin-`));
     const pagesDir = join(root, '_source', '_views');
     const plugins = adapter.create(pagesDir, {
       root,
       viewTransitions: true,
       prefetch: { defaultStrategy: ['hover', 'click'], hoverDelay: 123, cacheFor: '45s' },
+      ...options,
     });
     const plugin = (Array.isArray(plugins) ? plugins : [plugins]).find(
       (candidate: Plugin) => candidate.name === `void-${adapter.name}:pages`,
@@ -87,7 +88,14 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
           rollupOptions: { input: { 'pages-client': 'virtual:void-pages-client' } },
         },
       };
-      expect(config).toEqual(
+      const { define, ...rest } = config as Record<string, unknown> & {
+        define?: Record<string, string>;
+      };
+      // Every Pages client carries the build it was compiled into.
+      expect(define).toEqual({
+        'import.meta.env.__VOID_PAGES_BUILD_ID': expect.stringMatching(/^"[0-9a-f]{12}"$/),
+      });
+      expect(rest).toEqual(
         adapter.name === 'vue'
           ? { environments: { client: clientConfig } }
           : adapter.name === 'react'
@@ -97,6 +105,17 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
     } else {
       expect(config).toBeUndefined();
     }
+  });
+
+  it('omits the build id when deploy recovery is off', async () => {
+    const { plugin, write } = setup({ deployRecovery: false });
+    write(`about.${adapter.extension}`);
+
+    const config = (await handler(plugin.config)({}, { command: 'build' })) as
+      | { define?: Record<string, string> }
+      | undefined;
+
+    expect(config?.define).toBeUndefined();
   });
 
   it('resolves only the Pages virtual module IDs', async () => {

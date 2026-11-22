@@ -43,6 +43,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
   return createPagesPlugin(pagesDir, {
     name: 'void-react:pages',
     root,
+    deployRecovery: options?.deployRecovery,
     generateRenderer(scan, isDev) {
       return generateRendererModule(scan, pagesDir, isDev);
     },

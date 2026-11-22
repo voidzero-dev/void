@@ -128,6 +128,20 @@ Production deploys exclude resources used only by `.dev` pages and their compani
 
 The first request receives rendered HTML. Later navigations run the loader and update the page without reloading the document. Form submissions run an action, then refresh page props or redirect.
 
+### After a deploy
+
+An open tab keeps the code it loaded. Deploy while it stays open, and its next navigation asks for chunks that no longer exist.
+
+Void recovers that navigation. The tab sends the build it is running with each page request, and an answer from a different build makes it load the requested page as a document instead of rendering it. The destination keeps its query string and fragment, and the current page stays visible until the load starts.
+
+These never reload the tab:
+
+- A prefetch drops the response and lets the next navigation decide.
+- A form submission renders its response, so the action never runs twice. The next navigation reloads if it has to.
+- A failed request is not treated as a deploy.
+
+Recovery is on by default. Set `deployRecovery: false` in your framework plugin's options to keep your own [error boundaries](./errors.md) in charge instead.
+
 To opt a specific route out of server-rendered component HTML, export `ssr = false` from its companion `.server.ts` file:
 
 ```ts

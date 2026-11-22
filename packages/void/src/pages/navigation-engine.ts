@@ -1,10 +1,11 @@
 /// <reference lib="dom" />
 
-import { PAGES_PROTOCOL_VERSION } from '@void/edge';
+import { buildHeaders, isStaleBuild, PAGES_BUILD_HEADER, PAGES_PROTOCOL_VERSION } from '@void/edge';
 import { PRESERVED_QUERY_HEADER, searchWithoutActionKey } from './action-key.ts';
 import { createActionErrorFromResponse, isAbortError } from './action-result.ts';
 import { pageBoundarySlots, clientPageError, showTerminalPageError } from './boundary-client.ts';
 import type { BoundaryManifest } from './boundary-plans.ts';
+import { pagesBuildId } from './build-id.ts';
 import { initClientHead, applyClientHead } from './head-client.ts';
 import { PrefetchCache, parseCacheFor } from './prefetch.ts';
 import type { CacheForInput, CacheForResult, LinkPrefetchValue } from './prefetch.ts';
@@ -235,6 +236,38 @@ async function skipCommit(): Promise<boolean> {
 
 function abortError(): DOMException {
   return new DOMException('Navigation aborted', 'AbortError');
+}
+
+const DEPLOY_RELOAD_KEY = '__void_pages_deploy_reload';
+/** A reload that lands on the same stale build must not reload again. */
+const DEPLOY_RELOAD_WINDOW_MS = 10_000;
+
+/**
+ * Claims the one reload this tab may spend to recover `url` from `build`. Returns
+ * false when that reload already happened: a cache can keep serving the document
+ * from the old build, and reloading it again would loop.
+ */
+function claimDeployReload(build: string, url: string): boolean {
+  try {
+    const now = Date.now();
+    const previous = JSON.parse(sessionStorage.getItem(DEPLOY_RELOAD_KEY) ?? 'null') as {
+      build?: unknown;
+      url?: unknown;
+      at?: unknown;
+    } | null;
+    if (
+      previous?.build === build &&
+      previous.url === url &&
+      typeof previous.at === 'number' &&
+      now - previous.at < DEPLOY_RELOAD_WINDOW_MS
+    ) {
+      return false;
+    }
+    sessionStorage.setItem(DEPLOY_RELOAD_KEY, JSON.stringify({ build, url, at: now }));
+  } catch {
+    // Storage may be blocked or full. A reload is still better than a dead page.
+  }
+  return true;
 }
 
 function abortSignalPromise(signal: AbortSignal): Promise<never> {
@@ -630,6 +663,7 @@ export async function createPageNavigationEngine<Component>(
     const headers = {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      ...buildHeaders(pagesBuildId()),
       Accept: 'application/json',
       Purpose: 'prefetch',
     };
@@ -644,6 +678,11 @@ export async function createPageNavigationEngine<Component>(
       return fetchPageResponse(url, { method: 'GET', headers }).then(async (result) => {
         const r = result?.response;
         if (!r || result?.redirectedTo) {
+          return null;
+        }
+        // Another deployment answered: cache nothing, so the visit that follows a
+        // hover reloads instead of rendering props this build's chunks cannot show.
+        if (isStaleBuild(pagesBuildId(), r.headers.get(PAGES_BUILD_HEADER))) {
           return null;
         }
         if (!r.headers.get('X-VoidPages')) {
@@ -730,6 +769,7 @@ export async function createPageNavigationEngine<Component>(
       Partial<Record<typeof PRESERVED_QUERY_HEADER | 'Content-Type', string>> = {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      ...buildHeaders(pagesBuildId()),
       Accept: 'application/json',
     };
     if (options._preservedQuery && method !== 'GET') {
@@ -805,7 +845,25 @@ export async function createPageNavigationEngine<Component>(
             ? await fetchPageResponse(url, fetchOptions)
             : await fetchPages(url, fetchOptions)
           : null;
-      const response = fetched?.response ?? null;
+      let response = fetched?.response ?? null;
+
+      // The destination was rendered by another deployment, so this tab's chunks
+      // are gone. Treat the payload as absent: the document load below lands on the
+      // requested destination with its query and hash. A mutation has already run,
+      // so only a GET is allowed to get here. One reload per destination: when the
+      // document comes back from the old build anyway, rendering the payload lets
+      // the error boundaries take over instead of reloading in a loop. A response
+      // that names no build, from an older Void, is not evidence of a new one.
+      const servedBy = response?.headers.get(PAGES_BUILD_HEADER) ?? null;
+      if (
+        method === 'GET' &&
+        servedBy !== null &&
+        isStaleBuild(pagesBuildId(), servedBy) &&
+        claimDeployReload(servedBy, url)
+      ) {
+        response = null;
+        pageData = undefined;
+      }
 
       if (pageData === undefined && !response) {
         window.location.href = url;

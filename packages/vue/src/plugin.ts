@@ -9,6 +9,7 @@ export type VoidVueOptions = Readonly<{
   vue?: Parameters<typeof vue>[0];
   viewTransitions?: boolean;
   prefetch?: PrefetchConfig;
+  deployRecovery?: boolean;
 }>;
 
 export function voidVue(options?: VoidVueOptions): Array<Plugin> {
@@ -18,7 +19,8 @@ export function voidVue(options?: VoidVueOptions): Array<Plugin> {
     vue(options?.vue) as Plugin,
     ...pagesPlugin(
       pagesDir,
-      { root, viewTransitions: options?.viewTransitions, prefetch: options?.prefetch },
+      // Spread so adapter options the pages plugin owns reach it without per-option glue.
+      { ...options, root },
       options?.vue?.script?.babelParserPlugins,
     ),
     ...islandsPlugin(pagesDir, { root }),

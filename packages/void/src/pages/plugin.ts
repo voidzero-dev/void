@@ -1,7 +1,9 @@
 import { existsSync } from 'node:fs';
-import { dirname } from 'pathslash';
+import { dirname, isAbsolute, join } from 'pathslash';
 import { normalizePath } from 'vite';
 import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
+import { computePagesBuildId } from './build-id-source.ts';
+import { PAGES_BUILD_ID_DEFINE } from './build-id.ts';
 import { assertLinkPrefetchValue } from './prefetch.ts';
 import type { CacheForInput, LinkPrefetchValue } from './prefetch.ts';
 import { scanPages } from './scan.ts';
@@ -30,6 +32,11 @@ export type PagesPluginOptions = {
   root?: string;
   viewTransitions?: boolean;
   prefetch?: PrefetchConfig;
+  /**
+   * Reload the destination when a tab navigates against a newer deployment.
+   * Defaults to `true`. Turn it off to keep error boundaries in charge.
+   */
+  deployRecovery?: boolean;
 };
 
 /**
@@ -51,10 +58,30 @@ export function resolvePrefetchConfig(
 type CreatePagesPluginOptions = {
   name: string;
   root?: string;
+  deployRecovery?: boolean;
   generateRenderer: (scan: PageScanResult, isDev: boolean) => string;
   generateClient: (scan: PageScanResult, staticPageData: StaticPageDataBuildOptions) => string;
   config: (context: PagesPluginContext) => UserConfig | void | Promise<UserConfig | void>;
 };
+
+/**
+ * The files that are not app source: the build output of every environment, and
+ * assets that never take part in a chunk hash.
+ */
+function buildIdExcludes(root: string, userConfig: UserConfig): Array<string> {
+  const dirs = new Set<string>(['dist']);
+  const add = (dir: unknown) => {
+    if (typeof dir === 'string') {
+      dirs.add(dir);
+    }
+  };
+  add(userConfig.build?.outDir);
+  for (const environment of Object.values(userConfig.environments ?? {})) {
+    add(environment?.build?.outDir);
+  }
+  add(userConfig.publicDir === undefined ? 'public' : userConfig.publicDir);
+  return [...dirs].map((dir) => (isAbsolute(dir) ? dir : join(root, dir)));
+}
 
 /** Shared Vite lifecycle; adapters own their generated code and environment configuration. */
 export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOptions): Plugin {
@@ -63,6 +90,10 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
   let viteConfig: ResolvedConfig | undefined;
   const root = options.root ?? dirname(pagesDir);
   const normalizedPagesDir = normalizePath(pagesDir);
+  // One id for the whole app: both bundles get it from the same define, and Vite
+  // may resolve this config once per environment, so it is derived from the source
+  // rather than minted here.
+  let buildId: string | undefined;
   let pendingRescan: Promise<void> | null = null;
   async function rescanPages(): Promise<void> {
     pageScan = existsSync(pagesDir)
@@ -164,19 +195,42 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
       viteConfig = config;
     },
 
-    config(_, env) {
+    config(userConfig, env) {
       // Set before the early return: pages/ may be created after the server starts.
-      isDev = env.command === 'serve';
+      const dev = env.command === 'serve';
+      isDev = dev;
       if (!existsSync(pagesDir)) {
         return;
       }
-      return options.config({
+      const pagesConfig = options.config({
         isDev,
         async scan() {
           await runRescan();
           return pageScan;
         },
       });
+      const withBuildId = (resolved: UserConfig | void): UserConfig | void => {
+        // The dev server serves a single build, so a tab never outlives the chunks
+        // it imported, and an app without a client entry has no tab to recover.
+        // Leaving the id undefined keeps every build check a no-op there.
+        if (dev || resolved == null || options.deployRecovery === false) {
+          return resolved;
+        }
+        buildId ??= computePagesBuildId(root, buildIdExcludes(root, userConfig));
+        return {
+          ...resolved,
+          define: {
+            ...resolved.define,
+            [PAGES_BUILD_ID_DEFINE]: JSON.stringify(buildId),
+            // An explicit app define wins: it pins the id for a fixture or forces
+            // one that outlives this process, such as a commit sha.
+            ...userConfig.define,
+          },
+        };
+      };
+      return pagesConfig instanceof Promise
+        ? pagesConfig.then(withBuildId)
+        : withBuildId(pagesConfig);
     },
   };
 }
