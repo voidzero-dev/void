@@ -1,0 +1,124 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+}
+a {
+  color: #1d4ed8;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+.example-container {
+  max-width: 100rem;
+  margin-inline: auto;
+  padding: 1.5rem;
+}
+p {
+  max-width: 80ch;
+}
+pre {
+  padding: 1rem;
+  background: #e2e8f0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+code {
+  overflow-wrap: anywhere;
+}
+.examples {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 2rem;
+}
+.example {
+  min-width: 0;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 1rem;
+}
+.example h2 {
+  font-size: 1.2rem;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem;
+  margin-block: 1.5rem;
+}
+.controls label {
+  display: grid;
+  gap: 0.25rem;
+}
+.demo {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  gap: 2rem;
+}
+.preview {
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem;
+}
+.preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.demo > * {
+  min-width: 0;
+}
+figure {
+  margin: 0 0 1.5rem;
+}
+figcaption {
+  padding-block: 0.5rem;
+}
+.fill-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+}
+.preview .fill-frame img {
+  height: 100%;
+}
+.loading-gap {
+  /* Slow-network lazy loading can fetch images several thousand pixels offscreen. */
+  min-height: max(160vh, 3500px);
+}
+.loading-hint {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  max-width: none;
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  background: #fef3c7;
+}
+button + [role='status'] {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 75rem) {
+  .examples {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 50rem) {
+  .examples,
+  .demo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
