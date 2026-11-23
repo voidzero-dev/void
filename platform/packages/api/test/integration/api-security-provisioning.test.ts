@@ -13,7 +13,14 @@ import {
   type SecurityScannerTarget,
 } from '../../src/provisioning/security-scanner.ts';
 import { createFakeRegistry, fakeImage } from '../__mocks__/image-registry.ts';
-import { mockCfApi, setupEnv, teardownEnv, type MockCfApiHandle, type TestEnv } from './helpers.ts';
+import {
+  cfSuccess,
+  mockCfApi,
+  setupEnv,
+  teardownEnv,
+  type MockCfApiHandle,
+  type TestEnv,
+} from './helpers.ts';
 
 // The installation's security scanner: controller Worker + container application +
 // gate script in the dispatch namespace (design doc 0095, M6).
@@ -37,6 +44,34 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * The fake Cloudflare API, answering for dispatch scripts as the real API does: a GET
+ * of a missing script is 200 with `script: null`; only its `/bindings` answer 404.
+ */
+function cloudflare(overrides: Parameters<typeof mockCfApi>[0] = {}): MockCfApiHandle {
+  const scriptName = (url: string) => url.split('/scripts/')[1]?.split(/[/?#]/)[0] ?? '';
+  const cf: MockCfApiHandle = mockCfApi({
+    getDispatchScript: (url) => {
+      const script = cf.state.hostScripts.get(scriptName(url));
+      return cfSuccess({ script: script ? { id: scriptName(url), ...script.metadata } : null });
+    },
+    listWorkerBindings: (url) => {
+      const script = cf.state.hostScripts.get(scriptName(url));
+      return script
+        ? cfSuccess(script.bindings)
+        : Response.json(
+            {
+              success: false,
+              errors: [{ code: 10007, message: 'This Worker does not exist on your account.' }],
+            },
+            { status: 404 },
+          );
+    },
+    ...overrides,
+  });
+  return cf;
+}
+
 type Upload = { url: string; method: string; headers: Headers; metadata: Record<string, unknown> };
 
 async function uploads(cf: MockCfApiHandle): Promise<Array<Upload>> {
@@ -58,7 +93,7 @@ async function uploads(cf: MockCfApiHandle): Promise<Array<Upload>> {
 
 describe('security scanner provisioning', () => {
   it('creates the controller, its container application and the gate', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const names = await securityScannerNames(target.installationKey);
     const { applicationId } = await provisionSecurityScanner(target);
 
@@ -154,7 +189,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('reuses everything on a second run with the same bundle', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const first = await provisionSecurityScanner(target);
     const before = (await uploads(cf)).length;
     const second = await provisionSecurityScanner(target);
@@ -164,7 +199,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('re-uploads a controller from another release without repeating its migration', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     await provisionSecurityScanner(target);
     const names = await securityScannerNames(target.installationKey);
     const script = cf.state.hostScripts.get(names.worker)!;
@@ -184,7 +219,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('refuses a Worker with the scanner name that another installation owns', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const names = await securityScannerNames(target.installationKey);
     cf.seedHostScript({
       scriptName: names.worker,
@@ -209,7 +244,7 @@ describe('security scanner provisioning', () => {
       undefined,
       JSON.stringify({ protocol: 1, installation: 'someone-else' }),
     ]) {
-      const cf = mockCfApi();
+      const cf = cloudflare();
       const seeded = [
         { type: 'service', name: 'SCANNER', service: 'their-controller' },
         ...(marker === undefined
@@ -229,7 +264,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('updates its own gate when it points at an old controller', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const names = await securityScannerNames(target.installationKey);
     await provisionSecurityScanner(target);
     const gate = cf.state.hostScripts.get(names.gate)!;
@@ -245,7 +280,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('names the missing Containers access before anything is created', async () => {
-    const cf = mockCfApi({
+    const cf = cloudflare({
       listContainerApps: () =>
         Response.json(
           { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
@@ -274,7 +309,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('gives each ready engine image its own class and container application', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const names = await securityScannerNames(target.installationKey);
     await provisionSecurityScanner(target);
     const before = (await uploads(cf)).length;
@@ -317,7 +352,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('keeps a deployed engine image at the current pin when this run did not ready it', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const names = await securityScannerNames(target.installationKey);
     const ref = (hex: string) =>
       `registry.cloudflare.com/${target.accountId}/${names.engines.agent_sdk.repository}@sha256:${hex.repeat(64)}`;
@@ -339,7 +374,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('uploads again when another probe drops this probe’s image in between', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const names = await securityScannerNames(target.installationKey);
     await provisionSecurityScanner(target);
     const ref = `registry.cloudflare.com/${target.accountId}/${names.engines.codex_sdk.repository}@sha256:${'c'.repeat(64)}`;
@@ -366,7 +401,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('adds the engine classes to a controller from before engine images', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const names = await securityScannerNames(target.installationKey);
     await provisionSecurityScanner(target);
     // An M6 controller: only the Engine B class and binding.
@@ -394,7 +429,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('deletes the gate, the container applications, the controller, then the copied images', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const image = fakeImage();
     const registry = createFakeRegistry({
       published: { 'voidzero-dev/void-security-scanner-engine-c': image },
@@ -444,7 +479,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('removes the copied images on a retry after the image cleanup failed', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const image = fakeImage();
     const registry = createFakeRegistry({
       published: { 'voidzero-dev/void-security-scanner-engine-c': image },
@@ -482,7 +517,7 @@ describe('security scanner provisioning', () => {
   });
 
   it('leaves a container application alone when its controller is gone', async () => {
-    const cf = mockCfApi();
+    const cf = cloudflare();
     const names = await securityScannerNames(target.installationKey);
     cf.seedContainerApp({ name: names.application, namespaceId: 'ns-unknown' });
     await expect(deleteSecurityScanner(target)).rejects.toMatchObject({ kind: 'ownership' });

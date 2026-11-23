@@ -490,15 +490,19 @@ async function readGateBindings(
   target: SecurityScannerTarget,
   name: string,
 ): Promise<ReadonlyArray<Binding> | undefined> {
+  // A GET of a missing dispatch script answers 200 with `script: null`, not 404, so
+  // read the bindings directly: they answer 404 when the gate does not exist.
   try {
-    await cfFetch(gateUrl(target, name), target.apiToken);
+    return await cfFetch<ReadonlyArray<Binding>>(
+      `${gateUrl(target, name)}/bindings`,
+      target.apiToken,
+    );
   } catch (error) {
     if (error instanceof CloudflareApiError && error.status === 404) {
       return undefined;
     }
     throw error;
   }
-  return cfFetch<ReadonlyArray<Binding>>(`${gateUrl(target, name)}/bindings`, target.apiToken);
 }
 
 function gateIsCurrent(
