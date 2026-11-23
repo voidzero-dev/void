@@ -217,7 +217,7 @@ See [Head Management](../guide/pages-routing/head) for the full merge behavior, 
 
 ### `images`
 
-Configuration for [`Image`, `getImageProps()`, and the `/_void/image` endpoint](../guide/images.md). The keys, types, and defaults match `images` in Next.js 16's `next.config.js`. Every key is optional.
+Configuration for [`Image`, `getImageProps()`, and the `/_void/image` endpoint](../guide/image-optimization.md). The keys, types, and defaults match `images` in Next.js 16's `next.config.js`. Every key is optional.
 
 | Key                       | Type                                                                           | Default                                           | Description                                                                                                                                                                   |
 | ------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -234,7 +234,7 @@ Configuration for [`Image`, `getImageProps()`, and the `/_void/image` endpoint](
 | `contentDispositionType`  | `'inline' \| 'attachment'`                                                     | `'attachment'`                                    | `Content-Disposition` type of endpoint responses.                                                                                                                             |
 | `maximumRedirects`        | `number`                                                                       | `3`                                               | Redirects followed for a remote source, from 0 to 20.                                                                                                                         |
 | `maximumResponseBody`     | `number`                                                                       | `50000000`                                        | Largest source image in bytes. Values above 20 MB (`20000000`) are capped at 20 MB.                                                                                           |
-| `loader`                  | `'default' \| 'custom' \| 'cloudflare' \| 'imgix' \| 'cloudinary' \| 'akamai'` | `'default'`                                       | How image URLs are built. See [Loaders](../guide/images.md#loaders). `imgix`, `cloudinary`, and `akamai` require `path` and build `<path>?url=…&w=…&q=…` URLs, as in Next.js. |
+| `loader`                  | `'default' \| 'custom' \| 'cloudflare' \| 'imgix' \| 'cloudinary' \| 'akamai'` | `'default'`                                       | How image URLs are built. See [Loaders](../guide/image-optimization.md#loaders). `imgix`, `cloudinary`, and `akamai` require `path` and build `<path>?url=…&w=…&q=…` URLs, as in Next.js. |
 | `loaderFile`              | `string`                                                                       | —                                                 | Module whose default export is the loader for every image, relative to the project root.                                                                                      |
 | `path`                    | `string`                                                                       | `'/_void/image'`                                  | Endpoint path for the default loader, or URL prefix for other loaders. `'/cdn-cgi/image'` with the `cloudflare` loader.                                                       |
 | `unoptimized`             | `boolean`                                                                      | `false`                                           | Serve every image's `src` as is, without a `srcset`.                                                                                                                          |
@@ -243,7 +243,7 @@ Configuration for [`Image`, `getImageProps()`, and the `/_void/image` endpoint](
 | `disableStaticImages`     | `boolean`                                                                      | `false`                                           | Accepted for Next.js compatibility. Has no effect, and Void prints a warning when `true`.                                                                                     |
 | `customCacheHandler`      | `boolean`                                                                      | `false`                                           | Accepted for Next.js compatibility. Has no effect, and Void prints a warning when `true`.                                                                                     |
 
-A `RemotePattern` is `{ protocol?: 'http' | 'https', hostname: string, port?: string, pathname?: string, search?: string }`. A `LocalPattern` is `{ pathname?: string, search?: string }`. In `pathname`, `*` matches one segment and `**` matches any number. In `hostname`, `*.example.com` and `**.example.com` match any subdomain of `example.com`. See [Allowed sources](../guide/images.md#allowed-sources).
+A `RemotePattern` is `{ protocol?: 'http' | 'https', hostname: string, port?: string, pathname?: string, search?: string }`. A `LocalPattern` is `{ pathname?: string, search?: string }`. In `pathname`, `*` matches one segment and `**` matches any number. In `hostname`, `*.example.com` and `**.example.com` match any subdomain of `example.com`. See [Allowed sources](../guide/image-optimization.md#allowed-sources).
 
 ```json
 {
@@ -274,7 +274,7 @@ When omitted or set to `"server"`, pages are server-rendered on request. Individ
 { "output": "static" }
 ```
 
-Static output has no `/_void/image` endpoint, so `Image` serves original files unless you set a [custom loader](../guide/images.md#loaders).
+Static output has no `/_void/image` endpoint, so `Image` serves original files unless you set a [custom loader](../guide/image-optimization.md#loaders).
 
 ### `remote`
 
@@ -335,7 +335,7 @@ Deploy target runtime. Defaults to `"cloudflare"`.
 | `"bun"`        | Bun, using `Bun.serve()`                                  |
 | `"deno"`       | Deno, using `Deno.serve()`                                |
 
-Non-CF targets disable CF binding imports (`void/db`, `void/kv`, `void/auth`, `void/storage`, `void/ai`, `void/sandbox`, `void/env`). Importing any of these with a non-CF target produces a compile-time error. File-based routing, middleware, and `void/client` all work normally. `Image` from the Pages adapters serves original files on these targets unless you set a [custom loader](../guide/images.md#loaders).
+Non-CF targets disable CF binding imports (`void/db`, `void/kv`, `void/auth`, `void/storage`, `void/ai`, `void/sandbox`, `void/env`). Importing any of these with a non-CF target produces a compile-time error. File-based routing, middleware, and `void/client` all work normally. `Image` from the Pages adapters serves original files on these targets unless you set a [custom loader](../guide/image-optimization.md#loaders).
 
 Void-managed WebSocket route files (`*.ws.ts`) are Cloudflare-only because they compile to Durable Objects. The `void/ws` subpath itself is not blocked on non-CF targets so client-side `connect()` code can still be bundled where a browser-like `WebSocket` runtime is available.
 
@@ -638,7 +638,7 @@ Each binding accepts `true` (use default name), `false` (disable), or a string (
 | `images`  | `IMAGES`        | `ImagesBinding` | `"images": "MY_IMAGES"`  |
 | `email`   | —               | —               | Boolean only             |
 
-Custom binding names work with `void/db`, `void/kv`, and `void/storage` during development and deployment. Custom AI names also work with `void/ai` on direct Cloudflare deploys; managed Workers AI uses the platform's proxy. A custom Images name also works with `Image` and `/_void/image`, and an `images` binding you declare under [`cloudflare`](#cloudflare) keeps its name. Set `images` to `true` or a name to add the binding and serve `/_void/image` even when Void doesn't detect `Image` usage, for example when only a shared package imports `Image`. Set `images` to `false` to deploy without the binding; `/_void/image` then serves original files. See [Images](../guide/images.md#deployment).
+Custom binding names work with `void/db`, `void/kv`, and `void/storage` during development and deployment. Custom AI names also work with `void/ai` on direct Cloudflare deploys; managed Workers AI uses the platform's proxy. A custom Images name also works with `Image` and `/_void/image`, and an `images` binding you declare under [`cloudflare`](#cloudflare) keeps its name. Set `images` to `true` or a name to add the binding and serve `/_void/image` even when Void doesn't detect `Image` usage, for example when only a shared package imports `Image`. Set `images` to `false` to deploy without the binding; `/_void/image` then serves original files. See [Image Optimization](../guide/image-optimization.md#deployment).
 
 `email` is a boolean feature switch. Set it to `true` to enable [email](../guide/email.md) and the local email inbox without an import from `void/email`, or `false` to disable them. On a Void platform, sending uses the platform proxy. Direct Cloudflare setup records a `SEND_EMAIL` binding in `void.lock.json`; see [`email.from`](#email).
 

@@ -338,7 +338,7 @@ export default extendConfig(
                   { text: 'Rewrites', link: '/guide/edge/rewrites' },
                 ],
               },
-              { text: 'Images', link: '/guide/images' },
+              { text: 'Image Optimization', link: '/guide/image-optimization' },
               { text: 'Custom SSR', link: '/guide/ssr' },
               { text: 'SSG', link: '/guide/ssg' },
             ],

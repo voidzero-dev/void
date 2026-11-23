@@ -2,7 +2,7 @@
 outline: deep
 ---
 
-# Images
+# Image Optimization
 
 `Image` renders an `<img>` that loads lazily, reserves its space while it loads, and picks a size that suits the screen from a responsive `srcset`. Void resizes the image and converts it to a modern format at `/_void/image`, using [Cloudflare Images](https://developers.cloudflare.com/images/transform-images/bindings/).
 

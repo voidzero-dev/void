@@ -345,6 +345,6 @@ Pass `{ throwOnError: false }` as the third argument to `useForm()` to show HTTP
 
 Each Pages adapter exports `Image` and `getImageProps()`. They accept the props of `next/image` in Next.js 16 and render the same `<img>` markup, served by the `/_void/image` endpoint or a configured loader. Event and attribute names follow each framework: `@load` and `@error` in Vue, `onload` and `onerror` in Svelte, and `onLoad` and `onError` in React and Solid.
 
-`@void/react/image` has the same exports as the `next/image` module: `Image` as the default export, `getImageProps`, and the `ImageProps`, `ImageLoader`, `ImageLoaderProps`, and `StaticImageData` types. Configure images with [`images`](../config.md#images). See [Images](../../guide/images.md) for usage.
+`@void/react/image` has the same exports as the `next/image` module: `Image` as the default export, `getImageProps`, and the `ImageProps`, `ImageLoader`, `ImageLoaderProps`, and `StaticImageData` types. Configure images with [`images`](../config.md#images). See [Image Optimization](../../guide/image-optimization.md) for usage.
 
-`@void/solid` also exports `ImagePreloadContext`, which collects preload links in [custom SSR](../../guide/images.md#custom-ssr) apps.
+`@void/solid` also exports `ImagePreloadContext`, which collects preload links in [custom SSR](../../guide/image-optimization.md#custom-ssr) apps.

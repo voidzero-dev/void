@@ -9,7 +9,7 @@ import { hasLocalMatch, hasRemoteMatch } from './patterns.ts';
 import type { ImageLoaderPropsWithConfig, ImageLoaderWithConfig } from './types.ts';
 
 /** Linked from error messages in place of the Next.js documentation. */
-export const IMAGE_DOCS_URL = 'https://void.cloud/guide/images';
+export const IMAGE_DOCS_URL = 'https://void.cloud/guide/image-optimization';
 
 /**
  * A loader built into Void. It receives `config`; `getImgProps` passes any

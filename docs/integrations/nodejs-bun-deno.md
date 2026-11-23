@@ -123,7 +123,7 @@ WebSocket route files (`*.ws.ts`) require Cloudflare. You can still use the `voi
 
 ### No image optimization
 
-There is no `/_void/image` endpoint on these targets. `Image` from the Pages adapters renders original files unless you set a [custom loader](../guide/images.md#loaders) that points at an image service.
+There is no `/_void/image` endpoint on these targets. `Image` from the Pages adapters renders original files unless you set a [custom loader](../guide/image-optimization.md#loaders) that points at an image service.
 
 ### No cron job runtime
 

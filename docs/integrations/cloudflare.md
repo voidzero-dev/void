@@ -211,7 +211,7 @@ Void deploys native apps, static sites, SPAs, supported SSGs, and Cloudflare bui
 - Sandbox requires Workers Paid and Docker. See [Sandbox requirements](../guide/sandboxes.md#deployment) for plan and token permissions.
 - Email to arbitrary recipients, and all sending from apps without `email/` handlers, requires Workers Paid. Apps with handlers keep inbound mail and verified recipients on Workers Free. See [Email](../guide/email/domains.md#your-own-cloudflare-account).
 - Node.js, Bun, and Deno use their [own deployment path](./nodejs-bun-deno.md).
-- Image optimization works on Workers Free with the Cloudflare Images Free plan: 5,000 unique transformations per month. After that, new image sizes serve the original file until the next month, at no charge. See [Images](../guide/images.md#free-allowance).
+- Image optimization works on Workers Free with the Cloudflare Images Free plan: 5,000 unique transformations per month. After that, new image sizes serve the original file until the next month, at no charge. See [Image Optimization](../guide/image-optimization.md#free-allowance).
 
 Commit Durable Object migration history in `void.lock.json`. Do not delete or reorder deployed steps.
 
