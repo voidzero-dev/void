@@ -90,7 +90,7 @@ function executionContext(c: Context): ExecutionContext | undefined {
  * With `app`, a local source is requested from the app with no headers, as
  * the Worker would serve it to a client without cookies: path-scoped
  * middleware applies to it (as Next.js runs `/_next/image` sources through
- * its router), and an app `404` falls back to `env.ASSETS`. Without `app`,
+ * its router), and a route miss falls back to `env.ASSETS`. Without `app`,
  * local sources are read from `env.ASSETS` directly.
  */
 export function createImageHandler(

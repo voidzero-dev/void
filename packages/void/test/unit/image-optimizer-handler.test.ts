@@ -13,6 +13,7 @@ import {
 } from '../../src/image/optimizer/index.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import { createImageHandler } from '../../src/runtime/routing/index.ts';
+import { intentionalNotFoundRequests } from '../../src/shared/intentional-not-found.ts';
 
 const fixture = (name: string): Uint8Array<ArrayBuffer> =>
   new Uint8Array(readFileSync(join(import.meta.dirname, '../fixtures/images', name)));
@@ -715,7 +716,27 @@ describe('createImageHandler', () => {
       }
     });
 
-    it('falls back to ASSETS when the app answers 404, and uses what routes serve', async () => {
+    it('does not consult ASSETS after an intentional application 404', async () => {
+      const { assets, requests } = fakeAssets({});
+      const hono = new Hono();
+      hono.all(
+        '/_void/image',
+        createImageHandler(
+          { config: config(), deploymentId: 'd1' },
+          {
+            fetch(source) {
+              intentionalNotFoundRequests.add(source);
+              return new Response(null, { status: 404 });
+            },
+          },
+        ),
+      );
+      const response = await hono.fetch(request('url=/test.png&w=64&q=75'), { ASSETS: assets });
+      expect(response.status).toBe(404);
+      expect(requests).toHaveLength(0);
+    });
+
+    it('falls back to ASSETS on a route miss, and uses what routes serve', async () => {
       const { hono, env } = guarded();
       const asset = await hono.fetch(
         request('url=/test.png&w=64&q=75', { accept: 'image/webp' }),

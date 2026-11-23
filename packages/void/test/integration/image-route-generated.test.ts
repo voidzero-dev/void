@@ -27,12 +27,11 @@ beforeAll(async () => {
   }
   copyFileSync(join(fixtures, 'test.png'), join(assets, 'hero.png'));
   copyFileSync(join(fixtures, 'test.png'), join(assets, 'members', 'premium.png'));
-  // Serve the members-only asset explicitly after middleware authorizes it.
-  // The public image still exercises the optimizer's app-404 asset fallback.
+  // The catch-all owns these paths, so it must serve the assets it accepts.
   writeFileSync(
     join(routes, '[...path].ts'),
     `export function GET(c) {
-  if (c.req.path === '/members/premium.png') return c.env.ASSETS.fetch(c.req.raw);
+  if (c.req.path === '/hero.png' || c.req.path === '/members/premium.png') return c.env.ASSETS.fetch(c.req.raw);
   return c.req.path.endsWith('.png') ? c.notFound() : new Response('catch-all ' + c.req.path);
 }
 export function POST() { return new Response('catch-all post'); }

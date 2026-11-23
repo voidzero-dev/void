@@ -1,3 +1,4 @@
+import { intentionalNotFoundRequests } from '../../shared/intentional-not-found.ts';
 import { extractEtag } from './headers.ts';
 import {
   ImageError,
@@ -218,7 +219,7 @@ function withTimeout<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
  *
  * With `dispatch`, the request takes the Worker's own path: the application
  * answers first, so middleware that guards the source path applies, and a
- * `404` falls back to the static assets. Any other non-2xx answer (a
+ * route miss falls back to the static assets. Any other non-2xx answer (a
  * middleware `401`, a redirect) fails with its status. Without `dispatch`,
  * the static assets binding is read directly.
  */
@@ -238,8 +239,9 @@ export async function loadLocalImage(
   let response: Response | undefined;
   try {
     if (dispatch) {
-      response = await withTimeout(dispatch(new Request(url, { signal })), signal);
-      if (response.status === 404 && hasAssets) {
+      const source = new Request(url, { signal });
+      response = await withTimeout(dispatch(source), signal);
+      if (response.status === 404 && hasAssets && !intentionalNotFoundRequests.has(source)) {
         discard(response);
         response = undefined;
       }

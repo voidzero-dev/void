@@ -20,6 +20,7 @@ import {
   searchWithoutPreservedQuery,
 } from '../../pages/action-key.ts';
 import { pagesRedirectResponse } from '../../pages/redirect.ts';
+import { intentionalNotFoundRequests } from '../../shared/intentional-not-found.ts';
 import { SHARED_CACHE_HEADERS, authDependentRequests } from '../auth/response.ts';
 import { VoidAssetRewriteError, type CloudContext } from '../handler/index.ts';
 import { convertReturnValue } from '../handler/response.ts';
@@ -27,7 +28,6 @@ import { ASSET_EXTENSIONS } from './assets.ts';
 import { markRouteHandler } from './pages.ts';
 import { toUrlString } from './route-url.ts';
 import { isUnchangedStaticAsset, markStaticAsset } from './static-asset-marker.ts';
-import { intentionalNotFoundRequests } from './worker.ts';
 export { createErrorRenderer } from './errors.ts';
 // Generated routes take Hono from here. Importing it by file path instead gives a dev Worker a
 // second copy beside the one this runtime imports, loaded as one request for each Hono file.

@@ -60,7 +60,7 @@ export type ImageRequestOptions = {
   assets?: AssetFetcher;
   /**
    * Runs a local source request through the application first, so middleware
-   * sees the source path; its `404` falls back to `assets`. Without it,
+   * sees the source path; a route miss falls back to `assets`. Without it,
    * local sources are read from `assets` directly.
    */
   fetchLocal?: LocalImageDispatch;
