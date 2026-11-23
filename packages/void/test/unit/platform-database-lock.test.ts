@@ -31,7 +31,8 @@ beforeEach(async () => {
       return database.query(sql, values);
     };
     return {
-      connect: async () => ({ query, release: () => {} }),
+      connect: async () => ({ query, on: () => {}, release: () => {} }),
+      on: () => {},
       query,
       end: async () => {},
     };
@@ -100,4 +101,59 @@ it('tells a reinstall on the same database to use a new empty database', async (
   await expect(claimPlatformDatabase(url, 'test-install', 'next-owner')).rejects.toThrow(
     'platform: This PostgreSQL database is already claimed by Void platform installation test-install. Uninstall keeps the database and its data, so use a dedicated empty database for each installation.',
   );
+}, 30_000);
+
+it('turns a dropped lifecycle lock connection into a clear failure instead of a crash', async () => {
+  const url = 'postgresql://owner:pw@db.example.com/platform?sslmode=require';
+  await claimPlatformDatabase(url, 'test-install', 'test-owner');
+  const { EventEmitter } = await import('node:events');
+  const pool = new EventEmitter();
+  const client = new EventEmitter();
+  let dropped = false;
+  const releases: Array<unknown> = [];
+  const query = async (sql: string, values?: Array<unknown>) => {
+    queries.push(sql);
+    if (dropped) {
+      throw new Error('Client has encountered a connection error and is not queryable');
+    }
+    if (sql.includes('pg_try_advisory_lock')) {
+      return { rows: [{ acquired: true }] };
+    }
+    return database.query(sql, values);
+  };
+  mocks.pool.mockImplementation(function () {
+    return Object.assign(pool, {
+      connect: async () =>
+        Object.assign(client, {
+          query,
+          release: (error?: unknown) => releases.push(error),
+        }),
+      end: async () => {},
+    });
+  });
+  lock = await acquirePlatformDatabaseLifecycleLock(url, 'test-install', 'test-owner');
+  const runtime = readPlatformRuntimeManifest();
+  const directory = getPlatformRuntimeDirectory();
+  await lock.prepareDatabase!(directory, runtime.database, null, false);
+
+  // pg emits 'error' on a checked-out client when the server resets its socket,
+  // for example while the upgrade is deploying Workers and the client is idle.
+  const reset = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+  dropped = true;
+  expect(() => client.emit('error', reset)).not.toThrow();
+  // The pool reports idle client errors on itself.
+  expect(() => pool.emit('error', reset)).not.toThrow();
+
+  const lost =
+    'platform: The PostgreSQL connection that holds the lifecycle lock was closed (read ECONNRESET). Rerun the command to continue.';
+  await expect(lock.verifyDatabase!(directory, runtime.database)).rejects.toThrow(lost);
+  await expect(lock.readAdministratorSetup!()).rejects.toThrow(lost);
+
+  // The server ends the session lock with the connection, so release only
+  // closes the broken client and the pool.
+  queries = [];
+  await expect(lock()).resolves.toBeUndefined();
+  lock = undefined;
+  expect(queries).toEqual([]);
+  expect(releases).toEqual([reset]);
 }, 30_000);

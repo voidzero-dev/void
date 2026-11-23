@@ -211,18 +211,53 @@ export async function acquirePlatformDatabaseLifecycleLock(
 ): Promise<PlatformDatabaseLifecycleLock> {
   const { Pool } = await import('pg');
   const pool = new Pool({ connectionString: platformDatabaseClientUrl(databaseUrl), max: 1 });
+  // pg emits 'error' on the pool for an idle client and on a checked-out client
+  // when the server drops its socket. Without listeners Node exits the process.
+  pool.on('error', () => {});
   const client = await pool.connect();
+  // The lock holds this client for the whole lifecycle command, which can stay
+  // idle for minutes while Workers deploy. Keep the first error and fail the
+  // next lock operation with it.
+  let lost: Error | undefined;
+  client.on('error', (error) => {
+    lost ??= error;
+  });
+  const lostError = (cause: Error) =>
+    new Error(
+      `platform: The PostgreSQL connection that holds the lifecycle lock was closed (${cause.message}). Rerun the command to continue.`,
+      { cause },
+    );
+  const connection: QueryConnection = {
+    query: async <Row extends Record<string, unknown>>(
+      sql: string,
+      values?: ReadonlyArray<unknown>,
+    ) => {
+      if (lost) {
+        throw lostError(lost);
+      }
+      try {
+        return await client.query<Row>(sql, values ? [...values] : undefined);
+      } catch (error) {
+        throw lost ? lostError(lost) : error;
+      }
+    },
+  };
   try {
     const releaseConnectionLock = await acquirePlatformDatabaseLifecycleLockConnection(
-      client,
+      connection,
       installationId,
       ownershipNonce,
     );
     const release: PlatformDatabaseLifecycleLock = async () => {
       try {
-        await releaseConnectionLock();
+        // The server ends a session advisory lock with its connection, so a
+        // lost connection has nothing left to unlock.
+        if (!lost) {
+          await releaseConnectionLock();
+        }
       } finally {
-        client.release();
+        // Passing the error destroys the broken client instead of pooling it.
+        client.release(lost);
         await pool.end();
       }
     };
@@ -230,7 +265,7 @@ export async function acquirePlatformDatabaseLifecycleLock(
     // and verification hooks must not disappear at this wrapper boundary.
     return Object.assign(release, releaseConnectionLock);
   } catch (error) {
-    client.release();
+    client.release(lost);
     await pool.end();
     throw error;
   }
