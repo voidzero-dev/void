@@ -47,6 +47,7 @@ const sourceAliases = {
     'pages-server.ts',
   ),
   '@void/react': join(repositoryRoot, 'packages', 'react', 'src', 'runtime', 'index.ts'),
+  'void/image': join(repositoryRoot, 'packages', 'void', 'src', 'image', 'index.ts'),
   'void/pages-client': join(repositoryRoot, 'packages', 'void', 'src', 'pages', 'client.ts'),
   'void/pages-head': join(repositoryRoot, 'packages', 'void', 'src', 'pages', 'head.ts'),
   'void/pages-server': join(repositoryRoot, 'packages', 'void', 'src', 'pages', 'serialize.ts'),

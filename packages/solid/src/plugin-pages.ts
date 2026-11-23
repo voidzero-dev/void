@@ -72,7 +72,8 @@ function generateRendererModule(scan: PageScanResult, pagesDir: string): string 
 import { PageErrorBoundary } from "@void/solid/pages-boundary";
 import { renderToStringAsync, generateHydrationScript } from "solid-js/web";
 import { createComponent } from "solid-js";
-import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext } from "@void/solid";
+import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext, ImagePreloadContext } from "@void/solid";
+import { createImagePreloadCollector } from "void/image";
 import { createSsrRouter, idleNavigationState } from "void/pages-client";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
 import { serializePageData } from "void/pages-server";
@@ -86,7 +87,15 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
     layoutIds.map(async (id) => (await components[id]()).default)
   );
 
+  const imagePreloads = createImagePreloadCollector();
   function ServerApp() {
+    return createComponent(ImagePreloadContext.Provider, {
+      value: imagePreloads,
+      get children() { return renderWithContexts(); }
+    });
+  }
+
+  function renderWithContexts() {
     return createComponent(SharedContext.Provider, {
       value: pageObj.shared || {},
       get children() {
@@ -138,7 +147,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${assetTags.preloads}\${pageObj.documentOnly ? "" : generateHydrationScript()}</head>
+<head>\${headHtml}\${imagePreloads.render()}\${assetTags.css}\${assetTags.preloads}\${pageObj.documentOnly ? "" : generateHydrationScript()}</head>
 <body\${bodyAttrs}>
   \${pageObj.documentOnly ? "" : '<script id="__VOID_PAGE_DATA__" type="application/json">' + pageData + '</script>'}
   <div id="app">\${html}</div>
@@ -162,7 +171,7 @@ import { createSignal, createComponent, createMemo, mergeProps, untrack, batch }
 import { createMutable } from "solid-js/store";
 import { hydrate, render } from "solid-js/web";
 import { PageErrorBoundary } from "@void/solid/pages-boundary";
-import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext, setActionRouter } from "@void/solid";
+import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext, ImagePreloadContext, setActionRouter } from "@void/solid";
 import { pageBoundarySlots, showTerminalPageError, createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
 import { parseCacheFor } from "void/pages-prefetch";
 
@@ -285,6 +294,13 @@ function renderSlotContent(depth) {
 }
 
 function App() {
+  return createComponent(ImagePreloadContext.Provider, {
+    value: null,
+    get children() { return renderWithContexts(); }
+  });
+}
+
+function renderWithContexts() {
   return createComponent(SharedContext.Provider, {
     value: shared,
     get children() {

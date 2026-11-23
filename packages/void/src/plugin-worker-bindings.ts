@@ -1,8 +1,10 @@
 import { appendSqliteClassMigration } from '@void/deploy-core';
 import { type ApplicationAnalysis } from './application-analysis.ts';
+import { isImageOptimizerEnabled } from './application-features.ts';
 import { SEND_EMAIL_BINDING } from './cli/email-cloudflare.ts';
 import {
   findBindingNameOwner,
+  findImagesBindingOwner,
   hasDurableObjectSqliteMigration,
   LIVE_MIGRATION_TAG,
   nextDurableObjectMigrationTag,
@@ -15,7 +17,12 @@ import {
   shouldBindWorkersAi,
   readVoidDevCredentials,
 } from './plugin-ai-setup.ts';
-import { hasBinding, shouldInjectEmailDevInboxVar } from './plugin-binding-utils.ts';
+import {
+  DEFAULT_IMAGES_BINDING,
+  hasBinding,
+  resolveImagesBindingName,
+  shouldInjectEmailDevInboxVar,
+} from './plugin-binding-utils.ts';
 import { type WorkerConfig } from './plugin-cloudflare-config.ts';
 import { type EnvSchemaFacts } from './plugin-env-schema.ts';
 import { cloudflareQueueName, readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
@@ -491,6 +498,43 @@ export function mergeWorkerBindings(
       vars.__VOID_REMOTE = '1';
       result.vars = vars;
     }
+  }
+
+  // Cloudflare Images for `/_void/image` (and `env.IMAGES` reads). Miniflare
+  // transforms images locally, so serve and build emit the same binding.
+  const resolvedImages = (resolved as { images?: unknown }).images;
+  const imagesBindingName = resolveImagesBindingName(resolvedImages, bindingNames?.images);
+  let imagesBound = resolvedImages !== undefined;
+  // An authored root `images` entry stays authoritative.
+  if (bindings.needsImages === true && !resolvedImages && !result.images) {
+    const owner =
+      findImagesBindingOwner(result, imagesBindingName) ??
+      findImagesBindingOwner(resolved as Record<string, unknown>, imagesBindingName);
+    if (owner === undefined) {
+      result.images = { binding: imagesBindingName };
+      imagesBound = true;
+    } else if (
+      (bindings.usesImageOptimizer && isImageOptimizerEnabled(config, application.framework)) ||
+      config.inference?.bindings?.images !== undefined
+    ) {
+      throw new Error(
+        `images: the Cloudflare Images binding '${imagesBindingName}' conflicts with the ${owner} ` +
+          `binding of the same name. Set "inference.bindings.images" in void.config.ts to another ` +
+          'binding name, or to false to serve original images.',
+      );
+    }
+    // Otherwise only an `env.IMAGES` read asked for it, and it reads the user's own binding.
+  }
+  // Only Void's endpoint reads the name; the default binding needs no variable.
+  if (
+    bindings.needsImages &&
+    imagesBound &&
+    !application.framework &&
+    imagesBindingName !== DEFAULT_IMAGES_BINDING
+  ) {
+    const vars = (result.vars as Record<string, string>) ?? {};
+    vars.__VOID_IMAGES_BINDING = imagesBindingName;
+    result.vars = vars;
   }
 
   const versionMetadataBinding = selectNativeVersionMetadataBinding(

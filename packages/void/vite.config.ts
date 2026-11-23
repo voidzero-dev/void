@@ -58,6 +58,57 @@ function injectWorkersTypesReferencePlugin() {
   };
 }
 
+const STATIC_IMAGE_TYPES_FILE = 'image/static-import.d.ts';
+
+/**
+ * Ship the script-style `declare module '*?image'` declaration and reference
+ * it from the `void/env` types (in every app's `compilerOptions.types`) and
+ * the `void/image` types (loaded with any adapter's `Image`), so
+ * `import hero from './hero.png?image'` typechecks without extra setup.
+ */
+function staticImageImportTypesPlugin() {
+  const referencingFiles: Record<string, string> = {
+    'runtime/env/public.d.mts': '../../image/static-import.d.ts',
+    'image/index.d.mts': './static-import.d.ts',
+  };
+  return {
+    name: 'void:static-image-import-types',
+    generateBundle(
+      this: { emitFile(file: { type: 'asset'; fileName: string; source: string }): string },
+      _options: unknown,
+      bundle: Record<string, BundleOutput>,
+    ) {
+      let referenced = false;
+      for (const [fileName, path] of Object.entries(referencingFiles)) {
+        const output = bundle[fileName];
+        if (!output) {
+          continue;
+        }
+        const reference = `/// <reference path="${path}" />\n`;
+        if (output.type === 'asset') {
+          output.source = reference + String(output.source ?? '');
+        } else {
+          output.code = reference + String(output.code ?? '');
+        }
+        referenced = true;
+      }
+      if (!referenced) {
+        return;
+      }
+      const source = readFileSync(
+        new URL('./src/image/static-import.d.ts', import.meta.url),
+        'utf8',
+      );
+      this.emitFile({
+        type: 'asset',
+        fileName: STATIC_IMAGE_TYPES_FILE,
+        // `types.ts` is bundled into the `void/image` declaration entry.
+        source: source.replace("import('./types.ts')", "import('./index.mjs')"),
+      });
+    },
+  };
+}
+
 export default defineConfig({
   pack: {
     entry: [
@@ -130,6 +181,7 @@ export default defineConfig({
       'src/runtime/db/migrations/mysql-handler.ts',
       'src/runtime/ws/server.ts',
       'src/runtime/live/server.ts',
+      'src/image/index.ts',
       'src/sveltekit.ts',
       'src/nitro.ts',
       'src/pages/index.ts',
@@ -161,6 +213,7 @@ export default defineConfig({
         },
       },
       injectWorkersTypesReferencePlugin(),
+      staticImageImportTypesPlugin(),
     ],
     deps: {
       resolveDepSubpath: true,

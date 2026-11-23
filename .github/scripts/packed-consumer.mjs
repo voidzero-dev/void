@@ -158,26 +158,27 @@ assert(frameworks.every((framework) => ['react', 'vue', 'svelte', 'solid'].inclu
 const pages = {
   react: `import { useState } from 'react';
 import { Link } from '@void/react';
+import Image from '@void/react/image';
 export default function Page({ message }: { message: string }) {
   const [count, setCount] = useState(0);
-  return <><h1>{message}</h1><button onClick={() => setCount(count + 1)}>Count {count}</button><Link href="/next">Next page</Link></>;
+  return <><h1>{message}</h1><Image src="/packed.png" alt="Packed" width={32} height={32} /><button onClick={() => setCount(count + 1)}>Count {count}</button><Link href="/next">Next page</Link></>;
 }`,
   vue: `<script setup lang="ts">
 import { ref } from 'vue';
-import { Link } from '@void/vue';
+import { Image, Link } from '@void/vue';
 defineProps<{ message: string }>();
 const count = ref(0);
-</script><template><h1>{{ message }}</h1><button @click="count++">Count {{ count }}</button><Link href="/next">Next page</Link></template>`,
+</script><template><h1>{{ message }}</h1><Image src="/packed.png" alt="Packed" :width="32" :height="32" /><button @click="count++">Count {{ count }}</button><Link href="/next">Next page</Link></template>`,
   svelte: `<script lang="ts">
-import { Link } from '@void/svelte';
+import { Image, Link } from '@void/svelte';
 let { message }: { message: string } = $props();
 let count = $state(0);
-</script><h1>{message}</h1><button onclick={() => count++}>Count {count}</button><Link href="/next">Next page</Link>`,
+</script><h1>{message}</h1><Image src="/packed.png" alt="Packed" width={32} height={32} /><button onclick={() => count++}>Count {count}</button><Link href="/next">Next page</Link>`,
   solid: `import { createSignal } from 'solid-js';
-import { Link } from '@void/solid';
+import { Image, Link } from '@void/solid';
 export default function Page(props: { message: string }) {
   const [count, setCount] = createSignal(0);
-  return <><h1>{props.message}</h1><button onClick={() => setCount(count() + 1)}>Count {count()}</button><Link href="/next">Next page</Link></>;
+  return <><h1>{props.message}</h1><Image src="/packed.png" alt="Packed" width={32} height={32} /><button onClick={() => setCount(count() + 1)}>Count {count()}</button><Link href="/next">Next page</Link></>;
 }`,
 };
 
@@ -343,16 +344,43 @@ try {
         );
         mkdirSync(join(fixture, 'public'), { recursive: true });
         writeFileSync(join(fixture, 'public/packed.txt'), label);
+        // A 1x1 PNG for `Image`, which renders through the installed void/image and /_void/image.
+        writeFileSync(
+          join(fixture, 'public/packed.png'),
+          Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+            'base64',
+          ),
+        );
         const vite = join(
           fixture,
           useVitePlus ? 'node_modules/vite-plus/bin/vp' : 'node_modules/vite/bin/vite.js',
         );
         await run(process.execPath, [vite, 'build'], fixture);
-        await run(
-          process.execPath,
-          [join(fixture, 'node_modules/typescript/bin/tsc'), '--noEmit'],
-          fixture,
+        const tsc = join(fixture, 'node_modules/typescript/bin/tsc');
+        await run(process.execPath, [tsc, '--noEmit'], fixture);
+        // Check ?image without an adapter import that would load void/image's types.
+        const imageTypes = join(fixture, '.void/image-types');
+        mkdirSync(imageTypes, { recursive: true });
+        writeFileSync(
+          join(imageTypes, 'tsconfig.json'),
+          JSON.stringify({
+            compilerOptions: {
+              module: 'esnext',
+              moduleResolution: 'bundler',
+              noEmit: true,
+              strict: true,
+              skipLibCheck: true,
+              types: ['void/env'],
+            },
+            files: ['probe.ts'],
+          }),
         );
+        writeFileSync(
+          join(imageTypes, 'probe.ts'),
+          `import image from '../../public/packed.png?image';\nexport const width: number = image.width;\n`,
+        );
+        await run(process.execPath, [tsc, '-p', join(imageTypes, 'tsconfig.json')], fixture);
         if (useVitePlus) {
           // Vitest loads the app's Vite config, Void's plugin included, and runs the tests in
           // Node.js. The test from docs/guide/testing.md replaces the KV module it uses.
@@ -432,7 +460,12 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
               await new Promise((resolve) => setTimeout(resolve, 200));
             }
             assert(response?.ok, task.failure());
-            assert((await response.text()).includes(`Packed ${label}`));
+            const html = await response.text();
+            assert(html.includes(`Packed ${label}`));
+            assert(html.includes('/_void/image?url=%2Fpacked.png&amp;w=32&amp;q=75 1x'), html);
+            const image = await fetch(`${base}/_void/image?url=%2Fpacked.png&w=32&q=75`);
+            assert.equal(image.status, 200, task.failure());
+            assert.match(image.headers.get('content-type') ?? '', /^image\//);
             assert.equal(await (await fetch(`${base}/packed.txt`)).text(), label);
             const apiResponse = await fetch(`${base}/api/packed`);
             const apiBody = await apiResponse.text();
@@ -539,7 +572,7 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
           }
         }
         console.log(
-          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+ build/typecheck/test' : 'public Vite build/typecheck'}, assets, KV, email, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
+          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+ build/typecheck/test' : 'public Vite build/typecheck'}, assets, KV, email, Image, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
         );
       } catch (error) {
         failures.push({ fixture: label, error: String(error.stack ?? error) });

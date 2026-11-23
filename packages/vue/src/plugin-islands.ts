@@ -281,10 +281,13 @@ export async function renderIslandPage(pageObj, assetTags) {
     }
   });
 
+  // \`Image\` collects its <link rel="preload" as="image"> tags in the SSR context.
+  const ssrContext = {};
   let renderFailure;
   if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= { error }; };
-  const html = await renderToString(app);
+  const html = await renderToString(app, ssrContext);
   if (renderFailure) throw renderFailure.error;
+  const imagePreloads = ssrContext.__voidImagePreloads ? ssrContext.__voidImagePreloads.render() : "";
   // Islands hydrate as separate roots. Send the page frontmatter so their
   // useFrontmatter() returns the same value in the browser.
   const __frontmatterScript = __pagesNeedingClientJS.has(pageObj.component) && html.includes("data-island=")
@@ -297,7 +300,7 @@ export async function renderIslandPage(pageObj, assetTags) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
+<head>\${headHtml}\${imagePreloads}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
   \${__frontmatterScript}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}

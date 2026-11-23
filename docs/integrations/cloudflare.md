@@ -54,6 +54,7 @@ This provides binding and Workers runtime types. For custom bindings in `void.co
 | `STORAGE`        | R2              | `c.env.STORAGE` or `void/storage` |
 | `AI`             | Workers AI      | `c.env.AI` or `void/ai`           |
 | `ASSETS`         | Static assets   | `c.env.ASSETS.fetch(request)`     |
+| `IMAGES`         | Images          | `c.env.IMAGES` or `Image`         |
 | `QUEUE_*`        | Queues          | `defineQueue()` or `void/queues`  |
 | Filename-derived | Durable Objects | A module in `durable-objects/`    |
 
@@ -210,6 +211,7 @@ Void deploys native apps, static sites, SPAs, supported SSGs, and Cloudflare bui
 - Sandbox requires Workers Paid and Docker. See [Sandbox requirements](../guide/sandboxes.md#deployment) for plan and token permissions.
 - Email to arbitrary recipients, and all sending from apps without `email/` handlers, requires Workers Paid. Apps with handlers keep inbound mail and verified recipients on Workers Free. See [Email](../guide/email/domains.md#your-own-cloudflare-account).
 - Node.js, Bun, and Deno use their [own deployment path](./nodejs-bun-deno.md).
+- Image optimization works on Workers Free with the Cloudflare Images Free plan: 5,000 unique transformations per month. After that, new image sizes serve the original file until the next month, at no charge. See [Image Optimization](../guide/image-optimization.md#free-allowance).
 
 Commit Durable Object migration history in `void.lock.json`. Do not delete or reorder deployed steps.
 

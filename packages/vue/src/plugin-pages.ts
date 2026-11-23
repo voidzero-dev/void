@@ -324,10 +324,13 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
     }
   });
 
+  // \`Image\` collects its <link rel="preload" as="image"> tags in the SSR context.
+  const ssrContext = {};
   let renderFailure;
   if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= { error }; };
-  const html = await renderToString(app);
+  const html = await renderToString(app, ssrContext);
   if (renderFailure) throw renderFailure.error;
+  const imagePreloads = ssrContext.__voidImagePreloads ? ssrContext.__voidImagePreloads.render() : "";
   const pageData = serializePageData(pageObj);
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
@@ -335,7 +338,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${assetTags.preloads}</head>
+<head>\${headHtml}\${imagePreloads}\${assetTags.css}\${assetTags.preloads}</head>
 <body\${bodyAttrs}>
   \${pageObj.documentOnly ? "" : '<script id="__VOID_PAGE_DATA__" type="application/json">' + pageData + '</script>'}
   <div id="app">\${html}</div>

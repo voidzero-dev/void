@@ -132,7 +132,7 @@ Shared application code such as components, utilities, and types. This directory
 
 ## `public/`
 
-Static assets served as-is at the root path. Files here are not processed by Vite.
+Static assets served as-is at the root path. Files here are not processed by Vite. Pass their root paths, such as `/hero.jpg`, to `Image` to serve resized versions; see [Image Optimization](../guide/image-optimization.md).
 
 ## `.void/`
 

@@ -1,5 +1,7 @@
 export { Form } from './form.tsx';
 export { Link } from './link.tsx';
+export { Image, getImageProps } from './image.tsx';
+export type { ImageProps, ImageLoader, ImageLoaderProps, StaticImageData } from './image.tsx';
 export { useRouter } from './use-router.ts';
 export { useParams } from './use-params.ts';
 export { useShared } from './use-shared.ts';

@@ -1,6 +1,6 @@
 import { redirectToHttps } from '@void/edge';
 import type { ExecutionContext } from 'hono';
-import { createManifestLoader, type ManifestLoader } from './assets.ts';
+import { collectImmutableFiles, createManifestLoader, type ManifestLoader } from './assets.ts';
 
 // Native Void routing records intentional 404s before Hono wraps HEAD responses.
 export const intentionalNotFoundRequests: WeakSet<Request> = new WeakSet();
@@ -11,6 +11,11 @@ export type AssetFallbackOptions = {
   assetsDir?: string;
   serveSpaFallback?: boolean;
   notFound?: 'none' | '404-page' | 'single-page-application';
+  /**
+   * Request paths whose application 404 is final (the image optimizer
+   * endpoint): an SPA `not_found_handling` would answer them with the shell.
+   */
+  skipPaths?: ReadonlyArray<string>;
 };
 const ASSET_CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.avif': 'image/avif',
@@ -88,15 +93,7 @@ export function createAssetCachePolicy(
     }
     if (!files) {
       // Optional cache metadata must not make a successfully served asset fail.
-      files = loadManifest(request, env).then(
-        (manifest) =>
-          new Set(
-            Object.values(manifest ?? {}).flatMap((entry) =>
-              Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
-            ),
-          ),
-        () => new Set(),
-      );
+      files = loadManifest(request, env).then(collectImmutableFiles, () => new Set());
     }
     return applyAssetCachePolicy(request, asset, assetsDir, (await files).has(path.slice(1)));
   };
@@ -111,7 +108,8 @@ export function createAssetFallback(
       response.status !== 404 ||
       intentionalNotFoundRequests.has(request) ||
       !env.ASSETS ||
-      (request.method !== 'GET' && request.method !== 'HEAD')
+      (request.method !== 'GET' && request.method !== 'HEAD') ||
+      options.skipPaths?.includes(new URL(request.url).pathname)
     ) {
       return response;
     }
@@ -200,6 +198,8 @@ export type WorkerFetchOptions = {
   ) => Promise<Response>;
   isr?: {
     deploymentId: string;
+    /** Request paths that never enter the ISR cache, such as the image optimizer endpoint. */
+    bypassPaths?: ReadonlyArray<string>;
     handle: (
       request: Request,
       env: RuntimeEnvironment,
@@ -294,7 +294,8 @@ export function createWorkerFetch(
         if (
           options.isr &&
           env.ISR_CACHE &&
-          request.headers.get('upgrade')?.toLowerCase() !== 'websocket'
+          request.headers.get('upgrade')?.toLowerCase() !== 'websocket' &&
+          !options.isr.bypassPaths?.includes(url.pathname)
         ) {
           const cached = await options.isr.handle(request, env, ctx, render);
           if (cached) {

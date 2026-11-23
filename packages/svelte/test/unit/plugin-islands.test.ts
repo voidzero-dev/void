@@ -6,6 +6,7 @@ import { build, normalizePath, type Rolldown } from 'vite';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
+import { IMAGE_PRELOADS_KEY } from '../../src/runtime/image-preloads.ts';
 
 const TMP = packageFixturePath(import.meta.dirname, '__tmp_islands_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
@@ -173,6 +174,26 @@ import Sidebar from "./Sidebar.svelte" with { island: "load" }
     const clientEntry = loadClientEntry();
 
     expect(clientEntry).not.toContain('Sidebar');
+  });
+
+  it('hydrates each island with its own image preload context, as its server wrapper renders', async () => {
+    writeFile(
+      'index.island.svelte',
+      `<script>
+import Counter from "./Counter.svelte" with { island: "load" }
+</script>
+<Counter />`,
+    );
+    writeFile('Counter.svelte', `<button>0</button>`);
+
+    const { buildStart, loadClientEntry } = setupPlugin();
+    await buildStart();
+    const clientEntry = loadClientEntry()!;
+
+    expect(clientEntry).toContain(
+      `const context = new Map([["__void_frontmatter", frontmatter], [${JSON.stringify(IMAGE_PRELOADS_KEY)}, new Map()]]);`,
+    );
+    expect(clientEntry).toContain('hydrate(Component, { target: el, props, context });');
   });
 });
 
