@@ -279,7 +279,7 @@ export function detectPreset(
     const buildCommand = resolveProjectScriptCommand(root, 'build');
     return {
       buildCommand: buildCommand ?? resolveProjectCommand(root, 'vite build'),
-      outputDir: resolve(root, 'dist'),
+      outputDir: resolve(root, viteSpaOutputDir(pkg)),
       appType: 'spa',
     };
   }
@@ -377,6 +377,18 @@ function resolveProjectScriptCommand(root: string, scriptName: string): string |
 
 function hasViteLike(pkg: Record<string, unknown>): boolean {
   return hasPackageDependency(pkg, 'vite') || hasPackageDependency(pkg, 'vite-plus');
+}
+
+/**
+ * Where a Vite SPA build puts its browser files. A project that depends on
+ * `void` builds with `voidPlugin()` (`void init` adds it), which splits the
+ * output into `dist/client` (browser files) and `dist/ssr` (the server
+ * bundle, its source map and `wrangler.json`). Only `dist/client` may be
+ * uploaded: uploading `dist` publishes the server files and leaves `/`
+ * without an `index.html`.
+ */
+function viteSpaOutputDir(pkg: Record<string, unknown>): string {
+  return hasPackageDependency(pkg, 'void') ? 'dist/client' : 'dist';
 }
 
 function detectViteBinary(root: string): 'vite' | 'vp' {
