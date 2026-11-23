@@ -329,6 +329,43 @@ describe('operator CLI (real subprocess and HTTP)', () => {
     expect(result.stderr).toContain('"status": "skipped"');
     expect(requests).toHaveLength(2);
   });
+  it('prints data keys such as worker names as they are', async () => {
+    reply = () => ({
+      body: {
+        dryRun: true,
+        action: 'worker.rollback-all',
+        target: 'production',
+        versions: { 'email-gateway': 'version-gateway', 'void-api-staging': 'version-api' },
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    });
+
+    const result = await run(['worker', 'rollback-all', '--plan']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('email-gateway: version-gateway');
+    expect(result.stdout).toContain('void-api-staging: version-api');
+    expect(result.stdout).not.toContain('Email gateway');
+    expect(result.stdout).toContain('Created at: 2026-01-01T00:00:00Z');
+  });
+  it('labels refusal details as details, not as a partial result', async () => {
+    reply = () => ({
+      status: 501,
+      body: {
+        error: 'capability_unavailable',
+        message: 'Manage this self-hosted Void platform with `void platform upgrade`.',
+        details: { capability: 'hosted-platform-operations' },
+      },
+    });
+
+    const result = await run(['worker', 'list']);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('Manage this self-hosted Void platform');
+    expect(result.stderr).toContain('Details:');
+    expect(result.stderr).toContain('"capability": "hosted-platform-operations"');
+    expect(result.stderr).not.toContain('Partial result');
+  });
   it('exchanges piped API sessions only on explicit auth token invocation', async () => {
     reply = () => ({
       body: {

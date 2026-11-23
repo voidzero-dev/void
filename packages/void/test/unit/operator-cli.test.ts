@@ -16,7 +16,7 @@ import {
   saveOperatorToken,
 } from '../../src/cli/operator-auth.ts';
 import { OperatorClient } from '../../src/cli/operator-client.ts';
-import { followOperatorLogs, runOperatorCommand } from '../../src/cli/operator-cmd.ts';
+import { followOperatorLogs, humanLines, runOperatorCommand } from '../../src/cli/operator-cmd.ts';
 import { parsePlatformArgs } from '../../src/cli/platform-args.ts';
 import {
   getActivePlatformConnection,
@@ -64,6 +64,25 @@ function connect(apiUrl: string) {
     proxyUrl: null,
   });
 }
+
+describe('operator text output labels', () => {
+  it('humanizes field names but prints data keys as they are', () => {
+    expect(
+      humanLines({
+        createdAt: 'now',
+        project_id: 'proj_1',
+        picked: { '@cf/zai-org/glm-5.3': 1, 'email-gateway': 2, 'api.example.com': 3 },
+      }),
+    ).toEqual([
+      'Created at: now',
+      'Project ID: proj_1',
+      'Picked:',
+      '  @cf/zai-org/glm-5.3: 1',
+      '  email-gateway: 2',
+      '  api.example.com: 3',
+    ]);
+  });
+});
 
 describe('operator mutation completion output', () => {
   async function runMutation(result: Record<string, unknown>, flags: Array<string> = []) {
