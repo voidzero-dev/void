@@ -642,6 +642,10 @@ describe('project security command paths', () => {
           finding: finding('F-1', {
             evidence: 'EVID',
             fix: 'FIXTEXT',
+            trace: [
+              { file: 'lib/session.ts', line: 13, note: 'cookie is SameSite=None' },
+              { file: 'routes/a.ts', note: 'no origin check' },
+            ],
             verdictSource: 'runtime',
             runtimeProof: { request: 'r2', method: 'GET', path: '/users?id=1', status: 200 },
           }),
@@ -665,6 +669,11 @@ describe('project security command paths', () => {
     expect(text).toContain('title F-1');
     expect(text).toContain('EVID');
     expect(text).toContain('FIXTEXT');
+    // A trace reads as one step per line, not as JSON.
+    expect(text).toContain(
+      '    lib/session.ts:13  cookie is SameSite=None\n    routes/a.ts  no origin check',
+    );
+    expect(text).not.toContain('"note"');
     expect(text).toContain('confirmed (runtime)');
     expect(text).toContain('GET /users?id=1 answered 200 on a throwaway copy');
     expect(text).toContain('ana');

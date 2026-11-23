@@ -373,6 +373,24 @@ function indent(text: string): Array<string> {
     .map((line) => `    ${line}`);
 }
 
+/** A trace of `{ file, line, note }` steps as `file:line  note` lines; else null. */
+function traceText(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+  const lines: Array<string> = [];
+  for (const step of value) {
+    const { file, line, note } = (step ?? {}) as Record<string, unknown>;
+    if (typeof file !== 'string' || typeof note !== 'string') {
+      return null;
+    }
+    lines.push(
+      `${cleanLine(file)}${typeof line === 'number' ? `:${line}` : ''}  ${cleanLine(note)}`,
+    );
+  }
+  return lines.join('\n');
+}
+
 export function formatFinding(
   finding: SecurityFinding,
   events: Array<SecurityFindingEvent> | undefined,
@@ -413,7 +431,7 @@ export function formatFinding(
     lines.push(`  Possible duplicate of ${cleanLine(finding.possibleDuplicateOf.id)}.`);
   }
   for (const [label, value] of [
-    ['Trace', finding.trace],
+    ['Trace', traceText(finding.trace) ?? finding.trace],
     ['Evidence', finding.evidence],
     [
       'Runtime proof',
