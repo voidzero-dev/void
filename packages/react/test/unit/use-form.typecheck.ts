@@ -1,5 +1,14 @@
-import { VoidActionError } from 'void/pages-client';
+import { VoidActionError, type FormState } from 'void/pages-client';
 import { useForm } from '../../src/runtime/use-form.ts';
+
+export function checkGenericFieldHelpers<T>(
+  form: FormState<T, 'setters'>,
+  field: keyof T & string,
+): string | undefined {
+  form.setError(field, 'Client-side');
+  form.clearErrors(field);
+  return form.errors[field];
+}
 
 declare module 'void/routes' {
   interface PageActionMap {

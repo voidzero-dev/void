@@ -35,8 +35,13 @@ export type FormErrorPath<T, Depth extends ReadonlyArray<unknown> = []> = Depth[
             : K | `${K}.${FormErrorPath<T[K], [unknown, ...Depth]>}`;
         }[keyof T & string]
       : never;
+/**
+ * A body field or one of its nested paths. `keyof TData & string` keeps top-level names usable in
+ * generic callers, where TypeScript cannot resolve the `FormErrorPath` conditional.
+ */
+type FormFieldPath<TData> = FormErrorPath<TData> | (keyof TData & string);
 /** Field-keyed validation messages; a field without an error is absent. */
-export type FormErrors<TData> = Partial<Record<FormErrorPath<TData>, string>>;
+export type FormErrors<TData> = Partial<Record<FormFieldPath<TData>, string>>;
 /**
  * How an adapter's apps change `data` and `errors`, following its framework's idiom.
  * `'in-place'`: apps edit them directly (Vue, Svelte).
@@ -55,8 +60,8 @@ export type FormState<TData, TEditing extends FormEditing> = FormStatus &
   Readonly<{
     reset(options: FormResetOptions, ...fields: ReadonlyArray<keyof TData & string>): void;
     reset(...fields: ReadonlyArray<keyof TData & string>): void;
-    setError(field: FormErrorPath<TData>, message: string): void;
-    clearErrors(...fields: ReadonlyArray<FormErrorPath<TData>>): void;
+    setError(field: FormFieldPath<TData>, message: string): void;
+    clearErrors(...fields: ReadonlyArray<FormFieldPath<TData>>): void;
     clearError(): void;
   }>;
 /**
