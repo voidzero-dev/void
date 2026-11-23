@@ -74,6 +74,18 @@ describe('typed Cloudflare process protocol', () => {
     });
   });
 
+  it.each(['not-found', 'durable-migration', 'containers-unavailable', 'version-history-changed'])(
+    'accepts the %s failure from the runner',
+    (failure) => {
+      const value = decodeCloudflareOperationResult({
+        ...processResult({ operationResult: 1, failure }),
+        status: 1,
+      });
+      expect(value).toMatchObject({ status: 1, failure });
+      expect(value.stderr).not.toContain('invalid operation response');
+    },
+  );
+
   it.each([
     null,
     [],
