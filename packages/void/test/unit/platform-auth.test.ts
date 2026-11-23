@@ -9,7 +9,14 @@ import {
   verifyPlatformManagementAccess,
   verifyPlatformCloudflareCredential,
 } from '../../src/cli/platform-auth.ts';
-import { PlatformCloudflareClient } from '../../src/cli/platform-cloudflare.ts';
+import {
+  PlatformCloudflareApiError,
+  PlatformCloudflareClient,
+} from '../../src/cli/platform-cloudflare.ts';
+
+const expectedRejection = (): never => {
+  throw new Error('expected a rejection');
+};
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -90,13 +97,111 @@ describe('platform Cloudflare authentication', () => {
         r2Buckets: ['assets'],
       }).catch((error) => error);
       expect(error.message).toContain(`HTTP ${status}`);
-      expect(error.message).toContain('saved management token');
+      expect(error.message).toContain('management token saved on this machine');
       expect(error.message).not.toContain('secret-token');
       expect(error.message).toContain(
         status === 401 || status === 403 ? 'Workers R2 Storage → Edit' : 'Retry',
       );
     },
   );
+
+  it('lists every denied permission in one error that names the credential', async () => {
+    const paths: Array<string> = [];
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async (url) => {
+        const path = new URL(String(url)).pathname;
+        paths.push(path);
+        if (path.endsWith('/accounts')) {
+          return Response.json({ success: true, result: [{ id: 'account', name: 'Account' }] });
+        }
+        return Response.json(
+          { success: false, errors: [{ message: 'Authentication error' }] },
+          { status: 403 },
+        );
+      },
+    });
+    const error = await verifyPlatformCloudflareCredential(client, {
+      account: { id: 'account', name: 'Account' },
+      source: 'environment',
+      environmentVariable: 'CF_API_TOKEN',
+      r2Buckets: ['assets', 'cache'],
+    }).then(expectedRejection, (error: Error) => error);
+    expect(paths).toEqual([
+      '/client/v4/accounts',
+      '/client/v4/accounts/account/workers/scripts',
+      '/client/v4/accounts/account/r2/buckets/assets',
+      '/client/v4/accounts/account/r2/buckets/cache',
+    ]);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe(
+      [
+        'platform: Cloudflare denied the management token from CF_API_TOKEN:',
+        '- Account → Workers Scripts → Edit (HTTP 403; Cloudflare Workers access)',
+        '- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "assets")',
+        '- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "cache")',
+        'HTTP 403 means the token works but is missing the permissions listed above, or is not scoped to this account or zone. Add them to the token in the Cloudflare dashboard (the token value stays the same), or set CF_API_TOKEN to a management token that has them, then retry.',
+      ].join('\n'),
+    );
+    // Callers read the status and path of the first denied request.
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+    expect((error.cause as PlatformCloudflareApiError).status).toBe(403);
+  });
+
+  it('keeps a denial seen before a later check fails for another reason', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async (url) => {
+        const path = new URL(String(url)).pathname;
+        if (path.endsWith('/accounts')) {
+          return Response.json({ success: true, result: [{ id: 'account', name: 'Account' }] });
+        }
+        return path.includes('/r2/')
+          ? Response.json({ success: false, errors: [{ message: 'Slow down' }] }, { status: 429 })
+          : Response.json(
+              { success: false, errors: [{ message: 'Authentication error' }] },
+              { status: 403 },
+            );
+      },
+    });
+    const error = await verifyPlatformCloudflareCredential(client, {
+      account: { id: 'account', name: 'Account' },
+      source: 'saved',
+      r2Buckets: ['assets'],
+    }).then(expectedRejection, (error: Error) => error);
+    expect(error.message).toBe(
+      [
+        'platform: Cloudflare denied the management token saved on this machine:',
+        '- Account → Workers Scripts → Edit (HTTP 403; Cloudflare Workers access)',
+        'HTTP 403 means the token works but is missing Account → Workers Scripts → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has it, then retry.',
+      ].join('\n'),
+    );
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+    expect((error.cause as PlatformCloudflareApiError).status).toBe(403);
+  });
+
+  it('keeps checking after the account list is denied, and says a 401 token is not valid', async () => {
+    const client = {
+      listAccounts: async () => {
+        throw new PlatformCloudflareApiError('Authentication error', 401);
+      },
+      listWorkerNames: vi.fn(async () => {
+        throw new PlatformCloudflareApiError('Authentication error', 401);
+      }),
+      request: vi.fn(),
+    };
+    const error = await verifyPlatformCloudflareCredential(client as never, {
+      account: { id: 'account', name: 'Account' },
+      source: 'saved',
+      r2Buckets: [],
+    }).then(expectedRejection, (error: Error) => error);
+    expect(client.listWorkerNames).toHaveBeenCalledOnce();
+    expect(error.message).toContain('Cloudflare denied the management token saved on this machine');
+    expect(error.message).toContain('- Account → Account Settings → Read (HTTP 401');
+    expect(error.message).toContain('- Account → Workers Scripts → Edit (HTTP 401');
+    expect(error.message).toContain(
+      'HTTP 401 means Cloudflare did not accept the token: it is not valid, has expired, or was replaced. Set CLOUDFLARE_API_TOKEN to a valid management token, then retry.',
+    );
+    expect(error.message).not.toContain('HTTP 403 means');
+  });
 
   it.each([false, true])(
     'only permits a missing bucket when repairing (repair: %s)',
@@ -250,7 +355,11 @@ describe('platform Cloudflare authentication', () => {
           runWrangler,
           savedManagementToken: 'saved-manager',
         }),
-      ).resolves.toEqual({ source: 'environment', token: 'explicit-manager' });
+      ).resolves.toEqual({
+        source: 'environment',
+        environmentVariable: name,
+        token: 'explicit-manager',
+      });
       expect(runWrangler).not.toHaveBeenCalled();
     },
   );
@@ -406,7 +515,14 @@ describe('platform authentication during input', () => {
         interactive: false,
         runWrangler,
       }),
-    ).resolves.toEqual({ input: 'team', credential: { source: 'environment', token: 'ci-token' } });
+    ).resolves.toEqual({
+      input: 'team',
+      credential: {
+        source: 'environment',
+        environmentVariable: 'CLOUDFLARE_API_TOKEN',
+        token: 'ci-token',
+      },
+    });
     expect(runWrangler).not.toHaveBeenCalled();
   });
 });

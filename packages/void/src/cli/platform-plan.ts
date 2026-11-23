@@ -33,6 +33,11 @@ import type {
   CloudflareZone,
   PlatformCloudflareClient,
 } from './platform-cloudflare.ts';
+import {
+  cloudflarePermissionForPath,
+  formatPlatformCredentialDenials,
+  type PlatformCredentialLabel,
+} from './platform-credential-label.ts';
 import type { PlatformStorageLocation } from './platform-storage.ts';
 
 export type PlatformInstallPlanAction = Readonly<{
@@ -109,6 +114,34 @@ type PlanningClient = Pick<
   | 'listWorkerDomains'
   | 'listWorkerRoutes'
 >;
+
+/** Group denied plan reads by the credential Cloudflare rejected. */
+function formatPlanDenials(denied: ReadonlyArray<PlatformCloudflareApiError>): Array<string> {
+  const groups = new Map<
+    string,
+    { label?: PlatformCredentialLabel; errors: Array<PlatformCloudflareApiError> }
+  >();
+  for (const error of denied) {
+    const key = error.credential ? JSON.stringify(error.credential) : '';
+    const group = groups.get(key) ?? { label: error.credential, errors: [] };
+    group.errors.push(error);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map(({ label, errors }) =>
+    label
+      ? formatPlatformCredentialDenials(
+          label,
+          errors.map((error) => ({
+            permission:
+              (error.requestPath ? cloudflarePermissionForPath(error.requestPath) : undefined) ??
+              'a permission this read needs',
+            request: `GET ${error.requestPath ?? ''}`,
+            status: error.status,
+          })),
+        )
+      : [...new Set(errors.map((error) => error.message))].join('\n'),
+  );
+}
 
 export async function createPlatformInstallPlan(
   client: PlanningClient,
@@ -405,13 +438,23 @@ export async function createPlatformInstallPlan(
     throw error;
   });
   const prerequisites: Array<PlatformCloudflarePrerequisiteError> = [];
-  const collectPrerequisite = (error: unknown): [] => {
-    if (!(error instanceof PlatformCloudflarePrerequisiteError)) {
-      throw error;
-    }
-    prerequisites.push(error);
-    return [];
-  };
+  // Collect every denied read in request order, so one error names each
+  // missing permission. Any other failure still stops the plan.
+  const denials: Array<PlatformCloudflareApiError | undefined> = [];
+  const settle = <T>(slot: number, read: Promise<ReadonlyArray<T>>): Promise<ReadonlyArray<T>> =>
+    read.catch((error: unknown) => {
+      if (error instanceof PlatformCloudflarePrerequisiteError) {
+        prerequisites.push(error);
+      } else if (
+        error instanceof PlatformCloudflareApiError &&
+        (error.status === 401 || error.status === 403)
+      ) {
+        denials[slot] = error;
+      } else {
+        throw error;
+      }
+      return [];
+    });
   const [
     aiGateways,
     routingKv,
@@ -425,21 +468,36 @@ export async function createPlatformInstallPlan(
     hyperdrives,
     workers,
   ] = await Promise.all([
-    gatewayInventory,
-    client.listKvNamespaces(account.id, names.routingKv),
-    client.listKvNamespaces(account.id, names.isrCacheKv),
-    client.listKvNamespaces(account.id, names.legacyAssetsKv),
-    client.listR2Buckets(account.id).catch(collectPrerequisite),
-    client.listQueues(account.id, names.usageQueue),
-    client.listQueues(account.id, names.cronQueue),
+    settle(0, gatewayInventory),
+    settle(1, client.listKvNamespaces(account.id, names.routingKv)),
+    settle(2, client.listKvNamespaces(account.id, names.isrCacheKv)),
+    settle(3, client.listKvNamespaces(account.id, names.legacyAssetsKv)),
+    settle(4, client.listR2Buckets(account.id)),
+    settle(5, client.listQueues(account.id, names.usageQueue)),
+    settle(6, client.listQueues(account.id, names.cronQueue)),
     (options?.deploymentExecution ??
     existing?.resources.some((resource) => resource.key === 'deployment-queue'))
-      ? client.listQueues(account.id, names.deploymentQueue)
+      ? settle(7, client.listQueues(account.id, names.deploymentQueue))
       : Promise.resolve([]),
-    client.listDispatchNamespaces(account.id).catch(collectPrerequisite),
-    client.listHyperdriveConfigs(account.id),
-    client.listWorkerNames(account.id),
+    settle(8, client.listDispatchNamespaces(account.id)),
+    settle(9, client.listHyperdriveConfigs(account.id)),
+    settle(10, client.listWorkerNames(account.id)),
   ]);
+  const denied = denials.filter((error) => error !== undefined);
+  if (denied.length > 0) {
+    if (denied.length === 1 && prerequisites.length === 0) {
+      throw denied[0];
+    }
+    throw new AggregateError(
+      [...denied, ...prerequisites],
+      `platform: Cloudflare denied reads the plan needs.\n\n${[
+        ...formatPlanDenials(denied),
+        ...prerequisites.map((error) => error.message),
+      ].join('\n\n')}`,
+      // Callers check the first denied request for its status and path.
+      { cause: denied[0] },
+    );
+  }
   if (prerequisites.length === 1) {
     throw prerequisites[0];
   }

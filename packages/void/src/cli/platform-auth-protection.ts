@@ -16,7 +16,10 @@ import {
   parsePlatformAccessSetupSpec,
   preparePlatformAccessSetup,
 } from './platform-access-setup.ts';
-import { resolvePlatformCloudflareCredential } from './platform-auth.ts';
+import {
+  platformOperatorCredentialLabel,
+  resolvePlatformCloudflareCredential,
+} from './platform-auth.ts';
 import { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import type { PlatformConfigArgs } from './platform-config-args.ts';
 import { acquirePlatformDatabaseLifecycleLock } from './platform-installer.ts';
@@ -237,7 +240,9 @@ export async function runPlatformProtectionConfig(args: PlatformConfigArgs): Pro
       );
     }
     const credential = await resolvePlatformCloudflareCredential();
-    const cloudflare = new PlatformCloudflareClient(credential.token);
+    const cloudflare = new PlatformCloudflareClient(credential.token, {
+      credential: platformOperatorCredentialLabel(credential),
+    });
     let protection = null;
     const checkpoint = { ...recovery };
     const save = (values: Record<string, string>) => {

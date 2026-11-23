@@ -21,6 +21,7 @@ import type { PlatformArgs } from './platform-args.ts';
 import { platformDatabaseNameFromOwnerUrl } from './platform-auth-database.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
+  platformOperatorCredentialLabel,
   resolvePlatformCloudflareCredential,
   verifyPlatformCloudflareCredential,
 } from './platform-auth.ts';
@@ -73,6 +74,10 @@ import {
   revalidatePlatformInstallAction,
 } from './platform-plan.ts';
 import { createPlatformProgress, withPlatformProgress } from './platform-progress.ts';
+import {
+  type PlatformR2CredentialCheck,
+  verifyPlatformR2Credentials,
+} from './platform-r2-credentials.ts';
 import {
   acquirePlatformLifecycleLock,
   listInstallationManifests,
@@ -285,7 +290,10 @@ export function platformLifecycleResumeCommand(
   return command.join(' ');
 }
 
-export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<void> {
+export async function runInstalledPlatformCommand(
+  args: PlatformArgs,
+  dependencies: { fetch?: typeof fetch } = {},
+): Promise<void> {
   if (
     args.subcommand !== 'upgrade' &&
     args.subcommand !== 'rollback' &&
@@ -314,11 +322,16 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
   const operatorCredential = await resolvePlatformCloudflareCredential({
     savedManagementToken: readInstallationRecoverySecrets(manifest)?.managementApiToken,
   });
-  const operatorClient = new PlatformCloudflareClient(operatorCredential.token);
+  const operatorClient = new PlatformCloudflareClient(operatorCredential.token, {
+    credential: platformOperatorCredentialLabel(operatorCredential),
+  });
   await withPlatformProgress('Checking Cloudflare access', () =>
     verifyPlatformCloudflareCredential(operatorClient, {
       account: manifest.account,
       source: operatorCredential.source,
+      ...(operatorCredential.environmentVariable
+        ? { environmentVariable: operatorCredential.environmentVariable }
+        : {}),
       r2Buckets:
         args.subcommand === 'disable' || args.subcommand === 'uninstall'
           ? []
@@ -349,9 +362,15 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     const recovery = readInstallationRecoverySecrets(manifest);
     const gatewayToken =
       process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN || recovery?.cloudflareApiToken;
+    // Browser login cannot use AI Gateway, so the runtime token does it.
     const client =
       operatorCredential.source === 'oauth' && gatewayToken
-        ? operatorClient.withAiGatewayToken(gatewayToken)
+        ? operatorClient.withAiGatewayToken(gatewayToken, {
+            role: 'runtime',
+            source: process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN
+              ? 'environment'
+              : 'saved',
+          })
         : operatorClient;
     const databaseUrl = resolvePlatformInstallDatabaseUrl(recovery, manifest);
 
@@ -649,11 +668,20 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         ? plan.deployment.emailSharedZoneId
         : undefined;
     if (runtimeTokenToPreflight) {
+      // A token in VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is the explicit update.
+      const credential = {
+        role: 'runtime',
+        source:
+          runtimeTokenToPreflight === secrets.workerSecretUpdates?.CF_API_TOKEN
+            ? 'environment'
+            : 'saved',
+      } as const;
       await verifyPlatformRuntimeTokenPermissions(
-        new PlatformCloudflareClient(runtimeTokenToPreflight),
+        new PlatformCloudflareClient(runtimeTokenToPreflight, { credential }),
         {
           accountId: manifest.account.id,
           applicationDomain: deployment.application.baseDomain,
+          credential,
           customDomains: plan.deployment.capabilities.customDomains,
           ...(emailZoneId ? { emailZoneId } : {}),
           zoneId: plan.zone?.id ?? null,
@@ -678,6 +706,16 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       }
     }
     markPhase('runtime token');
+    // A pair R2 rejects would break every app deploy. Check it before traffic
+    // pauses, so a bad pair leaves the installation as it was.
+    const r2PairToPreflight = resolvePlatformR2PairToPreflight(plan, secrets);
+    if (r2PairToPreflight) {
+      await verifyPlatformR2Credentials(
+        { accountId: manifest.account.id, ...r2PairToPreflight },
+        dependencies.fetch,
+      );
+      markPhase('r2 credentials');
+    }
     if (!databaseLock?.readAuthenticationState) {
       throw new Error(
         'platform: The database lifecycle lock cannot read authoritative authentication settings.',
@@ -1066,6 +1104,45 @@ export function resolvePlatformRuntimeTokenToPreflight(
   )
     ? secrets.cloudflareApiToken
     : '';
+}
+
+/**
+ * The R2 key pair this run sends to the Workers, and the bucket to check it
+ * on. Returns nothing when the Workers keep their pair, or when the assets
+ * bucket is created by this run and cannot answer yet.
+ */
+export function resolvePlatformR2PairToPreflight(
+  plan: {
+    actions: ReadonlyArray<{ action: string; key: string; kind: string; name: string }>;
+  },
+  secrets: Pick<
+    ReturnType<typeof createPlatformInstallationSecrets>,
+    'r2AccessKeyId' | 'r2SecretAccessKey' | 'workerSecretUpdates'
+  >,
+): Omit<PlatformR2CredentialCheck, 'accountId'> | undefined {
+  const bucket = plan.actions.find(
+    (action) => action.key === 'assets-bucket' && action.kind === 'r2-bucket',
+  );
+  if (!bucket || bucket.action === 'create') {
+    return undefined;
+  }
+  const accessKeyId = secrets.workerSecretUpdates?.R2_ACCESS_KEY_ID;
+  const secretAccessKey = secrets.workerSecretUpdates?.R2_SECRET_ACCESS_KEY;
+  if (accessKeyId && secretAccessKey) {
+    return { bucket: bucket.name, accessKeyId, secretAccessKey, source: 'environment' };
+  }
+  const createsApiWorker = plan.actions.some(
+    (action) =>
+      action.kind === 'worker' && action.action === 'create' && action.key === 'api-worker',
+  );
+  return createsApiWorker && secrets.r2AccessKeyId && secrets.r2SecretAccessKey
+    ? {
+        bucket: bucket.name,
+        accessKeyId: secrets.r2AccessKeyId,
+        secretAccessKey: secrets.r2SecretAccessKey,
+        source: 'saved',
+      }
+    : undefined;
 }
 
 export async function resolveInstalledPlatformManifest(

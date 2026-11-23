@@ -15,6 +15,7 @@ import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { generateVoidAuthDrizzleSchema } from '../../src/auth/drizzle.ts';
 import { getDeploySchemaDriftMessage, hasDeploySchemaDrift } from '../../src/cli/deploy-drift.ts';
 import { validateAuthMigrationSchema } from '../../src/cli/deploy-migrations.ts';
+import { ensureProjectTsconfig } from '../../src/codegen/project-tsconfig.ts';
 import { writeDrizzleConfig } from '../../src/drizzle/config.ts';
 import { collectMigrations } from '../../src/migrations/collect.ts';
 import { WRANGLER_AUTH_CREDENTIAL_ENV_VARS } from '../../src/shared/untrusted-env.ts';
@@ -71,6 +72,38 @@ describe('hasDeploySchemaDrift', { timeout: driftTestTimeout }, () => {
 
     expect(hasDeploySchemaDrift(root, 'sqlite')).toBe(false);
     expect(existsSync(join(root, '.void', 'deploy-drift-check'))).toBe(false);
+  });
+
+  it.each([
+    ['extends the generated tsconfig', { extends: './.void/tsconfig.json' }],
+    [
+      'also maps @auth-schema itself',
+      {
+        extends: './.void/tsconfig.json',
+        compilerOptions: { paths: { '@auth-schema': ['./.void/better-auth-schema.ts'] } },
+      },
+    ],
+  ])('resolves @auth-schema when the app tsconfig %s', (_, tsconfig) => {
+    const root = createTempApp();
+    writeAuthSchema(root);
+    writeFileSync(
+      join(root, 'db', 'schema.ts'),
+      [
+        'import { sqliteTable, text } from "drizzle-orm/sqlite-core";',
+        'import { user } from "@auth-schema";',
+        '',
+        'export const posts = sqliteTable("posts", {',
+        '  id: text("id").primaryKey(),',
+        '  userId: text("user_id").references(() => user.id),',
+        '});',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(join(root, 'tsconfig.json'), JSON.stringify(tsconfig));
+    ensureProjectTsconfig(root);
+    generateMigrations(root, { includeAuth: true });
+
+    expect(hasDeploySchemaDrift(root, 'sqlite')).toBe(false);
   });
 
   it('checks auth-only migration history without requiring an application schema', () => {

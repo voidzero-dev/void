@@ -116,7 +116,9 @@ An upgrade validates the runtime, applies supported pending migrations, deploys 
 
 Install, upgrade, and repair also publish saved [AI Gateway logging](/reference/cli/platform-users#ai-gateway-logging) settings. Affected projects may show `pending` for about 2 minutes afterward, including projects returning to `inherit`. Check progress with `void platform project show <project-id>`.
 
-Before starting, Void checks access to the installation's Cloudflare account, Workers, and existing R2 buckets. If credentials are rejected, set `CLOUDFLARE_API_TOKEN` to a management token scoped to that account and retry. This overrides the installation's saved management token.
+Before starting, Void checks access to the installation's Cloudflare account, Workers, and existing R2 buckets. It lists every missing permission at once and names the credential Cloudflare rejected. If the management credential is rejected, set `CLOUDFLARE_API_TOKEN` to a management token scoped to that account and retry. This overrides the installation's saved management token.
+
+With browser login, Void uses the runtime token for AI Gateway: `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`, or the one saved on this machine. If an error names the runtime token, set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to a valid runtime token, or set `CLOUDFLARE_API_TOKEN` to a management token with **Account → AI Gateway → Edit**. Void then uses that token instead of browser login.
 
 Some upgrades pause application traffic until the new version passes health checks. If a command fails while traffic is paused:
 
@@ -127,11 +129,15 @@ Some upgrades pause application traffic until the new version passes health chec
 ::: details Migration safety, credential rotation, and rollback
 
 To update the runtime Cloudflare token, GitHub OAuth credentials when GitHub login is enabled, or R2 credentials,
-provide their `VOID_PLATFORM_*` environment variables when running the upgrade.
+provide their `VOID_PLATFORM_*` environment variables when running `upgrade` or `repair`.
 Only the supplied values replace live credentials. Recovery data from an older
 workstation does not overwrite them, and upgrades preserve the live signing keys
 and complete project-encryption keyring. Keep current credentials in your secret
 manager so they can also restore a missing Worker during repair.
+
+Set `VOID_PLATFORM_R2_ACCESS_KEY_ID` and `VOID_PLATFORM_R2_SECRET_ACCESS_KEY` together, even if
+only the secret changed. Void checks the R2 pair against the assets bucket before it changes the
+platform.
 
 Database migrations only move forward. Void checks compatibility before upgrading and tells you if an intermediate release is needed. If deployment fails, it attempts to restore the previous Workers against the compatible database schema. Retrying does not repeat completed migrations.
 

@@ -45,6 +45,18 @@ export function createPlatformInstallationSecrets(input: {
   checkpoint?: Record<string, string> | null;
 }): PlatformInstallationSecrets {
   const checkpoint = input.checkpoint ?? {};
+  // The two halves are one key pair. Replacing one half would leave the
+  // Workers signing with a mismatched pair.
+  if (!input.r2AccessKeyId !== !input.r2SecretAccessKey) {
+    const [given, missing] = input.r2AccessKeyId
+      ? ['VOID_PLATFORM_R2_ACCESS_KEY_ID', 'VOID_PLATFORM_R2_SECRET_ACCESS_KEY']
+      : ['VOID_PLATFORM_R2_SECRET_ACCESS_KEY', 'VOID_PLATFORM_R2_ACCESS_KEY_ID'];
+    throw new Error(
+      `platform: ${given} is set but ${missing} is not. ` +
+        'Set VOID_PLATFORM_R2_ACCESS_KEY_ID and VOID_PLATFORM_R2_SECRET_ACCESS_KEY together, ' +
+        'even if only the secret changed.',
+    );
+  }
   const required = (value: string, name: string): string => {
     if (!value) {
       throw new Error(`platform: ${name} is required to install the platform.`);

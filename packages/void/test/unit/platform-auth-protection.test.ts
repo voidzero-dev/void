@@ -57,6 +57,7 @@ vi.mock('../../src/cli/platform-access-setup.ts', async (importOriginal) => {
 });
 
 vi.mock('../../src/cli/platform-auth.ts', () => ({
+  platformOperatorCredentialLabel: () => ({ role: 'management' }),
   resolvePlatformCloudflareCredential: vi.fn(async () => ({ token: 'cloudflare-token' })),
 }));
 

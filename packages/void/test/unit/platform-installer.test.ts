@@ -1450,6 +1450,49 @@ describe('platform installer', () => {
     ).toThrow('canonical base64');
   });
 
+  it('requires both halves of a replaced R2 key pair', () => {
+    const {
+      jwtSecret: _jwtSecret,
+      projectSecretKey: _projectSecretKey,
+      ...fresh
+    } = FRESH_SECRETS_INPUT;
+    const input = {
+      ...fresh,
+      cloudflareApiToken: '',
+      existingInstallation: true,
+      updateExistingWorkers: true,
+      checkpoint: { r2AccessKeyId: 'saved-id', r2SecretAccessKey: 'saved-secret' },
+    };
+    expect(() =>
+      createPlatformInstallationSecrets({ ...input, r2AccessKeyId: '', r2SecretAccessKey: 'new' }),
+    ).toThrow(
+      'platform: VOID_PLATFORM_R2_SECRET_ACCESS_KEY is set but VOID_PLATFORM_R2_ACCESS_KEY_ID is not. Set VOID_PLATFORM_R2_ACCESS_KEY_ID and VOID_PLATFORM_R2_SECRET_ACCESS_KEY together, even if only the secret changed.',
+    );
+    expect(() =>
+      createPlatformInstallationSecrets({ ...input, r2AccessKeyId: 'new', r2SecretAccessKey: '' }),
+    ).toThrow(
+      'VOID_PLATFORM_R2_ACCESS_KEY_ID is set but VOID_PLATFORM_R2_SECRET_ACCESS_KEY is not',
+    );
+
+    const replaced = createPlatformInstallationSecrets({
+      ...input,
+      r2AccessKeyId: 'new-id',
+      r2SecretAccessKey: 'new-secret',
+    });
+    expect(replaced.workerSecretUpdates).toMatchObject({
+      R2_ACCESS_KEY_ID: 'new-id',
+      R2_SECRET_ACCESS_KEY: 'new-secret',
+    });
+    const kept = createPlatformInstallationSecrets({
+      ...input,
+      r2AccessKeyId: '',
+      r2SecretAccessKey: '',
+    });
+    expect(kept.workerSecretUpdates).not.toHaveProperty('R2_ACCESS_KEY_ID');
+    expect(kept.workerSecretUpdates).not.toHaveProperty('R2_SECRET_ACCESS_KEY');
+    expect(kept).toMatchObject({ r2AccessKeyId: 'saved-id', r2SecretAccessKey: 'saved-secret' });
+  });
+
   it('attempts Worker rollback even when closing an unsafe routing gate fails', async () => {
     const events: Array<string> = [];
     const failures = await recoverFailedPlatformWorkerDeployment({

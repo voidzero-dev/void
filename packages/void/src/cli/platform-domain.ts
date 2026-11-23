@@ -13,6 +13,7 @@ import { printSuccess, note } from './output.ts';
 import type { PlatformArgs } from './platform-args.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
+  platformOperatorCredentialLabel,
   resolvePlatformCloudflareCredential,
 } from './platform-auth.ts';
 import { PlatformCloudflareClient } from './platform-cloudflare.ts';
@@ -288,7 +289,9 @@ export async function runPlatformDomainCommand(args: DomainArgs): Promise<void> 
   assertNoninteractivePlatformMutationAcknowledged(args, process.stdin.isTTY === true);
   const selected = await resolveInstalledPlatformManifest(args.selector);
   const credential = await resolvePlatformCloudflareCredential();
-  const client = new PlatformCloudflareClient(credential.token);
+  const client = new PlatformCloudflareClient(credential.token, {
+    credential: platformOperatorCredentialLabel(credential),
+  });
   const domainInput =
     args.domain || (await text({ message: 'Application domain:', placeholder: 'example.com' }));
   if (isCancel(domainInput)) {

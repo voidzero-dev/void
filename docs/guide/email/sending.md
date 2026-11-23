@@ -87,7 +87,7 @@ You can send to at most 50 recipients across `to`, `cc`, and `bcc`. Use standard
 
 On the platform the sender is pinned to your project. `from` must be your project's own platform address — `<project-slug>@<mail-domain>` or `<project-slug>+<tag>@<mail-domain>`, optionally with a display name — or any address on a domain registered with `void email domain add` (see [Your own domain on the platform](./domains.md#your-own-domain-on-the-platform)). For example, if your platform's mail domain is `mail.example.com`, you can use `Acme <acme+noreply@mail.example.com>`. Anything else is rejected with `INVALID_FROM`. Omit `from` and Void fills in `<project-slug>+noreply@<mail-domain>` for you. If the project owner set an [email alias](../../reference/cli/email.md#void-email-alias), `<alias>@<mail-domain>` and `<alias>+<tag>@<mail-domain>` are accepted too; the default stays the slug address.
 
-On your own Cloudflare account, `from` defaults to `email.from` from `void.config.ts` and must be on a domain your account can send from; Cloudflare rejects any other sender and `sendEmail` reports it as `INVALID_FROM`.
+On your own Cloudflare account, `from` defaults to `email.from` from `void.config.ts` and must be on a domain your account can send from; Cloudflare rejects any other sender and `sendEmail` reports it as `INVALID_FROM`. If the Worker has no email binding, run `void email setup --platform cloudflare` and redeploy to resolve `BINDING_MISSING`.
 
 ## Reply later {#reply-later}
 

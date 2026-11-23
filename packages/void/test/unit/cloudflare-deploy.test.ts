@@ -1158,6 +1158,35 @@ function harness(overrides: Partial<CloudflareDeployDeps> = {}): {
   return { deps, trace, wranglerArgs, exitCalls };
 }
 
+it('reaches the native Worker build for VitePress with a configured Void backend', async () => {
+  const root = makeProject({
+    'package.json': JSON.stringify({ name: 'site', dependencies: { void: '*', vitepress: '*' } }),
+    'void.config.ts': `export default {
+      inference: { appType: 'void', build: 'vitepress build && vite build' },
+      cloudflare: { name: 'site', account_id: 'personal' },
+    };`,
+    'vite.config.ts': `import { voidPlugin } from 'void';
+      export default { plugins: [voidPlugin()], publicDir: '.vitepress/dist' };`,
+    'routes/api/hello.ts': 'export const GET = () => "hello";',
+    '.vitepress/config.ts': 'export default {};',
+    'index.md': '# Site',
+  });
+  const runBuild = vi.fn(() => {
+    throw new Error('Reached the Worker build');
+  });
+  const { deps } = harness({ runBuild });
+  const output = vi.spyOn(log, 'error').mockImplementation(() => {});
+  try {
+    await expect(
+      runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
+    ).rejects.toBeInstanceOf(ExitError);
+    expect(output).toHaveBeenCalledWith('deploy: build failed — Reached the Worker build');
+    expect(runBuild).toHaveBeenCalledOnce();
+  } finally {
+    output.mockRestore();
+  }
+});
+
 describe('existing Cloudflare site handoff', () => {
   const existing = {
     versionId: 'original',
