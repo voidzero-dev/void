@@ -67,6 +67,20 @@ it('preserves every database lifecycle capability through the pool wrapper on in
   await expect(lock.verifyDatabase!(directory, runtime.database)).resolves.toBeUndefined();
 }, 30_000);
 
+it('reads the connection slots left for roles without SUPERUSER', async () => {
+  const url = 'postgresql://owner:pw@db.example.com/platform?sslmode=require';
+  await claimPlatformDatabase(url, 'test-install', 'test-owner');
+  lock = await acquirePlatformDatabaseLifecycleLock(url, 'test-install', 'test-owner');
+  const settings = await database.query<{ max: number; superuser: number; reserved: number }>(
+    `SELECT current_setting('max_connections')::int AS "max",
+            current_setting('superuser_reserved_connections')::int AS "superuser",
+            COALESCE(current_setting('reserved_connections', true), '0')::int AS "reserved"`,
+  );
+  const { max, superuser, reserved } = settings.rows[0]!;
+  expect(max).toBeGreaterThan(superuser + reserved);
+  await expect(lock.readConnectionSlots!()).resolves.toBe(max - superuser - reserved);
+}, 30_000);
+
 it('refuses leftover migration history before claiming and still resumes its own claim', async () => {
   const url = 'postgresql://owner:pw@db.example.com/platform?sslmode=require';
   await database.exec(`

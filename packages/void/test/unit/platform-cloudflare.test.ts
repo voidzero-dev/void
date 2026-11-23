@@ -497,6 +497,42 @@ describe('platform Cloudflare client', () => {
     expect(JSON.stringify(config)).not.toContain('secret');
   });
 
+  it('reads and lowers the Hyperdrive origin connection limit', async () => {
+    const requests: Array<{ method: string; body: unknown }> = [];
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async (_input, init) => {
+        requests.push({
+          method: init?.method ?? 'GET',
+          body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        });
+        return Response.json({
+          success: true,
+          result: {
+            id: 'hyperdrive-id',
+            name: 'void-db',
+            caching: { disabled: true },
+            origin_connection_limit: 60,
+            origin: {
+              database: 'void',
+              host: 'db.example.com',
+              port: 5432,
+              scheme: 'postgres',
+              user: 'void-user',
+            },
+          },
+        });
+      },
+    });
+
+    const config = await client.getHyperdriveConfig('account', 'hyperdrive-id');
+    expect(config.originConnectionLimit).toBe(60);
+    await client.setHyperdriveOriginConnectionLimit('account', 'hyperdrive-id', 17);
+    expect(requests).toEqual([
+      { method: 'GET', body: undefined },
+      { method: 'PATCH', body: { origin_connection_limit: 17 } },
+    ]);
+  });
+
   it('reads a Workers VPC origin without a hostname or port', async () => {
     const client = new PlatformCloudflareClient('token', {
       fetcher: async () =>

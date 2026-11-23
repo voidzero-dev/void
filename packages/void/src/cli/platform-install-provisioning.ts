@@ -7,6 +7,7 @@ import type { PlatformRuntimeManifest } from '@void/platform/installer';
 import { join } from 'pathslash';
 import { publishInstallationAiLogging } from './platform-ai-logging-projection.ts';
 import { verifyPlatformAuthenticationDatabase } from './platform-auth-database.ts';
+import { fitPlatformHyperdriveToDatabase } from './platform-hyperdrive-connections.ts';
 import { preparePlatformDatabaseSchema } from './platform-installer-database.ts';
 import {
   requireId,
@@ -173,6 +174,13 @@ export async function provisionInstallationServices(input: {
     authenticationDatabase,
     secrets.databaseUrl,
   );
+  await fitPlatformHyperdriveToDatabase({
+    client: dependencies.client,
+    accountId: plan.account.id,
+    resource: authenticationDatabase,
+    readConnectionSlots: releaseDatabaseLock.readConnectionSlots,
+    onProgress: dependencies.onProgress,
+  });
 
   state.manifest = await preparePlatformDatabaseSchema(
     state.manifest,

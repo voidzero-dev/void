@@ -129,7 +129,12 @@ export type CloudflareHyperdriveOrigin =
   | CloudflareHyperdriveHostOrigin
   | (CloudflareHyperdriveDatabase & Readonly<{ serviceId: string; host?: never }>);
 export type CloudflareHyperdriveConfig = CloudflareNamedResource &
-  Readonly<{ origin: CloudflareHyperdriveOrigin; cachingDisabled?: boolean }>;
+  Readonly<{
+    origin: CloudflareHyperdriveOrigin;
+    cachingDisabled?: boolean;
+    /** The soft cap on connections Hyperdrive opens to the origin, when Cloudflare reports one. */
+    originConnectionLimit?: number;
+  }>;
 export type CloudflareDnsRecord = CloudflareNamedResource &
   Readonly<{
     content: string;
@@ -1054,6 +1059,20 @@ export class PlatformCloudflareClient {
     );
   }
 
+  async setHyperdriveOriginConnectionLimit(
+    accountId: string,
+    id: string,
+    limit: number,
+  ): Promise<void> {
+    await this.request(
+      `/accounts/${encodeURIComponent(accountId)}/hyperdrive/configs/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ origin_connection_limit: limit }),
+      },
+    );
+  }
+
   async putKvValue(
     accountId: string,
     namespaceId: string,
@@ -1920,5 +1939,10 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
       !Array.isArray(value.caching) &&
       (value.caching as Record<string, unknown>).disabled === true,
     origin: parsedOrigin,
+    ...(typeof value.origin_connection_limit === 'number' &&
+    Number.isInteger(value.origin_connection_limit) &&
+    value.origin_connection_limit > 0
+      ? { originConnectionLimit: value.origin_connection_limit }
+      : {}),
   };
 }
