@@ -28,11 +28,16 @@ beforeAll(async () => {
   }
   copyFileSync(join(fixtures, 'test.png'), join(assets, 'hero.png'));
   copyFileSync(join(fixtures, 'test.png'), join(assets, 'members', 'premium.png'));
-  // The catch-all leaves .png paths to the static assets: a source the app
-  // answers itself is what the endpoint optimizes.
+  // Serve the members-only asset explicitly after middleware authorizes it.
+  // The public image still exercises the optimizer's app-404 asset fallback.
   writeFileSync(
     join(routes, '[...path].ts'),
-    `export function GET(c) { return c.req.path.endsWith('.png') ? c.notFound() : new Response('catch-all ' + c.req.path); }\nexport function POST() { return new Response('catch-all post'); }\n`,
+    `export function GET(c) {
+  if (c.req.path === '/members/premium.png') return c.env.ASSETS.fetch(c.req.raw);
+  return c.req.path.endsWith('.png') ? c.notFound() : new Response('catch-all ' + c.req.path);
+}
+export function POST() { return new Response('catch-all post'); }
+`,
   );
   writeFileSync(
     join(middleware, '01.headers.ts'),
@@ -74,7 +79,7 @@ beforeAll(async () => {
       null,
       {
         honoPath: fileURLToPath(import.meta.resolve('hono')),
-        runtimeEnvPath: runtimeSource('env.ts'),
+        runtimeEnvPath: runtimeSource('env/runtime.ts'),
         projectRoot: directory,
         homeDir: tmpdir(),
         reactRefresh: false,
@@ -84,7 +89,7 @@ beforeAll(async () => {
       },
     ),
   );
-  writeFileSync(entry, compileWorkerEntry({ runtimeEnvPath: runtimeSource('env.ts') }));
+  writeFileSync(entry, compileWorkerEntry({ runtimeEnvPath: runtimeSource('env/runtime.ts') }));
   await build({
     configFile: false,
     logLevel: 'silent',
@@ -93,8 +98,8 @@ beforeAll(async () => {
         name: 'image-route-fixture',
         enforce: 'pre',
         resolveId(id) {
-          if (id.endsWith('/dist/runtime/routing.mjs')) {
-            return runtimeSource('routing.ts');
+          if (id.endsWith('/dist/runtime/routing/index.mjs')) {
+            return runtimeSource('routing/index.ts');
           }
           if (id === 'virtual:void-routes') {
             return routeTable;

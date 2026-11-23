@@ -131,8 +131,8 @@ beforeAll(async () => {
     entry,
     `
     import { Hono } from ${JSON.stringify(fileURLToPath(import.meta.resolve('hono')))};
-    import { createImageHandler } from ${JSON.stringify(runtimeSource('routing.ts'))};
-    import { withRuntimeEnv } from ${JSON.stringify(runtimeSource('env.ts'))};
+    import { createImageHandler } from ${JSON.stringify(runtimeSource('routing/index.ts'))};
+    import { withRuntimeEnv } from ${JSON.stringify(runtimeSource('env/runtime.ts'))};
     const app = new Hono();
     app.get('/_void/image', createImageHandler({ config: ${JSON.stringify(production)}, deploymentId: 'deployment-1' }));
     const dev = new Hono();

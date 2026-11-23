@@ -11,8 +11,8 @@ import {
   type ImageRequestOptions,
   type ImagesBindingLike,
 } from '../../src/image/optimizer/index.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
-import { createImageHandler } from '../../src/runtime/routing.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
+import { createImageHandler } from '../../src/runtime/routing/index.ts';
 
 const fixture = (name: string): Uint8Array<ArrayBuffer> =>
   new Uint8Array(readFileSync(join(import.meta.dirname, '../fixtures/images', name)));
