@@ -1355,6 +1355,10 @@ describe('Cloudflare version activation', () => {
             return ok(JSON.stringify([{ id: CONCURRENT, number: 0 }]));
           }
         }
+        if (args[0] === 'versions' && args[1] === 'view' && args[2] === CURRENT) {
+          // CURRENT is newer than everything the stale list shows.
+          return ok(JSON.stringify({ id: CURRENT, number: 1 }));
+        }
         return base(args);
       });
       const sleep = vi.fn(async () => {
@@ -1474,7 +1478,9 @@ describe('Cloudflare version activation', () => {
     const runWrangler = operationFixture((args: Array<string>) =>
       args[0] === 'versions' && args[1] === 'list'
         ? ok(JSON.stringify([{ id: CONCURRENT, number: 0 }]))
-        : base(args),
+        : args[0] === 'versions' && args[1] === 'view' && args[2] === CURRENT
+          ? ok(JSON.stringify({ id: CURRENT, number: 1 }))
+          : base(args),
     );
     const sleep = vi.fn(async (_milliseconds: number) => {});
     const onProgress = vi.fn();
@@ -1496,6 +1502,132 @@ describe('Cloudflare version activation', () => {
       "Waiting for Cloudflare's Worker version list to catch up...",
     );
   });
+
+  it.each([{ phase: 'before' }, { phase: 'after' }] as const)(
+    'stops without saving a candidate when a rollback lands during the version list wait ($phase upload)',
+    async ({ phase }) => {
+      const base = runner();
+      let uploaded = false;
+      let rolledBack = false;
+      let reads = 0;
+      const runWrangler = operationFixture((args: Array<string>) => {
+        if (args[0] === 'versions' && args[1] === 'upload') {
+          uploaded = true;
+        }
+        if (args[0] === 'deployments' && rolledBack) {
+          return ok(JSON.stringify({ versions: [{ version_id: CONCURRENT, percentage: 100 }] }));
+        }
+        if (args[0] === 'versions' && args[1] === 'list' && uploaded === (phase === 'after')) {
+          reads++;
+          if (reads === 1) {
+            // Before the upload the list trails the write that made CURRENT active. After it, the
+            // list still shows the exact pre-upload history.
+            return ok(
+              JSON.stringify(
+                phase === 'before' ? [{ id: CONCURRENT, number: 0 }] : [{ id: CURRENT, number: 1 }],
+              ),
+            );
+          }
+        }
+        if (args[0] === 'versions' && args[1] === 'view' && args[2] === CURRENT) {
+          return ok(JSON.stringify({ id: CURRENT, number: 1 }));
+        }
+        return base(args);
+      });
+      const sleep = vi.fn(async (_milliseconds: number) => {
+        // Someone rolls production back to CONCURRENT while this deploy waits.
+        rolledBack = true;
+      });
+      const recordVerifiedCandidate = vi.fn();
+      const fetch = vi.fn(async () => Response.json({ ready: true }));
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        workerName: 'my-worker',
+        verifyUploader: () => true,
+        verifyInheritedSecrets: true,
+        recordVerifiedCandidate,
+        message: encodeCloudflareVersionMessage([], triggersWith()),
+        fetch,
+        sleep,
+        versionHistoryRetryDelaysMs: [10, 20, 30],
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        reason: 'deployment-changed',
+        activeVersionId: CONCURRENT,
+        rollback: 'not-needed',
+      });
+      expect(sleep.mock.calls).toEqual([[10]]);
+      // A receipt naming CURRENT as the parent would break the next deploy from CONCURRENT.
+      expect(recordVerifiedCandidate).not.toHaveBeenCalled();
+      expect(runWrangler.mock.calls.some(([args]) => args[1] === 'upload')).toBe(phase === 'after');
+      expect(fetch).not.toHaveBeenCalled();
+      expect(runWrangler.mock.calls.some(([args]) => args[1] === 'deploy')).toBe(false);
+    },
+  );
+
+  it.each([
+    { view: 'older', waits: false },
+    { view: 'unnumbered', waits: true },
+    { view: 'failed', waits: true },
+    { view: 'throws', waits: true },
+  ] as const)(
+    'waits for an absent active version only when it is not older than the version list ($view)',
+    async ({ view, waits }) => {
+      const base = runner();
+      // The ten most recent versions are 11 to 20. Production was rolled back to CURRENT, number 1.
+      const listed = Array.from({ length: 10 }, (_, index) => ({
+        id: `44444444-4444-4444-8444-4444444444${String(index + 11)}`,
+        number: index + 11,
+      }));
+      let uploaded = false;
+      let numberReads = 0;
+      const runWrangler = operationFixture((args: Array<string>) => {
+        if (args[0] === 'versions' && args[1] === 'upload') {
+          uploaded = true;
+        }
+        if (args[0] === 'versions' && args[1] === 'list') {
+          return ok(
+            JSON.stringify(uploaded ? [...listed.slice(1), { id: NEXT, number: 21 }] : listed),
+          );
+        }
+        if (args[0] === 'versions' && args[1] === 'view') {
+          const resources = { bindings: [] };
+          if (args[2] === CURRENT && numberReads++ === 0) {
+            if (view === 'unnumbered') {
+              return ok(JSON.stringify({ id: CURRENT, resources }));
+            }
+            if (view === 'failed') {
+              return { status: 1, stdout: '', stderr: 'Version unavailable' };
+            }
+            if (view === 'throws') {
+              throw new Error('Version transport failed');
+            }
+          }
+          return ok(
+            JSON.stringify({ id: args[2], number: args[2] === CURRENT ? 1 : 20, resources }),
+          );
+        }
+        return base(args);
+      });
+      const sleep = vi.fn(async (_milliseconds: number) => {});
+      const delays = [10, 20, 30];
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        workerName: 'my-worker',
+        verifyUploader: () => true,
+        verifyInheritedSecrets: true,
+        message: encodeCloudflareVersionMessage([], triggersWith()),
+        fetch: async () => Response.json({ ready: true }),
+        sleep,
+        versionHistoryRetryDelaysMs: delays,
+      });
+      expect(result).toMatchObject({ ok: true, versionId: NEXT });
+      // A version older than the list can never appear in it, so waiting only delays the deploy.
+      // A number that cannot be read keeps the wait, since a lagging version may not be readable.
+      expect(sleep.mock.calls.map(([ms]) => ms)).toEqual(waits ? delays : []);
+    },
+  );
 
   it('links an existing version without publishing routes or Worker settings', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'void-link-version-'));

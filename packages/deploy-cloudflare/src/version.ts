@@ -981,12 +981,33 @@ async function activateCloudflareVersionWithSecretsFile(
     // Pages that disagree mean a write landed between the two page reads, so that read is retried
     // on the same schedule. A list that never settles still fails below, as before.
     const delays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
+    // A rollback can make a version older than the listed ones active. The list will never show
+    // that version, so only an active version that is not older than the list is waited for.
+    let activeNumber: number | null | undefined;
+    const listIsBehind = async (versions: ReadonlyArray<RecentCloudflareVersion>) => {
+      if (
+        previous.versionId === null ||
+        versions.some((version) => version.id === previous.versionId)
+      ) {
+        return false;
+      }
+      if (versions.length === 0) {
+        return true;
+      }
+      if (activeNumber === undefined) {
+        activeNumber = await readCloudflareVersionNumber(options, previous.versionId);
+      }
+      // A number that cannot be read keeps the wait: a version the list trails may not be
+      // readable yet either, and a list that never shows it still fails the checks below.
+      return (
+        activeNumber === null ||
+        activeNumber >= Math.min(...versions.map((version) => version.number))
+      );
+    };
+    let waited = false;
     for (
       let attempt = 0;
-      (read.changing ||
-        (previous.versionId !== null &&
-          read.versions !== null &&
-          !read.versions.some((version) => version.id === previous.versionId))) &&
+      (read.changing || (read.versions !== null && (await listIsBehind(read.versions)))) &&
       attempt < delays.length;
       attempt++
     ) {
@@ -994,10 +1015,31 @@ async function activateCloudflareVersionWithSecretsFile(
         options.onProgress?.("Waiting for Cloudflare's Worker version list to catch up...");
       }
       await (options.sleep ?? delay)(delays[attempt]!);
+      waited = true;
       if (!options.verifyUploader()) {
         return { ok: false, reason: 'uploader-changed' };
       }
       read = await readRecentCloudflareVersionHistory(options);
+    }
+    if (waited) {
+      // A rollback or another deploy during the wait must not be built on, or recorded as the
+      // parent of a candidate that would then break the next deploy.
+      const owner = await readCurrentProductionVersion(options);
+      if (owner.kind === 'failed') {
+        return { ok: false, reason: 'status-failed', status: owner.status };
+      }
+      if (
+        owner.kind !== 'ok' ||
+        owner.versionId !== previous.versionId ||
+        !productionVersionPercentagesEqual(owner.versions, previous.versions)
+      ) {
+        return {
+          ok: false,
+          reason: 'deployment-changed',
+          activeVersionId: owner.kind === 'ok' ? owner.versionId : null,
+          rollback: 'not-needed',
+        };
+      }
     }
     const recent = read.versions;
     if (recent === null) {
@@ -1340,6 +1382,7 @@ async function activateCloudflareVersionWithSecretsFile(
   }
   options.onProgress?.('Verifying the uploaded Worker...');
   const baseline = inheritanceBaseline;
+  let waitedAfterUpload = false;
   if (baseline) {
     // The list can still show the exact pre-upload history after a successful upload.
     // Wait for a fresh read, but pass any other history straight to the lineage check.
@@ -1369,6 +1412,7 @@ async function activateCloudflareVersionWithSecretsFile(
         options.onProgress?.("Waiting for Cloudflare's Worker version list to catch up...");
       }
       await (options.sleep ?? delay)(historyDelays[attempt]!);
+      waitedAfterUpload = true;
       if (!options.verifyUploader()) {
         return {
           ok: false,
@@ -1412,6 +1456,35 @@ async function activateCloudflareVersionWithSecretsFile(
     }
   }
   await options.validateUploadedVersion?.(versionId);
+  if (waitedAfterUpload) {
+    // The receipt names the live version as the candidate's parent. A rollback during the wait
+    // above would make that parent wrong and break the next deploy, so stop before saving it.
+    const owner = await readCurrentProductionVersion(options);
+    if (owner.kind === 'failed') {
+      return {
+        ok: false,
+        reason: 'status-failed',
+        status: owner.status,
+        versionId,
+        previousVersionId: previous.versionId,
+      };
+    }
+    if (
+      owner.kind !== 'ok' ||
+      owner.versionId !== previous.versionId ||
+      !productionVersionPercentagesEqual(owner.versions, previous.versions)
+    ) {
+      return {
+        ok: false,
+        reason: 'deployment-changed',
+        versionId,
+        previousVersionId: previous.versionId,
+        activeVersionId: owner.kind === 'ok' ? owner.versionId : null,
+        rollback: 'not-needed',
+        triggerRepair: 'succeeded',
+      };
+    }
+  }
   if (options.recordVerifiedCandidate) {
     if (!options.validateUploadedVersion && !inheritanceBaseline) {
       throw new Error(
@@ -2067,6 +2140,39 @@ export const STALE_VERSION_HISTORY_DELAYS_MS: ReadonlyArray<number> = [
   250, 500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000,
   30_000, 30_000, 30_000, 30_000,
 ];
+
+/** The Worker Version's sequential number, or null when it cannot be read. */
+async function readCloudflareVersionNumber(
+  options: Pick<
+    Parameters<typeof activateCloudflareVersion>[0],
+    'configPath' | 'runWrangler' | 'workerName'
+  >,
+  versionId: string,
+): Promise<number | null> {
+  try {
+    const result = await options.runWrangler(
+      {
+        type: 'versions.view',
+        versionId,
+        configPath: options.configPath,
+        workerName: options.workerName,
+      },
+      { capture: true },
+    );
+    if (!isCleanCommandExit(result)) {
+      return null;
+    }
+    const version = result.data;
+    return isRecord(version) &&
+      version.id === versionId &&
+      typeof version.number === 'number' &&
+      Number.isSafeInteger(version.number)
+      ? version.number
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /** A failed read, as opposed to a stale one, is retried only this many times. */
 const UNAVAILABLE_VERSION_HISTORY_RETRIES = 2;
