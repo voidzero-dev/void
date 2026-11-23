@@ -163,27 +163,35 @@ describe('useForm setError', () => {
     await renderToString(app);
   });
 
-  it('clears nested errors below a replaced parent field and a cleared parent', async () => {
+  it('clears only the errors of the fields a change touched', async () => {
     const router = {
       visit: async () => ({}),
     } as unknown as VoidRouter;
     const app = createSSRApp(
       defineComponent({
         setup() {
-          const form = useForm('/test', { profile: { name: '' }, contacts: [{ email: '' }] }, {});
+          const form = useForm(
+            '/test',
+            { profile: { name: '', email: '' }, contacts: [{ email: '' }, { email: '' }] },
+            {},
+          );
           form.setError('profile.name', 'Required name');
-          form.setError('contacts.0.email', 'Required email');
+          form.setError('profile.email', 'Required email');
+          form.setError('contacts.0.email', 'First email');
+          form.setError('contacts.1.email', 'Second email');
           form.setError('name', 'Unrelated');
-          form.data.profile = { name: 'Alex' };
+
+          form.data.profile = { name: 'Alex', email: '' };
           expect(form.errors['profile.name']).toBeUndefined();
-          expect(form.errors['contacts.0.email']).toBe('Required email');
-          form.data.contacts = [{ email: 'alex@example.com' }];
-          expect(form.errors).toEqual({ name: 'Unrelated' });
-          form.setError('profile.name', 'Required name');
-          form.setError('contacts.0.email', 'Required email');
+          expect(form.errors['profile.email']).toBe('Required email');
+
+          form.data.contacts = [{ email: '' }, { email: 'alex@example.com' }];
+          expect(form.errors['contacts.0.email']).toBe('First email');
+          expect(form.errors['contacts.1.email']).toBeUndefined();
+
           form.clearErrors('profile');
-          expect(form.errors['profile.name']).toBeUndefined();
-          expect(form.errors['contacts.0.email']).toBe('Required email');
+          expect(form.errors).toEqual({ 'contacts.0.email': 'First email', name: 'Unrelated' });
+
           form.clearErrors('contacts');
           expect(form.errors).toEqual({ name: 'Unrelated' });
           return () => h('form');

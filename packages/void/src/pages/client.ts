@@ -645,6 +645,8 @@ export function initIslands(
 }
 
 export {
+  affectedFormErrorKeys,
+  changedFormFields,
   formErrorMessage,
   formRetryMessage,
   formSubmissionBlocked,

@@ -1,6 +1,7 @@
 import type { RouteUrl } from 'void/routes';
 import type { VoidActionError } from './action-result.ts';
 import type { FormResetOptions } from './form-reset.ts';
+import { isEqualFormValue, isPlainObject } from './form-value-equality.ts';
 import type { VisitOptions } from './navigation-engine.ts';
 
 export type FormMethod = 'post' | 'put' | 'patch' | 'delete';
@@ -84,6 +85,66 @@ export type IslandFormState<TData, TEditing extends FormEditing> = FormStatus &
 /** Whether an error key names `field` or a nested field below it, such as `profile.name`. */
 export function isFormErrorWithin(key: string, field: string): boolean {
   return key === field || key.startsWith(`${field}.`);
+}
+/**
+ * Dotted paths of the values that differ between two form value snapshots. `prefix` names the field
+ * the two values belong to. Only arrays and plain objects are visited, matching `cloneFormValue`
+ * and `isEqualFormValue`, so a `File`, `Date` or class instance stays one value.
+ */
+export function changedFormFields(
+  previous: unknown,
+  next: unknown,
+  prefix = '',
+): ReadonlyArray<string> {
+  const changed: Array<string> = [];
+  collectChangedFormFields(previous, next, prefix, changed);
+  return changed;
+}
+function collectChangedFormFields(
+  previous: unknown,
+  next: unknown,
+  prefix: string,
+  changed: Array<string>,
+): void {
+  if (isEqualFormValue(previous, next)) {
+    return;
+  }
+  if (Array.isArray(previous) && Array.isArray(next)) {
+    const length = Math.max(previous.length, next.length);
+    for (let index = 0; index < length; index += 1) {
+      collectChangedFormFields(
+        previous[index],
+        next[index],
+        joinFormPath(prefix, String(index)),
+        changed,
+      );
+    }
+    return;
+  }
+  if (isPlainObject(previous) && isPlainObject(next)) {
+    for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+      collectChangedFormFields(previous[key], next[key], joinFormPath(prefix, key), changed);
+    }
+    return;
+  }
+  if (prefix !== '') {
+    changed.push(prefix);
+  }
+}
+function joinFormPath(prefix: string, key: string): string {
+  return prefix === '' ? key : `${prefix}.${key}`;
+}
+/**
+ * Error keys a change touched: the changed field, the fields below it, and the field that contains
+ * it. Editing one contact's email keeps the error of another contact.
+ */
+export function affectedFormErrorKeys(
+  errors: Readonly<Record<string, string>>,
+  changedFields: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  return Object.keys(errors).filter((key) =>
+    changedFields.some((field) => isFormErrorWithin(key, field) || isFormErrorWithin(field, key)),
+  );
 }
 /**
  * Removes the errors of `fields` and of the nested fields below them, keeping unrelated errors.

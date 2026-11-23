@@ -9,6 +9,8 @@ import {
 } from 'react';
 import {
   VoidActionError,
+  affectedFormErrorKeys,
+  changedFormFields,
   cloneFormValue,
   getValidationErrors,
   interpolateRouteParams,
@@ -201,13 +203,16 @@ export function useForm(
       const target = callbackOutcomeRef.current ?? outcome;
       setErrorEdits((prev) => {
         const current = resolveOutcomeErrors(target, prev);
-        const next = omitFormErrors(current, [field]);
-        if (next === current) {
+        const affected = affectedFormErrorKeys(
+          current,
+          changedFormFields(previousValue, value, field),
+        );
+        if (affected.length === 0) {
           return prev;
         }
         return {
           ...(prev?.source === target ? prev : { source: target }),
-          errors: next,
+          errors: omitFormErrors(current, affected),
         };
       });
     },

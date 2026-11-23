@@ -1,6 +1,8 @@
 import { getContext, untrack } from 'svelte';
 import {
   VoidActionError,
+  affectedFormErrorKeys,
+  changedFormFields,
   cloneFormValue,
   getValidationErrors,
   interpolateRouteParams,
@@ -56,25 +58,20 @@ export function useForm(
     // Read nested values even after an earlier edit, without subscribing to errors.
     const current = cloneFormValue(data);
     untrack(() => {
-      for (const key of new Set([...Object.keys(dataSnapshot), ...Object.keys(current)])) {
-        if (!isEqualFormValue(current[key], dataSnapshot[key])) {
-          for (const errorKey of Object.keys(errors)) {
-            if (isFormErrorWithin(errorKey, key)) {
-              delete errors[errorKey];
-            }
-          }
-        }
+      for (const key of affectedFormErrorKeys(errors, changedFormFields(dataSnapshot, current))) {
+        delete errors[key];
       }
       dataSnapshot = current;
     });
   });
 
   // An input handler may validate its new value before the change effect runs.
-  // Nested error keys snapshot the parent field, which owns the changed value.
+  // Snapshot the edited value so the effect keeps the error it just set.
   function snapshotField(field: string) {
-    const [parent] = field.split('.');
     untrack(() => {
-      dataSnapshot = { ...dataSnapshot, [parent]: cloneFormValue(data[parent]) };
+      // A field name that contains a dot is a literal key, not a path below a parent field.
+      const key = field in data ? field : field.split('.')[0];
+      dataSnapshot = { ...dataSnapshot, [key]: cloneFormValue(data[key]) };
     });
   }
 

@@ -66,33 +66,50 @@ describe('useForm router errors', () => {
     }
   });
 
-  it('clears nested errors below a replaced parent field and a cleared parent', () => {
+  it('clears only the errors of the fields a change touched', () => {
     const { form, dispose } = createForm(
       {
         'profile.name': 'Required name',
-        'contacts.0.email': 'Required email',
+        'profile.email': 'Required email',
+        'contacts.0.email': 'First email',
+        'contacts.1.email': 'Second email',
         name: 'Unrelated',
       },
-      { profile: { name: '' }, contacts: [{ email: '' }] },
+      {
+        profile: { name: '', email: '' },
+        contacts: [{ email: '' }, { email: '' }],
+      },
     );
     try {
+      form.setData('profile', { name: 'Alex', email: '' });
       expect(form.errors).toEqual({
-        'profile.name': 'Required name',
-        'contacts.0.email': 'Required email',
+        'profile.email': 'Required email',
+        'contacts.0.email': 'First email',
+        'contacts.1.email': 'Second email',
+        name: 'Unrelated',
+      });
+
+      form.setData('contacts', [{ email: '' }, { email: 'alex@example.com' }]);
+      expect(form.errors).toEqual({
+        'profile.email': 'Required email',
+        'contacts.0.email': 'First email',
         name: 'Unrelated',
       });
 
       form.clearErrors('profile');
-      expect(form.errors).toEqual({ 'contacts.0.email': 'Required email', name: 'Unrelated' });
+      expect(form.errors).toEqual({ 'contacts.0.email': 'First email', name: 'Unrelated' });
 
       form.setError('profile.name', 'Required name');
-      form.setData('profile', { name: 'Alex' });
-      expect(form.errors).toEqual({ 'contacts.0.email': 'Required email', name: 'Unrelated' });
+      expect(form.errors).toEqual({
+        'profile.name': 'Required name',
+        'contacts.0.email': 'First email',
+        name: 'Unrelated',
+      });
 
-      form.setData('contacts', [{ email: 'alex@example.com' }]);
-      expect(form.errors).toEqual({ name: 'Unrelated' });
+      form.clearErrors('contacts');
+      expect(form.errors).toEqual({ 'profile.name': 'Required name', name: 'Unrelated' });
 
-      form.clearErrors('name');
+      form.clearErrors();
       expect(form.errors).toEqual({});
     } finally {
       dispose();

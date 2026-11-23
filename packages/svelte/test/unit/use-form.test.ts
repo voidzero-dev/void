@@ -155,30 +155,44 @@ describe('useForm field errors', () => {
     expect({ ...form.errors }).toEqual({ name: 'Name invalid' });
   });
 
-  it('clears nested errors below an edited parent field and a cleared parent', () => {
-    const form = mountForm({ profile: { name: '' }, contacts: [{ email: '' }] });
+  it('clears only the errors of the fields a change touched', () => {
+    const form = mountForm({
+      profile: { name: '', email: '' },
+      contacts: [{ email: '' }, { email: '' }],
+    });
     form.setError('profile.name', 'Required name');
-    form.setError('contacts.0.email', 'Required email');
+    form.setError('profile.email', 'Required email');
+    form.setError('contacts.0.email', 'First email');
+    form.setError('contacts.1.email', 'Second email');
     form.setError('name', 'Unrelated');
     svelte.flushSync();
 
-    form.data.profile = { name: 'Alex' };
+    form.data.profile = { name: 'Alex', email: '' };
     svelte.flushSync();
-    expect({ ...form.errors }).toEqual({ 'contacts.0.email': 'Required email', name: 'Unrelated' });
+    expect(form.errors['profile.name']).toBeUndefined();
+    expect(form.errors['profile.email']).toBe('Required email');
 
-    form.data.contacts = [{ email: 'alex@example.com' }];
+    form.data.contacts = [{ email: '' }, { email: 'alex@example.com' }];
     svelte.flushSync();
-    expect({ ...form.errors }).toEqual({ name: 'Unrelated' });
+    expect(form.errors['contacts.0.email']).toBe('First email');
+    expect(form.errors['contacts.1.email']).toBeUndefined();
 
-    form.setError('profile.name', 'Required name');
-    form.setError('contacts.0.email', 'Required email');
     form.clearErrors('profile');
     svelte.flushSync();
-    expect({ ...form.errors }).toEqual({ 'contacts.0.email': 'Required email', name: 'Unrelated' });
+    expect({ ...form.errors }).toEqual({ 'contacts.0.email': 'First email', name: 'Unrelated' });
 
     form.clearErrors('contacts');
     svelte.flushSync();
     expect({ ...form.errors }).toEqual({ name: 'Unrelated' });
+  });
+
+  it('keeps an error set for a field whose name contains a dot', () => {
+    const form = mountForm({ 'email.work': '' });
+
+    form.data['email.work'] = 'alice@example.com';
+    form.setError('email.work', 'Invalid email');
+    svelte.flushSync();
+    expect({ ...form.errors }).toEqual({ 'email.work': 'Invalid email' });
   });
 
   it('clears an error written before the field edit in the same handler', () => {

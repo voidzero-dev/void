@@ -2,6 +2,8 @@ import { createSignal, createMemo, useContext } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import {
   VoidActionError,
+  affectedFormErrorKeys,
+  changedFormFields,
   cloneFormValue,
   getValidationErrors,
   interpolateRouteParams,
@@ -89,8 +91,14 @@ export function useForm(
   });
 
   function setData(field: string, value: unknown) {
+    // The store updates in place, so snapshot the old value before the write.
+    const previous = cloneFormValue(data[field]);
     setDataStore(field, value);
-    clearErrors(field);
+    const current = errors();
+    const affected = affectedFormErrorKeys(current, changedFormFields(previous, value, field));
+    if (affected.length > 0) {
+      replaceErrors(omitFormErrors(current, affected));
+    }
   }
 
   function reset(...args: ReadonlyArray<string | FormResetOptions>) {

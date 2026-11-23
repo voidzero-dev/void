@@ -1,5 +1,7 @@
 import {
   VoidActionError,
+  affectedFormErrorKeys,
+  changedFormFields,
   cloneFormValue,
   getValidationErrors,
   interpolateRouteParams,
@@ -53,10 +55,8 @@ export function useForm(
   watch(
     () => cloneFormValue(data),
     (val) => {
-      for (const key of new Set([...Object.keys(dataSnapshot), ...Object.keys(val)])) {
-        if (!isEqualFormValue(val[key], dataSnapshot[key])) {
-          clearNestedErrors(key);
-        }
+      for (const key of affectedFormErrorKeys(errors, changedFormFields(dataSnapshot, val))) {
+        delete errors[key];
       }
       dataSnapshot = val;
     },
