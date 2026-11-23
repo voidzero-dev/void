@@ -15,6 +15,7 @@
  */
 import type { SecurityEngine } from '@void/platform/security-models';
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
+import type { DeployManifest } from '../../types.ts';
 import type { SecurityScanTier, SecurityScanTrigger } from '../schema.ts';
 import {
   SECURITY_BACKLOG_MAX_PATHS,
@@ -49,6 +50,27 @@ import { SECURITY_FULL_REASON_NOTES, type SecurityTierChoice } from './tier.ts';
 
 /** Text sent to the container in all, so a scan input fits the API isolate's memory. */
 export const SECURITY_INPUT_MAX_BYTES = 32 * 1024 * 1024;
+/** Where the deployment's vars and binding names go under `/scan/input`. */
+export const SECURITY_DEPLOY_CONFIG_PATH = '_deploy/bindings.json';
+
+/**
+ * The manifest fields a review needs: plain-text `vars` (values included: they ship in
+ * the Worker, and a stored secret value in one is redacted like any file) and the names
+ * of the bindings, Durable Objects, queues and cron schedules. `null` with no manifest.
+ */
+export function securityDeployConfigText(manifest: DeployManifest | null): string | null {
+  if (manifest === null) {
+    return null;
+  }
+  const config = {
+    vars: manifest.vars ?? {},
+    bindings: manifest.bindings ?? {},
+    ...(manifest.durableObjects ? { durableObjects: manifest.durableObjects.bindings } : {}),
+    ...(manifest.queues?.length ? { queues: manifest.queues } : {}),
+    ...(manifest.schedules?.length ? { schedules: manifest.schedules } : {}),
+  };
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
 /** Dropped code above this share of the bundle's source bytes makes the scan `partial`. */
 export const SECURITY_DROPPED_PARTIAL_SHARE = 0.05;
 /**
@@ -113,6 +135,11 @@ export type SecurityInputPlan = Readonly<{
   /** Coverage notes from before the build (why T1 fell back to T2). */
   notes?: ReadonlyArray<string>;
   head: Readonly<{ modules: ReadonlyArray<SecurityModuleFile>; main: string | null }>;
+  /**
+   * The deployment's env from its manifest (`SECURITY_DEPLOY_CONFIG_PATH`): plain-text
+   * vars and binding names. A secret written into `vars` is only here, never in code.
+   */
+  deployConfig?: Readonly<{ text: string; sha256: string }> | null;
   /** `bundleSources(head.modules, head.main)` when the caller already has it. */
   bundle?: SecurityBundleSources | null;
   /** The base snapshot's hashes; `null` for a full scan. */
@@ -240,7 +267,20 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   }
   const bundle = plan.bundle ?? bundleSources(plan.head.modules, plan.head.main);
   const noSourceMaps = bundle.noSourceMaps;
-  const sources = sourceDiff?.files ?? bundle.files;
+  // The deploy config goes first: it is small, and a secret in `vars` is only there.
+  const deployConfig: Array<SecuritySourceFile> = plan.deployConfig
+    ? [
+        {
+          path: SECURITY_DEPLOY_CONFIG_PATH,
+          text: plan.deployConfig.text,
+          sha256: plan.deployConfig.sha256,
+          module: '',
+          map: null,
+          built: false,
+        },
+      ]
+    : [];
+  const sources = [...deployConfig, ...(sourceDiff?.files ?? bundle.files)];
   const sourceIndex = new Map<string, string>();
   let totalSourceBytes = 0;
   let droppedFiles = 0;
@@ -546,13 +586,18 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   if (tier !== 'full' && plan.base) {
     const headModules = new Map(plan.head.modules.map((module) => [module.name, module.sha256]));
     const servers = ordered.filter((file) => file.asset === null);
-    const changed =
+    const changed = new Set(
       sourceDiff?.changed ??
-      new Set(
         changedSources(servers, headModules, plan.base.modules, plan.base.sources).map(
           (file) => file.path,
         ),
-      );
+    );
+    // The deploy config has no module: it changed when its text did (vars only, too).
+    for (const file of deployConfig) {
+      if (plan.base.sources?.get(file.path) !== file.sha256) {
+        changed.add(file.path);
+      }
+    }
     const diff: Array<SecurityFocusCandidate> = [];
     for (const file of readSet) {
       if (file.asset !== null || changed.has(file.path)) {

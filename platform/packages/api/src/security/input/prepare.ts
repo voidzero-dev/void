@@ -52,6 +52,7 @@ import {
   buildSecurityScanInput,
   SECURITY_CLIENT_ASSETS_NOTE,
   SECURITY_INPUT_MAX_BYTES,
+  securityDeployConfigText,
   utf8Length,
   type SecurityBuiltInput,
   type SecurityClientSource,
@@ -966,6 +967,7 @@ export async function prepareSecurityScanInputFiles(
       Math.max(0, SECURITY_INPUT_MAX_BYTES - used),
     );
   }
+  const deployConfigText = securityDeployConfigText(manifest);
   const built = buildSecurityScanInput({
     scan: {
       id: scan.id,
@@ -982,6 +984,10 @@ export async function prepareSecurityScanInputFiles(
     sourceDiff,
     notes,
     head: { modules: head.files, main },
+    deployConfig:
+      deployConfigText === null
+        ? null
+        : { text: deployConfigText, sha256: sha256Hex(deployConfigText) },
     bundle: bundle.value ?? null,
     base: diffBase,
     assets,

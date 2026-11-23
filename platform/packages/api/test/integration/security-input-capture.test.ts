@@ -291,6 +291,8 @@ describe('scan input capture', () => {
     const files = await unpack(stream!);
     expect([...files.keys()].sort()).toEqual([
       'input/_assets/app.js',
+      // The deployment manifest's vars and binding names.
+      'input/_deploy/bindings.json',
       'input/src/routes/users.ts',
       'input/src/server.ts',
       'task.json',
@@ -318,7 +320,7 @@ describe('scan input capture', () => {
       coverage: 'complete',
       input_prefix: null,
       input_r2_key: securityScanInputPrefix(project.id, deployment.id),
-      files_scanned: 3,
+      files_scanned: 4,
       dropped_files: 1,
       base_scan_id: null,
     });
@@ -385,6 +387,7 @@ describe('scan input capture', () => {
     const files = await unpack((await prepareSecurityScanInput(onEnv, env.db, 'scan_claims', 1))!);
     const sent = [...files.keys()].filter((path) => path.startsWith('input/')).sort();
     expect(sent).toEqual([
+      'input/_deploy/bindings.json',
       'input/node_modules/@acme/shared/src/auth.ts',
       'input/node_modules/zod/index.js',
       'input/src/server.ts',

@@ -429,6 +429,7 @@ describe('T1 source diff with GitHub', () => {
     const stream = await prepareSecurityScanInput(onEnv, env.db, 'scan_head', 1);
     const files = await unpack(stream!);
     expect([...files.keys()].sort()).toEqual([
+      'input/_deploy/bindings.json',
       'input/package.json',
       'input/packages/shared/src/auth.ts',
       'input/src/client/app.tsx',
