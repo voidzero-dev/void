@@ -1,4 +1,4 @@
-import { bytesToBase64 } from '../../runtime/base64.ts';
+import { bytesToBase64 } from '../../shared/base64.ts';
 import { getImageExtension } from './content-type.ts';
 
 /**

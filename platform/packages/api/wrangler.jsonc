@@ -13,6 +13,7 @@
     "void:sandbox-controller-source": "./dist/sandbox-controller-source.ts",
     "@void/react/pages-server": "../../../packages/react/src/runtime/pages-server.ts",
     "@void/react": "../../../packages/react/src/runtime/index.ts",
+    "void/image": "../../../packages/void/src/image/index.ts",
     "void/pages-client": "../../../packages/void/src/pages/client.ts",
     "void/pages-head": "../../../packages/void/src/pages/head.ts",
     "void/pages-server": "../../../packages/void/src/pages/serialize.ts",
