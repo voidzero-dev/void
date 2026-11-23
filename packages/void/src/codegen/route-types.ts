@@ -74,10 +74,10 @@ function pageQueryLines(
   const entriesByPattern = new Map<string, Array<Array<string>>>();
   for (const page of loaderPages) {
     const importPath = relative(outDir, `${pagesDir}/${page.serverPath!}`);
-    const schema = `PageQuerySchema<typeof import(${JSON.stringify(importPath)})>`;
+    const module = `typeof import(${JSON.stringify(importPath)})`;
     const entry = [
-      `      input: PageQueryInputFallback<PageQueryInputOf<${schema}>>;`,
-      `      output: PageQueryOutputFallback<PageQueryOutputOf<${schema}>>;`,
+      `      input: PageQueryInputFallback<PageQueryInputOf<PageQuerySchema<${module}>>>;`,
+      `      output: PageQueryOutputFallback<PageQueryOutputOf<PageQuerySchema<PageQueryPublished<${module}>>>>;`,
     ];
     const entries = entriesByPattern.get(page.pattern);
     if (entries) {
@@ -219,6 +219,9 @@ export function generateRouteTypes(
   lines.push(
     '  type PageQueryOutputOf<S> = S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : never;',
   );
+  // A page publishes its validated query only when it sets the flag, so the
+  // read type follows the same opt-in the payload does.
+  lines.push('  type PageQueryPublished<M> = M extends { exposeQuery: true } ? M : never;');
   // A `.dev` + `.prod` pair shares one key, so a side without a schema has to
   // keep accepting anything instead of vanishing into the union.
   lines.push('  type PageQueryInputFallback<T> = [T] extends [never] ? RouteQuery : T;');

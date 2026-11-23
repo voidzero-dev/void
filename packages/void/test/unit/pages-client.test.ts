@@ -716,6 +716,15 @@ describe('createVoidRouter', () => {
     expect(facade._pageQuery).toEqual({ page: 3 });
   });
 
+  it('reads the address bar for a page whose data carries no query', async () => {
+    stubClientGlobals();
+    // A prerendered page has no request behind its data, so the payload has no query.
+    window.location.search = '?tab=api&tab=usage';
+    const { router } = await createTestRouter();
+
+    expect(router._pageQuery).toEqual({ tab: ['api', 'usage'] });
+  });
+
   it('carries the SSR page query', () => {
     expect(
       createSsrRouter('/payments', {}, 'http://localhost/payments', { page: 2 })._pageQuery,

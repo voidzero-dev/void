@@ -837,7 +837,7 @@ describe('handlePageMutation', () => {
     expect(body.url).toBe('/users?page=2');
   });
 
-  it("carries the loader's validated query into the page payload", async () => {
+  it("carries the loader's validated query when the page exposes it", async () => {
     const query = {
       '~standard': {
         version: 1,
@@ -863,11 +863,76 @@ describe('handlePageMutation', () => {
       'users',
       mockRenderFn,
       mockGetAssetTags,
+      undefined,
+      { exposeQuery: true },
     );
 
     const body = await json<PageResponse>(response);
     // The raw search is `page=2`, so a string here means the page read the URL instead.
     expect(body.query).toEqual({ page: 2, q: 'ada' });
+  });
+
+  it('keeps the validated query on the server until the page exposes it', async () => {
+    const query = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate(value: unknown) {
+          return { value: { page: Number((value as Record<string, string>).page) } };
+        },
+      },
+    } satisfies StandardSchemaV1;
+    const loader = defineHandler.withValidator({ query })(() => ({ users: [] }));
+    const read = async (options?: { exposeQuery?: boolean }) => {
+      const c = await createTestContext('GET', '/users?page=2', {
+        headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+      });
+      const response = await handlePageGet(
+        loader,
+        undefined,
+        c,
+        'users',
+        mockRenderFn,
+        mockGetAssetTags,
+        undefined,
+        options,
+      );
+      return (await json<PageResponse>(response)).query;
+    };
+
+    expect(await read()).toEqual({ page: '2' });
+    expect(await read({ exposeQuery: true })).toEqual({ page: 2 });
+  });
+
+  it('names exposeQuery when a published query cannot be serialized', async () => {
+    class Money {
+      constructor(readonly cents: number) {}
+    }
+    const query = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate() {
+          return { value: { price: new Money(100) } };
+        },
+      },
+    } satisfies StandardSchemaV1;
+    const c = await createTestContext('GET', '/users', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    await expect(
+      handlePageGet(
+        defineHandler.withValidator({ query })(() => ({ users: [] })),
+        undefined,
+        c,
+        'users',
+        mockRenderFn,
+        mockGetAssetTags,
+        undefined,
+        { exposeQuery: true, dev: true },
+      ),
+    ).rejects.toThrow(/exposeQuery/);
   });
 
   it('falls back to the raw request query when the loader has no schema', async () => {

@@ -137,7 +137,7 @@ Import these types from `void/routes`:
 | `PageParams<P>`       | The params page `P` receives, such as `{ id: string }` for `/users/[id]`.                         |
 | `PageQueryMap`        | Generated map of page patterns to a loader's query schema input and output types.                 |
 | `PageQueryInput<P>`   | Query values a link to page `P` accepts; `RouteQuery` when the page has no query schema.          |
-| `PageQuery<P>`        | Query values page `P` reads after validation; query string values when it has no schema.          |
+| `PageQuery<P>`        | Query values page `P` reads: validated ones when it sets `exposeQuery`, else the query strings.   |
 | `RouteOptions<P>`     | Options for a route pattern `P`, including its required `params`, optional `query`, and `hash`.   |
 | `RouteDestination<P>` | `{ pathname: P }` with `RouteOptions<P>`. Defaults to all known routes when `P` is omitted.       |
 | `RouteUrl`            | The URL of one of your routes, returned by `routeUrl()`. `string` unless `typedRoutes` is on.     |

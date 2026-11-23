@@ -39,10 +39,11 @@ export type PageObject = {
   props: Record<string, unknown>;
   params: Record<string, string>;
   /**
-   * Query the page reads. The loader's `query` schema result when one exists,
-   * otherwise the request's raw query values.
+   * Query the page reads. The loader's validated result when the page exposes
+   * it, otherwise the request's raw query values. Absent from a prerendered
+   * page's static data, which has no request.
    */
-  query: Record<string, unknown>;
+  query?: Record<string, unknown>;
   shared: Record<string, unknown>;
   url: string;
   errors: Record<string, string> | null;
@@ -78,6 +79,12 @@ type PageRenderOptions = {
   renderMode?: PageRenderMode;
   /** Dev server build: rejected deferred props keep their raw error message. */
   dev?: boolean;
+  /**
+   * Whether the page publishes the query its loader validated. Off unless the
+   * page sets `export const exposeQuery = true`, since a schema's output can be
+   * data the loader never chose to send.
+   */
+  exposeQuery?: boolean;
   boundaries?: { notFound?: string; notFoundErrors?: Array<string>; errors: Array<string> };
 };
 type AssetTags = {
@@ -344,16 +351,46 @@ function requestSearch(c: CloudContext): string {
   return index === -1 ? '' : c.req.url.slice(index);
 }
 
+/** The loader's validated query, when the request ran one. */
+function validatedQuery(c: CloudContext): Record<string, unknown> | undefined {
+  const input = c.get('__voidValidatedInput') as { query?: unknown } | undefined;
+  return input && typeof input.query === 'object' && input.query !== null
+    ? (input.query as Record<string, unknown>)
+    : undefined;
+}
+
 /**
- * The query the page reads. A loader's schema stores its result, so the page
- * sees the same values the loader did, coerced and defaulted. Pages without a
- * query schema get the request's raw values, repeated keys as arrays.
+ * The query the page reads. Publishing a loader's validated values is opt-in:
+ * a schema can transform a value into something the loader never returned, and
+ * that must not reach the browser on its own.
  */
-function requestQuery(c: CloudContext, withoutActionKey = false): Record<string, unknown> {
-  const validated = c.get('__voidValidatedInput') as { query?: unknown } | undefined;
-  if (validated && typeof validated.query === 'object' && validated.query !== null) {
-    return validated.query as Record<string, unknown>;
+function requestQuery(
+  c: CloudContext,
+  options: { exposeQuery?: boolean; withoutActionKey?: boolean } = {},
+): Record<string, unknown> {
+  if (options.exposeQuery) {
+    const validated = validatedQuery(c);
+    if (validated) {
+      return validated;
+    }
   }
+  return rawQuery(c, options.withoutActionKey === true);
+}
+
+/** Fail in dev with the reason, instead of a 500 from page serialization. */
+function assertSerializableQuery(componentId: string, query: Record<string, unknown>): void {
+  try {
+    serializePageData({ query });
+  } catch (cause) {
+    throw new Error(
+      `pages: '${componentId}' sets exposeQuery, but a value its query schema returned cannot be serialized. Keep class instances and functions out of the schema's output, or leave exposeQuery off.`,
+      { cause },
+    );
+  }
+}
+
+/** The request's own query values, repeated keys as arrays. */
+function rawQuery(c: CloudContext, withoutActionKey = false): Record<string, unknown> {
   const search = requestSearch(c);
   const raw = new URLSearchParams(withoutActionKey ? searchWithoutActionKey(search) : search);
   const query: Record<string, unknown> = {};
@@ -551,7 +588,7 @@ async function renderPageFailure(
       props: { error: { status, message } },
       shared,
       params: requestParams(c),
-      query: requestQuery(c),
+      query: rawQuery(c),
       url: requestPathWithSearch(c),
       errors: null,
       head: {
@@ -863,7 +900,7 @@ async function runPageGet(
           component: componentId,
           props: immediateProps,
           params: requestParams(c),
-          query: requestQuery(c),
+          query: requestQuery(c, { exposeQuery: options?.exposeQuery }),
           shared,
           url: requestPathWithSearch(c),
           errors: null,
@@ -873,6 +910,9 @@ async function runPageGet(
             deferredKeys,
           }),
         };
+        if (options?.dev && options.exposeQuery && pageObj.query) {
+          assertSerializableQuery(componentId, pageObj.query);
+        }
 
         // Island pages always render HTML — no Inertia JSON navigation
         if (renderMode !== 'island' && isPagesRequest(c)) {
@@ -1043,16 +1083,23 @@ async function runPageMutation(
     const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
     const pageHead = headFn ? headFn(c, props) : undefined;
     const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
-    return {
+    const page: PageObject = {
       component: componentId,
       props,
       params: requestParams(c),
-      query: requestQuery(c, hasActionKey(c.req.raw)),
+      query: requestQuery(c, {
+        exposeQuery: options?.exposeQuery,
+        withoutActionKey: hasActionKey(c.req.raw),
+      }),
       shared,
       url: requestPathWithSearch(c, hasActionKey(c.req.raw)),
       errors,
       ...(head && { head }),
     };
+    if (options?.dev && options.exposeQuery && page.query) {
+      assertSerializableQuery(componentId, page.query);
+    }
+    return page;
   }
 
   // Errors from re-running the loader, which are not the action's.

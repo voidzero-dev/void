@@ -288,19 +288,26 @@ it('accepts both sides of a .dev + .prod pair when only one exports a schema', (
   expectClean(result, result);
 });
 
-it('reads the page query with the schema output type', () => {
-  const result = typecheck([page('/payments', 'payments.server.ts')], {
-    'pages/payments.server.ts': pageWithSchema(
-      "{ status: 'paid' | 'pending'; page?: number }",
-      "{ status: 'paid' | 'pending'; page: number }",
-    ),
-    'check.ts': [
-      "import type { PageQuery } from 'void/routes';",
-      "const query: PageQuery<'/payments'> = { status: 'paid', page: 1 };",
-      '// @ts-expect-error the parsed page key is a number',
-      "const wrongPage: PageQuery<'/payments'> = { status: 'paid', page: '1' };",
-      'void [query, wrongPage];',
-    ].join('\n'),
-  });
+it('reads the schema output only when the page exposes its query', () => {
+  const input = "{ status: 'paid' | 'pending'; page?: number }";
+  const output = "{ status: 'paid' | 'pending'; page: number }";
+  const result = typecheck(
+    [page('/payments', 'payments.server.ts'), page('/orders', 'orders.server.ts')],
+    {
+      'pages/payments.server.ts': `${pageWithSchema(input, output)}export const exposeQuery = true;\n`,
+      'pages/orders.server.ts': pageWithSchema(input, output),
+      'check.ts': [
+        "import type { PageQuery } from 'void/routes';",
+        "const exposed: PageQuery<'/payments'> = { status: 'paid', page: 1 };",
+        '// @ts-expect-error the parsed page key is a number',
+        "const wrongPage: PageQuery<'/payments'> = { status: 'paid', page: '1' };",
+        // Without the flag the browser only ever receives the request's strings.
+        "const hidden: PageQuery<'/orders'> = { status: 'paid', page: '1' };",
+        '// @ts-expect-error raw values are strings',
+        "const hiddenNumber: PageQuery<'/orders'> = { status: 'paid', page: 1 };",
+        'void [exposed, wrongPage, hidden, hiddenNumber];',
+      ].join('\n'),
+    },
+  );
   expectClean(result, result);
 });

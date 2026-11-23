@@ -440,17 +440,21 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
-    const schema = 'PageQuerySchema<typeof import("../pages/admin/payments.server.ts")>';
+    const schema = 'typeof import("../pages/admin/payments.server.ts")';
 
     expect(dts).toContain(
       [
         '  export interface PageQueryMap {',
         '    "/admin/payments": {',
-        `      input: PageQueryInputFallback<PageQueryInputOf<${schema}>>;`,
-        `      output: PageQueryOutputFallback<PageQueryOutputOf<${schema}>>;`,
+        `      input: PageQueryInputFallback<PageQueryInputOf<PageQuerySchema<${schema}>>>;`,
+        `      output: PageQueryOutputFallback<PageQueryOutputOf<PageQuerySchema<PageQueryPublished<${schema}>>>>;`,
         '    };',
         '  }',
       ].join('\n'),
+    );
+    // The read type follows the same opt-in the payload does.
+    expect(dts).toContain(
+      '  type PageQueryPublished<M> = M extends { exposeQuery: true } ? M : never;',
     );
     // The schema comes from the page's exported value, never from the loader's
     // inferred type, which would reference this file back through `void`.

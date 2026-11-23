@@ -26,6 +26,8 @@ type PageModule = {
   head?: PageGetArguments[1];
   action?: Parameters<typeof handlePageMutation>[0];
   actions?: Record<string, Parameters<typeof handlePageMutation>[0]>;
+  /** The page publishes its loader's validated query to the browser. */
+  exposeQuery?: boolean;
 };
 export type PageRouteOptions = {
   load?: () => Promise<PageModule>;
@@ -167,7 +169,7 @@ export function createPageGetHandler(options: PageRouteOptions): (c: Context) =>
         options.render,
         options.assets,
         options.headConfig ?? undefined,
-        options.renderOptions,
+        { ...options.renderOptions, exposeQuery: mod.exposeQuery === true },
       );
     } catch (error) {
       const response = await recoverPageHttpException(
@@ -236,7 +238,7 @@ export function createPageMutationHandler(
       options.render,
       options.assets,
       options.headConfig ?? undefined,
-      options.renderOptions,
+      { ...options.renderOptions, exposeQuery: mod.exposeQuery === true },
     );
   };
   if (options.namedActions) {

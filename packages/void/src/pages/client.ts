@@ -135,6 +135,25 @@ function toUrl(value: string | URL): URL {
   return value instanceof URL ? new URL(value.href) : new URL(value || '/', getUrlBase());
 }
 
+/**
+ * Query values from a URL. A page whose data was prerendered has no request
+ * behind it, so the browser falls back to what the address bar carries.
+ */
+function queryFromUrl(url: string): Record<string, unknown> {
+  const query: Record<string, unknown> = {};
+  for (const [key, value] of toUrl(url).searchParams) {
+    const existing = query[key];
+    if (existing === undefined) {
+      query[key] = value;
+    } else if (Array.isArray(existing)) {
+      existing.push(value);
+    } else {
+      query[key] = [existing, value];
+    }
+  }
+  return query;
+}
+
 function normalizeUrl(value: RouteUrlInput): string {
   const urlString = toUrlString(value);
   if (urlString.startsWith('#')) {
@@ -406,7 +425,7 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
   const engine = await createPageNavigationEngine(config);
   let routeUrl = currentUrl();
   let routeParams = engine.initialPageData.params ?? {};
-  let routeQuery = engine.initialPageData.query ?? {};
+  let routeQuery = engine.initialPageData.query ?? queryFromUrl(currentUrl());
   let activeNavigationId: number | null = null;
   // The page in the address bar, and the page on screen. They differ while a visit has
   // rendered but not committed, and after its commit fails.
@@ -443,10 +462,11 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
         return undefined;
       }
 
+      const commitUrl = result.pageData.url || resource.fetchUrl + resource.hash;
       setRouteState(
-        result.pageData.url || resource.fetchUrl + resource.hash,
+        commitUrl,
         result.pageData.params ?? {},
-        result.pageData.query ?? {},
+        result.pageData.query ?? queryFromUrl(commitUrl),
       );
 
       const preserveState = resource.options.preserveState ?? resource.method !== 'GET';
@@ -494,7 +514,11 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
         failedRender = null;
       }
       if (activeNavigationId === resource.id) {
-        setRouteState(currentUrl(), result.pageData.params ?? {}, result.pageData.query ?? {});
+        setRouteState(
+          currentUrl(),
+          result.pageData.params ?? {},
+          result.pageData.query ?? queryFromUrl(currentUrl()),
+        );
       }
       return result.pageData;
     } catch (error) {
@@ -532,14 +556,14 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
           setRouteState(
             currentUrl(),
             restored ? (committedPage.pageData.params ?? {}) : undefined,
-            restored ? (committedPage.pageData.query ?? {}) : undefined,
+            restored ? committedPage.pageData.query : undefined,
           );
           setNavigation(idleNavigationState());
         } else if (restored && activeNavigationId === null) {
           setRouteState(
             currentUrl(),
             committedPage.pageData.params ?? {},
-            committedPage.pageData.query ?? {},
+            committedPage.pageData.query,
           );
         }
       }
