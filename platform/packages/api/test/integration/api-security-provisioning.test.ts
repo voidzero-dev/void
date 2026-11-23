@@ -14,8 +14,7 @@ import {
 } from '../../src/provisioning/security-scanner.ts';
 import { createFakeRegistry, fakeImage } from '../__mocks__/image-registry.ts';
 import {
-  cfSuccess,
-  mockCfApi,
+  mockCfApiRealDispatchScripts as cloudflare,
   setupEnv,
   teardownEnv,
   type MockCfApiHandle,
@@ -43,34 +42,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-
-/**
- * The fake Cloudflare API, answering for dispatch scripts as the real API does: a GET
- * of a missing script is 200 with `script: null`; only its `/bindings` answer 404.
- */
-function cloudflare(overrides: Parameters<typeof mockCfApi>[0] = {}): MockCfApiHandle {
-  const scriptName = (url: string) => url.split('/scripts/')[1]?.split(/[/?#]/)[0] ?? '';
-  const cf: MockCfApiHandle = mockCfApi({
-    getDispatchScript: (url) => {
-      const script = cf.state.hostScripts.get(scriptName(url));
-      return cfSuccess({ script: script ? { id: scriptName(url), ...script.metadata } : null });
-    },
-    listWorkerBindings: (url) => {
-      const script = cf.state.hostScripts.get(scriptName(url));
-      return script
-        ? cfSuccess(script.bindings)
-        : Response.json(
-            {
-              success: false,
-              errors: [{ code: 10007, message: 'This Worker does not exist on your account.' }],
-            },
-            { status: 404 },
-          );
-    },
-    ...overrides,
-  });
-  return cf;
-}
 
 type Upload = { url: string; method: string; headers: Headers; metadata: Record<string, unknown> };
 

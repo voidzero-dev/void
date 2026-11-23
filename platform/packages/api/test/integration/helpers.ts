@@ -1386,6 +1386,29 @@ export type MockCfApiHandle = ReturnType<typeof vi.fn> & {
   expectCallOrder(...steps: Array<string | { method: string; url: string }>): void;
 };
 
+/**
+ * `mockCfApi`, answering for dispatch scripts as the real API does: a GET of a missing
+ * script is 200 with `script: null`, and only its `/bindings` answer 404. The default
+ * fake answers both for any name, which hides code that reads a missing script.
+ */
+export function mockCfApiRealDispatchScripts(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle {
+  const scriptName = (url: string) => url.split('/scripts/')[1]?.split(/[/?#]/)[0] ?? '';
+  const cf: MockCfApiHandle = mockCfApi({
+    getDispatchScript: (url) => {
+      const script = cf.state.hostScripts.get(scriptName(url));
+      return cfSuccess({ script: script ? { id: scriptName(url), ...script.metadata } : null });
+    },
+    listWorkerBindings: (url) => {
+      const script = cf.state.hostScripts.get(scriptName(url));
+      return script
+        ? cfSuccess(script.bindings)
+        : cfError('This Worker does not exist on your account.', 404, 10007);
+    },
+    ...overrides,
+  });
+  return cf;
+}
+
 export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle {
   const state = createSandboxMockState();
 

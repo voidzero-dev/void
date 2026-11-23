@@ -46,7 +46,7 @@ import {
   clearTables,
   createOperatorToken,
   createTestUser,
-  mockCfApi,
+  mockCfApiRealDispatchScripts as mockCfApi,
   setupEnv,
   teardownEnv,
   type MockCfApiHandle,
