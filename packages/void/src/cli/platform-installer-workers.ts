@@ -799,6 +799,9 @@ export async function deployPlatformWorker(
     await options.onStaged(previousVersionId, uploadedVersionId, previousTriggers);
     await options.onReadyForActivation?.();
     await options.waitForPriorWorker?.();
+    // Deployments already listed before activation. A stale read can return
+    // one of these at the head; it is not evidence of a newer deployment.
+    const knownDeploymentIds = new Set<string>();
     if (options.workerExisted) {
       const deploymentsBeforeActivation = await readPlatformWorkerDeployments(
         configPath,
@@ -813,6 +816,9 @@ export async function deployPlatformWorker(
         throw new Error(
           `platform: Worker ${workerName} changed concurrently before activation; refusing to overwrite it.`,
         );
+      }
+      for (const deployment of deploymentsBeforeActivation) {
+        knownDeploymentIds.add(deployment.id);
       }
       activatedVersionId = uploadedVersionId;
       const activated = await options.runner(
@@ -832,9 +838,14 @@ export async function deployPlatformWorker(
       readPlatformWorkerDeployments(configPath, accountId, workerName, readRunner);
     let deploymentsAfterActivation = await readDeploymentHistory();
     // A successful activation may not be visible in history yet. Only wait
-    // while the same deployment we replaced is still at the head.
+    // while the list is empty or its head is a deployment we listed before
+    // activation. A head we have never seen is a real newer deployment.
+    const headIsStale = () => {
+      const head = deploymentsAfterActivation[0];
+      return head === undefined || knownDeploymentIds.has(head.id);
+    };
     for (const wait of [250, 500, 1_000]) {
-      if (deploymentsAfterActivation[0]?.id !== previousDeploymentId) {
+      if (!headIsStale()) {
         break;
       }
       await delay(wait);
@@ -848,12 +859,19 @@ export async function deployPlatformWorker(
         );
       }
     }
-    if (deploymentsAfterActivation[0]?.id === previousDeploymentId) {
+    if (headIsStale()) {
       // Neither the new deployment nor a competitor has been confirmed.
       // Leave the staged cutover for recovery rather than trying to roll it back.
+      const head = deploymentsAfterActivation[0];
       activatedVersionId = null;
       throw new PlatformWorkerRecoveryIncompleteError(
-        `platform: Void could not confirm activation of ${workerName} because Cloudflare still reports the previous deployment.`,
+        `platform: Void could not confirm activation of ${workerName} because Cloudflare ${
+          head === undefined
+            ? 'lists no deployments for it yet'
+            : head.id === previousDeploymentId
+              ? 'still reports the previous deployment'
+              : `still reports older deployment ${head.id}`
+        }.`,
       );
     }
     const lineage = classifyPlatformWorkerDeploymentLineage(

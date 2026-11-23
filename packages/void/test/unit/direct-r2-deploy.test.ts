@@ -501,6 +501,22 @@ describe('direct-to-R2 deploy flow', () => {
     await expect(deploy()).rejects.toThrow(/R2 PUT failed.+SignatureMismatch/);
   });
 
+  it('names the platform R2 credentials when R2 rejects the upload signature', async () => {
+    const state = installPlatformMocks({
+      r2PutBehavior() {
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code><Message>x</Message></Error>',
+          { status: 403 },
+        );
+      },
+    });
+
+    await expect(deploy()).rejects.toThrow(
+      /R2 rejected the upload signature \(SignatureDoesNotMatch\).+VOID_PLATFORM_R2_ACCESS_KEY_ID.+void platform repair/,
+    );
+    expect(state.finalizeCalls).toHaveLength(0);
+  });
+
   it('writes presign + r2_put + finalize events to the JSONL log', async () => {
     installPlatformMocks();
     const cliLog = openDeployLog();
