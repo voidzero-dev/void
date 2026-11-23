@@ -76,7 +76,7 @@ export function createAssetCachePolicy(
   assetsDir?: string,
   loadManifest: ManifestLoader = createManifestLoader(),
 ): (request: Request, env: RuntimeEnvironment, asset: Response) => Promise<Response> {
-  let files: Promise<Set<string>> | undefined;
+  let files: Set<string> | undefined;
   return async (request, env, asset) => {
     const path = new URL(request.url).pathname;
     if (
@@ -87,18 +87,17 @@ export function createAssetCachePolicy(
       return applyAssetCachePolicy(request, asset, assetsDir);
     }
     if (!files) {
-      // Optional cache metadata must not make a successfully served asset fail.
-      files = loadManifest(request, env).then(
-        (manifest) =>
-          new Set(
-            Object.values(manifest ?? {}).flatMap((entry) =>
-              Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
-            ),
-          ),
-        () => new Set(),
+      // A failed lookup must not break a served asset. The in-flight request is not
+      // held here: if it never settles it would stall every later asset request in
+      // this isolate.
+      const manifest = await loadManifest(request, env).catch(() => null);
+      files = new Set(
+        Object.values(manifest ?? {}).flatMap((entry) =>
+          Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
+        ),
       );
     }
-    return applyAssetCachePolicy(request, asset, assetsDir, (await files).has(path.slice(1)));
+    return applyAssetCachePolicy(request, asset, assetsDir, files.has(path.slice(1)));
   };
 }
 
