@@ -357,11 +357,30 @@ try {
           useVitePlus ? 'node_modules/vite-plus/bin/vp' : 'node_modules/vite/bin/vite.js',
         );
         await run(process.execPath, [vite, 'build'], fixture);
-        await run(
-          process.execPath,
-          [join(fixture, 'node_modules/typescript/bin/tsc'), '--noEmit'],
-          fixture,
+        const tsc = join(fixture, 'node_modules/typescript/bin/tsc');
+        await run(process.execPath, [tsc, '--noEmit'], fixture);
+        // Check ?image without an adapter import that would load void/image's types.
+        const imageTypes = join(fixture, '.void/image-types');
+        mkdirSync(imageTypes, { recursive: true });
+        writeFileSync(
+          join(imageTypes, 'tsconfig.json'),
+          JSON.stringify({
+            compilerOptions: {
+              module: 'esnext',
+              moduleResolution: 'bundler',
+              noEmit: true,
+              strict: true,
+              skipLibCheck: true,
+              types: ['void/env'],
+            },
+            files: ['probe.ts'],
+          }),
         );
+        writeFileSync(
+          join(imageTypes, 'probe.ts'),
+          `import image from '../../public/packed.png?image';\nexport const width: number = image.width;\n`,
+        );
+        await run(process.execPath, [tsc, '-p', join(imageTypes, 'tsconfig.json')], fixture);
         if (useVitePlus) {
           // Vitest loads the app's Vite config, Void's plugin included, and runs the tests in
           // Node.js. The test from docs/guide/testing.md replaces the KV module it uses.

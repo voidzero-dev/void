@@ -1,7 +1,6 @@
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
@@ -78,7 +77,6 @@ export function POST() { return new Response('catch-all post'); }
       join(directory, 'queues'),
       null,
       {
-        honoPath: fileURLToPath(import.meta.resolve('hono')),
         runtimeEnvPath: runtimeSource('env/runtime.ts'),
         projectRoot: directory,
         homeDir: tmpdir(),

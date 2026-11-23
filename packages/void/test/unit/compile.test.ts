@@ -1660,7 +1660,7 @@ describe('compileRouteTable — image optimizer mount', () => {
     expect(mount).toBeGreaterThan(code.indexOf('app.use(middleware0);'));
     for (const later of [
       'app.all("/chat", async (c, next) => {',
-      'app.all("/api/auth", async (c) => {',
+      'app.all("/api/auth", __markRouteHandler(async (c) => {',
       'app.get("/api/hello", __createHttpRouteHandler(',
       'app.get("/:path{.+}", __createHttpRouteHandler(',
       'app.get("/", __createPageGetHandler(',

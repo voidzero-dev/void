@@ -68,7 +68,7 @@ const STATIC_IMAGE_TYPES_FILE = 'image/static-import.d.ts';
  */
 function staticImageImportTypesPlugin() {
   const referencingFiles: Record<string, string> = {
-    'runtime/env-public.d.mts': '../image/static-import.d.ts',
+    'runtime/env/public.d.mts': '../../image/static-import.d.ts',
     'image/index.d.mts': './static-import.d.ts',
   };
   return {
@@ -81,10 +81,15 @@ function staticImageImportTypesPlugin() {
       let referenced = false;
       for (const [fileName, path] of Object.entries(referencingFiles)) {
         const output = bundle[fileName];
-        if (output?.type !== 'chunk') {
+        if (!output) {
           continue;
         }
-        output.code = `/// <reference path="${path}" />\n${String(output.code ?? '')}`;
+        const reference = `/// <reference path="${path}" />\n`;
+        if (output.type === 'asset') {
+          output.source = reference + String(output.source ?? '');
+        } else {
+          output.code = reference + String(output.code ?? '');
+        }
         referenced = true;
       }
       if (!referenced) {

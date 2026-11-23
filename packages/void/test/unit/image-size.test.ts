@@ -197,6 +197,11 @@ describe('readImageSize', () => {
       { width: 192, height: 96, type: 'svg' },
     ],
     [
+      'SVG dimensions in picas',
+      svg('<svg xmlns="http://www.w3.org/2000/svg" width="12pc" height="6pc">'),
+      { width: 192, height: 96, type: 'svg' },
+    ],
+    [
       'SVG viewBox',
       svg('<svg viewBox="0 0 300 150" xmlns="http://www.w3.org/2000/svg">'),
       { width: 300, height: 150, type: 'svg' },

@@ -282,7 +282,7 @@ const SVG_UNITS: Record<string, number> = {
   ex: 8,
   m: (96 / CM_PER_INCH) * 100,
   mm: 96 / CM_PER_INCH / 10,
-  pc: 96 / 72 / 12,
+  pc: (96 / 72) * 12,
   pt: 96 / 72,
   px: 1,
 };

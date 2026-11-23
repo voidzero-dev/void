@@ -35,7 +35,6 @@ import { syncBindingTypes } from './codegen/binding-types.ts';
 import { LEGACY_CONFIG_FILE, TYPED_CONFIG_FILE } from './config-loader.ts';
 import { getDatabaseCasing, readConfig, isNodeTarget } from './config.ts';
 import { getImageConfigWarnings } from './image-config.ts';
-import { inferBindingsFromSource } from './inference/walk.ts';
 import { resolveLocalD1Target, writeLocalD1PersistState } from './local-d1.ts';
 import { voidLog, voidWarn } from './log.ts';
 import { pagesDevCssAssetsPlugin } from './pages/dev-css-assets.ts';

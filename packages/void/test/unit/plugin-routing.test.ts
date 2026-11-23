@@ -1002,7 +1002,7 @@ describe('routingPlugin', () => {
     resolveConfig(plugin, 'serve');
     await runBuildStart(plugin);
     expect(await load('virtual:void-routes')).not.toContain('__createImageHandler');
-    const { emit } = startDevServer(plugin, ['virtual:void-routes']);
+    const { emit } = await startDevServer(plugin, ['virtual:void-routes']);
 
     // An API route keeps the SPA asset policy, which must list the endpoint.
     mkdirSync(join(root, 'routes', 'api'), { recursive: true });

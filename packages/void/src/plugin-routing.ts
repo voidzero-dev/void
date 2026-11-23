@@ -820,12 +820,14 @@ export function routingPlugin(
                 bundle,
                 typeof manifest === 'string' ? manifest : '.vite/manifest.json',
                 compileOptions.headerRules,
-                {
-                  imageSources: options.images?.imageSources ?? [],
-                  hashedAssetFileNames: hasHashedAssetFileNames(
-                    this.environment.config.build.rolldownOptions.output,
-                  ),
-                },
+                options.images?.imageSources.size
+                  ? {
+                      imageSources: options.images.imageSources,
+                      hashedAssetFileNames: hasHashedAssetFileNames(
+                        this.environment.config.build.rolldownOptions.output,
+                      ),
+                    }
+                  : undefined,
               )
             : [];
         }
@@ -891,7 +893,9 @@ export function routingPlugin(
             ? {
                 runtimePath: resolveFile('@void/isr/runtime'),
                 queryAllowlist: buildConfig.routing?.revalidateQueryAllowlist,
-                bypassPaths: compileOptions.images ? [compileOptions.images.config.path] : undefined,
+                bypassPaths: compileOptions.images
+                  ? [compileOptions.images.config.path]
+                  : undefined,
               }
             : undefined;
           writeWorkerEntry(isr);

@@ -191,7 +191,7 @@ import Counter from "./Counter.svelte" with { island: "load" }
     const clientEntry = loadClientEntry()!;
 
     expect(clientEntry).toContain(
-      `const context = new Map([[${JSON.stringify(IMAGE_PRELOADS_KEY)}, new Map()]]);`,
+      `const context = new Map([["__void_frontmatter", frontmatter], [${JSON.stringify(IMAGE_PRELOADS_KEY)}, new Map()]]);`,
     );
     expect(clientEntry).toContain('hydrate(Component, { target: el, props, context });');
   });

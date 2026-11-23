@@ -1,5 +1,4 @@
 import { execFileSync, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';

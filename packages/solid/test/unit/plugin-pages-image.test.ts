@@ -109,7 +109,16 @@ export default function Index() {
       logLevel: 'silent',
       plugins: [solid({ ssr: true }), plugin as Plugin],
       resolve: {
-        alias: { '@void/solid': join(import.meta.dirname, '../../src/runtime/index.ts') },
+        alias: [
+          {
+            find: /^@void\/solid$/,
+            replacement: join(import.meta.dirname, '../../src/runtime/index.ts'),
+          },
+          {
+            find: /^@void\/solid\/pages-boundary$/,
+            replacement: join(import.meta.dirname, '../../src/runtime/PageErrorBoundary.ts'),
+          },
+        ],
       },
       build: {
         ssr: true,

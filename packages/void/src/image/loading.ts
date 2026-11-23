@@ -62,23 +62,25 @@ export function handleImageLoading<T extends ImageElementLike>(
   expando[LOADED_SRC] = src;
   const { placeholder, onLoad, onBlurComplete, dev, sizesInput, unoptimized } = options;
   const p = 'decode' in img && typeof img.decode === 'function' ? img.decode() : Promise.resolve();
-  p.catch(() => {}).then(() => {
-    if (!img.parentElement || !img.isConnected) {
-      // Exit early in case of race condition:
-      // - onload() is called
-      // - decode() is called but incomplete
-      // - unmount is called
-      // - decode() completes
-      return;
-    }
-    if (placeholder !== 'empty') {
-      onBlurComplete?.();
-    }
-    onLoad?.(img);
-    if (dev) {
-      warnAfterLoad(img, src ?? '', sizesInput, unoptimized);
-    }
-  });
+  void p
+    .catch(() => {})
+    .then(() => {
+      if (!img.parentElement || !img.isConnected) {
+        // Exit early in case of race condition:
+        // - onload() is called
+        // - decode() is called but incomplete
+        // - unmount is called
+        // - decode() completes
+        return;
+      }
+      if (placeholder !== 'empty') {
+        onBlurComplete?.();
+      }
+      onLoad?.(img);
+      if (dev) {
+        warnAfterLoad(img, src ?? '', sizesInput, unoptimized);
+      }
+    });
 }
 
 function warnAfterLoad(
