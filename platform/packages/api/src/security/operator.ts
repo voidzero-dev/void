@@ -1085,6 +1085,7 @@ export async function queueSecurityRescan(
         ...(options.clientAssets ? [SECURITY_CLIENT_ASSETS_NOTE] : []),
       ],
       input_r2_key: input.r2Key,
+      input_prefix: input.inputPrefix,
       policy_mode_at_enqueue: policy.mode,
       public_at_enqueue: !isProtected,
       first_queued_at: sql`now()`,

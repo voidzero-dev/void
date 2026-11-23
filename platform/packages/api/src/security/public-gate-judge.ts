@@ -8,11 +8,13 @@
  *   urgent finding open ───────────────────────► held_findings   (never a bypass)
  *   scan waiting or running ───────────────────► waiting_scan
  *   no scan of the live deployment             ► queue one (input kept) | needs_deploy
- *   scan ended, not succeeded                  ► held_no_result (input_missing: needs_deploy)
+ *   scan ended, not succeeded                  ► held_no_result: ask again queues one more
+ *                                                 (input gone or input_missing: needs_deploy);
+ *                                                 unproven `fixed` claims listed as blockers
  *   succeeded + unproven `fixed` claim ────────► needs_deploy
  *   succeeded + backlog ───────────────────────► waiting_scan, queue the next gate scan
  *                                                 (input gone: needs_deploy)
- *   succeeded + findings capped ───────────────► held_no_result
+ *   succeeded + findings capped ───────────────► held_no_result (input gone: needs_deploy)
  *   succeeded, nothing above ──────────────────► pass
  */
 import type { SecurityPublicRequestState, SecurityScanStatus } from './schema.ts';
@@ -130,10 +132,15 @@ export function judgeGate(input: GateJudgeInput): GateVerdict {
       : hold('needs_deploy', 'no_input', null);
   }
   if (scan.status !== 'succeeded') {
+    // Unproven `fixed` claims still block (spec §4, gate blocker): listed with the hold.
+    const blockers = { blockers: input.unproven };
     if (scan.status === 'failed' && scan.statusReason === 'input_missing') {
-      return hold('needs_deploy', 'input_missing', scan);
+      return hold('needs_deploy', 'input_missing', scan, blockers);
     }
-    return hold('held_no_result', gateNoResultReason(scan), scan);
+    // Asking again cannot scan code that is gone: only a deploy moves it on (edge #54).
+    return input.hasInput
+      ? hold('held_no_result', gateNoResultReason(scan), scan, blockers)
+      : hold('needs_deploy', 'no_input', scan, blockers);
   }
   if (input.unproven.length > 0) {
     return hold('needs_deploy', 'unproven_fix', scan, { blockers: input.unproven });
@@ -145,7 +152,9 @@ export function judgeGate(input: GateJudgeInput): GateVerdict {
       : hold('needs_deploy', 'no_input', scan);
   }
   if (scan.capped) {
-    return hold('held_no_result', 'findings_capped', scan);
+    return input.hasInput
+      ? hold('held_no_result', 'findings_capped', scan)
+      : hold('needs_deploy', 'no_input', scan);
   }
   return { kind: 'pass', scanId: scan.id };
 }
@@ -162,10 +171,15 @@ export function bypassSkips(
   switch (state) {
     case 'waiting_scan':
       return 'the scan has not finished yet';
-    case 'held_no_result':
-      return reason && reason !== 'findings_capped'
-        ? `the scan did not finish (${reason.split('_').join(' ')})`
-        : 'the scan did not finish';
+    case 'held_no_result': {
+      const scan =
+        reason && reason !== 'findings_capped'
+          ? `the scan did not finish (${reason.split('_').join(' ')})`
+          : 'the scan did not finish';
+      return unproven.length > 0
+        ? `${scan}; the fix of ${unproven.join(', ')} is not checked by a scan yet`
+        : scan;
+    }
     case 'needs_deploy':
       return unproven.length > 0
         ? `the fix of ${unproven.join(', ')} is not checked by a scan yet`

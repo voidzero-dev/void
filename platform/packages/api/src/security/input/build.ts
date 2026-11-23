@@ -287,6 +287,8 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   let droppedBytes = 0;
   let thirdPartyDropped = 0;
   let badPaths = 0;
+  /** Files over the runner's per-file limit: they can never be sent (noted, not backlogged). */
+  let oversized = 0;
   // Code left out for coverage reasons (registry packages, the input cap). Secret-like
   // files are dropped on purpose and do not make a scan partial.
   let lostBytes = 0;
@@ -298,6 +300,16 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     droppedFiles++;
     droppedBytes += bytes;
     lostBytes += bytes;
+  };
+  const dropOversized = (file: Readonly<{ path: string; sha256: string; bytes: number }>) => {
+    oversized++;
+    droppedFiles++;
+    droppedBytes += file.bytes;
+    lostBytes += file.bytes;
+    if (file.sha256 !== '') {
+      // Seen as it is: the next diff scan does not take it as changed again.
+      sourceIndex.set(file.path, file.sha256);
+    }
   };
 
   for (const source of sources) {
@@ -349,6 +361,10 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       const due = sourceDiff.changed.has(file.path) || waiting.has(file.path);
       if (due) {
         totalSourceBytes += file.bytes;
+      }
+      if (due && file.bytes > SCAN_INPUT_LIMITS.maxFileBytes) {
+        dropOversized(file);
+        continue;
       }
       (due ? unreadSources : unreadUnchanged).push({
         path: file.path,
@@ -464,16 +480,23 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     }
   };
   let readBytes = 0;
-  /** Adds the file to the read set when it fits; `false` when it does not. */
-  const read = (file: Candidate): boolean => {
+  /**
+   * Adds the file to the read set when it fits: `read`. `full` when the read set has no
+   * room left for it; `never` when it is over the runner's per-file limit, so no scan
+   * can ever send it.
+   */
+  const read = (file: Candidate): 'read' | 'full' | 'never' => {
+    if (file.bytes > SCAN_INPUT_LIMITS.maxFileBytes) {
+      return 'never';
+    }
     if (readSet.length >= maxInputFiles || readBytes + file.bytes > SECURITY_INPUT_MAX_BYTES) {
-      return false;
+      return 'full';
     }
     // Redaction can make a text longer: the runner's per-file limit applies to what is sent.
     const sent = redactor.redact(file.text);
     const sentBytes = sent === file.text ? file.bytes : utf8Length(sent);
     if (sentBytes > SCAN_INPUT_LIMITS.maxFileBytes) {
-      return false;
+      return 'never';
     }
     readBytes += sentBytes;
     readSet.push({ ...file, sent, sentBytes });
@@ -481,10 +504,15 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       // The stored value is in the deployed output: a server finding, by name only.
       addSecretHits(file.path, redactor.hitsIn(file.text), file.asset !== null);
     }
-    return true;
+    return 'read';
   };
   for (const file of ordered) {
-    if (!read(file)) {
+    const result = read(file);
+    if (result === 'never') {
+      // Like a bad path: noted and counted as lost, never left in the backlog, so a
+      // public request does not queue gate scans for it forever.
+      dropOversized(file);
+    } else if (result === 'full') {
       cut.push(file);
     }
   }
@@ -525,7 +553,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     let clientRead = 0;
     let clientLeft = 0;
     for (const file of [...first, ...later]) {
-      if (read(file)) {
+      if (read(file) === 'read') {
         clientRead++;
       } else {
         clientLeft++;
@@ -598,7 +626,21 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
         changed.add(file.path);
       }
     }
+    const gateScan =
+      plan.scan.trigger === 'gate' ||
+      (plan.scan.trigger === 'fallback' && plan.scan.forPublicRequest === true);
     const diff: Array<SecurityFocusCandidate> = [];
+    if (gateScan) {
+      // A gate scan (or its fallback) always re-checks the files of open `fixed` claims
+      // (edge #85): a Void build changes a file on every deploy, so the diff is never
+      // empty, and a scan that did not look at a claimed file must not prove it.
+      for (const path of plan.recheckFiles) {
+        const bytes = available.get(path);
+        if (bytes !== undefined) {
+          diff.push({ path, bytes });
+        }
+      }
+    }
     for (const file of readSet) {
       if (file.asset !== null || changed.has(file.path)) {
         diff.push({ path: file.path, bytes: file.sentBytes });
@@ -619,17 +661,11 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     for (const path of unreadAssetPaths.values()) {
       unscanned.push(path);
     }
-    const gateScan =
-      plan.scan.trigger === 'gate' ||
-      (plan.scan.trigger === 'fallback' && plan.scan.forPublicRequest === true);
     if (focus.length === 0 && unscanned.length === 0 && gateScan) {
-      // A gate scan (or its fallback) is never `no changes` (edge #85): it re-checks the
-      // claimed files.
-      focus = plan.recheckFiles.filter((path) => available.has(path));
-      if (focus.length === 0) {
-        tier = 'full';
-        fullReason = 'gate_recheck';
-      }
+      // A gate scan is never `no changes` (edge #85). No claimed file to re-check and
+      // nothing changed: it reads the whole app.
+      tier = 'full';
+      fullReason = 'gate_recheck';
     }
     emptyFocus = tier !== 'full' && focus.length === 0;
   }
@@ -643,8 +679,14 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     for (const file of unreadUnchanged) {
       totalSourceBytes += file.bytes;
       lostBytes += file.bytes;
+      if (file.bytes > SCAN_INPUT_LIMITS.maxFileBytes) {
+        // Counted as dropped above; never sent, so never backlogged.
+        oversized++;
+        sourceIndex.set(file.path, file.sha256);
+      } else {
+        cut.push(file);
+      }
     }
-    cut.push(...unreadUnchanged);
   }
   const capped = cut.length;
   if (tier === 'full') {
@@ -702,6 +744,9 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   if (badPaths > 0) {
     notes.push(`dropped-bad-path ${badPaths} files`);
   }
+  if (oversized > 0) {
+    notes.push(`dropped-oversize ${oversized} files`);
+  }
   if (capped > 0) {
     notes.push(`input-capped ${capped} files`);
   }
@@ -751,8 +796,13 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   const dropShare = totalSourceBytes === 0 ? 0 : lostBytes / totalSourceBytes;
   const droppedPartial = dropShare > SECURITY_DROPPED_PARTIAL_SHARE;
   const partial =
-    backlog.length > 0 || droppedPartial || capped > 0 || badPaths > 0 || unscanned.length > 0;
-  if (droppedPartial && backlog.length === 0 && capped === 0 && badPaths === 0) {
+    backlog.length > 0 ||
+    droppedPartial ||
+    capped > 0 ||
+    badPaths > 0 ||
+    oversized > 0 ||
+    unscanned.length > 0;
+  if (droppedPartial && backlog.length === 0 && capped === 0 && badPaths === 0 && oversized === 0) {
     // Only registry code was dropped: this does not hold a public request (§7.4, #92).
     notes.push('partial-third-party-only');
   }

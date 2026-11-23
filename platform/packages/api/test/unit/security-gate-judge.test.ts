@@ -122,6 +122,34 @@ describe('judgeGate', () => {
       state: 'held_no_result',
       reason: 'findings_capped',
     });
+    expect(judgeGate(input({ scan: scan({ capped: true }), hasInput: false }))).toMatchObject({
+      state: 'needs_deploy',
+      reason: 'no_input',
+    });
+  });
+
+  it('asks for a deploy when a scan with no result left no code to scan again (#54)', () => {
+    expect(
+      judgeGate(
+        input({ scan: scan({ status: 'skipped', statusReason: 'budget' }), hasInput: false }),
+      ),
+    ).toMatchObject({ state: 'needs_deploy', reason: 'no_input', queue: false, scanId: 'ss_1' });
+  });
+
+  it('lists unproven fixed claims as blockers of a scan with no result', () => {
+    expect(
+      judgeGate(
+        input({ scan: scan({ status: 'failed', failureCause: 'project' }), unproven: ['F-6'] }),
+      ),
+    ).toMatchObject({ state: 'held_no_result', reason: 'failed_project', blockers: ['F-6'] });
+    expect(
+      judgeGate(
+        input({
+          scan: scan({ status: 'failed', statusReason: 'input_missing' }),
+          unproven: ['F-6'],
+        }),
+      ),
+    ).toMatchObject({ state: 'needs_deploy', blockers: ['F-6'] });
   });
 });
 
@@ -130,6 +158,12 @@ describe('bypassSkips and copy', () => {
     expect(bypassSkips('held_findings', null, [])).toBeNull();
     expect(bypassSkips('waiting_scan', null, [])).toContain('not finished');
     expect(bypassSkips('needs_deploy', 'unproven_fix', ['F-1'])).toContain('F-1');
+    expect(bypassSkips('held_no_result', 'failed_project', [])).toBe(
+      'the scan did not finish (failed project)',
+    );
+    expect(bypassSkips('held_no_result', 'failed_project', ['F-6'])).toBe(
+      'the scan did not finish (failed project); the fix of F-6 is not checked by a scan yet',
+    );
   });
 
   it('writes a line for every state', () => {

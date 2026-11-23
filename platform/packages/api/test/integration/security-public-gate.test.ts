@@ -17,6 +17,7 @@ import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
+  deploymentOperations,
   projectZeroTrust,
   securityFindings,
   securityProjectEvents,
@@ -24,6 +25,7 @@ import {
   securityScanBypasses,
   securityScans,
 } from '../../src/schema.ts';
+import { securityScanHoldsInput, securityScanInputPrefix } from '../../src/security/enqueue.ts';
 import { SecurityApiError } from '../../src/security/errors.ts';
 import {
   bypassPublicRequest,
@@ -216,6 +218,42 @@ async function urgentFinding(s: Setup, number = 1) {
 
 const owner = (s: Setup) => ({ kind: 'user' as const, userId: s.user.id, role: 'owner' });
 
+async function endedScan(s: Setup, id: string, values: Partial<typeof securityScans.$inferInsert>) {
+  await env.db.insert(securityScans).values({
+    id,
+    project_id: s.project.id,
+    deployment_id: s.deployment.id,
+    trigger: 'gate',
+    finished_at: new Date().toISOString(),
+    status: 'failed',
+    ...values,
+  } as typeof securityScans.$inferInsert);
+}
+
+async function gateScans(s: Setup) {
+  return env.db.select().from(securityScans).where(eq(securityScans.project_id, s.project.id));
+}
+
+/** The deploy's staged modules, as a terminal deployment operation keeps them. */
+async function stagedInput(s: Setup) {
+  const prefix = `deployment-inputs/${s.project.id}/${s.deployment.id}/`;
+  await env.STATIC_ASSETS_R2.put(`${prefix}worker.js`, 'export default {};');
+  await env.db.insert(deploymentOperations).values({
+    id: s.deployment.id,
+    project_id: s.project.id,
+    actor_id: s.user.id,
+    idempotency_key: s.deployment.id,
+    input_digest: 'digest',
+    input_prefix: prefix,
+    payload: {
+      body: {},
+      modules: [{ name: 'worker.js', key: `${prefix}worker.js`, digest: 'd', type: 'esm' }],
+    } as never,
+    status: 'terminal',
+  });
+  return prefix;
+}
+
 describe('public gate', () => {
   it('holds a request with no scan or kept input, then goes public once a scan passes', async () => {
     const s = await setup();
@@ -302,6 +340,95 @@ describe('public gate', () => {
       { deployment_id: s.deployment.id, status: 'queued', input_r2_key: key },
     ]);
     expect((await ztRow(s.project.id)).desired_protected).toBe(true);
+  });
+
+  it('asking again on held_no_result queues one new gate scan of the kept input (edge #79)', async () => {
+    const s = await setup();
+    const key = securityScanInputPrefix(s.project.id, s.deployment.id);
+    await env.STATIC_ASSETS_R2.put(`${key}modules.json`, '{"version":1,"modules":[]}');
+    await endedScan(s, 'ss_bad', { failure_cause: 'project', status_reason: 'bad_output' });
+    const first = await ask(s);
+    expect(first.publicRequest).toMatchObject({ state: 'held_no_result', gate_scan_id: 'ss_bad' });
+    expect(await gateScans(s)).toHaveLength(1);
+
+    const again = await ask(s);
+    expect(again.publicRequest).toMatchObject({
+      state: 'waiting_scan',
+      held_reason: 'scan_queued',
+    });
+    const queued = (await gateScans(s)).filter((scan) => scan.status === 'queued');
+    expect(queued).toMatchObject([{ trigger: 'gate', input_r2_key: key }]);
+    expect(again.publicRequest?.gate_scan_id).toBe(queued[0]!.id);
+    expect((await ztRow(s.project.id)).desired_protected).toBe(true);
+  });
+
+  it('asks for a deploy when a scan with no result left no code to scan again (#54)', async () => {
+    const s = await setup();
+    await endedScan(s, 'ss_budget', {
+      status: 'skipped',
+      status_reason: 'budget',
+      trigger: 'deploy',
+    });
+    for (let round = 0; round < 2; round++) {
+      const asked = await ask(s);
+      expect(asked.publicRequest).toMatchObject({ state: 'needs_deploy', held_reason: 'no_input' });
+    }
+    expect(await gateScans(s)).toHaveLength(1);
+  });
+
+  it('lists an unproven fixed claim as a blocker of a request with no result', async () => {
+    const s = await setup();
+    await endedScan(s, 'ss_bad', { failure_cause: 'project', status_reason: 'bad_output' });
+    await env.STATIC_ASSETS_R2.put(
+      `${securityScanInputPrefix(s.project.id, s.deployment.id)}modules.json`,
+      '{"version":1,"modules":[]}',
+    );
+    await urgentFinding(s, 6);
+    await env.db
+      .update(securityFindings)
+      .set({
+        state: 'resolved',
+        resolution: 'fixed',
+        resolved_severity: 'high',
+        resolved_at: new Date().toISOString(),
+      })
+      .where(eq(securityFindings.number, 6));
+    const asked = await ask(s);
+    expect(asked.publicRequest).toMatchObject({
+      state: 'held_no_result',
+      blockers: 1,
+      blocker_ids: ['F-6'],
+    });
+  });
+
+  it('keeps the staged input of a gate scan that ended before it copied it (§7.2)', async () => {
+    const s = await setup();
+    const prefix = await stagedInput(s);
+    const asked = await ask(s);
+    const requestId = asked.publicRequest!.id;
+    // The gate scan was skipped at start (budget used up): it never copied the input.
+    await endedScan(s, 'ss_skip', {
+      status: 'skipped',
+      status_reason: 'budget',
+      public_request_id: requestId,
+      input_prefix: prefix,
+    });
+    expect(await securityScanHoldsInput(env.db, prefix)).toBe(true);
+
+    const again = await ask(s);
+    expect(again.publicRequest?.state).toBe('waiting_scan');
+    const queued = (await gateScans(s)).filter((scan) => scan.status === 'queued');
+    expect(queued).toMatchObject([{ trigger: 'gate', input_prefix: prefix, input_r2_key: null }]);
+
+    // Canceled too, before it copied: still held while the request is open.
+    await env.db
+      .update(securityScans)
+      .set({ status: 'canceled', status_reason: 'operator_canceled' })
+      .where(eq(securityScans.id, queued[0]!.id));
+    expect(await securityScanHoldsInput(env.db, prefix)).toBe(true);
+    // Protect closes the request: nothing holds the input any more.
+    await ask(s, true);
+    expect(await securityScanHoldsInput(env.db, prefix)).toBe(false);
   });
 
   it('protecting again cancels the open request and keeps the project protected', async () => {

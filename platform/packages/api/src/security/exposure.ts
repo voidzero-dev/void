@@ -109,6 +109,7 @@ export async function queueExposureCatchUpScans(
         status: 'queued',
         trigger: 'exposure',
         input_r2_key: input.r2Key,
+        input_prefix: input.inputPrefix,
         policy_mode_at_enqueue: 'public',
         public_at_enqueue: true,
         first_queued_at: sql`now()`,

@@ -23,14 +23,20 @@ import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import { projectRoleForUser } from '../project-access.ts';
-import { deployments, operatorEvents, projects, projectZeroTrust } from '../schema.ts';
+import {
+  deploymentOperations,
+  deployments,
+  operatorEvents,
+  projects,
+  projectZeroTrust,
+} from '../schema.ts';
 import {
   ZeroTrustConfigurationError,
   readZeroTrustConfigurationStrict,
 } from '../zero-trust/configuration.ts';
 import { ZeroTrustUnavailableError } from '../zero-trust/errors.ts';
 import { projectZeroTrustAvailable } from '../zero-trust/state.ts';
-import { securityScanInputPrefix } from './enqueue.ts';
+import { securityScanHoldsInputSql, securityScanInputPrefix } from './enqueue.ts';
 import { SecurityApiError } from './errors.ts';
 import { SECURITY_FINDINGS_CAPPED_NOTE } from './findings.ts';
 import { enqueueSecurityNotification } from './notifications.ts';
@@ -247,11 +253,13 @@ async function newestScan(
     : null;
 }
 
-type LiveInput = Readonly<{ r2Key: string | null }>;
+/** Where a new scan reads the code: a snapshot, the held staged deploy input, or the bundle. */
+type LiveInput = Readonly<{ r2Key: string | null; inputPrefix: string | null }>;
 
 /**
  * Whether a scan of the deployment can read its code: a snapshot in R2 (the
- * `skipped:protected` copy, a base kept for the next diff) or the stored Worker bundle.
+ * `skipped:protected` copy, a base kept for the next diff), the staged deploy input an
+ * ended gate scan still holds (`securityScanHoldsInputSql`), or the stored Worker bundle.
  */
 export async function findLiveInput(
   env: Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2'>,
@@ -276,18 +284,40 @@ export async function findLiveInput(
   for (const key of keys) {
     try {
       if (await env.STATIC_ASSETS_R2.head(`${key}modules.json`)) {
-        return { r2Key: key };
+        return { r2Key: key, inputPrefix: null };
       }
     } catch {
       // An unreadable bucket is the same as no snapshot.
     }
+  }
+  const [staged] = await db
+    .select({ prefix: securityScans.input_prefix })
+    .from(securityScans)
+    .innerJoin(
+      deploymentOperations,
+      and(
+        eq(deploymentOperations.project_id, securityScans.project_id),
+        eq(deploymentOperations.input_prefix, securityScans.input_prefix),
+        eq(deploymentOperations.inputs_deleted, false),
+      ),
+    )
+    .where(
+      and(
+        eq(securityScans.project_id, projectId),
+        eq(securityScans.deployment_id, deploymentId),
+        securityScanHoldsInputSql(),
+      ),
+    )
+    .limit(1);
+  if (staged?.prefix) {
+    return { r2Key: null, inputPrefix: staged.prefix };
   }
   const [deployment] = await db
     .select({ stored: deployments.bundle_stored })
     .from(deployments)
     .where(and(eq(deployments.id, deploymentId), eq(deployments.project_id, projectId)))
     .limit(1);
-  return deployment?.stored ? { r2Key: null } : null;
+  return deployment?.stored ? { r2Key: null, inputPrefix: null } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -349,8 +379,10 @@ export async function judgeRequest(
   const waiting =
     scan !== null &&
     (scan.status === 'pending_input' || scan.status === 'queued' || scan.status === 'running');
+  // Also for a scan with no usable result: asking again queues a new gate scan from it.
   const needsInput =
-    !waiting && (scan === null || (scan.status === 'succeeded' && scan.backlogFiles > 0));
+    !waiting &&
+    (scan === null || scan.status !== 'succeeded' || scan.backlogFiles > 0 || scan.capped);
   const input = needsInput ? await findLiveInput(env, tx, projectId, target) : null;
   const judgeInput: GateJudgeInput = {
     targetDeploymentId: target,
@@ -452,6 +484,7 @@ async function queueGateScan(
     trigger: 'gate',
     public_request_id: request.id,
     input_r2_key: input.r2Key,
+    input_prefix: input.inputPrefix,
     policy_mode_at_enqueue: mode,
     public_at_enqueue: false,
     first_queued_at: sql`now()`,
@@ -483,10 +516,10 @@ async function applyHold(
   const target = judged.activeDeploymentId ?? request.target_deployment_id;
   let { state, reason } = verdict;
   let scanId = verdict.scanId;
-  const wantsScan =
-    verdict.queue ||
-    (options.askAgain === true && verdict.state === 'held_no_result' && judged.input !== null);
-  if (wantsScan && judged.input !== null && judged.activeDeploymentId !== null) {
+  // Asking again on `held_no_result` queues one new gate scan (edge #79). The judge
+  // gives `needs_deploy` when the live deployment's code is gone (edge #54).
+  const askAgain = options.askAgain === true && verdict.state === 'held_no_result';
+  if ((verdict.queue || askAgain) && judged.input !== null && judged.activeDeploymentId !== null) {
     scanId = await queueGateScan(tx, request, target, judged.input, options.mode);
     state = 'waiting_scan';
     reason = verdict.reason === 'backlog' ? 'backlog' : 'scan_queued';

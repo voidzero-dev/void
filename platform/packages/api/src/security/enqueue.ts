@@ -8,7 +8,7 @@
  * savepoint and a failure there is logged and leaves no row; the after-commit part
  * never throws.
  */
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { paginatedR2Delete } from '../assets.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db, DbOrTx } from '../db.ts';
@@ -38,6 +38,21 @@ export const SECURITY_SCAN_WAITING_STATUSES = ['pending_input', 'queued'] as con
  * and the copy cannot delete it.
  */
 export const SECURITY_SCAN_INPUT_HOLD_STATUSES = ['pending_input', 'queued', 'running'] as const;
+
+/**
+ * The `security_scans` row still holds the staged deploy input its `input_prefix`
+ * names: it waits or runs (above), or it is a scan of an open public request's live
+ * deployment that ended before it copied the input (`skipped:budget`, `canceled`, …).
+ * While the gate is on, the live code of a protected project is kept, so asking again
+ * can scan it (spec §7.2); the hold ends when the request closes or moves on.
+ */
+export function securityScanHoldsInputSql(): SQL {
+  const open = sql.join(
+    SECURITY_PUBLIC_REQUEST_OPEN_STATES.map((state) => sql`${state}`),
+    sql`, `,
+  );
+  return sql`(${inArray(securityScans.status, [...SECURITY_SCAN_INPUT_HOLD_STATUSES])} OR EXISTS (SELECT 1 FROM security_public_requests r WHERE r.id = ${securityScans.public_request_id} AND r.target_deployment_id = ${securityScans.deployment_id} AND r.state IN (${open})))`;
+}
 
 /** Inline modules copied after the commit: at most this many bytes … */
 export const SECURITY_SCAN_COPY_MAX_BYTES = 50 * 1024 * 1024;
@@ -487,17 +502,12 @@ async function copySecurityScanModules(
   return result;
 }
 
-/** Whether a waiting scan still needs the staged deploy input under `prefix`. */
+/** Whether a scan still holds the staged deploy input under `prefix` (see above). */
 export async function securityScanHoldsInput(db: DbOrTx, prefix: string): Promise<boolean> {
   const [held] = await db
     .select({ id: securityScans.id })
     .from(securityScans)
-    .where(
-      and(
-        eq(securityScans.input_prefix, prefix),
-        inArray(securityScans.status, [...SECURITY_SCAN_INPUT_HOLD_STATUSES]),
-      ),
-    )
+    .where(and(eq(securityScans.input_prefix, prefix), securityScanHoldsInputSql()))
     .limit(1);
   return held !== undefined;
 }

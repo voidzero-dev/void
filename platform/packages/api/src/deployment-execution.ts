@@ -1,4 +1,4 @@
-import { and, eq, getTableColumns, inArray, lte, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, lte, ne, notExists, or, sql } from 'drizzle-orm';
 import { paginatedR2Delete } from './assets.ts';
 import { activeOAuthApproval } from './auth/oauth.ts';
 import { R2_CONCURRENCY } from './concurrency.ts';
@@ -13,7 +13,7 @@ import {
   securityScans,
   users,
 } from './schema.ts';
-import { SECURITY_SCAN_INPUT_HOLD_STATUSES, securityScanHoldsInput } from './security/enqueue.ts';
+import { securityScanHoldsInput, securityScanHoldsInputSql } from './security/enqueue.ts';
 import { isAdminSuspended } from './suspension.ts';
 import type { DeployEvent, DeployManifest } from './types.ts';
 import { listR2Objects, r2WorkerModule, type WorkerModule } from './worker-upload.ts';
@@ -527,7 +527,7 @@ export async function dispatchPendingDeployments(
             .where(
               and(
                 eq(securityScans.input_prefix, deploymentOperations.input_prefix),
-                inArray(securityScans.status, [...SECURITY_SCAN_INPUT_HOLD_STATUSES]),
+                securityScanHoldsInputSql(),
               ),
             ),
         ),

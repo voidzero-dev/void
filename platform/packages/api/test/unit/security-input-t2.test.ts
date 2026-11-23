@@ -563,6 +563,33 @@ describe('buildSecurityScanInput', () => {
     expect(gateNothing.notes).toContain('gate-recheck');
   });
 
+  it('re-checks the claimed files in a gate scan even when another file changed (edge #85)', () => {
+    const modules = bundleOf({ 'src/routes/hello.ts': 'hello', 'src/routes.ts': 'build-2' });
+    // A Void build changes its route table on every deploy; the claimed file is unchanged.
+    const base = {
+      modules: new Map(modules.map((m) => [m.name, 'old'])),
+      sources: new Map([
+        ['src/routes/hello.ts', sha256Hex('hello')],
+        ['src/routes.ts', sha256Hex('build-1')],
+      ]),
+    };
+    const build = (trigger: 'deploy' | 'gate') =>
+      buildSecurityScanInput(
+        plan({
+          scan: { ...plan().scan, trigger },
+          tier: { tier: 'built_diff', fullReason: null },
+          base,
+          head: { modules, main: 'index.js' },
+          recheckFiles: ['src/routes/hello.ts', 'src/gone.ts'],
+        }),
+      );
+    expect(build('deploy').focus).toEqual(['src/routes.ts']);
+    const gate = build('gate');
+    expect(gate.tier).toBe('built_diff');
+    expect(gate.focus).toEqual(['src/routes/hello.ts', 'src/routes.ts']);
+    expect(gate.task.changed_files).toEqual(['src/routes/hello.ts', 'src/routes.ts']);
+  });
+
   it('keeps the gate rule for a fallback of a gate scan, not for other fallbacks (M26)', () => {
     const base = {
       modules: new Map(FRAMEWORK_BUNDLES.react!.modules.map((m) => [m.name, m.sha256])),
@@ -890,7 +917,7 @@ describe('buildSecurityScanInput limits', () => {
     expect(full.sourceIndex.has('src/f32.ts')).toBe(false);
   });
 
-  it('cuts a file the runner would refuse at 16 MB, after redaction (#3)', () => {
+  it('drops a file the runner would refuse at 16 MB, after redaction (#3)', () => {
     const secret = 'tok_ABCDEFGH';
     const nearLimit = `${secret}${'y'.repeat(16 * MIB - secret.length)}`;
     const built = buildSecurityScanInput(
@@ -902,14 +929,32 @@ describe('buildSecurityScanInput limits', () => {
         secrets: [{ name: 'TOKEN', value: secret }],
       }),
     );
-    // The memory index lists the backlog for the model.
-    expect(built.entries.map((entry) => entry.path)).toEqual([
-      'task.json',
-      'input/src/ok.ts',
-      'memory/index.json',
-    ]);
-    expect(built.notes).toContain('input-capped 1 files');
-    expect(built.backlog).toEqual(['src/big.ts']);
+    expect(built.entries.map((entry) => entry.path)).toEqual(['task.json', 'input/src/ok.ts']);
+    // No scan can ever send it: noted, never backlogged.
+    expect(built.notes).toContain('dropped-oversize 1 files');
+    expect(built.notes).not.toContain('input-capped 1 files');
+    expect(built.backlog).toEqual([]);
+  });
+
+  it('never backlogs a file over 16 MB, so a gate scan does not loop on it (C1)', () => {
+    const modules = bundleOf({ 'src/huge.ts': 'z'.repeat(16 * MIB + 1), 'src/ok.ts': 'ok' });
+    for (const scan of [
+      plan({ head: { modules, main: 'index.js' } }),
+      plan({
+        ...changedSince(modules),
+        scan: { ...plan().scan, trigger: 'gate' },
+        backlog: ['src/huge.ts'],
+      }),
+    ]) {
+      const built = buildSecurityScanInput(scan);
+      expect(built.backlog).toEqual([]);
+      expect(built.notes).toContain('dropped-oversize 1 files');
+      expect(built.coverage).toBe('partial');
+      expect(built.droppedFiles).toBe(1);
+      // Counted as seen: the next diff does not take it as changed again.
+      expect(built.sourceIndex.get('src/huge.ts')).toBe(sha256Hex('z'.repeat(16 * MIB + 1)));
+      expect(built.entries.some((entry) => entry.path === 'input/src/huge.ts')).toBe(false);
+    }
   });
 
   it('keeps the tar within the runner entry limit, memory included (#3)', () => {

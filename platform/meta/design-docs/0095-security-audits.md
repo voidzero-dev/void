@@ -745,8 +745,10 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   an asset not read (`assets-unread`, over the limits or gone from storage), goes to the
   backlog and stays out of `sources.json` / `assets.json`, so no later scan counts it as
   seen. A path over 960 characters becomes `_long/<hash>/<name>`; a path the runner still
-  refuses is dropped (`dropped-bad-path`, partial), not the whole tar. Inline source maps
-  are found at any length. `partial` = backlog left, a cut or bad-path file, or > 5 % of
+  refuses is dropped (`dropped-bad-path`, partial), not the whole tar. A file over the
+  runner's 16 MB is dropped the same way (`dropped-oversize`, partial), never backlogged:
+  no scan can send it, so a gate scan would be queued for it forever. Inline source maps
+  are found at any length. `partial` = backlog left, a cut, bad-path or oversize file, or > 5 % of
   source bytes lost to registry drops or the cap; secret-like files are dropped and
   counted in `dropped_files` but do not make a scan partial; a partial from registry
   drops alone adds `partial-third-party-only` (#92). Redaction covers every file in the

@@ -512,6 +512,23 @@ describe('buildSecurityScanInput with a source diff', () => {
     expect(built.notes).toContain('input-capped 1 files');
   });
 
+  it('drops an unread changed file over 16 MB instead of backlogging it (C1)', () => {
+    const plan = inputPlan();
+    const built = buildSecurityScanInput({
+      ...plan,
+      sourceDiff: {
+        ...plan.sourceDiff!,
+        changed: new Set([...plan.sourceDiff!.changed, 'src/big.ts']),
+        unread: [{ path: 'src/big.ts', bytes: 17 * 1024 * 1024, sha256: 'x' }],
+      },
+    });
+    expect(built.backlog).toEqual([]);
+    expect(built.notes).toContain('dropped-oversize 1 files');
+    expect(built.notes).not.toContain('input-capped 1 files');
+    expect(built.coverage).toBe('partial');
+    expect(built.sourceIndex.get('src/big.ts')).toBe('x');
+  });
+
   it('keeps an unread unchanged file in the backlog it was waiting in', () => {
     const built = buildSecurityScanInput({ ...inputPlan(), backlog: ['src/big.ts'] });
     expect(built.backlog).toEqual(['src/big.ts']);
