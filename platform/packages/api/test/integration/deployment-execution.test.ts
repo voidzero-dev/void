@@ -42,6 +42,8 @@ import {
 } from '../../src/schema.ts';
 import type { DeployEvent } from '../../src/types.ts';
 import { WORKER_UPLOAD_OUT_OF_TIME } from '../../src/worker-upload.ts';
+import { ZeroTrustUnavailableError } from '../../src/zero-trust/errors.ts';
+import * as zeroTrustRouting from '../../src/zero-trust/routing.ts';
 import {
   createTestBuild,
   clearTables,
@@ -1182,9 +1184,37 @@ describe('durable execution claim and revocation', () => {
     expect(await env.ROUTING.get(`slug:${project.slug}`)).toBeNull();
     const operation = await getDeploymentOperation(env.db, id);
     expect(operation).toMatchObject({ status: 'terminal' });
+    const reason =
+      'This build is no longer active. Start a new build to deploy the current version.';
+    expect(await env.db.select().from(deployments)).toMatchObject([{ error_message: reason }]);
     expect(operation?.events.at(-1)?.event).toMatchObject({
       event: 'error',
-      step: expect.any(String),
+      message: reason,
+      step: 'authorization',
+    });
+  });
+
+  it('reports the Zero Trust reason when protection changes while a deploy waits', async () => {
+    const id = await admit();
+    // A Zero Trust flip that lands after admission makes the deploy handler
+    // answer 409 when the queued work runs.
+    vi.spyOn(zeroTrustRouting, 'resolveProjectZeroTrustRouting').mockRejectedValue(
+      new ZeroTrustUnavailableError('The project public exception is still reconciling.'),
+    );
+    const message = await run(id);
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(message.retry).not.toHaveBeenCalled();
+    const [deployment] = await env.db.select().from(deployments);
+    expect(deployment).toMatchObject({ id, status: 'failed' });
+    expect(deployment!.error_message).toContain(
+      'Zero Trust protection for this project is not ready: The project public exception is still reconciling.',
+    );
+    expect(deployment!.error_message).toContain('then retry.');
+    const operation = await getDeploymentOperation(env.db, id);
+    expect(operation?.events.at(-1)?.event).toMatchObject({
+      event: 'error',
+      message: deployment!.error_message,
+      step: 'authorization',
     });
   });
 });
