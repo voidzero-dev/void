@@ -70,6 +70,44 @@ describe('resolveHead', () => {
     expect(resolveHead(config, middleware, page)?.title).toBe('Users');
   });
 
+  it('page titleTemplate wins over middleware and config', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadConfig = { title: 'Users', titleTemplate: '%s - Team' };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users - Team');
+    expect(resolveHead(config, undefined, page)?.title).toBe('Users - Team');
+  });
+
+  it('lets a page skip the template with an empty string or `%s`', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My App' };
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const title = 'My App | Questions & Answers';
+    for (const titleTemplate of ['', '%s']) {
+      expect(resolveHead(config, middleware, { title, titleTemplate })?.title).toBe(title);
+      expect(resolveHead(config, undefined, { title, titleTemplate })?.title).toBe(title);
+    }
+  });
+
+  it('wraps a lower-layer title with the page titleTemplate', () => {
+    const middleware: HeadConfig = { title: 'Dashboard', titleTemplate: '%s | Admin' };
+    const page: HeadConfig = { titleTemplate: '%s | Reports' };
+    expect(resolveHead(undefined, middleware, page)?.title).toBe('Dashboard | Reports');
+  });
+
+  it('keeps the middleware or config template when the page sets none', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadConfig = { title: 'Users', titleTemplate: undefined };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users | Admin');
+    expect(resolveHead(config, undefined, page)?.title).toBe('Users | My Site');
+  });
+
+  it('does not emit a page titleTemplate, or a head for a template alone', () => {
+    const page: HeadConfig = { title: 'Users', titleTemplate: '%s | Team' };
+    expect(resolveHead(undefined, undefined, page)).toEqual({ title: 'Users | Team' });
+    expect(resolveHead(undefined, undefined, { titleTemplate: '%s | Team' })).toBeUndefined();
+  });
+
   it('inserts a title containing `$` replacement patterns as written', () => {
     const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
     for (const title of ['A $& B', 'Price $` x', "x $' y", 'Tom $$ Jerry', '$1 off']) {

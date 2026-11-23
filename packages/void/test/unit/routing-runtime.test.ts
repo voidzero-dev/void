@@ -11,7 +11,7 @@ import { ValidationError } from '../../src/pages/protocol.ts';
 import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
 import { _validateEnvOnce, defineEnv, env } from '../../src/runtime/env/public.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
-import { defineHandler, defineMiddleware } from '../../src/runtime/handler/index.ts';
+import { defineHandler, defineHead, defineMiddleware } from '../../src/runtime/handler/index.ts';
 import type { CloudContext } from '../../src/runtime/handler/index.ts';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing/assets.ts';
 import type { ClientManifest, ManifestLoader } from '../../src/runtime/routing/assets.ts';
@@ -1352,6 +1352,40 @@ describe('typed Pages and SSR execution', () => {
     };
     expect(await title('/admin/users')).toBe('Users | Admin');
     expect(await title('/users')).toBe('Users | My Site');
+  });
+  it('lets a page head replace or skip the titleTemplate', async () => {
+    const app = new Hono();
+    app.use(
+      '/admin/*',
+      defineMiddleware(async (c, next) => {
+        c.set('headDefaults', { ...c.get('headDefaults'), titleTemplate: '%s | Admin' });
+        await next();
+      }),
+    );
+    const own = defineHead(() => ({ title: 'Reports', titleTemplate: '%s - Team' }));
+    const skip = defineHead(() => ({ title: 'My App | Q&A', titleTemplate: '' }));
+    const page = (head: typeof own) =>
+      createPageGetHandler({
+        ...pageOptions,
+        headConfig: { titleTemplate: '%s | My App' },
+        load: async () => ({ loader: () => ({}), head }),
+      });
+    app.get('/admin/reports', page(own));
+    app.get('/reports', page(own));
+    app.get('/admin/home', page(skip));
+    app.get('/', page(skip));
+    const title = async (path: string) => {
+      const response = await app.fetch(
+        new Request('https://app.test' + path, {
+          headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+        }),
+      );
+      return (decodePageData(await response.json()) as { head?: { title?: string } }).head?.title;
+    };
+    expect(await title('/admin/reports')).toBe('Reports - Team');
+    expect(await title('/reports')).toBe('Reports - Team');
+    expect(await title('/admin/home')).toBe('My App | Q&A');
+    expect(await title('/')).toBe('My App | Q&A');
   });
   it('redirects extensionless Pages requests to trailing slashes without changing APIs or files', async () => {
     const app = new Hono();

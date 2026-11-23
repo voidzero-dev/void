@@ -1,7 +1,7 @@
 import type { Context, Env, MiddlewareHandler, Next, TypedResponse } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
 import type { RewriteDestination, RouteDestination, RouteUrl, RouteUrlInput } from 'void/routes';
-import type { HeadConfig, HeadDescriptor } from '../../pages/head.ts';
+import type { HeadConfig } from '../../pages/head.ts';
 import { base64ToBytes } from '../../shared/base64.ts';
 import type { AuthSession, AuthUser } from '../auth/index.ts';
 import type { TypedRoutes } from '../routing/route-url.ts';
@@ -499,8 +499,8 @@ export function defineRender(handler: RenderFn): RenderFn {
  * At runtime it simply returns the function passed to it.
  */
 export function defineHead<P = Record<string, unknown>>(
-  handler: (c: CloudContext, props: P) => HeadDescriptor | undefined,
-): (c: CloudContext, props: P) => HeadDescriptor | undefined {
+  handler: (c: CloudContext, props: P) => HeadConfig | undefined,
+): (c: CloudContext, props: P) => HeadConfig | undefined {
   return handler;
 }
 

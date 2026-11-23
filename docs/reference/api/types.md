@@ -72,7 +72,7 @@ interface TypedHandler<V extends ValidatorSlots = {}, R = unknown> {
 
 ## `HeadDescriptor` {#headdescriptor}
 
-Shape of page head metadata returned by `defineHead`. All fields are optional.
+Shape of page head metadata. All fields are optional.
 
 ```ts
 interface HeadDescriptor {
@@ -83,6 +83,16 @@ interface HeadDescriptor {
   htmlAttrs?: Record<string, string>;
   bodyAttrs?: Record<string, string>;
 }
+```
+
+## `HeadConfig` {#headconfig}
+
+Head metadata returned by `defineHead`, set as middleware `headDefaults`, or set as `head` in `void.config.ts`. It adds `titleTemplate` to [`HeadDescriptor`](#headdescriptor). `%s` is replaced with the page title. A page's template replaces the middleware's, which replaces the config's. An empty string drops the template.
+
+```ts
+type HeadConfig = HeadDescriptor & {
+  titleTemplate?: string;
+};
 ```
 
 ## `RouteMap` {#routemap}

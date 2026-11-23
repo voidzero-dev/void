@@ -66,7 +66,7 @@ type ValidationErrorBody = {
 
 type PageHandler = ((c: CloudContext) => unknown | Promise<unknown>) | undefined;
 type PageHeadHandler =
-  | ((c: CloudContext, props: Record<string, unknown>) => HeadDescriptor | undefined)
+  | ((c: CloudContext, props: Record<string, unknown>) => HeadConfig | undefined)
   | undefined;
 type PageRequestContext = Context | CloudContext;
 type PageRenderOptions = {
@@ -763,7 +763,7 @@ function resolveRequestHead(
   c: CloudContext,
   configHead: HeadConfig | undefined,
   middlewareHead: HeadConfig | undefined,
-  pageHead: HeadDescriptor | undefined,
+  pageHead: HeadConfig | undefined,
 ): HeadDescriptor | undefined {
   const head = resolveHead(configHead, middlewareHead, pageHead);
   return absolutizeHead(
