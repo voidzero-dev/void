@@ -82,82 +82,95 @@ export type IslandFormState<TData, TEditing extends FormEditing> = FormStatus &
     delete(url: RouteUrl): Promise<void>;
   }>;
 
-/** Whether an error key names `field` or a nested field below it, such as `profile.name`. */
-export function isFormErrorWithin(key: string, field: string): boolean {
-  return key === field || key.startsWith(`${field}.`);
+function hasFormField(value: unknown, field: string): value is Record<string, unknown> {
+  return (isPlainObject(value) || Array.isArray(value)) && Object.hasOwn(value, field);
 }
-/**
- * Dotted paths of the values that differ between two form value snapshots. `prefix` names the field
- * the two values belong to. Only arrays and plain objects are visited, matching `cloneFormValue`
- * and `isEqualFormValue`, so a `File`, `Date` or class instance stays one value.
- */
-export function changedFormFields(
-  previous: unknown,
-  next: unknown,
-  prefix = '',
-): ReadonlyArray<string> {
-  const changed: Array<string> = [];
-  collectChangedFormFields(previous, next, prefix, changed);
-  return changed;
-}
-function collectChangedFormFields(
-  previous: unknown,
-  next: unknown,
-  prefix: string,
-  changed: Array<string>,
-): void {
-  if (isEqualFormValue(previous, next)) {
-    return;
+
+// A literal key can contain dots. Prefer the longest own key before treating dots as path
+// separators. Check both snapshots so deleting a literal key still identifies the same field.
+function formValuePath(field: string, previous: unknown, next = previous): Array<string> {
+  const path: Array<string> = [];
+  for (;;) {
+    let key = field;
+    while (!hasFormField(previous, key) && !hasFormField(next, key)) {
+      const dot = key.lastIndexOf('.');
+      if (dot === -1) {
+        break;
+      }
+      key = key.slice(0, dot);
+    }
+    path.push(key);
+    if (key === field) {
+      return path;
+    }
+    previous = hasFormField(previous, key) ? previous[key] : undefined;
+    next = hasFormField(next, key) ? next[key] : undefined;
+    field = field.slice(key.length + 1);
   }
-  if (Array.isArray(previous) && Array.isArray(next)) {
-    const length = Math.max(previous.length, next.length);
-    for (let index = 0; index < length; index += 1) {
-      collectChangedFormFields(
-        previous[index],
-        next[index],
-        joinFormPath(prefix, String(index)),
-        changed,
+}
+
+function formValueChanged(previous: unknown, next: unknown, path: ReadonlyArray<string>): boolean {
+  for (const key of path) {
+    if (Object.is(previous, next)) {
+      return false;
+    }
+    if (!hasFormField(previous, key)) {
+      if (hasFormField(next, key)) {
+        return true;
+      }
+      // Replacing a container invalidates descendant errors even when the
+      // specific field was missing, for example a required field in an empty object.
+      return !(
+        (isPlainObject(previous) && isPlainObject(next)) ||
+        (Array.isArray(previous) && Array.isArray(next))
       );
     }
-    return;
-  }
-  if (isPlainObject(previous) && isPlainObject(next)) {
-    for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
-      collectChangedFormFields(previous[key], next[key], joinFormPath(prefix, key), changed);
+    if (!hasFormField(next, key)) {
+      return true;
     }
-    return;
+    previous = previous[key];
+    next = next[key];
   }
-  if (prefix !== '') {
-    changed.push(prefix);
-  }
+  return !isEqualFormValue(previous, next);
 }
-function joinFormPath(prefix: string, key: string): string {
-  return prefix === '' ? key : `${prefix}.${key}`;
-}
-/**
- * Error keys a change touched: the changed field, the fields below it, and the field that contains
- * it. Editing one contact's email keeps the error of another contact.
- */
-export function affectedFormErrorKeys(
+
+/** The exact error keys whose field values changed, including affected parent fields. */
+export function changedFormErrorKeys(
   errors: Readonly<Record<string, string>>,
-  changedFields: ReadonlyArray<string>,
-): ReadonlyArray<string> {
+  previous: unknown,
+  next: unknown,
+): Array<string> {
   return Object.keys(errors).filter((key) =>
-    changedFields.some((field) => isFormErrorWithin(key, field) || isFormErrorWithin(field, key)),
+    formValueChanged(previous, next, formValuePath(key, previous, next)),
   );
 }
-/**
- * Removes the errors of `fields` and of the nested fields below them, keeping unrelated errors.
- * Returns the same object when no error matched, so callers can skip an update.
- */
+
+/** The error keys on explicitly cleared fields and their descendants. */
+export function formErrorKeysWithin(
+  errors: Readonly<Record<string, string>>,
+  fields: ReadonlyArray<string>,
+  data: unknown,
+): Array<string> {
+  const paths = fields.map((field) => formValuePath(field, data));
+  return Object.keys(errors).filter((key) => {
+    const path = formValuePath(key, data);
+    return paths.some((parent) => parent.every((part, index) => part === path[index]));
+  });
+}
+
+/** Remove only the selected error keys. */
 export function omitFormErrors(
   errors: Record<string, string>,
-  fields: ReadonlyArray<string>,
+  keys: ReadonlyArray<string>,
 ): Record<string, string> {
-  const kept = Object.entries(errors).filter(
-    ([key]) => !fields.some((field) => isFormErrorWithin(key, field)),
-  );
-  return kept.length === Object.keys(errors).length ? errors : Object.fromEntries(kept);
+  if (keys.length === 0) {
+    return errors;
+  }
+  const next = { ...errors };
+  for (const key of keys) {
+    delete next[key];
+  }
+  return next;
 }
 export function formErrorMessage(form: Pick<FormModel, 'error' | 'errors'>): string | null {
   return form.error?.message ?? (Object.values(form.errors).filter(Boolean).join('. ') || null);

@@ -460,3 +460,37 @@ describe('useIslandForm edits made during a submit', () => {
     expect(form.data.title).toBe('Sent');
   });
 });
+
+it('clears the array-level count error after adding an undefined slot', async () => {
+  const app = createSSRApp(
+    defineComponent({
+      setup() {
+        const form = useForm('/test', { contacts: [undefined] });
+        form.setError('contacts', 'Add a second row');
+        (form.data.contacts as Array<unknown>).push(undefined);
+        expect((form.data.contacts as Array<unknown>).length).toBe(2);
+        expect(form.errors.contacts).toBeUndefined();
+        return () => h('form');
+      },
+    }),
+  );
+  app.provide('__void_router', {});
+  await renderToString(app);
+});
+
+it('clears the object-level error after removing an undefined key', async () => {
+  const app = createSSRApp(
+    defineComponent({
+      setup() {
+        const form = useForm('/test', { profile: { option: undefined } });
+        form.setError('profile', 'Remove the option field');
+        delete (form.data.profile as Record<string, unknown>).option;
+        expect(Object.hasOwn(form.data.profile as object, 'option')).toBe(false);
+        expect(form.errors.profile).toBeUndefined();
+        return () => h('form');
+      },
+    }),
+  );
+  app.provide('__void_router', {});
+  await renderToString(app);
+});

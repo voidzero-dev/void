@@ -1,14 +1,13 @@
 import {
   VoidActionError,
-  affectedFormErrorKeys,
-  changedFormFields,
+  changedFormErrorKeys,
   cloneFormValue,
+  formErrorKeysWithin,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
   isCallSiteActionError,
   isEqualFormValue,
-  isFormErrorWithin,
   parseFormResetArgs,
   submitAction,
   type FormResetOptions,
@@ -55,7 +54,7 @@ export function useForm(
   watch(
     () => cloneFormValue(data),
     (val) => {
-      for (const key of affectedFormErrorKeys(errors, changedFormFields(dataSnapshot, val))) {
+      for (const key of changedFormErrorKeys(errors, dataSnapshot, val)) {
         delete errors[key];
       }
       dataSnapshot = val;
@@ -80,23 +79,11 @@ export function useForm(
     dataSnapshot = cloneFormValue(data);
   }
 
-  function clearNestedErrors(field: string) {
-    for (const key of Object.keys(errors)) {
-      if (isFormErrorWithin(key, field)) {
-        delete errors[key];
-      }
-    }
-  }
-
   function clearErrors(...fields: ReadonlyArray<string>) {
-    if (fields.length === 0) {
-      for (const key of Object.keys(errors)) {
-        delete errors[key];
-      }
-    } else {
-      for (const field of fields) {
-        clearNestedErrors(field);
-      }
+    const keys =
+      fields.length === 0 ? Object.keys(errors) : formErrorKeysWithin(errors, fields, data);
+    for (const key of keys) {
+      delete errors[key];
     }
   }
 

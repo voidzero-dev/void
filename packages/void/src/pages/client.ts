@@ -645,12 +645,11 @@ export function initIslands(
 }
 
 export {
-  affectedFormErrorKeys,
-  changedFormFields,
+  changedFormErrorKeys,
+  formErrorKeysWithin,
   formErrorMessage,
   formRetryMessage,
   formSubmissionBlocked,
-  isFormErrorWithin,
   omitFormErrors,
   scheduleFormRetry,
   type FormErrorPath,

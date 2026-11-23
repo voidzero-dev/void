@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { VoidActionError } from '../../src/pages/action-result.ts';
 import {
-  affectedFormErrorKeys,
-  changedFormFields,
+  changedFormErrorKeys,
   formErrorMessage,
   formSubmissionBlocked,
-  isFormErrorWithin,
+  formErrorKeysWithin,
   omitFormErrors,
   scheduleFormRetry,
 } from '../../src/pages/form-presentation.ts';
@@ -45,80 +44,101 @@ it('blocks only while pending or until a known retry deadline, without submittin
   expect(ready).toHaveBeenCalledOnce();
 });
 
-describe('changedFormFields', () => {
-  it('returns only the values that changed', () => {
+describe('changedFormErrorKeys', () => {
+  const errors = {
+    contacts: 'More contacts required',
+    'contacts.0.email': 'First email invalid',
+    'contacts.1.email': 'Second email invalid',
+    'contacts.1.name': 'Second name required',
+  };
+  const twoContacts = { contacts: [{ email: '' }, { email: '', name: '' }] };
+
+  it('selects the changed child and its ancestor but keeps unchanged siblings', () => {
     expect(
-      changedFormFields(
-        { profile: { name: '', email: '' }, contacts: [{ email: '' }, { email: '' }] },
-        { profile: { name: 'Alex', email: '' }, contacts: [{ email: '' }, { email: 'a@b' }] },
+      changedFormErrorKeys(errors, twoContacts, {
+        contacts: [{ email: 'valid@example.com' }, { email: '', name: '' }],
+      }),
+    ).toEqual(['contacts', 'contacts.0.email']);
+  });
+
+  it('selects the descendants of a removed row', () => {
+    expect(changedFormErrorKeys(errors, twoContacts, { contacts: [{ email: '' }] })).toEqual([
+      'contacts',
+      'contacts.1.email',
+      'contacts.1.name',
+    ]);
+  });
+
+  it('clears a missing descendant when its container is replaced', () => {
+    const errors = { 'profile.name': 'Required' };
+    expect(changedFormErrorKeys(errors, { profile: {} }, { profile: null })).toEqual([
+      'profile.name',
+    ]);
+    expect(changedFormErrorKeys(errors, { profile: {} }, { profile: { email: '' } })).toEqual([]);
+  });
+
+  it('keeps a literal dotted field separate from a nested path', () => {
+    const before = { email: { personal: '' }, 'email.work': '' };
+    const errors = { 'email.personal': 'Invalid', 'email.work': 'Invalid' };
+    expect(
+      changedFormErrorKeys(errors, before, {
+        ...before,
+        email: { personal: 'valid@example.com' },
+      }),
+    ).toEqual(['email.personal']);
+    expect(changedFormErrorKeys(errors, before, { email: before.email })).toEqual(['email.work']);
+  });
+
+  it('treats undefined fields and array entries as present', () => {
+    const before = { profile: { nickname: undefined }, contacts: [undefined] };
+    expect(
+      changedFormErrorKeys(
+        { profile: 'Invalid', 'profile.nickname': 'Invalid', contacts: 'Too short' },
+        before,
+        { profile: {}, contacts: [undefined, undefined] },
       ),
-    ).toEqual(['profile.name', 'contacts.1.email']);
+    ).toEqual(['profile', 'profile.nickname', 'contacts']);
+    expect(
+      changedFormErrorKeys(
+        { contacts: 'Invalid', 'contacts.0': 'Invalid' },
+        { contacts: new Array<undefined>(1) },
+        { contacts: [undefined] },
+      ),
+    ).toEqual(['contacts', 'contacts.0']);
   });
 
-  it('prefixes the paths with the field the values belong to', () => {
-    expect(changedFormFields({ name: '' }, { name: 'Alex' }, 'profile')).toEqual(['profile.name']);
-  });
-
-  it('reports an added, removed or replaced value as one path', () => {
-    expect(changedFormFields({ name: '' }, {}, 'profile')).toEqual(['profile.name']);
-    expect(changedFormFields({}, { name: '' }, 'profile')).toEqual(['profile.name']);
-    expect(changedFormFields({ name: '' }, null, 'profile')).toEqual(['profile']);
-  });
-
-  it('splits arrays by index', () => {
-    expect(changedFormFields(['a'], ['a', 'b'], 'tags')).toEqual(['tags.1']);
-  });
-
-  it('keeps a value that is not an array or plain object whole', () => {
+  it('keeps a non-plain object whole', () => {
     const date = new Date(0);
-    expect(changedFormFields({ date }, { date }, 'doc')).toEqual([]);
-    expect(changedFormFields({ date }, { date: new Date(1) }, 'doc')).toEqual(['doc.date']);
+    const errors = { date: 'Invalid date' };
+    expect(changedFormErrorKeys(errors, { date }, { date })).toEqual([]);
+    expect(changedFormErrorKeys(errors, { date }, { date: new Date(1) })).toEqual(['date']);
   });
 });
 
-describe('affectedFormErrorKeys', () => {
-  const errors = {
-    'profile.name': 'Required name',
-    'profile.email': 'Required email',
-    'contacts.0.email': 'First email',
-    'contacts.1.email': 'Second email',
-    profile: 'Profile invalid',
-    name: 'Unrelated',
-  };
+describe('formErrorKeysWithin', () => {
+  const data = { email: { personal: '' }, 'email.work': '' };
+  const errors = { email: 'Invalid', 'email.personal': 'Required', 'email.work': 'Required' };
 
-  it('keeps the errors of the fields the change did not touch', () => {
-    expect(affectedFormErrorKeys(errors, ['contacts.1.email'])).toEqual(['contacts.1.email']);
+  it('selects a parent and its descendants, preserving flat dotted fields', () => {
+    expect(formErrorKeysWithin(errors, ['email'], data)).toEqual(['email', 'email.personal']);
+    expect(formErrorKeysWithin(errors, ['email.work'], data)).toEqual(['email.work']);
   });
 
-  it('clears the field that contains the changed value', () => {
-    expect(affectedFormErrorKeys(errors, ['profile.name'])).toEqual(['profile.name', 'profile']);
-  });
-
-  it('clears the fields below a replaced value', () => {
-    expect(affectedFormErrorKeys(errors, ['profile'])).toEqual([
+  it('finds descendant errors for a missing optional parent', () => {
+    expect(formErrorKeysWithin({ 'profile.name': 'Required' }, ['profile'], {})).toEqual([
       'profile.name',
-      'profile.email',
-      'profile',
     ]);
   });
 });
 
-describe('isFormErrorWithin', () => {
-  it('matches the field and the fields below it', () => {
-    expect(isFormErrorWithin('profile', 'profile')).toBe(true);
-    expect(isFormErrorWithin('profile.name', 'profile')).toBe(true);
-    expect(isFormErrorWithin('profile.name', 'profileName')).toBe(false);
-  });
-});
-
 describe('omitFormErrors', () => {
-  it('removes the field and the fields below it', () => {
-    const errors = { profile: 'Invalid', 'profile.name': 'Required', name: 'Required' };
-    expect(omitFormErrors(errors, ['profile'])).toEqual({ name: 'Required' });
+  const errors = { profile: 'Invalid', 'profile.name': 'Required' };
+
+  it('removes the exact keys selected for an edit', () => {
+    expect(omitFormErrors(errors, ['profile'])).toEqual({ 'profile.name': 'Required' });
   });
 
-  it('returns the same map when nothing matched', () => {
-    const errors = { name: 'Required' };
-    expect(omitFormErrors(errors, ['profile'])).toBe(errors);
+  it('returns the same map with no keys to remove', () => {
+    expect(omitFormErrors(errors, [])).toBe(errors);
   });
 });

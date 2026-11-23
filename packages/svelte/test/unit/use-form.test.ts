@@ -432,3 +432,46 @@ describe('useIslandForm edits made during a submit', () => {
     expect(form.data.title).toBe('Sent');
   });
 });
+
+it('clears the array-level count error after adding an undefined slot', () => {
+  const form = mountForm({ contacts: [undefined] });
+  form.setError('contacts', 'Add a second row');
+  (form.data.contacts as Array<unknown>).push(undefined);
+  svelte.flushSync();
+  expect((form.data.contacts as Array<unknown>).length).toBe(2);
+  expect(form.errors.contacts).toBeUndefined();
+});
+
+it('clears the object-level error after removing an undefined key', () => {
+  const form = mountForm({ profile: { option: undefined } });
+  form.setError('profile', 'Remove the option field');
+  delete (form.data.profile as Record<string, unknown>).option;
+  svelte.flushSync();
+  expect(Object.hasOwn(form.data.profile as object, 'option')).toBe(false);
+  expect(form.errors.profile).toBeUndefined();
+});
+
+it('clears stale errors for other edits in the same batch as validation', () => {
+  const form = mountForm({ contacts: [{ email: '' }, { email: '' }] });
+  form.setError('contacts.0.email', 'First email required');
+  const contacts = form.data.contacts as Array<{ email: string }>;
+  contacts[0].email = 'first@example.com';
+  contacts[1].email = 'invalid';
+  form.setError('contacts.1.email', 'Second email invalid');
+  svelte.flushSync();
+
+  expect({ ...form.errors }).toEqual({ 'contacts.1.email': 'Second email invalid' });
+});
+
+it('preserves a separate literal dotted error when editing or clearing its prefix', () => {
+  const form = mountForm({ email: '', 'email.work': '' });
+  form.setError('email', 'Personal email is required');
+  form.setError('email.work', 'Work email is required');
+  form.data.email = 'new@example.com';
+  svelte.flushSync();
+  expect({ ...form.errors }).toEqual({ 'email.work': 'Work email is required' });
+
+  form.setError('email', 'Invalid email');
+  form.clearErrors('email');
+  expect({ ...form.errors }).toEqual({ 'email.work': 'Work email is required' });
+});

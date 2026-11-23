@@ -17,7 +17,15 @@ export function isEqualFormValue(a: unknown, b: unknown): boolean {
       return false;
     }
 
-    return a.every((value, index) => isEqualFormValue(value, b[index]));
+    for (let index = 0; index < a.length; index += 1) {
+      if (
+        Object.hasOwn(a, index) !== Object.hasOwn(b, index) ||
+        !isEqualFormValue(a[index], b[index])
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 
   if (isPlainObject(a) || isPlainObject(b)) {

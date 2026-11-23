@@ -9,9 +9,9 @@ import {
 } from 'react';
 import {
   VoidActionError,
-  affectedFormErrorKeys,
-  changedFormFields,
+  changedFormErrorKeys,
   cloneFormValue,
+  formErrorKeysWithin,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
@@ -194,19 +194,14 @@ export function useForm(
 
   const setData = useCallback(
     (field: string, value: unknown) => {
-      const previousValue = dataRef.current[field];
-      dataRef.current = { ...dataRef.current, [field]: value };
-      setDataState(dataRef.current);
-      if (isEqualFormValue(previousValue, value)) {
-        return;
-      }
+      const previous = dataRef.current;
+      const next = { ...previous, [field]: value };
+      dataRef.current = next;
+      setDataState(next);
       const target = callbackOutcomeRef.current ?? outcome;
       setErrorEdits((prev) => {
         const current = resolveOutcomeErrors(target, prev);
-        const affected = affectedFormErrorKeys(
-          current,
-          changedFormFields(previousValue, value, field),
-        );
+        const affected = changedFormErrorKeys(current, previous, next);
         if (affected.length === 0) {
           return prev;
         }
@@ -241,12 +236,14 @@ export function useForm(
   const clearErrors = useCallback(
     (...fields: ReadonlyArray<string>) => {
       const target = callbackOutcomeRef.current ?? outcome;
+      const data = dataRef.current;
       setErrorEdits((prev) => {
         const base = prev?.source === target ? prev : { source: target };
         if (fields.length === 0) {
           return { ...base, errors: EMPTY_ERRORS };
         }
-        const next = omitFormErrors(resolveOutcomeErrors(target, prev), fields);
+        const current = resolveOutcomeErrors(target, prev);
+        const next = omitFormErrors(current, formErrorKeysWithin(current, fields, data));
         return { ...base, errors: next };
       });
     },

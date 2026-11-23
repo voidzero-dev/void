@@ -863,3 +863,54 @@ describe('useForm state derivation and error management', () => {
     }
   });
 });
+
+declare module 'void/routes' {
+  interface PageActionMap {
+    '/__form-optional/contacts': {
+      body: { contacts: Array<{ email: string } | undefined> };
+    };
+  }
+}
+
+describe('error isolation', () => {
+  it.each([
+    {
+      name: 'changes one row while an array-level and two row-level errors exist',
+      initial: [{ email: '' }, { email: '' }],
+      updated: [{ email: 'fixed@example.com' }, { email: '' }],
+      initialErrors: {
+        contacts: 'At least one valid email required',
+        'contacts.0.email': 'First email required',
+        'contacts.1.email': 'Second email required',
+      },
+      expectedErrors: { 'contacts.1.email': 'Second email required' },
+    },
+    {
+      name: 'clears the array-level count error after adding an undefined slot',
+      initial: [undefined],
+      updated: [undefined, undefined],
+      initialErrors: { contacts: 'Add a second row' },
+      expectedErrors: {},
+    },
+  ])('$name', async ({ initial, updated, initialErrors, expectedErrors }) => {
+    type OptionalForm = ReturnType<typeof useForm<'/__form-optional/contacts'>>;
+    const formRef: { current: OptionalForm | null } = { current: null };
+    function App() {
+      formRef.current = useForm('/__form-optional/contacts', { contacts: initial });
+      return null;
+    }
+    const router = routerWithVisit(async () => ({ errors: initialErrors }));
+    await mountApp(createElement(RouterContext.Provider, { value: router }, createElement(App)));
+    await act(async () => {
+      startTransition(() => {
+        formRef.current!.post(new FormData());
+      });
+    });
+    expect(formRef.current!.errors).toEqual(initialErrors);
+    await act(async () => {
+      formRef.current!.setData('contacts', updated);
+    });
+    expect(formRef.current!.data.contacts).toEqual(updated);
+    expect(formRef.current!.errors).toEqual(expectedErrors);
+  });
+});

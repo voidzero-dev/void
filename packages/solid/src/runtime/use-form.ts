@@ -2,9 +2,9 @@ import { createSignal, createMemo, useContext } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import {
   VoidActionError,
-  affectedFormErrorKeys,
-  changedFormFields,
+  changedFormErrorKeys,
   cloneFormValue,
+  formErrorKeysWithin,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
@@ -91,11 +91,15 @@ export function useForm(
   });
 
   function setData(field: string, value: unknown) {
-    // The store updates in place, so snapshot the old value before the write.
-    const previous = cloneFormValue(data[field]);
+    // The store can merge the new value into the existing object. Snapshot that field
+    // before the write and compare against what the store actually kept.
+    const previous = { ...data };
+    if (Object.hasOwn(previous, field)) {
+      previous[field] = cloneFormValue(previous[field]);
+    }
     setDataStore(field, value);
     const current = errors();
-    const affected = affectedFormErrorKeys(current, changedFormFields(previous, value, field));
+    const affected = changedFormErrorKeys(current, previous, data);
     if (affected.length > 0) {
       replaceErrors(omitFormErrors(current, affected));
     }
@@ -114,7 +118,12 @@ export function useForm(
   }
 
   function clearErrors(...fields: ReadonlyArray<string>) {
-    replaceErrors(fields.length === 0 ? {} : omitFormErrors(errors(), fields));
+    const current = errors();
+    replaceErrors(
+      fields.length === 0
+        ? {}
+        : omitFormErrors(current, formErrorKeysWithin(current, fields, data)),
+    );
   }
 
   function setFieldError(field: string, message: string) {
