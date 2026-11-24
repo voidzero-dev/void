@@ -277,6 +277,15 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // The resolver reports false positives in these public dependency re-exports.
+        files: [
+          'packages/void/src/runtime/db/schema/{d1,mysql,postgres}.ts',
+          'packages/void/src/runtime/db/validators/drizzle-{arktype,valibot,zod}.ts',
+          'packages/void/src/runtime/sandbox/index.ts',
+        ],
+        rules: { 'import/export': 'off' },
+      },
+      {
         // Solid JSX uses native DOM attribute names, including label for.
         files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
         rules: { 'react/no-unknown-property': 'off' },
@@ -423,7 +432,6 @@ const config = defineConfig({
       '@nkzw/no-instanceof': 'off',
       eqeqeq: 'off',
       'import/consistent-type-specifier-style': 'off',
-      'import/export': 'off',
       'import/no-namespace': 'off',
       'no-console': 'off',
       'no-promise-executor-return': 'off',
