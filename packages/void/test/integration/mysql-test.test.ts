@@ -1,4 +1,5 @@
-import { execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
@@ -7,10 +8,10 @@ import {
   killChild,
   spawnFixtureServer,
   startServer,
-  type IsolatedPlayground,
-  type StartedServer,
 } from '../../../../test/integration-helpers.ts';
-import { startFakeMySqlServer, type FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import type { IsolatedPlayground, StartedServer } from '../../../../test/integration-helpers.ts';
+import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import type { FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const USERS = [

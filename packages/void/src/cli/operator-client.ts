@@ -58,11 +58,11 @@ export class OperatorClient {
       (options.method === 'POST' ? OPERATOR_MUTATION_TIMEOUT_MS : OPERATOR_READ_TIMEOUT_MS);
     if (
       !Number.isSafeInteger(timeoutMs) ||
-      timeoutMs < 1_000 ||
+      timeoutMs < 1000 ||
       timeoutMs > OPERATOR_MAX_TIMEOUT_MS
     ) {
       throw new OperatorClientError(
-        `Operator request timeout must be an integer from 1 to ${OPERATOR_MAX_TIMEOUT_MS / 1_000} seconds.`,
+        `Operator request timeout must be an integer from 1 to ${OPERATOR_MAX_TIMEOUT_MS / 1000} seconds.`,
         'invalid_timeout',
       );
     }
@@ -98,7 +98,7 @@ export class OperatorClient {
         }
         if (timeoutController.signal.aborted) {
           throw new OperatorClientError(
-            `Operator request exceeded the ${timeoutMs / 1_000}-second timeout. ${options.method === 'POST' ? 'Its outcome may be unknown; inspect platform state before retrying.' : 'Check connectivity and try again.'}`,
+            `Operator request exceeded the ${timeoutMs / 1000}-second timeout. ${options.method === 'POST' ? 'Its outcome may be unknown; inspect platform state before retrying.' : 'Check connectivity and try again.'}`,
             'request_timeout',
           );
         }

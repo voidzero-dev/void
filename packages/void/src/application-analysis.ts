@@ -1,6 +1,7 @@
 import { needsApplicationDatabase } from './application-features.ts';
 import { findVoidAuthConfig } from './auth/config.ts';
-import { getDatabaseDialect, resolveBindingNames, type VoidConfig } from './config.ts';
+import { getDatabaseDialect, resolveBindingNames } from './config.ts';
+import type { VoidConfig } from './config.ts';
 import { scanJobsSync } from './crons/scan.ts';
 import { scanDurableObjectModules } from './durable/scan.ts';
 import type { InferredBindings } from './inference/walk.ts';
@@ -9,7 +10,8 @@ import { detectFramework, FRAMEWORK_SCAN_DIRS, inferProjectBindings } from './pl
 import { resolveProjectPaths } from './project-paths.ts';
 import { scanQueuesSync } from './queues/scan.ts';
 import { scanEmailHandlersSync } from './router/email.ts';
-import { isRouteEnabledForEnvironment, type RouteEnvironment } from './router/parse-filename.ts';
+import { isRouteEnabledForEnvironment } from './router/parse-filename.ts';
+import type { RouteEnvironment } from './router/parse-filename.ts';
 import { scanMiddlewareSync, scanRoutePatternsSync } from './router/scan.ts';
 import { scanWebSocketRoutesSync } from './router/websocket.ts';
 import { isSandboxEnabled } from './sandbox/config.ts';

@@ -3,14 +3,8 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vite-
 import { signJwt } from '../../src/auth/jwt.ts';
 import app from '../../src/index.ts';
 import { users } from '../../src/schema.ts';
-import {
-  setupEnv,
-  teardownEnv,
-  clearTables,
-  createTestUser,
-  JWT_SECRET,
-  type TestEnv,
-} from './helpers.ts';
+import { setupEnv, teardownEnv, clearTables, createTestUser, JWT_SECRET } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

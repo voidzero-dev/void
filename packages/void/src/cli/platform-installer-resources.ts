@@ -1,27 +1,28 @@
 import { createHash } from 'node:crypto';
-import { type CloudflareTriggerConfig } from '@void/deploy-cloudflare';
+import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import {
   createPlatformResourceOwnershipMarker,
   PLATFORM_R2_OWNERSHIP_MARKER_KEY,
   recordInstallationResource,
   recordInstallationStep,
-  type InstallationResource,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { InstallationResource, PlatformInstallationManifest } from '@void/platform';
 import { PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY as REMOTE_INSTALLATION_MANIFEST_KEY } from '@void/platform';
 import {
   hyperdriveOriginConfigHash,
   hyperdriveOriginFromConnectionString,
-  type CloudflareNamedResource,
-  type CloudflareWorkerCustomDomainOrigin,
+} from './platform-cloudflare.ts';
+import type {
+  CloudflareNamedResource,
+  CloudflareWorkerCustomDomainOrigin,
 } from './platform-cloudflare.ts';
 import { writePlatformTiming } from './platform-installer-process.ts';
-import {
-  type PlatformInstallationSecrets,
-  type PlatformInstallerDependencies,
-  type InstallationCheckpointWriter,
-  type InstallerClient,
-  type PlatformDatabaseLifecycleLock,
+import type {
+  PlatformInstallationSecrets,
+  PlatformInstallerDependencies,
+  InstallationCheckpointWriter,
+  InstallerClient,
+  PlatformDatabaseLifecycleLock,
 } from './platform-installer-types.ts';
 import {
   dnsRecordConfigHash,
@@ -30,9 +31,8 @@ import {
   platformAdoptionIntentHash,
   platformProvisionIntentHash,
   r2BucketConfigHash,
-  type PlatformInstallPlan,
-  type PlatformInstallPlanAction,
 } from './platform-plan.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
 import { savePlatformConnection, writeInstallationManifest } from './platform-registry.ts';
 import { platformManagedWorkerTraffic } from './platform-traffic.ts';
 

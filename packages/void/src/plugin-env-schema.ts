@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { join, resolve } from 'pathslash';
-import { loadEnv, normalizePath, resolveEnvPrefix, type Plugin, type ResolvedConfig } from 'vite';
+import { loadEnv, normalizePath, resolveEnvPrefix } from 'vite';
+import type { Plugin, ResolvedConfig } from 'vite';
 import { findEnvFile, generateEnvTypes } from './codegen/env-types.ts';
 import { writeFileIfChanged } from './codegen/write-if-changed.ts';
 import { loadUserEnvFile } from './host/load-user-env.ts';
@@ -123,12 +124,56 @@ function envFileIdsFor(envFile: string | null): Set<string> {
 
 /** A hook filter pattern that matches exactly `id`. */
 function exactId(id: string): RegExp {
-  return new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+  return new RegExp(`^${id.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}$`);
 }
 
 /** Patterns Vite's `define` typically uses for env-shaped constants. */
 const DEFINE_ENV_PATTERN =
   /^(?:globalThis\.)?(?:process\.env|import\.meta\.env)\.([A-Z_][A-Z0-9_]*)$/;
+
+async function warnOnDefineOverlap(define: Record<string, unknown>): Promise<void> {
+  const { _hasRegisteredSchema, _getRegisteredSchema } = await loadEnvPublic();
+  if (!_hasRegisteredSchema()) {
+    return;
+  }
+  const schema = _getRegisteredSchema();
+  if (!schema) {
+    return;
+  }
+  const overlaps: Array<{ defineKey: string; schemaKey: string }> = [];
+  for (const defineKey of Object.keys(define)) {
+    const match = DEFINE_ENV_PATTERN.exec(defineKey);
+    if (!match) {
+      continue;
+    }
+    const name = match[1]!;
+    if (name in schema) {
+      overlaps.push({ defineKey, schemaKey: name });
+    }
+  }
+  if (overlaps.length === 0) {
+    return;
+  }
+  const lines = ['Vite `define` is shadowing schema env keys:'];
+  for (const { defineKey, schemaKey } of overlaps) {
+    lines.push(
+      `  • "${defineKey}" → schema key "${schemaKey}". ` +
+        `The compiled client code receives the define value, but the typed env.X proxy and validation still source from the schema. Prefer one or the other for any given key.`,
+    );
+  }
+  voidWarn(lines.join('\n'));
+}
+
+async function assertNoReservedSchemaKeys() {
+  const { _hasRegisteredSchema, _getRegisteredSchema } = await loadEnvPublic();
+  if (!_hasRegisteredSchema()) {
+    return;
+  }
+  const reserved = findReservedEnvKeys(Object.keys(_getRegisteredSchema() ?? {}));
+  if (reserved.length > 0) {
+    throw new Error(reservedEnvKeysMessage('env.ts', reserved));
+  }
+}
 
 /**
  * Vite plugin that auto-discovers `env.ts` at the project root and:
@@ -188,17 +233,6 @@ export function envSchemaPlugin(root: string, options: EnvSchemaPluginOptions = 
     options.onSchema({ keys, clientKeys, serverKeys, requiredServerKeys });
   }
 
-  async function assertNoReservedSchemaKeys() {
-    const { _hasRegisteredSchema, _getRegisteredSchema } = await loadEnvPublic();
-    if (!_hasRegisteredSchema()) {
-      return;
-    }
-    const reserved = findReservedEnvKeys(Object.keys(_getRegisteredSchema() ?? {}));
-    if (reserved.length > 0) {
-      throw new Error(reservedEnvKeysMessage('env.ts', reserved));
-    }
-  }
-
   function regenerateTypes() {
     if (!envFile) {
       return;
@@ -220,39 +254,6 @@ export function envSchemaPlugin(root: string, options: EnvSchemaPluginOptions = 
       }
       voidWarn((err as Error).message);
     }
-  }
-
-  async function warnOnDefineOverlap(define: Record<string, unknown>): Promise<void> {
-    const { _hasRegisteredSchema, _getRegisteredSchema } = await loadEnvPublic();
-    if (!_hasRegisteredSchema()) {
-      return;
-    }
-    const schema = _getRegisteredSchema();
-    if (!schema) {
-      return;
-    }
-    const overlaps: Array<{ defineKey: string; schemaKey: string }> = [];
-    for (const defineKey of Object.keys(define)) {
-      const match = DEFINE_ENV_PATTERN.exec(defineKey);
-      if (!match) {
-        continue;
-      }
-      const name = match[1]!;
-      if (name in schema) {
-        overlaps.push({ defineKey, schemaKey: name });
-      }
-    }
-    if (overlaps.length === 0) {
-      return;
-    }
-    const lines = ['Vite `define` is shadowing schema env keys:'];
-    for (const { defineKey, schemaKey } of overlaps) {
-      lines.push(
-        `  • "${defineKey}" → schema key "${schemaKey}". ` +
-          `The compiled client code receives the define value, but the typed env.X proxy and validation still source from the schema. Prefer one or the other for any given key.`,
-      );
-    }
-    voidWarn(lines.join('\n'));
   }
 
   async function validateAndWarn() {

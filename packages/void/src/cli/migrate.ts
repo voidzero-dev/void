@@ -10,7 +10,8 @@ import {
 } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { log } from '@voidzero-dev/vite-plus-prompts';
-import { parseTree, type Node } from 'jsonc-parser';
+import { parseTree } from 'jsonc-parser';
+import type { Node } from 'jsonc-parser';
 import { join } from 'pathslash';
 import {
   ignoreMaterializedCloudflareConfig,
@@ -20,7 +21,8 @@ import {
 } from '../cloudflare-config.ts';
 import { loadTypedVoidConfigFile, TYPED_CONFIG_FILE } from '../config-loader.ts';
 import { GENERATED_MARKERS, renderVoidConfig } from '../config-write.ts';
-import { validateConfig, type VoidConfig } from '../config.ts';
+import { validateConfig } from '../config.ts';
+import type { VoidConfig } from '../config.ts';
 import { ensureGitignoreLines } from '../shared/gitignore.ts';
 import {
   applyFrameworkConfigMigration,

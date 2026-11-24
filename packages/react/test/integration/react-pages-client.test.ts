@@ -1,7 +1,8 @@
-import { execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
@@ -10,8 +11,8 @@ import {
   spawnFixtureServer,
   startServer,
   waitForServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
   registerSharedClientTests,
@@ -452,7 +453,10 @@ function defineTransitionAwaitTests(getBase: () => string, serverOutput: () => s
           // optimistic state and URL must stay until React can commit the new UI.
           await page.evaluate(() => window.dispatchEvent(new Event('finish-action')));
           await page.evaluate(
-            () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+            () =>
+              new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve());
+              }),
           );
           expect(await button.textContent()).toBe('pending');
           expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
@@ -547,7 +551,9 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         await page.waitForFunction(() =>
           document.querySelector('h1')?.textContent?.includes('Users'),
         );
-        await page.waitForFunction(() => window.__visitAwaitObserved != null);
+        await page.waitForFunction(
+          () => window.__visitAwaitObserved !== null && window.__visitAwaitObserved !== undefined,
+        );
 
         const observedHeading = await page.evaluate(() => window.__visitAwaitObserved);
         expect(observedHeading).toBe('Users');
@@ -671,7 +677,9 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     try {
       await page.route('**/users?keep-visible=1', async (route) => {
         if (route.request().headers()['x-voidpages']) {
-          await new Promise((resolve) => setTimeout(resolve, 750));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 750);
+          });
         }
         await route.continue();
       });
@@ -1001,7 +1009,7 @@ describe('react-pages client (dev)', () => {
 
   beforeAll(
     async () => {
-      originalLayout = readFileSync(REACT_PAGES_LAYOUT, 'utf-8');
+      originalLayout = readFileSync(REACT_PAGES_LAYOUT, 'utf8');
       installLateWorkerDeps();
       writeFileSync(REACT_PAGES_LAYOUT, lateWorkerDepLayout());
 
@@ -1309,7 +1317,9 @@ describe('react-pages client (dev)', () => {
       let lastStatus = 0;
       let lastBody = '';
       while (Date.now() - start < 10_000) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => {
+          setTimeout(r, 100);
+        });
         const res = await fetch(`${DEV_BASE}/hmr-new-route`);
         lastStatus = res.status;
         lastBody = await res.text();

@@ -1,6 +1,7 @@
 import type { ProjectZeroTrustRouting } from '@void/edge';
 import { sql as drizzleSql } from 'drizzle-orm';
-import { getDomainsByProjectIds, getProject, type Db } from './db.ts';
+import { getDomainsByProjectIds, getProject } from './db.ts';
+import type { Db } from './db.ts';
 import type { AssetConfig, DeployManifest } from './types.ts';
 import {
   assertRouteBelongsToProject,

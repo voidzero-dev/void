@@ -47,8 +47,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // Hosted Void Cloud does not set PLATFORM_AUTH_DATABASE_UNCACHED. Nothing here may
 // depend on it.
@@ -334,7 +334,9 @@ describe('operator project override', () => {
         return result;
       });
       try {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 50);
+        });
         expect(done).toBe(false);
       } finally {
         // Never leave the lock held for the tests that follow.
@@ -561,7 +563,9 @@ describe('project create', () => {
       );
       let created: Awaited<typeof creating>;
       try {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 50);
+        });
         expect(changed).toBe(false);
       } finally {
         // Never leave the lock held for the tests that follow.

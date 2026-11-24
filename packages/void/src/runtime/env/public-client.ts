@@ -16,7 +16,7 @@ type ImportMetaEnvLike = {
 };
 
 function getClientEnv(): Record<string, unknown> | undefined {
-  return (import.meta as unknown as ImportMetaEnvLike).env;
+  return (import.meta as ImportMetaEnvLike).env;
 }
 
 function readClientKey(key: string): unknown {

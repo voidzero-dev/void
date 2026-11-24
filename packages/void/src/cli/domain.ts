@@ -1,6 +1,7 @@
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
-import { type DomainStatusResponse, PlatformClient } from './client.ts';
+import { PlatformClient } from './client.ts';
+import type { DomainStatusResponse } from './client.ts';
 import type { DomainArgs } from './domain-args.ts';
 import { printSuccess, note, pc } from './output.ts';
 import { readDeploymentPlatform } from './project.ts';

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { isRecord } from '@void/deploy-core';
 import { browserPageLead, browserPageStatus, renderBrowserPage } from '@void/platform/browser-page';
 import { join } from 'pathslash';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
@@ -38,7 +39,14 @@ type Config = {
 
 function readConfig(): Config {
   try {
-    return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+    const parsed: unknown = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+    if (!isRecord(parsed)) {
+      return {};
+    }
+    const tokens = parsed.tokens;
+    return isRecord(tokens) && Object.values(tokens).every((token) => typeof token === 'string')
+      ? { ...parsed, tokens: tokens as Record<string, string> }
+      : {};
   } catch {
     return {};
   }
@@ -293,10 +301,11 @@ function page(title: string, message: string): string {
   });
 }
 
+// Launch via argv (execFile), never a shell: the URL is passed as a single
+// argument so shell metacharacters in it can't be interpreted as commands.
+const ignore = (): void => {};
+
 export function openBrowser(url: string, run: typeof execFile = execFile): void {
-  // Launch via argv (execFile), never a shell: the URL is passed as a single
-  // argument so shell metacharacters in it can't be interpreted as commands.
-  const ignore = (): void => {};
   if (process.platform === 'win32') {
     // Avoid cmd.exe interpreting URL query separators such as & as shell commands.
     run('rundll32.exe', ['url.dll,FileProtocolHandler', url], ignore);

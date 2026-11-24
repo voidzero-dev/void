@@ -38,7 +38,7 @@ export function getPlatformCapabilities(
   }
   return Object.fromEntries(
     CAPABILITY_NAMES.map((name) => [name, record[name]]),
-  ) as unknown as PlatformCapabilities;
+  ) as PlatformCapabilities;
 }
 
 export function capabilityMiddleware(

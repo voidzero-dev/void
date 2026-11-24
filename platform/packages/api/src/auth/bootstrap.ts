@@ -1,10 +1,8 @@
-import {
-  parsePlatformAuthenticationSetup,
-  PLATFORM_AUTH_SETUP_PROOF_PREFIX,
-  type PlatformAuthenticationSetup,
-} from '@void/platform';
+import { parsePlatformAuthenticationSetup, PLATFORM_AUTH_SETUP_PROOF_PREFIX } from '@void/platform';
+import type { PlatformAuthenticationSetup } from '@void/platform';
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
-import { createOAuthAccount, createUser, type Db } from '../db.ts';
+import { createOAuthAccount, createUser } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getDefaultPlan, lockPlanCatalog } from '../plans.ts';
 import { encryptPlatformCredential } from '../project-secrets.ts';
@@ -28,7 +26,8 @@ import {
 import { bindCompanyIdentity } from './identities.ts';
 import type { PlatformOidcIdentity } from './oidc.ts';
 import { hashLoginProof, randomLoginProof } from './proofs.ts';
-import { createHumanSession, type CompanyIdentity } from './sessions.ts';
+import { createHumanSession } from './sessions.ts';
+import type { CompanyIdentity } from './sessions.ts';
 
 export const AUTH_SETUP_PROOF_PREFIX = PLATFORM_AUTH_SETUP_PROOF_PREFIX;
 const SETUP_SECONDS = 30 * 60;

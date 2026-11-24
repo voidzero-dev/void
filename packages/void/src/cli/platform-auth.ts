@@ -1,14 +1,14 @@
-import { runCloudflareAuthCommand, type CloudflareAuthRunner } from './cloudflare-auth.ts';
-import {
-  PlatformCloudflareApiError,
-  type CloudflareAccount,
-  type PlatformCloudflareClient,
-} from './platform-cloudflare.ts';
+import { runCloudflareAuthCommand } from './cloudflare-auth.ts';
+import type { CloudflareAuthRunner } from './cloudflare-auth.ts';
+import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import type { CloudflareAccount, PlatformCloudflareClient } from './platform-cloudflare.ts';
 import {
   describePlatformCredential,
   formatPlatformCredentialDenials,
-  type PlatformCredentialDenial,
-  type PlatformCredentialLabel,
+} from './platform-credential-label.ts';
+import type {
+  PlatformCredentialDenial,
+  PlatformCredentialLabel,
 } from './platform-credential-label.ts';
 import { planCreatesZone, planWritesDns } from './platform-plan-writes.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';

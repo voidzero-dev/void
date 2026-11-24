@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import {
   closeSync,
@@ -10,10 +11,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, hostname } from 'node:os';
-import {
-  parsePlatformInstallationManifest,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { parsePlatformInstallationManifest } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { join, resolve } from 'pathslash';
 import { writeFileAtomic } from '../shared/atomic-write.ts';
 import { readKeyringPassword, writeKeyringPassword } from './keyring.ts';
@@ -88,6 +87,9 @@ export function platformCredentialAccount(apiUrl: string): string {
   return `platform:${createHash('sha256').update(normalizePlatformApiUrl(apiUrl)).digest('hex')}`;
 }
 
+const optionalString = (input: unknown): string | null =>
+  typeof input === 'string' && input !== '' ? input : null;
+
 function parseConnection(value: unknown): PlatformConnection {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('platform: Invalid connection entry in the local registry.');
@@ -105,8 +107,6 @@ function parseConnection(value: unknown): PlatformConnection {
   if (!Number.isFinite(Date.parse(lastUsedAt))) {
     throw new Error('platform: Invalid connection timestamp in the local registry.');
   }
-  const optionalString = (input: unknown): string | null =>
-    typeof input === 'string' && input !== '' ? input : null;
   const proxyUrl = optionalString(entry.proxyUrl);
   return {
     accountId: optionalString(entry.accountId),
@@ -150,6 +150,7 @@ function readRegistry(directory: string): PlatformConnectionRegistry {
     }
     throw new Error(
       `platform: Could not read ${join(directory, 'registry.json')}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }
@@ -166,7 +167,9 @@ function withRegistryLock<T>(directory: string, operation: () => T): T {
     }
     const age = Date.now() - statSync(lockPath).mtimeMs;
     if (age < 10 * 60 * 1000) {
-      throw new Error('platform: Another process is updating the platform registry.');
+      throw new Error('platform: Another process is updating the platform registry.', {
+        cause: error,
+      });
     }
     rmSync(lockPath, { force: true });
     descriptor = openSync(lockPath, 'wx', 0o600);
@@ -220,7 +223,8 @@ export function acquirePlatformLifecycleLock(
             stale = (ownerError as NodeJS.ErrnoException).code === 'ESRCH';
           }
         } else {
-          const startedAt = typeof owner.startedAt === 'string' ? Date.parse(owner.startedAt) : NaN;
+          const startedAt =
+            typeof owner.startedAt === 'string' ? Date.parse(owner.startedAt) : Number.NaN;
           stale = Number.isFinite(startedAt) && Date.now() - startedAt > 2 * 60 * 60 * 1000;
         }
       } catch {
@@ -229,6 +233,7 @@ export function acquirePlatformLifecycleLock(
       if (!stale) {
         throw new Error(
           `platform: Another lifecycle operation is active for ${installationSlug} in account ${accountId}.`,
+          { cause: error },
         );
       }
       rmSync(lockPath, { force: true });
@@ -414,6 +419,7 @@ export function listInstallationManifests(
       } catch (error) {
         throw new Error(
           `platform: Invalid installation manifest ${path}: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
         );
       }
     }
@@ -625,6 +631,7 @@ function readRecoveryMaterial(
     return parseRecoveryValues(JSON.parse(plaintext.toString('utf8')), `${kind} recovery material`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      // oxlint-disable-next-line preserve-caught-error -- Do not attach the original error from reading credential material.
       throw new Error(
         `platform: Could not read encrypted ${kind} material: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -644,6 +651,7 @@ function readRecoveryMaterial(
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;
     }
+    // oxlint-disable-next-line preserve-caught-error -- Do not attach the original error from reading credential material.
     throw new Error(
       `platform: Could not migrate legacy ${kind} material: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -676,6 +684,7 @@ function writeEncryptedRecoveryMaterial(
 }
 
 function recoveryAad(manifest: PlatformInstallationManifest, kind: 'pending' | 'recovery'): Buffer {
+  // oxlint-disable-next-line typescript/no-unsafe-return -- The lint type service loses the Node Buffer method types here.
   return Buffer.from(
     `void-platform-recovery-v1\0${manifest.account.id}\0${manifest.id}\0${manifest.ownershipNonce}\0${kind}`,
   );
@@ -710,6 +719,7 @@ function parseRecoveryKey(value: string, name: string): Buffer {
   if (key.byteLength !== 32 || key.toString('base64') !== value) {
     throw new Error(`platform: ${name} must be a canonical base64-encoded 32-byte key.`);
   }
+  // oxlint-disable-next-line typescript/no-unsafe-return -- The lint type service loses the Node Buffer method types here.
   return key;
 }
 

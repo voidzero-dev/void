@@ -4,23 +4,19 @@ import { glob } from 'tinyglobby';
 import { parseSync } from 'vite';
 import { readConfig } from '../config.ts';
 import { voidWarn } from '../log.ts';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
-import {
-  isRouteEnabledForEnvironment,
-  parseRouteFilename,
-  type RouteEnvironment,
-} from '../router/parse-filename.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
+import { isRouteEnabledForEnvironment, parseRouteFilename } from '../router/parse-filename.ts';
+import type { RouteEnvironment } from '../router/parse-filename.ts';
 import { compareRouteSpecificity } from '../router/route-order.ts';
 import { bindingNames } from '../shared/ast-bindings.ts';
-import {
-  isIdentifier,
-  isLiteral,
-  moduleExportName,
-  type AstExportNamedDeclaration,
-  type AstFunctionDeclaration,
-  type AstNode,
-  type AstProgram,
-  type AstVariableDeclaration,
+import { asAstProgram, isIdentifier, isLiteral, moduleExportName } from '../shared/ast.ts';
+import type {
+  AstExportNamedDeclaration,
+  AstFunctionDeclaration,
+  AstNode,
+  AstProgram,
+  AstVariableDeclaration,
 } from '../shared/ast.ts';
 import { ROUTE_EXTENSIONS, ROUTE_EXTENSIONS_SET } from '../shared/route-extensions.ts';
 import { deriveFromSource } from '../shared/source-analysis-cache.ts';
@@ -47,7 +43,7 @@ import type {
 
 const COMPONENT_EXTENSIONS = ['vue', 'tsx', 'jsx', 'svelte', 'md'];
 const PAGE_METHODS = new Set(['loader', 'action', 'actions']);
-export const MAX_REVALIDATE = 31536000; // 1 year in seconds
+export const MAX_REVALIDATE = 31_536_000; // 1 year in seconds
 
 /** Layout paths already reported; a dev server rescans pages on every file change. */
 const warnedLayoutPaths = new Set<string>();
@@ -238,7 +234,7 @@ function detectPageServerMetadata(source: string, filename: string): PageServerM
     return metadata;
   }
 
-  const program = parsed.program as unknown as AstProgram;
+  const program = asAstProgram(parsed.program);
   for (const node of program.body ?? []) {
     if (node.type !== 'ExportNamedDeclaration') {
       continue;
@@ -324,7 +320,7 @@ export function pageFileEnvironment(relativePath: string): RouteEnvironment | nu
   if (segments.some((segment) => segment.startsWith('_'))) {
     return null;
   }
-  const file = segments[segments.length - 1];
+  const file = segments.at(-1) ?? '';
   const ext = extname(file);
   let base = basename(file, ext);
   if (ROUTE_EXTENSIONS_SET.has(ext) && base.endsWith('.server')) {
@@ -574,8 +570,11 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     }
     const dir = dirname(page.componentPath);
     const segments = dir === '.' ? [] : dir.split('/');
-    const ancestors = ['', ...segments.map((_, index) => segments.slice(0, index + 1).join('/'))];
-    if (layouts.some((l) => l.island && ancestors.includes(l.directory))) {
+    const ancestors = new Set([
+      '',
+      ...segments.map((_, index) => segments.slice(0, index + 1).join('/')),
+    ]);
+    if (layouts.some((l) => l.island && ancestors.has(l.directory))) {
       throw new Error(
         `pages: Regular page '${page.componentPath}' is under an island layout. Add a .island suffix.`,
       );
@@ -698,7 +697,7 @@ function frontmatterField(yaml: string, key: string): string | undefined {
   return yaml
     .match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]
     ?.trim()
-    .replace(/^["']|["']$/g, '');
+    .replaceAll(/^["']|["']$/g, '');
 }
 
 /** Extract title and description from YAML frontmatter in markdown source. */

@@ -3,10 +3,9 @@ import { readFileSync } from 'node:fs';
 import {
   parsePlatformInstallationManifest,
   recordInstallationStep,
-  type PlatformInstallationManifest,
   parsePlatformAccessProtection,
-  type PlatformLoginKind,
 } from '@void/platform';
+import type { PlatformInstallationManifest, PlatformLoginKind } from '@void/platform';
 import type {
   PlatformRuntimeDatabaseManifest,
   PlatformRuntimeManifest,
@@ -16,24 +15,26 @@ import { join } from 'pathslash';
 import type { Pool } from 'pg';
 import { projectPlatformAiLoggingConnection } from './platform-ai-logging-projection.ts';
 import { verifyPlatformDatabaseArtifacts } from './platform-installer-runtime.ts';
-import {
-  type PlatformAdministratorSetupState,
-  type PlatformInstallerDependencies,
-  type PlatformDatabaseLifecycleLock,
-  type InstallationCheckpointWriter,
-  type PlatformDatabaseState,
-  type PlatformDatabaseMigrationResult,
-  type PlatformSandboxDrainPreparation,
+import type {
+  PlatformAdministratorSetupState,
+  PlatformInstallerDependencies,
+  PlatformDatabaseLifecycleLock,
+  InstallationCheckpointWriter,
+  PlatformDatabaseState,
+  PlatformDatabaseMigrationResult,
+  PlatformSandboxDrainPreparation,
 } from './platform-installer-types.ts';
-import { type PlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformInstallPlan } from './platform-plan.ts';
 import { writeInstallationManifest } from './platform-registry.ts';
 import {
   fencePlatformProjectZeroTrustConnection,
   liftPlatformProjectZeroTrustFenceConnection,
   lockPlatformProjectZeroTrustConnection,
   readPlatformProjectZeroTrustStateConnection,
-  type PlatformProjectZeroTrustState,
-  type QueryConnection,
+} from './platform-zero-trust-uninstall.ts';
+import type {
+  PlatformProjectZeroTrustState,
+  QueryConnection,
 } from './platform-zero-trust-uninstall.ts';
 
 // onManifestChange keeps migration checkpoints visible to the outer failure handler.
@@ -178,12 +179,12 @@ export function platformDatabaseClientUrl(databaseUrl: string): string {
 
 async function withPlatformDatabasePool<T>(
   databaseUrl: string,
-  use: (pool: Pool) => Promise<T>,
+  run: (pool: Pool) => Promise<T>,
 ): Promise<T> {
   const { Pool } = await import('pg');
   const pool = new Pool({ connectionString: platformDatabaseClientUrl(databaseUrl), max: 1 });
   try {
-    return await use(pool);
+    return await run(pool);
   } finally {
     await pool.end();
   }
@@ -254,6 +255,7 @@ export async function readPlatformDatabaseLifecycleManifest(
       }
       throw new Error(
         `platform: Could not read the PostgreSQL lifecycle checkpoint: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   });
@@ -589,6 +591,7 @@ export async function acquirePlatformDatabaseLifecycleLockConnection(
     }
     throw new Error(
       `platform: The PostgreSQL lifecycle checkpoint is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
   let released = false;
@@ -703,6 +706,39 @@ async function readSandboxDrainTable(
   return { hasAdmissionColumn: admissionColumn.rows[0]?.present === true };
 }
 
+const classify = (
+  row: SandboxDrainCheckpointRow | undefined,
+): PlatformSandboxDrainPreparation | null => {
+  if (!row) {
+    return null;
+  }
+  const cursor = row.cursor as Record<string, unknown> | null;
+  if (
+    !row.generation ||
+    (row.admission_protocol !== 0 &&
+      row.admission_protocol !== 2 &&
+      row.admission_protocol !== 3) ||
+    !row.started_at ||
+    !row.updated_at ||
+    (row.state !== 'draining' && row.state !== 'complete') ||
+    (row.phase !== 'deployments' && row.phase !== 'resources') ||
+    !cursor ||
+    (cursor.pass !== '1' && cursor.pass !== '2') ||
+    (row.state === 'complete' &&
+      (!row.completed_at || row.phase !== 'resources' || cursor.pass !== '2')) ||
+    (row.state === 'draining' && row.completed_at !== null)
+  ) {
+    throw new Error(
+      'platform: The authoritative sandbox-drain database checkpoint is invalid. Traffic remains disabled.',
+    );
+  }
+  return {
+    admissionProtocol: row.admission_protocol,
+    generation: row.generation,
+    state: row.state === 'complete' ? 'complete' : 'pending',
+  };
+};
+
 export async function preparePlatformSandboxDrainConnection(
   client: QueryConnection,
   requiredAdmissionProtocol: 0 | 2 | 3 = 0,
@@ -725,38 +761,6 @@ export async function preparePlatformSandboxDrainConnection(
        FROM "sandbox_drain_checkpoints"
        WHERE "singleton" = true`,
     );
-  const classify = (
-    row: SandboxDrainCheckpointRow | undefined,
-  ): PlatformSandboxDrainPreparation | null => {
-    if (!row) {
-      return null;
-    }
-    const cursor = row.cursor as Record<string, unknown> | null;
-    if (
-      !row.generation ||
-      (row.admission_protocol !== 0 &&
-        row.admission_protocol !== 2 &&
-        row.admission_protocol !== 3) ||
-      !row.started_at ||
-      !row.updated_at ||
-      (row.state !== 'draining' && row.state !== 'complete') ||
-      (row.phase !== 'deployments' && row.phase !== 'resources') ||
-      !cursor ||
-      (cursor.pass !== '1' && cursor.pass !== '2') ||
-      (row.state === 'complete' &&
-        (!row.completed_at || row.phase !== 'resources' || cursor.pass !== '2')) ||
-      (row.state === 'draining' && row.completed_at !== null)
-    ) {
-      throw new Error(
-        'platform: The authoritative sandbox-drain database checkpoint is invalid. Traffic remains disabled.',
-      );
-    }
-    return {
-      admissionProtocol: row.admission_protocol,
-      generation: row.generation,
-      state: row.state === 'complete' ? 'complete' : 'pending',
-    };
-  };
   const existing = await readCheckpoint();
   const existingState = classify(existing.rows[0]);
   if (
@@ -909,7 +913,11 @@ async function readRequiredPlatformSafetyProtocols(
                          WHERE "singleton" = true) AS "protocol"`,
     );
     if (admission.rows[0]?.required === true) {
-      if (admission.rows[0].protocol != null && admission.rows[0].protocol > 3) {
+      if (
+        admission.rows[0].protocol !== null &&
+        admission.rows[0].protocol !== undefined &&
+        admission.rows[0].protocol > 3
+      ) {
         throw new Error('platform: The database requires a newer Sandbox controller protocol.');
       }
       return { sandboxDrain: admission.rows[0].protocol === 3 ? 3 : 2 };

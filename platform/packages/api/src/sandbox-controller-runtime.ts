@@ -1,10 +1,6 @@
 import { RpcTarget, WorkerEntrypoint } from 'cloudflare:workers';
-import {
-  SandboxContainer,
-  validateSandboxOptions,
-  type SandboxOptions,
-  type SandboxInstance,
-} from 'void/_sandbox-container';
+import { SandboxContainer, validateSandboxOptions } from 'void/_sandbox-container';
+import type { SandboxOptions, SandboxInstance } from 'void/_sandbox-container';
 import { getSandboxShim } from './sandbox-shim.ts';
 
 type Admission = { ok: true } | { ok: false; reason: string };
@@ -25,7 +21,7 @@ const LEASE_KEY = '__voidSandboxLease';
 const ACTIVITY_KEY = '__voidSandboxActivity';
 type Activity = { lastActivity: number; idleDeadline: number };
 const HEARTBEAT_MS = 30_000;
-const CONTROL_TIMEOUT_MS = 5_000;
+const CONTROL_TIMEOUT_MS = 5000;
 
 function denied(reason: string): Error {
   return new Error(

@@ -3,8 +3,8 @@ import { PlatformClient } from '../../src/cli/client.ts';
 import {
   isPlatformDiscoveryRequest,
   platformDiscoveryResponse,
-  type PlatformDiscoveryFeatures,
 } from '../helpers/platform-discovery.ts';
+import type { PlatformDiscoveryFeatures } from '../helpers/platform-discovery.ts';
 
 // Never read the keychain or run cloudflared. Without Access credentials, an
 // Access challenge fails the way it does for a CLI that has none.

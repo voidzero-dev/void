@@ -53,8 +53,8 @@ import {
   recordingBuildManager,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // The callback mints an installation token (which would otherwise require a
 // real RS256 PKCS#8 key via createAppJwt). Stub it so the test only exercises
@@ -1313,7 +1313,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '3004',
       repoFullName: 'org/app',
-      repositoryId: 424242,
+      repositoryId: 424_242,
       githubAccountId: '5551234',
     });
 
@@ -1361,7 +1361,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '3009',
       repoFullName: 'org/app',
-      repositoryId: 424242,
+      repositoryId: 424_242,
       githubAccountId: '5551234',
     });
 
@@ -1733,7 +1733,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '3016',
       repoFullName: 'org/app',
-      repositoryId: 987654,
+      repositoryId: 987_654,
       githubAccountId: '5551234',
       iat: Date.now() + 60_000, // fresh proof, after the tombstone
     });
@@ -1993,7 +1993,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '3017',
       repoFullName: 'org/app',
-      repositoryId: 555111,
+      repositoryId: 555_111,
       githubAccountId: '5551234',
     });
 
@@ -2111,7 +2111,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '7200',
       repoFullName: 'org/app',
-      repositoryId: 777001,
+      repositoryId: 777_001,
       githubAccountId: '5551234',
     });
 
@@ -2407,7 +2407,7 @@ describe('POST /projects/:id/github — post-lock status + coverage re-check', (
     const grant = await mintConnectGrant({
       installationId: '4003',
       repoFullName: 'org/app',
-      repositoryId: 909090,
+      repositoryId: 909_090,
       githubAccountId: '5551234',
     });
 

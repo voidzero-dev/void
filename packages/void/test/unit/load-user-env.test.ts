@@ -40,7 +40,7 @@ describe('loadUserEnvFile', () => {
     await loadUserEnvFile(join(root, 'env.ts'));
 
     expect(existsSync(sentinel)).toBe(true);
-    expect(readFileSync(sentinel, 'utf-8')).toBe('relative-ok');
+    expect(readFileSync(sentinel, 'utf8')).toBe('relative-ok');
   });
 
   it('re-evaluates the file on repeat loads so HMR picks up edits', async () => {
@@ -54,7 +54,7 @@ describe('loadUserEnvFile', () => {
         `writeFileSync(${JSON.stringify(sentinel)}, "first");\n`,
     );
     await loadUserEnvFile(envPath);
-    expect(readFileSync(sentinel, 'utf-8')).toBe('first');
+    expect(readFileSync(sentinel, 'utf8')).toBe('first');
 
     writeFileSync(
       envPath,
@@ -62,7 +62,7 @@ describe('loadUserEnvFile', () => {
         `writeFileSync(${JSON.stringify(sentinel)}, "second");\n`,
     );
     await loadUserEnvFile(envPath);
-    expect(readFileSync(sentinel, 'utf-8')).toBe('second');
+    expect(readFileSync(sentinel, 'utf8')).toBe('second');
   });
 
   it('wraps runtime failures with the source file path', async () => {

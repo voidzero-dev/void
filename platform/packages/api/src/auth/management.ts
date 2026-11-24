@@ -4,7 +4,8 @@ import {
   validatePlatformAdmissionPolicy,
 } from '@void/platform';
 import { and, eq, gt, isNull, ne, sql } from 'drizzle-orm';
-import { createOAuthAccount, getUserByOAuthAccount, type Db } from '../db.ts';
+import { createOAuthAccount, getUserByOAuthAccount } from '../db.ts';
+import type { Db } from '../db.ts';
 import {
   oauthAccounts,
   operatorSessions,
@@ -24,11 +25,8 @@ import {
   readLoginConnection,
   readLoginRevision,
 } from './configuration.ts';
-import {
-  revokeConnectionSessions,
-  validateHumanSession,
-  type CompanyIdentity,
-} from './sessions.ts';
+import { revokeConnectionSessions, validateHumanSession } from './sessions.ts';
+import type { CompanyIdentity } from './sessions.ts';
 
 export type AuthenticationActor = Readonly<{
   userId: string;

@@ -6,7 +6,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 it.each([
   ['/usr/local/bin/void-dev', 'void-dev'],
-  ['C:\\tools\\void-dev.cmd', 'void-dev'],
+  [String.raw`C:\tools\void-dev.cmd`, 'void-dev'],
   ['/usr/local/bin/void', 'void'],
   ['/checkout/packages/void/dist/cli/cli.mjs', 'void'],
   ['/tmp/untrusted-command', 'void'],

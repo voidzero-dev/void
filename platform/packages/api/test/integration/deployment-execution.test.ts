@@ -24,11 +24,15 @@ import {
   getDeploymentOperation,
   processDeploymentBatch,
 } from '../../src/deployment-execution.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as execution from '../../src/deployment-execution.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as recovery from '../../src/deployment-recovery.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import app, { FAST_CRON } from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as cleanup from '../../src/provisioning/cleanup.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as deploy from '../../src/routes/deploy.ts';
 import {
   builds,
@@ -52,8 +56,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let send: ReturnType<typeof vi.fn>;

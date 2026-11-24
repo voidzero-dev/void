@@ -1,6 +1,7 @@
 import type { parseSync } from 'vite';
 import { bindingResolver } from '../shared/ast-bindings.ts';
-import { isIdentifier, isMemberExpression, type AstNode, type AstProgram } from '../shared/ast.ts';
+import { asAstProgram, isIdentifier, isMemberExpression } from '../shared/ast.ts';
+import type { AstNode, AstProgram } from '../shared/ast.ts';
 import { staticLiteral, unwrapStaticExpression } from '../shared/static-exports.ts';
 
 export const CLIENT_MODULES: ReadonlySet<string> = new Set([
@@ -59,7 +60,7 @@ export function inferClientAuth(parsed: ReturnType<typeof parseSync>, code: stri
   ) {
     return false;
   }
-  return inferNamespaceAuth(parsed.program as unknown as AstProgram);
+  return inferNamespaceAuth(asAstProgram(parsed.program));
 }
 
 function inferNamespaceAuth(program: AstProgram): boolean {

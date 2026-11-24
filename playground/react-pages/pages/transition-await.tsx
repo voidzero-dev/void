@@ -5,7 +5,11 @@ import type { Props } from './transition-await.server.ts';
 
 function FormButton({ testId }: { testId: string }) {
   const { pending } = useFormStatus();
-  return <button data-testid={testId}>{pending ? 'pending' : 'run'}</button>;
+  return (
+    <button type="submit" data-testid={testId}>
+      {pending ? 'pending' : 'run'}
+    </button>
+  );
 }
 
 export default function TransitionAwaitPage({ revision }: Props) {
@@ -83,16 +87,23 @@ export default function TransitionAwaitPage({ revision }: Props) {
       <output data-testid="completed">{completed ? 'complete' : 'waiting'}</output>
       <output data-testid="optimistic">{optimisticRevision}</output>
       <output data-testid="data-ready">{dataReady ? 'ready' : 'waiting'}</output>
-      <button data-testid="transition" onClick={() => startTransition(async () => run())}>
+      <button
+        type="button"
+        data-testid="transition"
+        onClick={() => startTransition(async () => run())}
+      >
         {pending ? 'pending' : 'run'}
       </button>
       <form action={async () => run()}>
         <FormButton testId="form-action" />
       </form>
       <form action={dispatchAction}>
-        <button data-testid="action-state">{actionPending ? 'pending' : 'run'}</button>
+        <button type="submit" data-testid="action-state">
+          {actionPending ? 'pending' : 'run'}
+        </button>
       </form>
       <button
+        type="button"
         data-testid="plain"
         onClick={async () => {
           setPlainPending(true);
@@ -109,6 +120,7 @@ export default function TransitionAwaitPage({ revision }: Props) {
         <FormButton testId="use-form" />
       </form>
       <button
+        type="button"
         data-testid="async-contract"
         onClick={() =>
           startTransition(async () => {

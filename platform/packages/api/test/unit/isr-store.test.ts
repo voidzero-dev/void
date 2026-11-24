@@ -4,7 +4,7 @@ import { createIsrStore } from '../../src/isr-store.ts';
 describe('managed ISR storage', () => {
   it('reads the authoritative R2 body and metadata without consulting stale KV', async () => {
     const value = new TextEncoder().encode('fresh HTML').buffer;
-    const metadata = { s: 200, c: 1_000, t: 600, p: 3 } as const;
+    const metadata = { s: 200, c: 1000, t: 600, p: 3 } as const;
     const get = vi.fn(async () => ({
       arrayBuffer: async () => value,
       customMetadata: { isr: JSON.stringify(metadata) },
@@ -37,7 +37,7 @@ describe('managed ISR storage', () => {
       { put: legacyPut, delete: legacyDelete } as unknown as KVNamespace,
     );
     const body = new ArrayBuffer(4);
-    const metadata = { s: 200, c: 1_000, t: 600, p: 3 } as const;
+    const metadata = { s: 200, c: 1000, t: 600, p: 3 } as const;
     await store.put('key', body, { metadata });
     expect(put).toHaveBeenCalledWith('isr-cache/key', body, {
       customMetadata: { isr: JSON.stringify(metadata) },

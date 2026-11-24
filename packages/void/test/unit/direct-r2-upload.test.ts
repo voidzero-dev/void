@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import {
-  DirectR2PutError,
-  r2ErrorCode,
-  uploadAssetsToR2,
-  type DirectR2PutItem,
-} from '../../src/cli/direct-r2-upload.ts';
+import { DirectR2PutError, r2ErrorCode, uploadAssetsToR2 } from '../../src/cli/direct-r2-upload.ts';
+import type { DirectR2PutItem } from '../../src/cli/direct-r2-upload.ts';
 
 function makeItem(
   path: string,
@@ -220,7 +216,9 @@ describe('uploadAssetsToR2', () => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       // Yield once so concurrent requests stack up.
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5);
+      });
       inFlight--;
       return new Response(null, { status: 200 });
     });

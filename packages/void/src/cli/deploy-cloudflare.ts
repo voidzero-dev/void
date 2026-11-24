@@ -23,9 +23,9 @@ import {
 import { log } from './deploy-helpers.ts';
 import { logD1RestoreAfterDeployFailure } from './deploy-migrations.ts';
 import { printDeploySuccess } from './deploy-summary.ts';
-import { type RunDeployOptions, type CloudflareDeployDeps } from './deploy-types.ts';
+import type { RunDeployOptions, CloudflareDeployDeps } from './deploy-types.ts';
 import { renderAddressMap } from './email-cloudflare.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { FRAMEWORK_PRESETS } from './preset.ts';
 
 /** Deploy to the user's own Cloudflare account through the guarded native Worker flow. */

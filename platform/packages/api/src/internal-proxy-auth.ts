@@ -4,12 +4,12 @@ import { isProjectId } from './id.ts';
 import {
   PROXY_INTERNAL_AUTH_HEADER,
   PROXY_TOKEN_KV_CACHE_TTL_SECONDS,
-  type ProxyInternalRoute,
   ProxyTokenStateError,
   readProxyTokenState,
   verifyProxyInternalAuth,
   verifyProxyToken,
 } from './proxy-token.ts';
+import type { ProxyInternalRoute } from './proxy-token.ts';
 
 /**
  * Checks a tenant project token forwarded by the proxy against the project's

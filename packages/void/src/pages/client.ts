@@ -9,16 +9,16 @@ import {
   isAbortError,
   isCallSiteActionError,
   isVoidActionError,
-  type ActionResult,
 } from './action-result.ts';
-import {
-  createPageNavigationEngine,
-  type PageData,
-  type PageNavigationEngineConfig,
-  type PageNavigationResult,
-  type VisitOptions,
-  type VoidRouterAdapter as PageNavigationAdapter,
-  type PrefetchOptions,
+import type { ActionResult } from './action-result.ts';
+import { createPageNavigationEngine } from './navigation-engine.ts';
+import type {
+  PageData,
+  PageNavigationEngineConfig,
+  PageNavigationResult,
+  VisitOptions,
+  VoidRouterAdapter as PageNavigationAdapter,
+  PrefetchOptions,
 } from './navigation-engine.ts';
 import type { LinkPrefetchValue } from './prefetch.ts';
 import { deserializePageData, ISLAND_FRONTMATTER_ID } from './serialize.ts';
@@ -335,8 +335,9 @@ type ActionOptions<U extends string> = {
 } & (HasParams<U> extends true ? { params: ResolveActionParams<U> } : { params?: never });
 
 export type ActionClient = {
-  setActionRouter(router: VoidRouter): void;
+  setActionRouter(this: void, router: VoidRouter): void;
   action<U extends ActionUrl & string>(
+    this: void,
     url: U,
     ...args: HasParams<U> extends true ? [options: ActionOptions<U>] : [options?: ActionOptions<U>]
   ): Promise<ActionResult>;

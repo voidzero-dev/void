@@ -23,8 +23,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -414,7 +414,9 @@ describe('github_installation_revocations — monotonic revocation tombstone', (
     expect(first).not.toBeNull();
 
     // A tiny wait so the DB clock advances measurably between the two now()s.
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
 
     await recordInstallationRevocations(env.db, ['100'], X);
     const second = await getInstallationRevocationAt(env.db, '100', X);

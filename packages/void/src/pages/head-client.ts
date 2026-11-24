@@ -63,7 +63,7 @@ function collectDesiredHeadElements(head: HeadDescriptor): Array<HeadElementDesc
     for (const entry of head.link) {
       const attrs: Record<string, string> = {};
       for (const [key, value] of Object.entries(entry)) {
-        if (value != null) {
+        if (value !== null && value !== undefined) {
           attrs[key] = value;
         }
       }

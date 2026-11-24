@@ -1,11 +1,7 @@
 import { log, outro } from '@voidzero-dev/vite-plus-prompts';
 import { getAccountCredential, getToken } from './auth.ts';
-import {
-  PlatformApiError,
-  PlatformClient,
-  type ProjectInvitationResponse,
-  type ProjectMemberResponse,
-} from './client.ts';
+import { PlatformApiError, PlatformClient } from './client.ts';
+import type { ProjectInvitationResponse, ProjectMemberResponse } from './client.ts';
 import { printSuccess, formatCount, formatUrl, note, sanitizeTerminalText } from './output.ts';
 import { parsePlatformErrorBody, platformErrorMessage } from './platform-errors.ts';
 import type { ProjectArgs } from './project-args.ts';
@@ -17,7 +13,7 @@ type ProjectTeamArgs = Exclude<Extract<ProjectArgs, { subcommand: 'team' }>, { a
 function clean(value: string | null | undefined): string {
   // Tenant text must not execute terminal control sequences.
   // eslint-disable-next-line no-control-regex
-  return (value ?? '—').replace(/[\u0000-\u001f\u007f]/g, ' ');
+  return (value ?? '—').replaceAll(/[\u0000-\u001f\u007f]/g, ' ');
 }
 
 function memberLines(members: Array<ProjectMemberResponse>): string {
@@ -176,7 +172,7 @@ export async function runProjectTeamCommand(root: string, args: ProjectTeamArgs)
     const action = result.refreshed ? 'Updated invitation for' : 'Invited';
     if (result.delivery.status !== 'sent') {
       note(
-        `Invitation: ${clean(result.invitation.id)}\nShare these steps with the invited user:\n\nvoid connect '${client.apiUrl.replaceAll("'", "'\\''")}'\nvoid project team pending\nvoid project team accept ${clean(result.invitation.id)}`,
+        `Invitation: ${clean(result.invitation.id)}\nShare these steps with the invited user:\n\nvoid connect '${client.apiUrl.replaceAll("'", String.raw`'\''`)}'\nvoid project team pending\nvoid project team accept ${clean(result.invitation.id)}`,
         'Invitation saved; email was not sent',
       );
     }

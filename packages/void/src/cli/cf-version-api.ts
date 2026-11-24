@@ -8,11 +8,8 @@ import {
   getWorkerBundleDir,
   readBuildOutput,
 } from '@cloudflare/build-output-utils';
-import {
-  convertToWranglerConfig,
-  type ParsedCloudflareConfig,
-  type ParsedBuildOutputWorkerConfig,
-} from '@cloudflare/config';
+import { convertToWranglerConfig } from '@cloudflare/config';
+import type { ParsedCloudflareConfig, ParsedBuildOutputWorkerConfig } from '@cloudflare/config';
 import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
 import ignore from 'ignore';
 import mime from 'mime';
@@ -369,6 +366,7 @@ export function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json
   // The converter reads only `worker.exports` for this field.
   const converted =
     object(
+      // oxlint-disable-next-line quality/no-chained-type-assertions -- Only worker exports are projected here, so the unrelated required fields are omitted.
       convertToWranglerConfig({
         worker: { exports: entries },
         containers: [],
@@ -410,7 +408,7 @@ async function preflightWorkflowExports(options: {
         options.verifyUploader,
       );
     } catch (cause) {
-      if (cause instanceof CloudflareApiError && cause.status === 404 && cause.code === 10200) {
+      if (cause instanceof CloudflareApiError && cause.status === 404 && cause.code === 10_200) {
         continue;
       }
       throw cause;
@@ -546,16 +544,16 @@ function localNamespaceBindings(
   className: string,
   workerName: string,
 ): Array<Json> {
-  return bindings
-    .map(object)
-    .filter(
-      (binding): binding is Json =>
-        binding?.type === 'durable_object_namespace' &&
-        binding.class_name === className &&
-        (binding.script_name === undefined || binding.script_name === workerName) &&
-        binding.environment === undefined &&
-        binding.dispatch_namespace === undefined,
-    );
+  return bindings.flatMap((item) => {
+    const binding = object(item);
+    return binding?.type === 'durable_object_namespace' &&
+      binding.class_name === className &&
+      (binding.script_name === undefined || binding.script_name === workerName) &&
+      binding.environment === undefined &&
+      binding.dispatch_namespace === undefined
+      ? [binding]
+      : [];
+  });
 }
 
 function assertContainerApplicationIdentity(
@@ -834,7 +832,7 @@ async function prepareContainerMetadata(options: {
           const remote = matches.length === 1 ? matches[0][1] : '';
           if (
             !remote.startsWith(`registry.cloudflare.com/${options.accountId}/`) ||
-            [...remote].some(
+            Array.from(remote).some(
               (character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127,
             )
           ) {
@@ -868,7 +866,7 @@ async function prepareContainerMetadata(options: {
               'Cloudflare Container image preparation failed or returned an unsupported state.',
             );
           }
-          await delay(Math.min(2_000, remaining()));
+          await delay(Math.min(2000, remaining()));
         }
         prepared.set(reference, image);
       }
@@ -911,12 +909,12 @@ async function ensureContainerApplications(options: {
     } catch (cause) {
       if (
         !(cause instanceof CloudflareApiError) ||
-        cause.code !== 100146 ||
+        cause.code !== 100_146 ||
         Date.now() >= deadline
       ) {
         throw cause;
       }
-      await delay(Math.min(2_000, deadline - Date.now()));
+      await delay(Math.min(2000, deadline - Date.now()));
     }
   }
   const versionBindings = object(version.resources)?.bindings;

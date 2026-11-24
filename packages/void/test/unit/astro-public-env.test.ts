@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizePath, type ResolvedConfig } from 'vite';
+import { normalizePath } from 'vite';
+import type { ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { createAstroPublicEnvPlugin, findImportMetaEnv } from '../../src/plugin-framework.ts';
 

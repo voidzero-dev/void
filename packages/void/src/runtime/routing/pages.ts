@@ -1,4 +1,5 @@
-import { Context, type MiddlewareHandler } from 'hono';
+import { Context } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import {
   PRESERVED_QUERY_HEADER,
   markActionKey,
@@ -109,8 +110,10 @@ export function createPageErrorHandler(
         options.headConfig ?? undefined,
         { ...options.renderOptions, boundaries: options.middlewareBoundaries ?? { errors: [] } },
       );
+      // oxlint-disable-next-line typescript/return-await -- Keep failures from the fallback outside boundary recovery and restore the route index immediately.
       return response ?? fallback(error, c);
     } catch (failure) {
+      // oxlint-disable-next-line typescript/return-await -- Keep failures from the fallback outside boundary recovery and restore the route index immediately.
       return fallback(
         failure instanceof Error
           ? failure
@@ -277,7 +280,7 @@ export function createPagesFallback(options: {
       : assets && typeof assets.fetch === 'function'
         ? await assets.fetch(c.req.raw)
         : options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }));
-    const filePath = path.includes('/.') || path.substring(path.lastIndexOf('/') + 1).includes('.');
+    const filePath = path.includes('/.') || path.slice(path.lastIndexOf('/') + 1).includes('.');
     // Directory indexes may be served without a redirect by the asset binding.
     // Dynamic page patterns also match real files, which must keep their URLs.
     const pageNeedsSlash =

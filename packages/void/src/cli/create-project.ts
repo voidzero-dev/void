@@ -1,7 +1,9 @@
 import { log } from '@voidzero-dev/vite-plus-prompts';
-import { PlatformApiError, type CreateProjectResponse, type PlatformClient } from './client.ts';
+import { PlatformApiError } from './client.ts';
+import type { CreateProjectResponse, PlatformClient } from './client.ts';
 import { pc, sanitizeTerminalText } from './output.ts';
-import { attachSelectedPlatform, writeProjectConfig, type ProjectConfig } from './project.ts';
+import { attachSelectedPlatform, writeProjectConfig } from './project.ts';
+import type { ProjectConfig } from './project.ts';
 import { promptProjectSlug } from './prompt.ts';
 import { inferDefaultSlug } from './resolve-project.ts';
 

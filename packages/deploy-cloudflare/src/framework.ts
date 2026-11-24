@@ -36,7 +36,7 @@ export function writeCloudflareFrameworkDeployConfig(
   options: CloudflareFrameworkDeployConfig,
 ): boolean {
   const initial = existsSync(options.configPath)
-    ? readFileSync(options.configPath, 'utf-8')
+    ? readFileSync(options.configPath, 'utf8')
     : '{}\n';
   let content = initial;
   const upsert = (path: Array<string>, value: unknown): void => {
@@ -114,7 +114,7 @@ export function writeCloudflareFrameworkDeployConfig(
     2,
   )}\n`;
   const previousPointer = existsSync(options.deployPointerPath)
-    ? readFileSync(options.deployPointerPath, 'utf-8')
+    ? readFileSync(options.deployPointerPath, 'utf8')
     : null;
   if (previousPointer !== pointer) {
     mkdirSync(dirname(options.deployPointerPath), { recursive: true });
@@ -124,7 +124,7 @@ export function writeCloudflareFrameworkDeployConfig(
 
   if (options.assetsIgnore && options.assetsIgnore.length > 0) {
     const ignorePath = join(dirname(options.configPath), options.assetsDirectory, '.assetsignore');
-    const previousIgnore = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf-8') : null;
+    const previousIgnore = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : null;
     const existingLines = new Set((previousIgnore ?? '').split(/\r?\n/));
     let ignore = previousIgnore ?? '';
     if (ignore.length > 0 && !ignore.endsWith('\n') && !ignore.endsWith('\r')) {

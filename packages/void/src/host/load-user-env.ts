@@ -28,6 +28,7 @@ export async function loadUserEnvFile(envFile: string): Promise<void> {
   } catch (err) {
     const base = `env: Failed to load '${envFile}': '${(err as Error).message}'.`;
     const hint = aliasHint(err, 'env.ts');
+    // oxlint-disable-next-line preserve-caught-error -- User env modules can throw errors carrying environment values.
     throw new Error(hint ? `${base}\n\n${hint}` : base);
   }
 }

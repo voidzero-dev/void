@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
-import { getProjectResources, type Db } from './db.ts';
+import { getProjectResources } from './db.ts';
+import type { Db } from './db.ts';
 import { deployments } from './schema.ts';
 import type { Project } from './types.ts';
 

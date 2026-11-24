@@ -9,7 +9,8 @@ import { createServer } from 'pglite-server';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
-import { startFakeMySqlServer, type FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import type { FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
 
 const USERS = [
@@ -102,13 +103,13 @@ function drizzle(config) {
 
   async function endPools(first = 0): Promise<void> {
     await Promise.all(
-      state.pools
-        .slice(first)
-        .map((pool) =>
-          dialect === 'postgresql'
-            ? pool.end()
-            : new Promise<void>((resolve) => pool.end(() => resolve())),
-        ),
+      state.pools.slice(first).map((pool) =>
+        dialect === 'postgresql'
+          ? pool.end()
+          : new Promise<void>((resolve) => {
+              pool.end(() => resolve());
+            }),
+      ),
     );
   }
 

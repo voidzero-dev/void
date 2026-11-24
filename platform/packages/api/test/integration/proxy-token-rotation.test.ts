@@ -34,17 +34,19 @@ import {
   requestBulkProxyTokenRotations,
   requestProxyTokenRotation,
   requestRotationIfReplacingUntrustedCode,
-  type ProjectRotationOutcome,
-  type ProxyTokenRotationEnv,
-  type ProxyTokenRotationReason,
+} from '../../src/proxy-token-rotation.ts';
+import type {
+  ProjectRotationOutcome,
+  ProxyTokenRotationEnv,
+  ProxyTokenRotationReason,
 } from '../../src/proxy-token-rotation.ts';
 import {
   deriveProxyInternalAuth,
   deriveProxyToken,
   PROXY_INTERNAL_AUTH_HEADER,
   proxyTokenStateKey,
-  type ProxyInternalRoute,
 } from '../../src/proxy-token.ts';
+import type { ProxyInternalRoute } from '../../src/proxy-token.ts';
 import {
   deployments,
   projectCleanupJobs,
@@ -69,10 +71,8 @@ import {
   readAllEvents,
   setupEnv,
   teardownEnv,
-  type CfApiMocks,
-  type MockCfApiHandle,
-  type TestEnv,
 } from './helpers.ts';
+import type { CfApiMocks, MockCfApiHandle, TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -142,7 +142,7 @@ function cfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle {
       const script = handle.state.hostScripts.get(scriptNameOf(url));
       return script
         ? cfSuccess(script.bindings)
-        : cfError('workers.api.error.script_not_found', 404, 10007);
+        : cfError('workers.api.error.script_not_found', 404, 10_007);
     },
     ...overrides,
   });
@@ -859,7 +859,9 @@ describe('proxy token rotation', () => {
     let putDoneAt = 0;
     hooks.kvPut = async (key) => {
       if (key === proxyTokenStateKey(fx.projectId)) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 200);
+        });
         putDoneAt = Date.now();
       }
     };
@@ -1498,7 +1500,12 @@ describe('proxy token rotation', () => {
               testEnv,
             ),
           );
-          await Promise.race([secretWrite, new Promise((resolve) => setTimeout(resolve, 500))]);
+          await Promise.race([
+            secretWrite,
+            new Promise((resolve) => {
+              setTimeout(resolve, 500);
+            }),
+          ]);
         }
         return undefined;
       };

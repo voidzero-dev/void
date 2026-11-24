@@ -9,13 +9,8 @@ import { readConfig } from '../config.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import { scanEmailHandlersSync } from '../router/email.ts';
 import { getToken, openBrowser } from './auth.ts';
-import {
-  PlatformApiError,
-  PlatformClient,
-  type EmailDomainResponse,
-  type EmailOperationResponse,
-  type EmailSharedInbound,
-} from './client.ts';
+import { PlatformApiError, PlatformClient } from './client.ts';
+import type { EmailDomainResponse, EmailOperationResponse, EmailSharedInbound } from './client.ts';
 import {
   createDeployWranglerRunner,
   deriveWorkerName,
@@ -35,11 +30,13 @@ import {
   probeMx,
   renderAddressMap,
   renderEmailChecklist,
-  type EmailCloudflareInputs,
-  type EmailDns,
-  type EmailFetch,
-  type EmailPreflight,
-  type EmailWranglerRun,
+} from './email-cloudflare.ts';
+import type {
+  EmailCloudflareInputs,
+  EmailDns,
+  EmailFetch,
+  EmailPreflight,
+  EmailWranglerRun,
 } from './email-cloudflare.ts';
 import { printSuccess, createSpinner, formatUrl, note, pc } from './output.ts';
 import { resolveCommandProjectId } from './resolve-project.ts';
@@ -905,11 +902,13 @@ export async function emailDomainRotateSecret(
       deps.sleep,
     );
     if (!operation) {
+      // oxlint-disable-next-line preserve-caught-error -- The operator sees the tracked operation state without provider details.
       throw new Error(
         `email: secret rotation outcome is unknown (operation key ${attemptId}); inspect \`void email domain status ${domain}\` before starting another rotation.`,
       );
     }
     if (operation.status !== 'completed') {
+      // oxlint-disable-next-line preserve-caught-error -- The operator sees the tracked operation state without provider details.
       throw new Error(
         `email: secret rotation ${operation.status}; inspect operation ${operation.operationId}`,
       );
@@ -952,6 +951,8 @@ async function runEmailDomainCommand(
   args: EmailArgs,
 ): Promise<void> {
   switch (args.domainVerb) {
+    case undefined:
+      return;
     case 'add':
       return emailDomainAdd(client, projectId, args.domain!);
     case 'status':

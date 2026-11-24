@@ -1,4 +1,5 @@
-import { createPlatformWorkerConfigs, type PlatformInstallationManifest } from '@void/platform';
+import type { createPlatformWorkerConfigs } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { writePlatformTiming } from './platform-installer-process.ts';
 import {
   recordResource,
@@ -7,26 +8,27 @@ import {
   mergePlatformWorkerTrafficConfig,
 } from './platform-installer-resources.ts';
 import { platformWorkerSecretPayload } from './platform-installer-secrets.ts';
-import {
-  type InstallationCheckpointWriter,
-  type InstallerClient,
-  type PlatformInstallerDependencies,
-  type PlatformWorkerDeploymentOptions,
-  type PlatformInstallationSecrets,
-  type PlatformInstallRunState,
-  type PlatformWorkerKey,
+import type {
+  InstallationCheckpointWriter,
+  InstallerClient,
+  PlatformInstallerDependencies,
+  PlatformWorkerDeploymentOptions,
+  PlatformInstallationSecrets,
+  PlatformInstallRunState,
+  PlatformWorkerKey,
 } from './platform-installer-types.ts';
+import type { runPlatformWrangler } from './platform-installer-workers.ts';
 import {
-  runPlatformWrangler,
   deployPlatformWorker,
   platformWorkerResourceKey,
   platformWorkerTrafficCallbacks,
   recordWorkerCutoverStage,
   recordWorkerUnsafeTraffic,
 } from './platform-installer-workers.ts';
-import { type PlatformInstallPlan, type PlatformInstallPlanAction } from './platform-plan.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
 import { writeInstallationManifest } from './platform-registry.ts';
-import { platformManagedWorkerTraffic, recordPlatformWorkerTraffic } from './platform-traffic.ts';
+import type { platformManagedWorkerTraffic } from './platform-traffic.ts';
+import { recordPlatformWorkerTraffic } from './platform-traffic.ts';
 
 export function platformWorkerAction(
   workerActions: ReadonlyArray<PlatformInstallPlanAction>,
@@ -228,7 +230,9 @@ export async function uploadInstallationWorkers(input: {
       throw uploadFailure;
     }
     if (availableUploadSlots === 0) {
-      await new Promise<void>((resolve, reject) => uploadWaiters.push({ resolve, reject }));
+      await new Promise<void>((resolve, reject) => {
+        uploadWaiters.push({ resolve, reject });
+      });
     } else {
       availableUploadSlots--;
     }
@@ -326,7 +330,7 @@ export async function uploadInstallationWorkers(input: {
                 .map((route) => route.pattern),
           preservedRoutes,
           previousConfig: previousWorkerConfig,
-          previousPublicEndpoints: previousPublicEndpoints,
+          previousPublicEndpoints,
           ...(dependencies.replaceOutsideChanges?.includes(action.name)
             ? { replaceOutsideChanges: true }
             : {}),

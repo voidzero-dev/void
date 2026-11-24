@@ -23,7 +23,7 @@ import {
 } from '../suspension.ts';
 import type { PlanId } from '../tiers.ts';
 import type { Build } from '../types.ts';
-import { type Db } from './client.ts';
+import type { Db } from './client.ts';
 import { installationCoversRepoInTx } from './github-authority.ts';
 
 // ---------------------------------------------------------------------------
@@ -571,7 +571,8 @@ export async function supersedeAndCreateContainerBuild(
             .from(deployments)
             .where(eq(deployments.id, proj.active))
             .limit(1);
-          liveIsThisCommit = dep?.commit != null && dep.commit === args.commitSha;
+          liveIsThisCommit =
+            dep?.commit !== null && dep?.commit !== undefined && dep.commit === args.commitSha;
         }
       }
       if (liveIsThisCommit) {
@@ -940,7 +941,12 @@ export async function createGithubActionsBuildWithinLimit(
     // Re-validate the branch under the row lock. auth-oidc's pre-tx branch check
     // can race a PATCH that re-points the branch after the check but before this
     // lock; the locked row is authoritative. Reject if the connected branch moved.
-    if (args.branch != null && args.branch !== '' && conn.branch !== args.branch) {
+    if (
+      args.branch !== null &&
+      args.branch !== undefined &&
+      args.branch !== '' &&
+      conn.branch !== args.branch
+    ) {
       return { outcome: 'branch-mismatch' };
     }
 
@@ -981,7 +987,7 @@ export async function createGithubActionsBuildWithinLimit(
     // (whose completion webhook was missed) would survive until the stale-build reaper.
     // (The scaffolded workflow's `concurrency: cancel-in-progress` cancels the
     // older RUN on GitHub's side; this is the server-side backstop.)
-    if (args.branch != null && args.branch !== '') {
+    if (args.branch !== null && args.branch !== undefined && args.branch !== '') {
       await tx
         .update(builds)
         .set({ status: 'cancelled', error: 'superseded by newer run', completed_at: sql`now()` })

@@ -30,7 +30,9 @@ export function temporaryDirectory(prefix: string): string {
 
 /** Serve on a random local port until the test ends and return the origin. */
 export async function listen(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   cleanups.push(
     () =>
       new Promise<void>((resolve) => {

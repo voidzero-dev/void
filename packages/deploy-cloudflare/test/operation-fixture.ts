@@ -380,13 +380,13 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
         type: 'versions.deploy',
         ...target,
         message: value('--message'),
-        versions: args
-          .slice(2)
-          .filter((value) => /^[^@]+@\d+(?:\.\d+)?$/.test(value))
-          .map((value) => {
-            const [versionId, percentage] = value.split('@');
-            return { versionId: versionId!, percentage: Number(percentage) };
-          }),
+        versions: args.slice(2).flatMap((value) => {
+          if (!/^[^@]+@\d+(?:\.\d+)?$/.test(value)) {
+            return [];
+          }
+          const [versionId, percentage] = value.split('@');
+          return [{ versionId: versionId!, percentage: Number(percentage) }];
+        }),
       };
     }
   }

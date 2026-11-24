@@ -1,21 +1,26 @@
 import { createHash, randomBytes } from 'node:crypto';
-import {
-  type PlatformInstallationManifest,
-  parsePlatformAuthenticationSetup,
-} from '@void/platform';
+import { parsePlatformAuthenticationSetup } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import {
   checkpointPlatformAccessResources,
   isPlatformAuthenticationPreparationKey,
 } from './platform-access-setup.ts';
-import {
-  type PlatformInstallationSecrets,
-  type PlatformWorkerKey,
-  type PlatformWorkerSecretUpdateIntent,
-  type PlatformWorkerSecretUpdateName,
-  PLATFORM_WORKER_SECRET_UPDATE_NAMES,
-  type PlatformWorkerSecretUpdates,
+import { PLATFORM_WORKER_SECRET_UPDATE_NAMES } from './platform-installer-types.ts';
+import type {
+  PlatformInstallationSecrets,
+  PlatformWorkerKey,
+  PlatformWorkerSecretUpdateIntent,
+  PlatformWorkerSecretUpdateName,
+  PlatformWorkerSecretUpdates,
 } from './platform-installer-types.ts';
-import { type PlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformInstallPlan } from './platform-plan.ts';
+
+const required = (value: string, name: string): string => {
+  if (!value) {
+    throw new Error(`platform: ${name} is required to install the platform.`);
+  }
+  return value;
+};
 
 export function createPlatformInstallationSecrets(input: {
   configurableAuthentication?: boolean;
@@ -57,12 +62,6 @@ export function createPlatformInstallationSecrets(input: {
         'even if only the secret changed.',
     );
   }
-  const required = (value: string, name: string): string => {
-    if (!value) {
-      throw new Error(`platform: ${name} is required to install the platform.`);
-    }
-    return value;
-  };
   // Runtime signing/encryption keys are installation identity, not ordinary
   // configuration. A checkpoint wins over the legacy single-key inputs. The
   // explicit complete-keyring pair is the only supported way to supersede a

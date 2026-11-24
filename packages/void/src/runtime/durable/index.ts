@@ -355,7 +355,7 @@ export function defineDurableState<
   }
 
   return {
-    class: VoidDurableState as unknown as DurableStateClass<TMethods>,
+    class: VoidDurableState as DurableStateClass<TMethods>,
     __bind(name, resourceName) {
       if (definition.name !== resourceName) {
         throw new Error(

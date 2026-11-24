@@ -1,12 +1,7 @@
 /** @jsxImportSource react */
 
-import {
-  createStaticSource,
-  Typeahead,
-  TypeaheadItem,
-  type SearchableItem,
-  type SearchSource,
-} from '@astryxdesign/core/Typeahead';
+import { createStaticSource, Typeahead, TypeaheadItem } from '@astryxdesign/core/Typeahead';
+import type { SearchableItem, SearchSource } from '@astryxdesign/core/Typeahead';
 import { useMemo, useState } from 'react';
 
 export type SearchSuggestion = Readonly<{

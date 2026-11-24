@@ -8,7 +8,8 @@ import {
 } from './auth/deploy-token.ts';
 import { constantTimeEqual } from './auth/hmac.ts';
 import { TERMINAL_STATUSES, isTerminalBuildStatus } from './build-status.ts';
-import { type BuildConfig, type BuildLogLine, isContainerCapacityError } from './build-types.ts';
+import { isContainerCapacityError } from './build-types.ts';
+import type { BuildConfig, BuildLogLine } from './build-types.ts';
 import { SITE_DOMAIN } from './constants.ts';
 import {
   createDb,
@@ -20,15 +21,11 @@ import {
   markBuildTerminalIfActive,
   requeueBuildIfStarting,
   setBuildCheckRunId,
-  type Db,
 } from './db.ts';
+import type { Db } from './db.ts';
 import type { ApiEnv } from './env.ts';
-import {
-  type CheckRunConclusion,
-  VOID_BUILD_CHECK_RUN_NAME,
-  completeCheckRun,
-  createCheckRun,
-} from './github/check-run.ts';
+import { VOID_BUILD_CHECK_RUN_NAME, completeCheckRun, createCheckRun } from './github/check-run.ts';
+import type { CheckRunConclusion } from './github/check-run.ts';
 import {
   generateSourceTarballUrl,
   getBranchHeadComparisonStatus,
@@ -51,7 +48,7 @@ const STORAGE_KEY_LOG_DRAIN = 'logDrainState';
 // replay on connect. `ingestLines` evicts the oldest rows past this cap, keeping
 // the most-recent window (a tail is what a live log view wants). Mirrors the
 // container agent's in-memory ring bound (build-agent.mjs MAX_BUFFERED_LOG_LINES).
-export const MAX_STORED_LOG_LINES = 10000;
+export const MAX_STORED_LOG_LINES = 10_000;
 
 // Bounds for the log tail embedded in the completed check-run's `output.text`.
 // Both caps are UTF-8 BYTE caps, because that is what GitHub validates (its
@@ -62,7 +59,7 @@ export const MAX_STORED_LOG_LINES = 10000;
 // sized past the content's backtick runs (see below), so the hard cap is
 // enforced on the whole rendered string too.
 export const CHECK_RUN_LOG_TAIL_LINES = 100;
-export const CHECK_RUN_LOG_TAIL_MAX_BYTES = 60000;
+export const CHECK_RUN_LOG_TAIL_MAX_BYTES = 60_000;
 
 // GitHub's hard cap on a check run's output.text: 65535 UTF-8 BYTES (GitHub
 // validates bytesize, not character count). A longer string makes GitHub
@@ -71,7 +68,7 @@ export const CHECK_RUN_LOG_TAIL_MAX_BYTES = 60000;
 // honor it, not just the content: the fence delimiters grow past the longest
 // backtick run in the content, so a pathological all-backtick line can blow
 // far past the fixed small overhead the 60000 content cap budgeted for.
-export const CHECK_RUN_OUTPUT_TEXT_MAX_BYTES = 65535;
+export const CHECK_RUN_OUTPUT_TEXT_MAX_BYTES = 65_535;
 
 // Cadence of the DO→container log pull-loop. The agent buffers stdout/stderr and
 // serves `GET /logs?since=N`; the DO polls on this interval, ingesting any new
@@ -300,7 +297,7 @@ function utf8Length(text: string): number {
  */
 function sliceTailAtUnit(line: string, cut: number): string {
   const code = line.charCodeAt(cut);
-  return line.slice(code >= 0xdc00 && code <= 0xdfff ? cut + 1 : cut);
+  return line.slice(code >= 0xdc_00 && code <= 0xdf_ff ? cut + 1 : cut);
 }
 
 /** Longest run of consecutive backticks in `text` (0 when there are none). */
@@ -936,12 +933,16 @@ async function renderTerminalGroups(groups: Array<TerminalRenderGroup>): Promise
   try {
     for (const group of groups) {
       for (const line of group.lines) {
-        await new Promise<void>((resolve) => term.write(line.raw, resolve));
+        await new Promise<void>((resolve) => {
+          term.write(line.raw, resolve);
+        });
         const ending = LINE_ENDING_TEXT[line.lineEnding];
         if (ending !== '') {
           captureRecordedLineFeed = line.lineEnding === 'lf' || line.lineEnding === 'crlf';
           try {
-            await new Promise<void>((resolve) => term.write(ending, resolve));
+            await new Promise<void>((resolve) => {
+              term.write(ending, resolve);
+            });
           } finally {
             captureRecordedLineFeed = false;
           }
@@ -2510,9 +2511,9 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       if (retryRemaining <= 0) {
         return;
       }
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(POLL_SECONDS * 1000, retryRemaining)),
-      );
+      await new Promise((resolve) => {
+        setTimeout(resolve, Math.min(POLL_SECONDS * 1000, retryRemaining));
+      });
     }
   }
 
@@ -2632,7 +2633,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
         }
       });
     }
-    const producerStopped = teardown ? await teardown : false;
+    const producerStopped = teardown !== null ? await teardown : false;
 
     if (markerAuthoritative && producerStopped && this.activeLaunch?.containerStartPending) {
       // The base start path awaits storage/network I/O BEFORE launching, and its
@@ -2695,7 +2696,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       // the stream is complete while the owner is still waiting to append it.
       await this.markLogDrainComplete();
       if (resumeFinalization) {
-        await this.reconcileTerminalWrite().catch((err) => {
+        await this.reconcileTerminalWrite().catch((err: unknown) => {
           console.warn('forceStopContainer: deferred startup finalization failed', err);
         });
       }
@@ -2884,7 +2885,8 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
     // generation and cannot resume into an unconditional container launch.
     this.abortActiveLaunch();
     const config = await this.getConfig();
-    const shouldTerminalize = config != null && !TERMINAL_STATUSES.includes(config.status);
+    const shouldTerminalize =
+      config !== null && config !== undefined && !TERMINAL_STATUSES.includes(config.status);
     // Claimed HERE, synchronously, not at the `forceStopContainer` call below: the
     // revocation await between them is long enough for a peer teardown to run to
     // completion, and whoever holds the claim must be decided before yielding.
@@ -2945,7 +2947,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       } catch (err) {
         terminalError = err;
       }
-    } else if (config != null) {
+    } else if (config !== null && config !== undefined) {
       // A terminal DO-local status is not proof that Postgres revoked the deploy
       // token: enforceTimeout writes local state before awaiting its CAS, and a
       // concurrent cancel can enter during that await. Verify the authoritative
@@ -2991,7 +2993,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
         ownsMarker,
         terminalError === undefined && authoritativeRowIsTerminal,
       );
-      if (authoritativeTerminalRow && config != null) {
+      if (authoritativeTerminalRow && config !== null && config !== undefined) {
         // This bounded read already found the outcome a lost prior invocation failed
         // to publish. Reuse the row and check-run id instead of waiting for a retry
         // path that only scans active builds.
@@ -3022,7 +3024,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
         } else {
           await this.finalizeCheckRunToRecordedOutcome(terminal.config);
         }
-      } else if (terminalError !== undefined && config != null) {
+      } else if (terminalError !== undefined && config !== null && config !== undefined) {
         // A terminal write that MISSED ITS DEADLINE may still commit afterwards, and
         // the rejection left `terminal` null so nothing above finalizes. Reconcile
         // once now — which catches a commit that beat this line — and let the
@@ -3321,6 +3323,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
    * `getTcpPort` for the NON-starting fetch.
    */
   private rawContainer(): ContainerPortSurface | undefined {
+    // oxlint-disable-next-line quality/no-chained-type-assertions -- The Workers runtime adds the container property to this durable object.
     return (this as unknown as { container?: ContainerPortSurface }).container;
   }
 

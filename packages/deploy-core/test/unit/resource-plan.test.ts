@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { createDeployResourcePlan, type DeployManifest } from '../../src/index.ts';
+import { createDeployResourcePlan } from '../../src/index.ts';
+import type { DeployManifest } from '../../src/index.ts';
 
 describe('createDeployResourcePlan', () => {
   it.each([undefined, false, true])(

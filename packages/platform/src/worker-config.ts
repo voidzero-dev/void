@@ -1,9 +1,6 @@
 import { createPlatformResourceOwnershipMarker } from './installation.ts';
-import {
-  createApplicationRoutes,
-  platformDashboardUrl,
-  type PlatformDeploymentManifest,
-} from './manifest.ts';
+import { createApplicationRoutes, platformDashboardUrl } from './manifest.ts';
+import type { PlatformDeploymentManifest } from './manifest.ts';
 
 export type PlatformProvisionedResourceIds = Readonly<{
   hyperdrive: string;

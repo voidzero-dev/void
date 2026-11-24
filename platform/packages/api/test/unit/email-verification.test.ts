@@ -56,15 +56,15 @@ describe('signConfirmToken / verifyConfirmToken', () => {
     const [body, sig] = token.split('.');
     const decoded = JSON.parse(
       new TextDecoder().decode(
-        Uint8Array.from(atob(body!.replace(/-/g, '+').replace(/_/g, '/')), (ch) =>
+        Uint8Array.from(atob(body!.replaceAll('-', '+').replaceAll('_', '/')), (ch) =>
           ch.charCodeAt(0),
         ),
       ),
     ) as Record<string, unknown>;
     decoded.did = 'edst_someone_else';
     const reencoded = btoa(JSON.stringify(decoded))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
       .replace(/=+$/, '');
 
     expect(await verifyConfirmToken(`${reencoded}.${sig}`, SECRET, now)).toBeNull();

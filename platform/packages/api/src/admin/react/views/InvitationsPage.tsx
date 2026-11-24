@@ -14,7 +14,7 @@ import { Heading } from '@astryxdesign/core/Text';
 import { useRequest, useView } from 'react-fate';
 import type { Invitation } from '../../../types.ts';
 import { InvitationsView, invitationsRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { formatDateTime } from './format.ts';
 import { FormTextArea } from './FormControls.tsx';
 import { Layout } from './Layout.tsx';

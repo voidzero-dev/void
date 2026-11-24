@@ -48,7 +48,7 @@ function mergeConfig(previous: unknown, resolved: unknown, authored: unknown): u
     const resolvedByIdentity = new Map(resolved.map((item) => [arrayIdentity(item), item]));
     const authoredIdentities = new Set(authored.map(arrayIdentity));
     return [
-      ...authored.map((item) => {
+      ...authored.map((item: unknown) => {
         const identity = arrayIdentity(item);
         return previousByIdentity.has(identity) && resolvedByIdentity.has(identity)
           ? mergeConfig(previousByIdentity.get(identity), resolvedByIdentity.get(identity), item)

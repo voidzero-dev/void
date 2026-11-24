@@ -1,6 +1,7 @@
 import { deleteCookie, getCookie } from 'hono/cookie';
 import { defineMiddleware } from 'void';
-import { getCurrentUser, type API } from '../lib/api.ts';
+import { getCurrentUser } from '../lib/api.ts';
+import type { API } from '../lib/api.ts';
 
 export type DashboardUser = API<'me'>;
 

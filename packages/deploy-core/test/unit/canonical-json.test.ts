@@ -14,7 +14,7 @@ describe('canonicalJson', () => {
 
   it('omits undefined object fields and preserves JSON string escaping', () => {
     expect(canonicalJson({ b: undefined, a: 'quote " slash \\\\ newline\n' })).toBe(
-      '{"a":"quote \\" slash \\\\\\\\ newline\\n"}',
+      String.raw`{"a":"quote \" slash \\\\ newline\n"}`,
     );
   });
 

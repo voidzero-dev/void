@@ -3,8 +3,8 @@ import {
   createPlatformDeploymentManifest,
   createPlatformInstallationManifest,
   platformProtectionProofMessage,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   runPlatformProtectionConfig,

@@ -1,4 +1,4 @@
-const REQUEST_BODY_DEADLINE_MS = 5_000;
+const REQUEST_BODY_DEADLINE_MS = 5000;
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
 const DEFAULT_JSON_BODY_MAX_BYTES = 1024 * 1024;

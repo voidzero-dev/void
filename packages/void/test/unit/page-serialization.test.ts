@@ -19,7 +19,7 @@ describe('page serialization', () => {
       url: new URL('https://void.cloud/?q=hello'),
       regexp: /void/gi,
       missing: undefined,
-      nan: NaN,
+      nan: Number.NaN,
       infinity: Infinity,
       negativeZero: -0,
     };

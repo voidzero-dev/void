@@ -1,5 +1,6 @@
 import { defineHandler, defineHead } from 'void';
-import { fetchApi, type API } from '../lib/api.ts';
+import { fetchApi } from '../lib/api.ts';
+import type { API } from '../lib/api.ts';
 import { discoveryDisplayName, platformPageTitle } from '../lib/platform-title.ts';
 
 export type Props = Readonly<{

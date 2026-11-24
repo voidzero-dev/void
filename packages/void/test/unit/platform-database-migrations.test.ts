@@ -3,8 +3,8 @@ import {
   getPlatformRuntimeDirectory,
   platformDatabaseSchemaDigest,
   readPlatformRuntimeManifest,
-  type PlatformRuntimeDatabaseManifest,
 } from '@void/platform/installer';
+import type { PlatformRuntimeDatabaseManifest } from '@void/platform/installer';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import {
   inspectPlatformDatabaseStateConnection,

@@ -91,7 +91,7 @@ export function createCloudflareMetadataRunner(options: {
                   status: 1,
                   stdout: '',
                   stderr: `The Worker ${options.workerName} has no deployments.`,
-                  errorCode: 10007,
+                  errorCode: 10_007,
                 };
               }
               if (isRecord(latest) && Array.isArray(latest.versions)) {

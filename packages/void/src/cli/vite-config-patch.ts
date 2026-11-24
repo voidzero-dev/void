@@ -84,7 +84,7 @@ export function patchViteConfigWithVoidPlugin(filePath: string, code: string): s
 
   let program: Node;
   try {
-    program = parseSync(filePath, code).program as unknown as Node;
+    program = parseSync(filePath, code).program as Node;
   } catch {
     return undefined;
   }
@@ -162,11 +162,7 @@ export function patchViteConfigWithVoidPlugin(filePath: string, code: string): s
 
   if (!importedName) {
     const insertAt =
-      imports.length > 0
-        ? imports[imports.length - 1]!.end
-        : code.startsWith('#!')
-          ? code.indexOf('\n') + 1
-          : 0;
+      imports.length > 0 ? imports.at(-1)!.end : code.startsWith('#!') ? code.indexOf('\n') + 1 : 0;
     const prefix = insertAt > 0 && code[insertAt - 1] !== '\n' ? '\n' : '';
     ms.appendLeft(insertAt, `${prefix}import { voidPlugin } from "void";\n`);
   }

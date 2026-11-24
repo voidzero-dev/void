@@ -6,7 +6,7 @@ export {
   readEmailEnvelope,
 } from '@void/platform/email-protocol';
 
-const RECEIPT_VERIFICATION_DEADLINE_MS = 5_000;
+const RECEIPT_VERIFICATION_DEADLINE_MS = 5000;
 const MAX_RECEIPT_VERIFICATION_BYTES = 2 * 1024;
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 

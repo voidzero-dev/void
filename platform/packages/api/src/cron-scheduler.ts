@@ -23,7 +23,7 @@ export function cfCronToUnix(expr: string): string {
     .map((part) => {
       // Handle range with optional step: "2-6/2" → "1-5/2"
       const [rangeOrValue, step] = part.split('/');
-      const stepSuffix = step != null ? `/${step}` : '';
+      const stepSuffix = step !== null && step !== undefined ? `/${step}` : '';
 
       if (rangeOrValue === '*') {
         return `*${stepSuffix}`;
@@ -49,7 +49,7 @@ function shiftDow(value: string): string {
   if (!match) {
     return value;
   } // abbreviation like MON, SUN
-  const shiftedDayOfWeek = Math.max(0, parseInt(match[1], 10) - 1);
+  const shiftedDayOfWeek = Math.max(0, Number.parseInt(match[1], 10) - 1);
   return `${shiftedDayOfWeek}${match[2]}`;
 }
 
@@ -63,8 +63,8 @@ export function cronMatchesMinute(cronExpr: string, now: number): boolean {
       tz: 'UTC',
     });
     const prev = interval.prev().toDate().getTime();
-    const nowMinute = Math.floor(now / 60000) * 60000;
-    return prev >= nowMinute && prev < nowMinute + 60000;
+    const nowMinute = Math.floor(now / 60_000) * 60_000;
+    return prev >= nowMinute && prev < nowMinute + 60_000;
   } catch {
     return false;
   }
@@ -327,7 +327,7 @@ export class CronScheduler extends DurableObject<ApiEnv['Bindings']> {
     }
 
     const next = getNextFireTime(state.schedules, Date.now());
-    if (next != null) {
+    if (next !== null && next !== undefined) {
       await this.ctx.storage.setAlarm(next);
     }
   }

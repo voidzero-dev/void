@@ -5,15 +5,8 @@ import { NumberInput } from '@astryxdesign/core/NumberInput';
 import { Selector } from '@astryxdesign/core/Selector';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type InputHTMLAttributes,
-  type TextareaHTMLAttributes,
-} from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
 
 // Astryx forwards native validation attributes, but its field prop types omit them.
 

@@ -1,17 +1,10 @@
 import type { BetterAuthOptions } from 'better-auth';
-import {
-  getAuthTables,
-  getSchema as getBetterAuthSchema,
-  type BetterAuthDBSchema,
-  type DBFieldAttribute,
-} from 'better-auth/db';
+import { getAuthTables, getSchema as getBetterAuthSchema } from 'better-auth/db';
+import type { BetterAuthDBSchema, DBFieldAttribute } from 'better-auth/db';
 import type { VoidAuthRuntimeOptions } from '../runtime/auth/better-auth-shared.ts';
 import type { VoidAuthConfig } from '../runtime/auth/index.ts';
-import {
-  VOID_EMAIL_AUTH_PROVIDER,
-  isVoidSocialAuthProvider,
-  type VoidAuthProvider,
-} from './providers.ts';
+import { VOID_EMAIL_AUTH_PROVIDER, isVoidSocialAuthProvider } from './providers.ts';
+import type { VoidAuthProvider } from './providers.ts';
 
 type AuthIdStrategy = 'serial' | 'text' | 'uuid';
 const DEFAULT_TABLE_ORDER = Number.MAX_SAFE_INTEGER;
@@ -148,7 +141,7 @@ function resolveIdStrategy(options: BetterAuthOptions): AuthIdStrategy {
 }
 
 function sanitizeIdentifier(name: string): string {
-  const value = name.replace(/[^A-Za-z0-9_$]/g, '_');
+  const value = name.replaceAll(/[^A-Za-z0-9_$]/g, '_');
   return /^[A-Za-z_$]/.test(value) ? value : `_${value}`;
 }
 

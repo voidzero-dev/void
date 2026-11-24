@@ -20,9 +20,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
-  type StartedServer,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground, StartedServer } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/astro';
@@ -33,7 +32,7 @@ function readWranglerConfig(root: string): {
   d1_databases?: Array<{ binding: string }>;
   kv_namespaces?: Array<{ binding: string }>;
 } {
-  return JSON.parse(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf-8'));
+  return JSON.parse(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf8'));
 }
 
 describe('playground/astro dev', () => {

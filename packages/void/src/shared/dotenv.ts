@@ -61,7 +61,7 @@ export function parseDotenvFile(
   if (!existsSync(filePath)) {
     return {};
   }
-  return parseDotenv(readFileSync(filePath, 'utf-8'), options);
+  return parseDotenv(readFileSync(filePath, 'utf8'), options);
 }
 
 /**
@@ -193,7 +193,7 @@ export function scanWranglerDotenvKeys(filePath: string): Set<string> {
   if (!existsSync(filePath)) {
     return keys;
   }
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, 'utf8');
   WRANGLER_DOTENV_LINE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = WRANGLER_DOTENV_LINE.exec(content)) !== null) {

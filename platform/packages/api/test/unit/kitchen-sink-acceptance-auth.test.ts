@@ -130,7 +130,7 @@ describe('acceptance auth with a configured secret', () => {
     const response = await app.request('/runtime', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-void-e2e-token': 'configured-secret' },
-      body: JSON.stringify({ action: 'ai', model: 'arbitrary', max_tokens: 10000 }),
+      body: JSON.stringify({ action: 'ai', model: 'arbitrary', max_tokens: 10_000 }),
     });
     expect(response.status).toBe(200);
     expect(mocks.aiRun).toHaveBeenCalledWith('@cf/meta/llama-3.2-1b-instruct', {

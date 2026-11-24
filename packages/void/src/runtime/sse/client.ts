@@ -93,5 +93,5 @@ function getParser(parse: ConnectEventStreamOptions['parse']): (data: string) =>
   if (parse === 'text') {
     return (data) => data;
   }
-  return (data) => JSON.parse(data);
+  return (data): unknown => JSON.parse(data);
 }

@@ -8,16 +8,21 @@ export type HeadDescriptor = {
   bodyAttrs?: Record<string, string>;
 };
 
-/** Project-level head config with template support. */
+/** Head metadata with title template support, for config, middleware and pages. */
 export type HeadConfig = HeadDescriptor & {
-  /** Title template — `%s` is replaced with the page title. */
+  /**
+   * Title template — `%s` is replaced with the page title. A page or
+   * middleware value replaces the one from a lower layer; an empty string
+   * drops the template.
+   */
   titleTemplate?: string;
 };
 
 /**
  * Merge head descriptors with precedence: page > middleware > config.
  *
- * - `title`: page wins; `titleTemplate` from middleware, else config, wraps it (`%s` replaced)
+ * - `title`: page wins; `titleTemplate` from the page, else middleware, else config, wraps it
+ *   (`%s` replaced). An empty template drops the ones below it.
  * - `meta`: page overrides entries with same `name`/`property`; others appended
  * - `link`/`script`: concatenated (config first, then middleware, then page)
  * - `htmlAttrs`/`bodyAttrs`: shallow merge, page wins conflicts
@@ -25,7 +30,7 @@ export type HeadConfig = HeadDescriptor & {
 export function resolveHead(
   configHead: HeadConfig | undefined,
   middlewareHead: HeadConfig | undefined,
-  pageHead: HeadDescriptor | undefined,
+  pageHead: HeadConfig | undefined,
 ): HeadDescriptor | undefined {
   if (!configHead && !middlewareHead && !pageHead) {
     return undefined;
@@ -36,7 +41,8 @@ export function resolveHead(
 
   const title = pageHead?.title ?? middlewareHead?.title ?? configHead?.title;
   if (title !== undefined) {
-    const template = middlewareHead?.titleTemplate ?? configHead?.titleTemplate;
+    const template =
+      pageHead?.titleTemplate ?? middlewareHead?.titleTemplate ?? configHead?.titleTemplate;
     result.title = template ? template.replace('%s', () => title) : title;
   }
 
@@ -111,15 +117,15 @@ function mergeAttrs(
 
 function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }
 
 function serializeAttrs(attrs: Record<string, string | undefined>): string {
   return Object.entries(attrs)
-    .filter(([, value]) => value != null)
+    .filter(([, value]) => value !== null && value !== undefined)
     .map(([key, value]) => `${key}="${escapeHtml(value!)}"`)
     .join(' ');
 }
