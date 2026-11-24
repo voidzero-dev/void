@@ -216,7 +216,9 @@ describe('uploadAssetsToR2', () => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       // Yield once so concurrent requests stack up.
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5);
+      });
       inFlight--;
       return new Response(null, { status: 200 });
     });

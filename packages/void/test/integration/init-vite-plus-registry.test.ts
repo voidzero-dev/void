@@ -131,7 +131,9 @@ it('installs the tested Vite+ pair even when newer CLI and core releases are ava
     );
   } finally {
     server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
     rmSync(root, { recursive: true, force: true });
   }
 });

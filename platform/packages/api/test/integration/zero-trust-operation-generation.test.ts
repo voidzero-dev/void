@@ -430,7 +430,9 @@ describe('Zero Trust operation completion', () => {
         // This assertion also fails deterministically when provider I/O happens
         // outside the configuration transaction, before the scheduling check.
         expect(transactionDepth).toBe(1);
-        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 25);
+        });
         expect(contenderSettled).toBe(false);
       } finally {
         release.resolve();

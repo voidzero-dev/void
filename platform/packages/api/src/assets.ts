@@ -233,7 +233,9 @@ export async function uploadAssetBuckets(
 
   async function acquireSlot(): Promise<void> {
     while (activeCount >= concurrency) {
-      await new Promise<void>((resolve) => waiters.push(resolve));
+      await new Promise<void>((resolve) => {
+        waiters.push(resolve);
+      });
     }
     activeCount++;
   }
@@ -289,7 +291,9 @@ export async function uploadAssetBuckets(
         lastErr instanceof Error ? lastErr.message : lastErr,
       );
 
-      await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempts) * retryDelayMs));
+      await new Promise((resolve) => {
+        setTimeout(resolve, Math.pow(2, attempts) * retryDelayMs);
+      });
 
       if (lastErr instanceof AssetUploadError && lastErr.status === 524) {
         // Gateway error — throttle concurrency + additional backoff
@@ -298,9 +302,9 @@ export async function uploadAssetBuckets(
           waiters.shift()!();
         }
 
-        await new Promise((resolve) =>
-          setTimeout(resolve, Math.pow(2, bucketGatewayErrors) * gatewayDelayMs),
-        );
+        await new Promise((resolve) => {
+          setTimeout(resolve, Math.pow(2, bucketGatewayErrors) * gatewayDelayMs);
+        });
         bucketGatewayErrors++;
         console.warn(
           `[assets] bucket ${bucketIndex + 1} gateway error (524), ` +

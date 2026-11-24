@@ -486,7 +486,9 @@ describe('platform authentication during input', () => {
       ),
     ).rejects.toThrow('Cancelled.');
     check.resolve(success);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
     expect(runWrangler).toHaveBeenCalledOnce();
   });
 
@@ -500,7 +502,9 @@ describe('platform authentication during input', () => {
     }).finally(() => {
       settled = true;
     });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
     expect(settled).toBe(false);
     input.resolve('team');
     await expect(result).rejects.toThrow('secure storage unavailable');

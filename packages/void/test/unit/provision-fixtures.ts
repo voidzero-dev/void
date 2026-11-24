@@ -187,7 +187,9 @@ export async function waitForDead(pid: number, timeoutMs: number): Promise<boole
     } catch {
       return true;
     }
-    await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => {
+      setTimeout(r, 25);
+    });
   }
   return false;
 }

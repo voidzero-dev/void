@@ -372,7 +372,9 @@ setInterval(beat, 10);
 
         // Both processes had ended when the listeners returned.
         const atExit = readFileSync(beats, 'utf8');
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 150);
+        });
         expect(readFileSync(beats, 'utf8')).toBe(atExit);
         expect(await outcome).toBe('vp install failed with exit code unknown');
       } finally {

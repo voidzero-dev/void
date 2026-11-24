@@ -643,7 +643,9 @@ describe('uploadAssetBuckets', () => {
       currentConcurrent++;
       maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
       // Yield to let other concurrent tasks start
-      await new Promise((r) => setTimeout(r, 1));
+      await new Promise((r) => {
+        setTimeout(r, 1);
+      });
       currentConcurrent--;
       return Response.json({ result: { jwt: 'completion-jwt' } });
     });

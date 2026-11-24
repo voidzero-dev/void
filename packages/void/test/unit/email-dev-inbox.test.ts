@@ -593,7 +593,9 @@ describe('dev inbox auth (dev-trigger token on every route)', () => {
       (plugin.configureServer as (this: unknown, s: unknown) => void).call(plugin, server);
       expect(log).not.toHaveBeenCalled();
       httpServer.emit('listening');
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => {
+        setTimeout(r, 150);
+      });
       const output = log.mock.calls.map((c) => String(c[0] ?? '')).join('\n');
       expect(output).toContain(
         `Email inbox: http://localhost:5173/__void/inbox?${DEV_INBOX_TOKEN_QUERY}=${TOKEN}`,

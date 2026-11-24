@@ -287,7 +287,9 @@ async function cleanupCriticalResources(
     resources.filter((r) => r.type === 'container').map((r) => r.cf_id),
   );
   await sweepPerDeployContainerOrphans(context, projectId, alreadyDeletedCfIds);
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 2000);
+  });
   await sweepPerDeployContainerOrphans(context, projectId, alreadyDeletedCfIds);
 }
 

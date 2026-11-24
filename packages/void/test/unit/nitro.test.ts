@@ -347,7 +347,9 @@ describe('void/nitro', () => {
         // A route that reads its request's resource before and after an await.
         async handler(event: string) {
           const first = getRuntimeRequestResource(key, () => ({ event }));
-          await new Promise((resolve) => setTimeout(resolve, 5));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 5);
+          });
           return [first, getRuntimeRequestResource(key, () => ({ event }))];
         },
       },
@@ -387,7 +389,9 @@ describe('void/nitro', () => {
         const first = getRuntimeRequestResource(key, () => ({
           path: new URL(request.url).pathname,
         }));
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5);
+        });
         return [first, getRuntimeRequestResource(key, () => ({}))];
       },
     };

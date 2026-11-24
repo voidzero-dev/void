@@ -146,7 +146,9 @@ vi.mock('../../src/github/installation-token.ts', () => ({
       // immediately and decrements, which would otherwise strand its peers.
       const deadline = Date.now() + 1000;
       while (compareConcurrencyPeak < compareBarrierSize && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 5));
+        await new Promise((r) => {
+          setTimeout(r, 5);
+        });
       }
       compareInFlight--;
     }
@@ -5539,9 +5541,12 @@ describe('POST /webhooks/github — rerun from the check run', () => {
 
     const checkRunModule = await import('../../src/github/check-run.ts');
     let settle: (v: boolean) => void = () => {};
-    const spy = vi
-      .spyOn(checkRunModule, 'completeCheckRun')
-      .mockImplementation(() => new Promise<boolean>((resolve) => (settle = resolve)));
+    const spy = vi.spyOn(checkRunModule, 'completeCheckRun').mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settle = resolve;
+        }),
+    );
     try {
       const { app, appEnv } = makeApp(env);
       const payload = checkRunPayload({ id: 77_010, externalId: clicked.id });

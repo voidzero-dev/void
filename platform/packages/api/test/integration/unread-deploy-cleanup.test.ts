@@ -45,7 +45,9 @@ async function lockWaitOrTimeout(limitMs: number): Promise<void> {
     if (rows[0]!.n > 0) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
   }
 }
 
@@ -58,9 +60,13 @@ describe('fixture cleanup after an unread deploy stream', () => {
     await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${HASH(1)}`, bytes.buffer as ArrayBuffer);
 
     let reached!: () => void;
-    const locked = new Promise<void>((resolve) => (reached = resolve));
+    const locked = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     setGetProjectOverride(async ({ original, argsList }) => {
       const [db, id] = argsList;
       if (db !== env.db) {

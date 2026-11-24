@@ -69,7 +69,9 @@ async function waitForPid(pidFile: string, timeoutMs: number): Promise<number | 
         return Number(raw);
       }
     }
-    await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => {
+      setTimeout(r, 25);
+    });
   }
   return undefined;
 }
@@ -264,7 +266,9 @@ describe('createDefaultRunWrangler — ONE signal coordinator: repeated signals 
       timeoutMs: 30_000,
     });
     const first = runA({ type: 'd1.list' }, { accountId: 'acct' });
-    await new Promise((r) => setTimeout(r, 80)); // A's child is alive and registered
+    await new Promise((r) => {
+      setTimeout(r, 80);
+    }); // A's child is alive and registered
     const runB = createDefaultRunWrangler(COORDINATOR_TMP, {
       launcher: [process.execPath, slowChild],
       timeoutMs: 30_000,
@@ -576,7 +580,9 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     // A test deadline can interrupt the assertion before the runner's deadline.
     // Wait for actual close before removing a directory a Windows child uses as cwd.
     for (const child of spawnedChildren) {
-      const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+      const closed = new Promise<void>((resolve) => {
+        child.once('close', () => resolve());
+      });
       child.kill('SIGKILL');
       await closed;
     }
@@ -631,7 +637,9 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     void (async () => {
       const deadline = Date.now() + 5000;
       while (!existsSync(pidFile) && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 10);
+        });
       }
       child.emit('error', new Error(message));
     })();
@@ -720,7 +728,9 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
         child.stdout!.on('data', (chunk: string) => {
           observedOutput += chunk;
         });
-        childClosed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+        childClosed = new Promise<void>((resolve) => {
+          child.once('close', () => resolve());
+        });
       },
     });
     let result: Awaited<ReturnType<typeof run>> | undefined;

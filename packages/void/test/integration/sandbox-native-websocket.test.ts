@@ -72,9 +72,9 @@ export default { fetch(request, env) { return envContext.run(env, async () => {
     expect(response.status).toBe(101);
     const socket = response.webSocket!;
     socket.accept();
-    const message = new Promise<string>((resolve) =>
-      socket.addEventListener('message', (event) => resolve(String(event.data)), { once: true }),
-    );
+    const message = new Promise<string>((resolve) => {
+      socket.addEventListener('message', (event) => resolve(String(event.data)), { once: true });
+    });
     socket.send('hello');
     expect(JSON.parse(await message)).toEqual({
       data: 'hello',

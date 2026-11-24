@@ -859,7 +859,9 @@ describe('proxy token rotation', () => {
     let putDoneAt = 0;
     hooks.kvPut = async (key) => {
       if (key === proxyTokenStateKey(fx.projectId)) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 200);
+        });
         putDoneAt = Date.now();
       }
     };
@@ -1498,7 +1500,12 @@ describe('proxy token rotation', () => {
               testEnv,
             ),
           );
-          await Promise.race([secretWrite, new Promise((resolve) => setTimeout(resolve, 500))]);
+          await Promise.race([
+            secretWrite,
+            new Promise((resolve) => {
+              setTimeout(resolve, 500);
+            }),
+          ]);
         }
         return undefined;
       };

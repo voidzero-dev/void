@@ -864,8 +864,12 @@ describe('typed asset fallthrough', () => {
     async (first) => {
       let resolveHit!: (manifest: ClientManifest | null) => void;
       let resolveMiss!: (manifest: ClientManifest | null) => void;
-      const hit = new Promise<ClientManifest | null>((resolve) => (resolveHit = resolve));
-      const miss = new Promise<ClientManifest | null>((resolve) => (resolveMiss = resolve));
+      const hit = new Promise<ClientManifest | null>((resolve) => {
+        resolveHit = resolve;
+      });
+      const miss = new Promise<ClientManifest | null>((resolve) => {
+        resolveMiss = resolve;
+      });
       const load = vi.fn<ManifestLoader>((request) =>
         new URL(request.url).pathname.includes('/hit-') ? hit : miss,
       );

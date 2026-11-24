@@ -170,7 +170,9 @@ function isKvRateLimited(error: unknown): boolean {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /** Runs one KV write, retrying a 429 while the caller still holds the project lock. */

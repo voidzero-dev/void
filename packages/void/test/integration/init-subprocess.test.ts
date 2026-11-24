@@ -64,7 +64,9 @@ async function commandAndScriptRun(): Promise<void> {
 /** Whether a process still adds lines, 150ms after `stopCommand` returned. */
 async function beatsGoOn(): Promise<boolean> {
   const atReturn = readFileSync(beats, 'utf8');
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 150);
+  });
   return readFileSync(beats, 'utf8') !== atReturn;
 }
 

@@ -139,7 +139,9 @@ async function tickProgress(
     return;
   }
   onProgress(`${label} (${i}/${total})`);
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
 }
 
 /**

@@ -63,7 +63,9 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
         if (Date.now() >= deadline) {
           throw new Error('retention watchdog did not resolve within the drain window');
         }
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => {
+          setTimeout(r, 50);
+        });
       }
     } finally {
       rmSync(probeDir, { recursive: true, force: true });
@@ -85,7 +87,9 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       expect(existsSync(sidecar)).toBe(false);
       // The lock stays tracked, so its heartbeat keeps it fresh past proper-lockfile's
       // 2000ms stale floor.
-      await new Promise((r) => setTimeout(r, 2300));
+      await new Promise((r) => {
+        setTimeout(r, 2300);
+      });
       await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
         /already being held/,
       );
@@ -141,7 +145,9 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
     // generous because its tick is a real timer.
     const deadline = Date.now() + 15_000;
     while (existsSync(lockMutex) && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => {
+        setTimeout(r, 50);
+      });
     }
     expect(existsSync(lockMutex)).toBe(false);
     expect(existsSync(sidecar)).toBe(false);
@@ -194,7 +200,9 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       failPersistence = false;
       const deadline = Date.now() + 15_000;
       while (!existsSync(sidecar) && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => {
+          setTimeout(r, 50);
+        });
       }
       expect(existsSync(sidecar)).toBe(true);
       const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
@@ -321,7 +329,9 @@ describe('acquireProvisionLock — sidecar DIRECTORY durability failures propaga
       // The non-durable sidecar was rolled back.
       expect(existsSync(sidecar)).toBe(false);
       // The lock stays tracked, so its heartbeat keeps it fresh past the 2000ms stale floor.
-      await new Promise((r) => setTimeout(r, 2300));
+      await new Promise((r) => {
+        setTimeout(r, 2300);
+      });
       await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
         /already being held/,
       );

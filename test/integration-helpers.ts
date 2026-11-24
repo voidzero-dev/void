@@ -203,7 +203,9 @@ export async function startServer(
     const port = await getFreePort();
     const child = spawnServer(port);
     const output = collectServerOutput(child);
-    const closed = new Promise((resolve) => child.once('close', resolve));
+    const closed = new Promise((resolve) => {
+      child.once('close', resolve);
+    });
     const base = `http://127.0.0.1:${port}`;
     const exited = () => child.exitCode !== null || child.signalCode !== null;
     // Vite without `--strictPort` (Astro) keeps running and moves to the next port.
@@ -303,7 +305,9 @@ export async function waitForServer(
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 200);
+    });
   }
   throw new Error(
     `Timed out waiting for server at ${url} (waited ${effectiveTimeout}ms, scale=${CI_TIMEOUT_SCALE})\n${options?.diagnostics?.() ?? ''}`,

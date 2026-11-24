@@ -122,7 +122,9 @@ describe('build-agent source download bounds', () => {
         // per-attempt wall clock or a throughput floor would kill this; the stall
         // guard must not, or every large repo on a slow link starts failing.
         for (let i = 0; i < 10; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 20);
+          });
           options?.onBytes?.(4096);
         }
       },
@@ -268,7 +270,10 @@ describe('build-agent source download bounds', () => {
       agent.downloadSource({
         fetchImpl: okFetch,
         resetWorkDir: () => {},
-        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        sleep: (ms) =>
+          new Promise((resolve) => {
+            setTimeout(resolve, ms);
+          }),
         stallTimeoutMs: 30,
         phaseBudgetMs: 120,
         maxAttempts: 10,
@@ -322,7 +327,9 @@ describe('build-agent source download bounds', () => {
       progressIntervalMs: 10,
       extract: async (_body, options) => {
         for (let i = 0; i < 4; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 15));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 15);
+          });
           options?.onBytes?.(512 * 1024);
         }
       },
@@ -348,7 +355,10 @@ describe('build-agent source download bounds', () => {
       agent.downloadSource({
         fetchImpl: okFetch,
         // Slower than the whole budget.
-        resetWorkDir: () => new Promise((resolve) => setTimeout(resolve, 80)),
+        resetWorkDir: () =>
+          new Promise((resolve) => {
+            setTimeout(resolve, 80);
+          }),
         sleep: () => Promise.resolve(),
         stallTimeoutMs: 5000,
         phaseBudgetMs: 30,
@@ -901,13 +911,17 @@ describe('build-agent source download, real stream + tar', () => {
       }
       res.end(archive);
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
     const address = server.address();
     origin = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
     rmSync(fixtureRoot, { recursive: true, force: true });
     rmSync(WORK_DIR, { recursive: true, force: true });
   });
@@ -978,7 +992,9 @@ describe('build-agent source download, real stream + tar', () => {
 
     // Give any surviving child a window to write; the tree must not move.
     const before = readdirSync(WORK_DIR).sort();
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 300);
+    });
     expect(readdirSync(WORK_DIR).sort()).toEqual(before);
     expect(readFileSync(join(WORK_DIR, 'big.bin'))).toHaveLength(2 * 1024 * 1024);
   }, 30_000);
@@ -1088,7 +1104,9 @@ describe('build-agent extractTarball child lifecycle', () => {
         () => 'resolved',
         () => 'rejected',
       ),
-      new Promise((resolve) => setTimeout(() => resolve(pending), 60)),
+      new Promise((resolve) => {
+        setTimeout(() => resolve(pending), 60);
+      }),
     ]);
     return result === pending ? null : (result as string);
   };
@@ -1123,7 +1141,9 @@ describe('build-agent extractTarball child lifecycle', () => {
       (err: Error) => err,
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 80);
+    });
     expect(child.signals).toEqual(['SIGTERM', 'SIGKILL']);
     // The fake exits on SIGKILL, which is what finally settles the promise.
     expect((await rejected)?.message).toBe('connection reset');
@@ -1138,7 +1158,9 @@ describe('build-agent extractTarball child lifecycle', () => {
     await promise.catch(() => {});
 
     // Past the grace: a timer left armed would have fired by now.
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 60);
+    });
     expect(child.signals).toEqual(['SIGTERM']);
   });
 

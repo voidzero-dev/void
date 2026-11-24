@@ -49,7 +49,9 @@ async function call(url: URL, path: string, params: Record<string, string>) {
 }
 
 function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 2000) {

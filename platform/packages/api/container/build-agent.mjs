@@ -864,7 +864,9 @@ export const LOG_DRAIN_POLL_MS = 100;
 
 /** @param {number} ms */
 function sleepMs(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /**

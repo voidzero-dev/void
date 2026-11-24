@@ -491,7 +491,6 @@ const config = defineConfig({
       '@nkzw/no-instanceof': 'off',
       'import/no-namespace': 'off',
       'no-console': 'off',
-      'no-promise-executor-return': 'off',
       'no-useless-assignment': 'off',
       'preserve-caught-error': 'off',
       'quality/no-array-filter-map': 'off',

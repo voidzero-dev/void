@@ -123,7 +123,9 @@ async function waitForPostgresLockWaiter(): Promise<void> {
     if (Number((result.rows[0] as { waiters?: number } | undefined)?.waiters ?? 0) >= 1) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
   }
   throw new Error('timed out waiting for the attempt-start owner lock');
 }

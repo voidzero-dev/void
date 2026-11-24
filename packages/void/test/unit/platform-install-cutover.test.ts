@@ -91,7 +91,9 @@ async function createFakeCloudflare() {
     });
   });
   servers.push(upstream);
-  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    upstream.listen(0, '127.0.0.1', resolve);
+  });
   const apiBaseUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}/client/v4`;
   const workers = new Map<
     string,

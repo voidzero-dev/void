@@ -311,7 +311,9 @@ export async function bootstrapPlatformSharedEmail(
     if (remaining <= 0) {
       throw timedOut();
     }
-    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(1000, remaining)));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, Math.min(1000, remaining));
+    });
   };
   let response: Response;
   let value: unknown;

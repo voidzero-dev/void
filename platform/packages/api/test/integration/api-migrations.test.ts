@@ -4074,7 +4074,9 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     // Give /apply a tick to enter its transaction and hit the hold.
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => {
+      setTimeout(r, 20);
+    });
     const renamePromise = app.fetch(
       authedReq(`/projects/${project.id}/migrations/rename`, user.jwt, {
         method: 'POST',
@@ -4084,7 +4086,9 @@ describe('POST /projects/:id/migrations/rename', () => {
     );
     // Give /rename a tick to issue its transaction call so it is queued
     // behind /apply's lock, then release.
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => {
+      setTimeout(r, 20);
+    });
     release();
 
     const [applyRes, renameRes] = await Promise.all([applyPromise, renamePromise]);
@@ -4391,7 +4395,9 @@ describe('POST /projects/:id/migrations/rename', () => {
     );
     // Give rollback a small head start so it reaches its locked
     // critical section before /apply tries to enter its own lock.
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => {
+      setTimeout(r, 20);
+    });
     const applyPromise = app.fetch(
       authedReq(`/projects/${project.id}/migrations/apply`, user.jwt, {
         method: 'POST',

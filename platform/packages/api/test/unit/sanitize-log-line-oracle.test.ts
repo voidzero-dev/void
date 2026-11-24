@@ -21,7 +21,9 @@ const COLS = TERMINAL_RENDER_COLUMNS;
 async function render(raw: string): Promise<string> {
   const term = new Terminal({ cols: COLS, rows: 1, allowProposedApi: true });
   try {
-    await new Promise<void>((resolve) => term.write(raw, resolve));
+    await new Promise<void>((resolve) => {
+      term.write(raw, resolve);
+    });
     const buffer = term.buffer.active;
     return (buffer.getLine(buffer.baseY)?.translateToString(false) ?? '').trimEnd();
   } finally {
@@ -359,7 +361,9 @@ describe('renderCapturedLog matches a real terminal (xterm.js oracle)', () => {
           term.reset();
           const [actual] = await Promise.all([
             renderCapturedLog(raw),
-            new Promise<void>((resolve) => term.write(raw, resolve)),
+            new Promise<void>((resolve) => {
+              term.write(raw, resolve);
+            }),
           ]);
           const buffer = term.buffer.active;
           const expected = (buffer.getLine(buffer.baseY)?.translateToString(false) ?? '').trimEnd();

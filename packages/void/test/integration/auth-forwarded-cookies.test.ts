@@ -599,7 +599,9 @@ describe('cookies set by auth.api calls during a request', () => {
   it('does not share cookies between concurrent requests', async () => {
     const { app } = fixture();
     let release!: () => void;
-    const held = new Promise<void>((resolve) => (release = resolve));
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     app.post('/profile', async (c) => {
       await getAuth(c).api.updateUser({ body: { name: 'Concurrent' }, headers: c.req.raw.headers });
       await held;

@@ -707,7 +707,9 @@ serialIt.runIf(process.platform !== 'win32')(
           if (Date.now() >= deadline) {
             throw new Error('Container command descendant survived termination.');
           }
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 20);
+          });
         }
       }
     } finally {

@@ -33,7 +33,9 @@ function fakeClient(scripts: ReadonlyArray<string>, failing: ReadonlySet<string>
     patchDispatchNamespaceScriptSettings: async (_accountId, _namespace, script, settings) => {
       active++;
       peak = Math.max(peak, active);
-      await new Promise((resolve) => setTimeout(resolve, 1));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1);
+      });
       active--;
       if (failing.has(script)) {
         throw new Error('rate limited');

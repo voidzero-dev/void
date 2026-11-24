@@ -155,7 +155,9 @@ async function waitForPostgresLockWaiters(minimum: number): Promise<void> {
     if (Number((result.rows[0] as { waiters?: number } | undefined)?.waiters ?? 0) >= minimum) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
   }
   throw new Error(`timed out waiting for ${minimum} PostgreSQL lock waiters`);
 }

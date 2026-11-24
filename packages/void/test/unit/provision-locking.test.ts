@@ -35,7 +35,10 @@ describe('provisionCloudflareResources — whole-provision cross-process lock (p
   const recoveryTarget = `${lockTarget}.recovery`;
   const lockMutex = `${lockTarget}.lock`;
   const recoveryMutex = `${recoveryTarget}.lock`;
-  const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+  const delay = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
 
   it('a SECOND in-process provision fails fast with a clear hard error (at most one per process)', async () => {
     setup(

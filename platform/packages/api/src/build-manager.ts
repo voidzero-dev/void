@@ -933,12 +933,16 @@ async function renderTerminalGroups(groups: Array<TerminalRenderGroup>): Promise
   try {
     for (const group of groups) {
       for (const line of group.lines) {
-        await new Promise<void>((resolve) => term.write(line.raw, resolve));
+        await new Promise<void>((resolve) => {
+          term.write(line.raw, resolve);
+        });
         const ending = LINE_ENDING_TEXT[line.lineEnding];
         if (ending !== '') {
           captureRecordedLineFeed = line.lineEnding === 'lf' || line.lineEnding === 'crlf';
           try {
-            await new Promise<void>((resolve) => term.write(ending, resolve));
+            await new Promise<void>((resolve) => {
+              term.write(ending, resolve);
+            });
           } finally {
             captureRecordedLineFeed = false;
           }
@@ -2507,9 +2511,9 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       if (retryRemaining <= 0) {
         return;
       }
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(POLL_SECONDS * 1000, retryRemaining)),
-      );
+      await new Promise((resolve) => {
+        setTimeout(resolve, Math.min(POLL_SECONDS * 1000, retryRemaining));
+      });
     }
   }
 

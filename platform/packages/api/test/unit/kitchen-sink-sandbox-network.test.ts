@@ -11,7 +11,9 @@ it('closes a stalled network connection so the denial probe exits without being 
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   try {
     const address = server.address();
     if (!address || typeof address === 'string') {
@@ -25,6 +27,8 @@ it('closes a stalled network connection so the denial probe exits without being 
     for (const socket of sockets) {
       socket.destroy();
     }
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
   }
 });

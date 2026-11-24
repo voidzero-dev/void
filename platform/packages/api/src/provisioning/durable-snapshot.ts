@@ -82,7 +82,9 @@ async function putVerifiedSnapshotObject(
       throw new Error(`Custom Durable Object release snapshot changed: ${key}`);
     }
     if (attempt < 2) {
-      await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 200 * 2 ** attempt);
+      });
     }
   }
   throw new Error(`Could not store custom Durable Object release snapshot: ${key}`, {

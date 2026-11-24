@@ -3890,7 +3890,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // Give cancelBuild every chance to reach its own pull (getConfig + setStatus
     // are awaits) BEFORE the in-flight fetch answers — that is the race.
     for (let i = 0; i < 5; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     release();
     await Promise.all([poll, cancel]);
@@ -4042,7 +4044,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
     const cancel = m.cancelBuild('build superseded');
     for (let i = 0; i < 5; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     release();
     await Promise.all([poll, cancel]);
@@ -4106,7 +4110,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     const cancelA = m.cancelBuild('build superseded');
     const cancelB = m.cancelBuild('project deleted');
     for (let i = 0; i < 5; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     release();
     await Promise.all([poll, cancelA, cancelB]);
@@ -4533,7 +4539,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
     const timeout = m.enforceTimeout();
     for (let i = 0; i < 5; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     // The peer runs to completion — container destroyed — while the owner is parked.
     await m.cancelBuild('project deleted');

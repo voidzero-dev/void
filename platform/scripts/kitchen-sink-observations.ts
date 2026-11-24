@@ -57,7 +57,11 @@ async function pollObservation(
 ): Promise<string> {
   const now = options.now ?? Date.now;
   const wait =
-    options.wait ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    options.wait ??
+    ((milliseconds) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, milliseconds);
+      }));
   const deadline = now() + options.timeoutMs;
   let latest: string | null = null;
   for (;;) {

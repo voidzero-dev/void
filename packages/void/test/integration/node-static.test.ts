@@ -155,7 +155,9 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
   afterAll(async () => {
     if (staticServer) {
-      await new Promise<void>((resolveClose) => staticServer!.close(() => resolveClose()));
+      await new Promise<void>((resolveClose) => {
+        staticServer!.close(() => resolveClose());
+      });
     }
   });
 
@@ -503,10 +505,14 @@ describe('playground/node-static redirects (target: node, output: static)', () =
       writeFileSync(VOID_CONFIG, originalConfig);
     }
     if (redirectedServer) {
-      await new Promise<void>((resolveClose) => redirectedServer!.close(() => resolveClose()));
+      await new Promise<void>((resolveClose) => {
+        redirectedServer!.close(() => resolveClose());
+      });
     }
     if (externalServer) {
-      await new Promise<void>((resolveClose) => externalServer!.close(() => resolveClose()));
+      await new Promise<void>((resolveClose) => {
+        externalServer!.close(() => resolveClose());
+      });
     }
   });
 

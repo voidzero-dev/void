@@ -334,7 +334,9 @@ describe('operator project override', () => {
         return result;
       });
       try {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 50);
+        });
         expect(done).toBe(false);
       } finally {
         // Never leave the lock held for the tests that follow.
@@ -561,7 +563,9 @@ describe('project create', () => {
       );
       let created: Awaited<typeof creating>;
       try {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 50);
+        });
         expect(changed).toBe(false);
       } finally {
         // Never leave the lock held for the tests that follow.

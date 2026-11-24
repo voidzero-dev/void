@@ -1939,12 +1939,12 @@ export async function acquireProvisionLock(
   const isElocked = (error: unknown): boolean =>
     (error as { code?: string } | null)?.code === 'ELOCKED';
   const backoffDelay = (attempt: number): Promise<void> =>
-    new Promise((resolveSleep) =>
+    new Promise((resolveSleep) => {
       setTimeout(
         resolveSleep,
         Math.min(retryCfg.minTimeout * retryCfg.factor ** attempt, retryCfg.maxTimeout),
-      ),
-    );
+      );
+    });
   const acquireOnce = (): ReturnType<typeof lockfile.lock> =>
     lockfile.lock(lockTarget, {
       stale: staleMs,

@@ -115,7 +115,9 @@ it.each(['native', 'framework'])(
         default: async (_controller: unknown, env: JobEnv) => {
           const name = path.split('/').pop()!.replace('.mjs', '');
           if (name === 'second') {
-            await new Promise((resolve) => setTimeout(resolve, 2));
+            await new Promise((resolve) => {
+              setTimeout(resolve, 2);
+            });
           }
           env.calls.push(name);
           if (name === 'first' && env.fail) {
@@ -169,7 +171,9 @@ it.each([
         return;
       }
       if (path.endsWith('/first.mjs')) {
-        await new Promise((resolve) => setTimeout(resolve, 2));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 2);
+        });
         throw failure;
       }
       if (path.endsWith('/second.mjs')) {
@@ -211,7 +215,9 @@ it('names a job whose module fails to load and waits for the other jobs', async 
     }
     return {
       default: async (_controller: unknown, env: JobEnv) => {
-        await new Promise((resolve) => setTimeout(resolve, 2));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 2);
+        });
         env.calls.push(path.split('/').pop()!.replace('.mjs', ''));
       },
     };

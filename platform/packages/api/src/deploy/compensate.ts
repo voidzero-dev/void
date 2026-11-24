@@ -214,7 +214,9 @@ export async function recoverFailedDeployment(input: {
         });
       }
       if (attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 25 * 2 ** attempt);
+        });
       }
     }
     ambiguousCutoverOutcome ??= durableReadSucceeded ? 'not_committed' : 'unknown';

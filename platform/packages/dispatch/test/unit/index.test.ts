@@ -6773,7 +6773,9 @@ describe('foreground worker duration', () => {
         revalidate,
       },
       workerFetchImpl: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 11_000));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 11_000);
+        });
         completed();
         return new Response('completed', { headers: { 'Content-Type': 'text/html' } });
       },
@@ -6810,7 +6812,9 @@ describe('foreground worker duration', () => {
           if (++calls === 1) {
             return new Response('missing', { status: 404, headers: { 'X-Void-No-Match': '1' } });
           }
-          await new Promise((resolve) => setTimeout(resolve, 11_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 11_000);
+          });
           return new Response('fallback', { headers: { 'Content-Type': 'text/html' } });
         },
       });
@@ -6844,7 +6848,9 @@ describe('foreground worker duration', () => {
         },
         assetManifest: { '/bundle.js': '!bundle' },
         workerFetchImpl: async () => {
-          await new Promise((resolve) => setTimeout(resolve, 11_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 11_000);
+          });
           return new Response(stubBody, {
             headers: {
               'Content-Type': 'text/plain;charset=UTF-8',

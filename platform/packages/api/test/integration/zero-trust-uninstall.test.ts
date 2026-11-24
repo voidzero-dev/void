@@ -309,7 +309,9 @@ describe('platform uninstall check against the API database', () => {
             platform,
           ),
         ).then((response) => response.status);
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 200);
+        });
         expect(await readProjects()).toEqual([]);
 
         await fencePlatformProjectZeroTrustConnection(session);
@@ -350,7 +352,9 @@ describe('platform uninstall check against the API database', () => {
             return 'project written';
           })
           .catch((error: Error) => error.message);
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 200);
+        });
         expect(cloudflare.applications.size).toBe(0);
         expect(await check()).toMatchObject({ active: false, applications: [] });
 

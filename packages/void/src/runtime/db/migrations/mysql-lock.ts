@@ -114,7 +114,9 @@ export async function acquireMySqlMigrationLease(
     if (Date.now() >= deadline) {
       throw mySqlMigrationLockError(database, 'deploy again');
     }
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    await new Promise((resolve) => {
+      setTimeout(resolve, POLL_MS);
+    });
   }
 }
 

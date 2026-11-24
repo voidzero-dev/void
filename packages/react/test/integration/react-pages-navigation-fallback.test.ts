@@ -112,9 +112,9 @@ it('restores document history scroll after the initial Suspense content commits'
     // Hold the initial render past the startup frame, then let React commit it.
     await page.evaluate(
       () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
     );
     await page.evaluate(() =>
       (window as Window & { __resolveScrollPage?: () => void }).__resolveScrollPage!(),

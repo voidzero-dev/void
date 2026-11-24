@@ -625,10 +625,14 @@ describe('POST /email/send — custom sender domain', () => {
       apiFetch.mockImplementation(async (url, init) => {
         if (String(url).endsWith('/admit')) {
           markAdmissionStarted();
-          await new Promise((resolve) => setTimeout(resolve, 10_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 10_000);
+          });
         } else if (String(url).endsWith('/start')) {
           markStartStarted();
-          await new Promise((resolve) => setTimeout(resolve, 10_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 10_000);
+          });
         }
         return normalFetch(url, init);
       });

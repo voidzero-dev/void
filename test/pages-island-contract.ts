@@ -231,7 +231,9 @@ export function defineSharedIslandHmrTests({
       const start = Date.now();
       let updatedHtml = '';
       while (Date.now() - start < 10_000) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => {
+          setTimeout(r, 100);
+        });
         const res = await fetch(`${base}/blog`);
         expect(res.status).toBe(200);
         updatedHtml = await res.text();

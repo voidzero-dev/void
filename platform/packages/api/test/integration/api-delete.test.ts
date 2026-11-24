@@ -305,7 +305,9 @@ describe('DELETE /projects/:id', () => {
     expect(await db.getProject(env.db, project.id)).toMatchObject({ status: 'deleting' });
     expect(usageCalls).toHaveLength(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
     expect((await request()).status).toBe(200);
     expect(usageCalls).toHaveLength(2);
     expect(Date.parse(usageCalls[1]!.body.ownershipEndedAt)).toBeGreaterThan(

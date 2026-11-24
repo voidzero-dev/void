@@ -614,7 +614,9 @@ describe('POST /email/send — request validation', () => {
       apiFetch.mockImplementation(async (url, init) => {
         if (String(url).endsWith('/admit')) {
           markAdmissionStarted();
-          await new Promise((resolve) => setTimeout(resolve, 10_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 10_000);
+          });
         }
         return normalFetch(url, init);
       });

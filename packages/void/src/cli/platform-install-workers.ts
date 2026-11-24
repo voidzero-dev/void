@@ -230,7 +230,9 @@ export async function uploadInstallationWorkers(input: {
       throw uploadFailure;
     }
     if (availableUploadSlots === 0) {
-      await new Promise<void>((resolve, reject) => uploadWaiters.push({ resolve, reject }));
+      await new Promise<void>((resolve, reject) => {
+        uploadWaiters.push({ resolve, reject });
+      });
     } else {
       availableUploadSlots--;
     }

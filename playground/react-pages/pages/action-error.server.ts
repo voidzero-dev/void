@@ -19,7 +19,9 @@ const profileSchema = v.object({
 });
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function json(body: unknown, status: number, statusText: string): Response {

@@ -327,7 +327,9 @@ describe('legacy routing owner backfill', () => {
       ).finally(() => {
         protectionSettled = true;
       });
-      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25);
+      });
       const settledBeforeRelease = protectionSettled;
       release.resolve();
       await Promise.all([rollover, protection]);

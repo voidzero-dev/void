@@ -100,7 +100,9 @@ describe('acquireProvisionLock — the gate runs on EVERY attempt + post-acquire
         retries: { retries: 60, factor: 1, minTimeout: 150, maxTimeout: 150 },
       });
       // Let the waiter run a few healthy attempts first, THEN quarantine the holder.
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => {
+        setTimeout(r, 400);
+      });
       holder.quarantine({ pid: child.pid, reason: 'waiter crosses quarantine' });
       await expect(waiter).rejects.toThrow(/QUARANTINED.*waiter crosses quarantine/s);
       expect(existsSync(sidecar)).toBe(true);
@@ -121,7 +123,9 @@ describe('acquireProvisionLock — the gate runs on EVERY attempt + post-acquire
       stale: 2000,
       retries: { retries: 80, factor: 1, minTimeout: 150, maxTimeout: 150 },
     });
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => {
+      setTimeout(r, 300);
+    });
     // Kill the group before quarantining, so the waiter's next gate always probes it dead.
     reap(child);
     expect(await waitForDead(child.pid!, 5000)).toBe(true);

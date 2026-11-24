@@ -433,7 +433,9 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
                   /* server is starting */
                 }
               }
-              await new Promise((resolve) => setTimeout(resolve, 200));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 200);
+              });
             }
             assert(response?.ok, task.failure());
             assert((await response.text()).includes(`Packed ${label}`));
@@ -527,7 +529,9 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
                 throw new Error(task.failure());
               }
               base = packedServerUrl(task.output());
-              await new Promise((resolve) => setTimeout(resolve, 200));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 200);
+              });
             }
             assert(base, task.failure());
             const response = await fetch(`${base}/form`, {

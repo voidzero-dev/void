@@ -201,7 +201,9 @@ describe('live Durable Object runtime', () => {
       fetch(_name, request) {
         if (new URL(request.url).pathname === '/deliver') {
           calls++;
-          return new Promise<Response>((resolve) => pending.push(resolve));
+          return new Promise<Response>((resolve) => {
+            pending.push(resolve);
+          });
         }
       },
     });
@@ -269,7 +271,9 @@ describe('live Durable Object runtime', () => {
       fetch(_name, request) {
         if (new URL(request.url).pathname === '/check') {
           calls++;
-          return new Promise<Response>((resolve) => pending.push(resolve));
+          return new Promise<Response>((resolve) => {
+            pending.push(resolve);
+          });
         }
       },
     });

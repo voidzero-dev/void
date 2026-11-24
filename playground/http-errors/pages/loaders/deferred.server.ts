@@ -7,7 +7,9 @@ export const loader = defineHandler((c) => {
   c.header('Retry-After', '120');
   return {
     details: defer(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1000);
+      });
       return statusMessages[429];
     }),
   };

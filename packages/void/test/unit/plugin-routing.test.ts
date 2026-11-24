@@ -745,7 +745,9 @@ describe('routingPlugin', () => {
     try {
       // Give the second event every chance to start: a queue that only defers
       // by a microtask would rescan here.
-      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => {
+        setImmediate(resolve);
+      });
       // The second event must not replace the shared scan while the first writer awaits auth.
       expect(getApplicationAnalysis).toHaveBeenCalledTimes(1);
     } finally {
@@ -920,7 +922,9 @@ describe('routingPlugin', () => {
         {
           name: 'slow-watch-change',
           async watchChange() {
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            await new Promise((resolve) => {
+              setTimeout(resolve, 100);
+            });
           },
         },
       ],
@@ -954,7 +958,9 @@ describe('routingPlugin', () => {
       const loads = imports.mock.calls.length;
       writeFileSync(routePath, 'export const GET = () => new Response("updated");');
       server.watcher.emit('change', routePath);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
       expect(imports).toHaveBeenCalledTimes(loads);
 
       // A syntax error in a helper is reported, and fixing it regenerates.

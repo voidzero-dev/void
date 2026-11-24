@@ -191,7 +191,9 @@ test.runIf(Boolean(process.env.VOID_TEST_DATABASE_URL))(
       .then(() => {
         barrierArmed = true;
       });
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
     expect(barrierArmed).toBe(false);
 
     releaseLegacy();
@@ -247,7 +249,9 @@ test.runIf(Boolean(process.env.VOID_TEST_DATABASE_URL))(
       inventoryRead = true;
       return inventory;
     });
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
     expect(inventoryRead).toBe(false);
 
     releaseLegacy();

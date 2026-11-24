@@ -103,13 +103,13 @@ function drizzle(config) {
 
   async function endPools(first = 0): Promise<void> {
     await Promise.all(
-      state.pools
-        .slice(first)
-        .map((pool) =>
-          dialect === 'postgresql'
-            ? pool.end()
-            : new Promise<void>((resolve) => pool.end(() => resolve())),
-        ),
+      state.pools.slice(first).map((pool) =>
+        dialect === 'postgresql'
+          ? pool.end()
+          : new Promise<void>((resolve) => {
+              pool.end(() => resolve());
+            }),
+      ),
     );
   }
 

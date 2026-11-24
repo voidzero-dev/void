@@ -1597,7 +1597,9 @@ const app = new Hono<ApiEnv>()
             // the one returned to the caller below.
           }
           if (attempt < 2) {
-            await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt));
+            await new Promise((resolve) => {
+              setTimeout(resolve, 25 * 2 ** attempt);
+            });
           }
         }
         ambiguousCommitOutcome ??= durableReadSucceeded ? 'not_committed' : 'unknown';
@@ -1757,7 +1759,9 @@ const app = new Hono<ApiEnv>()
           } catch (error) {
             releaseError = error;
             if (attempt < 2) {
-              await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 25 * 2 ** attempt);
+              });
             }
           }
         }
