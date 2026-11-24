@@ -149,6 +149,8 @@ const url = routeUrl('/users/[id]', {
 
 TypeScript checks the route and required parameter names. Patterns follow your filenames: `pages/users/[id].tsx`, `.vue`, or `.svelte` uses `/users/[id]`.
 
+Type errors identify unknown route patterns and missing or invalid parameters.
+
 Parameters accept strings or numbers and are URL-encoded for you. Query values can be strings, numbers, booleans, or arrays. Arrays become repeated keys; `null` and `undefined` values are omitted.
 
 The same bracket patterns work with typed `fetch()`, WebSocket `connect()`, page actions, and `useParams()`.
