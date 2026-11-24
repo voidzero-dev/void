@@ -565,6 +565,7 @@ const config = defineConfig({
       'typescript/no-unnecessary-type-assertion': 'off',
       // Type producer boundaries for fetch, provider SDKs, and process tooling before checking arguments across the workspace.
       'typescript/no-unsafe-argument': 'off',
+      // Several SDK and tool APIs expose any, including response JSON and mixed Node and Worker globals. Narrow at each owning boundary.
       'typescript/no-unsafe-assignment': 'off',
       'typescript/no-unsafe-call': 'off',
       'typescript/no-unsafe-member-access': 'off',
