@@ -448,6 +448,11 @@ const config = defineConfig({
       },
     ],
     rules: {
+      // Framework callback and JSX types use void for handlers that may be async.
+      'typescript/no-misused-promises': [
+        'error',
+        { checksVoidReturn: { arguments: false, attributes: false } },
+      ],
       // Temporarily disabled during the shared preset migration.
       '@nkzw/no-instanceof': 'off',
       'import/no-namespace': 'off',
@@ -470,7 +475,6 @@ const config = defineConfig({
       'typescript/await-thenable': 'off',
       'typescript/consistent-type-imports': 'off',
       'typescript/no-empty-object-type': 'off',
-      'typescript/no-misused-promises': 'off',
       'typescript/no-misused-spread': 'off',
       'typescript/no-non-null-assertion': 'off',
       'typescript/no-unnecessary-type-assertion': 'off',

@@ -2629,7 +2629,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
         }
       });
     }
-    const producerStopped = teardown ? await teardown : false;
+    const producerStopped = teardown !== null ? await teardown : false;
 
     if (markerAuthoritative && producerStopped && this.activeLaunch?.containerStartPending) {
       // The base start path awaits storage/network I/O BEFORE launching, and its
