@@ -354,7 +354,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
   for (const file of files.sort()) {
     const segments = file.split('/');
     const boundary = /^_(error|not-found)(?:\.(dev|prod))?(\.island)?\.(tsx|jsx|vue|svelte)$/.exec(
-      segments.at(-1)!,
+      file.slice(file.lastIndexOf('/') + 1),
     );
     if (boundary && !segments.slice(0, -1).some((segment) => segment.startsWith('_'))) {
       const env = boundary[2] as RouteEnvironment | undefined;

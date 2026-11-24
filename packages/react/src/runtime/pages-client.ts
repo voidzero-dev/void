@@ -352,11 +352,14 @@ function RouteResource({
   const pageDataUrl = pageData?.url ?? '';
   const routeParams = pageData?.params ?? EMPTY_PARAMS;
   const routeRouter = useMemo(() => {
+    if (!outerRouter) {
+      throw new Error('pages: Missing router context for the page outlet.');
+    }
     const pageUrl = encodedPageUrl(pageDataUrl);
     return createRouterFacade(
-      outerRouter!,
+      outerRouter,
       () => {
-        const outerUrl = outerRouter!.url;
+        const outerUrl = outerRouter.url;
         const outerPath = outerUrl.pathname + outerUrl.search;
         if (outerPath === pageUrl) {
           return outerPath + outerUrl.hash;
@@ -484,7 +487,11 @@ function App({
       abort() {},
       async commit() {
         engine.commitInitialRender();
-        document.getElementById('app')!.setAttribute('data-hydrated', 'true');
+        const appEl = document.getElementById('app');
+        if (!appEl) {
+          throw new Error('pages: Missing #app element for Void React pages hydration.');
+        }
+        appEl.setAttribute('data-hydrated', 'true');
         if (prerenderedUrl !== null) {
           prerenderedUrl = null;
           // A transition waits for Suspense boundaries that are still dehydrated, where an urgent

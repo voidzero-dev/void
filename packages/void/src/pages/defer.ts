@@ -32,7 +32,8 @@ export function defer(
 ): Deferred<unknown> {
   const [group, resolver] =
     typeof groupOrResolver === 'string'
-      ? [groupOrResolver, maybeResolver!]
+      ? // oxlint-disable-next-line typescript/no-non-null-assertion -- The string overload requires its second argument to be the resolver.
+        [groupOrResolver, maybeResolver!]
       : [null, groupOrResolver];
   // oxlint-disable-next-line quality/no-chained-type-assertions -- The server sends a sentinel which the client replaces with the advertised deferred resource.
   return { [DEFERRED]: true, group, resolver } as unknown as Deferred<unknown>;

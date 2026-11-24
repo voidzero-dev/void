@@ -147,7 +147,7 @@ function varyPagesResponse(c: CloudContext): void {
   const headers = new Headers(c.res.headers);
   appendVary(headers, 'X-VoidPages');
   appendVary(headers, 'X-VoidPages-Version');
-  c.header('Vary', headers.get('Vary')!);
+  c.header('Vary', headers.get('Vary') ?? undefined);
 }
 
 function escapeHtmlAttr(value: string): string {

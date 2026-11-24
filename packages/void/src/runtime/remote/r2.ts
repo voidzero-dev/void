@@ -127,9 +127,10 @@ export class ProxyR2Bucket {
       body.customMetadata = options.customMetadata;
     }
 
-    const conditional = options?.onlyIf !== undefined;
+    const onlyIf = options?.onlyIf;
+    const conditional = onlyIf !== undefined;
     if (conditional) {
-      body.onlyIf = serializeR2Conditional(options.onlyIf!);
+      body.onlyIf = serializeR2Conditional(onlyIf);
     }
     // A separate endpoint prevents older proxies/workers from silently ignoring onlyIf.
     const res = await this.client.fetch(conditional ? '/r2/put-conditional' : '/r2/put', body);
@@ -332,6 +333,7 @@ function makeR2ObjectBody(key: string, res: Response): R2ObjectBody {
 
   return {
     ...obj,
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- The remote GET returns an object body for a successful lookup, including zero-length objects.
     body: res.body!,
     get bodyUsed() {
       return res.bodyUsed;

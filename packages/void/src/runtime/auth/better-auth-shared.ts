@@ -387,13 +387,16 @@ function setsAuthCookie(
 }
 
 export function privateCachePolicy(policy: string | null): string {
-  const directives = splitCacheDirectives(policy ?? '');
+  if (policy === null) {
+    return 'private, no-store';
+  }
+  const directives = splitCacheDirectives(policy);
   if (directives.length === 0) {
     return 'private, no-store';
   }
   const lowered = directives.map((directive) => directive.toLowerCase());
   if (lowered.includes('private') || lowered.includes('no-store')) {
-    return policy!;
+    return policy;
   }
   const kept = directives.filter((_directive, index) => {
     const directive = lowered[index];

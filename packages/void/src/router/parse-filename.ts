@@ -40,7 +40,7 @@ function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefini
 
   // Split into segments for processing
   const segments = path.split('/');
-  let filename = segments.pop()!;
+  let filename = segments.pop() ?? '';
 
   // 2. Check for env suffix
   let env: RouteEnvironment | null = null;

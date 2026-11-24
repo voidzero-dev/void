@@ -297,7 +297,7 @@ export async function uploadAssetBuckets(
         // Gateway error — throttle concurrency + additional backoff
         concurrency = 1;
         while (waiters.length > 0) {
-          waiters.shift()!();
+          waiters.shift()?.();
         }
 
         await new Promise((resolve) => {
@@ -520,7 +520,7 @@ export async function computeAssetStreamHashes(
   const reader = body.getReader();
   let tail = new Uint8Array(0);
   let size = 0;
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject(new Error('Asset verification exceeded its two-minute deadline.'));
@@ -570,7 +570,7 @@ export async function computeAssetStreamHashes(
     void reader.cancel().catch(() => {});
     throw error;
   } finally {
-    clearTimeout(timer!);
+    clearTimeout(timer);
     reader.releaseLock();
   }
   return {

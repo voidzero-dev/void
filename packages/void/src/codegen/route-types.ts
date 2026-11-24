@@ -422,6 +422,7 @@ export function generateRouteTypes(
       const body: Array<string> = [];
 
       // Page actions are only detected in a companion .server file.
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- The page scanner only reports actions from a companion .server file.
       const importPath = relative(outDir, `${pagesDir}/${page.serverPath!}`);
       if (hasActions) {
         const actionsImport = `(typeof import(${JSON.stringify(importPath)}))["actions"]`;

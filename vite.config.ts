@@ -589,6 +589,25 @@ const config = defineConfig({
         rules: { 'quality/no-known-value-widening': 'error' },
       },
       {
+        files: [
+          'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,md,platform,react,solid,svelte,vue}/src/**/*',
+          'packages/void/src/{codegen,pages,router,runtime,shared}/**/*',
+          'platform/packages/{dashboard,dispatch,email-gateway,tail}/src/**/*',
+          'platform/packages/api/src/{migrations,observability,queues}/**/*',
+          'platform/packages/api/src/{assets,proxy-token-rotation,sandbox-concurrency-counter,usage-counter}.ts',
+        ],
+        rules: { 'typescript/no-non-null-assertion': 'error' },
+      },
+      {
+        // Version rollout still relies on state carried across asynchronous API calls.
+        files: ['packages/deploy-cloudflare/src/version.ts'],
+        rules: { 'typescript/no-non-null-assertion': 'off' },
+      },
+      {
+        files: ['**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}', '**/__tests__/**'],
+        rules: { 'typescript/no-non-null-assertion': 'off' },
+      },
+      {
         files: ['playground/vinext-app/.next/**/*.ts'],
         rules: {
           '@typescript-eslint/array-type': 'off',
@@ -616,7 +635,8 @@ const config = defineConfig({
       'quality/no-unknown-returns': 'off',
       // Environment dictionaries, manifest parsers, and schema inputs carry unknown values until each entry has been validated.
       'quality/no-unsafe-dictionary-type': 'off',
-      // Generated routing and registry access rely on invariants enforced by code generation and preceding validation. Replace assertions with local checks as those paths change.
+      // Enable in SDK and Worker modules above. CLI orchestration and the remaining
+      // platform API modules still need their lifecycle invariants reviewed.
       'typescript/no-non-null-assertion': 'off',
       // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',

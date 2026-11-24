@@ -267,7 +267,10 @@ export function collectIslandStyles(
   const seen = new Set<string>();
   const pending = [...roots].reverse();
   while (pending.length > 0) {
-    const id = pending.pop()!;
+    const id = pending.pop();
+    if (id === undefined) {
+      break;
+    }
     if (seen.has(id)) {
       continue;
     }

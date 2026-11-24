@@ -851,8 +851,14 @@ export async function createPageNavigationEngine(
 
       if (pageData !== undefined) {
         // Static page-data fallback already loaded the page object.
+      } else if (!response) {
+        window.location.href = url;
+        return undefined;
       } else if (contentType.includes('application/x-ndjson')) {
-        const reader = (response!.body! as ReadableStream<Uint8Array>).getReader();
+        if (!response.body) {
+          throw new Error('pages: Missing response body for streamed page data.');
+        }
+        const reader = (response.body as ReadableStream<Uint8Array>).getReader();
         const decoder = new TextDecoder();
         let buffer = '';
         let firstLine = true;
@@ -909,7 +915,7 @@ export async function createPageNavigationEngine(
           }
         })();
       } else {
-        pageData = decodePageData<PageData>(await response!.json());
+        pageData = decodePageData<PageData>(await response.json());
         deferredRegistry.setup(pageData);
       }
 

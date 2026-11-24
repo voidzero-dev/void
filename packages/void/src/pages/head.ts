@@ -125,8 +125,8 @@ function escapeHtml(s: string): string {
 
 function serializeAttrs(attrs: Record<string, string | undefined>): string {
   return Object.entries(attrs)
-    .filter(([, value]) => value !== null && value !== undefined)
-    .map(([key, value]) => `${key}="${escapeHtml(value!)}"`)
+    .filter((entry): entry is [string, string] => entry[1] !== null && entry[1] !== undefined)
+    .map(([key, value]) => `${key}="${escapeHtml(value)}"`)
     .join(' ');
 }
 
@@ -192,7 +192,7 @@ export function absolutizeHead(
     meta ??= [...entries];
     meta[index] = { ...entry, content: resolved };
   }
-  return meta ? { ...head!, meta } : head;
+  return meta ? { ...head, meta } : head;
 }
 
 /** Serialize a HeadDescriptor to HTML tags for injection into `<head>`. */

@@ -239,8 +239,8 @@ function stepBack(
       kind === 'any'
         ? next[d] === 1 || (after === 1 && accepts(kind, path.charCodeAt(start + d)))
         : (next[d] === 1 || after === 1) && accepts(kind, path.charCodeAt(start + d));
-    row[d] = value ? 1 : 0;
-    after = row[d]!;
+    after = value ? 1 : 0;
+    row[d] = after;
     found |= after;
   }
   return found === 1;
@@ -342,6 +342,7 @@ function greedyEnds(prepared: Prepared, path: string, upTo: number): Int32Array 
   }
   const pool = Array.from({ length: size }, () => new Uint8Array(width));
   let top = 0;
+  // oxlint-disable-next-line typescript/no-non-null-assertion -- The checkpoint pass saves every block boundary, including the current top row.
   const rowAt = (r: number) => (r === top ? saved.get(r)! : pool[r % size]);
   const ends = new Int32Array(upTo + 1);
   let p = 0;

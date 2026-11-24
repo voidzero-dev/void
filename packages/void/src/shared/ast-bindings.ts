@@ -60,6 +60,7 @@ export function bindingResolver(
       const outerScope = scope;
       // The discriminant and all its descendants precede the case block's scope.
       if (parent?.type === 'SwitchStatement' && key === 'discriminant') {
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- Visiting the SwitchStatement creates a child scope before this discriminant is visited.
         scope = scope.parent!;
       }
       if (

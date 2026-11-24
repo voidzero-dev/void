@@ -229,8 +229,10 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
       if (expired.length > 0) {
         await transaction.delete(expired);
       }
-      if (page.size === SANDBOX_PRUNE_BATCH_SIZE) {
-        await transaction.put(SANDBOX_PRUNE_CURSOR_KEY, Array.from(page.keys()).at(-1)!);
+      const lastKey =
+        page.size === SANDBOX_PRUNE_BATCH_SIZE ? Array.from(page.keys()).at(-1) : undefined;
+      if (lastKey !== undefined) {
+        await transaction.put(SANDBOX_PRUNE_CURSOR_KEY, lastKey);
       } else {
         await transaction.delete(SANDBOX_PRUNE_CURSOR_KEY);
       }
@@ -327,27 +329,29 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
       const through = event.sandboxMeteredThrough;
       if (
         !leaseId ||
+        typeof from !== 'number' ||
+        typeof through !== 'number' ||
         !Number.isSafeInteger(from) ||
         !Number.isSafeInteger(through) ||
-        through! <= from! ||
-        through! < watermarkCutoff
+        through <= from ||
+        through < watermarkCutoff
       ) {
         continue;
       }
-      const key = await sandboxWatermarkKey(leaseId, from!);
-      const previous = watermarks.get(key) ?? (await this.ctx.storage.get<number>(key)) ?? from!;
+      const key = await sandboxWatermarkKey(leaseId, from);
+      const previous = watermarks.get(key) ?? (await this.ctx.storage.get<number>(key)) ?? from;
       const billFrom = Math.max(
         previous,
-        from!,
-        Number.isFinite(periodStart) ? periodStart : from!,
+        from,
+        Number.isFinite(periodStart) ? periodStart : from,
         // Receipts older than retention may already be pruned. A cumulative
         // frame must not revive their billed prefix after a long delivery gap.
         watermarkCutoff,
       );
-      if (through! > billFrom) {
-        incomingSandboxSeconds += (through! - billFrom) / 1000;
+      if (through > billFrom) {
+        incomingSandboxSeconds += (through - billFrom) / 1000;
       }
-      watermarks.set(key, Math.max(previous, through!));
+      watermarks.set(key, Math.max(previous, through));
     }
     state.totalSandboxSeconds += incomingSandboxSeconds;
 
@@ -977,12 +981,12 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
       const expectedStart = state.projectOwnershipStarts[projectId];
       const candidates = periods
         .filter(
-          (period) =>
+          (period): period is (typeof periods)[number] & { ends_at: string } =>
             period.project_id === projectId &&
             period.owner_user_id === state.ownerUserId &&
             period.ends_at !== null,
         )
-        .sort((left, right) => Date.parse(right.ends_at!) - Date.parse(left.ends_at!));
+        .sort((left, right) => Date.parse(right.ends_at) - Date.parse(left.ends_at));
       const period =
         candidates.find(
           (candidate) =>

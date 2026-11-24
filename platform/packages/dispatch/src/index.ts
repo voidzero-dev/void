@@ -1219,7 +1219,7 @@ const dispatcher = {
           isrDeploymentId,
           isrOriginalUrlVariant,
         );
-        sharedIsrEntry = {
+        const isrEntry = {
           projectId: routing.projectId,
           deploymentId: isrDeploymentId,
           host: url.hostname,
@@ -1228,6 +1228,7 @@ const dispatcher = {
           htmlKey: cacheKey,
           jsonKey: jsonCacheKey,
         };
+        sharedIsrEntry = isrEntry;
 
         // Pages protocol: check JSON edge cache, fall through on miss
         if (isPagesRequest) {
@@ -1243,7 +1244,7 @@ const dispatcher = {
         } else {
           // HTML path: Edge → KV → Worker
           const purgePoisonedIsrEntry = async (): Promise<void> => {
-            await deleteSharedIsrEntry(env, sharedIsrEntry!);
+            await deleteSharedIsrEntry(env, isrEntry);
           };
 
           // L1: Edge cache (per-colo)

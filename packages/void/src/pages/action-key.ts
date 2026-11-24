@@ -68,7 +68,10 @@ export function withPageQuery(
   const preserved = page.search
     .slice(1)
     .split('&')
-    .filter((segment) => segment !== '' && !own.has(queryKey(segment)!))
+    .filter((segment) => {
+      const key = queryKey(segment);
+      return segment !== '' && (key === undefined || !own.has(key));
+    })
     .join('&');
   if (!preserved) {
     return { url, preserved };
