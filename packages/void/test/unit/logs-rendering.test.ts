@@ -332,7 +332,7 @@ it('notes minimal runtime logs and prints entries without a URL cleanly', async 
     'Log messages, exception messages and URLs are not recorded on this platform.',
   );
   // One space between each part: time, method, status.
-  expect(lines[2]!.split(' ').slice(1)).toEqual(['GET', '500']);
+  expect(lines[2].split(' ').slice(1)).toEqual(['GET', '500']);
   expect(lines.slice(3)).toEqual(['  [warn]', '  [exception] TypeError']);
 });
 
@@ -349,7 +349,7 @@ it('keeps the full-mode output for entries without a URL or message', async () =
     },
   ];
   const lines = (await printLogs(120)).map((line) => stripVTControlCharacters(line));
-  expect(lines[1]!.split(' ').slice(1)).toEqual(['GET', '-', '500']);
+  expect(lines[1].split(' ').slice(1)).toEqual(['GET', '-', '500']);
   expect(lines.slice(2)).toEqual(['  [warn] ', '  [exception] TypeError: ']);
 });
 

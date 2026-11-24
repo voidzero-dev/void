@@ -349,9 +349,7 @@ export function parsePlatformAccessSetupSpec(input: unknown): PlatformAccessSetu
       !fields.id ||
       fields.id.length > 256 ||
       ['clientIdEnv', 'clientSecretEnv'].some(
-        (key) =>
-          typeof fields[key] !== 'string' ||
-          !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fields[key] as string),
+        (key) => typeof fields[key] !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fields[key]),
       )
     ) {
       throw new Error('platform: Invalid Access service token environment references.');
@@ -364,7 +362,7 @@ function secretReference(name: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !process.env[name]) {
     throw new Error('platform: Supply the referenced Access credential in the environment.');
   }
-  return process.env[name]!;
+  return process.env[name];
 }
 
 /** Only scoped credentials for the reviewed platform origins enter the process environment. */

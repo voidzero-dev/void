@@ -526,7 +526,7 @@ function ensureVoidCompatibilityDate(root: string, rootWrangler: boolean): strin
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       throw new Error(`config: ${VOID_CONFIG_FILE} must be a JSON object.`);
     }
-    nextConfig = parsed as VoidConfig;
+    nextConfig = parsed;
   } catch (error) {
     if (error instanceof SyntaxError) {
       // oxlint-disable-next-line preserve-caught-error -- A JSON parser error can include an excerpt of the configuration.
@@ -647,7 +647,7 @@ export function syncWranglerBindings(
       )
     ) {
       parsed.durable_objects = {
-        ...((parsed.durable_objects as Record<string, unknown> | undefined) ?? {}),
+        ...(parsed.durable_objects ?? {}),
         bindings: nextBindings,
       };
       modified = true;
@@ -2544,14 +2544,14 @@ function strictBindingEntries(
     if (
       !isRecord(member) ||
       typeof member[keyField] !== 'string' ||
-      (member[keyField] as string).length === 0
+      member[keyField].length === 0
     ) {
       throw bindingSetError(
         `"${field}" contains a malformed entry at index ${index} (missing a non-empty string "${keyField}")`,
         'dropped entry',
       );
     }
-    return { name: member[keyField] as string, entry: member };
+    return { name: member[keyField], entry: member };
   });
 }
 

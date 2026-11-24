@@ -226,7 +226,7 @@ describe('live Durable Object runtime', () => {
       resolve(new Response('connection missing', { status: 410 }));
     }
     await vi.waitFor(() => expect(calls).toBe(7));
-    pending[6]!(new Response('connection missing', { status: 410 }));
+    pending[6](new Response('connection missing', { status: 410 }));
 
     expect((await publish).ok).toBe(true);
     expect(await harness.subscriberCount('live:app:topic:topic-key')).toBe(0);
@@ -288,7 +288,7 @@ describe('live Durable Object runtime', () => {
       resolve(Response.json({ stale: [0] }));
     }
     await vi.waitFor(() => expect(calls).toBe(7));
-    pending[6]!(Response.json({ stale: [0] }));
+    pending[6](Response.json({ stale: [0] }));
 
     await prune;
     expect(await harness.subscriberCount(topicName)).toBe(0);

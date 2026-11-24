@@ -204,7 +204,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await waitForHydration(page);
 
       await page.evaluate(() => {
-        (document.querySelector('nav') as NavElement | null)!.__stamp = 1;
+        document.querySelector<NavElement>('nav')!.__stamp = 1;
       });
 
       await page.click('a[href="/users"]');
@@ -212,9 +212,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         document.querySelector('h1')?.textContent?.includes('Users'),
       );
 
-      const stamp = await page.evaluate(
-        () => (document.querySelector('nav') as NavElement | null)?.__stamp,
-      );
+      const stamp = await page.evaluate(() => document.querySelector<NavElement>('nav')?.__stamp);
       expect(stamp).toBe(1);
 
       const navText = await page.textContent('nav');
@@ -306,7 +304,7 @@ describe('vue-pages client (dev)', () => {
         // No error overlay — the stripDefinePropsTypeArgument worked during HMR
         expect(
           await page.evaluate(() => {
-            const overlay = document.querySelector('vite-error-overlay') as HTMLElement | null;
+            const overlay = document.querySelector<HTMLElement>('vite-error-overlay');
             if (!overlay) {
               return '';
             }

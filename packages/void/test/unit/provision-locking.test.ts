@@ -282,7 +282,7 @@ describe('provisionCloudflareResources — whole-provision cross-process lock (p
           listHyperdriveConfigs: async () => [],
           ...(retries !== undefined ? { lockOptions: { retries } } : {}),
         },
-      ) as Promise<{ resources: Array<{ kind: string; action: string }> }>;
+      );
     // While the canonical lock is held, an alias-path provision cannot acquire it.
     const held = await acquireProvisionLock(realpathSync(wranglerPath));
     await expect(makeProv(aliasName, 0)).rejects.toThrow(/already being held/);
@@ -466,7 +466,7 @@ describe('provisionCloudflareResources — dangling-symlink lock identity', () =
           listHyperdriveConfigs: async () => [],
           ...(retries !== undefined ? { lockOptions: { retries } } : {}),
         },
-      ) as Promise<{ resources: Array<{ kind: string; action: string }> }>;
+      );
     // While the real-target lock is held, a dangling-alias provision cannot acquire it.
     const canonicalTarget = join(realpathSync(sharedDir), 'wrangler.jsonc');
     const held = await acquireProvisionLock(canonicalTarget);

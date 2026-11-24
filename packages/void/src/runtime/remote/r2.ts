@@ -46,7 +46,7 @@ export class ProxyR2Bucket {
       binding: this.binding,
       key,
     });
-    const data = (await res.json()) as RemoteR2Object | null;
+    const data = await res.json<RemoteR2Object | null>();
     if (!data) {
       return null;
     }
@@ -123,7 +123,7 @@ export class ProxyR2Bucket {
     }
     // A separate endpoint prevents older proxies/workers from silently ignoring onlyIf.
     const res = await this.client.fetch(conditional ? '/r2/put-conditional' : '/r2/put', body);
-    const result = (await res.json()) as RemoteR2Object | null | { success: true };
+    const result = await res.json<RemoteR2Object | null | { success: true }>();
     if (result === null) {
       return null;
     }
@@ -174,12 +174,12 @@ export class ProxyR2Bucket {
       startAfter: options?.startAfter,
       include: options?.include,
     });
-    const data = (await res.json()) as {
+    const data = await res.json<{
       objects: Array<RemoteR2Object>;
       truncated: boolean;
       cursor: string | null;
       delimitedPrefixes?: Array<string>;
-    };
+    }>();
     // Older handlers and the REST fallback ignore these options and return no prefixes.
     // The proxy also uses the REST fallback when it cannot reach a current deployment for a moment.
     if (
@@ -328,7 +328,7 @@ function makeR2ObjectBody(key: string, res: Response): R2ObjectBody {
     arrayBuffer: () => res.arrayBuffer(),
     bytes: async () => new Uint8Array(await res.arrayBuffer()),
     text: () => res.text(),
-    json: <T>() => res.json() as Promise<T>,
+    json: <T>() => res.json<T>(),
     blob: () => res.blob(),
-  } as R2ObjectBody;
+  };
 }

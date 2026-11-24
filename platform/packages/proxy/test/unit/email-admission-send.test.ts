@@ -163,9 +163,9 @@ describe('proxy email admission delivery', () => {
       throw new Error('timeout');
     });
     const result = await test.send('partial', ['one@example.com', 'two@example.com']);
-    const body = (await result.json()) as {
+    const body = await result.json<{
       deliveries: Array<{ recipient: string; state: string }>;
-    };
+    }>();
     expect(body.deliveries).toEqual(
       expect.arrayContaining([
         {
@@ -198,9 +198,11 @@ describe('proxy email admission delivery', () => {
         : normalFetch(request, init);
     });
 
-    const first = (await (await test.send('unstarted')).json()) as {
+    const first = await (
+      await test.send('unstarted')
+    ).json<{
       deliveries: Array<{ state: string; error: { code: string } }>;
-    };
+    }>();
     expect(first.deliveries[0]).toMatchObject({
       state: 'cancelled',
       error: { code: 'UPSTREAM_ERROR' },
@@ -208,9 +210,11 @@ describe('proxy email admission delivery', () => {
     expect(test.actions.get('unstarted')?.recipients[0]?.state).toBe('cancelled');
     expect(test.sender).not.toHaveBeenCalled();
 
-    const replay = (await (await test.send('unstarted')).json()) as {
+    const replay = await (
+      await test.send('unstarted')
+    ).json<{
       deliveries: Array<{ state: string; error: { code: string } }>;
-    };
+    }>();
     expect(replay.deliveries[0]).toMatchObject({
       state: 'cancelled',
       error: { code: 'UPSTREAM_ERROR' },
@@ -230,9 +234,11 @@ describe('proxy email admission delivery', () => {
       return normalFetch(request, init);
     });
 
-    const body = (await (await test.send('ambiguous-start')).json()) as {
+    const body = await (
+      await test.send('ambiguous-start')
+    ).json<{
       deliveries: Array<{ state: string; error: { code: string } }>;
-    };
+    }>();
     expect(body.deliveries[0]).toMatchObject({
       state: 'outcome_unknown',
       error: { code: 'OUTCOME_UNKNOWN' },

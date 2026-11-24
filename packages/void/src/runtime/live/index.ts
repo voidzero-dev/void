@@ -320,7 +320,7 @@ export function defineLiveStream(options: LiveStreamOptions): LiveStream {
               limits,
             }),
           });
-          const controlResponse = (await response.json()) as LiveControlResponse;
+          const controlResponse = await response.json<LiveControlResponse>();
           if (!controlResponse.accepted) {
             return Response.json(controlResponse, { status: response.status });
           }

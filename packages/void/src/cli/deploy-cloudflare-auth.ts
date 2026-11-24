@@ -146,7 +146,7 @@ export async function chooseCloudflareDeployAccount(options: {
     configPath: existsSync(options.configPath) ? options.configPath : undefined,
   });
   const accounts = session.accounts;
-  let account = accounts[0]!;
+  let account = accounts[0];
   if (accounts.length > 1) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       throw new Error(

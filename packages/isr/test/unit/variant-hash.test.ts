@@ -70,7 +70,7 @@ describe('ISR variant token hashing', () => {
     const fromUrl = isrEdgeCacheUrl('app.void.app', '/en/docs', 'dpl_1', 'html', original);
     const m = /__void_orig=([^&]+)/.exec(fromUrl);
     expect(m).not.toBeNull();
-    const token = m![1]!;
+    const token = m![1];
     const fromToken = isrEdgeCacheUrlForToken('app.void.app', '/en/docs', 'dpl_1', 'html', token);
     expect(fromToken).toBe(fromUrl);
   });

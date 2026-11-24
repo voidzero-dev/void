@@ -220,7 +220,7 @@ describe('Class A framework build wrapper', () => {
       callConfigResolved(wrapperPlugin, {
         command: 'build',
         build: { assetsDir: 'static' } as ResolvedConfig['build'],
-      } as Partial<ResolvedConfig>);
+      });
 
       const code = readFileSync(join(root, '.void', 'tanstack-start-trigger-wrapper.ts'), 'utf8');
       expect(code).toContain('return serveWithAssets(request, env, await original.fetch');
@@ -298,7 +298,7 @@ describe('Class A bare void imports', () => {
         server: { middlewareMode: true, ws: false, preTransformRequests: false },
       });
       try {
-        const resolved = await server.environments[environment]!.pluginContainer.resolveId(
+        const resolved = await server.environments[environment].pluginContainer.resolveId(
           'void',
           join(root, 'crons/tick.ts'),
         );
@@ -333,7 +333,7 @@ describe('Class A framework request scope', () => {
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'assets' } as ResolvedConfig['build'],
-    } as Partial<ResolvedConfig>);
+    });
     const build = readFileSync(wrapperPath, 'utf8');
     // The asset fallback helper that ends the build wrapper is covered above.
     return { dev, build: build.slice(0, build.indexOf('import { createAssetFallback')) };
@@ -531,7 +531,7 @@ export default defineEnv({
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'assets' } as ResolvedConfig['build'],
-    } as Partial<ResolvedConfig>);
+    });
     return { root, wrapperPath, dev, build: readFileSync(wrapperPath, 'utf8') };
   }
 
@@ -757,7 +757,7 @@ describe('Class A routing.notFound self-host warning', () => {
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'static' } as ResolvedConfig['build'],
-    } as Partial<ResolvedConfig>);
+    });
 
     expect(notFoundWarnings(logSpy.mock.calls.map((args) => args.join(' ')))).toEqual([]);
   });

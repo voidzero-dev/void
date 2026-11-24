@@ -78,7 +78,7 @@ async function resolveConnection(selector: string): Promise<PlatformConnection> 
     throw new Error('platform: No platforms configured. Run `void connect <url>`.');
   }
   if (connections.length === 1) {
-    return selectPlatformConnection(connections[0]!.id);
+    return selectPlatformConnection(connections[0].id);
   }
   if (!process.stdin.isTTY) {
     throw new Error(

@@ -166,7 +166,7 @@ export async function ensurePlatformAccessHealthChecks(input: {
     }
     // A manually configured or project-managed exact exception is verified without taking ownership.
     if (!recorded && matching.length === 1) {
-      await verifyHealthException(access, matching[0]!, destination);
+      await verifyHealthException(access, matching[0], destination);
       continue;
     }
     if (!recorded?.id && recorded?.pending) {
@@ -211,7 +211,7 @@ export async function ensurePlatformAccessHealthChecks(input: {
         throw error;
       }
     }
-    const app = (await access.get(`apps/${encodeURIComponent(recorded.id!)}`)) as Record<
+    const app = (await access.get(`apps/${encodeURIComponent(recorded.id)}`)) as Record<
       string,
       unknown
     >;

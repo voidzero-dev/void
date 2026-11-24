@@ -1,5 +1,4 @@
 import { cloudflareCommandDiagnostic } from '@void/deploy-cloudflare';
-import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   cfOperationName,
@@ -139,9 +138,9 @@ describe('observeCloudflareRunner', () => {
       () => ({ status: 1, stdout: `[ERROR] envelope ${TOKEN}`, stderr: 'helper crashed' }),
       createCloudflareChildReporter(log, {}),
     );
-    await run({ type: 'auth.token' } as CloudflareOperation, { capture: true });
+    await run({ type: 'auth.token' }, { capture: true });
     expect(JSON.stringify(calls)).not.toContain(TOKEN);
-    expect(calls[0]![1]).toMatchObject({ ok: false, diagnostic: 'helper crashed' });
+    expect(calls[0][1]).toMatchObject({ ok: false, diagnostic: 'helper crashed' });
   });
 
   it('logs a signal and names cf commands without their values or flags', async () => {

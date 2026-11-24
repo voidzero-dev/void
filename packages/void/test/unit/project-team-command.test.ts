@@ -316,7 +316,7 @@ describe('project team target selection', () => {
     await list();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith('stuck  [31mred');
-    expect(written.indexOf('alex')).toBeGreaterThan(warnedAt[0]!);
+    expect(written.indexOf('alex')).toBeGreaterThan(warnedAt[0]);
 
     warn.mockClear();
     warnings = undefined;

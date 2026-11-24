@@ -309,7 +309,7 @@ describe('Access-protected platform requests', () => {
       mode: 'restricted',
     });
     expect((await request('/operator/v1/signup/open', access, operator, {})).status).toBe(200);
-    const settings = (await env.db.select().from(platformAuthSettings))[0]!;
+    const settings = (await env.db.select().from(platformAuthSettings))[0];
     expect(settings.admission).toEqual({ mode: 'public' });
     expect(settings.protection?.teamDomain).toBe(issuer);
     expect((await request('/auth/login')).status).toBe(403);
@@ -489,7 +489,7 @@ describe('Access-protected platform requests', () => {
     const start = await request(`/auth/login?${params}`, access);
     expect(start.status).toBe(302);
     const state = new URL(start.headers.get('Location')!).searchParams.get('state');
-    const cookie = start.headers.get('Set-Cookie')!.split(';')[0]!;
+    const cookie = start.headers.get('Set-Cookie')!.split(';')[0];
     const callback = await request(
       `/auth/callback?code=github-code&state=${state}`,
       access,

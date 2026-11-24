@@ -411,7 +411,7 @@ export async function initializeInstalledAppAccess(
     }
     let body: { ready?: boolean; installationId?: string; error?: string; code?: string };
     try {
-      body = (await response.json()) as typeof body;
+      body = await response.json<typeof body>();
     } catch {
       throw new Error(
         `platform: App access setup did not respond (HTTP ${response.status}). Check platform Access permissions and resume.`,
@@ -476,7 +476,7 @@ export async function turnOffInstalledProjectZeroTrust(
     code?: string;
   } = {};
   try {
-    result = (await response.json()) as typeof result;
+    result = await response.json<typeof result>();
   } catch {
     // Older runtimes answer an unknown route without a JSON body.
   }

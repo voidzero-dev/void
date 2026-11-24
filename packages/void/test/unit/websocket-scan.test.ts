@@ -92,7 +92,7 @@ describe('WebSocket resource names', () => {
       const root = createRoot();
       const file = createRoute(root, 'chat/[room].ws.ts', `export default ${helper}({})`);
       const [original] = scanWebSocketRoutesSync(root);
-      const name = inferWebSocketResourceName(original!.filePath);
+      const name = inferWebSocketResourceName(original.filePath);
       writeFileSync(file, `export default ${helper}({ name: '${name}' })`);
       expect(scanWebSocketRoutesSync(root)[0]).toEqual({ ...original, name });
       const moved = join(root, 'routes', 'rooms', '[room].ws.ts');

@@ -172,7 +172,7 @@ function makeClaims(overrides: Partial<GithubOidcClaims> = {}): GithubOidcClaims
   const scaffoldRef = `${repository}/.github/workflows/void-deploy.yml@${ref}`;
   return {
     repository,
-    repository_owner: repository.split('/')[0]!,
+    repository_owner: repository.split('/')[0],
     // The owning account's immutable numeric id. The OIDC exchange binds it to
     // the installation's `account_id`, so the seeded installation's accountId
     // (see `seedActiveInstallation`) defaults to this same value for legit cases.
@@ -413,7 +413,7 @@ describe('POST /auth/github-oidc', () => {
     const res = await exchange(app, env, { oidcToken: 't', project: project.slug });
 
     expect(res.status).toBe(401);
-    expect(((await res.json()) as { error: string }).error).toBe(
+    expect((await res.json<{ error: string }>()).error).toBe(
       'no authorized github actions connection for repository; reconnect the repository',
     );
     expect(await getProjectBuilds(env.db, project.id)).toEqual([]);
@@ -566,7 +566,7 @@ describe('POST /auth/github-oidc', () => {
     // type pins `ref: string`, so reach through a mutable record to delete it.
     const claims = makeClaims();
     delete (claims as unknown as Record<string, unknown>).ref;
-    setVerifyResult(claims as unknown as GithubOidcClaims);
+    setVerifyResult(claims);
 
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(401);
@@ -615,7 +615,7 @@ describe('POST /auth/github-oidc', () => {
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(200);
 
-    const json = (await res.json()) as { token: string; projectId: string; buildId: string };
+    const json = await res.json<{ token: string; projectId: string; buildId: string }>();
     expect(json.projectId).toBe(project.id);
     expect(json.token).toBeTruthy();
     expect(json.buildId).toBeTruthy();
@@ -634,7 +634,7 @@ describe('POST /auth/github-oidc', () => {
     // A building actions build row was created with the OIDC run metadata.
     const projectBuilds = await getProjectBuilds(env.db, project.id);
     expect(projectBuilds.length).toBe(1);
-    const build = projectBuilds[0]!;
+    const build = projectBuilds[0];
     expect(build.id).toBe(json.buildId);
     expect(build.executor).toBe('github_actions');
     expect(build.status).toBe('building');
@@ -694,7 +694,7 @@ describe('POST /auth/github-oidc', () => {
 
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildId: string };
+    const json = await res.json<{ buildId: string }>();
 
     const build = await getBuild(env.db, json.buildId);
     expect(build!.check_run_id).toBe(CHECK_RUN_ID);
@@ -723,7 +723,7 @@ describe('POST /auth/github-oidc', () => {
 
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { token: string; buildId: string };
+    const json = await res.json<{ token: string; buildId: string }>();
     expect(json.token).toBeTruthy();
 
     const build = await getBuild(env.db, json.buildId);
@@ -753,8 +753,8 @@ describe('POST /auth/github-oidc', () => {
 
     const projectBuilds = await getProjectBuilds(env.db, project.id);
     expect(projectBuilds.length).toBe(1);
-    expect(projectBuilds[0]!.github_run_id).toBe('525252');
-    expect(projectBuilds[0]!.github_run_attempt).toBe('3');
+    expect(projectBuilds[0].github_run_id).toBe('525252');
+    expect(projectBuilds[0].github_run_attempt).toBe('3');
   });
 
   it('returns 401 and creates no build when the run_attempt claim is missing', async () => {
@@ -777,7 +777,7 @@ describe('POST /auth/github-oidc', () => {
 
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(401);
-    const json = (await res.json()) as { error?: string };
+    const json = await res.json<{ error?: string }>();
     expect(json.error).toBe('oidc token missing run_attempt');
     expect((await getProjectBuilds(env.db, project.id)).length).toBe(0);
   });
@@ -806,7 +806,7 @@ describe('POST /auth/github-oidc', () => {
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(200);
 
-    const json = (await res.json()) as { token: string };
+    const json = await res.json<{ token: string }>();
     const payload = await verifyDeployToken(json.token, JWT_SECRET);
     expect(payload).not.toBeNull();
     // exp - iat is the token TTL. sponsored = 20*60 + 300 margin = 1500s.
@@ -847,7 +847,7 @@ describe('POST /auth/github-oidc', () => {
       project: project.slug,
     });
     expect(response.status).toBe(200);
-    const { token } = (await response.json()) as { token: string };
+    const { token } = await response.json<{ token: string }>();
     const payload = await verifyDeployToken(token, JWT_SECRET);
     expect(payload!.exp - payload!.iat).toBe(20 * 60 + 5 * 60);
   });
@@ -869,7 +869,7 @@ describe('POST /auth/github-oidc', () => {
 
     const res = await exchange(app, env, { oidcToken: 'good' });
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { projectId: string };
+    const json = await res.json<{ projectId: string }>();
     expect(json.projectId).toBe(project.id);
   });
 
@@ -1177,12 +1177,12 @@ describe('POST /auth/github-oidc', () => {
     setVerifyResult(makeClaims({ run_id: '555' }));
     const first = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(first.status).toBe(200);
-    const firstJson = (await first.json()) as { buildId: string };
+    const firstJson = await first.json<{ buildId: string }>();
 
     setVerifyResult(makeClaims({ run_id: '555' }));
     const second = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(second.status).toBe(200);
-    const secondJson = (await second.json()) as { token: string; buildId: string };
+    const secondJson = await second.json<{ token: string; buildId: string }>();
 
     // Second exchange returns a token without creating a duplicate build.
     expect(secondJson.token).toBeTruthy();
@@ -1190,7 +1190,7 @@ describe('POST /auth/github-oidc', () => {
 
     const projectBuilds = await getProjectBuilds(env.db, project.id);
     expect(projectBuilds.length).toBe(1);
-    expect(projectBuilds[0]!.github_run_id).toBe('555');
+    expect(projectBuilds[0].github_run_id).toBe('555');
   });
 
   // A repeated exchange for the SAME run reuses the in-flight build (above). That
@@ -1217,7 +1217,7 @@ describe('POST /auth/github-oidc', () => {
     setVerifyResult(makeClaims({ run_id: '556' }));
     const first = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(first.status).toBe(200);
-    const firstJson = (await first.json()) as { buildId: string };
+    const firstJson = await first.json<{ buildId: string }>();
     // The creating exchange POSTed the check run once and persisted its id.
     expect(checkRunCreateCount).toBe(1);
     const firstBuild = await getBuild(env.db, firstJson.buildId);
@@ -1226,7 +1226,7 @@ describe('POST /auth/github-oidc', () => {
     setVerifyResult(makeClaims({ run_id: '556' }));
     const second = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(second.status).toBe(200);
-    const secondJson = (await second.json()) as { buildId: string };
+    const secondJson = await second.json<{ buildId: string }>();
     expect(secondJson.buildId).toBe(firstJson.buildId);
 
     // No SECOND check-run POST — the reused build already had one.
@@ -1368,9 +1368,9 @@ describe('POST /auth/github-oidc', () => {
     const buildsB = await getProjectBuilds(env.db, projectB.id);
     expect(buildsA.length).toBe(1);
     expect(buildsB.length).toBe(1);
-    expect(buildsA[0]!.github_run_id).toBe('777');
-    expect(buildsB[0]!.github_run_id).toBe('777');
-    expect(buildsA[0]!.id).not.toBe(buildsB[0]!.id);
+    expect(buildsA[0].github_run_id).toBe('777');
+    expect(buildsB[0].github_run_id).toBe('777');
+    expect(buildsA[0].id).not.toBe(buildsB[0].id);
   });
 
   // ---------------------------------------------------------------------------
@@ -1429,7 +1429,7 @@ describe('POST /auth/github-oidc', () => {
     // Only the first run's build exists (the capped run created nothing).
     expect((await getProjectBuilds(env.db, project.id)).length).toBe(1);
     expect((await getProjectBuilds(env.db, otherProject.id)).length).toBe(0);
-    expect((await getProjectBuilds(env.db, project.id))[0]!.github_run_id).toBe('111');
+    expect((await getProjectBuilds(env.db, project.id))[0].github_run_id).toBe('111');
   });
 
   it('supersedes the active build when a NEW run targets the SAME project+branch (latest-wins)', async () => {
@@ -1450,14 +1450,14 @@ describe('POST /auth/github-oidc', () => {
     setVerifyResult(makeClaims({ run_id: '111' }));
     const first = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(first.status).toBe(200);
-    const firstJson = (await first.json()) as { buildId: string };
+    const firstJson = await first.json<{ buildId: string }>();
 
     // A NEWER run for the same project+branch supersedes the first (freeing the
     // single free-tier slot) rather than being capped.
     setVerifyResult(makeClaims({ run_id: '222' }));
     const second = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(second.status).toBe(200);
-    const secondJson = (await second.json()) as { buildId: string };
+    const secondJson = await second.json<{ buildId: string }>();
 
     const builds111 = await getBuild(env.db, firstJson.buildId);
     expect(builds111!.status).toBe('cancelled');
@@ -1579,7 +1579,7 @@ describe('POST /auth/github-oidc', () => {
 
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(409);
-    expect((await res.json()) as { error: string }).toEqual({
+    expect(await res.json<{ error: string }>()).toEqual({
       error: 'connected branch changed concurrently',
     });
 
@@ -1614,7 +1614,7 @@ describe('POST /auth/github-oidc', () => {
     setVerifyResult(makeClaims({ run_id: '700' }));
     const first = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(first.status).toBe(200);
-    const firstJson = (await first.json()) as { buildId: string };
+    const firstJson = await first.json<{ buildId: string }>();
 
     // Finalize that build terminal (mirrors the workflow_run webhook outcome).
     await updateBuildStatus(env.db, firstJson.buildId, 'failed', {
@@ -1626,7 +1626,7 @@ describe('POST /auth/github-oidc', () => {
     setVerifyResult(makeClaims({ run_id: '700' }));
     const rerun = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(rerun.status).toBe(200);
-    const rerunJson = (await rerun.json()) as { token: string; buildId: string };
+    const rerunJson = await rerun.json<{ token: string; buildId: string }>();
     expect(rerunJson.token).toBeTruthy();
     expect(rerunJson.buildId).not.toBe(firstJson.buildId);
 
@@ -1934,7 +1934,7 @@ describe('POST /auth/github-oidc', () => {
 
     const res = await exchange(app, env, { oidcToken: 'good', project: projectOld.slug });
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { projectId: string };
+    const json = await res.json<{ projectId: string }>();
     expect(json.projectId).toBe(projectOld.id);
 
     // The build was created for the older project, not the newest connection.
@@ -1969,7 +1969,7 @@ describe('POST /auth/github-oidc', () => {
 
     const res = await exchange(app, env, { oidcToken: 'good' });
     expect(res.status).toBe(401);
-    const json = (await res.json()) as { error?: string };
+    const json = await res.json<{ error?: string }>();
     expect(json.error).toContain('multiple projects');
 
     expect((await getProjectBuilds(env.db, projectA.id)).length).toBe(0);
@@ -2310,7 +2310,7 @@ describe('POST /auth/github-oidc', () => {
 
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(409);
-    expect((await res.json()) as { error: string }).toEqual({
+    expect(await res.json<{ error: string }>()).toEqual({
       error: 'oidc sha is not the current branch head',
     });
 
@@ -2318,8 +2318,8 @@ describe('POST /auth/github-oidc', () => {
     // holding neither a concurrency slot nor a live deploy token.
     const rows = await getProjectBuilds(env.db, project.id);
     expect(rows.length).toBe(1);
-    expect(rows[0]!.status).toBe('cancelled');
-    expect(rows[0]!.error).toBe('superseded by newer push during token exchange');
+    expect(rows[0].status).toBe('cancelled');
+    expect(rows[0].error).toBe('superseded by newer push during token exchange');
   });
 
   it('returns 503, mints no token, and cancels the created build when the post-create re-check is unverifiable', async () => {
@@ -2345,14 +2345,14 @@ describe('POST /auth/github-oidc', () => {
 
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(503);
-    expect((await res.json()) as { error: string }).toEqual({
+    expect(await res.json<{ error: string }>()).toEqual({
       error: 'unable to verify branch head; retry',
     });
 
     const rows = await getProjectBuilds(env.db, project.id);
     expect(rows.length).toBe(1);
-    expect(rows[0]!.status).toBe('cancelled');
-    expect(rows[0]!.error).toBe('superseded by newer push during token exchange');
+    expect(rows[0].status).toBe('cancelled');
+    expect(rows[0].error).toBe('superseded by newer push during token exchange');
   });
 
   it('mints a token when the live install check confirms App coverage (default mock)', async () => {
@@ -2468,7 +2468,7 @@ describe('POST /auth/github-oidc', () => {
     });
 
     const app = makeApp(env);
-    setVerifyResult(makeClaims({ event_name: '' as never }));
+    setVerifyResult(makeClaims({ event_name: '' }));
 
     const res = await exchange(app, env, { oidcToken: 'good', project: project.slug });
     expect(res.status).toBe(401);

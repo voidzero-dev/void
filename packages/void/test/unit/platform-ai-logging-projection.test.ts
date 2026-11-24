@@ -95,7 +95,7 @@ beforeAll(async () => {
   connection = database as unknown as QueryConnection;
   const runtime = readPlatformRuntimeManifest();
   await preparePlatformDatabaseConnection(
-    connection as Parameters<typeof preparePlatformDatabaseConnection>[0],
+    connection,
     getPlatformRuntimeDirectory(),
     runtime.database,
     null,

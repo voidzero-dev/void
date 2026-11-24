@@ -128,7 +128,7 @@ app.post('/:projectId/tokens', async (context) => {
   const projectId = context.req.param('projectId');
   const body = await context.req
     .json<{ name?: unknown; expiresInDays?: unknown }>()
-    .catch(() => ({}) as { name?: unknown; expiresInDays?: unknown });
+    .catch<{ name?: unknown; expiresInDays?: unknown }>(() => ({}));
   let name: string;
   let days: number;
   try {
@@ -162,7 +162,7 @@ app.post('/:projectId/tokens', async (context) => {
         expires_at: expiresAt.toISOString(),
       })
       .returning();
-    return created!;
+    return created;
   });
   if (row === 'forbidden') {
     return tokensForbidden(context);
@@ -180,7 +180,7 @@ app.post('/:projectId/tokens/:credentialId/renew', async (context) => {
   const projectId = context.req.param('projectId');
   const body = await context.req
     .json<{ expiresInDays?: unknown }>()
-    .catch(() => ({}) as { expiresInDays?: unknown });
+    .catch<{ expiresInDays?: unknown }>(() => ({}));
   let days: number;
   try {
     days = parseExpiryDays(body.expiresInDays);
@@ -239,7 +239,7 @@ app.post('/:projectId/tokens/:credentialId/renew', async (context) => {
         expires_at: expiresAt.toISOString(),
       })
       .returning();
-    return replacement!;
+    return replacement;
   });
   if (result === 'project-not-found') {
     return projectNotFound(context);

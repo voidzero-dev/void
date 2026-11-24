@@ -164,7 +164,7 @@ export async function readEmailEnvelope(
     headers: value.headers as Record<string, string>,
     raw,
     rawSize: raw.byteLength,
-    ...(value.viaDomain ? { viaDomain: value.viaDomain as string } : {}),
+    ...(value.viaDomain ? { viaDomain: value.viaDomain } : {}),
   };
 }
 

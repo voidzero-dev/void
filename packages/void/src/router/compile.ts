@@ -275,7 +275,7 @@ export function compileRouteTable(
   for (const p of routePatterns) {
     const m = /\.([A-Za-z0-9]+)$/.exec(p);
     if (m) {
-      usedExts.add(m[1]!.toLowerCase());
+      usedExts.add(m[1].toLowerCase());
     }
   }
   const blockedExts = ASSET_EXTENSIONS.filter((e) => !usedExts.has(e));

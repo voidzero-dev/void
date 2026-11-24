@@ -149,9 +149,9 @@ async function workerScriptSaved(
       void response.body?.cancel().catch(() => {});
       return false;
     }
-    const body = (await response.json()) as {
+    const body = await response.json<{
       result?: { script?: { migration_tag?: unknown } | null } | null;
-    } | null;
+    } | null>();
     const script = body?.result?.script;
     return !!script && (migrationTag === undefined || script.migration_tag === migrationTag);
   } catch {

@@ -81,7 +81,7 @@ describe('github_installation_members', () => {
       })
       .from(githubInstallationMembers)
       .where(eq(githubInstallationMembers.id, row.id));
-    expect(Number(lifetime!.seconds)).toBe(MEMBERSHIP_TTL_SECONDS);
+    expect(Number(lifetime.seconds)).toBe(MEMBERSHIP_TTL_SECONDS);
   });
 
   it('upsert on the same (installation, user) refreshes in place and keeps count == 1', async () => {
@@ -213,7 +213,7 @@ describe('github_installation_members', () => {
       .from(githubInstallationMembers)
       .where(eq(githubInstallationMembers.user_id, alice.id));
     expect(aliceLeft).toHaveLength(1);
-    expect(aliceLeft[0]!.installation_id).toBe('300');
+    expect(aliceLeft[0].installation_id).toBe('300');
 
     // Bob's membership on install 100 is untouched (scoped to alice).
     expect(await hasActiveInstallationMembership(env.db, '100', bob.id)).toBe(true);
@@ -300,14 +300,14 @@ describe('github_installation_members', () => {
     // Install 100: only Carol's Z-keyed row survives.
     const m100 = await getTestGitHubInstallationMembers(env.db, '100');
     expect(m100).toHaveLength(1);
-    expect(m100[0]!.user_id).toBe(carol.id);
-    expect(m100[0]!.github_account_id).toBe('Z');
+    expect(m100[0].user_id).toBe(carol.id);
+    expect(m100[0].github_account_id).toBe('Z');
     // Install 200: alice's X-keyed row is gone.
     expect(await getTestGitHubInstallationMembers(env.db, '200')).toHaveLength(0);
     // Install 300: bob's Y-keyed row was out of scope AND not X-keyed → survives.
     const m300 = await getTestGitHubInstallationMembers(env.db, '300');
     expect(m300).toHaveLength(1);
-    expect(m300[0]!.user_id).toBe(bob.id);
+    expect(m300[0].user_id).toBe(bob.id);
   });
 
   it('getGitHubAccountIdForUser returns the github provider_id and null otherwise', async () => {

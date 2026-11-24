@@ -334,7 +334,7 @@ describe('ensureWranglerCompat', () => {
   it('writes only the date to void.config.ts, not the passed config', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     mkdirSync(tmpDir, { recursive: true });
-    ensureWranglerCompat(tmpDir, { database: 'pg', routing: { isr: true } } as VoidConfig);
+    ensureWranglerCompat(tmpDir, { database: 'pg', routing: { isr: true } });
     expect(readConfig(tmpDir)).toEqual({
       worker: { compatibility_date: LATEST_KNOWN_COMPAT_DATE },
     });

@@ -9,7 +9,6 @@ import type {
   FocusEvent,
   AnchorHTMLAttributes,
   ButtonHTMLAttributes,
-  CSSProperties,
   RefObject,
 } from 'react';
 import {
@@ -235,7 +234,7 @@ export function Link({
   const resolvedStyle = useMemo(
     () => ({
       touchAction: 'manipulation',
-      ...(style as CSSProperties | undefined),
+      ...style,
     }),
     [style],
   );
@@ -262,7 +261,7 @@ export function Link({
       type="button"
       style={resolvedStyle}
       {...pendingAttributes}
-      {...(rest as ButtonHTMLAttributes<HTMLButtonElement>)}
+      {...rest}
       {...eventHandlers}
     >
       {children}

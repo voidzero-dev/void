@@ -21,7 +21,7 @@ export async function resolveProjectHostname(
   const raw = await env.ROUTING.get(platformWorkersDevAliasKey(hostname));
   if (raw) {
     const project = JSON.parse(raw) as PlatformApplicationProject;
-    if (platformProjectWorkersDevHostname(project, application.workersDev!) === hostname) {
+    if (platformProjectWorkersDevHostname(project, application.workersDev) === hostname) {
       return { slug: project.slug, projectId: project.id, workersDev: true };
     }
   }

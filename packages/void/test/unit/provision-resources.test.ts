@@ -123,10 +123,10 @@ describe('provisionCloudflareResources — typed operations', () => {
     ]);
     expect(inputs).toEqual([connection]);
     expect(JSON.stringify(operations)).not.toContain('synthetic-password');
-    const encoded = encodeCloudflareOperation(operations[0]!);
+    const encoded = encodeCloudflareOperation(operations[0]);
     expect(encoded).toHaveLength(1);
     expect(encoded.join(' ')).not.toContain('synthetic-password');
-    expect(JSON.parse(encoded[0]!)).toEqual(operations[0]);
+    expect(JSON.parse(encoded[0])).toEqual(operations[0]);
   });
 
   it('adopts structured Queue identity despite misleading human prose', async () => {

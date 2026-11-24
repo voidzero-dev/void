@@ -82,7 +82,7 @@ export function runOperation(
   const args = Array.isArray(request) ? request : encodeCloudflareOperation(request);
   return new Promise((resolve) => {
     const child = execFile(
-      command!,
+      command,
       [...(preload ? ['--import', pathToFileURL(preload).href] : []), ...prefix, ...args],
       { cwd, encoding: 'utf8', timeout: 20_000, maxBuffer: 128 * 1024 * 1024, env },
       (error, stdout, stderr) =>

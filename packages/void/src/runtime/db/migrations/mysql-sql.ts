@@ -67,7 +67,7 @@ function splitMySqlStatements(sql: string): Array<MySqlMigrationStatement> {
   };
 
   while (index < sql.length) {
-    const character = sql[index]!;
+    const character = sql[index];
     const next = sql[index + 1];
 
     if (character === "'" || character === '"' || character === '`') {

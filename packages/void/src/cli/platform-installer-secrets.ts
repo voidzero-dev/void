@@ -588,7 +588,7 @@ export async function resolveBootstrapGitHubId(
       `platform: Could not resolve GitHub user ${JSON.stringify(normalizedLogin)} (HTTP ${response.status}). Verify the username and retry.`,
     );
   }
-  const body = (await response.json()) as { id?: unknown };
+  const body = await response.json<{ id?: unknown }>();
   const id = typeof body.id === 'number' && Number.isSafeInteger(body.id) ? String(body.id) : '';
   if (!/^[1-9][0-9]*$/.test(id)) {
     throw new Error(

@@ -65,12 +65,12 @@ export const loader = defineHandler<Props>(async (context) => {
     if (!response.ok) {
       throw new Error('Discovery unavailable');
     }
-    const document = (await response.json()) as {
+    const document = await response.json<{
       schemaVersion?: number;
       displayName?: unknown;
       authentication?: { methods: Array<{ id: string; label: string }> };
       authenticationProviders?: Array<string>;
-    };
+    }>();
     if (![1, 2, 3].includes(document.schemaVersion ?? 0)) {
       throw new Error('Unsupported platform');
     }

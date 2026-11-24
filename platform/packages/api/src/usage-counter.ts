@@ -291,12 +291,12 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleRecord(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       events: ReadonlyArray<UsageEvent>;
       plan?: string;
       userId: string;
       billingPeriodStart?: string;
-    };
+    }>();
     const state = await this.getState();
     if (body.userId) {
       state.ownerUserId = body.userId;
@@ -433,11 +433,11 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleRollover(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       billingPeriodStart: string;
       plan: string;
       userId: string;
-    };
+    }>();
     const incomingPeriodStart = Date.parse(body.billingPeriodStart);
     if (!Number.isFinite(incomingPeriodStart)) {
       return Response.json({ error: 'invalid billing period' }, { status: 400 });
@@ -481,13 +481,13 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleInit(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       plan: string;
       billingPeriodStart: string;
       projectSlugs: Record<string, string>;
       projectOwnershipStarts?: Record<string, string>;
       userId?: string;
-    };
+    }>();
     const incomingPeriodStart = Date.parse(body.billingPeriodStart);
     if (!Number.isFinite(incomingPeriodStart)) {
       return Response.json({ error: 'invalid billing period' }, { status: 400 });
@@ -546,13 +546,13 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleAttachProject(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       projectId: string;
       slug: string;
       ownershipStartedAt: string;
       billingPeriodStart?: string;
       userId?: string;
-    };
+    }>();
     if (
       !body.projectId ||
       !body.slug ||
@@ -612,13 +612,13 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleDetachProject(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       projectId: string;
       userId?: string;
       billingPeriodStart?: string;
       ownershipStartedAt?: string;
       ownershipEndedAt?: string;
-    };
+    }>();
     if (!body.projectId) {
       return Response.json({ error: 'projectId is required' }, { status: 400 });
     }
@@ -663,7 +663,7 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
 
   /** Reconcile changed plan limits without resetting the billing ledger. */
   private async handleReevaluateLimits(request: Request): Promise<Response> {
-    const body = (await request.json()) as { userId?: string };
+    const body = await request.json<{ userId?: string }>();
     const state = await this.getState();
     const userId = body.userId ?? state.ownerUserId;
     if (!userId || (state.ownerUserId && state.ownerUserId !== userId)) {
@@ -729,7 +729,7 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
    * DO). The plan-change route deletes the userId-keyed sandbox-block.
    */
   private async handleReevaluateSandbox(request: Request): Promise<Response> {
-    const body = (await request.json()) as { plan: string };
+    const body = await request.json<{ plan: string }>();
     const state = await this.getState();
     state.plan = body.plan;
     state.requestsSuspended = false;

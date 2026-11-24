@@ -55,7 +55,7 @@ export function scriptBlocks(code: string, filename: string): Array<ScriptBlock>
     if (!match) {
       return [];
     }
-    const source = match[1]!;
+    const source = match[1];
     return [
       { source, offset: match[0].indexOf(source), filename: filename.replace(/\.md$/, '.ts') },
     ];
@@ -66,13 +66,13 @@ export function scriptBlocks(code: string, filename: string): Array<ScriptBlock>
   const scriptFilename = filename.replace(/\.(?:vue|svelte)$/, '.ts');
   const svelte = filename.endsWith('.svelte');
   return [...code.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)].map((match) => {
-    const source = match[2]!;
+    const source = match[2];
     const block: ScriptBlock = {
       source,
-      offset: match.index! + match[0].indexOf(source),
+      offset: match.index + match[0].indexOf(source),
       filename: scriptFilename,
     };
-    if (svelte && !isSvelteModuleScript(match[1]!)) {
+    if (svelte && !isSvelteModuleScript(match[1])) {
       block.instance = true;
     }
     return block;

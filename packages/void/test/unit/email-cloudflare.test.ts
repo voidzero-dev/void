@@ -206,7 +206,7 @@ function fakeFetch(
   table: Record<string, (call: FetchCall) => Response | Promise<Response>>,
   calls: Array<FetchCall>,
 ): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries((init?.headers ?? {}) as Record<string, string>)) {
@@ -226,7 +226,7 @@ function fakeFetch(
       throw new Error(`unexpected fetch: ${key}`);
     }
     return hit(call);
-  }) as typeof fetch;
+  };
 }
 
 function zonesOk(name: string, extra: Partial<{ type: string; account: string }> = {}) {
@@ -855,7 +855,7 @@ describe('preflightEmail', () => {
       const pre = await preflightEmail(inputs);
       expect(pre.session.state).toBe(session.state);
       expect(pre.blockers).toEqual([{ scope: 'all', message: session.message }]);
-      const message = pre.blockers[0]!.message;
+      const message = pre.blockers[0].message;
       expect(message).toContain('`void cloudflare login`');
       expect(message).not.toMatch(/wrangler/i);
       // The checklist carries the row verbatim on both printing paths.
@@ -1420,8 +1420,8 @@ describe('sending-only Cloudflare email', () => {
     expect(out.lines).toContain('  ✔ sending   mail.acme.com onboarded');
     expect(calls).toEqual([]);
     expect(paths(fetchCalls)).toEqual([`POST ${SUBDOMAINS}`]);
-    expect(fetchCalls[0]!.body).toBe(JSON.stringify({ name: 'mail.acme.com' }));
-    expect(fetchCalls[0]!.headers.Authorization).toBe(`Bearer ${BEARER}`);
+    expect(fetchCalls[0].body).toBe(JSON.stringify({ name: 'mail.acme.com' }));
+    expect(fetchCalls[0].headers.Authorization).toBe(`Bearer ${BEARER}`);
   });
 
   it('names a missing session bearer instead of the Workers Paid plan when onboarding cannot start', async () => {
@@ -1494,7 +1494,7 @@ describe('sending-only Cloudflare email', () => {
 
   it('reports an unreadable zone as unknown without proposing routing setup', async () => {
     const { inputs } = sendingOnly();
-    inputs.fetchImpl = (async () => jsonResponse(403, { success: false })) as typeof fetch;
+    inputs.fetchImpl = async () => jsonResponse(403, { success: false });
     const pre = await preflightEmail(inputs);
     expect(pre.zone.state).toBe('unknown');
     expect(pre.ready).toBe(false);
@@ -2093,9 +2093,9 @@ describe('fetchWithSessionBearer', () => {
     expect(fetchCalls[0]?.body).toBeUndefined();
 
     const boom = await fetchWithSessionBearer(
-      (async () => {
+      async () => {
         throw new Error('ECONNRESET');
-      }) as unknown as typeof fetch,
+      },
       BEARER,
       'POST',
       '/zones/x/email/routing/dns',
@@ -2109,7 +2109,7 @@ describe('fetchWithSessionBearer', () => {
     });
 
     const html = await fetchWithSessionBearer(
-      (async () => new Response('<html>', { status: 502 })) as unknown as typeof fetch,
+      async () => new Response('<html>', { status: 502 }),
       BEARER,
       'GET',
       '/zones',

@@ -230,7 +230,7 @@ export async function queryD1(
       body: JSON.stringify(query),
       signal: controller.signal,
     });
-    json = (await response.json()) as typeof json;
+    json = await response.json<typeof json>();
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       const preview = query.sql.length > 80 ? `${query.sql.slice(0, 80)}…` : query.sql;

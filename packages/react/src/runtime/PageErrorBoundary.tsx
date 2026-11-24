@@ -30,7 +30,7 @@ export class PageErrorBoundary extends Component<
 > {
   state: { generation: number; error: unknown; failed: boolean } = {
     generation: this.props.generation,
-    error: null as unknown,
+    error: null,
     failed: false,
   };
   static getDerivedStateFromProps(

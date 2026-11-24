@@ -211,7 +211,7 @@ async function resolveValidator(root: string): Promise<Validator> {
     log.warn(`Remember to install ${choice}: npm install ${choice}`);
   }
 
-  return choice as Validator;
+  return choice;
 }
 
 type SchemaValidator = Exclude<Validator, 'none'>;

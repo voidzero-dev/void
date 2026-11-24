@@ -40,7 +40,7 @@ export async function platformDomainPreflight(context: Context<ApiEnv>): Promise
         }),
       },
     );
-    const body = (await response.json()) as { success?: boolean };
+    const body = await response.json<{ success?: boolean }>();
     if (!response.ok || body.success !== true) {
       throw new Error('permission check failed');
     }

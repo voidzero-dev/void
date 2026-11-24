@@ -240,8 +240,7 @@ export function mergeWorkerBindings(
   // Vite process, so `sendEmail` loops back through the assets binding and
   // sends the dev-trigger token the inbox requires.
   const emailDevInboxBinding =
-    (workerConfig.assets as { binding?: string } | undefined)?.binding ??
-    (resolved.assets as { binding?: string } | undefined)?.binding;
+    (workerConfig.assets as { binding?: string } | undefined)?.binding ?? resolved.assets?.binding;
   if (shouldInjectEmailDevInboxVar(routeEnvironment, bindings.needsEmail, emailDevInboxBinding)) {
     const vars = (result.vars as Record<string, string>) ?? {};
     vars[DEV_INBOX_ENV_VAR] = emailDevInboxBinding as string;
@@ -531,5 +530,5 @@ export function mergeWorkerBindings(
       ? [{ name: liveConfig.bindingName, class_name: liveConfig.className }]
       : []),
   ]);
-  return { patch: result as Partial<WorkerConfig>, versionMetadataBinding };
+  return { patch: result, versionMetadataBinding };
 }

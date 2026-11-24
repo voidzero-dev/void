@@ -124,7 +124,7 @@ export async function platformWorkerLiveTriggersMatch(options: {
     const liveCrons = schedules.map((entry) => record(entry)?.cron);
     if (
       !liveCrons.every((cron) => typeof cron === 'string') ||
-      !sameStrings(liveCrons as Array<string>, desired.crons as Array<string>) ||
+      !sameStrings(liveCrons, desired.crons) ||
       workflowsValue.some((entry) => {
         const workflow = record(entry);
         return (

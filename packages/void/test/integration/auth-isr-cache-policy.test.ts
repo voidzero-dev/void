@@ -479,7 +479,7 @@ describe('real authenticated Better Auth session cache policy', () => {
     );
 
     it('still applies no-store to a signed-in page miss', async () => {
-      const { app, cookie } = await signedInApp({}, { fallback: fallbacks[0]![1] });
+      const { app, cookie } = await signedInApp({}, { fallback: fallbacks[0][1] });
       const response = await fetchAsset(app, '/missing', { cookie });
       expect(response.status).toBe(404);
       expect(response.headers.get('cache-control')).toBe('no-store');

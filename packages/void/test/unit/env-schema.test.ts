@@ -191,7 +191,7 @@ describe('redaction', () => {
     defineEnv({ PORT: number() });
     const bad = await validateAllEnv({ PORT: 'sk_live_abc123' });
     expect(bad.valid).toBe(false);
-    const msg = bad.invalid[0]!.messages.join(' ');
+    const msg = bad.invalid[0].messages.join(' ');
     expect(msg).not.toContain('sk_live_abc123');
     expect(msg).toContain('<redacted>');
   });

@@ -275,11 +275,11 @@ describe('platform recovery', () => {
     let headers = new Headers();
     let redirect: RequestRedirect | undefined;
 
-    await verifyInstallationEndpoint(manifest, (async (_input, init) => {
+    await verifyInstallationEndpoint(manifest, async (_input, init) => {
       headers = new Headers(init?.headers);
       redirect = init?.redirect;
       return Response.json({ installationId: manifest.id });
-    }) as typeof fetch);
+    });
 
     expect(headers.get('CF-Access-Client-Id')).toBe('service-id');
     expect(headers.get('CF-Access-Client-Secret')).toBe('service-secret');
@@ -396,7 +396,7 @@ describe('platform recovery', () => {
     expect(recovered).toHaveLength(1);
     expect(listInstallationManifests(directory)).toEqual(recovered);
     expect(endpointChecks).toBe(0);
-    const manifest = recovered[0]!;
+    const manifest = recovered[0];
     const repairPlan = await createPlatformInstallPlan(
       fake,
       {

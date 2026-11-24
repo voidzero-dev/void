@@ -193,7 +193,7 @@ describe('durable zone email connections', () => {
       .update(deployments)
       .set({ manifest: JSON.stringify({ emailProtocolVersion: 1, limits: { cpuMs: 100 } }) })
       .where(eq(deployments.id, deployment.id));
-    const { connection, route } = (await resolveEmailDomain(env.db, 'limits.example.com'))!;
+    const { connection, route } = await resolveEmailDomain(env.db, 'limits.example.com');
     const to = 'support@limits.example.com';
     const proof = await hmacSignState(
       `email-ingress-v1\n${connection.account_id}\n${connection.zone_id}\n${connection.ingress_worker_name}\n${to}`,
@@ -382,7 +382,7 @@ describe('durable zone email connections', () => {
         .select()
         .from(emailOperations)
         .where(eq(emailOperations.id, original.operationId))
-    )[0]!;
+    )[0];
     expect(blocked).toMatchObject({ status: 'blocked', current_step: 'routing_enable' });
 
     delete failures.routingDns;
@@ -394,7 +394,7 @@ describe('durable zone email connections', () => {
     });
     await runEmailOperation(env.db, bindings(), replacement.operationId);
 
-    const replacementRoute = (await resolveEmailDomain(env.db, 'pending-original.example.com'))!;
+    const replacementRoute = await resolveEmailDomain(env.db, 'pending-original.example.com');
     expect(replacementRoute.route.inbound_status).toBe('ready');
     expect(replacementRoute.connection.desired_generation).toBeGreaterThan(
       blocked.desired_generation,
@@ -793,7 +793,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), add.operationId);
-    const { connection } = (await resolveEmailDomain(env.db, 'replay.example.com'))!;
+    const { connection } = await resolveEmailDomain(env.db, 'replay.example.com');
     const rotations = await Promise.all(
       Array.from({ length: 3 }, () =>
         requestEmailSecretRotation(env.db, bindings(), connection.id, actor, 'same-rotation'),
@@ -843,8 +843,7 @@ describe('durable zone email connections', () => {
         token: TOKEN,
       });
       await runEmailOperation(env.db, bindings(), added.operationId);
-      const connection = (await resolveEmailDomain(env.db, 'mutation-race.example.com'))!
-        .connection;
+      const connection = (await resolveEmailDomain(env.db, 'mutation-race.example.com')).connection;
       const replayInput = {
         projectId: project.id,
         domain: 'mutation-replay.example.com',
@@ -961,8 +960,8 @@ describe('durable zone email connections', () => {
         zones: {
           ...zones,
           'concurrent-two.example.com': {
-            ...zones['concurrent-two.example.com']!,
-            id: zones['concurrent-one.example.com']!.id,
+            ...zones['concurrent-two.example.com'],
+            id: zones['concurrent-one.example.com'].id,
           },
         },
         mx,
@@ -1004,7 +1003,7 @@ describe('durable zone email connections', () => {
       expect(await env.db.select().from(emailZoneConnections)).toHaveLength(1);
       expect(await env.db.select().from(emailDomainRoutes)).toHaveLength(1);
 
-      provisionedDomain = (await env.db.select().from(emailDomainRoutes))[0]!.domain;
+      provisionedDomain = (await env.db.select().from(emailDomainRoutes))[0].domain;
       await runEmailOperation(env.db, bindings(), accepted.value.operationId);
       const deferredProject = acceptedIndex === 0 ? second : first;
       const deferredDomain =
@@ -1035,7 +1034,7 @@ describe('durable zone email connections', () => {
         token: TOKEN,
       });
       await runEmailOperation(env.db, bindings(), added.operationId);
-      const before = (await resolveEmailDomain(env.db, 'status-removal.example.com'))!;
+      const before = await resolveEmailDomain(env.db, 'status-removal.example.com');
 
       let continueRemoval!: () => void;
       let routeLocked!: () => void;
@@ -1075,7 +1074,7 @@ describe('durable zone email connections', () => {
         expect(results[0].value.status).toBe(200);
         expect(await results[0].value.json()).toMatchObject({ status: 'disabled' });
 
-        const after = (await resolveEmailDomain(env.db, 'status-removal.example.com'))!;
+        const after = await resolveEmailDomain(env.db, 'status-removal.example.com');
         expect(after.route).toMatchObject({
           desired_state: 'disabled',
           inbound_status: 'disabled',
@@ -1124,7 +1123,7 @@ describe('durable zone email connections', () => {
         actor: { kind: 'owner', userId: user.id },
         token: TOKEN,
       });
-      const before = (await resolveEmailDomain(env.db, 'probe-removal.example.com'))!;
+      const before = await resolveEmailDomain(env.db, 'probe-removal.example.com');
 
       gateInboundProbe = true;
       const driver = runEmailOperation(env.db, bindings(), added.operationId);
@@ -1157,7 +1156,7 @@ describe('durable zone email connections', () => {
         const results = await Promise.allSettled([driver, removal]);
         expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
 
-        const after = (await resolveEmailDomain(env.db, 'probe-removal.example.com'))!;
+        const after = await resolveEmailDomain(env.db, 'probe-removal.example.com');
         expect(after.route).toMatchObject({
           desired_state: 'disabled',
           inbound_status: 'disabled',
@@ -1402,7 +1401,7 @@ describe('durable zone email connections', () => {
         .where(
           eq(
             emailCredentials.id,
-            (await resolveEmailDomain(env.db, 'two.example.com'))!.connection.credential_id!,
+            (await resolveEmailDomain(env.db, 'two.example.com')).connection.credential_id!,
           ),
         );
       const callsBeforeRemoval = stub.calls.length;
@@ -1508,7 +1507,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), first.operationId);
-    const original = (await resolveEmailDomain(env.db, 'readd.example.com'))!;
+    const original = await resolveEmailDomain(env.db, 'readd.example.com');
     const removed = await requestEmailDomainRemove(env.db, bindings(), first.routeId, actor);
     await runEmailOperation(env.db, bindings(), removed);
     expect(callsByTag(stub.calls, 'scriptDelete')).toHaveLength(1);
@@ -1533,7 +1532,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     expect(readded.routeId).toBe(first.routeId);
-    const pending = (await resolveEmailDomain(env.db, 'readd.example.com'))!;
+    const pending = await resolveEmailDomain(env.db, 'readd.example.com');
     expect(pending.route.desired_generation).toBeGreaterThan(removedVersion);
     expect(pending.route.inbound_status).toBe('pending');
     expect(pending.route.outbound_status).toBe('pending');
@@ -1577,11 +1576,11 @@ describe('durable zone email connections', () => {
         token: TOKEN,
       });
       await runEmailOperation(env.db, bindings(), added.operationId);
-      const original = (await resolveEmailDomain(env.db, 'readd-staged.example.com'))!.connection;
+      const original = (await resolveEmailDomain(env.db, 'readd-staged.example.com')).connection;
       const rotation = await requestEmailSecretRotation(env.db, bindings(), original.id, actor);
       failures.secretPut = { message: 'secret permission denied', status: 403 };
       await runEmailOperation(env.db, bindings(), rotation);
-      const staged = (await resolveEmailDomain(env.db, 'readd-staged.example.com'))!.connection;
+      const staged = (await resolveEmailDomain(env.db, 'readd-staged.example.com')).connection;
       expect(staged.staged_secret_generation).toBe(original.active_secret_generation + 1);
 
       const removal = await requestEmailDomainRemove(env.db, bindings(), added.routeId, actor);
@@ -1604,7 +1603,7 @@ describe('durable zone email connections', () => {
       });
       await runEmailOperation(env.db, bindings(), readded.operationId);
 
-      const repaired = (await resolveEmailDomain(env.db, replacementDomain))!;
+      const repaired = await resolveEmailDomain(env.db, replacementDomain);
       expect(repaired.route.desired_state).toBe('active');
       expect(repaired.route.inbound_status).toBe('ready');
       expect(repaired.connection.active_secret_generation).toBe(original.active_secret_generation);
@@ -1636,7 +1635,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), added.operationId);
-    const original = (await resolveEmailDomain(env.db, 'manager-retained-staged.example.com'))!
+    const original = (await resolveEmailDomain(env.db, 'manager-retained-staged.example.com'))
       .connection;
     const rotation = await requestEmailSecretRotation(env.db, bindings(), original.id, actor);
     failures.secretPut = { message: 'secret permission denied', status: 403 };
@@ -1647,7 +1646,7 @@ describe('durable zone email connections', () => {
       userId: 'admin-actor',
     });
     await runEmailOperation(env.db, bindings(), removal);
-    const retained = (await resolveEmailDomain(env.db, 'manager-retained-staged.example.com'))!;
+    const retained = await resolveEmailDomain(env.db, 'manager-retained-staged.example.com');
     expect(retained.route.desired_state).toBe('removed');
     expect(retained.connection.inbound_status).toBe('ready');
     expect(retained.connection.staged_secret_generation).toBe(
@@ -1664,7 +1663,7 @@ describe('durable zone email connections', () => {
     });
     await runEmailOperation(env.db, bindings(), replacement.operationId);
 
-    const repaired = (await resolveEmailDomain(env.db, 'manager-retained-staged.example.com'))!;
+    const repaired = await resolveEmailDomain(env.db, 'manager-retained-staged.example.com');
     expect(repaired.route.inbound_status).toBe('ready');
     expect(repaired.connection.active_secret_generation).toBe(original.active_secret_generation);
     expect(repaired.connection.staged_secret_generation).toBeNull();
@@ -1770,7 +1769,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), add.operationId);
-    const connection = (await resolveEmailDomain(env.db, 'unknown-delete.example.com'))!.connection;
+    const connection = (await resolveEmailDomain(env.db, 'unknown-delete.example.com')).connection;
     existingScripts.push(connection.ingress_worker_name);
     const remove = await requestEmailDomainRemove(env.db, bindings(), add.routeId, actor);
     failures.scriptDelete = { message: 'response lost', status: 504 };
@@ -1814,7 +1813,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), added.operationId);
-    const connection = (await resolveEmailDomain(env.db, 'not-applied-delete.example.com'))!
+    const connection = (await resolveEmailDomain(env.db, 'not-applied-delete.example.com'))
       .connection;
     existingScripts.push(connection.ingress_worker_name);
     const removal = await requestEmailDomainRemove(env.db, bindings(), added.routeId, actor);
@@ -1895,7 +1894,7 @@ describe('durable zone email connections', () => {
         installationId: 'void-hosted',
         accountId: 'customer-account',
         zoneId: zones['transfer.example.com'].id,
-        ingressName: (await resolveEmailDomain(env.db, 'transfer.example.com'))!.connection
+        ingressName: (await resolveEmailDomain(env.db, 'transfer.example.com')).connection
           .ingress_worker_name,
         recipient: 'hello@transfer.example.com',
       }),
@@ -1956,7 +1955,7 @@ describe('durable zone email connections', () => {
       installationId: 'void-hosted',
       accountId: 'customer-account',
       zoneId: zones['transfer.example.com'].id,
-      ingressName: (await resolveEmailDomain(env.db, 'transfer.example.com'))!.connection
+      ingressName: (await resolveEmailDomain(env.db, 'transfer.example.com')).connection
         .ingress_worker_name,
       recipient: 'hello@transfer.example.com',
     });
@@ -1997,7 +1996,7 @@ describe('durable zone email connections', () => {
     });
     const queuedB = (
       await env.db.select().from(emailOperations).where(eq(emailOperations.id, removeB))
-    )[0]!;
+    )[0];
     expect(queuedB.current_step).toBe(`wait:${b.operationId}`);
     await runEmailOperation(env.db, bindings(), removeA);
     await runEmailOperation(env.db, bindings(), removeB);
@@ -2034,7 +2033,7 @@ describe('durable zone email connections', () => {
     await runEmailOperation(env.db, bindings(), a.operationId);
     const aOp = (
       await env.db.select().from(emailOperations).where(eq(emailOperations.id, a.operationId))
-    )[0]!;
+    )[0];
     expect(aOp.status).toBe('completed');
     const b = await requestEmailDomainAdd(env.db, bindings(), {
       projectId: second.id,
@@ -2103,7 +2102,7 @@ describe('durable zone email connections', () => {
         .select()
         .from(emailOperations)
         .where(eq(emailOperations.id, requested.operationId))
-    )[0]!;
+    )[0];
     expect(observedIntent).toBe(true);
     expect(op.status).toBe('unknown');
     const writes = callsByTag(stub.calls, 'scriptPut').length;
@@ -2203,7 +2202,7 @@ describe('durable zone email connections', () => {
         token: TOKEN,
       });
       await runEmailOperation(env.db, bindings(), added.operationId);
-      const connection = (await resolveEmailDomain(env.db, 'late-success.example.com'))!.connection;
+      const connection = (await resolveEmailDomain(env.db, 'late-success.example.com')).connection;
       const operationId = await requestEmailSecretRotation(
         env.db,
         bindings(),
@@ -2303,7 +2302,7 @@ describe('durable zone email connections', () => {
         token: TOKEN,
       });
       await runEmailOperation(env.db, bindings(), added.operationId);
-      const connection = (await resolveEmailDomain(env.db, 'late-failure.example.com'))!.connection;
+      const connection = (await resolveEmailDomain(env.db, 'late-failure.example.com')).connection;
       const operationId = await requestEmailSecretRotation(
         env.db,
         bindings(),
@@ -2445,7 +2444,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), add.operationId);
-    const route = (await resolveEmailDomain(env.db, 'rotate.example.com'))!;
+    const route = await resolveEmailDomain(env.db, 'rotate.example.com');
     const before = route.connection.active_secret_generation;
     const operationId = await requestEmailSecretRotation(env.db, bindings(), route.connection.id, {
       kind: 'owner',
@@ -2458,7 +2457,7 @@ describe('durable zone email connections', () => {
         .select()
         .from(emailZoneConnections)
         .where(eq(emailZoneConnections.id, route.connection.id))
-    )[0]!;
+    )[0];
     expect(pending.active_secret_generation).toBe(before);
     expect(pending.staged_secret_generation).toBe(before + 1);
     expect(
@@ -2472,7 +2471,7 @@ describe('durable zone email connections', () => {
         .select()
         .from(emailZoneConnections)
         .where(eq(emailZoneConnections.id, route.connection.id))
-    )[0]!;
+    )[0];
     expect(promoted.active_secret_generation).toBe(before + 1);
     expect(promoted.staged_secret_generation).toBeNull();
     expect(
@@ -2494,7 +2493,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), add.operationId);
-    const connection = (await resolveEmailDomain(env.db, 'rotation-credential.example.com'))!
+    const connection = (await resolveEmailDomain(env.db, 'rotation-credential.example.com'))
       .connection;
     const operationId = await requestEmailSecretRotation(
       env.db,
@@ -2550,7 +2549,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), add.operationId);
-    const connection = (await resolveEmailDomain(env.db, 'lost.example.com'))!.connection;
+    const connection = (await resolveEmailDomain(env.db, 'lost.example.com')).connection;
     const rotation = await requestEmailSecretRotation(env.db, bindings(), connection.id, {
       kind: 'owner',
       userId: user.id,
@@ -2584,7 +2583,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), added.operationId);
-    const before = (await resolveEmailDomain(env.db, 'not-applied-rotation.example.com'))!
+    const before = (await resolveEmailDomain(env.db, 'not-applied-rotation.example.com'))
       .connection;
     const setupSecretWrites = callsByTag(stub.calls, 'secretPut').length;
     const setupScriptWrites = callsByTag(stub.calls, 'scriptPut').length;
@@ -2596,7 +2595,7 @@ describe('durable zone email connections', () => {
 
     const staged = (
       await env.db.select().from(emailZoneConnections).where(eq(emailZoneConnections.id, before.id))
-    )[0]!;
+    )[0];
     expect(staged.staged_secret_generation).toBe(before.active_secret_generation + 1);
     await reconcilePendingEmailOperations(env.db, bindings());
     expect(
@@ -2631,7 +2630,7 @@ describe('durable zone email connections', () => {
 
     const promoted = (
       await env.db.select().from(emailZoneConnections).where(eq(emailZoneConnections.id, before.id))
-    )[0]!;
+    )[0];
     expect(promoted.active_secret_generation).toBe(staged.staged_secret_generation);
     expect(promoted.staged_secret_generation).toBeNull();
     expect(
@@ -2655,13 +2654,13 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), add.operationId);
-    const before = (await resolveEmailDomain(env.db, 'blocked-rotation.example.com'))!.connection;
+    const before = (await resolveEmailDomain(env.db, 'blocked-rotation.example.com')).connection;
     const rotation = await requestEmailSecretRotation(env.db, bindings(), before.id, actor);
     failures.secretPut = { message: 'secret permission denied', status: 403 };
     await runEmailOperation(env.db, bindings(), rotation);
     const staged = (
       await env.db.select().from(emailZoneConnections).where(eq(emailZoneConnections.id, before.id))
-    )[0]!;
+    )[0];
     expect(staged.staged_secret_generation).toBe(before.active_secret_generation + 1);
     expect(
       (await env.db.select().from(emailOperations).where(eq(emailOperations.id, rotation)))[0],
@@ -2673,7 +2672,7 @@ describe('durable zone email connections', () => {
     await runEmailOperation(env.db, bindings(), resumed);
     const promoted = (
       await env.db.select().from(emailZoneConnections).where(eq(emailZoneConnections.id, before.id))
-    )[0]!;
+    )[0];
     expect(promoted.active_secret_generation).toBe(before.active_secret_generation + 1);
     expect(promoted.staged_secret_generation).toBeNull();
     expect(callsByTag(stub.calls, 'secretPut')).toHaveLength(3);
@@ -2692,7 +2691,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), added.operationId);
-    const connection = (await resolveEmailDomain(env.db, 'sync-staged-rotation.example.com'))!
+    const connection = (await resolveEmailDomain(env.db, 'sync-staged-rotation.example.com'))
       .connection;
     const blockedKey = 'sync-staged-blocked-rotation';
     const blockedRotation = await requestEmailSecretRotation(
@@ -2704,14 +2703,14 @@ describe('durable zone email connections', () => {
     );
     failures.secretPut = { message: 'secret permission denied', status: 403 };
     await runEmailOperation(env.db, bindings(), blockedRotation);
-    const staged = (await resolveEmailDomain(env.db, 'sync-staged-rotation.example.com'))!
+    const staged = (await resolveEmailDomain(env.db, 'sync-staged-rotation.example.com'))
       .connection;
     expect(staged.staged_secret_generation).toBe(connection.active_secret_generation + 1);
 
     delete failures.secretPut;
     const sync = await requestEmailDomainSync(env.db, bindings(), added.routeId, actor);
     await runEmailOperation(env.db, bindings(), sync);
-    const repaired = (await resolveEmailDomain(env.db, 'sync-staged-rotation.example.com'))!
+    const repaired = (await resolveEmailDomain(env.db, 'sync-staged-rotation.example.com'))
       .connection;
     expect(repaired.active_secret_generation).toBe(connection.active_secret_generation);
     expect(repaired.staged_secret_generation).toBeNull();
@@ -2747,7 +2746,7 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), added.operationId);
-    const connection = (await resolveEmailDomain(env.db, 'pending-rotation.example.com'))!
+    const connection = (await resolveEmailDomain(env.db, 'pending-rotation.example.com'))
       .connection;
 
     await expect(
@@ -2779,11 +2778,11 @@ describe('durable zone email connections', () => {
       token: TOKEN,
     });
     await runEmailOperation(env.db, bindings(), add.operationId);
-    const before = (await resolveEmailDomain(env.db, 'rotation-repair.example.com'))!.connection;
+    const before = (await resolveEmailDomain(env.db, 'rotation-repair.example.com')).connection;
     const rotation = await requestEmailSecretRotation(env.db, bindings(), before.id, actor);
     failures.secretPut = { message: 'replacement token lacks secret permission', status: 403 };
     await runEmailOperation(env.db, bindings(), rotation);
-    const staged = (await resolveEmailDomain(env.db, 'rotation-repair.example.com'))!.connection;
+    const staged = (await resolveEmailDomain(env.db, 'rotation-repair.example.com')).connection;
     expect(staged.staged_secret_generation).toBe(before.active_secret_generation + 1);
     expect(
       (await env.db.select().from(emailOperations).where(eq(emailOperations.id, rotation)))[0],
@@ -2810,7 +2809,7 @@ describe('durable zone email connections', () => {
           .where(eq(emailOperations.id, repair.operationId))
       )[0],
     ).toMatchObject({ status: 'unknown', current_step: 'gateway_probe' });
-    const awaitingProof = (await resolveEmailDomain(env.db, 'rotation-repair.example.com'))!
+    const awaitingProof = (await resolveEmailDomain(env.db, 'rotation-repair.example.com'))
       .connection;
     expect(awaitingProof.active_secret_generation).toBe(before.active_secret_generation);
     expect(awaitingProof.staged_secret_generation).toBe(staged.staged_secret_generation);
@@ -2818,7 +2817,7 @@ describe('durable zone email connections', () => {
     delete failures.gatewayProbe;
     await reconcilePendingEmailOperations(env.db, bindings());
 
-    const repaired = (await resolveEmailDomain(env.db, 'rotation-repair.example.com'))!.connection;
+    const repaired = (await resolveEmailDomain(env.db, 'rotation-repair.example.com')).connection;
     expect(repaired.active_secret_generation).toBe(before.active_secret_generation);
     expect(repaired.staged_secret_generation).toBeNull();
     expect(repaired.staged_secret_ciphertext).toBeNull();
@@ -2870,7 +2869,7 @@ describe('durable zone email connections', () => {
     expect(
       (await env.db.select().from(emailOperations).where(eq(emailOperations.id, removal)))[0],
     ).toMatchObject({ status: 'blocked', current_step: 'ingress_delete' });
-    const disabled = (await resolveEmailDomain(env.db, 'blocked-removal.example.com'))!.route;
+    const disabled = (await resolveEmailDomain(env.db, 'blocked-removal.example.com')).route;
     expect(disabled.desired_state).toBe('disabled');
     expect(callsByTag(stub.calls, 'scriptDelete')).toHaveLength(1);
 
@@ -2879,7 +2878,7 @@ describe('durable zone email connections', () => {
       removal,
     );
     expect(
-      (await resolveEmailDomain(env.db, 'blocked-removal.example.com'))!.route.desired_generation,
+      (await resolveEmailDomain(env.db, 'blocked-removal.example.com')).route.desired_generation,
     ).toBe(disabled.desired_generation);
     await runEmailOperation(env.db, bindings(), removal);
 
@@ -2888,7 +2887,7 @@ describe('durable zone email connections', () => {
         ?.status,
     ).toBe('completed');
     expect(
-      (await resolveEmailDomain(env.db, 'blocked-removal.example.com'))!.route.desired_state,
+      (await resolveEmailDomain(env.db, 'blocked-removal.example.com')).route.desired_state,
     ).toBe('removed');
     expect(callsByTag(stub.calls, 'scriptDelete')).toHaveLength(2);
   });
@@ -2993,7 +2992,7 @@ describe('durable zone email connections', () => {
     });
     await runEmailOperation(env.db, shared, retried.operationId);
     await expect(
-      requestEmailSecretRotation(env.db, shared, route!.connection.id, {
+      requestEmailSecretRotation(env.db, shared, route.connection.id, {
         kind: 'admin',
         userId: owner.id,
       }),
@@ -3016,7 +3015,7 @@ describe('durable zone email connections', () => {
       userId: owner.id,
     });
     await runEmailOperation(env.db, shared, finalRemove);
-    const removedRoute = (await resolveEmailDomain(env.db, 'example.com'))!.route;
+    const removedRoute = (await resolveEmailDomain(env.db, 'example.com')).route;
     expect(removedRoute.desired_state).toBe('removed');
     expect(
       await env.db.transaction((tx) => disableEmailDomainRouteAndDrainTx(tx, removedRoute.id)),
@@ -3024,7 +3023,7 @@ describe('durable zone email connections', () => {
       cancelled: 0,
       inFlight: 0,
     });
-    const repeatedRemoval = (await resolveEmailDomain(env.db, 'example.com'))!.route;
+    const repeatedRemoval = (await resolveEmailDomain(env.db, 'example.com')).route;
     expect(repeatedRemoval.desired_state).toBe('removed');
     expect(repeatedRemoval.desired_generation).toBe(removedRoute.desired_generation);
     expect(callsByTag(stub.calls, 'scriptPut')).toHaveLength(0);
@@ -3057,7 +3056,7 @@ describe('durable zone email connections', () => {
         token: TOKEN,
       }),
     ).rejects.toThrow('assigned to another project');
-    const connection = (await resolveEmailDomain(env.db, 'manager.example.com'))!.connection;
+    const connection = (await resolveEmailDomain(env.db, 'manager.example.com')).connection;
     const rotation = await requestEmailSecretRotation(env.db, bindings(), connection.id, {
       kind: 'owner',
       userId: manager.id,
@@ -3138,7 +3137,7 @@ describe('outbound-only email domains', () => {
         installationId: 'void-hosted',
         accountId: 'customer-account',
         zoneId: zones['outbound.example.com'].id,
-        ingressName: resolved!.connection.ingress_worker_name,
+        ingressName: resolved.connection.ingress_worker_name,
         recipient: 'support@outbound.example.com',
       }),
     ).resolves.toBeNull();
@@ -3366,7 +3365,7 @@ describe('shared mail domain ingress', () => {
       EMAIL_SHARED_ACCOUNT_ID: env.CF_ACCOUNT_ID,
       EMAIL_SHARED_ZONE_ID: 'platform-mail-zone',
       EMAIL_SHARED_INGRESS_NAME: 'void-email-gateway',
-    } as ApiEnv['Bindings'];
+    };
   }
 
   // A shared-domain project with slug `acme`, alias `acme-mail` and one
@@ -3400,7 +3399,7 @@ describe('shared mail domain ingress', () => {
       .update(deployments)
       .set({ manifest: JSON.stringify({ emailProtocolVersion: 1 }) })
       .where(eq(deployments.id, deployment.id));
-    const { connection, route } = (await resolveEmailDomain(env.db, 'mail.example.com'))!;
+    const { connection, route } = await resolveEmailDomain(env.db, 'mail.example.com');
     for (const [name, status] of [
       ['acme', statuses.slug ?? 'ready'],
       ['acme-mail', statuses.alias ?? 'ready'],
