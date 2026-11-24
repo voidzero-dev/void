@@ -3323,6 +3323,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
    * `getTcpPort` for the NON-starting fetch.
    */
   private rawContainer(): ContainerPortSurface | undefined {
+    // oxlint-disable-next-line quality/no-chained-type-assertions -- The Workers runtime adds the container property to this durable object.
     return (this as unknown as { container?: ContainerPortSurface }).container;
   }
 

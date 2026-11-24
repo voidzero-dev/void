@@ -103,7 +103,7 @@ function getEnvResults(rawEnv: object): Map<string, KeyResult> {
 
 /** Vite embeds the same public build inputs into server and browser bundles. */
 function getClientEnvValues(): Record<string, unknown> {
-  const values = (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const values = (import.meta as { env?: Record<string, unknown> }).env;
   return Object.fromEntries(
     Object.entries(values ?? {}).filter(([key]) => key.startsWith('VITE_')),
   );
@@ -144,7 +144,7 @@ export function defineEnv<S extends AnySchema>(schema: S): InferEnv<S> {
   // Reset the latest validation so a re-imported schema is re-checked.
   registry.latestValidation = null;
   registry.prepare = _prepareEnv;
-  return env as unknown as InferEnv<S>;
+  return env as InferEnv<S>;
 }
 
 /**

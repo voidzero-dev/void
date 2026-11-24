@@ -1,6 +1,6 @@
 import { parseSync } from 'vite';
 import { bindingNames } from './ast-bindings.ts';
-import { isIdentifier, moduleExportName } from './ast.ts';
+import { asAstProgram, isIdentifier, moduleExportName } from './ast.ts';
 import type {
   AstExportAllDeclaration,
   AstExportNamedDeclaration,
@@ -130,7 +130,7 @@ export function readStaticExports(
   source: string,
   names: ReadonlySet<string>,
 ): StaticExports {
-  return staticExports(parseSync(filename, source).program as unknown as AstProgram, names);
+  return staticExports(asAstProgram(parseSync(filename, source).program), names);
 }
 
 export function unwrapStaticExpression(node: AstNode | undefined): AstNode | undefined {

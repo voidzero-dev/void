@@ -1,7 +1,7 @@
 import MagicString from 'magic-string';
 import { parseSync } from 'vite';
-import { isIdentifier, isLiteral } from '../shared/ast.ts';
-import type { AstNode, AstProgram } from '../shared/ast.ts';
+import { asAstProgram, isIdentifier, isLiteral } from '../shared/ast.ts';
+import type { AstNode } from '../shared/ast.ts';
 
 type Edit = { start: number; end: number; replacement: string };
 
@@ -45,7 +45,7 @@ export function transformWorkerRequireBundle(
   if (!code.includes('createRequire') && !code.includes('pgpass')) {
     return code;
   }
-  const program = parseSync(filename, code).program as unknown as AstProgram;
+  const program = asAstProgram(parseSync(filename, code).program);
   const edits: Array<Edit> = [];
   let hasRequireBinding = false;
   let pgpassCalls = 0;

@@ -65,6 +65,7 @@ function honoMiddleware(
       const init: RequestInit & { duplex?: 'half' } = {
         method: req.method,
         headers,
+        // oxlint-disable-next-line quality/no-chained-type-assertions -- Node fetch accepts async iterable request streams in duplex mode.
         body: hasBody ? (req as unknown as BodyInit) : undefined,
         duplex: hasBody ? 'half' : undefined,
       };

@@ -113,7 +113,7 @@ type CssOutputNode = {
 };
 
 function parseCssOutput(code: string): { css?: string; id?: string; templateCss?: boolean } {
-  const program = parseSync('void-dev-css.js', code).program as unknown as CssOutputNode;
+  const program = parseSync('void-dev-css.js', code).program as CssOutputNode;
   const result: { css?: string; id?: string; templateCss?: boolean } = {};
   const readCss = (node: CssOutputNode | undefined): void => {
     if (node?.type === 'Literal' && typeof node.value === 'string') {

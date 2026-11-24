@@ -178,7 +178,7 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
     }
   }
 
-  walk(parsed.program as unknown as Parameters<typeof walk>[0], {
+  walk(parsed.program as Parameters<typeof walk>[0], {
     enter(node) {
       const current = node as AstNode;
       if (isMemberExpression(current) && isEnv(current.object)) {

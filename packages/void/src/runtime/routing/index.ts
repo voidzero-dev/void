@@ -575,7 +575,7 @@ export function createHttpRouteHandler(
   method: string,
 ): (c: Context) => Promise<Response> {
   return markRouteHandler(async (c: Context) =>
-    convertReturnValue(await (await load())[method](c as unknown as CloudContext)),
+    convertReturnValue(await (await load())[method](c as CloudContext)),
   );
 }
 

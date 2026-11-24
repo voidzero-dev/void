@@ -207,7 +207,7 @@ export class SandboxContainer<Env = unknown> extends DurableObject<Env> {
     if (!this.ctx.container) {
       throw new Error('Sandbox container binding is missing.');
     }
-    return this.ctx.container as unknown as SandboxNativeContainer;
+    return this.ctx.container as SandboxNativeContainer;
   }
 
   async configure(options: SandboxOptions): Promise<void> {

@@ -46,7 +46,7 @@ export async function runLocalVoidAuthMigrations(
     ...localEnv,
     ...process.env,
     ...(connectionString !== undefined ? { DATABASE_URL: connectionString } : {}),
-  } as unknown as VoidAuthEnv;
+  } as VoidAuthEnv;
   const migrationSchema = resolveVoidAuthMigrationSchema(runtime, env);
 
   if (dialect === 'sqlite') {

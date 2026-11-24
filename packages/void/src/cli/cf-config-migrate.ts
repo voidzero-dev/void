@@ -370,6 +370,7 @@ function containersFromWrangler(raw: JsonObject, exports: JsonObject): Array<Jso
   });
 }
 
+// oxlint-disable-next-line quality/no-chained-type-assertions -- The config converter supplies the arguments for the dynamically selected Cloudflare helper.
 const configHelpers = { bindings, exports: workerExports, triggers } as unknown as Record<
   string,
   Record<string, (...args: Array<unknown>) => unknown>

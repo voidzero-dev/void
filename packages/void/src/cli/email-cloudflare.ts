@@ -298,7 +298,7 @@ export function parseWhoamiJson(data: unknown): WhoamiJson | null {
   ) {
     return null;
   }
-  return data as unknown as WhoamiJson;
+  return data as Record<string, unknown> & WhoamiJson;
 }
 
 export interface RoutingSettings {

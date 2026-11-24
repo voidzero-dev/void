@@ -501,6 +501,7 @@ function createRelayedMessage(envelope: EmailEnvelope): {
     },
   };
   return {
+    // oxlint-disable-next-line quality/no-chained-type-assertions -- Relayed messages emulate native messages without native delivery methods.
     message: message as unknown as ForwardableEmailMessage,
     rejectedReason: () => reason,
   };

@@ -324,6 +324,7 @@ export function createInboundTestHarness(opts: InboundTestHarnessOptions): Inbou
       { slug },
     );
 
+    // oxlint-disable-next-line quality/no-chained-type-assertions -- This test harness implements only the context hooks used during email dispatch.
     const ctx = {
       waitUntil() {
         // no-op

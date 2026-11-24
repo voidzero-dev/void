@@ -440,6 +440,7 @@ export function createMessageProxy(
     }
   }
 
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- The proxy implements the managed email transport rather than the native message ABI.
   const message = {
     from: envelope.from,
     to: userVisibleTo,
@@ -883,11 +884,10 @@ export async function replyEmail(
   opts: ReplyEmailOptions,
 ): Promise<void> {
   const { from, to, raw } = await buildReplyMessage(message, opts);
-  await (
-    message as unknown as {
-      reply(arg: { from: string; to: string; raw: Uint8Array }): Promise<void>;
-    }
-  ).reply({ from, to, raw });
+  const transport = message as ForwardableEmailMessage & {
+    reply(arg: { from: string; to: string; raw: Uint8Array }): Promise<void>;
+  };
+  await transport.reply({ from, to, raw });
 }
 
 /**

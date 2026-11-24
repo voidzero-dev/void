@@ -337,6 +337,16 @@ const config = defineConfig({
         rules: { 'unicorn/consistent-function-scoping': 'off' },
       },
       {
+        // Tests use partial runtime and provider mocks to exercise specific behavior.
+        files: [
+          '**/test/**/*',
+          '**/*.test.*',
+          '**/*.typecheck.*',
+          'platform/scripts/fixtures/**/*',
+        ],
+        rules: { 'quality/no-chained-type-assertions': 'off' },
+      },
+      {
         // These string scans test for substrings and delimiters.
         files: ['packages/edge/src/pattern.ts', 'platform/packages/api/container/build-agent.mjs'],
         rules: { 'unicorn/prefer-set-has': 'off' },
@@ -549,8 +559,6 @@ const config = defineConfig({
       '@nkzw/no-instanceof': 'off',
       // CLI output, platform Worker logging, and output-capture fixtures intentionally use the console across the workspace.
       'no-console': 'off',
-      // SDK adapters and test doubles use staged assertions across mismatched framework and mock types. Tighten those contracts separately.
-      'quality/no-chained-type-assertions': 'off',
       // Conditional spreads are used to omit optional config and manifest keys. Preserve omission and property order in follow-up refactors.
       'quality/no-conditional-empty-object-spread': 'off',
       // Validation helpers deliberately accept unknown, including when tests pass values whose concrete types are known.

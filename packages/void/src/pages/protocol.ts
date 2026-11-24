@@ -729,7 +729,7 @@ function streamDeferredResponse(
 }
 
 function asCloudContext(c: PageRequestContext): CloudContext {
-  return c as unknown as CloudContext;
+  return c as CloudContext;
 }
 
 /** Handle GET page request — run handler, return page object or SSR HTML */

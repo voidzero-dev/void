@@ -494,7 +494,7 @@ function createVoidTsconfigPatch(root: string, outputBaseDir: string): TsconfigI
   const hasSchema = hasDrizzleSchema(root);
   const voidConfig = createProjectTsconfig(root, undefined, hasSchema, hasSchema);
   return collectTsconfigPatchFromConfig(
-    voidConfig as unknown as JsonObject,
+    voidConfig as JsonObject,
     join(root, '.void', 'tsconfig.json'),
     root,
     outputBaseDir,

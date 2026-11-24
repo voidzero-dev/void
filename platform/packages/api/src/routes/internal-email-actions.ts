@@ -131,7 +131,7 @@ function receiptRoute(value: unknown): EmailReceiptRouteFence | undefined {
 }
 
 app.post('/admit', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as EmailAdmissionInput;
+  const body = context.get('emailActionBody' as never) as EmailAdmissionInput;
   if (
     !body ||
     typeof body !== 'object' ||
@@ -159,7 +159,7 @@ app.post('/admit', async (context) => {
 });
 
 app.post('/receipts', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as {
+  const body = context.get('emailActionBody' as never) as {
     receiptId?: unknown;
     projectId?: unknown;
     status?: unknown;
@@ -190,7 +190,7 @@ app.post('/receipts', async (context) => {
 });
 
 app.post('/receipts/claim', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as Record<string, unknown>;
+  const body = context.get('emailActionBody' as never) as Record<string, unknown>;
   if (
     typeof body?.receiptId !== 'string' ||
     typeof body.projectId !== 'string' ||
@@ -217,7 +217,7 @@ app.post('/receipts/claim', async (context) => {
 });
 
 app.post('/receipts/complete', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as Record<string, unknown>;
+  const body = context.get('emailActionBody' as never) as Record<string, unknown>;
   if (
     typeof body?.receiptId !== 'string' ||
     typeof body.projectId !== 'string' ||
@@ -240,7 +240,7 @@ app.post('/receipts/complete', async (context) => {
 });
 
 app.post('/:id/start', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as { recipients?: unknown };
+  const body = context.get('emailActionBody' as never) as { recipients?: unknown };
   if (!Array.isArray(body?.recipients) || !body.recipients.every((r) => typeof r === 'string')) {
     return context.json({ error: 'invalid recipients' }, 400);
   }
@@ -259,7 +259,7 @@ app.post('/:id/start', async (context) => {
 });
 
 app.post('/:id/finish', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as {
+  const body = context.get('emailActionBody' as never) as {
     recipients?: unknown;
     state?: unknown;
     providerReference?: unknown;

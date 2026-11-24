@@ -501,7 +501,7 @@ function progressed(progress: Progress): boolean {
 export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<void> {
   const origin = resolveOperatorOrigin(args.connection);
   const client = new OperatorClient(origin, readOperatorToken(origin));
-  const listing = (await client.request('/config/plans')) as unknown as Listing;
+  const listing = (await client.request('/config/plans')) as Listing;
   const { catalog } = listing;
   if (!args.action) {
     if (!process.stdin.isTTY || args.json) {

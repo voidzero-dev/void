@@ -5,6 +5,7 @@ import { discoverSchema } from '../drizzle/discover.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import type { ProjectPaths } from '../project-paths.ts';
 import type { VoidAuthConfig } from '../runtime/auth/index.ts';
+import { asAstProgram } from '../shared/ast.ts';
 import type { AstNode, AstProgram } from '../shared/ast.ts';
 
 function isVoidAuthConfigSource(code: string, filename: string): boolean {
@@ -13,7 +14,7 @@ function isVoidAuthConfigSource(code: string, filename: string): boolean {
   }
   let program: AstProgram;
   try {
-    program = parseSync(filename, code).program as unknown as AstProgram;
+    program = asAstProgram(parseSync(filename, code).program);
   } catch {
     return false;
   }

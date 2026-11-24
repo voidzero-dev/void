@@ -646,7 +646,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
       // Hand the bytes directly to a `Blob` so we never name the
       // `Uint8Array` past this scope — keeps per-iteration memory residency
       // bounded by one decoded module at a time.
-      const content = new Blob([decoded as unknown as BlobPart], {
+      const content = new Blob([decoded as BlobPart], {
         type: moduleContentType(filePath),
       });
       inlineFiles.push({ name: filePath, content });

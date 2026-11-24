@@ -47,7 +47,8 @@ export function printNextStep(message: string, { wrap = true }: { wrap?: boolean
   // command the user needs to paste into their shell.
   const output = wrap
     ? undefined
-    : ({
+    : // oxlint-disable-next-line quality/no-chained-type-assertions -- The prompt renderer only reads columns and calls write on this adapter.
+      ({
         columns: Buffer.byteLength(message) + 2,
         write: (chunk: string) => process.stdout.write(chunk),
       } as unknown as Writable);
@@ -167,6 +168,7 @@ export function note(...args: Parameters<typeof promptsNote>): void {
   }
   // The box renderer only reads `columns` and calls `write()`.
   let header = true;
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- The prompt renderer only reads columns and calls write on this adapter.
   const sized = {
     columns: needsWidthFallback ? (columns > 0 ? MIN_NOTE_COLUMNS : 80) : columns,
     write(chunk: string) {

@@ -74,7 +74,7 @@ export async function verifyGithubOidcToken(
       issuer: OIDC_ISSUER,
       ...(opts?.audience ? { audience: opts.audience } : {}),
     });
-    return payload as unknown as GithubOidcClaims;
+    return payload as GithubOidcClaims;
   } catch {
     return null;
   }

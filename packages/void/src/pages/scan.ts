@@ -10,7 +10,7 @@ import { isRouteEnabledForEnvironment, parseRouteFilename } from '../router/pars
 import type { RouteEnvironment } from '../router/parse-filename.ts';
 import { compareRouteSpecificity } from '../router/route-order.ts';
 import { bindingNames } from '../shared/ast-bindings.ts';
-import { isIdentifier, isLiteral, moduleExportName } from '../shared/ast.ts';
+import { asAstProgram, isIdentifier, isLiteral, moduleExportName } from '../shared/ast.ts';
 import type {
   AstExportNamedDeclaration,
   AstFunctionDeclaration,
@@ -234,7 +234,7 @@ function detectPageServerMetadata(source: string, filename: string): PageServerM
     return metadata;
   }
 
-  const program = parsed.program as unknown as AstProgram;
+  const program = asAstProgram(parsed.program);
   for (const node of program.body ?? []) {
     if (node.type !== 'ExportNamedDeclaration') {
       continue;

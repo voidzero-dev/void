@@ -54,8 +54,7 @@ export const WORKER_UPLOAD_MAX_AGE_MS = 12 * 60 * 60 * 1000;
  * isolate cap with margin.
  */
 export function decodeBase64ToBytes(raw: string): Uint8Array {
-  const fromBase64 = (Uint8Array as unknown as { fromBase64?: (s: string) => Uint8Array })
-    .fromBase64;
+  const fromBase64 = (Uint8Array as { fromBase64?: (s: string) => Uint8Array }).fromBase64;
   if (typeof fromBase64 === 'function') {
     return fromBase64(raw);
   }

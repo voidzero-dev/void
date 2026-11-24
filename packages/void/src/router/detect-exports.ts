@@ -2,11 +2,10 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'pathslash';
 import { parseSync } from 'vite';
 import { bindingNames } from '../shared/ast-bindings.ts';
-import { isIdentifier, moduleExportName } from '../shared/ast.ts';
+import { asAstProgram, isIdentifier, moduleExportName } from '../shared/ast.ts';
 import type {
   AstExportNamedDeclaration,
   AstFunctionDeclaration,
-  AstProgram,
   AstVariableDeclaration,
 } from '../shared/ast.ts';
 
@@ -27,7 +26,7 @@ export function detectHttpExports(absPath: string): Array<string> {
   }
 
   const methods: Array<string> = [];
-  const program = parsed.program as unknown as AstProgram;
+  const program = asAstProgram(parsed.program);
 
   for (const node of program.body ?? []) {
     if (node.type === 'ExportNamedDeclaration') {

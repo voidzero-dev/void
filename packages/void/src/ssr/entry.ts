@@ -4,7 +4,7 @@ import { parseSync } from 'vite';
 import { readProjectPaths } from '../project-paths.ts';
 import type { ProjectPaths } from '../project-paths.ts';
 import { bindingNames, bindingResolver } from '../shared/ast-bindings.ts';
-import { isIdentifier, moduleExportName } from '../shared/ast.ts';
+import { asAstProgram, isIdentifier, moduleExportName } from '../shared/ast.ts';
 import type {
   AstCallExpression,
   AstExportDefaultDeclaration,
@@ -12,7 +12,6 @@ import type {
   AstExportSpecifier,
   AstFunctionDeclaration,
   AstNode,
-  AstProgram,
   AstVariableDeclaration,
 } from '../shared/ast.ts';
 import { unwrapStaticExpression } from '../shared/static-exports.ts';
@@ -87,7 +86,7 @@ function validateServerRenderExport(entry: ResolvedEntry): void {
     );
   }
 
-  const program = parsed.program as unknown as AstProgram;
+  const program = asAstProgram(parsed.program);
   const body = program.body ?? [];
   let resolve: ReturnType<typeof bindingResolver> | undefined;
   const binding = (node: AstNode, name: string) =>

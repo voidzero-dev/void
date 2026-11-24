@@ -366,6 +366,7 @@ export function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json
   // The converter reads only `worker.exports` for this field.
   const converted =
     object(
+      // oxlint-disable-next-line quality/no-chained-type-assertions -- Only worker exports are projected here, so the unrelated required fields are omitted.
       convertToWranglerConfig({
         worker: { exports: entries },
         containers: [],

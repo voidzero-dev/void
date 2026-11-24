@@ -91,7 +91,7 @@ function isGeneratedStaticConfig(source: string): boolean {
     ) {
       return false;
     }
-    program = parsed.program as unknown as StaticNode;
+    program = parsed.program as StaticNode;
   } catch {
     return false;
   }

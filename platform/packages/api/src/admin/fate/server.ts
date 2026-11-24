@@ -186,7 +186,7 @@ const sources = {
     if (!source) {
       throw new Error(`Unknown admin Fate source: ${typeName}`);
     }
-    return source as unknown as SourceDefinition<Item>;
+    return source as SourceDefinition<Item>;
   },
   registry,
 };

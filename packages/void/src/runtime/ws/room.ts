@@ -136,6 +136,7 @@ export function getRoom(
   }
   const binding = resolveRoomBinding(route, options.env);
   const id = buildWebSocketInstanceId(route, params);
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- The generated room durable object provides the RPC method on its stub.
   const stub = binding.get(binding.idFromName(id)) as unknown as RoomActionStub;
   return { actions: createActionProxy(stub, id, params) } as RoomHandle<RoomPath & string>;
 }

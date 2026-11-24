@@ -53,7 +53,7 @@ export function bindingResolver(
       }
     }
   };
-  walk(program as unknown as Parameters<typeof walk>[0], {
+  walk(program as Parameters<typeof walk>[0], {
     enter(raw, rawParent, key) {
       const node = raw as AstNode;
       const parent = rawParent as AstNode | null;

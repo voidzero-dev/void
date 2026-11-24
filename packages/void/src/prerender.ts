@@ -214,6 +214,7 @@ async function createCloudflarePrerenderRunner(options: {
   // config shape; the flat single-worker options below are the v4 shape, which it
   // still exports a converter for. `@cloudflare/vite-plugin` 1.54 builds its own
   // Miniflare instances the same way (`new Miniflare(convertV4MiniflareOptions(...))`).
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- Miniflare dispatchFetch and the worker share the Fetch API at runtime.
   const { Miniflare, convertV4MiniflareOptions } = (await import('miniflare')) as unknown as {
     Miniflare: new (options: Record<string, unknown>) => {
       dispatchFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;

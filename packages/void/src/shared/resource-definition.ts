@@ -1,5 +1,11 @@
 import { parseSync } from 'vite';
-import { isCallExpression, isIdentifier, isMemberExpression, isObjectExpression } from './ast.ts';
+import {
+  asAstProgram,
+  isCallExpression,
+  isIdentifier,
+  isMemberExpression,
+  isObjectExpression,
+} from './ast.ts';
 import type {
   AstImportDeclaration,
   AstImportNamespaceSpecifier,
@@ -19,7 +25,7 @@ export function readResourceDefinition(
 ): { helper: string; options?: AstNode; name?: string } | null {
   let program: AstProgram;
   try {
-    program = parseSync(filename, source).program as unknown as AstProgram;
+    program = asAstProgram(parseSync(filename, source).program);
   } catch {
     return null;
   }

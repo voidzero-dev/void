@@ -7,7 +7,7 @@ import {
   walkEnvReads,
 } from './plugin-env-client-guard.ts';
 import type { ImportBindings } from './plugin-env-client-guard.ts';
-import { isIdentifier, isLiteral } from './shared/ast.ts';
+import { asAstProgram, isIdentifier, isLiteral } from './shared/ast.ts';
 import type { AstMemberExpression, AstProgram } from './shared/ast.ts';
 import { isClientEnvKey } from './shared/env.ts';
 
@@ -100,7 +100,7 @@ export function envClientFoldPlugin(): Plugin {
         return;
       }
 
-      const program = parsed.program as unknown as AstProgram;
+      const program = asAstProgram(parsed.program);
       const bindings = extractEnvBindings(program);
       if (!bindings) {
         return;

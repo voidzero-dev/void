@@ -25,7 +25,7 @@ import { ProjectsTable } from './ProjectsTable.tsx';
 import { ProjectUrlLink } from './ProjectUrlLink.tsx';
 import { SystemStatusCard } from './SystemStatusCard.tsx';
 
-const AdminSuspense = Suspense as unknown as (props: {
+const AdminSuspense = Suspense as (props: {
   children: ReactNode;
   fallback: ReactNode;
 }) => ReactElement;

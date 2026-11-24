@@ -259,7 +259,7 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
   }
   const origin = resolveOperatorOrigin(args.connection);
   const client = new OperatorClient(origin, readOperatorToken(origin));
-  const listing = (await client.request('/config/auth')) as unknown as Listing;
+  const listing = (await client.request('/config/auth')) as Listing;
   if (!args.action) {
     if (!process.stdin.isTTY || args.json) {
       print(listing, args.json);

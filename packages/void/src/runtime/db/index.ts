@@ -64,6 +64,7 @@ export function createDb(
   options?: { session?: DbSessionStart },
 ): DrizzleD1Database {
   return _drizzle(
+    // oxlint-disable-next-line quality/no-chained-type-assertions -- Drizzle only uses the query methods shared by D1 databases and sessions.
     d1.withSession(
       resolveD1SessionStart(
         options?.session === undefined ? 'first-unconstrained' : options.session,

@@ -84,7 +84,7 @@ export function patchViteConfigWithVoidPlugin(filePath: string, code: string): s
 
   let program: Node;
   try {
-    program = parseSync(filePath, code).program as unknown as Node;
+    program = parseSync(filePath, code).program as Node;
   } catch {
     return undefined;
   }
