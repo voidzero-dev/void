@@ -2409,7 +2409,7 @@ async function main() {
 // helpers without starting the control server or spawning any build steps.
 const isEntrypoint = argv[1] && import.meta.url === pathToFileURL(argv[1]).href;
 if (isEntrypoint) {
-  main().catch((err) => {
+  await main().catch((err) => {
     // Last-resort guard — main() already wraps its body, but never let an
     // unhandled rejection leave the container hanging without an exit code.
     console.error(err);

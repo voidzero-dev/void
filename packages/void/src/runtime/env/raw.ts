@@ -47,6 +47,7 @@ const isWorkerd = typeof navigator !== 'undefined' && navigator.userAgent === 'C
 
 if (isWorkerd) {
   // Only env is consumed; avoid instantiating the Workers RPC exports as PromiseLike types.
+  // oxlint-disable-next-line unicorn/prefer-top-level-await -- Keep the shared runtime module synchronous for other targets and its importers.
   (import('cloudflare:workers') as Promise<{ env?: unknown }>)
     .then((mod) => {
       cloudflareEnv = asEnv(mod.env) ?? undefined;

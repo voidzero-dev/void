@@ -295,4 +295,4 @@ async function main(): Promise<void> {
   p.outro('Done!');
 }
 
-void main();
+await main();

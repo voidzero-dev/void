@@ -229,7 +229,7 @@ async function runEnvSchemaProbeChild(rawInput: string): Promise<void> {
 
 // Child entry. Any unexpected failure exits nonzero; the parent fails closed on that.
 if (process.argv[2] === PROBE_MARKER) {
-  runEnvSchemaProbeChild(process.argv[3] ?? 'null').then(
+  await runEnvSchemaProbeChild(process.argv[3] ?? 'null').then(
     () => process.exit(0),
     () => process.exit(1),
   );
