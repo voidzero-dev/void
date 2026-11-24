@@ -277,6 +277,15 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // The production comparisons use default JavaScript order for reproducible serialized values.
+        files: [
+          '**/test/**/*',
+          'packages/void/src/cli/cf-version-api.ts',
+          'platform/packages/email-gateway/src/router.ts',
+        ],
+        rules: { 'typescript/require-array-sort-compare': 'off' },
+      },
+      {
         // These wrappers propagate original rejection values through cleanup and retries.
         files: [
           'packages/void/src/cli/{direct-r2-upload,platform-install-workers}.ts',
@@ -544,7 +553,6 @@ const config = defineConfig({
       'typescript/no-unsafe-member-access': 'off',
       'typescript/no-unsafe-return': 'off',
       'typescript/no-unsafe-type-assertion': 'off',
-      'typescript/require-array-sort-compare': 'off',
       'typescript/return-await': 'off',
       'typescript/unbound-method': 'off',
       'typescript/use-unknown-in-catch-callback-variable': 'off',
