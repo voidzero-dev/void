@@ -15,7 +15,12 @@ import {
   defineMiddleware,
   type CloudContext,
 } from '../../src/runtime/handler/index.ts';
-import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing/assets.ts';
+import {
+  createClientAssetTags,
+  createManifestLoader,
+  type ClientManifest,
+  type ManifestLoader,
+} from '../../src/runtime/routing/assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing/errors.ts';
 import {
   createHttpRouteHandler,
@@ -786,7 +791,7 @@ describe('typed asset fallthrough', () => {
       applyAssetCachePolicy(request, cookie, 'static', true).headers.get('cache-control'),
     ).toBe('no-store');
   });
-  it.each([null, { client: { file: 'assets/client-abcdefgh.js' } }])(
+  it.each<ClientManifest>([{}, { client: { file: 'assets/client-abcdefgh.js' } }])(
     'uses conservative cache policy without build provenance: %j',
     async (manifest) => {
       const load = vi.fn(async () => manifest);
@@ -807,18 +812,100 @@ describe('typed asset fallthrough', () => {
       expect(load).toHaveBeenCalledTimes(1);
     },
   );
-  it('keeps assets available when optional manifest lookup fails', async () => {
-    const policy = createAssetCachePolicy('assets', async () => {
-      throw new Error('unavailable');
-    });
-    const response = await policy(
-      new Request('https://app.test/assets/app-settings.json'),
+  it.each(['missing', 'rejected'])(
+    'serves assets and retries after a %s manifest lookup',
+    async (failure) => {
+      const path = 'assets/client-abcdefgh.js';
+      const load = vi
+        .fn<ManifestLoader>()
+        .mockImplementationOnce(async () => {
+          if (failure === 'rejected') {
+            throw new Error('unavailable');
+          }
+          return null;
+        })
+        .mockResolvedValue({ client: { file: path, immutableFiles: [path] } });
+      const policy = createAssetCachePolicy('assets', load);
+      const request = () => new Request(`https://app.test/${path}`);
+      const response = await policy(request(), {}, new Response('asset'));
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      await expect(response.text()).resolves.toBe('asset');
+      const recovered = await policy(request(), {}, new Response('asset'));
+      expect(recovered.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      await policy(request(), {}, new Response('asset'));
+      expect(load).toHaveBeenCalledTimes(2);
+    },
+  );
+  it('keeps a stalled manifest lookup from blocking later asset requests', async () => {
+    const load = vi
+      .fn<ManifestLoader>()
+      .mockImplementationOnce(() => new Promise<ClientManifest | null>(() => {}))
+      .mockImplementation(async () => ({
+        client: {
+          file: 'assets/client-abcdefgh.js',
+          immutableFiles: ['assets/client-abcdefgh.js'],
+        },
+      }));
+    const policy = createAssetCachePolicy('assets', load);
+    // The first request's lookup never settles, as a canceled request's fetch may not.
+    void policy(
+      new Request('https://app.test/assets/stalled-11111111.js'),
       {},
       new Response('asset'),
     );
-    expect(response.headers.get('cache-control')).toBe('no-store');
-    await expect(response.text()).resolves.toBe('asset');
+    const response = await policy(
+      new Request('https://app.test/assets/client-abcdefgh.js'),
+      {},
+      new Response('asset', {
+        headers: { 'cache-control': 'public, max-age=0, must-revalidate' },
+      }),
+    );
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(load).toHaveBeenCalledTimes(2);
   });
+  it.each(['success', 'miss'])(
+    'caches the successful manifest when %s resolves first',
+    async (first) => {
+      let resolveHit!: (manifest: ClientManifest | null) => void;
+      let resolveMiss!: (manifest: ClientManifest | null) => void;
+      const hit = new Promise<ClientManifest | null>((resolve) => (resolveHit = resolve));
+      const miss = new Promise<ClientManifest | null>((resolve) => (resolveMiss = resolve));
+      const load = vi.fn<ManifestLoader>((request) =>
+        new URL(request.url).pathname.includes('/hit-') ? hit : miss,
+      );
+      const policy = createAssetCachePolicy('assets', load);
+      const asset = () =>
+        new Response('asset', {
+          headers: { 'cache-control': 'public, max-age=0, must-revalidate' },
+        });
+      const ranHit = policy(new Request('https://app.test/assets/hit-11111111.js'), {}, asset());
+      const ranMiss = policy(new Request('https://app.test/assets/miss-22222222.js'), {}, asset());
+      const finishHit = () =>
+        resolveHit({
+          client: {
+            file: 'assets/client-abcdefgh.js',
+            immutableFiles: ['assets/client-abcdefgh.js'],
+          },
+        });
+      if (first === 'success') {
+        finishHit();
+        await ranHit;
+        resolveMiss(null);
+      } else {
+        resolveMiss(null);
+        await ranMiss;
+        finishHit();
+      }
+      await Promise.all([ranHit, ranMiss]);
+      const response = await policy(
+        new Request('https://app.test/assets/client-abcdefgh.js'),
+        {},
+        asset(),
+      );
+      expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      expect(load).toHaveBeenCalledTimes(2);
+    },
+  );
   it('preserves non-success, redirects and mutation responses', () => {
     for (const source of [
       new Response('missing', { status: 404 }),
@@ -1589,16 +1676,27 @@ describe('typed client asset tags', () => {
     expect(binding).toHaveBeenCalledTimes(1);
   });
 
-  it('shares one manifest fetch between concurrent cold loads', async () => {
+  it('keeps a stalled manifest fetch from blocking later requests', async () => {
+    const binding = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(() => new Promise<Response>(() => {}))
+      .mockImplementation(async () => Response.json({ page: { file: 'page.js' } }));
+    const loader = createManifestLoader();
+    const env = { ASSETS: { fetch: binding } };
+    // The first request's fetch never settles, as a canceled request's fetch may not.
+    void loader(new Request('https://app.test/first'), env);
+    await expect(loader(new Request('https://app.test/second'), env)).resolves.toEqual({
+      page: { file: 'page.js' },
+    });
+    expect(binding).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches the parsed manifest instead of the fetch', async () => {
     const binding = vi.fn(async () => Response.json({ page: { file: 'page.js' } }));
     const loader = createManifestLoader();
     const env = { ASSETS: { fetch: binding } };
-    const request = new Request('https://app.test/page');
-    const manifests = await Promise.all(Array.from({ length: 8 }, () => loader(request, env)));
-    expect(binding).toHaveBeenCalledTimes(1);
-    expect(new Set(manifests).size).toBe(1);
-    expect(manifests[0]).toEqual({ page: { file: 'page.js' } });
-    expect(await loader(request, env)).toBe(manifests[0]);
+    const first = await loader(new Request('https://app.test/page'), env);
+    await expect(loader(new Request('https://app.test/other'), env)).resolves.toBe(first);
     expect(binding).toHaveBeenCalledTimes(1);
   });
 
@@ -1614,9 +1712,7 @@ describe('typed client asset tags', () => {
     const request = new Request('https://app.test/page');
     expect(await loader(request, env)).toBeNull();
     expect(binding).toHaveBeenCalledTimes(1);
-    const rejected = [loader(request, env), loader(request, env)];
-    await expect(rejected[0]).rejects.toThrow('assets unavailable');
-    await expect(rejected[1]).rejects.toThrow('assets unavailable');
+    await expect(loader(request, env)).rejects.toThrow('assets unavailable');
     expect(binding).toHaveBeenCalledTimes(2);
     expect(await loader(request, env)).toEqual(manifest);
     expect(binding).toHaveBeenCalledTimes(3);
