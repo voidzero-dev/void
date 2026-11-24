@@ -587,6 +587,7 @@ const config = defineConfig({
       'unicorn/consistent-function-scoping': 'off',
       // Existing indexing narrows values through bounds checks. The rewrite added possibly-undefined results at several checked accesses.
       'unicorn/prefer-at': 'off',
+      // Several build and tooling modules use URL resolution for bundle-relative files. Verify packed and bundled paths before simplifying.
       'unicorn/prefer-import-meta-properties': 'off',
       'unicorn/prefer-single-call': 'off',
       'unicorn/prefer-structured-clone': 'off',
