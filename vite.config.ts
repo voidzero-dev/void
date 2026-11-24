@@ -277,6 +277,11 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // These mocked provider rejections exercise non-Error failure payloads.
+        files: ['packages/void/test/unit/provision-resources.test.ts'],
+        rules: { 'prefer-promise-reject-errors': 'off' },
+      },
+      {
         // Routing adapters accept component functions with framework-specific signatures.
         files: ['packages/void/src/runtime/routing/{errors,pages}.ts'],
         rules: { 'typescript/no-unsafe-function-type': 'off' },
@@ -483,7 +488,6 @@ const config = defineConfig({
       'no-console': 'off',
       'no-promise-executor-return': 'off',
       'no-useless-assignment': 'off',
-      'prefer-promise-reject-errors': 'off',
       'preserve-caught-error': 'off',
       'quality/no-array-filter-map': 'off',
       'quality/no-chained-type-assertions': 'off',
