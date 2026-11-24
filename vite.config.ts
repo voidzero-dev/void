@@ -277,6 +277,16 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // The footer uses the current year when rendering the default copyright notice.
+        files: ['platform/packages/dashboard/ui/components/oss/FooterNav.tsx'],
+        rules: { 'react/purity': 'off' },
+      },
+      {
+        // Solid signal initializers run once and may read the clock.
+        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
+        rules: { 'react/purity': 'off' },
+      },
+      {
         // These compile-only fixtures call hooks to exercise their type signatures.
         files: ['**/*.typecheck.ts'],
         rules: { 'react/rules-of-hooks': 'off' },
@@ -456,7 +466,6 @@ const config = defineConfig({
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
       'quality/no-widen-then-assert': 'off',
-      'react/purity': 'off',
       'react/set-state-in-effect': 'off',
       'typescript/await-thenable': 'off',
       'typescript/consistent-type-imports': 'off',
