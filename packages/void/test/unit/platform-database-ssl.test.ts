@@ -12,7 +12,7 @@ vi.mock('pg', () => ({ Pool: mocks.pool }));
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.pool.mockImplementation(function () {
+  mocks.pool.mockImplementation(function MockPool() {
     return {
       connect: async () => {
         throw new Error('Stopped before network access.');

@@ -17,7 +17,7 @@ beforeEach(async () => {
   database = new PGlite();
   await database.waitReady;
   queries = [];
-  mocks.pool.mockImplementation(function () {
+  mocks.pool.mockImplementation(function MockPool() {
     const query = async (sql: string, values?: Array<unknown>) => {
       queries.push(sql);
       // PGlite has one session and no advisory locks. All ownership, migration,

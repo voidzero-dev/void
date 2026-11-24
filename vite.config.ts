@@ -411,7 +411,6 @@ const config = defineConfig({
       'no-console': 'off',
       'no-promise-executor-return': 'off',
       'no-useless-assignment': 'off',
-      'prefer-arrow-callback': 'off',
       'prefer-promise-reject-errors': 'off',
       'preserve-caught-error': 'off',
       'quality/no-array-filter-map': 'off',
