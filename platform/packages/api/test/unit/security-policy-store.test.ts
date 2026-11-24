@@ -19,6 +19,7 @@ import {
   securityFallbackModel,
   securityPolicyPreviewLines,
   securitySpendMonth,
+  withFailingSince,
   type SecurityPolicyPreviewCounts,
   type StoredSecurityPolicy,
 } from '../../src/security/policy.ts';
@@ -80,6 +81,26 @@ const COUNTS: SecurityPolicyPreviewCounts = {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('withFailingSince', () => {
+  const failing = (checkedAt: string) => probe({ checkedAt, ok: false, missing: ['egress'] });
+
+  it('keeps the start of a run of failed probes and drops it once one passes', () => {
+    const first = withFailingSince(failing('2026-11-11T03:00:00.000Z'), probe());
+    expect(first.failingSince).toBe('2026-11-11T03:00:00.000Z');
+    const second = withFailingSince(failing('2026-11-12T03:00:00.000Z'), first);
+    expect(second).toMatchObject({
+      checkedAt: '2026-11-12T03:00:00.000Z',
+      failingSince: '2026-11-11T03:00:00.000Z',
+    });
+    // A row stored before the field existed: the run started at its own check.
+    const older = failing('2026-11-10T03:00:00.000Z');
+    expect(withFailingSince(failing('2026-11-12T03:00:00.000Z'), older).failingSince).toBe(
+      '2026-11-10T03:00:00.000Z',
+    );
+    expect(withFailingSince(probe(), second)).not.toHaveProperty('failingSince');
+  });
 });
 
 describe('stored policy readers', () => {
@@ -464,6 +485,35 @@ describe('securityPolicyPreviewLines', () => {
       '  Open findings stay listed and can still be read, commented on and resolved. Only the deploy-time notice stops.',
       '  "Scan before a project goes public" turns off too.',
     ]);
+  });
+
+  it('names the going-public count and the canceled requests in the gate lines (#65, #87)', () => {
+    const gate = { protectedProjects: 2, newProjectsStartPublic: false, openRequests: [] };
+    const turnOn = (goingPublic: number) => {
+      const current = stored({ mode: 'all' });
+      const { next, changes } = proposeSecurityPolicyChange(
+        current,
+        { publicGate: true },
+        { ...context, zeroTrust: 'enabled' },
+      );
+      return securityPolicyPreviewLines(current.policy, next, changes, {
+        ...COUNTS,
+        gate: { ...gate, goingPublic },
+      });
+    };
+    expect(turnOn(1)).toContain(
+      '  1 project already going public finishes going public (asked before the gate).',
+    );
+    expect(turnOn(3)).toContain(
+      '  3 projects already going public finish going public (asked before the gate).',
+    );
+    expect(
+      lines(
+        { mode: 'all', publicGate: true },
+        { publicGate: false },
+        { gate: { ...gate, goingPublic: 0, openRequests: ['acme-web'] } },
+      ),
+    ).toContain('  The requesters, owners and project admins get an email.');
   });
 
   it('prints the spec copy for a third-party default nobody accepted yet', () => {

@@ -265,6 +265,18 @@ describe('security policy strict parser', () => {
     );
     expect(policy.entitlement?.missing).toEqual(['scanner', 'future-check']);
   });
+
+  it('keeps when a failing probe started failing, and drops it from a passing one', () => {
+    const since = '2026-11-11T03:00:00.000Z';
+    const failing = { ...passingEntitlement, ok: false, missing: ['egress'], failingSince: since };
+    expect(parseSecurityPolicy(stored({ entitlement: failing })).entitlement?.failingSince).toBe(
+      since,
+    );
+    expect(
+      parseSecurityPolicy(stored({ entitlement: { ...passingEntitlement, failingSince: since } }))
+        .entitlement,
+    ).not.toHaveProperty('failingSince');
+  });
 });
 
 describe('stored security policy written by another release', () => {

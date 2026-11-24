@@ -339,6 +339,7 @@ describe('project route membership capabilities', () => {
       protectNewProjects: false,
       publicGate: false,
       publicRequest: null,
+      lastBypass: null,
       project: {
         project_id: project.id,
         desired_protected: true,

@@ -77,15 +77,16 @@ These commands do not apply to direct Cloudflare deployments.
 When the platform scans before a project goes public, `public` does not make the
 project public at once. The project stays protected, and the command prints why
 and what to do next. It exits successfully, because the request was saved.
-`status` shows the open request:
+`status` shows the open request and the last bypass:
 
 ```text
 Public request: Waiting for a security scan of dpl_a3f0 before acme-web goes public. It stays protected by Zero Trust until the scan passes.
+Last bypass: Nov 17, by a project admin ("Launch today; scanner is down.")
 ```
 
 A request waits for a scan, is held by urgent findings (resolve them, there is no bypass), has no usable scan result, or needs a new deploy. Running `public` again asks for a new scan. `protect` cancels the request and keeps the project protected. With `--json`, a held request prints the saved state with `"held": true`.
 
-`bypass` skips the scan and makes the project public. The owner or a project administrator can run it (platform administrators use `void platform security bypass`) while the request is waiting, has no result, or needs a deploy. It needs a `--reason` of up to 4,000 characters and asks for confirmation unless you pass `--yes`; `--json` and non-interactive shells require `--yes`. Every bypass is recorded and emailed to the platform administrators. A bypass never skips an open urgent finding: it is refused, and the message lists the findings to resolve first. See [Scan before a project goes public](../../guide/platform/administration/security-audits.md#scan-before-public).
+`bypass` skips the scan and makes the project public. The owner or a project administrator can run it (platform administrators use `void platform security bypass`) while the request is waiting, has no result, or needs a deploy. It needs a `--reason` of up to 4,000 characters and asks for confirmation unless you pass `--yes`; `--json` and non-interactive shells require `--yes`. Every bypass is recorded and emailed to the platform administrators. A bypass never skips an open urgent finding: it is refused, and the message lists the findings to resolve first. With `--json`, a refusal prints the platform error code, such as `security public request has urgent findings` with the findings under `blockers`, or `public request closed` when someone protected the project or the request finished first. See [Scan before a project goes public](../../guide/platform/administration/security-audits.md#scan-before-public).
 
 ## `void project security` {#void-project-security}
 

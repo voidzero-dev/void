@@ -15,7 +15,10 @@ import { platformSettings } from '../../src/schema.ts';
 import { SecurityPolicyUnreadableError } from '../../src/security/errors.ts';
 import { changeSecurityPolicy } from '../../src/security/policy.ts';
 import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
-import { disablePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
+import {
+  configurePlatformZeroTrust,
+  disablePlatformZeroTrust,
+} from '../../src/zero-trust/installation.ts';
 import { claimConfiguration } from '../../src/zero-trust/operation.ts';
 import {
   clearTables,
@@ -77,6 +80,27 @@ describe('public gate and installation Zero Trust', () => {
     const configuration = await readZeroTrustConfigurationStrict(env.db);
     expect(configuration).toMatchObject({ enabled: true, operation: null });
     expect((await ztRow(s)).desired_protected).toBe(true);
+  });
+
+  it('refuses a public-only switch from an enabled install with the gate code (#64)', async () => {
+    const s = await setupGate(env);
+    await expect(
+      configurePlatformZeroTrust(s.platform, env.db, {
+        apiToken: 'access-management-token',
+        identityProviderIds: [],
+        policyIds: [],
+        protectNewProjects: false,
+        publicAccess: true,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: 'security public gate on',
+      message: expect.stringContaining('Turn off "Scan before a project goes public" first'),
+    });
+    expect(await readZeroTrustConfigurationStrict(env.db)).toMatchObject({
+      enabled: true,
+      operation: null,
+    });
   });
 
   it('turning the gate off lets the disable run and the open request is canceled (#64)', async () => {

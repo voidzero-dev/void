@@ -703,7 +703,7 @@ function openRequestLines(counts: SecurityPolicyPreviewCounts): Array<string> {
   }
   return [
     `  ${open.length} open public ${open.length === 1 ? 'request is' : 'requests are'} canceled; ${open.length === 1 ? 'the project stays' : 'the projects stay'} protected: ${open.slice(0, 10).join(', ')}${open.length > 10 ? `, and ${open.length - 10} more` : ''}`,
-    '  The owners and project admins get an email.',
+    '  The requesters, owners and project admins get an email.',
   ];
 }
 
@@ -899,7 +899,7 @@ export function securityPolicyPreviewLines(
     );
     if ((gate?.goingPublic ?? 0) > 0) {
       lines.push(
-        `  ${projectsText(gate?.goingPublic ?? 0)} already going public finish going public (asked before the gate).`,
+        `  ${projectsText(gate?.goingPublic ?? 0)} already going public ${gate?.goingPublic === 1 ? 'finishes' : 'finish'} going public (asked before the gate).`,
       );
     }
     if (gate?.newProjectsStartPublic) {
@@ -1403,6 +1403,25 @@ function withProbeLine(lines: ReadonlyArray<string>): Array<string> {
 }
 
 /**
+ * A failing probe keeps the time its run of failures began, which the admin banner shows
+ * as "failing since" (spec §5.2). A passing probe drops it.
+ */
+export function withFailingSince(
+  next: SecurityEntitlement,
+  previous: SecurityEntitlement | null,
+): SecurityEntitlement {
+  const { failingSince: _old, ...rest } = next;
+  if (next.ok) {
+    return rest;
+  }
+  return {
+    ...rest,
+    failingSince:
+      previous && !previous.ok ? (previous.failingSince ?? previous.checkedAt) : next.checkedAt,
+  };
+}
+
+/**
  * Stores a probe result (`entitlement`, revision + 1) under the policy lock. A stored
  * row that cannot be read is left alone: the operator saves the policy first. With the
  * provider key ids the probe ran with, a host whose key changed meanwhile keeps its
@@ -1421,14 +1440,17 @@ export async function recordSecurityEntitlement(
     }
     const written = await replaceSecurityPolicy(tx, stored.policy, {
       ...stored.policy,
-      entitlement: keyIds
-        ? entitlementForSavedKeys(
-            entitlement,
-            keyIds,
-            await securityProviderKeyIds(tx),
-            stored.policy.entitlement?.hosts,
-          )
-        : entitlement,
+      entitlement: withFailingSince(
+        keyIds
+          ? entitlementForSavedKeys(
+              entitlement,
+              keyIds,
+              await securityProviderKeyIds(tx),
+              stored.policy.entitlement?.hosts,
+            )
+          : entitlement,
+        stored.policy.entitlement,
+      ),
     });
     return { saved: true, revision: written.revision };
   });

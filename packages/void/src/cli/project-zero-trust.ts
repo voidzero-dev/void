@@ -9,7 +9,7 @@ import {
 } from './client.ts';
 import { printSuccess, note, sanitizeTerminalText } from './output.ts';
 import type { ProjectZeroTrustArgs } from './project-args.ts';
-import { cleanLine, publicRequestLines } from './project-security.ts';
+import { cleanLine, day, publicRequestLines } from './project-security.ts';
 import { readProjectConfig } from './project.ts';
 import { getRequestedProjectSlug, requireProjectBySlug } from './resolve-project.ts';
 import type { ProjectSecurityStatus, SecurityPublicRequest } from './security-api-types.ts';
@@ -43,6 +43,55 @@ async function resolveTarget(root: string, args: ZeroTrustArgs) {
     throw new Error('project: No linked project. Pass --project <name> or set VOID_PROJECT.');
   }
   return { client, projectId: linked.projectId, slug: linked.slug };
+}
+
+/**
+ * A refusal that keeps the platform's error code, status and details (blockers, the
+ * closed request's state), so `--json` prints them (cli-main).
+ */
+class ZeroTrustRefusal extends Error {
+  readonly code: string;
+  readonly status?: number;
+  readonly details: Record<string, unknown>;
+  constructor(
+    message: string,
+    code: string,
+    status: number | undefined,
+    details: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.code = code;
+    if (status !== undefined) {
+      this.status = status;
+    }
+    this.details = details;
+  }
+}
+
+function noRequestRefusal(slug: string, status?: number): ZeroTrustRefusal {
+  return new ZeroTrustRefusal(
+    `project: ${slug} has no public request to bypass. Run: void project zero-trust public`,
+    'no public request',
+    status,
+  );
+}
+
+function roleLabel(role: string | null): string {
+  switch (role) {
+    case 'owner':
+      return 'the project owner';
+    case 'admin':
+      return 'a project admin';
+    case 'installation_admin':
+      return 'a platform admin';
+    default:
+      return 'a project member';
+  }
+}
+
+function lastBypassLine(bypass: NonNullable<ProjectZeroTrustResponse['lastBypass']>): string {
+  const reason = bypass.reason === undefined ? '' : ` ("${cleanLine(bypass.reason)}")`;
+  return `Last bypass: ${day(bypass.at)}, by ${roleLabel(bypass.byRole)}${reason}`;
 }
 
 function requestBlock(
@@ -88,6 +137,7 @@ function statusLines(
     ...(isOpenRequest(result.publicRequest)
       ? requestBlock(slug, result.publicRequest!, security)
       : []),
+    ...(result.lastBypass ? [lastBypassLine(result.lastBypass)] : []),
   ].join('\n');
 }
 
@@ -104,16 +154,38 @@ function heldJson(result: ProjectZeroTrustUpdateResponse) {
   };
 }
 
-function urgentRefusal(slug: string, error: PlatformApiError): Error | null {
-  let body: { error?: unknown; blockers?: { ids?: unknown } };
+function closedRefusalText(slug: string, state: string, fallback: string): string {
+  switch (state) {
+    case 'canceled':
+      return `project: Public request canceled, so nothing was bypassed. ${slug} stays protected.`;
+    case 'passed':
+      return `project: The security scan already passed, so nothing was bypassed. ${slug} is going public.`;
+    case 'bypassed':
+      return `project: The scan was already bypassed. ${slug} is going public.`;
+    default:
+      return fallback;
+  }
+}
+
+/** The CLI copy of a 409 from the bypass route, keeping its code; else `null`. */
+function bypassRefusal(slug: string, error: PlatformApiError): ZeroTrustRefusal | null {
+  let body: { error?: unknown; state?: unknown; blockers?: { count?: unknown; ids?: unknown } };
   try {
     body = JSON.parse(error.body) as typeof body;
   } catch {
     return null;
   }
   if (body.error === 'no public request') {
-    return new Error(
-      `project: ${slug} has no public request to bypass. Run: void project zero-trust public`,
+    return noRequestRefusal(slug, error.status);
+  }
+  if (body.error === 'public request closed') {
+    // A protect, a pass or another bypass closed the request this bypass saw (edge #72).
+    const state = typeof body.state === 'string' ? body.state : '';
+    return new ZeroTrustRefusal(
+      closedRefusalText(slug, state, error.message),
+      body.error,
+      error.status,
+      { state },
     );
   }
   if (body.error !== 'security public request has urgent findings') {
@@ -123,8 +195,11 @@ function urgentRefusal(slug: string, error: PlatformApiError): Error | null {
     ? body.blockers.ids.filter((id): id is string => typeof id === 'string').map(cleanLine)
     : [];
   const count = ids.length;
-  return new Error(
+  return new ZeroTrustRefusal(
     `project: ${slug} has ${count} urgent ${count === 1 ? 'finding' : 'findings'} open (${ids.join(', ')}). A bypass skips only the scan, not open findings.\n  Resolve them first: fixed (then deploy the fix), or false-positive / accepted-risk with a comment.\n  Then the request unlocks.   → void project security list --urgent`,
+    body.error,
+    error.status,
+    { blockers: { count, ids } },
   );
 }
 
@@ -142,6 +217,27 @@ function skipLine(request: SecurityPublicRequest): string {
   return `The scan of ${target} did not finish${why ? ` (${why})` : ''}.`;
 }
 
+const NO_SECURITY: Pick<ProjectSecurityStatus, 'backlogFiles' | 'budget'> = {
+  backlogFiles: 0,
+  budget: null,
+};
+
+/** The backlog and budget the request copy names; without them it still reads right. */
+async function requestSecurity(
+  client: PlatformClient,
+  projectId: string,
+): Promise<Pick<ProjectSecurityStatus, 'backlogFiles' | 'budget'>> {
+  try {
+    const status = await client.getProjectSecurity(projectId);
+    return {
+      backlogFiles: typeof status.backlogFiles === 'number' ? status.backlogFiles : 0,
+      budget: status.budget ?? null,
+    };
+  } catch {
+    return NO_SECURITY;
+  }
+}
+
 async function runBypass(
   args: Extract<ZeroTrustArgs, { action: 'bypass' }>,
   target: { client: PlatformClient; projectId: string; slug: string },
@@ -152,9 +248,7 @@ async function runBypass(
   // An old platform sends no request field; the bypass route then answers with the
   // "does not support security audits" copy.
   if (state.publicRequest === null) {
-    throw new Error(
-      `project: ${slug} has no public request to bypass. Run: void project zero-trust public`,
-    );
+    throw noRequestRefusal(slug);
   }
   const request = state.publicRequest;
   if (request && !args.yes && request.state !== 'held_findings') {
@@ -181,10 +275,10 @@ async function runBypass(
   }
   let result;
   try {
-    result = await client.bypassProjectPublicRequest(projectId, args.reason);
+    result = await client.bypassProjectPublicRequest(projectId, args.reason, request?.id);
   } catch (error) {
     if (error instanceof PlatformApiError && error.status === 409) {
-      throw urgentRefusal(slug, error) ?? error;
+      throw bypassRefusal(slug, error) ?? error;
     }
     throw error;
   }
@@ -225,17 +319,9 @@ export async function runProjectZeroTrustCommand(
       printJson(result);
       return;
     }
-    let security: Pick<ProjectSecurityStatus, 'backlogFiles' | 'budget'> = {
-      backlogFiles: 0,
-      budget: null,
-    };
-    if (isOpenRequest(result.publicRequest)) {
-      try {
-        security = await client.getProjectSecurity(projectId);
-      } catch {
-        // The request copy still reads right without the backlog and budget lines.
-      }
-    }
+    const security = isOpenRequest(result.publicRequest)
+      ? await requestSecurity(client, projectId)
+      : NO_SECURITY;
     note(statusLines(result, security, slug), slug);
     outro(`${slug} Zero Trust status`);
     return;
@@ -251,18 +337,25 @@ export async function runProjectZeroTrustCommand(
     return;
   }
   if (held) {
-    // Held for a scan: the project stays protected, so nothing here says "public".
-    const copy = result.message
-      ? sanitizeTerminalText(result.message)
-      : publicRequestLines(slug, result.publicRequest!, { backlogFiles: 0, budget: null }).join(
-          '\n',
-        );
-    log.warn(copy);
-    outro(`${slug} stays protected by Zero Trust until the request clears.`);
+    // Held for a scan: the project stays protected, so nothing here says "public". The
+    // local copy adds the command lines (spec §13.3) the platform message leaves out.
+    const security = await requestSecurity(client, projectId);
+    log.warn(publicRequestLines(slug, result.publicRequest!, security).join('\n'));
+    outro('Check it:  void project zero-trust status');
     return;
   }
+  // Protect closed an open request (edge #80): say so (spec §11.4).
+  const canceled = args.action === 'protect' && result.publicRequest?.state === 'canceled';
+  const canceledLine = `Public request canceled. ${slug} stays protected.`;
   if (result.project.last_error) {
     log.warn(sanitizeTerminalText(result.project.last_error));
+  }
+  const settledProtect =
+    result.project.state !== 'reconciling' &&
+    result.project.state !== 'error' &&
+    !result.project.last_error;
+  if (canceled && !settledProtect) {
+    log.info(canceledLine);
   }
   if (result.project.state === 'reconciling') {
     outro(
@@ -275,10 +368,12 @@ export async function runProjectZeroTrustCommand(
     return;
   }
   printSuccess(
-    args.action === 'protect'
-      ? `${slug} is protected by Zero Trust.`
-      : args.action === 'public'
-        ? `${slug} is public.`
-        : `${slug} Zero Trust reconciled (${result.project.state}).`,
+    canceled
+      ? canceledLine
+      : args.action === 'protect'
+        ? `${slug} is protected by Zero Trust.`
+        : args.action === 'public'
+          ? `${slug} is public.`
+          : `${slug} Zero Trust reconciled (${result.project.state}).`,
   );
 }

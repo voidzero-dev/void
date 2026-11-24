@@ -322,6 +322,8 @@ export type ProjectZeroTrustResponse = {
   /** Present on platforms with security audits (the gate and the open public request). */
   publicGate?: boolean;
   publicRequest?: SecurityPublicRequest | null;
+  /** The newest bypass; `reason` only for callers with `deploy` and up. */
+  lastBypass?: { id: string; at: string; byRole: string | null; reason?: string } | null;
   project: ProjectZeroTrustState | null;
 };
 
@@ -1280,14 +1282,20 @@ export class PlatformClient {
     });
   }
 
+  /** `requestId`: the open request the caller saw; one closed meanwhile is a 409. */
   async bypassProjectPublicRequest(
     projectId: string,
     reason: string,
+    requestId?: string,
   ): Promise<ProjectPublicRequestBypassResponse> {
     return this.security(
       `${projectId}/zero-trust/public-request/bypass`,
       'Failed to bypass the security scan',
-      { method: 'POST', body: { reason }, permission: 'settings' },
+      {
+        method: 'POST',
+        body: requestId === undefined ? { reason } : { reason, requestId },
+        permission: 'settings',
+      },
     );
   }
 

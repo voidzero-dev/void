@@ -243,6 +243,7 @@ describe('admin security: banners and badge', () => {
         ok: false,
         missing: ['egress'],
         hosts: { openai: false, anthropic: false },
+        failingSince: '2026-11-11T03:00:00.000Z',
       },
       budgets: {
         ...defaultSecurityPolicy().budgets,
@@ -255,7 +256,7 @@ describe('admin security: banners and badge', () => {
       spent_nano_usd: 100_000_000_000,
     });
     const html = text(await (await get('/admin/users')).text());
-    expect(html).toContain('Security probe failing');
+    expect(html).toContain('Security probe failing since Nov 11, 03:00 UTC:');
     expect(html).toContain('Security scans stopped: platform monthly budget used up ($100.00)');
     expect(html).toContain('/admin/security');
   });

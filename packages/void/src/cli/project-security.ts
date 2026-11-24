@@ -167,10 +167,15 @@ export function publicRequestLines(
   const lines: Array<string> = [];
   switch (request.state) {
     case 'waiting_scan':
+      // Same rule as the platform copy: say what the request waits for.
       lines.push(
-        status.backlogFiles > 0
-          ? `Scanning in parts: ${status.backlogFiles} files left. ${slug} stays protected until every file is scanned.`
-          : `Waiting for a security scan of ${target} before ${slug} goes public. It stays protected by Zero Trust until the scan passes.`,
+        reason === 'deployment_moving'
+          ? `Waiting for the new deployment to go live before ${slug} goes public. It stays protected by Zero Trust until the scan of that deployment passes.`
+          : reason === 'zero_trust_not_ready'
+            ? `Waiting for the Zero Trust protection of ${slug} to be ready before it goes public. It stays protected until then.`
+            : status.backlogFiles > 0
+              ? `Scanning in parts: ${status.backlogFiles} files left. ${slug} stays protected until every file is scanned.`
+              : `Waiting for a security scan of ${target} before ${slug} goes public. It stays protected by Zero Trust until the scan passes.`,
       );
       break;
     case 'held_findings': {

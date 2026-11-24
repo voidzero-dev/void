@@ -213,11 +213,12 @@ export async function configurePlatformZeroTrust(
     );
   }
   const previous = await readZeroTrustConfigurationStrict(db);
-  // Fail before any Cloudflare call; the claim below checks again under the lock.
-  assertExistingProjectsChoice(previous, input);
+  // Fail before any Cloudflare call; the claim below checks again under the lock. The
+  // gate refusal comes first: it names the real step for a public-only switch (#64).
   if (input.publicAccess) {
     await assertPublicGateOff(db, env);
   }
+  assertExistingProjectsChoice(previous, input);
   const replacingDisableCredential = previous?.operation?.kind === 'disable';
   // A disable removes the wildcard, so a replacement credential for it must
   // not be blocked by hostnames that moved under the wildcard afterwards.

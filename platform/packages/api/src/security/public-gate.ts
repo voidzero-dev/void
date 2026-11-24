@@ -582,6 +582,8 @@ async function closeRequest(
   return updateRequest(tx, request, {
     state,
     cancel_cause: state === 'canceled' ? (options.cause ?? 'protect') : null,
+    // A pass holds nothing any more, so the reason of the last hold goes with it.
+    ...(state === 'passed' ? { held_reason: null } : {}),
     closed_by_user_id: options.userId ?? null,
     closed_at: sql`now()`,
     ...(options.scanId !== undefined ? { gate_scan_id: options.scanId } : {}),
@@ -1051,6 +1053,44 @@ export async function publicRequestView(
     blockers: { count: request.blockers, ids: request.blocker_ids },
     requestedAt: isoStamp(request.created_at),
     requestedByRole,
+  };
+}
+
+/** The newest bypass of a project (spec §13.3 `void project zero-trust status`). */
+export type LastBypassView = Readonly<{
+  id: string;
+  at: string;
+  /** The project role at bypass time, or `installation_admin`. */
+  byRole: string | null;
+  /** Only for callers who see full detail (`deploy` and up). */
+  reason?: string;
+}>;
+
+export async function lastBypassView(
+  db: DbOrTx,
+  projectId: string,
+  withReason: boolean,
+): Promise<LastBypassView | null> {
+  const [row] = await db
+    .select({
+      id: securityScanBypasses.id,
+      at: securityScanBypasses.created_at,
+      kind: securityScanBypasses.actor_kind,
+      role: securityScanBypasses.actor_role,
+      reason: securityScanBypasses.reason,
+    })
+    .from(securityScanBypasses)
+    .where(eq(securityScanBypasses.project_id, projectId))
+    .orderBy(desc(securityScanBypasses.created_at), desc(securityScanBypasses.id))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id,
+    at: isoStamp(row.at),
+    byRole: row.kind === 'installation_admin' ? 'installation_admin' : row.role,
+    ...(withReason ? { reason: row.reason } : {}),
   };
 }
 

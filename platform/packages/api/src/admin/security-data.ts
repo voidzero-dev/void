@@ -193,7 +193,8 @@ export async function loadSecurityChrome(context: AdminContext): Promise<Securit
     if (policy.mode !== 'disabled' && policy.entitlement && !policy.entitlement.ok) {
       const cause =
         PROBE_FAILURE_COPY[policy.entitlement.missing[0] ?? ''] ?? 'A required check failed.';
-      let text = `Security probe failing (checked ${utcLabel(policy.entitlement.checkedAt)}): ${cause} New deploys are not being scanned.`;
+      const since = policy.entitlement.failingSince ?? policy.entitlement.checkedAt;
+      let text = `Security probe failing since ${utcLabel(since)}: ${cause} New deploys are not being scanned.`;
       if (policy.publicGate) {
         const [open] = await db
           .select({ total: count() })

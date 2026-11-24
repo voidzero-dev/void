@@ -392,6 +392,80 @@ describe('project Zero Trust command with a public request', () => {
     expect(text).not.toContain('old CLI line');
     expect(text).not.toContain('still in progress');
     expect(text).not.toContain('✓');
+    expect(text).toContain('Check it:  void project zero-trust status');
+  });
+
+  it('prints the bypass command for a held public, which the platform message leaves out', async () => {
+    const root = setup(
+      vi.fn(async () =>
+        Response.json(
+          {
+            ok: true,
+            project: { ...project, state: 'reconciling' },
+            publicRequest: request('held_no_result', { heldReason: 'timed_out' }),
+            message: 'Stays protected: the security scan did not finish (timed out).',
+          },
+          { status: 202 },
+        ),
+      ),
+    );
+    const out = capture();
+    await runProjectCommand(root, { ...base, action: 'public' });
+    const flat = stripVTControlCharacters(out.text())
+      .split('\n')
+      .join(' ')
+      .split(' ')
+      .filter(Boolean)
+      .join(' ');
+    expect(flat).toContain('Ask again with void project zero-trust public');
+    expect(flat).toContain('void project zero-trust bypass --reason');
+  });
+
+  it('says protect canceled the open request (spec §11.4, edge #80)', async () => {
+    const root = setup(
+      vi.fn(async () => Response.json({ ok: true, project, publicRequest: request('canceled') })),
+    );
+    const out = capture();
+    await runProjectCommand(root, { ...base, action: 'protect' });
+    expect(out.text()).toContain('Public request canceled. linked-app stays protected.');
+    expect(out.text()).not.toContain('is protected by Zero Trust');
+  });
+
+  it('shows what a waiting request waits for, and the last bypass, in status', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith('/security')
+        ? Response.json({ backlogFiles: 0, budget: null })
+        : Response.json({
+            available: true,
+            platformStatus: 'ready',
+            protectNewProjects: true,
+            publicGate: true,
+            publicRequest: request('waiting_scan', { heldReason: 'zero_trust_not_ready' }),
+            lastBypass: {
+              id: 'ssb_1',
+              at: '2026-11-17T14:02:00.000Z',
+              byRole: 'admin',
+              reason: 'Launch day',
+            },
+            project,
+          }),
+    );
+    const root = setup(fetchMock);
+    const out = capture();
+    await runProjectCommand(root, { ...base, action: 'status' });
+    const flat = stripVTControlCharacters(out.text())
+      .split('│')
+      .join(' ')
+      .split('\n')
+      .join(' ')
+      .split(' ')
+      .filter(Boolean)
+      .join(' ');
+    expect(flat).toContain(
+      'Public request: Waiting for the Zero Trust protection of linked-app to be ready',
+    );
+    expect(flat).not.toContain('Waiting for a security scan');
+    expect(flat).toContain('Last bypass: Nov 17, by a project admin ("Launch day")');
   });
 
   it('falls back to the local copy when the held reply has no message', async () => {
@@ -536,7 +610,11 @@ describe('project Zero Trust bypass', () => {
     await runProjectZeroTrustCommand(root, args, { interactive: true, confirm: ask });
     expect(ask).toHaveBeenCalledWith('Bypass the scan and make linked-app public?');
     const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')!;
-    expect(JSON.parse(String(post[1]!.body))).toEqual({ reason: 'Scanner down' });
+    // The request it saw goes along, so one closed meanwhile is refused (edge #72).
+    expect(JSON.parse(String(post[1]!.body))).toEqual({
+      reason: 'Scanner down',
+      requestId: 'spr_1',
+    });
     expect(out.text()).toContain(
       'This skips the security scan. The scan of dpl_9a1d did not finish (timed out).',
     );
@@ -604,6 +682,12 @@ describe('project Zero Trust bypass', () => {
       'linked-app has 2 urgent findings open (F-12, F-15). A bypass skips only the scan, not open findings.',
     );
     expect((failure as Error).message).toContain('→ void project security list --urgent');
+    // --json keeps the platform code, the status and the blockers (cli-main spreads details).
+    expect(failure).toMatchObject({
+      code: 'security public request has urgent findings',
+      status: 409,
+      details: { blockers: { count: 2, ids: ['F-12', 'F-15'] } },
+    });
   });
 
   it('says there is no request to bypass', async () => {
@@ -614,22 +698,34 @@ describe('project Zero Trust bypass', () => {
     );
   });
 
-  it('uses the platform message for a closed request', async () => {
-    const root = setup(
-      bypassFetch(() =>
-        Response.json(
-          {
-            error: 'public request closed',
-            message: 'The public request is passed.',
-            state: 'passed',
-          },
-          { status: 409 },
-        ),
-      ),
-    );
+  it('says a protect closed the request it saw, with the 409 code (edge #72)', async () => {
+    const closed = (state: string) => () =>
+      Response.json(
+        {
+          error: 'public request closed',
+          message: `The public request is already ${state}.`,
+          state,
+        },
+        { status: 409 },
+      );
+    const root = setup(bypassFetch(closed('canceled')));
     capture();
-    await expect(runProjectZeroTrustCommand(root, { ...args, yes: true })).rejects.toThrow(
-      'The public request is passed.',
+    const failure = await runProjectZeroTrustCommand(root, { ...args, yes: true }).catch(
+      (error: Error) => error,
+    );
+    expect((failure as Error).message).toBe(
+      'project: Public request canceled, so nothing was bypassed. linked-app stays protected.',
+    );
+    expect(failure).toMatchObject({
+      code: 'public request closed',
+      status: 409,
+      details: { state: 'canceled' },
+    });
+    expect((failure as Error).message).not.toContain('void project zero-trust public');
+
+    const passed = setup(bypassFetch(closed('passed')));
+    await expect(runProjectZeroTrustCommand(passed, { ...args, yes: true })).rejects.toThrow(
+      'The security scan already passed, so nothing was bypassed. linked-app is going public.',
     );
   });
 

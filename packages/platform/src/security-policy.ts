@@ -106,6 +106,8 @@ export type SecurityEntitlement = Readonly<{
   missing: ReadonlyArray<string>;
   /** Probe check 5, per third-party host. */
   hosts: Readonly<{ openai: boolean; anthropic: boolean }>;
+  /** While failing: when the probe first failed in this run of failures. */
+  failingSince?: string;
 }>;
 
 export type SecurityPolicy = Readonly<{
@@ -471,6 +473,10 @@ export function parseSecurityEntitlement(value: unknown): SecurityEntitlement {
       openai: parseBoolean(hosts.openai, 'entitlement.hosts.openai'),
       anthropic: parseBoolean(hosts.anthropic, 'entitlement.hosts.anthropic'),
     },
+    // Added later, so a row without it still reads; a passing probe has none.
+    ...(!ok && input.failingSince !== undefined
+      ? { failingSince: parseIsoTimestamp(input.failingSince, 'entitlement.failingSince') }
+      : {}),
   };
 }
 

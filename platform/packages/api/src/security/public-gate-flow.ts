@@ -119,6 +119,11 @@ export async function recheckPublicRequestForScan(
 
 export type BypassInput = Readonly<{
   projectId: string;
+  /**
+   * The open request the caller saw. Under the lock, a request closed meanwhile (a
+   * protect, a pass, another bypass) is a 409 `public request closed` with its state.
+   */
+  requestId?: string | null;
   reason: unknown;
   actor: GateActor & { kind: 'user' | 'installation_admin'; userId: string };
 }>;
@@ -134,18 +139,22 @@ export async function bypassPublicRequest(
   input: BypassInput,
 ): Promise<GatedReconciliation> {
   const reason = parseBypassReason(input.reason);
-  const open = await readOpenPublicRequest(db, input.projectId);
-  if (!open) {
-    throw SecurityApiError.of(
-      'noPublicRequest',
-      'This project has no public request to bypass. Run: void project zero-trust public',
-    );
+  let requestId = input.requestId ?? null;
+  if (requestId === null) {
+    const open = await readOpenPublicRequest(db, input.projectId);
+    if (!open) {
+      throw SecurityApiError.of(
+        'noPublicRequest',
+        'This project has no public request to bypass. Run: void project zero-trust public',
+      );
+    }
+    requestId = open.id;
   }
   return reconcileProjectZeroTrustGated(env, db, input.projectId, {
     desiredProtection: false,
     // A project member is authorized again under the lock; an installation admin is not.
     ...(input.actor.kind === 'user' ? { actorUserId: input.actor.userId } : {}),
-    gate: { kind: 'bypass', requestId: open.id, reason, actor: input.actor },
+    gate: { kind: 'bypass', requestId, reason, actor: input.actor },
   });
 }
 

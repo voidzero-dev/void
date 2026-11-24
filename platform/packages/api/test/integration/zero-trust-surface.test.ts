@@ -516,4 +516,60 @@ describe('Zero Trust surfaces with the public gate on', () => {
 
     expect((await put(true)).status).toBe(200);
   });
+
+  it('refuses a bypass of a request closed meanwhile with 409 closed, and shows the last bypass', async () => {
+    const s = await setupGate(env);
+    const call = (method: string, path: string, body?: unknown) =>
+      app.fetch(
+        new Request(`http://localhost/projects/${s.project.id}/zero-trust${path}`, {
+          method,
+          headers: { Authorization: `Bearer ${s.user.jwt}`, 'Content-Type': 'application/json' },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        }),
+        gateBindings(env),
+      );
+    const first = (await askPublic(s)).publicRequest!;
+    // A protect wins the race: the bypass names the request it saw (edge #72).
+    await askPublic(s, true);
+    const closed = await call('POST', '/public-request/bypass', {
+      reason: 'launch day',
+      requestId: first.id,
+    });
+    expect(closed.status).toBe(409);
+    expect(await closed.json()).toMatchObject({
+      error: 'public request closed',
+      state: 'canceled',
+    });
+    expect(await (await call('GET', '')).json()).toMatchObject({ lastBypass: null });
+
+    // A row that is not ready: nothing recorded, try again after it ends (edge #89).
+    const second = (await askPublic(s)).publicRequest!;
+    await env.db
+      .update(projectZeroTrust)
+      .set({ status: 'reconciling' })
+      .where(eq(projectZeroTrust.project_id, s.project.id));
+    const notReady = await call('POST', '/public-request/bypass', {
+      reason: 'launch day',
+      requestId: second.id,
+    });
+    expect(notReady.status).toBe(409);
+    const refusal = (await notReady.json()) as { error: string; message: string };
+    expect(refusal.error).toBe('zero trust not ready');
+    expect(refusal.message).toContain('Try again after it ends.');
+    expect(refusal.message).not.toContain('zero-trust reconcile');
+    await env.db
+      .update(projectZeroTrust)
+      .set({ status: 'ready' })
+      .where(eq(projectZeroTrust.project_id, s.project.id));
+
+    const bypassed = await call('POST', '/public-request/bypass', {
+      reason: 'launch day',
+      requestId: second.id,
+    });
+    expect(bypassed.status).toBe(200);
+    // Status shows the last bypass (spec §13.3); the owner sees the reason.
+    expect(await (await call('GET', '')).json()).toMatchObject({
+      lastBypass: { id: expect.any(String), byRole: 'owner', reason: 'launch day' },
+    });
+  });
 });

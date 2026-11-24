@@ -8,9 +8,15 @@ import {
 } from '../project-access.ts';
 import { SecurityApiError } from '../security/errors.ts';
 import { readSecurityPolicyLenient } from '../security/policy.ts';
-import { oldCliHeldLine, publicRequestCopy } from '../security/public-gate-copy.ts';
+import { securityDetailLevel } from '../security/project-view.ts';
+import {
+  bypassNotReadyRefusal,
+  oldCliHeldLine,
+  publicRequestCopy,
+} from '../security/public-gate-copy.ts';
 import { bypassPublicRequest } from '../security/public-gate-flow.ts';
 import {
+  lastBypassView,
   openPublicRequestView,
   parseBypassReason,
   publicRequestView,
@@ -102,6 +108,12 @@ const app = new Hono<ApiEnv>()
     if (access instanceof Response) {
       return access;
     }
+    // The reason is free text: readers and deploy tokens get the time and role only.
+    const withReason =
+      securityDetailLevel({
+        role: access.role,
+        credential: context.get('deployScope') !== undefined,
+      }) === 'full';
     let configuration;
     try {
       configuration = await readZeroTrustConfigurationStrict(context.get('db'));
@@ -115,6 +127,7 @@ const app = new Hono<ApiEnv>()
         protectNewProjects: false,
         publicGate: await publicGateOn(context),
         publicRequest: await openPublicRequestView(context.get('db'), projectId),
+        lastBypass: await lastBypassView(context.get('db'), projectId, withReason),
         project: publicProjectZeroTrustState(
           await getProjectZeroTrustState(context.get('db'), projectId),
         ),
@@ -124,6 +137,7 @@ const app = new Hono<ApiEnv>()
     return context.json({
       publicGate: await publicGateOn(context),
       publicRequest: await openPublicRequestView(context.get('db'), projectId),
+      lastBypass: await lastBypassView(context.get('db'), projectId, withReason),
       // Whether a project admin can change protection now, not merely whether
       // the installation has Zero Trust enabled.
       available: projectZeroTrustAvailable(configuration),
@@ -212,13 +226,16 @@ const app = new Hono<ApiEnv>()
       } catch {
         body = undefined;
       }
-      const reason =
+      const fields =
         body && typeof body === 'object' && !Array.isArray(body)
-          ? (body as Record<string, unknown>).reason
-          : undefined;
+          ? (body as Record<string, unknown>)
+          : {};
+      const reason = fields.reason;
       parseBypassReason(reason);
       const result = await bypassPublicRequest(context.env, context.get('db'), {
         projectId,
+        // The request the CLI saw: one closed meanwhile answers 409 `public request closed`.
+        requestId: typeof fields.requestId === 'string' ? fields.requestId : null,
         reason,
         actor: { kind: 'user', userId: context.get('user').id, role: access.role },
       });
@@ -232,12 +249,9 @@ const app = new Hono<ApiEnv>()
       });
     } catch (error) {
       if (error instanceof ZeroTrustUnavailableError) {
-        // Today's reply for a Zero Trust change that cannot run now; nothing was recorded.
+        // A Zero Trust change that cannot run now; nothing was recorded (edge #89).
         return context.json(
-          {
-            error: 'zero trust not ready',
-            message: zeroTrustNotReadyMessage(error) ?? error.message,
-          },
+          { error: 'zero trust not ready', message: bypassNotReadyRefusal(error.message) },
           409,
         );
       }

@@ -103,8 +103,13 @@ async function runSubcommandGroup<T>(
     ) {
       const status = (err as { status?: unknown }).status;
       const code = (err as { code?: unknown }).code;
+      // A refusal's details (urgent blockers, a closed request's state) stay in the JSON.
+      const details = (err as { details?: unknown }).details;
       console.error(
         JSON.stringify({
+          ...(details !== null && typeof details === 'object' && !Array.isArray(details)
+            ? details
+            : {}),
           error: typeof code === 'string' ? code : 'invalid_command',
           message,
           ...(typeof status === 'number' ? { status } : {}),

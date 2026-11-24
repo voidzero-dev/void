@@ -38,13 +38,32 @@ function noResultCause(reason: string | null): string {
   }
 }
 
+/**
+ * `waiting_scan` says what it waits for: the scan, or (`held_reason`) a deploy that is
+ * going live, or the project's Zero Trust row (edge #75, #86). The CLI has the same rule.
+ */
+function waitingCopy(
+  slug: string,
+  deploymentId: string,
+  reason: string | null,
+  backlogFiles: number,
+): string {
+  if (reason === 'deployment_moving') {
+    return `Waiting for the new deployment to go live before ${slug} goes public. It stays protected by Zero Trust until the scan of that deployment passes.`;
+  }
+  if (reason === 'zero_trust_not_ready') {
+    return `Waiting for the Zero Trust protection of ${slug} to be ready before it goes public. It stays protected until then. See: void project zero-trust status`;
+  }
+  return backlogFiles > 0
+    ? `Scanning in parts: ${backlogFiles} files left. ${slug} stays protected until every file is scanned.`
+    : `Waiting for a security scan of ${deploymentId} before ${slug} goes public. It stays protected by Zero Trust until the scan passes.`;
+}
+
 export function publicRequestCopy(input: PublicRequestCopyInput): string {
   const { slug, deploymentId } = input;
   switch (input.state) {
     case 'waiting_scan':
-      return (input.backlogFiles ?? 0) > 0
-        ? `Scanning in parts: ${input.backlogFiles} files left. ${slug} stays protected until every file is scanned.`
-        : `Waiting for a security scan of ${deploymentId} before ${slug} goes public. It stays protected by Zero Trust until the scan passes.`;
+      return waitingCopy(slug, deploymentId, input.reason, input.backlogFiles ?? 0);
     case 'held_findings': {
       const count = input.blockerIds.length;
       return `Stays protected: ${count} urgent ${count === 1 ? 'finding' : 'findings'} must be resolved before Zero Trust is turned off (${ids(input.blockerIds)}). Resolve each one as fixed (then deploy the fix), or as false_positive or accepted_risk with a comment; then the request unlocks.`;
@@ -67,6 +86,11 @@ export function publicRequestCopy(input: PublicRequestCopyInput): string {
 /** The line an old CLI prints as a warning while a request holds the project (spec §13.3). */
 export function oldCliHeldLine(slug: string): string {
   return `${slug} stays protected until a security scan passes (public request). Reconcile does not speed this up; you get an email. To bypass, update the void CLI.`;
+}
+
+/** 409 `zero trust not ready` of a bypass (edge #89): nothing was recorded. */
+export function bypassNotReadyRefusal(cause: string): string {
+  return `Zero Trust protection for this project is not ready: ${cause} The scan was not bypassed and nothing was recorded. Try again after it ends. See: void project zero-trust status`;
 }
 
 /** 409 `security public request has urgent findings`. */

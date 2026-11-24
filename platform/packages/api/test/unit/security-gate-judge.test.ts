@@ -182,4 +182,22 @@ describe('bypassSkips and copy', () => {
     }
     expect(publicRequestCopy({ ...base, state: 'held_findings' })).toContain('F-1');
   });
+
+  it('says what a waiting request waits for (edge #75, #86)', () => {
+    const base = {
+      slug: 'shop',
+      blockerIds: [],
+      deploymentId: 'dpl_1',
+      state: 'waiting_scan',
+    } as const;
+    expect(publicRequestCopy({ ...base, reason: 'scan_queued' })).toBe(
+      'Waiting for a security scan of dpl_1 before shop goes public. It stays protected by Zero Trust until the scan passes.',
+    );
+    expect(publicRequestCopy({ ...base, reason: 'deployment_moving' })).toBe(
+      'Waiting for the new deployment to go live before shop goes public. It stays protected by Zero Trust until the scan of that deployment passes.',
+    );
+    const notReady = publicRequestCopy({ ...base, reason: 'zero_trust_not_ready' });
+    expect(notReady).toContain('Waiting for the Zero Trust protection of shop to be ready');
+    expect(notReady).not.toContain('security scan of');
+  });
 });

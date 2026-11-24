@@ -265,6 +265,8 @@ describe('public gate', () => {
     await succeededScan(s);
     const rechecked = await recheckPublicRequest(s.platform, env.db, s.project.id);
     expect(rechecked?.state).toBe('passed');
+    // A pass holds nothing: the reason of the last hold goes with it.
+    expect(rechecked?.held_reason).toBeNull();
     expect((await ztRow(s.project.id)).desired_protected).toBe(false);
   });
 
