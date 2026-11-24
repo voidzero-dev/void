@@ -92,7 +92,7 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
     },
 
     load: {
-      // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
+      // Vite virtual module null-byte prefix
       filter: { id: /^\0virtual:void-pages-(renderer|client)$/ },
       async handler(id) {
         if (isDev && pendingRescan) {

@@ -390,7 +390,7 @@ export function createFrameworkPlugins(input: {
             },
           },
           load: {
-            // oxlint-disable-next-line no-control-regex -- \0 prefix is Vite's virtual module convention
+            // \0 prefix is Vite's virtual module convention
             filter: { id: /^\0void:astro-server-entry$/ },
             handler() {
               const imports = [

@@ -304,7 +304,7 @@ vi.mock('../../src/github/check-run.ts', async (importOriginal) => ({
   completeCheckRun: vi.fn(async () => false),
 }));
 
-// eslint-disable-next-line import/no-relative-packages -- intentional cross-package contract reference
+// intentional cross-package contract reference
 import voidPackageJson from '../../../../../packages/void/package.json' with { type: 'json' };
 // Helpers from the container build agent. Importing the .mjs only pulls in its
 // exported helpers — the entrypoint guard keeps `main()` from running the

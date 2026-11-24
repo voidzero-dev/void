@@ -267,7 +267,7 @@ export function createServerRuntimeOptimizerPlugin(
       },
     },
     load: {
-      // oxlint-disable-next-line no-control-regex -- \0 prefix is Vite's virtual module convention
+      // \0 prefix is Vite's virtual module convention
       filter: { id: /^\0void:node-require:/ },
       handler(id) {
         // A built-in's default export is its CommonJS exports, and `require` returns an ES

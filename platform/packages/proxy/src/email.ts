@@ -177,7 +177,6 @@ function strictFromRe(domain: string): RegExp {
  * control run inside the window collapses to one space and nothing is
  * refilled from beyond it — which loses nothing on a log line.
  */
-// oxlint-disable-next-line no-control-regex
 const CONTROL_CHARS_RE = new RegExp(String.raw`[\u0000-\u001f\u007f]+`, 'g');
 export function sanitizeForLog(value: string, maxLen = 200): string {
   return value.slice(0, maxLen).replaceAll(CONTROL_CHARS_RE, ' ');

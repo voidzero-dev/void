@@ -1263,7 +1263,6 @@ describe('POST /email/send — the envelope handed to CF', () => {
     const env = createMockEnv(kv, { SEND_EMAIL: sender.binding });
     await postSend(env, await sendBody({ from }));
     for (const call of sender.calls) {
-      // oxlint-disable-next-line no-control-regex
       expect(new RegExp(String.raw`[\u0000-\u001f\u007f]`).test(call.from)).toBe(false);
     }
   });
@@ -1279,7 +1278,6 @@ describe('POST /email/send — the envelope handed to CF', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /email/send — requestId is bounded and sanitized at intake', () => {
-  // oxlint-disable-next-line no-control-regex
   const CONTROL = new RegExp(String.raw`[\u0000-\u001f\u007f]`);
 
   it('a 5 MB control-heavy requestId still sends, and logs a short clean id', async () => {

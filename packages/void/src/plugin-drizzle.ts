@@ -145,7 +145,7 @@ function createVoidDbModule(
     },
 
     load: {
-      // oxlint-disable-next-line no-control-regex -- \0 prefix is Vite's virtual module convention
+      // \0 prefix is Vite's virtual module convention
       filter: { id: /^\0virtual:void-db(?:-schema)?$/ },
       handler(id: string): string {
         if (id === VIRTUAL_SCHEMA_DB_ID) {

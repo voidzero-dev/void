@@ -886,7 +886,6 @@ describe('routeInbound — action enaction', () => {
     // No CR, LF, or NUL bytes left. Build via RegExp() to satisfy
     // oxlint's no-control-regex rule (mirrors the production-side
     // dodge in src/email-router.ts).
-    // oxlint-disable-next-line no-control-regex
     expect(rejectCalls[0]).not.toMatch(new RegExp(String.raw`[\r\n\u0000]`));
   });
 
