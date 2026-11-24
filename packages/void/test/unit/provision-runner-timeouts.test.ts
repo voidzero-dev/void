@@ -242,7 +242,7 @@ describe('createDefaultRunWrangler — confirmed child termination + kill classi
         `  entries remaining: ${left.length > 0 ? left.join(', ') : '(none)'}\n` +
         `  recorded pids still resolving to a live process: ${live.length > 0 ? live.join(', ') : 'none'}`;
       if (live.length > 0) {
-        throw new Error(`could not remove ${killClassifyTmp}: ${detail}`);
+        throw new Error(`could not remove ${killClassifyTmp}: ${detail}`, { cause: error });
       }
       // Nothing of ours is running, so warn instead of failing on temp-file cleanup.
       console.warn(`warn: leaving ${killClassifyTmp} behind — ${detail}`);

@@ -528,6 +528,7 @@ function ensureVoidCompatibilityDate(root: string, rootWrangler: boolean): strin
     nextConfig = parsed as VoidConfig;
   } catch (error) {
     if (error instanceof SyntaxError) {
+      // oxlint-disable-next-line preserve-caught-error -- A JSON parser error can include an excerpt of the configuration.
       throw new Error(`config: Invalid JSON in ${VOID_CONFIG_FILE}.`);
     }
     throw error;
@@ -1057,6 +1058,7 @@ export function writeProvisionedWranglerConfig(
     throw new Error(
       `deploy: cannot update "${configPath}" — it is not valid JSON/JSONC. ` +
         `Fix the file and retry. (${(error as Error).message})`,
+      { cause: error },
     );
   }
 

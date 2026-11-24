@@ -255,6 +255,7 @@ export async function readPlatformDatabaseLifecycleManifest(
       }
       throw new Error(
         `platform: Could not read the PostgreSQL lifecycle checkpoint: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   });
@@ -590,6 +591,7 @@ export async function acquirePlatformDatabaseLifecycleLockConnection(
     }
     throw new Error(
       `platform: The PostgreSQL lifecycle checkpoint is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
   let released = false;

@@ -2047,6 +2047,7 @@ export async function acquireProvisionLock(
           `(${(error as Error).message}). The mutex directory may still exist and will block ` +
           `future provisions until it goes stale (~${Math.round(staleMs / 1000)}s). Remove it ` +
           `manually if it persists, then retry.`,
+        { cause: error },
       );
     }
   };
@@ -2075,6 +2076,7 @@ export async function acquireProvisionLock(
             `${info.pid !== undefined ? ` (e.g. \`kill -0 ${info.pid}\`)` : ''} and terminate ` +
             `it if not; the lock is freed when this process exits — remove the ` +
             `"${lockTarget}.lock" directory if it persists, then re-run.`,
+          { cause: error },
         );
       }
       releasePromise = Promise.resolve(); // any later release() is a settled no-op
@@ -2495,6 +2497,7 @@ async function provisionWithProcessSlot(
         });
       } catch (quarantineError) {
         // Not persisted: the watchdog keeps the lock held. Surface both errors.
+        // oxlint-disable-next-line preserve-caught-error -- The original failure is already preserved in AggregateError.errors.
         throw new AggregateError(
           [bodyError, quarantineError],
           `provision failed with an unconfirmed Cloudflare operation process AND its quarantine metadata ` +

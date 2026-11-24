@@ -259,7 +259,7 @@ async function changesInput(
     try {
       parsePlanAiLoggingInput(object.aiLogging);
     } catch (error) {
-      throw new Error(`platform: ${(error as Error).message}`);
+      throw new Error(`platform: ${(error as Error).message}`, { cause: error });
     }
     if (object.allowShortSlugs !== undefined && typeof object.allowShortSlugs !== 'boolean') {
       throw new Error('platform: allowShortSlugs must be a boolean.');

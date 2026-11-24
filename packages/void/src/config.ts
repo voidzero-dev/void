@@ -431,7 +431,7 @@ export function validateConfig(config: unknown, source: string = CONFIG_FILE): V
     return validateConfigObject(config);
   } catch (error) {
     if (source !== CONFIG_FILE && error instanceof Error) {
-      // No `cause`: Node would print its message too, which names the placeholder.
+      // oxlint-disable-next-line preserve-caught-error -- Node would display the placeholder file name from the original message.
       throw new Error(error.message.replaceAll(CONFIG_FILE, source));
     }
     throw error;
@@ -1070,6 +1070,7 @@ function parseEmailFrom(value: unknown): void {
     const detail = error instanceof MimeError ? ` ${error.message}` : '';
     throw new Error(
       `config: "email.from" in ${CONFIG_FILE} must be a single email address, optionally with a display name (e.g. "Acme <noreply@mail.acme.com>").${detail}`,
+      { cause: error },
     );
   }
 }

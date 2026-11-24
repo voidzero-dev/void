@@ -1536,6 +1536,7 @@ const app = new Hono<ApiEnv>()
               }
             }
             if (compensationErrors.length > 0) {
+              // oxlint-disable-next-line preserve-caught-error -- The original failure is already preserved in AggregateError.errors.
               throw new AggregateError(
                 [externalError, ...compensationErrors],
                 'rollback failed and external state compensation was incomplete',
@@ -1695,6 +1696,7 @@ const app = new Hono<ApiEnv>()
                 // the retryable state write is unavailable.
               });
             }
+            // oxlint-disable-next-line preserve-caught-error -- The original failure is already preserved in AggregateError.errors.
             throw new AggregateError(
               [err, ...compensationErrors],
               'rollback transaction failed and external state compensation was incomplete',

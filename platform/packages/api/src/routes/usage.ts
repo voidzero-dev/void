@@ -637,6 +637,7 @@ async function queryProjectAiUsage(
     result = (await response.json()) as AiGatewayResponse | null;
   } catch (error) {
     if (failOnError) {
+      // oxlint-disable-next-line preserve-caught-error -- The upstream JSON parser error may contain response data.
       throw new Error('AI usage query returned invalid JSON');
     }
     throw error;

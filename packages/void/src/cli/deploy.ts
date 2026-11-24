@@ -414,11 +414,13 @@ async function runManagedDeploy(
     } catch (error) {
       if (isExpiredTokenError(error)) {
         if (getTokenSource() === 'ci') {
+          // oxlint-disable-next-line preserve-caught-error -- Credential errors are translated without including provider details.
           throw new Error(
             '`VOID_TOKEN` is invalid or expired. Generate a new token and try again.',
           );
         }
         if (!process.stdin.isTTY || reauthenticated) {
+          // oxlint-disable-next-line preserve-caught-error -- Credential errors are translated without including provider details.
           throw new Error('Auth token expired. Run `void account login` and try again.');
         }
         log.warn('Auth token expired. Re-authenticating...');

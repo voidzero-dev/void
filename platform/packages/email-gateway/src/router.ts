@@ -302,6 +302,7 @@ export async function routeInbound(
     ) as Fetcher;
   } catch (e) {
     console.error(`[email-router] DISPATCH.get(${sanitize(workerName, 320)}) failed:`, e);
+    // oxlint-disable-next-line preserve-caught-error -- Do not attach internal delivery details to this public failure.
     throw new Error('email worker temporarily unavailable');
   }
 
@@ -366,6 +367,7 @@ export async function routeInbound(
     await recordEmailReceipt(env, receiptId, projectId, 'handler_failed').catch(() => {});
     const msg = e instanceof Error ? e.message.slice(0, 320) : describeUntrusted(e, 320);
     console.error(`[email-router] dispatch to ${sanitize(workerName, 320)} failed:`, msg);
+    // oxlint-disable-next-line preserve-caught-error -- Do not attach internal delivery details to this public failure.
     throw new Error('email handler execution unresolved');
   }
 

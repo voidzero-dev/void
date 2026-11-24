@@ -84,7 +84,7 @@ export function hasDeploySchemaDrift(root: string, dialect: DatabaseDialect): bo
 
     return !snapshotsEqual;
   } catch (error) {
-    throw new Error(formatDeploySchemaDriftCheckError(error));
+    throw new Error(formatDeploySchemaDriftCheckError(error), { cause: error });
   } finally {
     rmSync(driftRoot, { recursive: true, force: true });
     cleanupDeployDriftCheckRoot(root);

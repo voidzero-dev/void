@@ -665,12 +665,14 @@ export async function changeCloudflareDomain(
     try {
       await deployRoutes();
     } catch (restoreError) {
+      // oxlint-disable-next-line preserve-caught-error -- The message retains the rollout and restoration failures without attaching provider details.
       throw new Error(
         `Cloudflare rejected the domain trigger update and also rejected the automatic remote restore. ` +
           `The local Wrangler config was restored, but remote route state may be partially applied. ` +
           `${getErrorMessage(error)} Restore failed: ${getErrorMessage(restoreError)}`,
       );
     }
+    // oxlint-disable-next-line preserve-caught-error -- The message retains the rollout and restoration failures without attaching provider details.
     throw new Error(
       `Cloudflare rejected the domain trigger update; both the local config and remote triggers were restored. ${getErrorMessage(error)}`,
     );

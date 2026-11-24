@@ -339,6 +339,7 @@ export async function bootstrapPlatformSharedEmail(
         await waitForProgress();
         continue;
       }
+      // oxlint-disable-next-line preserve-caught-error -- Bootstrap errors can include request or response data that should stay out of logs.
       throw new Error(
         `platform: Shared email bootstrap request failed at ${apiUrl}. Traffic remains disabled. Retry the installation's repair or resume command to reconcile the existing email operation.`,
       );
@@ -350,6 +351,7 @@ export async function bootstrapPlatformSharedEmail(
         await waitForProgress();
         continue;
       }
+      // oxlint-disable-next-line preserve-caught-error -- Bootstrap errors can include request or response data that should stay out of logs.
       throw new Error(
         `platform: Shared email bootstrap failed at ${apiUrl} (HTTP ${response.status}). Traffic remains disabled.`,
       );

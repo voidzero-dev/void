@@ -53,6 +53,7 @@ export function readJournal(
   } catch (err) {
     throw new Error(
       `db: Failed to parse ${sourceRelative('db/migrations/meta/_journal.json')}: '${(err as Error).message}'.`,
+      { cause: err },
     );
   }
 }

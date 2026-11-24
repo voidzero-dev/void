@@ -106,6 +106,7 @@ function readSavedPlatformInstallPlan(path: string, id: string): SavedPlatformIn
     }
     throw new Error(
       `platform: Invalid saved installation plan ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }

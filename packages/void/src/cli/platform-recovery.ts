@@ -73,6 +73,7 @@ export async function recoverPlatformInstallations(
     } catch (error) {
       throw new Error(
         `platform: Routing namespace ${namespace.name} contains invalid Void ownership metadata: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
     if (

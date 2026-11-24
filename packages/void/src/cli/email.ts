@@ -902,11 +902,13 @@ export async function emailDomainRotateSecret(
       deps.sleep,
     );
     if (!operation) {
+      // oxlint-disable-next-line preserve-caught-error -- The operator sees the tracked operation state without provider details.
       throw new Error(
         `email: secret rotation outcome is unknown (operation key ${attemptId}); inspect \`void email domain status ${domain}\` before starting another rotation.`,
       );
     }
     if (operation.status !== 'completed') {
+      // oxlint-disable-next-line preserve-caught-error -- The operator sees the tracked operation state without provider details.
       throw new Error(
         `email: secret rotation ${operation.status}; inspect operation ${operation.operationId}`,
       );

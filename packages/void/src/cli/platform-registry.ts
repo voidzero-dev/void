@@ -148,6 +148,7 @@ function readRegistry(directory: string): PlatformConnectionRegistry {
     }
     throw new Error(
       `platform: Could not read ${join(directory, 'registry.json')}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }
@@ -164,7 +165,9 @@ function withRegistryLock<T>(directory: string, operation: () => T): T {
     }
     const age = Date.now() - statSync(lockPath).mtimeMs;
     if (age < 10 * 60 * 1000) {
-      throw new Error('platform: Another process is updating the platform registry.');
+      throw new Error('platform: Another process is updating the platform registry.', {
+        cause: error,
+      });
     }
     rmSync(lockPath, { force: true });
     descriptor = openSync(lockPath, 'wx', 0o600);
@@ -228,6 +231,7 @@ export function acquirePlatformLifecycleLock(
       if (!stale) {
         throw new Error(
           `platform: Another lifecycle operation is active for ${installationSlug} in account ${accountId}.`,
+          { cause: error },
         );
       }
       rmSync(lockPath, { force: true });
@@ -413,6 +417,7 @@ export function listInstallationManifests(
       } catch (error) {
         throw new Error(
           `platform: Invalid installation manifest ${path}: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
         );
       }
     }
@@ -624,6 +629,7 @@ function readRecoveryMaterial(
     return parseRecoveryValues(JSON.parse(plaintext.toString('utf8')), `${kind} recovery material`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      // oxlint-disable-next-line preserve-caught-error -- Do not attach the original error from reading credential material.
       throw new Error(
         `platform: Could not read encrypted ${kind} material: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -643,6 +649,7 @@ function readRecoveryMaterial(
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;
     }
+    // oxlint-disable-next-line preserve-caught-error -- Do not attach the original error from reading credential material.
     throw new Error(
       `platform: Could not migrate legacy ${kind} material: ${error instanceof Error ? error.message : String(error)}`,
     );

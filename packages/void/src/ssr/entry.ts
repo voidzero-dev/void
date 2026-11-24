@@ -83,6 +83,7 @@ function validateServerRenderExport(entry: ResolvedEntry): void {
   } catch (err) {
     throw new Error(
       `ssr: Invalid entry '${relativePath}'. Could not parse source: '${err instanceof Error ? err.message : String(err)}'.`,
+      { cause: err },
     );
   }
 

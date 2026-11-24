@@ -1482,6 +1482,7 @@ export async function downloadSource(options = {}) {
       );
       // A cancel is not a download failure and must never be retried.
       if (isCancelled()) {
+        // oxlint-disable-next-line preserve-caught-error -- An explicit cancellation replaces the aborted transfer error.
         throw new Error('build cancelled');
       }
       if (lastError.retryable !== true || attempt >= maxAttempts) {

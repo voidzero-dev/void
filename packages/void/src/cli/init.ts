@@ -122,7 +122,7 @@ export function parseInitArgs(args: Array<string>): InitArgs {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`init: ${message}.`);
+    throw new Error(`init: ${message}.`, { cause: error });
   }
 
   return {

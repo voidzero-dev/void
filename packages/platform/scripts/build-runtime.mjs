@@ -204,6 +204,7 @@ function buildDatabaseManifest() {
     } catch (error) {
       throw new Error(
         `Void Platform migration ${tag} is missing: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
     return {
@@ -230,6 +231,7 @@ function parseObjectJson(contents, path) {
   } catch (error) {
     throw new Error(
       `Void Platform metadata is invalid at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

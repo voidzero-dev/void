@@ -84,17 +84,20 @@ export async function prepareExistingCloudflareDeployWithAuth(
         identity.stderr,
       );
     if (!authenticationError || identity.signal || identity.error) {
+      // oxlint-disable-next-line preserve-caught-error -- Provider credential and session failures are translated to a safe user-facing message.
       throw new Error(
         'Could not verify the Cloudflare session after the Worker check failed. Run `void cloudflare status` and retry.',
       );
     }
     const overrides = cloudflareCredentialOverrides();
     if (overrides.length > 0) {
+      // oxlint-disable-next-line preserve-caught-error -- Provider credential and session failures are translated to a safe user-facing message.
       throw new Error(
         `Cloudflare credentials from ${overrides.join(', ')} were rejected or cannot access account ${options.accountId}. Correct or unset them, then retry the deploy.`,
       );
     }
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      // oxlint-disable-next-line preserve-caught-error -- Provider credential and session failures are translated to a safe user-facing message.
       throw new Error(
         wrongAccount
           ? `The Cloudflare session cannot access account ${options.accountId}. Run \`void cloudflare login\` with the correct user, or set a token for that account in CI, then retry.`
@@ -114,6 +117,7 @@ export async function prepareExistingCloudflareDeployWithAuth(
       configPath,
     });
     if (!authenticated.accounts.some((account) => account.id === options.accountId)) {
+      // oxlint-disable-next-line preserve-caught-error -- Provider credential and session failures are translated to a safe user-facing message.
       throw new Error(
         `The signed-in Cloudflare user cannot access account ${options.accountId}. Sign in with a user who can access it, then retry.`,
       );

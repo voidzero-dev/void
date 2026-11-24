@@ -592,6 +592,7 @@ function assertJsonSerializable(value: unknown): void {
   } catch (error) {
     throw new Error(
       `live: payload must be JSON-serializable. ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }
