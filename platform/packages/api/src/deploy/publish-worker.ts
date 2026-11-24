@@ -536,7 +536,7 @@ export async function publishWorkerDeployment(input: {
           context.env.CF_API_TOKEN,
           dispatchNamespace,
           oldWorkerName,
-        ).catch((e) => {
+        ).catch((e: unknown) => {
           input.logger.warn('retention_cleanup', 'evicted_dispatch_script_delete_failed', {
             evictedDeploymentId: old.id,
             err: e instanceof Error ? e.message : String(e),
@@ -549,13 +549,19 @@ export async function publishWorkerDeployment(input: {
               { hash: string }
             >;
             const evictedHashes = Object.values(evictedManifest).map((e) => e.hash);
-            await deleteAssetHashesWithProjectFence(retainedHashes, evictedHashes).catch((e) => {
-              input.logger.warn('retention_cleanup', 'evicted_unreferenced_assets_delete_failed', {
-                evictedDeploymentId: old.id,
-                err: e instanceof Error ? e.message : String(e),
-              });
-            });
-            await context.env.ROUTING.delete(`manifest:${old.id}`).catch((e) => {
+            await deleteAssetHashesWithProjectFence(retainedHashes, evictedHashes).catch(
+              (e: unknown) => {
+                input.logger.warn(
+                  'retention_cleanup',
+                  'evicted_unreferenced_assets_delete_failed',
+                  {
+                    evictedDeploymentId: old.id,
+                    err: e instanceof Error ? e.message : String(e),
+                  },
+                );
+              },
+            );
+            await context.env.ROUTING.delete(`manifest:${old.id}`).catch((e: unknown) => {
               input.logger.warn('retention_cleanup', 'evicted_routing_manifest_delete_failed', {
                 evictedDeploymentId: old.id,
                 err: e instanceof Error ? e.message : String(e),
@@ -621,7 +627,7 @@ export async function publishWorkerDeployment(input: {
           createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
           projectId,
           old.id,
-        ).catch((e) =>
+        ).catch((e: unknown) =>
           input.logger.error('retention_cleanup', 'evicted_isr_cache_clear_failed', e, {
             evictedDeploymentId: old.id,
           }),

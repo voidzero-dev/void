@@ -413,7 +413,7 @@ export async function createPlatformInstallPlan(
     }
   }
   let needsAiGatewayCredential = false;
-  const gatewayInventory = client.listAiGateways(account.id).catch((error) => {
+  const gatewayInventory = client.listAiGateways(account.id).catch((error: unknown) => {
     if (
       options?.allowUnverifiedAiGateway &&
       error instanceof PlatformCloudflareApiError &&

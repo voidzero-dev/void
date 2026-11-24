@@ -1056,7 +1056,7 @@ describe('MySQL Better Auth migrations under the lock', () => {
           }),
       ).then(
         () => 'done',
-        (error: Error) => error.message,
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
       );
 
       await vi.advanceTimersByTimeAsync(30_000);

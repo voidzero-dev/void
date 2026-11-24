@@ -1204,7 +1204,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
 
   if (durable) {
     await dispatchDeploymentOperation(context.env, context.get('db'), preDeployment.id).catch(
-      (error) => {
+      (error: unknown) => {
         // The committed outbox will retry a missing/lost Queue acknowledgement.
         logger.warn('queue', 'dispatch_pending', { err: String(error) });
       },

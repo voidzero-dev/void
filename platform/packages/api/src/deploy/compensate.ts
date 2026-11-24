@@ -123,7 +123,7 @@ export async function recoverFailedDeployment(input: {
   if (!routingSwitched && input.wfpMirroredManifestDeploymentId) {
     const id = input.wfpMirroredManifestDeploymentId;
     input.wfpMirroredManifestDeploymentId = null;
-    await context.env.ROUTING.delete(`manifest:${id}`).catch((e) =>
+    await context.env.ROUTING.delete(`manifest:${id}`).catch((e: unknown) =>
       logger.warn('catch', 'mirrored_manifest_evict_failed', {
         deploymentId: id,
         err: e instanceof Error ? e.message : String(e),
@@ -146,7 +146,7 @@ export async function recoverFailedDeployment(input: {
         manifest.sandbox,
         context.env.SANDBOX_CONCURRENCY_COUNTER,
         context.get('db'),
-      ).catch((error) =>
+      ).catch((error: unknown) =>
         logger.error('catch', 'sandbox_controller_cleanup_failed', error, {
           deploymentId: deployment?.id,
         }),
@@ -289,16 +289,16 @@ export async function recoverFailedDeployment(input: {
 
     const compensationErrors: Array<unknown> = [];
     if (!cutoverCommitted) {
-      await restoreTrackedQueueConsumers().catch((e) => {
+      await restoreTrackedQueueConsumers().catch((e: unknown) => {
         compensationErrors.push(e);
         logger.error('catch', 'queue_consumer_rollback_failed', e);
       });
     }
-    await restoreTrackedRouting().catch((e) => {
+    await restoreTrackedRouting().catch((e: unknown) => {
       compensationErrors.push(e);
       logger.error('catch', 'routing_rollback_failed', e);
     });
-    await restoreTrackedCronState().catch((e) => {
+    await restoreTrackedCronState().catch((e: unknown) => {
       compensationErrors.push(e);
       logger.error('catch', 'cron_rollback_failed', e);
     });
@@ -309,9 +309,11 @@ export async function recoverFailedDeployment(input: {
     // is still incomplete.
     if (needsProtectedClaim && compensationErrors.length > 0) {
       compensationErrors.length = 0;
-      await restoreTrackedQueueConsumers().catch((error) => compensationErrors.push(error));
-      await restoreTrackedRouting().catch((error) => compensationErrors.push(error));
-      await restoreTrackedCronState().catch((error) => compensationErrors.push(error));
+      await restoreTrackedQueueConsumers().catch((error: unknown) =>
+        compensationErrors.push(error),
+      );
+      await restoreTrackedRouting().catch((error: unknown) => compensationErrors.push(error));
+      await restoreTrackedCronState().catch((error: unknown) => compensationErrors.push(error));
     }
     if (needsProtectedClaim) {
       await context.get('db').transaction(async (tx) => {
@@ -377,7 +379,7 @@ export async function recoverFailedDeployment(input: {
       await fetch(workerUploadUrl, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${context.env.CF_API_TOKEN}` },
-      }).catch((e) =>
+      }).catch((e: unknown) =>
         logger.error('catch', 'orphan_worker_delete_failed', e, {
           workerName: failedWorkerName,
         }),
@@ -469,13 +471,15 @@ export async function recoverFailedDeployment(input: {
     const latest = await getDeployment(context.get('db'), failedDeployment.id);
     const wasCanceled =
       latest && CANCELLATION_REQUESTED_DEPLOYMENT_STATUSES.includes(latest.status);
-    await restoreTrackedRouting().catch((e) => logger.error('catch', 'routing_rollback_failed', e));
+    await restoreTrackedRouting().catch((e: unknown) =>
+      logger.error('catch', 'routing_rollback_failed', e),
+    );
     await deleteDispatchScript(
       context.env.CF_ACCOUNT_ID,
       context.env.CF_API_TOKEN,
       failedDispatchNamespace,
       failedWorkerName,
-    ).catch((e) =>
+    ).catch((e: unknown) =>
       logger.error('catch', 'worker_script_cleanup_failed', e, {
         workerName: failedWorkerName,
       }),
@@ -485,7 +489,7 @@ export async function recoverFailedDeployment(input: {
       createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
       projectId,
       failedDeployment.id,
-    ).catch((e) =>
+    ).catch((e: unknown) =>
       logger.error('catch', 'isr_cache_clear_failed', e, {
         deploymentId: failedDeployment.id,
       }),
@@ -509,7 +513,7 @@ export async function recoverFailedDeployment(input: {
     emit({ event: 'error', message: msg, step: currentStep });
     if (!wasCanceled && context.env.EMAIL && owner.email) {
       const notification = sendDeployFailedEmail(context.env, owner.email, project.slug, msg).catch(
-        (err) =>
+        (err: unknown) =>
           logger.error('catch', 'failed_email_send_failed', err, {
             projectSlug: project.slug,
           }),

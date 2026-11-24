@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CloudflareOperation } from '@void/deploy-cloudflare';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   computeInvalidEmittedKeys,
   createDefaultSecretListRunner,
@@ -495,8 +495,8 @@ describe('dischargeSelfHostEnvContext — ground-truth secret gate', () => {
         root,
         configPath: CONFIG_PATH,
         runWrangler: run,
-      }).catch((error) => error);
-      expect(error).toBeInstanceOf(SelfHostSecretListError);
+      }).catch((error: unknown) => error);
+      assert.instanceOf(error, SelfHostSecretListError);
       expect(error).not.toBeInstanceOf(SelfHostFirstDeployError);
       expect(error.message).toContain('reason: nonzero-exit');
     });
@@ -511,8 +511,8 @@ describe('dischargeSelfHostEnvContext — ground-truth secret gate', () => {
           root,
           configPath: CONFIG_PATH,
           runWrangler: run,
-        }).catch((error) => error);
-        expect(error).toBeInstanceOf(SelfHostFirstDeployError);
+        }).catch((error: unknown) => error);
+        assert.instanceOf(error, SelfHostFirstDeployError);
         expect(error.message).toContain('void secret put STRIPE_KEY');
       },
     );
@@ -532,7 +532,7 @@ describe('dischargeSelfHostEnvContext — ground-truth secret gate', () => {
           root,
           configPath: CONFIG_PATH,
           runWrangler: run,
-        }).catch((error) => error);
+        }).catch((error: unknown) => error);
         expect(error).toBeInstanceOf(SelfHostSecretListError);
         expect(error).not.toBeInstanceOf(SelfHostFirstDeployError);
       },

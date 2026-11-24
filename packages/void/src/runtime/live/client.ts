@@ -192,7 +192,7 @@ export function connectLiveStream(
       if (closed || (!options.keepOpen && subscriptions.size === 0)) {
         return;
       }
-      void openSource(true).catch((error) => {
+      void openSource(true).catch((error: unknown) => {
         if (!closed) {
           reportError(error);
         }

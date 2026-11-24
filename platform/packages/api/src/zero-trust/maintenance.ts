@@ -104,7 +104,7 @@ async function retirePendingDisabledProjectZeroTrust(
       break;
     }
     await retireDisabledProjectZeroTrust(env, db, row.project.id, client, routingBudget).catch(
-      (error) =>
+      (error: unknown) =>
         console.error('[zero-trust] scheduled project cleanup failed', {
           projectId: row.project.id,
           error,
@@ -162,7 +162,7 @@ export async function reconcilePendingProjectZeroTrust(
       configuration,
       client,
       routingBudget,
-    }).catch(async (error) => {
+    }).catch(async (error: unknown) => {
       console.error('[zero-trust] scheduled project reconciliation failed', {
         projectId: row.project.id,
         error,
@@ -175,7 +175,7 @@ export async function reconcilePendingProjectZeroTrust(
         row.project.id,
         error,
         initialProjectProtection(configuration, row.project),
-      ).catch((markError) =>
+      ).catch((markError: unknown) =>
         console.error('[zero-trust] could not record scheduled reconciliation failure', {
           projectId: row.project.id,
           error: markError,

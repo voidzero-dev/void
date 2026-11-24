@@ -167,7 +167,7 @@ function createBuildTrace(root: string) {
         if (typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
           Promise.resolve(result).then(
             (resolved) => settle(describeResult(hook, resolved)),
-            (error) => settle(`rejected ${String(error)}`, true),
+            (error: unknown) => settle(`rejected ${String(error)}`, true),
           );
         } else {
           settle(describeResult(hook, result));

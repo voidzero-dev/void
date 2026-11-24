@@ -301,7 +301,7 @@ export class SandboxContainer<Env = unknown> extends DurableObject<Env> {
     if (!this.#setup || (!this.container.running && !this.starting)) {
       this.starting = true;
       this.#setup = this.setup(this.#epoch)
-        .catch((error) => {
+        .catch((error: unknown) => {
           this.#setup = undefined;
           throw error;
         })

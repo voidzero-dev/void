@@ -165,7 +165,7 @@ export async function tryActivateDomain(
   // Fully isolated — a PATCH failure must never throw or affect the result.
   if (options?.retriggerDcv && wasPending && !gateOk && cf.ssl.method === 'http') {
     await patchCustomHostname(env.CF_ZONE_ID, env.CF_API_TOKEN, domain.cf_hostname_id).catch(
-      (err) =>
+      (err: unknown) =>
         console.error(
           `[activate-domain] failed to re-trigger HTTP DCV for ${domain.hostname}:`,
           err,

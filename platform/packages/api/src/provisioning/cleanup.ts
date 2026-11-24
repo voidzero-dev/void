@@ -784,7 +784,9 @@ async function cleanupRaceWindowResourceOrphans(
       .get('db')
       .delete(projectCleanupJobs)
       .where(inArray(projectCleanupJobs.target, completedTargets))
-      .catch((error) => console.error('[project-cleanup] completed job delete failed:', error));
+      .catch((error: unknown) =>
+        console.error('[project-cleanup] completed job delete failed:', error),
+      );
   }
   // Failed jobs were committed atomically with the project cascade and remain
   // in the ledger for scheduled retries after the project row is gone.

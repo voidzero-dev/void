@@ -9,7 +9,7 @@ import {
   transitionInstallation,
 } from '@void/platform';
 import { log, note, outro } from '@voidzero-dev/vite-plus-prompts';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { pc } from '../../src/cli/output.ts';
 // oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as terminalOutput from '../../src/cli/output.ts';
@@ -744,7 +744,8 @@ describe('platform credential onboarding', () => {
     );
     const denied = await management
       .request('/accounts/account/queues')
-      .then(expectedFailure, (error: PlatformCloudflareApiError) => error);
+      .then(expectedFailure, (error: unknown) => error);
+    assert.instanceOf(denied, PlatformCloudflareApiError);
     expect(denied.credential).toEqual({ role: 'management', source: 'entered' });
     expect(denied.message).toContain('Void used the management token you entered.');
     expect(mocks.open).toHaveBeenCalledWith(expect.stringContaining('name=Test+Management'));
@@ -804,7 +805,8 @@ describe('platform credential onboarding', () => {
       );
       const denied = await client
         .request('/accounts/account/queues')
-        .then(expectedFailure, (error: PlatformCloudflareApiError) => error);
+        .then(expectedFailure, (error: unknown) => error);
+      assert.instanceOf(denied, PlatformCloudflareApiError);
       expect(denied.credential).toEqual({ role: 'management', source: 'saved' });
       expect(denied.message).toContain('Void used the management token saved on this machine.');
       expect(mocks.install.mock.calls[0]![1].cloudflareApiToken).toBe('saved-runtime-token');

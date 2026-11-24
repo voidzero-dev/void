@@ -716,7 +716,7 @@ async function runScheduledMaintenance(
       .then((found) => {
         fastTier.unfinished ||= found;
       })
-      .catch((error) => console.error('[scheduled] deployment outbox failed', error));
+      .catch((error: unknown) => console.error('[scheduled] deployment outbox failed', error));
   }
   if (
     env.PLATFORM_TRAFFIC_STATE === 'staging' ||
@@ -732,12 +732,12 @@ async function runScheduledMaintenance(
   // run inside their request. Worker uploads that never became a deployment
   // are still removed here.
   if (!deploymentDb) {
-    await sweepStaleDeploymentInputs(env, db).catch((error) =>
+    await sweepStaleDeploymentInputs(env, db).catch((error: unknown) =>
       console.error('[scheduled] deployment input sweep failed', error),
     );
   }
 
-  await reconcileProjectCleanupJobs(db, env).catch((error) =>
+  await reconcileProjectCleanupJobs(db, env).catch((error: unknown) =>
     console.error('[scheduled] project cleanup retry failed:', error),
   );
 
@@ -746,10 +746,12 @@ async function runScheduledMaintenance(
   // not, so the pending-domain and email work below still runs. An operation
   // already in error waits for the hourly tier or an explicit reconcile.
   if (controller.cron === FAST_CRON) {
-    const zeroTrustProgressed = await resumePlatformZeroTrustOperation(env, db).catch((error) => {
-      console.error('[scheduled] Zero Trust operation resume failed:', error);
-      return false;
-    });
+    const zeroTrustProgressed = await resumePlatformZeroTrustOperation(env, db).catch(
+      (error: unknown) => {
+        console.error('[scheduled] Zero Trust operation resume failed:', error);
+        return false;
+      },
+    );
     if (zeroTrustProgressed) {
       fastTier.unfinished = true;
       return;
@@ -763,31 +765,33 @@ async function runScheduledMaintenance(
       .then((summary) => {
         fastTier.unfinished ||= summary.done + summary.pending > 0;
       })
-      .catch((error) => console.error('[scheduled] proxy token rotation failed:', error));
+      .catch((error: unknown) => console.error('[scheduled] proxy token rotation failed:', error));
   }
 
   if (capabilities.email) {
     await reconcileEmailDestinationCleanups(db, {
       accountId: env.CF_ACCOUNT_ID,
       apiToken: env.CF_API_TOKEN,
-    }).catch((error) => console.error('[scheduled] email destination cleanup failed:', error));
+    }).catch((error: unknown) =>
+      console.error('[scheduled] email destination cleanup failed:', error),
+    );
     await (async () => {
       const operationId = await ensureSharedEmailConnection(db, env);
       if (operationId) {
         await runEmailOperation(db, env, operationId);
       }
-    })().catch((error) => console.error('[scheduled] shared email setup failed:', error));
-    await reconcilePendingEmailOperations(db, env).catch((error) =>
+    })().catch((error: unknown) => console.error('[scheduled] shared email setup failed:', error));
+    await reconcilePendingEmailOperations(db, env).catch((error: unknown) =>
       console.error('[scheduled] email operation reconciliation failed:', error),
     );
-    await reconcileSharedEmailRecipients(db, env).catch((error) =>
+    await reconcileSharedEmailRecipients(db, env).catch((error: unknown) =>
       console.error('[scheduled] shared email recipient reconciliation failed:', error),
     );
-    await flushEmailCacheOutbox(db, env.ROUTING).catch((error) =>
+    await flushEmailCacheOutbox(db, env.ROUTING).catch((error: unknown) =>
       console.error('[scheduled] email display publication failed:', error),
     );
     if (controller.cron !== FAST_CRON) {
-      await pruneEmailActionHistory(db).catch((error) =>
+      await pruneEmailActionHistory(db).catch((error: unknown) =>
         console.error('[scheduled] email history cleanup failed:', error),
       );
       await repairEmailRecipientPolicyMirror(db, env.ROUTING);
@@ -811,7 +815,7 @@ async function runScheduledMaintenance(
     }
     // Fast tier does NOT re-trigger HTTP DCV via PATCH — only the hourly tier
     // does (see the hourly call below and tryActivateDomain's comment).
-    await reconcilePendingDomains(env, db, young, false).catch((err) =>
+    await reconcilePendingDomains(env, db, young, false).catch((err: unknown) =>
       console.error('[scheduled] fast pending-domain reconcile failed:', err),
     );
     return;
@@ -820,18 +824,18 @@ async function runScheduledMaintenance(
   // Hourly tier (every :00): full maintenance.
 
   if (capabilities.sandbox) {
-    await retrySandboxControllerCleanup(db, env).catch((error) =>
+    await retrySandboxControllerCleanup(db, env).catch((error: unknown) =>
       console.error('[scheduled] Sandbox controller cleanup failed:', error),
     );
   }
 
-  await reconcilePendingProjectZeroTrust(env, db).catch((error) =>
+  await reconcilePendingProjectZeroTrust(env, db).catch((error: unknown) =>
     console.error('[scheduled] Zero Trust reconciliation failed:', error),
   );
 
   // Repair published AI logging settings that drifted from Postgres, and advance
   // an unfinished plan default publish by one page.
-  await sweepAiLogging(db, env.ROUTING, initialPlanDefaultFor(env)).catch((error) =>
+  await sweepAiLogging(db, env.ROUTING, initialPlanDefaultFor(env)).catch((error: unknown) =>
     console.error('[scheduled] AI logging sweep failed:', error),
   );
 
@@ -842,7 +846,9 @@ async function runScheduledMaintenance(
         console.log(`[scheduled] auto-failed ${n} stale deployment(s)`);
       }
     })
-    .catch((err) => console.error('[scheduled] failed to clean up stale deployments:', err));
+    .catch((err: unknown) =>
+      console.error('[scheduled] failed to clean up stale deployments:', err),
+    );
 
   // Auto-fail GitHub Actions builds stuck ACTIVE far longer than any plan's
   // build timeout (see STALE_ACTIONS_BUILD_MAX_AGE_MINUTES).
@@ -853,7 +859,7 @@ async function runScheduledMaintenance(
           console.log(`[scheduled] auto-failed ${n} stale github_actions build(s)`);
         }
       })
-      .catch((err) =>
+      .catch((err: unknown) =>
         console.error('[scheduled] failed to clean up stale github_actions builds:', err),
       );
   }
@@ -885,7 +891,9 @@ async function runScheduledMaintenance(
           );
         }
       })
-      .catch((err) => console.error('[scheduled] failed to clean up stale container builds:', err));
+      .catch((err: unknown) =>
+        console.error('[scheduled] failed to clean up stale container builds:', err),
+      );
   }
 
   // Re-arm the build scheduler if any container builds are still queued. The
@@ -903,31 +911,33 @@ async function runScheduledMaintenance(
           await scheduler.fetch('https://scheduler/poke', { method: 'POST' });
         }
       })
-      .catch((err) => console.error('[scheduled] failed to re-arm build scheduler:', err));
+      .catch((err: unknown) => console.error('[scheduled] failed to re-arm build scheduler:', err));
   }
 
   // Purge expired OAuth nonces and auth codes left by abandoned login flows (best-effort)
-  await purgeExpiredOAuthRequests(db).catch((err) =>
+  await purgeExpiredOAuthRequests(db).catch((err: unknown) =>
     console.error('[scheduled] failed to purge expired connected-app grants:', err),
   );
-  await reapExpiredPreviews(db, env).catch((err) =>
+  await reapExpiredPreviews(db, env).catch((err: unknown) =>
     console.error('[scheduled] preview teardown failed:', err),
   );
-  await purgeExpiredOAuthNonces(db).catch((err) =>
+  await purgeExpiredOAuthNonces(db).catch((err: unknown) =>
     console.error('[scheduled] failed to purge expired OAuth nonces:', err),
   );
-  await purgeExpiredAuthCodes(db).catch((err) =>
+  await purgeExpiredAuthCodes(db).catch((err: unknown) =>
     console.error('[scheduled] failed to purge expired auth codes:', err),
   );
   await db
     .delete(operatorSessions)
     .where(lt(operatorSessions.expires_at, new Date().toISOString()))
-    .catch((err) => console.error('[scheduled] failed to purge expired operator sessions:', err));
+    .catch((err: unknown) =>
+      console.error('[scheduled] failed to purge expired operator sessions:', err),
+    );
   for (const table of [platformAuthAttempts, platformLoginTests, platformHumanSessions]) {
     await db
       .delete(table)
       .where(lt(table.expires_at, new Date().toISOString()))
-      .catch((err) =>
+      .catch((err: unknown) =>
         console.error('[scheduled] failed to purge expired authentication state:', err),
       );
   }
@@ -967,7 +977,7 @@ async function runScheduledMaintenance(
     // amplify PATCH volume under a burst of young pending domains and could 429
     // other tenants' hostname operations), while still re-triggering the long
     // tail and resetting CF's decaying 7-day validation backoff once per hour.
-    await reconcilePendingDomains(env, db, allPending, true).catch((err) =>
+    await reconcilePendingDomains(env, db, allPending, true).catch((err: unknown) =>
       console.error('[scheduled] hourly pending-domain reconcile failed:', err),
     );
 
@@ -977,7 +987,7 @@ async function runScheduledMaintenance(
     // CF's own "Moved → Deleted after 7 days" sweep may not fire. Delete the CF
     // hostname (revokes the cert order) and drop the DB row. Run once globally;
     // conservative — only `status === 'pending'` rows are eligible.
-    await cleanupStalePendingDomains(env, db, controller.scheduledTime).catch((err) =>
+    await cleanupStalePendingDomains(env, db, controller.scheduledTime).catch((err: unknown) =>
       console.error('[scheduled] failed to clean up stale pending domains:', err),
     );
   }
@@ -1133,7 +1143,7 @@ export async function cleanupStalePendingDomains(
           continue;
         }
         cleaned += 1;
-        await reconcileProjectZeroTrustDomains(env, db, domain.project_id).catch((error) =>
+        await reconcileProjectZeroTrustDomains(env, db, domain.project_id).catch((error: unknown) =>
           console.error(
             `[scheduled] failed to reconcile Zero Trust after deleting ${domain.hostname}:`,
             error,
@@ -1199,7 +1209,7 @@ export async function cleanupStalePendingDomains(
     if (!claimed) {
       continue;
     }
-    await reconcileProjectZeroTrustDomains(env, db, domain.project_id).catch((error) =>
+    await reconcileProjectZeroTrustDomains(env, db, domain.project_id).catch((error: unknown) =>
       console.error(
         `[scheduled] failed to reconcile Zero Trust after deleting ${domain.hostname}:`,
         error,

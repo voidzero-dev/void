@@ -343,7 +343,7 @@ describe('platform uninstall check against the API database', () => {
         // wait on the lock uninstall holds.
         const configure = configurePlatformZeroTrust(platform, env.db, configureInput).then(
           () => 'configured',
-          (error: Error) => error.message,
+          (error: unknown) => (error instanceof Error ? error.message : String(error)),
         );
         // Project protection changes and deployments take the shared side.
         const projectWriter = env.db
@@ -351,7 +351,7 @@ describe('platform uninstall check against the API database', () => {
             await lockZeroTrustConfiguration(tx, 'shared');
             return 'project written';
           })
-          .catch((error: Error) => error.message);
+          .catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
         await new Promise((resolve) => {
           setTimeout(resolve, 200);
         });

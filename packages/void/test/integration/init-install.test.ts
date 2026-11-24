@@ -361,7 +361,7 @@ setInterval(beat, 10);
       // The stopped installer fails the install, which the end of the test checks.
       const outcome = install(root).then(
         () => 'installed',
-        (error: Error) => error.message,
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
       );
       try {
         await vi.waitFor(() => expect(readFileSync(beats, 'utf8')).toContain('postinstall'), {

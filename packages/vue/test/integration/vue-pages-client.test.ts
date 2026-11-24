@@ -117,7 +117,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     page.on('pageerror', (error) => errors.push(error.message));
     try {
       await page.goto(BASE + '/form-records/first');
-      await waitForHydration(page).catch((error) => {
+      await waitForHydration(page).catch((error: unknown) => {
         throw new Error(`${String(error)}\n${errors.join('\n')}`);
       });
       await page.evaluate(() => {

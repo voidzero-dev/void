@@ -1065,7 +1065,7 @@ async function uploadTargeted(
     return {
       result: await upload.then(
         (value) => ({ value }),
-        (error) => ({ error }),
+        (error: unknown) => ({ error }),
       ),
       uploads,
     };

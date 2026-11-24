@@ -173,8 +173,10 @@ export async function initializePackedProject(
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
-  await initializePackedProject(...process.argv.slice(2)).catch((error) => {
-    console.error(error.message);
+  try {
+    await initializePackedProject(...process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
-  });
+  }
 }

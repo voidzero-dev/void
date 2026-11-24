@@ -1119,7 +1119,7 @@ describe('build-agent extractTarball child lifecycle', () => {
     });
     const rejected = promise.then(
       () => null,
-      (err: Error) => err,
+      (err: unknown) => err,
     );
 
     // If broken: `.catch(reject)` settles here, while the child still runs.
@@ -1127,7 +1127,7 @@ describe('build-agent extractTarball child lifecycle', () => {
     expect(child.signals).toEqual(['SIGTERM']);
 
     child.settle(143, 'SIGTERM');
-    expect((await rejected)?.message).toBe('connection reset');
+    expect(await rejected).toMatchObject({ message: 'connection reset' });
   });
 
   it('escalates SIGTERM to SIGKILL when the child ignores it', async () => {
@@ -1138,7 +1138,7 @@ describe('build-agent extractTarball child lifecycle', () => {
     });
     const rejected = promise.then(
       () => null,
-      (err: Error) => err,
+      (err: unknown) => err,
     );
 
     await new Promise((resolve) => {
@@ -1146,7 +1146,7 @@ describe('build-agent extractTarball child lifecycle', () => {
     });
     expect(child.signals).toEqual(['SIGTERM', 'SIGKILL']);
     // The fake exits on SIGKILL, which is what finally settles the promise.
-    expect((await rejected)?.message).toBe('connection reset');
+    expect(await rejected).toMatchObject({ message: 'connection reset' });
   });
 
   it('clears the kill timer on close, so no SIGKILL follows a cooperative exit', async () => {

@@ -9,7 +9,7 @@ import {
   setInstallationEndpoints,
 } from '@void/platform';
 import type { InstallationResourceKind, PlatformInstallationManifest } from '@void/platform';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { assert, describe, expect, it, vi } from 'vite-plus/test';
 import { pc } from '../../src/cli/output.ts';
 import {
   PlatformCloudflareApiError,
@@ -768,7 +768,8 @@ describe('platform installation planning', () => {
       null,
       preview,
       false,
-    ).then(expectedRejection, (error: Error) => error);
+    ).then(expectedRejection, (error: unknown) => error);
+    assert.instanceOf(error, Error);
     expect(error.message).toBe(
       'platform: The runtime token could not verify AI Gateway access. Browser login cannot use AI Gateway, so Void used the runtime token you entered for it. Fix the runtime token (VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN), or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit. HTTP 403 means the token works but is missing Account → AI Gateway → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a runtime token that has it, then retry. No platform resources were created.',
     );
@@ -821,8 +822,8 @@ describe('platform installation planning', () => {
       }),
       input,
       null,
-    ).catch((error) => error);
-    expect(error).toBeInstanceOf(AggregateError);
+    ).catch((error: unknown) => error);
+    assert.instanceOf(error, AggregateError);
     expect(error.message).toContain('Cloudflare R2 is not enabled');
     expect(error.message).toContain('Workers for Platforms requires a paid subscription');
     expect(error.message).toContain('retry the same command');

@@ -78,7 +78,7 @@ async function main() {
   outro(`cd ${appName} && ${pm === 'npm' ? 'npm run' : pm} dev`);
 }
 
-await main().catch((err) => {
-  log.error(err.message);
+await main().catch((err: unknown) => {
+  log.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

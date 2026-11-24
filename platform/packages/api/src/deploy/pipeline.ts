@@ -174,7 +174,7 @@ export async function runDeploymentPipeline(input: {
     if (!streamOpen) {
       return;
     }
-    writer.write(encoder.encode(JSON.stringify(event) + '\n')).catch((err) => {
+    writer.write(encoder.encode(JSON.stringify(event) + '\n')).catch((err: unknown) => {
       streamOpen = false;
       logger.warn('emit', 'stream_closed', { event: event.event, err: String(err) });
     });
@@ -1196,7 +1196,7 @@ export async function runDeploymentPipeline(input: {
       }
       if (input.releaseWorkerInput) {
         // Before the stream closes: closing the response can end the request.
-        await input.releaseWorkerInput().catch((err) =>
+        await input.releaseWorkerInput().catch((err: unknown) =>
           logger.warn('worker_input', 'delete_failed', {
             err: err instanceof Error ? err.message : String(err),
           }),

@@ -2696,7 +2696,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       // the stream is complete while the owner is still waiting to append it.
       await this.markLogDrainComplete();
       if (resumeFinalization) {
-        await this.reconcileTerminalWrite().catch((err) => {
+        await this.reconcileTerminalWrite().catch((err: unknown) => {
           console.warn('forceStopContainer: deferred startup finalization failed', err);
         });
       }

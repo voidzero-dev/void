@@ -16,7 +16,7 @@ import {
 } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
 import { getPlatformRuntimeDirectory, resolvePlatformRuntime } from '@void/platform/installer';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { printSuccess } from '../../src/cli/output.ts';
 
 const state = vi.hoisted(() => ({
@@ -570,8 +570,9 @@ describe('installed platform upgrade', () => {
       state.request.mockRejectedValueOnce(
         new PlatformCloudflareApiError('Authentication error', 403),
       );
-      const failure = await upgrade().then(expectedRejection, (error: Error) => error);
-      expect(failure?.message).toContain(
+      const failure = await upgrade().then(expectedRejection, (error: unknown) => error);
+      assert.instanceOf(failure, Error);
+      expect(failure.message).toContain(
         'Cloudflare denied the management token from CF_API_TOKEN:\n- Account → Workers Scripts → Edit (HTTP 403; Cloudflare Workers access)\n- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "assets")',
       );
       expect(acquirePlatformLifecycleLock).not.toHaveBeenCalled();
@@ -1345,7 +1346,7 @@ describe('installed platform upgrade', () => {
           }
           return [];
         });
-        const failure = await upgrade({ customDomains: true }).catch((error: Error) => error);
+        const failure = await upgrade({ customDomains: true }).catch((error: unknown) => error);
         expect(failure).toBeInstanceOf(Error);
         expect(String(failure)).toContain(`HTTP ${status}`);
         expect(String(failure)).not.toContain('saved-runtime-token');

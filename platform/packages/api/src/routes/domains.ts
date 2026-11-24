@@ -184,7 +184,7 @@ const app = new Hono<ApiEnv>()
           context.env.CF_ZONE_ID,
           context.env.CF_API_TOKEN,
           createdCfHostname.id,
-        ).catch((deleteErr) => {
+        ).catch((deleteErr: unknown) => {
           console.error(
             `Failed to delete orphaned custom hostname ${createdCfHostname?.id} after DB transaction failure:`,
             deleteErr,
@@ -338,12 +338,12 @@ const app = new Hono<ApiEnv>()
         context.env.CF_ZONE_ID,
         context.env.CF_API_TOKEN,
         domain.cf_hostname_id,
-      ).catch((err) => {
+      ).catch((err: unknown) => {
         warnings.push(
           `Failed to delete custom hostname: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
-      await context.env.ROUTING.delete(`domain:${domain.hostname}`).catch((err) => {
+      await context.env.ROUTING.delete(`domain:${domain.hostname}`).catch((err: unknown) => {
         warnings.push(
           `Failed to delete routing entry: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -360,7 +360,7 @@ const app = new Hono<ApiEnv>()
     }
 
     await reconcileProjectZeroTrustDomains(context.env, context.get('db'), projectId).catch(
-      (err) => {
+      (err: unknown) => {
         warnings.push(
           `Failed to reconcile Zero Trust custom-domain protection: ${err instanceof Error ? err.message : String(err)}`,
         );

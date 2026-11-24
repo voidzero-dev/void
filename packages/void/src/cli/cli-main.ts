@@ -195,8 +195,8 @@ if (helpPath) {
   }
 
   const { runDeploy } = await import('./deploy.ts');
-  await runDeploy(root, deployArgs).catch((err) => {
-    log.error(formatCloudflareUserMessage(err.message ?? String(err)));
+  await runDeploy(root, deployArgs).catch((err: unknown) => {
+    log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });
 } else if (command === 'connect') {
@@ -204,7 +204,7 @@ if (helpPath) {
     const parsed = parseConnectArgs(args.slice(1));
     const { runConnectCommand } = await import('./connect.ts');
     await runConnectCommand(process.cwd(), parsed);
-  })().catch((err) => {
+  })().catch((err: unknown) => {
     log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });
@@ -234,8 +234,8 @@ if (helpPath) {
   }
 
   const { runPrepareCommand } = await import('./prepare.ts');
-  await runPrepareCommand(root).catch((err) => {
-    log.error(formatCloudflareUserMessage(err.message ?? String(err)));
+  await runPrepareCommand(root).catch((err: unknown) => {
+    log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });
 } else if (command === 'init') {
@@ -248,8 +248,8 @@ if (helpPath) {
       log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
       process.exit(1);
     }
-    await runInitCommand(root, initArgs).catch((err) => {
-      log.error(formatCloudflareUserMessage(err.message ?? String(err)));
+    await runInitCommand(root, initArgs).catch((err: unknown) => {
+      log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
       process.exitCode = 1;
     });
   });
@@ -259,7 +259,7 @@ if (helpPath) {
     process.exit(1);
   }
   const { runMigrateCommand } = await import('./migrate.ts');
-  await runMigrateCommand(process.cwd()).catch((err) => {
+  await runMigrateCommand(process.cwd()).catch((err: unknown) => {
     log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });
@@ -404,7 +404,7 @@ if (helpPath) {
         printGlobalHelp();
         return;
     }
-  })().catch((err) => {
+  })().catch((err: unknown) => {
     log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });

@@ -208,7 +208,7 @@ export const POST = defineHandler(async (c) => {
       clients.map((client) =>
         client
           .destroy()
-          .catch((error) => console.error('[sandbox acceptance] cleanup failed', error)),
+          .catch((error: unknown) => console.error('[sandbox acceptance] cleanup failed', error)),
       ),
     );
   }

@@ -562,7 +562,7 @@ function App({
           }
           dispatch({ type: 'finish', resource, location: currentUrl() });
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           // The history write failed, so the address bar still shows the committed page.
           // End this visit and show that page again; a newer visit keeps its own state.
           const resolveViewTransition = viewTransitionWaiters.get(resource.id);
@@ -607,7 +607,7 @@ function App({
             dispatch({ type: 'finish', resource: prepared, location: currentUrl() });
             return result?.pageData;
           },
-          (error) => {
+          (error: unknown) => {
             if (activePendingNavigationId === prepared.id) {
               activePendingNavigationId = null;
             }
@@ -650,7 +650,7 @@ function App({
             }
             return result;
           },
-          (error) => {
+          (error: unknown) => {
             const resolveViewTransition = viewTransitionWaiters.get(prepared.id);
             if (resolveViewTransition) {
               viewTransitionWaiters.delete(prepared.id);
@@ -829,7 +829,7 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     cacheVisitedPageData: config.cacheVisitedPageData,
     boundaryManifest: config.boundaryManifest,
     dev: config.dev,
-  }).catch((error) => {
+  }).catch((error: unknown) => {
     if (config.boundaryManifest && Object.keys(config.boundaryManifest.plans).length) {
       showTerminalPageError();
     }

@@ -4,7 +4,7 @@ const LAYER_DIGEST = 'f7a1c91dcb86ff275307a455c11809413cf7c07d7dfc09f6222c87ed5a
 let shim: Promise<Uint8Array> | undefined;
 
 export function getSandboxShim(): Promise<Uint8Array> {
-  return (shim ??= download().catch((error) => {
+  return (shim ??= download().catch((error: unknown) => {
     shim = undefined;
     throw error;
   }));

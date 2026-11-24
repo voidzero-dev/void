@@ -1446,7 +1446,7 @@ function withListerDeadline<T>(start: (signal: AbortSignal) => Promise<T>, ms: n
           clearTimeout(timer);
           resolve(value);
         },
-        (error) => {
+        (error: unknown) => {
           clearTimeout(timer);
           reject(error);
         },

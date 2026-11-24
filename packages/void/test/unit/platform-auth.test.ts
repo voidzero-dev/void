@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { assert, afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { CloudflareAuthRunResult } from '../../src/cli/cloudflare-auth.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
@@ -95,7 +95,8 @@ describe('platform Cloudflare authentication', () => {
         account: { id: 'account', name: 'Account' },
         source: 'saved',
         r2Buckets: ['assets'],
-      }).catch((error) => error);
+      }).catch((error: unknown) => error);
+      assert.instanceOf(error, Error);
       expect(error.message).toContain(`HTTP ${status}`);
       expect(error.message).toContain('management token saved on this machine');
       expect(error.message).not.toContain('secret-token');
@@ -125,14 +126,14 @@ describe('platform Cloudflare authentication', () => {
       source: 'environment',
       environmentVariable: 'CF_API_TOKEN',
       r2Buckets: ['assets', 'cache'],
-    }).then(expectedRejection, (error: Error) => error);
+    }).then(expectedRejection, (error: unknown) => error);
     expect(paths).toEqual([
       '/client/v4/accounts',
       '/client/v4/accounts/account/workers/scripts',
       '/client/v4/accounts/account/r2/buckets/assets',
       '/client/v4/accounts/account/r2/buckets/cache',
     ]);
-    expect(error).toBeInstanceOf(Error);
+    assert.instanceOf(error, Error);
     expect(error.message).toBe(
       [
         'platform: Cloudflare denied the management token from CF_API_TOKEN:',
@@ -166,7 +167,8 @@ describe('platform Cloudflare authentication', () => {
       account: { id: 'account', name: 'Account' },
       source: 'saved',
       r2Buckets: ['assets'],
-    }).then(expectedRejection, (error: Error) => error);
+    }).then(expectedRejection, (error: unknown) => error);
+    assert.instanceOf(error, Error);
     expect(error.message).toBe(
       [
         'platform: Cloudflare denied the management token saved on this machine:',
@@ -192,8 +194,9 @@ describe('platform Cloudflare authentication', () => {
       account: { id: 'account', name: 'Account' },
       source: 'saved',
       r2Buckets: [],
-    }).then(expectedRejection, (error: Error) => error);
+    }).then(expectedRejection, (error: unknown) => error);
     expect(client.listWorkerNames).toHaveBeenCalledOnce();
+    assert.instanceOf(error, Error);
     expect(error.message).toContain('Cloudflare denied the management token saved on this machine');
     expect(error.message).toContain('- Account → Account Settings → Read (HTTP 401');
     expect(error.message).toContain('- Account → Workers Scripts → Edit (HTTP 401');

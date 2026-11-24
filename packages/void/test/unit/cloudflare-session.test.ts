@@ -117,7 +117,7 @@ describe('Cloudflare session switching through the bundled CLI runner', () => {
     vi.stubEnv('CF_API_KEY', 'synthetic-global-key');
     vi.stubEnv('CLOUDFLARE_EMAIL', 'credential-email@example.test');
     const error = await runCloudflareCommand(root, { subcommand: 'login' }).catch(
-      (error) => error as Error,
+      (error: unknown) => error as Error,
     );
     expect(String(error)).toContain('CF_API_KEY');
     expect(String(error)).toContain('CLOUDFLARE_EMAIL');
@@ -161,7 +161,7 @@ describe('Cloudflare session switching through the bundled CLI runner', () => {
     async (name) => {
       vi.stubEnv(name, 'synthetic-secret-never-print');
       const error = await runCloudflareCommand(root, { subcommand: 'login' }).catch(
-        (error) => error as Error,
+        (error: unknown) => error as Error,
       );
       expect(String(error)).toContain(name);
       expect(String(error)).not.toContain('synthetic-secret-never-print');
