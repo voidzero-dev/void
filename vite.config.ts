@@ -277,6 +277,11 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // Routing adapters accept component functions with framework-specific signatures.
+        files: ['packages/void/src/runtime/routing/{errors,pages}.ts'],
+        rules: { 'typescript/no-unsafe-function-type': 'off' },
+      },
+      {
         // Database tests intentionally await proxy and mock values to verify thenable handling.
         files: ['packages/void/test/unit/{db-session,plugin-drizzle}.test.ts'],
         rules: { 'typescript/await-thenable': 'off' },
@@ -497,7 +502,6 @@ const config = defineConfig({
       'typescript/no-unsafe-argument': 'off',
       'typescript/no-unsafe-assignment': 'off',
       'typescript/no-unsafe-call': 'off',
-      'typescript/no-unsafe-function-type': 'off',
       'typescript/no-unsafe-member-access': 'off',
       'typescript/no-unsafe-return': 'off',
       'typescript/no-unsafe-type-assertion': 'off',
