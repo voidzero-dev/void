@@ -1,0 +1,26 @@
+{
+  "name": "benchmark-image-gen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "deploy": "cf deploy",
+    "deploy:prebuilt": "cf deploy --prebuilt",
+    "dev": "vp dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "void": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/build-output-utils": "catalog:",
+    "@cloudflare/config": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "cf": "catalog:",
+    "miniflare": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "name": "@void/image-renderer-takumi",
+  "version": "1.8.0",
+  "description": "Takumi image renderer for Void.",
+  "homepage": "https://void.cloud",
+  "bugs": {
+    "url": "https://github.com/voidzero-dev/void/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voidzero-dev/void.git",
+    "directory": "packages/image-renderer-takumi"
+  },
+  "files": [
+    "dist",
+    "licenses"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "build:watch": "vp pack --watch",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit --rootDir ../..",
+    "typecheck:watch": "tsc --noEmit --rootDir ../.. --watch"
+  },
+  "dependencies": {
+    "takumi-js": "~2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "hono": "catalog:",
+    "miniflare": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "void": "workspace:*"
+  },
+  "peerDependencies": {
+    "void": "workspace:*"
+  }
+}

@@ -97,6 +97,10 @@ These Void features work identically across all targets:
 
 ## What's Different
 
+### Image generation
+
+Use `void/image` with the [Takumi renderer](../guide/image-generation.md#takumi-renderer) to generate images in your server runtime.
+
 ### Environment variables
 
 Supply server values through your host's environment and read them with `process.env` in Node.js or Bun, or `Deno.env.get()` in Deno. The `void/env` schema and secret workflow requires Cloudflare.

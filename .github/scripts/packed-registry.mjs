@@ -28,7 +28,11 @@ export function inspectPackage(tarball) {
   assert(isHttpsUrl(manifest.homepage), `${manifest.name}: homepage must be an HTTPS URL`);
   assert(isHttpsUrl(manifest.bugs?.url), `${manifest.name}: bugs.url must be an HTTPS URL`);
   assert(files.has('package/LICENSE'), `${manifest.name}: missing packaged LICENSE`);
+
   if (manifest.name === 'void') {
+    assert.equal(manifest.dependencies?.['takumi-js'], undefined);
+    assert(manifest.exports['./image'], 'void: missing image export');
+    assert.equal(manifest.exports['./og'], undefined);
     for (const file of [
       'docs/guide/quickstart.md',
       'docs/reference/cli.md',
@@ -43,6 +47,19 @@ export function inspectPackage(tarball) {
       'void: docs must be bundled at the package root',
     );
   }
+
+  if (manifest.name === '@void/image-renderer-takumi') {
+    assert(files.has('package/licenses/Roboto.txt'), `${manifest.name}: missing Roboto license`);
+    assert(manifest.exports['.'], `${manifest.name}: missing renderer export`);
+    assert(manifest.peerDependencies?.void, `${manifest.name}: missing void peer dependency`);
+    assert(manifest.dependencies?.['takumi-js'], `${manifest.name}: missing Takumi dependency`);
+    const output = execFileSync('tar', ['-xOf', tarball, 'package/dist/index.mjs'], {
+      encoding: 'utf8',
+    });
+    assert.match(output, /from ["']takumi-js["']/, `${manifest.name}: Takumi must stay external`);
+    assert.match(output, /import\(["']takumi-js\/wasm["']\)/);
+  }
+
   for (const field of [
     'dependencies',
     'optionalDependencies',
