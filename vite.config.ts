@@ -597,8 +597,6 @@ const config = defineConfig({
       'typescript/no-unsafe-type-assertion': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.
       'unicorn/catch-error-name': 'off',
-      // Code generators and CLI output accumulate lines across distinct steps. Preserve staging and evaluation order before merging pushes.
-      'unicorn/prefer-single-call': 'off',
       '@typescript-eslint/array-type': [
         'error',
         {

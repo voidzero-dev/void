@@ -419,14 +419,11 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
     return lines.join('\n');
   }
 
-  lines.push('import { initIslands } from "void/pages-client";');
-  lines.push('const islands = {');
+  lines.push('import { initIslands } from "void/pages-client";', 'const islands = {');
   for (const [id, path] of uniqueIslands) {
     lines.push(`  ${JSON.stringify(id)}: () => import(${JSON.stringify(path)}),`);
   }
-  lines.push('};');
-  lines.push(options.hydrateIsland);
-  lines.push('initIslands(islands, hydrateIsland);');
+  lines.push('};', options.hydrateIsland, 'initIslands(islands, hydrateIsland);');
 
   return lines.join('\n');
 }

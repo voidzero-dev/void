@@ -558,11 +558,11 @@ export function generateVoidAuthDrizzleSchema(
       `  ${JSON.stringify(defaultModelName)}: ${defaultToVariable.get(defaultModelName)},`,
     );
   }
-  lines.push('} as const;');
   lines.push(
+    '} as const;',
     `export const migrationSchema = ${JSON.stringify(migrationSchema, null, 2)} as const;`,
+    '',
   );
-  lines.push('');
 
   return lines.join('\n') + '\n';
 }
