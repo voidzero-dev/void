@@ -541,6 +541,7 @@ const config = defineConfig({
       'import/no-namespace': 'off',
       // CLI output, platform Worker logging, and output-capture fixtures intentionally use the console across the workspace.
       'no-console': 'off',
+      // Review the assignments in deploy, recovery, and cleanup flows alongside their failure-path tests before removing them.
       'no-useless-assignment': 'off',
       'preserve-caught-error': 'off',
       'quality/no-array-filter-map': 'off',
