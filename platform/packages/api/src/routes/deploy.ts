@@ -502,7 +502,7 @@ const ADMISSION_REASON_MAX_CHARS = 4096;
  */
 async function rejectedAdmissionReason(response: Response): Promise<string | null> {
   const type = response.headers.get('content-type') ?? '';
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     return null;
   }
