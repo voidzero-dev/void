@@ -537,6 +537,7 @@ const config = defineConfig({
       // Temporarily disabled during the shared preset migration.
       // Keep runtime dispatch and error classification based on native and framework class identity. Review cross-realm cases separately.
       '@nkzw/no-instanceof': 'off',
+      // Several Vite, filesystem, and test integrations use namespace objects for forwarding, mocking, or optional exports.
       'import/no-namespace': 'off',
       'no-console': 'off',
       'no-useless-assignment': 'off',
