@@ -1,6 +1,7 @@
 import { globSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import cloudflare from '@cloudflare/oxlint-config/vite-plus';
 import { defineConfig } from 'vite-plus';
 import { integrationTestDirs, listIntegrationTestFiles } from './test/integration-files.ts';
 import { SuiteSequencer } from './test/sequencer.ts';
@@ -239,10 +240,12 @@ const config = defineConfig({
     ],
   },
   lint: {
+    extends: [cloudflare],
     categories: {
       correctness: 'off',
     },
     env: {
+      ...cloudflare.env,
       browser: true,
       builtin: true,
       es2024: true,
@@ -273,6 +276,11 @@ const config = defineConfig({
       '.worktrees/**',
     ],
     overrides: [
+      {
+        // Temporarily override the preset's TypeScript-specific rule setting.
+        files: ['**/*.{ts,tsx,mts,cts}'],
+        rules: { 'typescript/only-throw-error': 'off' },
+      },
       {
         // Fate may emit unused imports; still lint and typecheck the generated client.
         files: ['platform/packages/api/src/admin/fate/client.generated.ts'],
@@ -393,6 +401,79 @@ const config = defineConfig({
       },
     ],
     rules: {
+      // Temporarily disabled during the shared preset migration.
+      '@nkzw/no-instanceof': 'off',
+      'array-callback-return': 'off',
+      eqeqeq: 'off',
+      'import/consistent-type-specifier-style': 'off',
+      'import/export': 'off',
+      'import/no-namespace': 'off',
+      'no-console': 'off',
+      'no-promise-executor-return': 'off',
+      'no-useless-assignment': 'off',
+      'object-shorthand': 'off',
+      'prefer-arrow-callback': 'off',
+      'prefer-object-has-own': 'off',
+      'prefer-promise-reject-errors': 'off',
+      'preserve-caught-error': 'off',
+      'quality/no-array-filter-map': 'off',
+      'quality/no-chained-type-assertions': 'off',
+      'quality/no-conditional-empty-object-spread': 'off',
+      'quality/no-known-value-widening': 'off',
+      'quality/no-object-parameters': 'off',
+      'quality/no-reflect-apply': 'off',
+      'quality/no-reflect-get': 'off',
+      'quality/no-unknown-returns': 'off',
+      'quality/no-unsafe-dictionary-type': 'off',
+      'quality/no-widen-then-assert': 'off',
+      'react/button-has-type': 'off',
+      'react/immutability': 'off',
+      'react/no-unescaped-entities': 'off',
+      'react/no-unknown-property': 'off',
+      'react/purity': 'off',
+      'react/rules-of-hooks': 'off',
+      'react/set-state-in-effect': 'off',
+      'typescript/await-thenable': 'off',
+      'typescript/ban-ts-comment': 'off',
+      'typescript/consistent-type-imports': 'off',
+      'typescript/no-duplicate-type-constituents': 'off',
+      'typescript/no-empty-object-type': 'off',
+      'typescript/no-import-type-side-effects': 'off',
+      'typescript/no-misused-promises': 'off',
+      'typescript/no-misused-spread': 'off',
+      'typescript/no-non-null-assertion': 'off',
+      'typescript/no-unnecessary-type-assertion': 'off',
+      'typescript/no-unsafe-argument': 'off',
+      'typescript/no-unsafe-assignment': 'off',
+      'typescript/no-unsafe-call': 'off',
+      'typescript/no-unsafe-function-type': 'off',
+      'typescript/no-unsafe-member-access': 'off',
+      'typescript/no-unsafe-return': 'off',
+      'typescript/no-unsafe-type-assertion': 'off',
+      'typescript/no-unsafe-unary-minus': 'off',
+      'typescript/only-throw-error': 'off',
+      'typescript/require-array-sort-compare': 'off',
+      'typescript/return-await': 'off',
+      'typescript/switch-exhaustiveness-check': 'off',
+      'typescript/unbound-method': 'off',
+      'typescript/use-unknown-in-catch-callback-variable': 'off',
+      'unicorn/catch-error-name': 'off',
+      'unicorn/consistent-function-scoping': 'off',
+      'unicorn/no-array-fill-with-reference-type': 'off',
+      'unicorn/no-hex-escape': 'off',
+      'unicorn/numeric-separators-style': 'off',
+      'unicorn/prefer-at': 'off',
+      'unicorn/prefer-dom-node-append': 'off',
+      'unicorn/prefer-import-meta-properties': 'off',
+      'unicorn/prefer-number-properties': 'off',
+      'unicorn/prefer-set-has': 'off',
+      'unicorn/prefer-single-call': 'off',
+      'unicorn/prefer-string-raw': 'off',
+      'unicorn/prefer-string-replace-all': 'off',
+      'unicorn/prefer-string-slice': 'off',
+      'unicorn/prefer-structured-clone': 'off',
+      'unicorn/prefer-top-level-await': 'off',
+      'unicorn/text-encoding-identifier-case': 'off',
       '@typescript-eslint/array-type': [
         'error',
         {
@@ -538,6 +619,7 @@ const config = defineConfig({
       'vitest/no-focused-tests': 'error',
     },
     options: {
+      reportUnusedDisableDirectives: 'off',
       typeAware: true,
       typeCheck: true,
     },
