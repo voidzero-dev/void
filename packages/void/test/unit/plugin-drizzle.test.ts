@@ -417,7 +417,7 @@ describe('drizzlePlugin db typing generation', () => {
         : mysqlTable('users', { id: int('id') });
 
     // drizzle reports an error from a running query as "Failed query: ...".
-    await expect(withRuntimeEnv({}, async () => await db.select().from(users))).rejects.toThrow(
+    await expect(withRuntimeEnv({}, async () => db.select().from(users))).rejects.toThrow(
       `db: ${name} is not configured.`,
     );
     expect(clients).toEqual([]);

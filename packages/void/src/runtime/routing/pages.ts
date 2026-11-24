@@ -110,8 +110,10 @@ export function createPageErrorHandler(
         options.headConfig ?? undefined,
         { ...options.renderOptions, boundaries: options.middlewareBoundaries ?? { errors: [] } },
       );
+      // oxlint-disable-next-line typescript/return-await -- Keep failures from the fallback outside boundary recovery and restore the route index immediately.
       return response ?? fallback(error, c);
     } catch (failure) {
+      // oxlint-disable-next-line typescript/return-await -- Keep failures from the fallback outside boundary recovery and restore the route index immediately.
       return fallback(
         failure instanceof Error
           ? failure

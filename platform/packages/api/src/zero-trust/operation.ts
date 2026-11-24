@@ -403,7 +403,7 @@ export async function runConfigureOperation(
             configuration = await heartbeatConfiguration(db, configuration);
           }
           if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-            return releaseOperation(db, configuration);
+            return await releaseOperation(db, configuration);
           }
         }
         const missing = await seedCandidates(
@@ -423,7 +423,7 @@ export async function runConfigureOperation(
           configuration = await heartbeatConfiguration(db, configuration);
         }
         if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         configuration = await advanceOperation(
           db,
@@ -456,11 +456,11 @@ export async function runConfigureOperation(
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
           if (routingBudget.exhausted || routingBudget.remaining === 0) {
-            return releaseOperation(db, configuration);
+            return await releaseOperation(db, configuration);
           }
         }
         if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         configuration = await advanceOperation(db, configuration, 'wildcard');
         continue;
@@ -546,7 +546,7 @@ export async function runConfigureOperation(
           }
         }
         if (stoppedForRoutingBudget || projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         continue;
       }
@@ -687,7 +687,7 @@ export async function runDisableOperation(
           }
         }
         if (stoppedForRoutingBudget || projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         continue;
       }
@@ -739,7 +739,7 @@ export async function runDisableOperation(
           configuration = await heartbeatConfiguration(db, configuration);
         }
         if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         configuration = await withZeroTrustOperationLock(db, configuration, async (lockedDb) => {
           // Recheck late project work under the lock used by project mutations

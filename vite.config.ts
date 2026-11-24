@@ -569,8 +569,6 @@ const config = defineConfig({
       'typescript/no-unsafe-return': 'off',
       // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',
-      // Awaiting within catch and finally paths changes when failure handling and cleanup run. Review those paths with targeted tests.
-      'typescript/return-await': 'off',
       // Promise rejection handlers need boundary-specific narrowing for logging, provider retry classification, and test assertions.
       'typescript/use-unknown-in-catch-callback-variable': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.

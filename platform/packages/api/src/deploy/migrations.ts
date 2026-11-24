@@ -155,11 +155,13 @@ export async function dispatchStableAppMigration(
     const response = await userWorker.fetch(request);
     const text = await response.text();
     if (isCfAssetPlainText(text)) {
+      // oxlint-disable-next-line typescript/return-await -- A failed status reconciliation must propagate without invoking the same probe again.
       return reconcileStableAppMigration(userWorker, token, attemptId);
     }
     try {
       return normalizeUserWorkerMigrationResult(JSON.parse(text), text.slice(0, 500));
     } catch {
+      // oxlint-disable-next-line typescript/return-await -- A failed status reconciliation must propagate without invoking the same probe again.
       return reconcileStableAppMigration(userWorker, token, attemptId);
     }
   } catch (err) {

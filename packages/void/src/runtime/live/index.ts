@@ -260,7 +260,7 @@ export function defineLiveStream(options: LiveStreamOptions): LiveStream {
         }
         const binding = getLiveBinding(ctx.env);
         const id = binding.idFromName(connectionInstanceName(streamId, connectionId));
-        return binding.get(id).fetch(internalUrl('/connect'), {
+        return await binding.get(id).fetch(internalUrl('/connect'), {
           method: 'POST',
           body: JSON.stringify({ streamId, connectionId, owner, limits }),
         });

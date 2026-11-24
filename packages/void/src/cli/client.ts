@@ -1160,6 +1160,7 @@ export class PlatformClient {
         return { needed: Object.keys(assetManifest), total, skipped: 0 };
       }
 
+      // oxlint-disable-next-line typescript/return-await -- A malformed preflight response must propagate instead of triggering an upload of all assets.
       return res.json();
     } catch (error) {
       if (isPreflightRejection(error)) {
