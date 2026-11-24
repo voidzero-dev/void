@@ -6008,6 +6008,7 @@ describe('platform installer', () => {
     });
 
     const cleanMachineDiscovery = parsePlatformInstallationManifest(
+      // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
       JSON.parse(JSON.stringify(rollbackResult.manifest)),
     );
     expect(cleanMachineDiscovery.databaseSchemaDigest).toBe(

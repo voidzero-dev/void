@@ -462,6 +462,7 @@ describe('plan routes', () => {
     await planChange('/pro/set', { aiLogging: 'metadata' });
     // Older APIs rebuild the catalog from known keys and save it on every write.
     const catalog = await readPlanCatalog(env.db);
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     await writePlanCatalog(env.db, parsePlatformPlanCatalog(JSON.parse(JSON.stringify(catalog))));
     await setPlatformSetting(env.db, PLAN_CATALOG_SETTING, {
       ...createDefaultPlanCatalog('free'),

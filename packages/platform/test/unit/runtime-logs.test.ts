@@ -38,6 +38,7 @@ function roundTrip(input: PlatformDeploymentManifestInput) {
   const manifest = createPlatformDeploymentManifest(input);
   return {
     manifest,
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     parsed: parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(manifest))),
   };
 }

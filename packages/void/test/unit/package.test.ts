@@ -98,6 +98,7 @@ describe('worker packaging', () => {
         }),
       ];
       for (const manifest of manifests) {
+        // oxlint-disable-next-line unicorn/prefer-structured-clone -- Compare the package manifest as it is written to JSON.
         const published = JSON.parse(JSON.stringify(manifest));
         expect(published.alwaysUseHttps).toBe(value);
         expect(Object.hasOwn(published, 'alwaysUseHttps')).toBe(value !== undefined);

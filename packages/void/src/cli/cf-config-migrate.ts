@@ -408,6 +408,7 @@ export function translateWranglerConfig(
 ): { config: unknown; followUps: Array<MigrationFollowUp> } {
   // Settings are JSON: a key without a value is absent. The copy also keeps the converter from
   // sharing objects with the caller.
+  // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the value to the JSON configuration written to disk.
   const converted = convertWranglerConfig(JSON.parse(JSON.stringify(raw)), 'vite', []);
   const branch = converted.environments.get(mode) ?? converted.base;
   const input = record(outputValue(branch.config));
@@ -429,6 +430,7 @@ export function translateWranglerConfig(
     throw new Error('cf could not translate the built Cloudflare configuration.');
   }
   // Only JSON values, as the settings will be written to a file.
+  // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the value to the JSON configuration written to disk.
   return { config: JSON.parse(JSON.stringify(parsed.data)), followUps: converted.followUps };
 }
 

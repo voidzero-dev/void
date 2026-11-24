@@ -74,6 +74,7 @@ describe('optional platform dashboard origin', () => {
       controlPlane: { dashboardUrl: 'https://dash.example.com:8443/' },
     });
     expect(deployment.controlPlane.dashboardHostname).toBe('dash.example.com');
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     expect(parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(deployment)))).toEqual(
       deployment,
     );
@@ -94,6 +95,7 @@ describe('optional platform dashboard origin', () => {
       },
       createdAt,
     );
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     expect(parsePlatformInstallationManifest(JSON.parse(JSON.stringify(manifest)))).toEqual(
       manifest,
     );

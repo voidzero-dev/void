@@ -581,8 +581,6 @@ const config = defineConfig({
       'unicorn/consistent-function-scoping': 'off',
       // Code generators and CLI output accumulate lines across distinct steps. Preserve staging and evaluation order before merging pushes.
       'unicorn/prefer-single-call': 'off',
-      // Manifest and pack fixtures use JSON round trips for JSON serialization semantics, including dropped undefined keys.
-      'unicorn/prefer-structured-clone': 'off',
       // Several findings are deferred bootstrap and environment probes. Keep their module initialization and error sequencing.
       'unicorn/prefer-top-level-await': 'off',
       '@typescript-eslint/array-type': [
