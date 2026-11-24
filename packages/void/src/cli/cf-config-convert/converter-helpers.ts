@@ -11,7 +11,7 @@ export function isRecord(value: unknown): value is UnknownRecord {
 }
 
 export function hasOwn(record: UnknownRecord, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
+  return Object.hasOwn(record, key);
 }
 
 export function getRecord(record: UnknownRecord, key: string): UnknownRecord | undefined {

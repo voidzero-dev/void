@@ -168,7 +168,7 @@ export function objectToFormData(
 ): FormData {
   form = form || new FormData();
   for (const key in source) {
-    if (!Object.prototype.hasOwnProperty.call(source, key)) {
+    if (!Object.hasOwn(source, key)) {
       continue;
     }
     const composed = parentKey ? parentKey + '[' + key + ']' : key;

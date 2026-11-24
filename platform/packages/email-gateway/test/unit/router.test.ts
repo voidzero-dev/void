@@ -1047,7 +1047,7 @@ describe('routeInbound — envelope header bag (prototype pollution guard)', () 
     // prototype mutation that affects {}).
     const envelope = emailFn.mock.calls[0]?.[0] as { headers: Record<string, string> };
     expect(Object.getPrototypeOf(envelope.headers)).toBe(Object.prototype);
-    expect(Object.prototype.hasOwnProperty.call(envelope.headers, '__proto__')).toBe(true);
+    expect(Object.hasOwn(envelope.headers, '__proto__')).toBe(true);
     expect(envelope.headers['__proto__']).toBe('evil');
     // Nothing leaked onto Object.prototype.
     expect(Object.getPrototypeOf({})).toBe(Object.prototype);

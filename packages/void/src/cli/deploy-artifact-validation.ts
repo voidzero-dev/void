@@ -661,7 +661,7 @@ export async function validateCloudflarePostBuildEnv(options: {
   }
   const emittedVars = emitted.vars;
   // Better Auth's signing secret belongs in the secret store, never in plaintext vars.
-  if (authEnabled && Object.prototype.hasOwnProperty.call(emittedVars, BETTER_AUTH_SECRET_NAME)) {
+  if (authEnabled && Object.hasOwn(emittedVars, BETTER_AUTH_SECRET_NAME)) {
     log.error(
       [
         `deploy: ${BETTER_AUTH_SECRET_NAME} must be stored as a Cloudflare Worker secret, not a plaintext worker var.`,
