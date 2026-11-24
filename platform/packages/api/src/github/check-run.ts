@@ -90,7 +90,7 @@ type FailureReason =
   | 'text-rejected-retry'
   | 'exhausted';
 
-function errInfo(err: unknown): { name?: string; message: string } {
+function errInfo(err: unknown) {
   if (err instanceof Error) {
     return { name: err.name, message: err.message };
   }

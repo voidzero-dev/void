@@ -90,11 +90,9 @@ export function createIslandManifest(
 ): IslandManifest {
   const entries = new Map<string, IslandEntry>();
 
-  function register(
-    specifier: string,
-    importerDir: string,
-    hydrate: string,
-  ): { absPath: string | null; islandId: string } {
+  type RegisteredIsland = { absPath: string | null; islandId: string };
+
+  function register(specifier: string, importerDir: string, hydrate: string): RegisteredIsland {
     const absPath = resolveSpecifier(specifier, importerDir, extensions);
     if (!absPath) {
       return { absPath, islandId: specifier };
@@ -513,6 +511,8 @@ export function computePagesNeedingClientJS(
   return result;
 }
 
+type PagesRescan = { flush: () => Promise<void> };
+
 /**
  * Watch the pages directory for structural changes (add/remove) and .md content
  * changes (frontmatter layout field) so that new layouts and named layouts are
@@ -526,7 +526,7 @@ export function watchPagesForRescan(
   pagesDir: string,
   root: string,
   onRescan: (pageScan: PageScanResult) => void,
-): { flush: () => Promise<void> } {
+): PagesRescan {
   let pending: Promise<void> | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   const normalizedPagesDir = normalizePath(pagesDir);

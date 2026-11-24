@@ -454,6 +454,12 @@ export async function setProjectAiLogging(
 
 export type AiLoggingState = 'applied' | 'pending' | 'pending_plan_publish' | 'drift' | 'unknown';
 
+type AiLoggingPublication = Readonly<{
+  published: AiLoggingMode | null;
+  publishedAt: number | null;
+  state: AiLoggingState;
+}>;
+
 /**
  * Compares the published key with the effective mode. `pending` means the right value
  * is published but may not have reached every location yet; `unknown` means the key
@@ -469,11 +475,7 @@ export function aiLoggingState(
     clearedAt?: number | null;
     now: number;
   }>,
-): Readonly<{
-  published: AiLoggingMode | null;
-  publishedAt: number | null;
-  state: AiLoggingState;
-}> {
+): AiLoggingPublication {
   if (!input.published) {
     return { published: null, publishedAt: null, state: 'unknown' };
   }

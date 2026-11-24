@@ -443,10 +443,12 @@ async function resourcePage(
   return result;
 }
 
-function parsePreviewCursor(raw: string | undefined): {
+type SandboxPreviewPosition = {
   phase: SandboxDrainPhase;
   cursor: SandboxDrainCursor;
-} {
+};
+
+function parsePreviewCursor(raw: string | undefined): SandboxPreviewPosition {
   if (!raw) {
     return { phase: 'deployments', cursor: { pass: '1' } };
   }
@@ -466,11 +468,17 @@ function parsePreviewCursor(raw: string | undefined): {
   throw new OperatorError(400, 'Sandbox drain preview cursor is invalid.', 'invalid_cursor');
 }
 
+type SandboxPreviewProgress = {
+  phase: SandboxDrainPhase;
+  cursor: SandboxDrainCursor;
+  complete: boolean;
+};
+
 function nextPosition(
   phase: SandboxDrainPhase,
   cursor: SandboxDrainCursor,
   page: PageResult,
-): { phase: SandboxDrainPhase; cursor: SandboxDrainCursor; complete: boolean } {
+): SandboxPreviewProgress {
   if (page.truncated && page.nextCursor) {
     return { phase, cursor: page.nextCursor, complete: false };
   }

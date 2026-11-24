@@ -459,17 +459,19 @@ function resolveUserConfig(
   return mergeEmailAndPasswordDefaults({ ...defaults, ...userConfig });
 }
 
+type CookieForwarder = {
+  plugin: BetterAuthPlugin;
+  start(): void;
+  cookies(): Array<string>;
+};
+
 /**
  * Collects cookies that `auth.api.*` calls set while a request runs. Router
  * calls (`auth.handler`) return their cookies on their own response. Better
  * Auth runs plugin `after` hooks in array order, so the plugin goes last to
  * see cookies set by earlier hooks.
  */
-function createCookieForwarder(): {
-  plugin: BetterAuthPlugin;
-  start(): void;
-  cookies(): Array<string>;
-} {
+function createCookieForwarder(): CookieForwarder {
   let collecting = false;
   const cookies: Array<string> = [];
   const plugin: BetterAuthPlugin = {

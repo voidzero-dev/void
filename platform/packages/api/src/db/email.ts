@@ -287,12 +287,8 @@ export async function updateEmailDestinationStatus(
    */
   verificationSource?: EmailDestination['verification_source'],
 ): Promise<boolean> {
-  const patch: {
-    status: EmailDestination['status'];
-    verified_at?: string | null;
-    cf_destination_id?: string | null;
-    verification_source?: EmailDestination['verification_source'];
-  } = {
+  const patch: Pick<EmailDestination, 'status'> &
+    Partial<Pick<EmailDestination, 'verified_at' | 'cf_destination_id' | 'verification_source'>> = {
     status,
   };
   if (status === 'verified') {

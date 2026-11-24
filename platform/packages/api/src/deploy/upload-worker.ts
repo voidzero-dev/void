@@ -98,7 +98,7 @@ function uploadFields(
   watchdog: UploadWatchdog,
   attemptStart: number,
   budgetEndsAt: number,
-): Record<string, unknown> {
+) {
   const progress = upload.progress();
   const timeout = watchdog.fired() ?? null;
   return {
@@ -484,7 +484,7 @@ export async function uploadDeploymentWorker(input: {
     manifest.live?.migrations,
   );
   const tailServiceName = context.env.TAIL_SERVICE_NAME ?? DEFAULT_TAIL_SERVICE_NAME;
-  const metadata: Record<string, unknown> = {
+  const metadata = {
     main_module: manifest.workerMain ?? DEFAULT_WORKER_MAIN_MODULE,
     compatibility_date: manifest.compatibilityDate ?? '2026-02-12',
     compatibility_flags: manifest.compatibilityFlags ?? ['nodejs_compat'],

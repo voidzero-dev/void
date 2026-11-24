@@ -93,9 +93,7 @@ const MAX_GATEWAY_ERRORS = 5; // start counting attempts after this many 524s (4
  *
  * Always returns a fresh object (no shared references with the input).
  */
-export function normalizeForCfAssetSession(
-  entries: Record<string, AssetManifestEntry>,
-): Record<string, AssetManifestEntry> {
+export function normalizeForCfAssetSession(entries: Record<string, AssetManifestEntry>) {
   const out: Record<string, AssetManifestEntry> = {};
   for (const [path, entry] of Object.entries(entries)) {
     out[path] = { hash: entry.hash, size: entry.size };
@@ -432,10 +430,12 @@ function resolveAssetUploadParts(
   });
 }
 
-function createBase64MultipartBody(parts: ReadonlyArray<AssetUploadPart>): {
+type AssetUploadBody = {
   body: ReadableStream<Uint8Array>;
   contentType: string;
-} {
+};
+
+function createBase64MultipartBody(parts: ReadonlyArray<AssetUploadPart>): AssetUploadBody {
   const boundary = `----void-assets-${Math.random().toString(36).slice(2)}`;
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
@@ -606,13 +606,12 @@ export function getContentType(path: string): string {
   return contentType ?? 'application/null';
 }
 
+type AssetUploadMetadata = { jwt: string; config?: AssetConfig };
+
 /**
  * Build the worker metadata with assets JWT and config attached.
  */
-export function buildAssetMetadata(
-  jwt: string,
-  config?: AssetConfig,
-): { jwt: string; config?: AssetConfig } {
+export function buildAssetMetadata(jwt: string, config?: AssetConfig): AssetUploadMetadata {
   return {
     jwt,
     ...(config ? { config } : {}),

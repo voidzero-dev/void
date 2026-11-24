@@ -90,7 +90,8 @@ const app = new Hono<ApiEnv>()
       return access;
     }
 
-    const body = await context.req.json<{ value?: string }>().catch((): { value?: string } => ({}));
+    type SecretValueInput = { value?: string };
+    const body = await context.req.json<SecretValueInput>().catch<SecretValueInput>(() => ({}));
     if (typeof body.value !== 'string' || body.value.length === 0) {
       return context.json({ error: 'value is required' }, 400);
     }

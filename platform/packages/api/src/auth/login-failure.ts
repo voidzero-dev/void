@@ -68,10 +68,12 @@ const hints: Record<LoginFailureCode, Readonly<{ message: string; callback?: tru
   },
 };
 
-/** What to tell the user, and whether the provider's registered callback URL may be the cause. */
-export function loginFailureHint(code: LoginFailureCode): Readonly<{
+type LoginFailureHint = Readonly<{
   message: string;
   callback: boolean;
-}> {
+}>;
+
+/** What to tell the user, and whether the provider's registered callback URL may be the cause. */
+export function loginFailureHint(code: LoginFailureCode): LoginFailureHint {
   return { message: hints[code].message, callback: hints[code].callback === true };
 }

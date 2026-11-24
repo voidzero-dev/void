@@ -31,7 +31,7 @@ export async function fetchPages(
   options: PagesFetchOptions,
   followGetRedirects = true,
 ): Promise<PagesFetchResult> {
-  const headers: Record<string, string> = { ...options.headers, [REDIRECT_HEADER]: 'manual' };
+  const headers: PagesFetchOptions['headers'] = { ...options.headers, [REDIRECT_HEADER]: 'manual' };
   const init = { ...options, headers };
   let redirectedTo: string | undefined;
   for (let redirects = 0; redirects <= 20; redirects++) {

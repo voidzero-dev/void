@@ -69,7 +69,11 @@ export function formatLimit(value: number, unit?: string): string {
   return formatNumber(value);
 }
 
-export const STATUS_COLORS: Record<string, string> = {
+type StatusColors = Record<'success' | 'failed' | 'pending' | 'skipped', string> & {
+  [status: string]: string | undefined;
+};
+
+export const STATUS_COLORS: StatusColors = {
   success: '#16a34a',
   failed: '#dc2626',
   pending: '#d97706',
@@ -94,7 +98,11 @@ function expectedBy(publishedAt: string | null): string | null {
   return Number.isNaN(time) ? null : `${new Date(time + 120_000).toISOString().slice(11, 19)} UTC`;
 }
 
-const aiLoggingStates: Record<string, (status: AiLoggingStatusDisplay) => string> = {
+interface AiLoggingLabels {
+  [key: string]: (status: AiLoggingStatusDisplay) => string;
+}
+
+const aiLoggingStates: AiLoggingLabels = {
   applied: () => 'applied',
   pending: (status) => {
     const by = expectedBy(status.publishedAt);

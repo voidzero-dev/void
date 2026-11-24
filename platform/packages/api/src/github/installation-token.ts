@@ -121,7 +121,7 @@ type CompareResponse = Readonly<{ status?: string }>;
 const COMPARE_RETRY_ATTEMPTS = 2;
 const COMPARE_RETRY_DELAY_MS = 250;
 
-function errInfo(err: unknown): { name?: string; message: string } {
+function errInfo(err: unknown) {
   if (err instanceof Error) {
     return { name: err.name, message: err.message };
   }

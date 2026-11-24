@@ -124,7 +124,7 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
       providers: config.auth?.providers ?? null,
       userConfig: await loadVoidAuthConfig(authConfigPath, projectAuthConfigImporter(root)),
     };
-    const env = { ...loadLocalEnv(root), ...process.env } as Record<string, unknown>;
+    const env = { ...loadLocalEnv(root), ...process.env };
     const schemaPath = join(outDir, 'better-auth-schema.ts');
     const databasePath = join(outDir, 'better-auth-db.ts');
     const drizzleAdapterPath = fileURLToPath(import.meta.resolve('better-auth/adapters/drizzle'));

@@ -87,11 +87,15 @@ function resolveRoomBinding(
   return binding;
 }
 
+interface ActionProxy {
+  [key: string]: (...args: Array<unknown>) => Promise<unknown>;
+}
+
 function createActionProxy(
   stub: RoomActionStub,
   id: string,
   params: Record<string, string>,
-): Record<string, (...args: Array<unknown>) => Promise<unknown>> {
+): ActionProxy {
   return new Proxy(
     {},
     {

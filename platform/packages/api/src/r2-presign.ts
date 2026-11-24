@@ -122,7 +122,8 @@ export async function presignAssetPut(
   // the unsignable list into the signed-headers list, which is what we
   // want — Content-Type, Content-Md5 and Content-Length must be covered by
   // the signature so R2 rejects tampered uploads.
-  const headers: Record<string, string> = {
+  const headers: Record<'Content-Type', string> &
+    Partial<Record<'Content-Md5' | 'If-None-Match' | 'Content-Length', string>> = {
     'Content-Type': opts.contentType,
   };
   if (opts.md5 !== undefined) {

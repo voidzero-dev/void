@@ -839,7 +839,7 @@ export async function buildReplyMessage(
   // Threading rides `threading`, since `headers` reserve these names. Both
   // ids are remote-controlled: drop one that cannot fit a line or holds a
   // control character rather than fail the reply.
-  const threading: { inReplyTo?: string; references?: string } = {};
+  const threading: NonNullable<Parameters<typeof normalizeEmail>[0]['threading']> = {};
   const messageId = threadingId('In-Reply-To', originalMessageId);
   if (messageId) {
     threading.inReplyTo = messageId;

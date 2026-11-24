@@ -276,6 +276,7 @@ export async function platformAppAccessTurnOff(context: Context<ApiEnv>): Promis
   try {
     input = JSON.parse(body);
   } catch {
+    // oxlint-disable-next-line quality/no-known-value-widening -- Use the same validation path for malformed JSON and invalid fields.
     input = null;
   }
   if (!input || typeof input !== 'object' || (input as { version?: unknown }).version !== 1) {

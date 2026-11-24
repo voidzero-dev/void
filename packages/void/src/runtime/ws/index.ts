@@ -218,6 +218,8 @@ export type ConnectCommonOptions = {
 type ConnectOptions<P extends keyof WebSocketRouteMap> = ConnectCommonOptions &
   (HasParams<P> extends true ? { params: ParamsOf<P> } : { params?: never });
 
+type ListenerSets<Event> = { [K in keyof ListenerMap<Event>]: Set<ListenerMap<Event>[K]> };
+
 type ListenerMap<ServerEvent> = {
   message: (event: ServerEvent) => void;
   open: () => void;
@@ -227,9 +229,7 @@ type ListenerMap<ServerEvent> = {
 
 export class VoidSocket<P extends keyof WebSocketRouteMap & string> {
   private socket: WebSocket | null = null;
-  private readonly listeners: {
-    [K in keyof ListenerMap<ServerEventOf<P>>]: Set<ListenerMap<ServerEventOf<P>>[K]>;
-  } = {
+  private readonly listeners: ListenerSets<ServerEventOf<P>> = {
     message: new Set(),
     open: new Set(),
     close: new Set(),

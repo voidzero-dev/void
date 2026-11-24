@@ -61,10 +61,15 @@ export function isEmailCredentialExpired(expiresOn: string | null): boolean {
   return Number.isFinite(expiresAt) && expiresAt <= Date.now();
 }
 
-function verifiedApiTokenMetadata(verification: { id: string; expires_on?: string | null }): {
+type VerifiedApiTokenMetadata = {
   tokenId: string;
   expiresOn: string | null;
-} {
+};
+
+function verifiedApiTokenMetadata(verification: {
+  id: string;
+  expires_on?: string | null;
+}): VerifiedApiTokenMetadata {
   if (!verification.id) {
     throw new EmailOperationError('Cloudflare API token identity is unavailable', 503);
   }

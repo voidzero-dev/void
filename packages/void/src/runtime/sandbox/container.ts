@@ -130,11 +130,13 @@ class ProcessCapability extends RpcTarget {
   }
 }
 
-/** Decode cancellation without trying to serialize an AbortSignal over Workers RPC. */
-function operationOptions(value: unknown): {
+type SandboxOperationOptions = {
   options: Record<string, unknown>;
   finish(this: void): void;
-} {
+};
+
+/** Decode cancellation without trying to serialize an AbortSignal over Workers RPC. */
+function operationOptions(value: unknown): SandboxOperationOptions {
   const { abort, ...options } = (value ?? {}) as Record<string, unknown>;
   if (abort === undefined) {
     return { options, finish() {} };

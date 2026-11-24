@@ -328,6 +328,10 @@ export function _hasRegisteredSchema(): boolean {
   return registry.hasDefineEnvBeenCalled;
 }
 
+interface SchemaDefaults {
+  [key: string]: string;
+}
+
 /**
  * Internal: extract `.default(value)` values from the registered schema as
  * stringified env values. Used for explicit build-time client fallbacks.
@@ -340,7 +344,7 @@ export function _hasRegisteredSchema(): boolean {
  *
  * Keys with no default — required keys and plain `.optional()` keys — are omitted.
  */
-export function _getSchemaDefaults(): Record<string, string> {
+export function _getSchemaDefaults(): SchemaDefaults {
   const defaults: Record<string, string> = {};
   if (!registry.schema) {
     return defaults;

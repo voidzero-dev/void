@@ -142,10 +142,7 @@ interface CompiledRoute {
   handler: EmailHandler;
 }
 
-function compileRoutes(routes: Record<string, EmailHandler>): {
-  compiled: Array<CompiledRoute>;
-  defaultHandler?: EmailHandler;
-} {
+function compileRoutes(routes: Record<string, EmailHandler>) {
   const compiled: Array<CompiledRoute> = [];
   let defaultHandler: EmailHandler | undefined;
   for (const [key, handler] of Object.entries(routes)) {

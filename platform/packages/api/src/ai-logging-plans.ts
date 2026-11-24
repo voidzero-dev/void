@@ -79,6 +79,8 @@ function modeFor(
   return planAiLogging({ modes, publish: null }, catalog, planId).planMode;
 }
 
+type PlanAiLoggingChanges = Readonly<{ planIds: Array<string>; includeUnknown: boolean }>;
+
 /**
  * Which accounts a plan change moves to a different plan default. `movedFrom` is a
  * removed plan whose accounts now sit on `movedTo`.
@@ -91,7 +93,7 @@ export function planAiLoggingChanges(
     modesAfter: PlanAiLoggingSettings['modes'];
     moved?: Readonly<{ from: string; to: string }>;
   }>,
-): Readonly<{ planIds: Array<string>; includeUnknown: boolean }> {
+): PlanAiLoggingChanges {
   const { before, after, modesBefore, modesAfter } = input;
   const planIds = after.plans
     .map((plan) => plan.id)

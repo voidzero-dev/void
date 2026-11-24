@@ -101,7 +101,9 @@ export function createRotationCloudflareClient(
       throw new RotationBudgetExhaustedError();
     }
     budget.cfCallsRemaining -= 1;
-    const headers: Record<string, string> = { Authorization: `Bearer ${input.apiToken}` };
+    const headers: Record<'Authorization', string> & Partial<Record<'Content-Type', string>> = {
+      Authorization: `Bearer ${input.apiToken}`,
+    };
     if (body !== undefined && !(body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }

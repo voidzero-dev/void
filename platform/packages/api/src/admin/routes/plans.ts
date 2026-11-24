@@ -109,7 +109,22 @@ app.post('/preview', async (context) => {
   const form = await context.req.parseBody();
   const selectedAction = action(form.action);
   const target = planId(form.id);
-  const body: Record<string, unknown> = { expectedRevision: Number(form.revision) };
+  const body: Record<'expectedRevision', number> &
+    Partial<
+      Record<
+        | 'id'
+        | 'copyFrom'
+        | 'name'
+        | 'buildInstanceType'
+        | 'allowShortSlugs'
+        | 'aiLogging'
+        | 'limits'
+        | 'archived'
+        | 'replacementPlanId'
+        | 'planId',
+        unknown
+      >
+    > = { expectedRevision: Number(form.revision) };
   if (selectedAction === 'add') {
     body.id = target;
     body.copyFrom = planId(form.copyFrom);
@@ -190,6 +205,7 @@ app.post('/apply', async (context) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       throw new Error();
     }
+    // oxlint-disable-next-line quality/no-known-value-widening -- Forward the reviewed JSON to the operator mutation for schema validation.
     body = { ...value, expectedRevision: Number(form.revision), dryRun: false };
   } catch {
     throw new OperatorError(400, 'The plan review is invalid. Preview the change again.');

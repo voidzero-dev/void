@@ -69,10 +69,9 @@ type StoredConnection = {
   state?: unknown;
 };
 
-function matchRoute(
-  pattern: string,
-  pathname: string,
-): { matched: boolean; params: Record<string, string> } {
+type RoomRouteMatch = { matched: boolean; params: Record<string, string> };
+
+function matchRoute(pattern: string, pathname: string): RoomRouteMatch {
   const patternSegments = pattern.split('/').filter(Boolean);
   const pathSegments = pathname.split('/').filter(Boolean);
   const params: Record<string, string> = {};

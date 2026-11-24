@@ -115,6 +115,7 @@ export async function requestDeploymentCancellation(db: Db, id: string, dryRun =
 
 function parseSince(since: string): number {
   const duration = /^(\d+)([mhd])$/.exec(since);
+  // oxlint-disable-next-line quality/no-known-value-widening -- The duration regex restricts its string capture to supported units.
   const multipliers: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
   const parsed = duration
     ? Date.now() - Number(duration[1]) * multipliers[duration[2]]

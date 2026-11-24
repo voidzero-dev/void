@@ -119,9 +119,7 @@ const read = (parent: Record<string, unknown> | Array<unknown>, segment: string)
  * Rebuild the object `objectToFormData` flattened. Numeric segments and `[]`
  * become arrays. Scalars are left as the client encoded them.
  */
-function formRecordToObject(
-  record: Record<string, FormEntry | Array<FormEntry>>,
-): Record<string, unknown> {
+function formRecordToObject(record: Record<string, FormEntry | Array<FormEntry>>) {
   const root: Record<string, unknown> = {};
   let nodes = 0;
 

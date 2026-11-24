@@ -69,7 +69,9 @@ export class ProxyKVNamespace {
       isBase64 = true;
     }
 
-    const body: Record<string, unknown> = {
+    const body: Record<'binding' | 'key', string> &
+      Record<'value', unknown> &
+      Partial<Record<'base64' | 'expiration' | 'expiration_ttl' | 'metadata', unknown>> = {
       binding: this.binding,
       key,
       value: serializedValue,

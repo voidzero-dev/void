@@ -47,6 +47,8 @@ export function queryKey(segment: string): string | undefined {
   return new URLSearchParams(segment).keys().next().value;
 }
 
+type PageActionQuery = { url: string; preserved: string };
+
 /**
  * For an action URL on the page's own path, `url` with the page's query
  * parameters after its own. A key the action URL names wins over the page's.
@@ -55,7 +57,7 @@ export function queryKey(segment: string): string | undefined {
 export function withPageQuery(
   url: string,
   page: { pathname: string; search: string },
-): { url: string; preserved: string } {
+): PageActionQuery {
   const hashIndex = url.indexOf('#');
   const base = hashIndex === -1 ? url : url.slice(0, hashIndex);
   const q = base.indexOf('?');

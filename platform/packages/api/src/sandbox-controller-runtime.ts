@@ -72,16 +72,18 @@ export default class SandboxService extends WorkerEntrypoint<ControllerEnv> {
   }
 }
 
+type LaunchFailure = { failure?: Error };
+
 /** Platform-owned lifecycle; no application code is loaded in this Worker. */
 export class SandboxController extends SandboxContainer<ControllerEnv> {
   #finishing: Promise<void> | undefined;
   #activity: Activity | undefined;
   #activityReady: Promise<void> | undefined;
   #busy = 0;
-  #generation: { failure?: Error } = {};
-  protected override processContext(exitCode: Promise<number>): unknown {
+  #generation: LaunchFailure = {};
+  protected override processContext(exitCode: Promise<number>): LaunchFailure {
     const generation = this.#generation;
-    const completion: { failure?: Error } = {};
+    const completion: LaunchFailure = {};
     const capture = () => {
       completion.failure = generation.failure;
     };

@@ -45,10 +45,14 @@ export function readNearestPackageJson(
   }
 }
 
+interface PackageDependencies {
+  [key: string]: string;
+}
+
 export function getPackageDependencies(
   packageJson: PackageJson,
   fields: ReadonlyArray<PackageDependencyField> = DEFAULT_DEPENDENCY_FIELDS,
-): Record<string, string> {
+): PackageDependencies {
   const dependencies: Record<string, string> = {};
   for (const field of fields) {
     const group = packageJson[field];

@@ -150,19 +150,21 @@ function loweredLimitKeys(
     .map(([key]) => key);
 }
 
+type PlanCatalogProposal = {
+  catalog: PlatformPlanCatalog;
+  affectedPlanIds: Array<string>;
+  removedPlanId?: string;
+  replacementPlanId?: string;
+  loweredLimits: Array<string>;
+};
+
 /** Build and validate a proposed catalog before either preview or database writes. */
 export function proposePlanCatalog(
   catalog: PlatformPlanCatalog,
   action: PlanCatalogAction,
   id: string | undefined,
   body: Record<string, unknown>,
-): {
-  catalog: PlatformPlanCatalog;
-  affectedPlanIds: Array<string>;
-  removedPlanId?: string;
-  replacementPlanId?: string;
-  loweredLimits: Array<string>;
-} {
+): PlanCatalogProposal {
   const plans = [...catalog.plans];
   let defaultPlanId = catalog.defaultPlanId;
   let affectedPlanIds: Array<string> = [];

@@ -582,6 +582,13 @@ const config = defineConfig({
         rules: { 'quality/no-unknown-returns': 'error' },
       },
       {
+        files: [
+          'packages/void/src/{codegen,pages,router,runtime,shared}/**/*',
+          'platform/packages/api/src/**/*',
+        ],
+        rules: { 'quality/no-known-value-widening': 'error' },
+      },
+      {
         files: ['playground/vinext-app/.next/**/*.ts'],
         rules: {
           '@typescript-eslint/array-type': 'off',

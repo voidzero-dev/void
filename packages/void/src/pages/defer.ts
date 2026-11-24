@@ -43,15 +43,17 @@ export type ResolvedDeferredGroup = {
   keys: Array<string>;
 };
 
+type SeparatedDeferred = {
+  immediateProps: Record<string, unknown>;
+  deferredMap: Record<string, ResolvedDeferredGroup>;
+};
+
 /**
  * Separate a loader's return value into immediate props and deferred sentinels.
  * For single-prop deferred (group=null), the object key becomes the group name.
  * For named groups, all keys sharing the same group name are collected.
  */
-export function separateDeferred(props: Record<string, unknown>): {
-  immediateProps: Record<string, unknown>;
-  deferredMap: Record<string, ResolvedDeferredGroup>;
-} {
+export function separateDeferred(props: Record<string, unknown>): SeparatedDeferred {
   const immediateProps: Record<string, unknown> = {};
   const deferredMap: Record<string, ResolvedDeferredGroup> = {};
 

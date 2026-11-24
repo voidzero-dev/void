@@ -50,7 +50,7 @@ function pageLocation(path: string, pathname: string): URL {
   return url;
 }
 
-function detailLocation(path: string, prefix: string): { id: string; url: URL } {
+function detailLocation(path: string, prefix: string) {
   const url = new URL(path, 'https://admin.invalid');
   if (
     !path.startsWith(prefix) ||

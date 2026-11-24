@@ -210,11 +210,12 @@ export async function setProjectEmailLimits(
 ) {
   return withProjectEmailControlLock(db, projectId, async (tx) => {
     await ensureControls(tx, projectId);
-    const update: {
+    type EmailLimitUpdate = {
       monthly_limit?: number;
       burst_limit?: number;
       version: ReturnType<typeof sql>;
-    } = { version: sql`${emailProjectControls.version} + 1` };
+    };
+    const update: EmailLimitUpdate = { version: sql`${emailProjectControls.version} + 1` };
     if (limits.monthly !== undefined) {
       update.monthly_limit = limits.monthly ?? DEFAULT_EMAIL_MONTHLY_LIMIT;
     }

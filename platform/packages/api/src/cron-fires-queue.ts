@@ -41,7 +41,9 @@ async function invokeWorker(
   env: ApiEnv['Bindings'],
   message: CronFireMessage,
 ): Promise<InvokeOutcome> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<'Content-Type', string> & Partial<Record<'x-void-internal', string>> = {
+    'Content-Type': 'application/json',
+  };
   if (message.proxyToken) {
     headers['x-void-internal'] = message.proxyToken;
   }

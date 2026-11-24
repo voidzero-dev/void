@@ -37,10 +37,11 @@ function clone(value: unknown, seen: WeakMap<object, unknown>): unknown {
   return result;
 }
 
-export function parseFormResetArgs(args: ReadonlyArray<string | FormResetOptions>): {
-  initial: boolean;
-  fields: ReadonlyArray<string>;
-} {
+type FormResetArguments = { initial: boolean; fields: ReadonlyArray<string> };
+
+export function parseFormResetArgs(
+  args: ReadonlyArray<string | FormResetOptions>,
+): FormResetArguments {
   if (args.length > 0 && isFormResetOptions(args[0])) {
     return {
       initial: args[0].initial === true,

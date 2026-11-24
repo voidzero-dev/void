@@ -830,7 +830,7 @@ export async function runDeploymentPipeline(input: {
         // preflight-skipped paths; no server-side fill-in needed. Clone so
         // the cache-buster injection below mutates a fresh object rather
         // than the validated incoming map.
-        const assetManifest: Record<string, AssetManifestEntry> = { ...incomingAssetManifest };
+        const assetManifest = { ...incomingAssetManifest };
 
         const isStaticOnly = !hasWorkerFiles;
         logger = logger.with({ branch: isStaticOnly ? 'static' : 'wfp' });

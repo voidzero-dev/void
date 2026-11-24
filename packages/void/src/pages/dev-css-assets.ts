@@ -27,7 +27,7 @@ const CSS_BYPASS_RE = /[?&](?:raw|url|worker|sharedworker)\b/;
 const SKIPPABLE_VIRTUAL_URL_RE =
   /^(?:\/@id\/__x00__)?virtual:void-client-(?:browser|worker)(?:$|[?#])/;
 
-function splitQueryHash(value: string): { pathname: string; suffix: string } {
+function splitQueryHash(value: string) {
   const index = value.search(/[?#]/);
   if (index === -1) {
     return { pathname: value, suffix: '' };
@@ -113,9 +113,11 @@ type CssOutputNode = {
   kind?: string;
 };
 
-function parseCssOutput(code: string): { css?: string; id?: string; templateCss?: boolean } {
+type CompiledCssOutput = { css?: string; id?: string; templateCss?: boolean };
+
+function parseCssOutput(code: string): CompiledCssOutput {
   const program = parseSync('void-dev-css.js', code).program as CssOutputNode;
-  const result: { css?: string; id?: string; templateCss?: boolean } = {};
+  const result: CompiledCssOutput = {};
   const readCss = (node: CssOutputNode | undefined): void => {
     if (node?.type === 'Literal' && typeof node.value === 'string') {
       result.css = node.value;

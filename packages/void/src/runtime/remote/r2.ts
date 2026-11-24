@@ -94,7 +94,17 @@ export class ProxyR2Bucket {
       base64 = bytesToBase64(new Uint8Array(await new Response(value).arrayBuffer()));
     }
 
-    const body: Record<string, unknown> = {
+    type PutRequest = {
+      binding: string;
+      key: string;
+      base64?: string;
+      value?: string;
+      httpMetadata?: ReturnType<typeof serializeR2HttpMetadata>;
+      contentType?: string;
+      customMetadata?: R2PutOptions['customMetadata'];
+      onlyIf?: ReturnType<typeof serializeR2Conditional>;
+    };
+    const body: PutRequest = {
       binding: this.binding,
       key,
     };
@@ -155,7 +165,8 @@ export class ProxyR2Bucket {
   }
 
   async delete(keys: string | Array<string>): Promise<void> {
-    const body: Record<string, unknown> = { binding: this.binding };
+    const body: Record<'binding', string> &
+      Partial<Record<'key' | 'keys', string | Array<string>>> = { binding: this.binding };
     if (Array.isArray(keys)) {
       body.keys = keys;
     } else {

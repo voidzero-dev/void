@@ -115,12 +115,16 @@ function plainTextBinding(settings: WorkerSettings, name: string): string | unde
   return binding?.text;
 }
 
+interface ControllerTextBindings {
+  [key: string]: string;
+}
+
 function controllerTextBindings(
   identity: SandboxControllerIdentity,
   digest: string,
   image: string,
   instance: string,
-): Record<string, string> {
+): ControllerTextBindings {
   return {
     __VOID_SANDBOX_SOURCE: digest,
     __VOID_USER_ID: identity.userId,
