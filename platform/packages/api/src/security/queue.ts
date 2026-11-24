@@ -26,7 +26,8 @@ import {
   readSecurityProjectPolicyOverride,
   SECURITY_PROJECT_POLICY_SKIP_REASON,
 } from './project-policy.ts';
-import { projectSecuritySettings, securityScans, type SecurityScanTrigger } from './schema.ts';
+import { projectSecuritySettings, securityScans } from './schema.ts';
+import type { SecurityScanTrigger } from './schema.ts';
 
 /** One start plus one retry after an infrastructure error (spec §6.2). */
 export const SECURITY_SCAN_MAX_ATTEMPTS = 2;

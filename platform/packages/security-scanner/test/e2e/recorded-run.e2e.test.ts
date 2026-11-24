@@ -17,14 +17,15 @@ import { readFileSync } from 'node:fs';
 import { rootCertificates } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'vite-plus/test';
-import { buildTar, type TarEntry } from '../helpers/tar.ts';
+import { buildTar } from '../helpers/tar.ts';
+import type { TarEntry } from '../helpers/tar.ts';
 
 const PACKAGE = fileURLToPath(new URL('../../', import.meta.url));
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
-const E2E = fileURLToPath(new URL('./', import.meta.url));
+const E2E = import.meta.dirname;
 const PLANT = 'VOID-E2E-PLANTED';
 const SEEDED_FILE = 'src/routes/api/notes.ts';
-const PORT = 18080;
+const PORT = 18_080;
 const BUILD_TIMEOUT_MS = 20 * 60_000;
 const RUN_TIMEOUT_MS = 5 * 60_000;
 

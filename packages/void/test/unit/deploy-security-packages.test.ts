@@ -52,7 +52,7 @@ describe('deploy security package claims', () => {
         map([
           '../src/server.ts',
           '../../../node_modules/.pnpm/hono@4.0.0/node_modules/hono/dist/index.js',
-          '..\\node_modules\\@acme\\shared\\src\\auth.ts',
+          String.raw`..\node_modules\@acme\shared\src\auth.ts`,
         ]),
       ],
       ['broken.js.map', Buffer.from('{not json')],

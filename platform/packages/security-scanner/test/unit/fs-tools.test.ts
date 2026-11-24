@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vite-plus/test';
-import { createFsTools, type FsTools } from '../../src/runner/tools/fs.ts';
+import { createFsTools } from '../../src/runner/tools/fs.ts';
+import type { FsTools } from '../../src/runner/tools/fs.ts';
 
 let dir: string;
 let root: string;

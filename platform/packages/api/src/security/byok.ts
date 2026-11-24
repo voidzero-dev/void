@@ -12,10 +12,8 @@
  * is the same, and the key itself was just checked. A host that never passed (no
  * credits, so no image copied) still needs `void platform security probe`.
  */
-import {
-  SECURITY_PROVIDER_NAMES,
-  type SecurityThirdPartyHost,
-} from '@void/platform/security-models';
+import { SECURITY_PROVIDER_NAMES } from '@void/platform/security-models';
+import type { SecurityThirdPartyHost } from '@void/platform/security-models';
 import type { Db, DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { SecurityApiError } from './errors.ts';
@@ -28,8 +26,8 @@ import {
   securityProviderKeysView,
   testSecurityProviderKey,
   writeSecurityProviderKey,
-  type SecurityProviderKey,
 } from './provider-keys.ts';
+import type { SecurityProviderKey } from './provider-keys.ts';
 
 const DEFAULT_GATEWAY_ID = 'void';
 export const SECURITY_PROVIDER_KEY_REJECTED = 'security provider key rejected';

@@ -4,8 +4,8 @@ import { securityLocalTreeTar } from '@void/platform/security-local-check';
 import {
   defaultSecurityPolicy,
   SECURITY_POLICY_SETTINGS_KEY,
-  type SecurityPolicy,
 } from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
@@ -53,8 +53,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const CF = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
 const OPUS = 'anthropic/claude-opus-5.5';

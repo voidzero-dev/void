@@ -1,8 +1,8 @@
 import {
   defaultSecurityPolicy,
   SECURITY_POLICY_SETTINGS_KEY,
-  type SecurityPolicy,
 } from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import {
   afterAll,
@@ -44,8 +44,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let onEnv: TestEnv;

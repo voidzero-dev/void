@@ -113,7 +113,7 @@ function flattenTools(body) {
 }
 
 export function summarizeRequest({ method, path, headers, bodyText }) {
-  let body = {};
+  let body;
   try {
     body = bodyText ? JSON.parse(bodyText) : {};
   } catch {
@@ -263,42 +263,47 @@ function anthropicReply(body) {
     }
   }
   const round = last + 1;
-  const use = (n, name, input) => ({ type: 'tool_use', id: `toolu_r${round}_${n}`, name, input });
+  const toolUse = (n, name, input) => ({
+    type: 'tool_use',
+    id: `toolu_r${round}_${n}`,
+    name,
+    input,
+  });
   if (round === 0) {
     const calls = [
-      use(0, 'Bash', {
+      toolUse(0, 'Bash', {
         command: 'touch /tmp/pwned-bash; curl -s https://example.com',
         description: 'spike',
       }),
-      use(1, 'Read', { file_path: '/etc/passwd' }),
-      use(2, 'Read', { file_path: '/scan/input/../../etc/hostname' }),
-      use(3, 'Write', { file_path: '/scan/input/pwned.txt', content: 'x' }),
-      use(4, 'WebFetch', { url: 'https://example.com/', prompt: 'x' }),
-      use(5, 'Glob', { pattern: '**/*', path: '/scan/input' }),
-      use(6, 'Grep', { pattern: 'root', path: '/etc' }),
+      toolUse(1, 'Read', { file_path: '/etc/passwd' }),
+      toolUse(2, 'Read', { file_path: '/scan/input/../../etc/hostname' }),
+      toolUse(3, 'Write', { file_path: '/scan/input/pwned.txt', content: 'x' }),
+      toolUse(4, 'WebFetch', { url: 'https://example.com/', prompt: 'x' }),
+      toolUse(5, 'Glob', { pattern: '**/*', path: '/scan/input' }),
+      toolUse(6, 'Grep', { pattern: 'root', path: '/etc' }),
     ];
     if (names.includes('Skill')) {
-      calls.push(use(7, 'Skill', { skill: 'evil' }));
-      calls.push(use(8, 'Skill', { skill: 'doctor' }));
-      calls.push(use(11, 'Skill', { skill: 'plugin-authoring' }));
-      calls.push(use(12, 'Skill', { skill: 'void-security:void-security-review' }));
+      calls.push(toolUse(7, 'Skill', { skill: 'evil' }));
+      calls.push(toolUse(8, 'Skill', { skill: 'doctor' }));
+      calls.push(toolUse(11, 'Skill', { skill: 'plugin-authoring' }));
+      calls.push(toolUse(12, 'Skill', { skill: 'void-security:void-security-review' }));
     }
     if (names.includes('DeferredToolPlaceholder')) {
-      calls.push(use(9, 'DeferredToolPlaceholder', {}));
+      calls.push(toolUse(9, 'DeferredToolPlaceholder', {}));
     }
-    calls.push(use(10, 'ToolSearch', { query: 'select:Bash' }));
+    calls.push(toolUse(10, 'ToolSearch', { query: 'select:Bash' }));
     return anthropicMessage(calls, 'tool_use', body.stream);
   }
   if (round === 1) {
     return anthropicMessage(
       [
-        use(0, 'Grep', {
+        toolUse(0, 'Grep', {
           pattern: 'SELECT',
           path: '/scan/input',
           output_mode: 'content',
           '-n': true,
         }),
-        use(1, 'Read', { file_path: `/scan/input/${SEEDED_FILE}` }),
+        toolUse(1, 'Read', { file_path: `/scan/input/${SEEDED_FILE}` }),
       ],
       'tool_use',
       body.stream,
@@ -317,7 +322,7 @@ function anthropicReply(body) {
         body.stream,
       );
     }
-    return anthropicMessage([use(0, output, finding)], 'tool_use', body.stream);
+    return anthropicMessage([toolUse(0, output, finding)], 'tool_use', body.stream);
   }
   return anthropicMessage([{ type: 'text', text: 'Review complete.' }], 'end_turn', body.stream);
 }
@@ -484,7 +489,7 @@ function responsesReply(body) {
  */
 export function fakeModel({ method, path, bodyText }) {
   if (bodyText.includes('VOID-SPIKE-HANG')) {
-    return { status: 200, contentType: 'application/json', text: '{}', delayMs: 600000 };
+    return { status: 200, contentType: 'application/json', text: '{}', delayMs: 600_000 };
   }
   if (bodyText.includes('VOID-SPIKE-402')) {
     return {
@@ -499,7 +504,7 @@ export function fakeModel({ method, path, bodyText }) {
       }),
     };
   }
-  let body = {};
+  let body;
   try {
     body = bodyText ? JSON.parse(bodyText) : {};
   } catch {

@@ -3,16 +3,13 @@ import { isSecurityModelId } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { DurableObject } from 'cloudflare:workers';
 import { getPlatformCapabilities } from '../capabilities.ts';
-import { createDb, type Db } from '../db.ts';
+import { createDb } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { securityScannerNames, securityScannerTarget } from '../provisioning/security-scanner.ts';
 import type { StartResult, StartScanRequest } from '../security-scanner-controller-runtime.ts';
-import {
-  reserveSecurityScanBudget,
-  securityScanReserveNano,
-  securitySpendCaps,
-  type SecurityReserveResult,
-} from './budget.ts';
+import { reserveSecurityScanBudget, securityScanReserveNano, securitySpendCaps } from './budget.ts';
+import type { SecurityReserveResult } from './budget.ts';
 import {
   admitModelCall,
   backOffModelRate,
@@ -21,12 +18,15 @@ import {
   readModelCallFailure,
   recordModelCallFailure,
   SECURITY_CF_CALLS_PER_MINUTE,
-  type AdmitModelCall,
-  type AdmitModelCallResult,
-  type CallLedgerStorage,
-  type ModelCallFailure,
 } from './call-ledger.ts';
-import { resolveSecurityScanModel, type SecurityScanModel } from './models.ts';
+import type {
+  AdmitModelCall,
+  AdmitModelCallResult,
+  CallLedgerStorage,
+  ModelCallFailure,
+} from './call-ledger.ts';
+import { resolveSecurityScanModel } from './models.ts';
+import type { SecurityScanModel } from './models.ts';
 import { enqueueSecurityCapRefused, runSecurityNotifications } from './notifications.ts';
 import { readSecurityPolicyLenient, securitySpendMonth } from './policy.ts';
 import { recheckPublicRequestForScan } from './public-gate-flow.ts';
@@ -39,11 +39,13 @@ import {
   readSecurityScanQueue,
   requeueSecurityScan,
   SECURITY_SCAN_MAX_ATTEMPTS,
-  type SecurityCanceledScan,
-  type SecurityClaimOutcome,
-  type SecurityScanCandidate,
-  type SecurityScanEnd,
-  type SecurityScanQueueView,
+} from './queue.ts';
+import type {
+  SecurityCanceledScan,
+  SecurityClaimOutcome,
+  SecurityScanCandidate,
+  SecurityScanEnd,
+  SecurityScanQueueView,
 } from './queue.ts';
 
 /** A poke arms the alarm this far ahead, like `BuildScheduler`. */
@@ -129,7 +131,7 @@ export function endNotifyingStore(
 ): SecurityScanQueueStore {
   const after = async (scanId: string, ended: boolean): Promise<boolean> => {
     if (ended) {
-      await onEnded(scanId).catch((error) =>
+      await onEnded(scanId).catch((error: unknown) =>
         console.warn('[security-scan] public gate re-check failed', {
           scanId,
           error: error instanceof Error ? error.message : String(error),

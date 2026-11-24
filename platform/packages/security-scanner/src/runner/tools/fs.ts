@@ -57,6 +57,27 @@ export type FsTools = {
 
 class ToolInputError extends Error {}
 
+async function guard(run: () => Promise<ToolResult>): Promise<ToolResult> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ToolInputError) {
+      return { ok: false, text: `error: ${error.message}` };
+    }
+    const code = (error as { code?: unknown }).code;
+    if (code === 'ELOOP') {
+      return { ok: false, text: 'error: symlinks are not followed' };
+    }
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return { ok: false, text: 'error: not found' };
+    }
+    if (code === 'EACCES' || code === 'EPERM') {
+      return { ok: false, text: 'error: not readable' };
+    }
+    throw error;
+  }
+}
+
 export function createFsTools(options: FsToolsOptions): FsTools {
   const displayRoot = trimTrailingSlash(options.displayRoot ?? '/scan');
   const maxFileBytes = options.maxFileBytes ?? FS_TOOL_LIMITS.maxFileBytes;
@@ -143,27 +164,6 @@ export function createFsTools(options: FsToolsOptions): FsTools {
     }
   }
 
-  async function guard(run: () => Promise<ToolResult>): Promise<ToolResult> {
-    try {
-      return await run();
-    } catch (error) {
-      if (error instanceof ToolInputError) {
-        return { ok: false, text: `error: ${error.message}` };
-      }
-      const code = (error as { code?: unknown }).code;
-      if (code === 'ELOOP') {
-        return { ok: false, text: 'error: symlinks are not followed' };
-      }
-      if (code === 'ENOENT' || code === 'ENOTDIR') {
-        return { ok: false, text: 'error: not found' };
-      }
-      if (code === 'EACCES' || code === 'EPERM') {
-        return { ok: false, text: 'error: not readable' };
-      }
-      throw error;
-    }
-  }
-
   function cap(text: string, hint: string): string {
     if (text.length <= maxOutputChars) {
       return text;
@@ -215,7 +215,7 @@ export function createFsTools(options: FsToolsOptions): FsTools {
         );
         const text = await readSmallFile(target.real, target.display);
         const lines = text.split('\n');
-        if (lines.length > 1 && lines[lines.length - 1] === '') {
+        if (lines.length > 1 && lines.at(-1) === '') {
           lines.pop();
         }
         if (offset > Math.max(lines.length, 1)) {

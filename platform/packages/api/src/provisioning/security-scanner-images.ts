@@ -37,9 +37,9 @@ const CONFIG_LIMIT = 4 * 1024 * 1024;
 const MANIFEST_LIMIT = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 const BLOB_TIMEOUT_MS = 10 * 60_000;
-const PREPARE_POLL_MS = 2_000;
+const PREPARE_POLL_MS = 2000;
 /** The shortest time a request gets, so a call made right at the deadline can still answer. */
-const MIN_REQUEST_MS = 1_000;
+const MIN_REQUEST_MS = 1000;
 
 /** The deadline of one copy; each request gets what is left of it (capped). */
 type Clock = Readonly<{ deadline: number; now: () => number }>;
@@ -341,7 +341,7 @@ async function copyImage(
   if (`sha256:${await sha256Hex(configBytes)}` !== config.digest) {
     throw new ImageStepError('source', 'The published image config does not match its digest.');
   }
-  let platform: { os?: unknown; architecture?: unknown } = {};
+  let platform: { os?: unknown; architecture?: unknown };
   try {
     platform = JSON.parse(new TextDecoder().decode(configBytes)) as typeof platform;
   } catch {
@@ -420,7 +420,9 @@ async function prepare(target: ScannerImageTarget, ref: string, clock: Clock): P
     if (left <= PREPARE_POLL_MS) {
       throw new ImageStepError('pending', 'Cloudflare is still preparing the scanner image.');
     }
-    await new Promise((resolve) => setTimeout(resolve, PREPARE_POLL_MS));
+    await new Promise((resolve) => {
+      setTimeout(resolve, PREPARE_POLL_MS);
+    });
   }
 }
 

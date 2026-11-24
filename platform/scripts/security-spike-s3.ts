@@ -75,10 +75,8 @@ import {
   registryImageSize,
   runLive,
   runLocal,
-  type EngineSpec,
-  type LiveDeployment,
-  type RunOutcome,
 } from './security-spike-s2.ts';
+import type { EngineSpec, LiveDeployment, RunOutcome } from './security-spike-s2.ts';
 
 const CODEX_VERSION = '0.169.0';
 
@@ -93,7 +91,7 @@ function engineAlive(outcome: RunOutcome): Array<string> {
 // What Codex may offer the model. The functions.* entries come with any MCP server and
 // cannot run commands or touch files: MCP resources reach only void-scan (which has no
 // resources) and request_user_input is refused in exec mode.
-const ALLOWED_TOOLS = [
+const ALLOWED_TOOLS = new Set([
   'mcp__void_scan.read_file',
   'mcp__void_scan.list_files',
   'mcp__void_scan.grep',
@@ -102,7 +100,7 @@ const ALLOWED_TOOLS = [
   'functions.list_mcp_resource_templates',
   'functions.read_mcp_resource',
   'functions.request_user_input',
-];
+]);
 
 export const CODEX_SPEC = (model: string, task: Record<string, unknown> = {}): EngineSpec => ({
   engine: 'codex',
@@ -157,7 +155,7 @@ function judgeCodexMain(outcome: RunOutcome, live: boolean) {
   }
   const offered = [...new Set(outcome.requests.flatMap((r) => r.tools.map((t) => t.name)))].sort();
   facts.toolsOffered = offered;
-  const extra = offered.filter((name) => !ALLOWED_TOOLS.includes(name));
+  const extra = offered.filter((name) => !ALLOWED_TOOLS.has(name));
   if (extra.length > 0) {
     failures.push(`tools offered beyond the allowlist: ${JSON.stringify(extra)}`);
   }
@@ -295,7 +293,7 @@ async function main() {
   });
   const tag = `s3-${Date.now()}`;
   const main = CODEX_SPEC(values.model);
-  const killMs = 8_000;
+  const killMs = 8000;
   const kill = CODEX_SPEC(values.model, {
     prompt: `${TASK_PROMPT}\nVOID-SPIKE-HANG`,
     timeoutMs: killMs,

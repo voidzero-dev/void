@@ -2,7 +2,8 @@ import {
   SECURITY_MODEL_IDS,
   SECURITY_PROVIDER_NOTICE_VERSION,
 } from '@void/platform/security-models';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getPlatformCapabilities } from '../../capabilities.ts';
 import { getProject } from '../../db.ts';
 import type { ApiEnv } from '../../env.ts';
@@ -20,11 +21,8 @@ import {
   setProjectSecurityCeiling,
   setProjectSecurityPolicyOverride,
 } from '../../security/operator.ts';
-import {
-  changeSecurityPolicy,
-  readStoredSecurityPolicy,
-  type SecurityPolicyChangeResult,
-} from '../../security/policy.ts';
+import { changeSecurityPolicy, readStoredSecurityPolicy } from '../../security/policy.ts';
+import type { SecurityPolicyChangeResult } from '../../security/policy.ts';
 import { probeAndRecord, runSecurityProbe } from '../../security/probe.ts';
 import { parseSecurityProjectPolicyRequest } from '../../security/project-policy.ts';
 import {

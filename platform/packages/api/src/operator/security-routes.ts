@@ -1,7 +1,8 @@
 import { parseSecurityWebhookUrl } from '@void/platform/security-policy';
 import { Hono } from 'hono';
 import { capabilityMiddleware, getPlatformCapabilities } from '../capabilities.ts';
-import { getProject, type Db } from '../db.ts';
+import { getProject } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import {
   changeSecurityProviderKey,

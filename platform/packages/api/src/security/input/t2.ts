@@ -428,10 +428,7 @@ export function importGraphOrder(
       }
     }
   }
-  const rest = modules
-    .map((module) => module.name)
-    .filter((name) => !seen.has(name))
-    .sort();
+  const rest = modules.flatMap((module) => (seen.has(module.name) ? [] : [module.name])).sort();
   return [...order, ...rest];
 }
 

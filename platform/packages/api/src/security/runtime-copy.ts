@@ -23,25 +23,23 @@ import { getProjectSecrets } from '../db/secrets.ts';
 import type { ApiEnv } from '../env.ts';
 import { decryptProjectSecret } from '../project-secrets.ts';
 import { CF_API_BASE, cfFetch } from '../provisioning/cloudflare-api.ts';
-import {
-  securityScannerNames,
-  securityScannerTarget,
-  type SecurityScannerTarget,
-} from '../provisioning/security-scanner.ts';
+import { securityScannerNames, securityScannerTarget } from '../provisioning/security-scanner.ts';
+import type { SecurityScannerTarget } from '../provisioning/security-scanner.ts';
 import { deployments, projects } from '../schema.ts';
 import type { DeployManifest } from '../types.ts';
 import { chargeSecurityScanCopy } from './budget.ts';
 import { checkScanFence } from './fence.ts';
 import { modulesKey, parseSnapshotModules } from './input/prepare.ts';
-import { createSecurityRedactor, type SecuritySecret } from './input/redact.ts';
+import { createSecurityRedactor } from './input/redact.ts';
+import type { SecuritySecret } from './input/redact.ts';
 import { runtimeCopyScriptName } from './runtime-copy-names.ts';
 import {
   planSecurityRuntimeCopy,
   SECURITY_COPY_FAKE_PREFIX,
   SECURITY_COPY_PLATFORM_FAKES,
   securityRuntimeCopyMetadata,
-  type SecurityCopyPlan,
 } from './runtime-copy-plan.ts';
+import type { SecurityCopyPlan } from './runtime-copy-plan.ts';
 import {
   COPY_ENTRY_MODULE_NAME,
   COPY_GUARD_MODULE,
@@ -49,14 +47,13 @@ import {
   copyEntryModule,
 } from './runtime-copy-sources.ts';
 import {
-  type CreatedStore,
   deleteCopyScript,
   deleteSecurityRuntimeCopy,
   deleteStore,
   securityCopyScriptUrl,
-  type SecurityCopyTarget,
   sweepSecurityRuntimeCopies,
 } from './runtime-copy-sweep.ts';
+import type { CreatedStore, SecurityCopyTarget } from './runtime-copy-sweep.ts';
 import { securityScans } from './schema.ts';
 
 export type { SecurityCopyTarget } from './runtime-copy-sweep.ts';
@@ -74,9 +71,9 @@ export const SECURITY_COPY_MAX_SCHEMA_STATEMENTS = 500;
  */
 export const SECURITY_COPY_PRICES_NANO = {
   scriptHour: Math.round((0.02 / 730) * 1e9),
-  d1RowWritten: 1_000,
-  r2ClassA: 4_500,
-  kvWrite: 5_000,
+  d1RowWritten: 1000,
+  r2ClassA: 4500,
+  kvWrite: 5000,
 } as const;
 
 export async function securityCopyTarget(

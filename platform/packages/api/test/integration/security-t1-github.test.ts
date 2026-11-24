@@ -44,8 +44,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 vi.mock('../../src/github/installation-token.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/github/installation-token.ts')>()),
@@ -176,7 +176,7 @@ function oddChunks(bytes: Uint8Array): ReadableStream<Uint8Array> {
         controller.close();
         return;
       }
-      const size = 1_000_003 + (at % 7_919);
+      const size = 1_000_003 + (at % 7919);
       controller.enqueue(bytes.slice(at, at + size));
       at += size;
     },

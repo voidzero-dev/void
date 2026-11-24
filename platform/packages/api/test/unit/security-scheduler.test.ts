@@ -1,8 +1,8 @@
 import {
   defaultSecurityPolicy,
   SECURITY_ENTITLEMENT_MAX_AGE_MS,
-  type SecurityPolicy,
 } from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import type { StartScanRequest } from '../../src/security-scanner-controller-runtime.ts';
 import type { SecurityReserveResult } from '../../src/security/budget.ts';
@@ -28,9 +28,8 @@ import {
   SECURITY_CF_RUNNING_PER_MODEL,
   SECURITY_SCAN_RETRY_BACKOFF_MS,
   SECURITY_SCHEDULER_RESCAN_MS,
-  type SchedulerStorage,
-  type SecurityScanQueueDeps,
 } from '../../src/security/scheduler.ts';
+import type { SchedulerStorage, SecurityScanQueueDeps } from '../../src/security/scheduler.ts';
 
 const NOW = Date.parse('2026-11-18T12:00:00.000Z');
 const CF = '@cf/zai-org/glm-5.3';
@@ -229,7 +228,7 @@ describe('round-robin by owner (spec §6.2)', () => {
   it('puts the owner served last at the back, even with the oldest scans (edge #37)', () => {
     const ordered = orderSecurityScansByOwner(
       [candidate('a1', 'alice'), candidate('a2', 'alice'), candidate('b1', 'bob')],
-      { alice: NOW - 1_000, bob: NOW - 60_000 },
+      { alice: NOW - 1000, bob: NOW - 60_000 },
     );
     expect(ordered.map((entry) => entry.scanId)).toEqual(['b1', 'a1', 'a2']);
   });
@@ -245,7 +244,7 @@ describe('round-robin by owner (spec §6.2)', () => {
     await runSecurityScanQueue(h.deps);
     expect(h.starts.map((entry) => entry.scanId)).toEqual(['a1']);
     h.queue.candidates = h.queue.candidates.filter((entry) => entry.scanId !== 'a1');
-    h.clock.now += 1_000;
+    h.clock.now += 1000;
     await runSecurityScanQueue(h.deps);
     expect(h.starts.map((entry) => entry.scanId)).toEqual(['a1', 'b1']);
   });

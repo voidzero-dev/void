@@ -19,8 +19,8 @@ import type { ApiEnv } from '../env.ts';
 import {
   securityScannerIdentity,
   securityScannerTarget,
-  type SecurityScannerIdentity,
 } from '../provisioning/security-scanner.ts';
+import type { SecurityScannerIdentity } from '../provisioning/security-scanner.ts';
 import type { ScanFence, ScanResultReport } from '../security-scanner-controller-runtime.ts';
 import { checkScanFence } from './fence.ts';
 import { reportSecurityScanToGitHub } from './github-check.ts';
@@ -32,8 +32,8 @@ import {
   deleteSecurityRuntimeCopyForScan,
   noteSecurityRuntimeCopyOutcome,
   prepareSecurityRuntimeCopy,
-  type SecurityCopyOutcome,
 } from './runtime-copy.ts';
+import type { SecurityCopyOutcome } from './runtime-copy.ts';
 
 export { checkScanFence, judgeScanFence } from './fence.ts';
 

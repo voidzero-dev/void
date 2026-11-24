@@ -1,5 +1,6 @@
 import { securityModelCostNanoUsd } from '@void/platform/security-models';
-import { defaultSecurityPolicy, type SecurityPolicy } from '@void/platform/security-policy';
+import { defaultSecurityPolicy } from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { SecurityCallHold, SecurityCallRefusal } from '../../src/security/budget.ts';
 import type { AdmitModelCallResult, ModelCallFailure } from '../../src/security/call-ledger.ts';
@@ -17,11 +18,10 @@ import {
   SECURITY_RATE_WAIT_LIMIT_MS,
   SECURITY_STOP_HEADER,
   SseUsageReader,
-  type SecurityModelProxyDeps,
-  type SecurityModelScan,
   workersAiErrorStatus,
   gatewayModelName,
 } from '../../src/security/model-proxy.ts';
+import type { SecurityModelProxyDeps, SecurityModelScan } from '../../src/security/model-proxy.ts';
 
 // The runner's own mapping, so a proxy stop is checked end to end (spec §8.4). A
 // variable path keeps the runner package out of this package's type check.

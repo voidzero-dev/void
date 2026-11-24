@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { PlatformApiError, type PlatformClient } from '../../src/cli/client.ts';
+import { PlatformApiError } from '../../src/cli/client.ts';
+import type { PlatformClient } from '../../src/cli/client.ts';
 import {
   formatProjectStatusSecurityLine,
   printDeploySecurityNotice,

@@ -52,7 +52,7 @@ describe('SecurityScanScheduler with the capability off', () => {
     await expect(response.json()).resolves.toEqual({ ok: true });
     expect(storage.setAlarm).toHaveBeenCalledTimes(1);
     expect(storage.alarm).toBeGreaterThanOrEqual(before);
-    expect(storage.alarm).toBeLessThanOrEqual(Date.now() + 1_000);
+    expect(storage.alarm).toBeLessThanOrEqual(Date.now() + 1000);
   });
 
   it.each([

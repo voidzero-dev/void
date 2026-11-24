@@ -146,7 +146,7 @@ describe('extractTar', () => {
     ['a fifo', { name: 'input/fifo', type: '6' }, 'not a regular file'],
     ['a parent segment', { name: 'input/../../etc/x', data: 'x' }, '".." segment'],
     ['an absolute path', { name: '/etc/cron.d/x', data: 'x' }, 'absolute path'],
-    ['a backslash', { name: 'input\\..\\x', data: 'x' }, 'backslash'],
+    ['a backslash', { name: String.raw`input\..\x`, data: 'x' }, 'backslash'],
     ['an empty segment', { name: 'input//x', data: 'x' }, 'empty'],
     [
       'a name outside the scan input',

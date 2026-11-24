@@ -14,11 +14,8 @@ import { parseSecurityWebhookUrl } from '@void/platform/security-policy';
 import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
-import {
-  decryptPlatformCredential,
-  encryptPlatformCredential,
-  type EncryptedPlatformCredential,
-} from '../project-secrets.ts';
+import { decryptPlatformCredential, encryptPlatformCredential } from '../project-secrets.ts';
+import type { EncryptedPlatformCredential } from '../project-secrets.ts';
 
 /** `platform_settings` key; kept apart from the policy so the secret never reaches a policy read. */
 export const SECURITY_WEBHOOK_SETTINGS_KEY = 'securityAudits.webhook';

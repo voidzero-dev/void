@@ -38,8 +38,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -361,7 +361,7 @@ describe('the outbox', () => {
     await newFinding(project.id, 'scan_2');
     const { mail, sent } = mailer();
     // After the rows are due: a row is due from the database clock at its insert.
-    const t0 = Date.now() + 5_000;
+    const t0 = Date.now() + 5000;
 
     await enqueueSecurityNotification(env.db, {
       kind: 'findings',
@@ -379,12 +379,12 @@ describe('the outbox', () => {
     const early = await runSecurityNotifications(env.db, mail, t0 + 60_000);
     expect(sent).toHaveLength(1);
     expect(early.nextAt).not.toBeNull();
-    expect(Math.abs(early.nextAt! - (t0 + SECURITY_FINDINGS_COOLDOWN_MS))).toBeLessThan(5_000);
+    expect(Math.abs(early.nextAt! - (t0 + SECURITY_FINDINGS_COOLDOWN_MS))).toBeLessThan(5000);
 
     const late = await runSecurityNotifications(
       env.db,
       mail,
-      t0 + SECURITY_FINDINGS_COOLDOWN_MS + 5_000,
+      t0 + SECURITY_FINDINGS_COOLDOWN_MS + 5000,
     );
     expect(late.sent).toBe(1);
     expect(sent).toHaveLength(2);
@@ -452,7 +452,7 @@ describe('the outbox', () => {
     });
     const { mail, sent } = mailer();
     // After the rows are due: a row is due from the database clock at its insert.
-    const t0 = Date.now() + 5_000;
+    const t0 = Date.now() + 5000;
     await runSecurityNotifications(env.db, mail, t0);
     expect(sent).toHaveLength(1);
 
@@ -476,7 +476,7 @@ describe('the outbox', () => {
       projectId: project.id,
       scanId: 'scan_2',
     });
-    await runSecurityNotifications(env.db, mail, t0 + SECURITY_FINDINGS_COOLDOWN_MS + 1_000);
+    await runSecurityNotifications(env.db, mail, t0 + SECURITY_FINDINGS_COOLDOWN_MS + 1000);
     expect(sent).toHaveLength(2);
     expect(sent[1]!.subject).toContain('(critical)');
   });
@@ -534,21 +534,19 @@ describe('the outbox', () => {
     });
     const { mail, sent, attempts } = mailer({ failFor: ['owner@example.com'] });
     // After the rows are due: a row is due from the database clock at its insert.
-    const t0 = Date.now() + 5_000;
+    const t0 = Date.now() + 5000;
 
     const first = await runSecurityNotifications(env.db, mail, t0);
     expect(first.sent).toBe(0);
-    expect(Math.abs(first.nextAt! - (t0 + SECURITY_NOTIFICATION_BACKOFF_MS[0]))).toBeLessThan(
-      5_000,
-    );
+    expect(Math.abs(first.nextAt! - (t0 + SECURITY_NOTIFICATION_BACKOFF_MS[0]))).toBeLessThan(5000);
     // Not due yet: no new attempt.
-    await runSecurityNotifications(env.db, mail, t0 + 1_000);
+    await runSecurityNotifications(env.db, mail, t0 + 1000);
     expect(attempts).toHaveLength(1);
 
     const second = await runSecurityNotifications(env.db, mail, t0 + 61_000);
     expect(
       Math.abs(second.nextAt! - (t0 + 61_000 + SECURITY_NOTIFICATION_BACKOFF_MS[1])),
-    ).toBeLessThan(5_000);
+    ).toBeLessThan(5000);
     const third = await runSecurityNotifications(env.db, mail, t0 + 61_000 + 301_000);
     expect(third).toMatchObject({ failed: 1, nextAt: null });
     expect(attempts).toHaveLength(3);
@@ -700,7 +698,7 @@ describe('the outbox', () => {
     });
     const { mail, sent } = mailer();
     // After the rows are due: a row is due from the database clock at its insert.
-    const t0 = Date.now() + 5_000;
+    const t0 = Date.now() + 5000;
     const waiting = await runSecurityNotifications(env.db, mail, t0);
     expect(sent).toEqual([]);
     expect(waiting.nextAt).not.toBeNull();

@@ -1,4 +1,5 @@
-import { parseSecurityArgs, type ProjectSecurityArgs } from './project-security-args.ts';
+import { parseSecurityArgs } from './project-security-args.ts';
+import type { ProjectSecurityArgs } from './project-security-args.ts';
 import type { SubcommandDef } from './subcommand-prompt.ts';
 
 const LOG_LEVELS = new Set(['error', 'warn', 'info', 'log', 'debug', 'all']);
@@ -66,12 +67,12 @@ export type ProjectZeroTrustArgs = {
   | { action: 'bypass'; reason: string; yes: boolean }
 );
 
-const ZERO_TRUST_ACTIONS = ['status', 'protect', 'public', 'bypass', 'reconcile'];
+const ZERO_TRUST_ACTIONS = new Set(['status', 'protect', 'public', 'bypass', 'reconcile']);
 const BYPASS_REASON_MAX_CHARS = 4000;
 
 function parseZeroTrustArgs(rest: Array<string>): ProjectZeroTrustArgs {
   const [action = '', ...args] = rest;
-  if (action && !ZERO_TRUST_ACTIONS.includes(action)) {
+  if (action && !ZERO_TRUST_ACTIONS.has(action)) {
     throw new Error(
       'project: Usage: void project zero-trust <status|protect|public|bypass|reconcile> [--project <slug>] [--json].',
     );
@@ -127,7 +128,7 @@ function parseZeroTrustArgs(rest: Array<string>): ProjectZeroTrustArgs {
         'project: A reason is required. Say why, for example: --reason "Launch today; scanner is down. Will re-check."',
       );
     }
-    if ([...text].length > BYPASS_REASON_MAX_CHARS) {
+    if (Array.from(text).length > BYPASS_REASON_MAX_CHARS) {
       throw new Error(`project: A reason can be at most ${BYPASS_REASON_MAX_CHARS} characters.`);
     }
     return { subcommand: 'zero-trust', projectSlug, json, action, reason: text, yes };

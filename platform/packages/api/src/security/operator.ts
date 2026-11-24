@@ -6,19 +6,10 @@
  *
  * Operator lists page with `page` and `limit` (R16), like every other operator list.
  */
-import { parseSecurityUsd, type SecurityPolicy } from '@void/platform/security-policy';
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  inArray,
-  ne,
-  sql,
-  TransactionRollbackError,
-  type SQL,
-} from 'drizzle-orm';
+import { parseSecurityUsd } from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
+import { and, asc, count, desc, eq, inArray, ne, sql, TransactionRollbackError } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
@@ -32,7 +23,8 @@ import {
 } from './budget.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
 import { SECURITY_CLIENT_ASSETS_NOTE } from './input/build.ts';
-import { SECURITY_FULL_REASON_NOTES, type SecurityFallbackFullReason } from './input/tier.ts';
+import { SECURITY_FULL_REASON_NOTES } from './input/tier.ts';
+import type { SecurityFallbackFullReason } from './input/tier.ts';
 import { readSecurityPlanCapCell, securityProjectPlanCapSql } from './plan-caps.ts';
 import {
   lockSecurityPolicy,
@@ -42,10 +34,8 @@ import {
   SecurityPolicyRevisionError,
   securitySpendMonth,
 } from './policy.ts';
-import {
-  SECURITY_PROJECT_POLICY_COPY,
-  type SecurityProjectPolicyOverride,
-} from './project-policy.ts';
+import { SECURITY_PROJECT_POLICY_COPY } from './project-policy.ts';
+import type { SecurityProjectPolicyOverride } from './project-policy.ts';
 import {
   effectiveSeverity,
   readSecurityProjectSettings,
@@ -69,11 +59,9 @@ import {
   SECURITY_PUBLIC_REQUEST_OPEN_STATES,
   SECURITY_PUBLIC_REQUEST_STATES,
   SECURITY_SCAN_STATUSES,
-  type SecurityPublicRequestState,
-  type SecurityScanStatus,
   SECURITY_SEVERITIES,
-  type SecuritySeverity,
 } from './schema.ts';
+import type { SecurityPublicRequestState, SecurityScanStatus, SecuritySeverity } from './schema.ts';
 
 type Page = Readonly<{ page: number; limit: number; offset: number }>;
 
@@ -479,7 +467,7 @@ export async function previewInRollback<T>(db: Db, run: (tx: Db) => Promise<T>):
   let result: { value: T } | undefined;
   try {
     await db.transaction(async (tx) => {
-      result = { value: await run(tx as unknown as Db) };
+      result = { value: await run(tx as Db) };
       tx.rollback();
     });
   } catch (error) {

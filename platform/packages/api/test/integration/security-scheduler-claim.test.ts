@@ -1,8 +1,8 @@
 import {
   defaultSecurityPolicy,
   SECURITY_POLICY_SETTINGS_KEY,
-  type SecurityPolicy,
 } from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
@@ -31,17 +31,16 @@ import {
   runSecurityScanQueue,
   SECURITY_SCAN_RETRY_BACKOFF_MS,
   securityScanQueueStore,
-  type SchedulerStorage,
-  type SecurityScanController,
 } from '../../src/security/scheduler.ts';
+import type { SchedulerStorage, SecurityScanController } from '../../src/security/scheduler.ts';
 import {
   clearTables,
   createTestProject,
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const CF = '@cf/zai-org/glm-5.3';
 const FLASH = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
@@ -227,12 +226,12 @@ describe('scheduler on real SQL', () => {
     expect(running?.started_at).not.toBeNull();
     // Lease = hard cap (40 min) + 5 min.
     const lease = Date.parse(running!.lease_until!) - Date.parse(running!.started_at!);
-    expect(Math.abs(lease - 45 * 60_000)).toBeLessThan(5_000);
+    expect(Math.abs(lease - 45 * 60_000)).toBeLessThan(5000);
     expect(await platformReserved()).toBe(RESERVE_NANO);
     await expect(checkScanFence(env.db, 'ss_drive', 1)).resolves.toMatchObject({ ok: true });
 
     // The lease passes: the reaper ends the attempt and gives the reserve back.
-    const later = Date.parse(running!.lease_until!) + 1_000;
+    const later = Date.parse(running!.lease_until!) + 1000;
     expect(await reapExpiredSecurityScans(env.db, later)).toEqual([
       { scanId: 'ss_drive', attempt: 1 },
     ]);
@@ -521,9 +520,13 @@ describe('scheduler on real SQL', () => {
     const { project } = await setup('owner');
     await queueScan('ss_race', project.id);
     let commit!: () => void;
-    const held = new Promise<void>((resolve) => (commit = resolve));
+    const held = new Promise<void>((resolve) => {
+      commit = resolve;
+    });
     let updated!: () => void;
-    const claimed = new Promise<void>((resolve) => (updated = resolve));
+    const claimed = new Promise<void>((resolve) => {
+      updated = resolve;
+    });
     // What the claim writes, held open so the cancel runs while it is in flight.
     const claim = env.db.transaction(async (tx) => {
       await tx
@@ -539,7 +542,9 @@ describe('scheduler on real SQL', () => {
     });
     await claimed;
     const cancel = cancelSecurityScanRows(env.db, { scanIds: ['ss_race'] }, 'operator');
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100);
+    });
     commit();
     await claim;
     await expect(cancel).resolves.toEqual([{ scanId: 'ss_race', runningAttempt: 1 }]);

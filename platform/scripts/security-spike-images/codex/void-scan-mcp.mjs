@@ -188,6 +188,6 @@ rl.on('line', (line) => {
   } else if (method === 'ping') {
     send({ jsonrpc: '2.0', id, result: {} });
   } else {
-    send({ jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } });
+    send({ jsonrpc: '2.0', id, error: { code: -32_601, message: `method not found: ${method}` } });
   }
 });

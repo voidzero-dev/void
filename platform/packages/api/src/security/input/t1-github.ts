@@ -38,16 +38,10 @@ import {
   SECURITY_T1_NOTES,
   securityCompareProblem,
   startSecuritySourceDiff,
-  type SecurityHeadBuild,
-  type SecurityRepoFile,
-  type SecurityT1Fallback,
 } from './t1.ts';
-import {
-  changedSources,
-  sha256Hex,
-  type SecurityBundleSources,
-  type SecuritySourceFile,
-} from './t2.ts';
+import type { SecurityHeadBuild, SecurityRepoFile, SecurityT1Fallback } from './t1.ts';
+import { changedSources, sha256Hex } from './t2.ts';
+import type { SecurityBundleSources, SecuritySourceFile } from './t2.ts';
 import { parseSecurityLockfile } from './third-party.ts';
 
 export type SecuritySourceDiffEnv = Pick<
@@ -385,7 +379,7 @@ export async function loadSecuritySourceDiff(
       mapping,
       repo,
       managed: start.managed,
-      sources: sources,
+      sources,
       changedRepoPaths,
       builtChanged,
       budget: request.budget,

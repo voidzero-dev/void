@@ -51,19 +51,20 @@ import { isAdminSuspended } from '../suspension.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
 import { queueSecurityRescan } from './operator.ts';
 import { effectiveSeverity } from './project-view.ts';
-import { securityFindings, securityScans, type SecurityScanStatus } from './schema.ts';
+import { securityFindings, securityScans } from './schema.ts';
+import type { SecurityScanStatus } from './schema.ts';
 
 /** The check name, and what a `check_run:rerequested` delivery matches on. */
 export const VOID_SECURITY_AUDIT_CHECK_RUN_NAME = 'Void Security Audit';
 
 /** Ended scans that report. Skipped, superseded and canceled scans ran nothing. */
-const REPORTED_STATUSES: ReadonlyArray<SecurityScanStatus> = [
+const REPORTED_STATUSES: ReadonlySet<SecurityScanStatus> = new Set<SecurityScanStatus>([
   'succeeded',
   'incomplete',
   'failed',
   'refused',
   'timed_out',
-];
+]);
 
 /** At most this many open pull requests get a comment for one commit. */
 export const SECURITY_PR_COMMENT_MAX_PULLS = 5;
@@ -98,7 +99,7 @@ function severityParts(counts: SecurityUrgentCounts): string {
 }
 
 /** `failed` reasons about the project's own code or input; the rest are the platform's. */
-const PROJECT_FAILURE_REASONS: ReadonlyArray<string> = ['bad_output', 'input_missing'];
+const PROJECT_FAILURE_REASONS: ReadonlySet<string> = new Set(['bad_output', 'input_missing']);
 
 /**
  * Why a scan did not finish, or `''` when no public reason is given, or `null` when it
@@ -111,7 +112,7 @@ function unfinishedWhy(status: SecurityScanStatus, reason: string | null): strin
     return status.split('_').join(' ');
   }
   if (status === 'failed') {
-    return reason !== null && PROJECT_FAILURE_REASONS.includes(reason)
+    return reason !== null && PROJECT_FAILURE_REASONS.has(reason)
       ? reason.split('_').join(' ')
       : '';
   }
@@ -351,7 +352,7 @@ export async function reportSecurityScanToGitHub(
     if (!scan || scan.deploymentId === null) {
       return { reported: false, reason: 'no deployment' };
     }
-    if (!REPORTED_STATUSES.includes(scan.status)) {
+    if (!REPORTED_STATUSES.has(scan.status)) {
       return { reported: false, reason: 'not ended' };
     }
     const target = await securityCheckTarget(db, scan.projectId, scan.deploymentId);
@@ -601,6 +602,8 @@ function idText(value: unknown): string | null {
   return typeof value === 'string' && value !== '' && value.length <= 64 ? value : null;
 }
 
+const ignored = (reason: string): SecurityCheckRerequestResult => ({ ok: true, ignored: reason });
+
 /**
  * GitHub's Re-run button on a `Void Security Audit` check: a project rescan of the live
  * deployment, only when the clicker could ask for one in Void (a linked GitHub sign-in
@@ -614,7 +617,6 @@ export async function handleSecurityCheckRerequest(
   db: Db,
   request: SecurityCheckRerequest,
 ): Promise<SecurityCheckRerequestResult> {
-  const ignored = (reason: string): SecurityCheckRerequestResult => ({ ok: true, ignored: reason });
   if (!getPlatformCapabilities(env).securityAudits) {
     return ignored('security audits are off');
   }

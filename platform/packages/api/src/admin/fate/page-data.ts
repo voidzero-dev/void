@@ -530,7 +530,7 @@ export async function loadPlansPage(context: AdminContext, path: string) {
     readSecurityPlanCaps(context.get('db')),
   ]);
   // The scan cap column and field show only while security audits are on (M27).
-  let securityAudits = false;
+  let securityAudits: boolean;
   try {
     securityAudits = getPlatformCapabilities(context.env).securityAudits;
   } catch {

@@ -88,7 +88,13 @@ describe('validateFindingsValue', () => {
   });
 
   test('refuses unsafe paths', () => {
-    for (const file of ['../etc/passwd', '/etc/passwd', 'src\\a.ts', 'src//a.ts', 'src/./a.ts']) {
+    for (const file of [
+      '../etc/passwd',
+      '/etc/passwd',
+      String.raw`src\a.ts`,
+      'src//a.ts',
+      'src/./a.ts',
+    ]) {
       expectError(report([confirmed({ file })]), '$.findings[0].file');
     }
   });

@@ -26,7 +26,8 @@
  */
 import { SECURITY_PROVIDER_NOTICE_VERSION } from '@void/platform/security-models';
 import { parseSecurityDigits, parseSecurityUsdText } from '@void/platform/security-policy';
-import { type Context, Hono } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { platformBrowserPage } from '../browser-page.ts';
@@ -52,8 +53,8 @@ import {
   renderSecurityInvalidLink,
   renderSecurityLanding,
   renderSecurityPage,
-  type SecurityPageNotice,
 } from '../security/project-page.ts';
+import type { SecurityPageNotice } from '../security/project-page.ts';
 import {
   parseSecurityBudgetRequest,
   parseSecurityModelRequest,

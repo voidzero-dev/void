@@ -33,12 +33,8 @@ import {
 } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
-import {
-  finishSpike,
-  REPO,
-  relaunchWithLocalLoader,
-  type SpikeCheck,
-} from './security-spike-local.ts';
+import { finishSpike, REPO, relaunchWithLocalLoader } from './security-spike-local.ts';
+import type { SpikeCheck } from './security-spike-local.ts';
 
 relaunchWithLocalLoader(import.meta.url);
 

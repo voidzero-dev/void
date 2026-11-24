@@ -5,7 +5,8 @@
 // request can be checked against what really happened.
 
 import type { SessionTool } from '../engines/types.ts';
-import { RUNTIME_PROOF_METHODS, type FindingRecord } from '../report.ts';
+import { RUNTIME_PROOF_METHODS } from '../report.ts';
+import type { FindingRecord } from '../report.ts';
 
 export const COPY_BASE_URL = 'http://copy.void.internal';
 export const COPY_HEADER = 'x-void-copy';
@@ -25,7 +26,7 @@ export const COPY_LIMITS = {
   timeoutMs: 20_000,
   /** How long verify waits for the copy before it runs static-only. */
   readyWaitMs: 90_000,
-  readyPollMs: 3_000,
+  readyPollMs: 3000,
 } as const;
 
 type Method = (typeof RUNTIME_PROOF_METHODS)[number];

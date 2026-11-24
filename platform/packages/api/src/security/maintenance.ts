@@ -20,10 +20,8 @@
  * The reaper and the sweeps also run while the policy is Off: Off cancels waiting
  * scans but a running one still needs its lease enforced, and stored data still ages.
  */
-import {
-  SECURITY_ENTITLEMENT_MAX_AGE_MS,
-  type SecurityPolicy,
-} from '@void/platform/security-policy';
+import { SECURITY_ENTITLEMENT_MAX_AGE_MS } from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { and, asc, lt, sql } from 'drizzle-orm';
 import { paginatedR2Delete } from '../assets.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
@@ -47,7 +45,8 @@ import {
   skipBackloggedSecurityScans,
 } from './queue.ts';
 import { reapSecurityRuntimeCopies } from './runtime-copy.ts';
-import { securityScanControllerClient, type SecurityScanController } from './scheduler.ts';
+import { securityScanControllerClient } from './scheduler.ts';
+import type { SecurityScanController } from './scheduler.ts';
 import { securityScans } from './schema.ts';
 import { queueSecuritySweeps } from './sweeps.ts';
 

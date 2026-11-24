@@ -35,7 +35,8 @@
  * report and a PASS/FAIL line; exits 1 on FAIL.
  */
 import { parseArgs } from 'node:util';
-import { cfApi, type SpikeEnv } from './security-spike-s1.ts';
+import { cfApi } from './security-spike-s1.ts';
+import type { SpikeEnv } from './security-spike-s1.ts';
 import { GATEWAY_ID, readAiGatewayEnv } from './security-spike-s2.ts';
 
 export const GATEWAY_SETTINGS = {
@@ -298,7 +299,7 @@ async function main() {
     const callerTtlHit = calls.some((c) => c.case === 'callerTtl#2' && c.cacheStatus === 'HIT');
     report.callerCacheTtlTurnsCacheOn = callerTtlHit;
     // Logs land a little after the answer: poll until every log id shows or the wait ends.
-    const wanted = new Set(calls.map((c) => c.logId).filter((id): id is string => Boolean(id)));
+    const wanted = new Set(calls.flatMap((c) => (c.logId ? [c.logId] : [])));
     const deadline = Date.now() + Number(values['log-wait-s']) * 1000;
     let logs: Array<LogEntry> = [];
     for (;;) {
@@ -307,7 +308,9 @@ async function main() {
       if ([...wanted].every((id) => seen.has(id)) || Date.now() > deadline) {
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10_000);
+      });
     }
     const byId = new Map(logs.map((l) => [l.id, l]));
     const entries: Array<Record<string, unknown>> = [];

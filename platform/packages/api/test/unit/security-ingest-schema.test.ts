@@ -10,8 +10,8 @@ import {
   securityScanOutcome,
   serializeSecurityScanScope,
   shouldRetrySecurityScan,
-  type SecurityParsedFindings,
 } from '../../src/security/ingest.ts';
+import type { SecurityParsedFindings } from '../../src/security/ingest.ts';
 
 const SCAN = 'scan_abc';
 

@@ -30,7 +30,6 @@
 // nothing reads /run/cloudchamber.
 
 import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
-// oxlint-disable-next-line typescript/triple-slash-reference -- dependent workspace projects need the virtual build module declaration.
 /// <reference path="./security-scanner-controller-modules.d.ts" />
 import runnerSource from 'void:security-scanner-runner-source';
 import { COPY_HEADER, COPY_HOST, runtimeCopyScriptName } from './security/runtime-copy-names.ts';
@@ -447,7 +446,12 @@ export default class ScannerService extends WorkerEntrypoint<ControllerEnv> {
           error: 'engine_unavailable',
         } satisfies SelfTestResult);
       }
-      return Response.json(await namespace.getByName(probeInstanceName(probeId)).selfTest(probeId));
+      // RPC types a result holding an `unknown` report as never; the stub still returns
+      // the method's promise, so call it through the class's own signature.
+      const stub: Pick<ScannerController, 'selfTest'> = namespace.getByName(
+        probeInstanceName(probeId),
+      );
+      return Response.json(await stub.selfTest(probeId));
     }
     return new Response('not found', { status: 404 });
   }
@@ -470,7 +474,7 @@ export class ScannerController extends DurableObject<ControllerEnv> {
   }
 
   private get loopback(): ExportsLoopback {
-    return (this.ctx as unknown as { exports: ExportsLoopback }).exports;
+    return (this.ctx as DurableObjectState & { exports: ExportsLoopback }).exports;
   }
 
   private get control(): SecurityScanControlRpc {
@@ -534,7 +538,9 @@ export class ScannerController extends DurableObject<ControllerEnv> {
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
       }
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 250);
+      });
     }
     throw new Error(`The scanner container did not start: ${lastError}`);
   }
@@ -574,7 +580,7 @@ export class ScannerController extends DurableObject<ControllerEnv> {
   }
 
   private async finish(): Promise<void> {
-    await this.destroyContainer().catch((error) => {
+    await this.destroyContainer().catch((error: unknown) => {
       console.error('[security-scanner] container destroy failed', error);
     });
     const state = await this.state();

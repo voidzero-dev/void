@@ -1,12 +1,7 @@
-import {
-  SECURITY_PROVIDER_NOTICE_VERSION,
-  type SecurityModelId,
-} from '@void/platform/security-models';
-import {
-  defaultSecurityPolicy,
-  type SecurityEntitlement,
-  type SecurityPolicy,
-} from '@void/platform/security-policy';
+import { SECURITY_PROVIDER_NOTICE_VERSION } from '@void/platform/security-models';
+import type { SecurityModelId } from '@void/platform/security-models';
+import { defaultSecurityPolicy } from '@void/platform/security-policy';
+import type { SecurityEntitlement, SecurityPolicy } from '@void/platform/security-policy';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { DbOrTx } from '../../src/db.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from '../../src/security/errors.ts';
@@ -20,8 +15,10 @@ import {
   securityPolicyPreviewLines,
   securitySpendMonth,
   withFailingSince,
-  type SecurityPolicyPreviewCounts,
-  type StoredSecurityPolicy,
+} from '../../src/security/policy.ts';
+import type {
+  SecurityPolicyPreviewCounts,
+  StoredSecurityPolicy,
 } from '../../src/security/policy.ts';
 
 const NOW = Date.parse('2026-11-18T12:00:00.000Z');

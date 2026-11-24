@@ -9,14 +9,12 @@
 
 import type { Engine, SessionOutcome, SessionSpec } from './engines/types.ts';
 import { huntPrompt, STANDARD_HUNT_FOCUS, systemPrompt, verifyPrompt } from './prompts.ts';
-import { REPORT_LIMITS, SEVERITIES, type FindingRecord, type ScanReport } from './report.ts';
-import {
-  type CopyClient,
-  type CopyRequestRecord,
-  withoutRuntimeFields,
-  withVerdictSource,
-} from './runtime/copy.ts';
-import { outcomeStatus, type StatusFields, type StatusFile } from './status.ts';
+import { REPORT_LIMITS, SEVERITIES } from './report.ts';
+import type { FindingRecord, ScanReport } from './report.ts';
+import { withoutRuntimeFields, withVerdictSource } from './runtime/copy.ts';
+import type { CopyClient, CopyRequestRecord } from './runtime/copy.ts';
+import { outcomeStatus } from './status.ts';
+import type { StatusFields, StatusFile } from './status.ts';
 import type { ScanTask } from './task.ts';
 
 export type PhasesResult = StatusFields & {

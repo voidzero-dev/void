@@ -9,9 +9,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolve } from 'node:path';
 import { submitFindingsParameters } from '../report.ts';
-import { classifyClaudeResult, safeLabel, type OutcomeBody } from '../status.ts';
+import { classifyClaudeResult, safeLabel } from '../status.ts';
+import type { OutcomeBody } from '../status.ts';
 import { readLastFailure, stopSince } from './proxy-failure.ts';
-import { emptyStats, type Engine, type SessionOutcome, type SessionSpec } from './types.ts';
+import { emptyStats } from './types.ts';
+import type { Engine, SessionOutcome, SessionSpec } from './types.ts';
 
 export const CLAUDE_ENGINE_VERSION = 'agent-sdk/1';
 export const CLAUDE_BASE_URL = 'http://model.void.internal';
@@ -130,15 +132,16 @@ export function claudeOptions(input: {
   };
 }
 
+const real = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+};
+
 /** PreToolUse hook: only paths under `<root>/input` and `<root>/memory`, after realpath. */
 export function createPathHook(root: string) {
-  const real = (path: string): string => {
-    try {
-      return realpathSync(path);
-    } catch {
-      return path;
-    }
-  };
   const allowed = [`${root}/input`, `${root}/memory`].map(real);
   const under = (candidate: unknown): boolean => {
     if (candidate === undefined || candidate === '') {
@@ -191,13 +194,6 @@ export function createPathHook(root: string) {
  * does not count: a session must have seen code before its report can clear any.
  */
 export function createReadCounter(root: string, onRead: () => void) {
-  const real = (path: string): string => {
-    try {
-      return realpathSync(path);
-    } catch {
-      return path;
-    }
-  };
   const input = real(`${root}/input`);
   return async (event: Record<string, unknown>): Promise<Record<string, unknown>> => {
     if (event.tool_name !== 'Read') {

@@ -11,7 +11,8 @@
  * the claims for its bundle's packages (`securityPackages`, read from the project's
  * lockfile). The readers are shared with the CLI (`@void/platform/security-lockfile`).
  */
-import { packageNameOfPath, type SecurityLockfileIndex } from '@void/platform/security-lockfile';
+import { packageNameOfPath } from '@void/platform/security-lockfile';
+import type { SecurityLockfileIndex } from '@void/platform/security-lockfile';
 
 export {
   packageNameOfPath,

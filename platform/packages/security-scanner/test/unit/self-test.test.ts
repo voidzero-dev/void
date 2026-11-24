@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'vite-plus/test';
 import { runSelfTest, suspiciousEnvNames } from '../../src/runner/self-test.ts';
-import { startFakeModel, type FakeModel } from '../fake-model/server.ts';
+import { startFakeModel } from '../fake-model/server.ts';
+import type { FakeModel } from '../fake-model/server.ts';
 
 const MAIN = fileURLToPath(new URL('../../src/runner/main.ts', import.meta.url));
 
@@ -30,7 +31,7 @@ describe('runSelfTest', () => {
   test('passes when the model route answers and every egress target is blocked', async () => {
     const report = await runSelfTest({
       baseUrl: 'http://model.void.internal',
-      uid: 10001,
+      uid: 10_001,
       env: { PATH: '/usr/bin', HOME: '/home/scanner' },
       fetch: interceptedFetch({
         'http://model.void.internal/v1/self-test': () => Response.json({ probe: 'pr_abc' }),
@@ -38,7 +39,7 @@ describe('runSelfTest', () => {
       }),
     });
     expect(report.model).toMatchObject({ ok: true, status: 200, probe: 'pr_abc' });
-    expect(report.uid).toBe(10001);
+    expect(report.uid).toBe(10_001);
     expect(report.envSuspicious).toEqual([]);
     expect(Object.values(report.egress).every((result) => result.blocked)).toBe(true);
     expect(report.egress.httpExample).toMatchObject({ blocked: true, status: 403 });
@@ -104,7 +105,9 @@ describe('runner --self-test', () => {
     );
     let stdout = '';
     child.stdout.on('data', (chunk) => (stdout += chunk));
-    const code = await new Promise<number | null>((resolve) => child.on('close', resolve));
+    const code = await new Promise<number | null>((resolve) => {
+      child.on('close', resolve);
+    });
     expect(code).toBe(0);
     const report = JSON.parse(stdout.trim());
     expect(report).toMatchObject({

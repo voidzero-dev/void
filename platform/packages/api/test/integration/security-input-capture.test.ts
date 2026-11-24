@@ -38,8 +38,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // Small, so the size checks can be passed without 50 MB of fixtures.
 const MODULE_LIMIT = 4096;

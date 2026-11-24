@@ -1,4 +1,5 @@
-import { PlatformApiError, type PlatformClient } from './client.ts';
+import { PlatformApiError } from './client.ts';
+import type { PlatformClient } from './client.ts';
 import type { CliLogger } from './log-file.ts';
 import { budgetAhead, budgetCause, budgetSkipCopy, cleanLine } from './project-security.ts';
 import type {
@@ -9,7 +10,7 @@ import type {
 } from './security-api-types.ts';
 
 /** The read is best-effort: it may add this long to CLI exit, never to the deploy. */
-const NOTICE_TIMEOUT_MS = 5_000;
+const NOTICE_TIMEOUT_MS = 5000;
 const MAX_ROWS = 5;
 const MAX_TITLE = 120;
 const PROVIDERS: Record<string, string> = {

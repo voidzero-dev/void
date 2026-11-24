@@ -132,7 +132,7 @@ const out = {
   turnFailed: null,
   errors: [],
 };
-const abort = AbortSignal.timeout(task.timeoutMs ?? 600000);
+const abort = AbortSignal.timeout(task.timeoutMs ?? 600_000);
 try {
   const thread = codex.startThread({
     model: task.model,

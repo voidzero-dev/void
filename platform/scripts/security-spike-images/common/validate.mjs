@@ -2,13 +2,13 @@
 // validate-findings.cjs + Zod). Returns a list of problems, empty when valid.
 export function validateReport(value) {
   const problems = [];
-  const severities = ['critical', 'high', 'medium', 'low'];
+  const severities = new Set(['critical', 'high', 'medium', 'low']);
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return ['not an object'];
   }
-  const allowedTop = ['run_status', 'findings'];
+  const allowedTop = new Set(['run_status', 'findings']);
   for (const key of Object.keys(value)) {
-    if (!allowedTop.includes(key)) {
+    if (!allowedTop.has(key)) {
       problems.push(`extra key ${key}`);
     }
   }
@@ -30,7 +30,7 @@ export function validateReport(value) {
         problems.push(`findings[${index}] missing ${key}`);
       }
     }
-    if (!severities.includes(finding?.severity)) {
+    if (!severities.has(finding?.severity)) {
       problems.push(`findings[${index}] bad severity`);
     }
     if (!Number.isInteger(finding?.line)) {

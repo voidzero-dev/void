@@ -182,19 +182,24 @@ function anthropicReply(body, entry) {
   if (results.has('toolu_r0_1')) {
     entry.passwd = results.get('toolu_r0_1').slice(0, 200);
   }
-  const use = (n, name, input) => ({ type: 'tool_use', id: `toolu_r${round}_${n}`, name, input });
+  const toolUse = (n, name, input) => ({
+    type: 'tool_use',
+    id: `toolu_r${round}_${n}`,
+    name,
+    input,
+  });
   if (round === 0) {
     return anthropicMessage(
       [
-        use(0, 'Read', { file_path: `/scan/input/${SEEDED_FILE}` }),
-        use(1, 'Read', { file_path: '/etc/passwd' }),
+        toolUse(0, 'Read', { file_path: `/scan/input/${SEEDED_FILE}` }),
+        toolUse(1, 'Read', { file_path: '/etc/passwd' }),
       ],
       'tool_use',
     );
   }
   if (round === 1) {
     const line = lineOf(results.get('toolu_r0_0') ?? '');
-    return anthropicMessage([use(0, 'StructuredOutput', report(line))], 'tool_use');
+    return anthropicMessage([toolUse(0, 'StructuredOutput', report(line))], 'tool_use');
   }
   return anthropicMessage([{ type: 'text', text: 'Review complete.' }], 'end_turn');
 }
@@ -323,7 +328,7 @@ function answer(method, path, bodyText, entry) {
   if (path.startsWith('/v1/void/last-failure')) {
     return { status: 200, type: 'application/json', text: '{"failure":null}' };
   }
-  let body = {};
+  let body;
   try {
     body = bodyText ? JSON.parse(bodyText) : {};
   } catch {

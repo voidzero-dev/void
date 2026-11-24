@@ -1,7 +1,9 @@
 import type { OperatorArgs } from './operator-args.ts';
-import { OperatorClientError, type OperatorClient } from './operator-client.ts';
+import { OperatorClientError } from './operator-client.ts';
+import type { OperatorClient } from './operator-client.ts';
 import { dim, printSuccess } from './output.ts';
-import { type SarifFinding, sarifToolVersion, securityFindingsSarif } from './security-sarif.ts';
+import { sarifToolVersion, securityFindingsSarif } from './security-sarif.ts';
+import type { SarifFinding } from './security-sarif.ts';
 
 type Result = Record<string, unknown>;
 
@@ -418,7 +420,7 @@ async function runWebhook(
 }
 
 /** Longest provider key read from stdin; the server takes at most 1,024 characters. */
-const MAX_PROVIDER_KEY_INPUT = 8_192;
+const MAX_PROVIDER_KEY_INPUT = 8192;
 
 /** Reads one provider API key piped on stdin. The key is never printed. */
 export async function readProviderKeyStdin(
@@ -438,7 +440,7 @@ export async function readProviderKeyStdin(
     }
   }
   const key = input.trim();
-  if (!key || [...key].some((char) => char <= ' ')) {
+  if (!key || Array.from(key).some((char) => char <= ' ')) {
     throw new OperatorClientError(
       'Standard input must hold one API key on one line.',
       'invalid_key_input',

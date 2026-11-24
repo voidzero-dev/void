@@ -10,7 +10,8 @@
  *
  * Policy Off still scans nothing: the rule only narrows or widens an on mode.
  */
-import { eq, sql, type SQL } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { DbOrTx } from '../db.ts';
 import { projects, projectZeroTrust } from '../schema.ts';
 import { SecurityApiError } from './errors.ts';

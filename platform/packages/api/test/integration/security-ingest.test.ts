@@ -36,11 +36,8 @@ import { sha256Hex } from '../../src/security/input/t2.ts';
 import { securityRawOutputPrefix } from '../../src/security/maintenance.ts';
 import { readSecurityPolicyLenient } from '../../src/security/policy.ts';
 import { reapExpiredSecurityScans } from '../../src/security/queue.ts';
-import {
-  runSecurityScanQueue,
-  securityScanQueueStore,
-  type SchedulerStorage,
-} from '../../src/security/scheduler.ts';
+import { runSecurityScanQueue, securityScanQueueStore } from '../../src/security/scheduler.ts';
+import type { SchedulerStorage } from '../../src/security/scheduler.ts';
 import {
   clearTables,
   createTestDeployment,
@@ -48,8 +45,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const ids = vi.hoisted(() => ({ collide: false }));
 vi.mock('../../src/id.ts', async (importOriginal) => {
@@ -755,7 +752,7 @@ describe('scan result ingest', () => {
     const { project } = await setup();
     const deployment = await deploy(project.id);
     await runningScan('scan_late', project.id, deployment.id, {
-      lease_until: new Date(Date.now() - 1_000).toISOString(),
+      lease_until: new Date(Date.now() - 1000).toISOString(),
     });
     // Past the lease, even before the reaper runs.
     expect(await ingest('scan_late', result('scan_late', [finding()]))).toEqual({ ok: false });

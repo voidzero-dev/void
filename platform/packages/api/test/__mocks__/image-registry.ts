@@ -132,7 +132,7 @@ export function createFakeRegistry(
             result: { username: 'v1', password: 'registry-password' },
           })
         : Response.json(
-            { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
+            { success: false, errors: [{ code: 10_000, message: 'Authentication error' }] },
             { status },
           );
     }

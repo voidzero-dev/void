@@ -7,10 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { parseProjectArgs } from '../../src/cli/project-args.ts';
 import { runProjectCommand } from '../../src/cli/project-cmd.ts';
-import {
-  collectSecurityLocalTree,
-  type SecurityCheckDeps,
-} from '../../src/cli/project-security-check.ts';
+import { collectSecurityLocalTree } from '../../src/cli/project-security-check.ts';
+import type { SecurityCheckDeps } from '../../src/cli/project-security-check.ts';
 import { runProjectSecurityCommand } from '../../src/cli/project-security.ts';
 
 const roots: Array<string> = [];

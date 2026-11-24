@@ -1,6 +1,7 @@
 import type { SecurityEngine } from '@void/platform/security-models';
 import type { SecurityMode } from '@void/platform/security-policy';
-import { sql, type SQL } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import {
   bigint,
   boolean,
@@ -16,8 +17,8 @@ import {
   timestamp,
   unique,
   uniqueIndex,
-  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { projects } from '../schema.ts';
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { buildSecurityScanInput, type SecurityInputPlan } from '../../src/security/input/build.ts';
+import { buildSecurityScanInput } from '../../src/security/input/build.ts';
+import type { SecurityInputPlan } from '../../src/security/input/build.ts';
 import {
   SourceTarballError,
   sourceTarballPath,
@@ -16,10 +17,10 @@ import {
   securityCompareProblem,
   securityRepoRank,
   startSecuritySourceDiff,
-  type SecurityRepoIndex,
-  type SecurityRepoMapping,
 } from '../../src/security/input/t1.ts';
-import { bundleSources, sha256Hex, type SecurityModuleFile } from '../../src/security/input/t2.ts';
+import type { SecurityRepoIndex, SecurityRepoMapping } from '../../src/security/input/t1.ts';
+import { bundleSources, sha256Hex } from '../../src/security/input/t2.ts';
+import type { SecurityModuleFile } from '../../src/security/input/t2.ts';
 import { tarChunks } from '../../src/security/input/tar.ts';
 import { chooseSecurityTier, securityCoverageLabel } from '../../src/security/input/tier.ts';
 

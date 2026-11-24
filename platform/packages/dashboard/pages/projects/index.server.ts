@@ -1,5 +1,6 @@
 import { defineHandler, defineHead } from 'void';
-import { apiClient, getApiErrorMessage, readApiJson, type ProjectListItem } from '../../lib/api.ts';
+import { apiClient, getApiErrorMessage, readApiJson } from '../../lib/api.ts';
+import type { ProjectListItem } from '../../lib/api.ts';
 
 export type ProjectRow = Readonly<{
   slug: string;

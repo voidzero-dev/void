@@ -17,17 +17,14 @@
  * `cf-aig-no-wholesale` makes the gateway refuse instead of billing Unified Billing
  * credits if it ever does not read the key.
  */
-import { type SecurityModelId, type SecurityThirdPartyHost } from '@void/platform/security-models';
+import type { SecurityModelId, SecurityThirdPartyHost } from '@void/platform/security-models';
 import type { SecurityEntitlement } from '@void/platform/security-policy';
 import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
-import {
-  decryptPlatformCredential,
-  encryptPlatformCredential,
-  type EncryptedPlatformCredential,
-} from '../project-secrets.ts';
+import { decryptPlatformCredential, encryptPlatformCredential } from '../project-secrets.ts';
+import type { EncryptedPlatformCredential } from '../project-secrets.ts';
 
 /** `platform_settings` key; apart from the policy so a key never reaches a policy read. */
 export const SECURITY_PROVIDER_KEYS_SETTINGS_KEY = 'securityAudits.providerKeys';
@@ -186,14 +183,15 @@ async function readStoredKeys(db: DbOrTx): Promise<StoredKeys> {
   return stored;
 }
 
+const view = (entry: StoredKeys[SecurityThirdPartyHost]) =>
+  entry === undefined
+    ? null
+    : entry === MALFORMED
+      ? { setAt: null, unreadable: true as const }
+      : { setAt: entry.setAt };
+
 export async function securityProviderKeysView(db: DbOrTx): Promise<SecurityProviderKeysView> {
   const stored = await readStoredKeys(db);
-  const view = (entry: StoredKeys[SecurityThirdPartyHost]) =>
-    entry === undefined
-      ? null
-      : entry === MALFORMED
-        ? { setAt: null, unreadable: true as const }
-        : { setAt: entry.setAt };
   return { openai: view(stored.openai), anthropic: view(stored.anthropic) };
 }
 

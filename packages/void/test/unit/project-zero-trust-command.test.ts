@@ -676,7 +676,7 @@ describe('project Zero Trust bypass', () => {
     );
     capture();
     const failure = await runProjectZeroTrustCommand(root, { ...args, yes: true }).catch(
-      (error: Error) => error,
+      (error: unknown) => error,
     );
     expect((failure as Error).message).toContain(
       'linked-app has 2 urgent findings open (F-12, F-15). A bypass skips only the scan, not open findings.',
@@ -711,7 +711,7 @@ describe('project Zero Trust bypass', () => {
     const root = setup(bypassFetch(closed('canceled')));
     capture();
     const failure = await runProjectZeroTrustCommand(root, { ...args, yes: true }).catch(
-      (error: Error) => error,
+      (error: unknown) => error,
     );
     expect((failure as Error).message).toBe(
       'project: Public request canceled, so nothing was bypassed. linked-app stays protected.',

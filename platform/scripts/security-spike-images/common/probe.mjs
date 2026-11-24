@@ -21,7 +21,7 @@ function walk(dir, depth, visit) {
   if (depth > 7 || SKIP.has(dir)) {
     return;
   }
-  let entries = [];
+  let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
@@ -60,7 +60,7 @@ for (const root of [
       return;
     }
     try {
-      if (statSync(path).size < 1048576 && readFileSync(path, 'latin1').includes(marker)) {
+      if (statSync(path).size < 1_048_576 && readFileSync(path, 'latin1').includes(marker)) {
         markerFiles.push(path);
       }
     } catch {
@@ -122,7 +122,7 @@ console.log(
       pid1EnvError,
       markerFiles,
       pwned,
-      inputFiles: inputFiles.sort(),
+      inputFiles: inputFiles.sort((left, right) => left.localeCompare(right)),
       processes: processes.sort(),
       cloudflareCaPresent: existsSync('/etc/cloudflare/certs/cloudflare-containers-ca.crt'),
       httpsExample: await get('https://example.com/'),

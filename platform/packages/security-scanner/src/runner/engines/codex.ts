@@ -10,10 +10,12 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { validateFindingsLenient } from '../coerce.ts';
-import { classifyCodexRun, safeLabel, type CodexRunSignal, type OutcomeBody } from '../status.ts';
+import { classifyCodexRun, safeLabel } from '../status.ts';
+import type { CodexRunSignal, OutcomeBody } from '../status.ts';
 import { describeValidationError } from '../validate-findings.ts';
 import { readLastFailure, stopSince } from './proxy-failure.ts';
-import { emptyStats, type Engine, type SessionOutcome, type SessionSpec } from './types.ts';
+import { emptyStats } from './types.ts';
+import type { Engine, SessionOutcome, SessionSpec } from './types.ts';
 
 export const CODEX_ENGINE_VERSION = 'codex-sdk/1';
 export const CODEX_BASE_URL = 'http://model.void.internal/v1';

@@ -38,7 +38,8 @@ import ScannerService, {
 } from '../../src/security-scanner-controller-runtime.ts';
 import { SECURITY_SELF_TEST_TIMEOUT_MS } from '../../src/security/probe.ts';
 import { COPY_HOST } from '../../src/security/runtime-copy-names.ts';
-import { createFakeContainer, type FakeContainer } from '../__mocks__/container.ts';
+import { createFakeContainer } from '../__mocks__/container.ts';
+import type { FakeContainer } from '../__mocks__/container.ts';
 
 const RUNNER = '// fake scanner runner\n';
 
@@ -425,7 +426,7 @@ describe('engine image classes (M13b)', () => {
   });
 
   it('self-test in the engine image the same way', async () => {
-    const report = { selfTest: 1, uid: 10001 };
+    const report = { selfTest: 1, uid: 10_001 };
     const setup = fixture(
       {
         exec: (call) =>
@@ -708,7 +709,7 @@ describe('ScannerService', () => {
     for (const body of [
       { ...START, scanId: '../x' },
       { ...START, attempt: 0 },
-      { ...START, hardCapMs: 1_000 },
+      { ...START, hardCapMs: 1000 },
       { probeId: 'pr 1' },
     ]) {
       const path = 'probeId' in body ? '/v1/self-test' : '/v1/scans/start';

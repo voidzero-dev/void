@@ -14,9 +14,11 @@ import {
   securityFingerprintKey,
   selectStoredRecords,
   shouldReopen,
-  type SecurityIngestRecord,
-  type SecurityIngestScan,
-  type SecurityStoredFinding,
+} from '../../src/security/findings.ts';
+import type {
+  SecurityIngestRecord,
+  SecurityIngestScan,
+  SecurityStoredFinding,
 } from '../../src/security/findings.ts';
 
 const PROJECT = 'proj_aaaaaaaaaaaa';

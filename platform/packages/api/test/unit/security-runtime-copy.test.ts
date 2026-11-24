@@ -9,8 +9,8 @@ import {
   planSecurityRuntimeCopy,
   securityRuntimeCopyMetadata,
   securityRuntimeCopyWanted,
-  type SecurityCopyPlan,
 } from '../../src/security/runtime-copy-plan.ts';
+import type { SecurityCopyPlan } from '../../src/security/runtime-copy-plan.ts';
 import {
   COPY_GUARD_MODULE_NAME,
   COPY_ENTRY_MODULE_NAME,
@@ -24,8 +24,8 @@ import {
   createSecurityRuntimeCopy,
   SecurityCopySkipped,
   securityCopySchemaStatements,
-  type SecurityCopyTarget,
 } from '../../src/security/runtime-copy.ts';
+import type { SecurityCopyTarget } from '../../src/security/runtime-copy.ts';
 import type { DeployManifest } from '../../src/types.ts';
 
 const PREFIX = runtimeCopyPrefix('abc123def456');

@@ -8,14 +8,16 @@
  * savepoint and a failure there is logged and leaves no row; the after-commit part
  * never throws.
  */
-import { and, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { paginatedR2Delete } from '../assets.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db, DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import { deploymentOperations, deployments, projects, projectZeroTrust, users } from '../schema.ts';
-import { withKnownLength, type WorkerModule } from '../worker-upload.ts';
+import { withKnownLength } from '../worker-upload.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import { installationZeroTrustProtects, readSecurityPolicyLenient } from './policy.ts';
 import {
   readSecurityProjectPolicyOverride,
@@ -25,8 +27,8 @@ import {
   SECURITY_PUBLIC_REQUEST_OPEN_STATES,
   securityPublicRequests,
   securityScans,
-  type SecurityScanTrigger,
 } from './schema.ts';
+import type { SecurityScanTrigger } from './schema.ts';
 
 /** A scan waiting to start; a newer live deploy supersedes it (coalescing, spec §6.2). */
 export const SECURITY_SCAN_WAITING_STATUSES = ['pending_input', 'queued'] as const;

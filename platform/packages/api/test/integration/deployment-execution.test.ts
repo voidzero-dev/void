@@ -505,13 +505,13 @@ describe('durable deployment admission and observation', () => {
     const realList = env.STATIC_ASSETS_R2.list.bind(env.STATIC_ASSETS_R2);
     const aged = vi.spyOn(env.STATIC_ASSETS_R2, 'list').mockImplementation(async (options) => {
       const page = await realList(options);
-      return {
-        ...page,
-        objects: page.objects.map((object) => ({
-          ...object,
-          uploaded: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-        })),
-      } as typeof page;
+      // Age each listed object in place so it keeps its R2 object shape.
+      for (const object of page.objects) {
+        Object.defineProperty(object, 'uploaded', {
+          value: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        });
+      }
+      return page;
     });
     const staged = async (prefix: string) =>
       (await env.STATIC_ASSETS_R2.list({ prefix })).objects.length;

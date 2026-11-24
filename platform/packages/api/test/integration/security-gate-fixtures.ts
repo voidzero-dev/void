@@ -14,12 +14,8 @@ import { setPlatformSetting } from '../../src/platform-settings.ts';
 import { projectZeroTrust, securityFindings, securityScans } from '../../src/schema.ts';
 import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
 import { setProjectZeroTrustProtection } from '../../src/zero-trust/project.ts';
-import {
-  createTestDeployment,
-  createTestProject,
-  createTestUser,
-  type TestEnv,
-} from './helpers.ts';
+import { createTestDeployment, createTestProject, createTestUser } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 export function gateBindings(env: TestEnv): ApiEnv['Bindings'] {
   return {

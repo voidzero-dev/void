@@ -11,9 +11,8 @@ import {
   createReadCounter,
   gatewayName,
   structuredOutputSchema,
-  type ClaudeMessage,
-  type ClaudeSdk,
 } from '../../src/runner/engines/claude.ts';
+import type { ClaudeMessage, ClaudeSdk } from '../../src/runner/engines/claude.ts';
 import { LAST_FAILURE_PATH } from '../../src/runner/engines/proxy-failure.ts';
 import type { SessionSpec } from '../../src/runner/engines/types.ts';
 import { defaultEngineFactory } from '../../src/runner/run.ts';
@@ -203,7 +202,7 @@ describe('Engine A path hook', () => {
       '/etc/**',
       '/**',
       '~/**',
-      '\\.\\./*',
+      String.raw`\.\./*`,
       `${dir}/*`,
     ]) {
       expect(await glob({ pattern }), pattern).toMatchObject(deny);

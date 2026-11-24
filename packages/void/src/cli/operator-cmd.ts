@@ -21,12 +21,12 @@ import { dim, printSuccess, sanitizeTerminalText } from './output.ts';
 import { MINIMAL_RUNTIME_LOGS_NOTE } from './platform-runtime-logs.ts';
 
 const MAX_RUNTIME_FOLLOW_ROWS = 10_000;
-const OPEN_PUBLIC_REQUEST_STATES = [
+const OPEN_PUBLIC_REQUEST_STATES = new Set([
   'waiting_scan',
   'held_findings',
   'held_no_result',
   'needs_deploy',
-];
+]);
 export const BUILD_LOG_DRAIN_TIMEOUT_MS: number = 2 * 60_000;
 
 function printable(value: unknown): string {
@@ -163,8 +163,7 @@ export function outputMutation(result: Record<string, unknown>, args: OperatorAr
   const publicRequest = result.publicRequest as { state?: string } | null | undefined;
   if (
     args.json ||
-    (publicRequest?.state !== undefined &&
-      OPEN_PUBLIC_REQUEST_STATES.includes(publicRequest.state)) ||
+    (publicRequest?.state !== undefined && OPEN_PUBLIC_REQUEST_STATES.has(publicRequest.state)) ||
     result.ok === false ||
     result.partial === true ||
     result.complete === false ||

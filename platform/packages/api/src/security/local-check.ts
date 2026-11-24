@@ -39,7 +39,8 @@ import {
   securityScanView,
   scanColumns,
 } from './project-view.ts';
-import { securityScans, type SecuritySeverity } from './schema.ts';
+import { securityScans } from './schema.ts';
+import type { SecuritySeverity } from './schema.ts';
 
 /** The presigned upload works this long. */
 export const SECURITY_LOCAL_UPLOAD_TTL_SECONDS = 30 * 60;
@@ -431,7 +432,7 @@ function parseResult(text: string | null): SecurityLocalCheckResult | null {
   }
 }
 
-const ENDED_WITH_RESULT = ['succeeded', 'incomplete'];
+const ENDED_WITH_RESULT = new Set(['succeeded', 'incomplete']);
 
 /** The check as the scans list shows it, and its result once it ended with one. */
 export async function readSecurityLocalCheck(
@@ -442,7 +443,7 @@ export async function readSecurityLocalCheck(
 ) {
   const row = await readLocalRow(db, projectId, checkId);
   let result: SecurityLocalCheckResult | null = null;
-  if (ENDED_WITH_RESULT.includes(row.status)) {
+  if (ENDED_WITH_RESULT.has(row.status)) {
     const object = await env.STATIC_ASSETS_R2.get(
       securityLocalResultKey(projectId, checkId, row.attempt),
     );

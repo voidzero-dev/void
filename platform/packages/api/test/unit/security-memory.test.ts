@@ -6,9 +6,11 @@ import {
   SECURITY_MEMORY_INDEX_MAX_BYTES,
   SECURITY_MEMORY_INDEX_MAX_RECORDS,
   securityAuthorRole,
-  type SecurityMemoryEvent,
-  type SecurityMemoryFinding,
-  type SecurityMemoryInput,
+} from '../../src/security/input/memory.ts';
+import type {
+  SecurityMemoryEvent,
+  SecurityMemoryFinding,
+  SecurityMemoryInput,
 } from '../../src/security/input/memory.ts';
 
 let nextNumber = 1;

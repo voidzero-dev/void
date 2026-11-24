@@ -15,8 +15,8 @@ import {
   securityModelBadges,
   securityModelThirdPartyHost,
   securityProviderNotice,
-  type SecurityModelId,
 } from '@void/platform/security-models';
+import type { SecurityModelId } from '@void/platform/security-models';
 import {
   defaultSecurityPolicy,
   isSecurityEntitlementFresh,
@@ -28,15 +28,18 @@ import {
   SECURITY_LIMIT_KEYS,
   SECURITY_MODE_LABELS,
   SECURITY_POLICY_SETTINGS_KEY,
-  type SecurityLimitKey,
-  type SecurityMode,
-  type SecurityPolicy,
-  type SecurityEntitlement,
-  type SecurityPolicyLimits,
-  type SecuritySweeps,
-  type SecurityThirdPartyNotice,
 } from '@void/platform/security-policy';
-import { and, asc, count, eq, gte, inArray, ne, notLike, sql, type SQL } from 'drizzle-orm';
+import type {
+  SecurityLimitKey,
+  SecurityMode,
+  SecurityPolicy,
+  SecurityEntitlement,
+  SecurityPolicyLimits,
+  SecuritySweeps,
+  SecurityThirdPartyNotice,
+} from '@void/platform/security-policy';
+import { and, asc, count, eq, gte, inArray, ne, notLike, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
 import { projects, projectZeroTrust } from '../schema.ts';
@@ -53,16 +56,12 @@ import {
   entitlementForSavedKeys,
   securityProviderKeyIds,
   securityProviderKeysView,
-  type SecurityProviderKeyIds,
 } from './provider-keys.ts';
+import type { SecurityProviderKeyIds } from './provider-keys.ts';
 import { cancelAllOpenRequests, listOpenRequestSlugs } from './public-gate.ts';
 import { countSecurityScanCandidates } from './scan-candidates.ts';
-import {
-  projectSecuritySettings,
-  securityPlatformSpend,
-  securityScans,
-  type SecurityScanStatus,
-} from './schema.ts';
+import { projectSecuritySettings, securityPlatformSpend, securityScans } from './schema.ts';
+import type { SecurityScanStatus } from './schema.ts';
 import { securityWebhookView } from './webhook.ts';
 
 // ---------------------------------------------------------------------------
@@ -1127,7 +1126,7 @@ async function gatePreviewCounts(
         sql`NOT ${projectZeroTrust.desired_protected} AND ${projectZeroTrust.status} <> 'ready'`,
       ),
     );
-  let newProjectsStartPublic = false;
+  let newProjectsStartPublic: boolean;
   try {
     newProjectsStartPublic =
       (await readZeroTrustConfigurationStrict(db))?.protectNewProjects === false;
@@ -1484,6 +1483,9 @@ async function securitySettingsOverrides(db: DbOrTx) {
     .limit(100);
 }
 
+const total = (rows: ReadonlyArray<{ status: string; total: number }>, status: string) =>
+  rows.find((row) => row.status === status)?.total ?? 0;
+
 export async function securityStatus(db: DbOrTx, capability: boolean, now = Date.now()) {
   const stored = await readStoredSecurityPolicy(db);
   const { policy } = stored;
@@ -1514,8 +1516,6 @@ export async function securityStatus(db: DbOrTx, capability: boolean, now = Date
       .where(eq(securityPlatformSpend.month, month))
       .limit(1),
   ]);
-  const total = (rows: ReadonlyArray<{ status: string; total: number }>, status: string) =>
-    rows.find((row) => row.status === status)?.total ?? 0;
   const finishedCount = finished.reduce((sum, row) => sum + row.total, 0);
   const failedCount = FAILED_STATUSES.reduce((sum, status) => sum + total(finished, status), 0);
   return {

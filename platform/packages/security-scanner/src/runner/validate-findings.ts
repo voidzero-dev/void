@@ -11,15 +11,17 @@ import {
   SEVERITIES,
   VERDICT_SOURCES,
   VERDICTS,
-  type Confidence,
-  type FindingRecord,
-  type RunStatus,
-  type RuntimeProof,
-  type ScanReport,
-  type Severity,
-  type TraceStep,
-  type Verdict,
-  type VerdictSource,
+} from './report.ts';
+import type {
+  Confidence,
+  FindingRecord,
+  RunStatus,
+  RuntimeProof,
+  ScanReport,
+  Severity,
+  TraceStep,
+  Verdict,
+  VerdictSource,
 } from './report.ts';
 
 export type ValidationErrorKind = 'too_large' | 'not_json' | 'too_many_records' | 'shape';

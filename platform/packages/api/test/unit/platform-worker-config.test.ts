@@ -2,8 +2,8 @@ import {
   createPlatformDeploymentManifest,
   createPlatformWorkerConfigs,
   serializePlatformCapabilities,
-  type PlatformDeploymentManifest,
 } from '@void/platform';
+import type { PlatformDeploymentManifest } from '@void/platform';
 import { describe, expect, it } from 'vite-plus/test';
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
 

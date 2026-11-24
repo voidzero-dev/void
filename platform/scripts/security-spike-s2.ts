@@ -64,8 +64,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   SPIKE_PREFIX,
@@ -77,10 +76,10 @@ import {
   readSpikeEnv,
   runWrangler,
   waitForWorker,
-  type SpikeEnv,
 } from './security-spike-s1.ts';
+import type { SpikeEnv } from './security-spike-s1.ts';
 
-export const IMAGES_DIR = join(dirname(fileURLToPath(import.meta.url)), 'security-spike-images');
+export const IMAGES_DIR = join(import.meta.dirname, 'security-spike-images');
 export const GATEWAY_ID = `${SPIKE_PREFIX}gw`;
 export const MODEL_HOST = 'model.scan.internal';
 const PLANT = 'VOID-SPIKE-PLANTED';
@@ -797,7 +796,9 @@ export async function prepareImage(env: SpikeEnv, ref: string) {
     if (!preparation.ok || preparation.result.status !== 'pending') {
       break;
     }
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 2000);
+    });
   }
   return {
     ms: Date.now() - started,
@@ -953,7 +954,9 @@ export async function copyTest(env: SpikeEnv, deployment: LiveDeployment, tag: s
     if (!preparation.ok || preparation.result.status !== 'pending') {
       break;
     }
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 2000);
+    });
   }
   result.prepare = {
     ms: Date.now() - p0,
@@ -987,7 +990,9 @@ export async function runLive(
     if (status !== 404) {
       break;
     }
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 2000);
+    });
   }
   const outcome: RunOutcome = {
     mode: mode === 'fake' ? 'live-fake' : 'live-gateway',
@@ -1064,6 +1069,8 @@ export function judgeContainer(outcome: RunOutcome, failures: Array<string>) {
   }
 }
 
+const msOf = (calls: Array<RequestSummary>) => calls.map((c) => c.ms ?? 0);
+
 /**
  * Judge one `--local-gateway` run (engine -> local model proxy -> AI Gateway). Checks the
  * same container lock as the other modes, plus: the model hosts are unreachable from the
@@ -1086,7 +1093,6 @@ export function judgeGatewayRun(outcome: RunOutcome, mode: ProxyOptions['mode'])
       usage[name] = (usage[name] ?? 0) + count;
     }
   }
-  const msOf = (calls: Array<RequestSummary>) => calls.map((c) => c.ms ?? 0);
   const facts: Record<string, unknown> = {
     engineMs: outcome.engineMs,
     requests: outcome.requests.length,
@@ -1146,14 +1152,14 @@ export function judgeGatewayRun(outcome: RunOutcome, mode: ProxyOptions['mode'])
 
 // StructuredOutput is how outputFormat returns the report. DeferredToolPlaceholder is a
 // name the CLI always lists; calling it fails with "No such tool available" (checked below).
-const CLAUDE_ALLOWED_TOOLS = [
+const CLAUDE_ALLOWED_TOOLS = new Set([
   'Read',
   'Glob',
   'Grep',
   'Skill',
   'StructuredOutput',
   'DeferredToolPlaceholder',
-];
+]);
 // Scripted round-0 calls that may succeed: the listing of /scan/input, our own skill, and
 // built-in skills whose text the CLI still serves (no tool can act on it).
 const MAY_SUCCEED = new Set([
@@ -1204,7 +1210,7 @@ function judgeClaude(outcome: RunOutcome, live: boolean) {
   facts.initSkills = result.init?.skills;
   facts.initPlugins = result.init?.plugins;
   facts.initSlashCommands = result.init?.slashCommands;
-  const extraInit = initTools.filter((t) => !CLAUDE_ALLOWED_TOOLS.includes(t));
+  const extraInit = initTools.filter((t) => !CLAUDE_ALLOWED_TOOLS.has(t));
   if (!initTools.includes('Read') || extraInit.length > 0) {
     failures.push(`init tools: ${JSON.stringify(initTools)}`);
   }
@@ -1220,7 +1226,7 @@ function judgeClaude(outcome: RunOutcome, live: boolean) {
   facts.requestPaths = [...new Set(outcome.requests.map((r) => `${r.method} ${r.path}`))];
   facts.requestToolNames = [...new Set(mainRequests.flatMap((r) => r.tools.map((t) => t.name)))];
   for (const request of mainRequests) {
-    const extra = request.tools.filter((t) => !CLAUDE_ALLOWED_TOOLS.includes(t.name));
+    const extra = request.tools.filter((t) => !CLAUDE_ALLOWED_TOOLS.has(t.name));
     if (extra.length > 0) {
       failures.push(`request offers tools ${JSON.stringify(extra.map((t) => t.name))}`);
     }

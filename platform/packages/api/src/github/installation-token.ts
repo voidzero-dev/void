@@ -1,5 +1,6 @@
 import type { ApiEnv } from '../env.ts';
-import { createAppJwt, type GithubAppEnv } from './app-jwt.ts';
+import { createAppJwt } from './app-jwt.ts';
+import type { GithubAppEnv } from './app-jwt.ts';
 
 export const GITHUB_API_BASE = 'https://api.github.com';
 export const GITHUB_API_VERSION = '2026-03-10';

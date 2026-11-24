@@ -57,8 +57,8 @@ import {
   securityScanBypasses,
   securityScans,
   SECURITY_BYPASSABLE_REQUEST_STATES,
-  type SecurityBypassableRequestState,
 } from '../security/schema.ts';
+import type { SecurityBypassableRequestState } from '../security/schema.ts';
 import { readZeroTrustConfigurationStrict } from '../zero-trust/configuration.ts';
 
 type AdminContext = Context<ApiEnv>;

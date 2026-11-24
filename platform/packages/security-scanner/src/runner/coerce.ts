@@ -5,11 +5,8 @@
 // decides, and the API ingest uses the strict one only.
 
 import { CONFIDENCES, RUN_STATUSES, SEVERITIES, VERDICTS } from './report.ts';
-import {
-  validateFindingsText,
-  validateFindingsValue,
-  type ValidationResult,
-} from './validate-findings.ts';
+import { validateFindingsText, validateFindingsValue } from './validate-findings.ts';
+import type { ValidationResult } from './validate-findings.ts';
 
 const REPORT_KEYS = ['run_status', 'findings', 'notes'];
 const FINDING_KEYS = [
@@ -95,7 +92,7 @@ function coerceFinding(value: unknown): unknown {
     finding.severity = null;
   }
   if (Array.isArray(finding.trace)) {
-    finding.trace = finding.trace.map((step) => {
+    finding.trace = finding.trace.map((step: unknown) => {
       if (!isPlain(step)) {
         return step;
       }

@@ -17,16 +17,14 @@ import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { ZeroTrustConfigurationError } from '../zero-trust/configuration.ts';
 import { ZeroTrustUnavailableError } from '../zero-trust/errors.ts';
-import { reconcileProjectZeroTrustGated, type GatedReconciliation } from '../zero-trust/project.ts';
-import { MAX_ROUTING_KEYS_PER_RUN, type RoutingBudget } from '../zero-trust/routing.ts';
+import { reconcileProjectZeroTrustGated } from '../zero-trust/project.ts';
+import type { GatedReconciliation } from '../zero-trust/project.ts';
+import { MAX_ROUTING_KEYS_PER_RUN } from '../zero-trust/routing.ts';
+import type { RoutingBudget } from '../zero-trust/routing.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
 import { SecurityApiError } from './errors.ts';
-import {
-  parseBypassReason,
-  readOpenPublicRequest,
-  type GateActor,
-  type PublicRequestRow,
-} from './public-gate.ts';
+import { parseBypassReason, readOpenPublicRequest } from './public-gate.ts';
+import type { GateActor, PublicRequestRow } from './public-gate.ts';
 import {
   SECURITY_PUBLIC_REQUEST_OPEN_STATES,
   securityPublicRequests,

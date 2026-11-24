@@ -78,7 +78,7 @@ function oneLine(text: string): string {
 
 /** At most `max` characters (not UTF-16 units), with an ellipsis when cut. */
 export function cutSecurityEmailText(text: string, max: number): string {
-  const chars = [...oneLine(text)];
+  const chars = Array.from(oneLine(text));
   return chars.length <= max ? chars.join('') : `${chars.slice(0, max - 1).join('')}…`;
 }
 
@@ -196,10 +196,10 @@ export function composeSecurityFindingsEmail(
   reason: SecurityEmailReason,
 ): SecurityEmailContent {
   const total = data.findings.length + data.moreFindings;
-  const counts = SEVERITY_ORDER.map((severity) => ({
-    severity,
-    count: data.findings.filter((finding) => finding.severity === severity).length,
-  })).filter((entry) => entry.count > 0);
+  const counts = SEVERITY_ORDER.flatMap((severity) => {
+    const count = data.findings.filter((finding) => finding.severity === severity).length;
+    return count > 0 ? [{ severity, count }] : [];
+  });
   // The list is cut at 20, so the counts name what the list shows when it is whole.
   const breakdown =
     data.moreFindings > 0
@@ -717,13 +717,14 @@ export type SecurityDigestEmailData = Readonly<{
   bypasses: number;
 }>;
 
+const row = (label: string, value: string) => `  ${pad(label, 26)}${value}`;
+
 export function composeSecurityDigestEmail(
   data: SecurityDigestEmailData,
   reason: SecurityEmailReason,
 ): SecurityEmailContent {
   const found = data.newFindings;
   const newTotal = found.critical + found.high + found.medium + found.low;
-  const row = (label: string, value: string) => `  ${pad(label, 26)}${value}`;
   const details = [
     row(
       'Scans',

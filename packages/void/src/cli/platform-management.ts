@@ -97,8 +97,8 @@ import {
 import {
   assertPlatformSecurityAuditsSupported,
   deletePlatformSecurityScanner,
-  type SecurityScannerTeardown,
 } from './platform-security-audits.ts';
+import type { SecurityScannerTeardown } from './platform-security-audits.ts';
 import { assertPlatformStorageSupported } from './platform-storage.ts';
 import {
   assertNoPlatformProjects,

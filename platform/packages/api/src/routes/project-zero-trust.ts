@@ -21,8 +21,8 @@ import {
   openPublicRequestView,
   parseBypassReason,
   publicRequestView,
-  type PublicRequestRow,
 } from '../security/public-gate.ts';
+import type { PublicRequestRow } from '../security/public-gate.ts';
 import {
   ZeroTrustConfigurationError,
   readZeroTrustConfigurationStrict,

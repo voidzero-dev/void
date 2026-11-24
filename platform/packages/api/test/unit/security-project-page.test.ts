@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import {
-  modelLine,
-  scanStatusCopy,
-  type SecurityPageData,
-} from '../../src/security/project-page.ts';
+import { modelLine, scanStatusCopy } from '../../src/security/project-page.ts';
+import type { SecurityPageData } from '../../src/security/project-page.ts';
 
 type Budget = NonNullable<SecurityPageData['status']['budget']>;
 

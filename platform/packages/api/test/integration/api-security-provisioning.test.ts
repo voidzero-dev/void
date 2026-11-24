@@ -10,16 +10,11 @@ import {
   SECURITY_SCANNER_IMAGES_BINDING,
   SecurityScannerError,
   verifySecurityScanner,
-  type SecurityScannerTarget,
 } from '../../src/provisioning/security-scanner.ts';
+import type { SecurityScannerTarget } from '../../src/provisioning/security-scanner.ts';
 import { createFakeRegistry, fakeImage } from '../__mocks__/image-registry.ts';
-import {
-  mockCfApiRealDispatchScripts as cloudflare,
-  setupEnv,
-  teardownEnv,
-  type MockCfApiHandle,
-  type TestEnv,
-} from './helpers.ts';
+import { mockCfApiRealDispatchScripts as cloudflare, setupEnv, teardownEnv } from './helpers.ts';
+import type { MockCfApiHandle, TestEnv } from './helpers.ts';
 
 // The installation's security scanner: controller Worker + container application +
 // gate script in the dispatch namespace (design doc 0095, M6).
@@ -254,7 +249,7 @@ describe('security scanner provisioning', () => {
     const cf = cloudflare({
       listContainerApps: () =>
         Response.json(
-          { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
+          { success: false, errors: [{ code: 10_000, message: 'Authentication error' }] },
           { status: 403 },
         ),
     });

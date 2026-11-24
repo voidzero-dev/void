@@ -214,7 +214,7 @@ describe('deploy package claims', () => {
     expect(parseSecurityPackageClaims({ registry: [''], local: [] })).toBeNull();
     expect(
       parseSecurityPackageClaims({
-        registry: Array.from({ length: 5_001 }, (_, i) => `p${i}`),
+        registry: Array.from({ length: 5001 }, (_, i) => `p${i}`),
         local: [],
       }),
     ).toBeNull();

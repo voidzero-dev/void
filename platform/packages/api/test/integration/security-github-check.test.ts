@@ -52,8 +52,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 vi.mock('../../src/project-access.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/project-access.ts')>();

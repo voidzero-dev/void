@@ -10,8 +10,8 @@ import {
   SECURITY_MAX_SECRET_LEADS,
   securityDeployConfigText,
   utf8Length,
-  type SecurityInputPlan,
 } from '../../src/security/input/build.ts';
+import type { SecurityInputPlan } from '../../src/security/input/build.ts';
 import {
   bundleSources,
   changedSources,
@@ -24,8 +24,8 @@ import {
   securityModuleFile,
   sha256Hex,
   sourceMapFor,
-  type SecurityModuleFile,
 } from '../../src/security/input/t2.ts';
+import type { SecurityModuleFile } from '../../src/security/input/t2.ts';
 import { assertTarPath, tarChunks, TarPathError, tarStream } from '../../src/security/input/tar.ts';
 import { securityCoverageLabel } from '../../src/security/input/tier.ts';
 
@@ -128,7 +128,7 @@ describe('normalizeSourcePath', () => {
     expect(normalizeSourcePath('a.js.map', undefined, 'webpack://app/./src/a.ts?v=1')).toBe(
       'app/src/a.ts',
     );
-    expect(normalizeSourcePath('a.js.map', undefined, 'file:///C:\\work\\src\\a.ts')).toBe(
+    expect(normalizeSourcePath('a.js.map', undefined, String.raw`file:///C:\work\src\a.ts`)).toBe(
       'C:/work/src/a.ts',
     );
   });
@@ -328,7 +328,7 @@ describe('changedTextAssets', () => {
 
 describe('tar', () => {
   it('refuses a name the runner would refuse', () => {
-    for (const path of ['', '/abs', './x', 'a//b', 'a/../b', 'a\\b', 'a\u0001b']) {
+    for (const path of ['', '/abs', './x', 'a//b', 'a/../b', String.raw`a\b`, 'a\u0001b']) {
       expect(() => assertTarPath(path), path).toThrow(TarPathError);
     }
     expect(() =>

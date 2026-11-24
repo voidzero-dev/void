@@ -17,7 +17,8 @@
  * same transaction as the row. A hold changes only the request.
  */
 import type { SecurityMode } from '@void/platform/security-policy';
-import { and, desc, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
@@ -43,13 +44,12 @@ import { enqueueSecurityNotification } from './notifications.ts';
 import { lockSecurityPolicyShared, readSecurityPolicyStrict } from './policy.ts';
 import { SECURITY_PROJECT_POLICY_SKIP_REASON } from './project-policy.ts';
 import { urgentFindingsRefusal } from './public-gate-copy.ts';
-import {
-  bypassSkips,
-  judgeGate,
-  type GateHeldState,
-  type GateJudgeInput,
-  type GateScanFacts,
-  type GateVerdict,
+import { bypassSkips, judgeGate } from './public-gate-judge.ts';
+import type {
+  GateHeldState,
+  GateJudgeInput,
+  GateScanFacts,
+  GateVerdict,
 } from './public-gate-judge.ts';
 import {
   SECURITY_PUBLIC_REQUEST_OPEN_STATES,
@@ -59,9 +59,11 @@ import {
   securityPublicRequests,
   securityScanBypasses,
   securityScans,
-  type SecurityBypassableRequestState,
-  type SecurityProjectEventAction,
-  type SecurityPublicRequestState,
+} from './schema.ts';
+import type {
+  SecurityBypassableRequestState,
+  SecurityProjectEventAction,
+  SecurityPublicRequestState,
 } from './schema.ts';
 
 export type PublicRequestRow = typeof securityPublicRequests.$inferSelect;
@@ -95,7 +97,7 @@ export async function readGateState(
   tx: DbOrTx,
   env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>,
 ): Promise<GateState> {
-  let capability = false;
+  let capability: boolean;
   try {
     capability = getPlatformCapabilities(env).securityAudits;
   } catch {
@@ -773,7 +775,7 @@ export type GateBypassInput = Readonly<{
 /** Trims and checks a bypass reason (1–4,000 characters). */
 export function parseBypassReason(value: unknown): string {
   const text = typeof value === 'string' ? value.trim() : '';
-  if (text.length === 0 || [...text].length > SECURITY_BYPASS_REASON_MAX_CHARS) {
+  if (text.length === 0 || Array.from(text).length > SECURITY_BYPASS_REASON_MAX_CHARS) {
     throw SecurityApiError.of(
       'scanBypassReasonRequired',
       `A reason of 1 to ${SECURITY_BYPASS_REASON_MAX_CHARS} characters is required. Say why, for example: --reason "Launch today; scanner is down. Will re-check."`,

@@ -82,7 +82,9 @@ export function createFakeContainer(options: FakeContainerOptions = {}) {
         })();
       } else if (execOptions?.stdin === 'pipe') {
         let close!: () => void;
-        piped = new Promise<void>((resolve) => (close = resolve));
+        piped = new Promise<void>((resolve) => {
+          close = resolve;
+        });
         stdinWritable = new WritableStream<Uint8Array>({
           write(chunk) {
             chunks.push(chunk);

@@ -202,7 +202,7 @@ app.post('/preview', async (context) => {
     throw new Error('Plan preview is unavailable.');
   }
   // The scan cap row shows only while security audits are on (M27), as on the Plans page.
-  let securityAudits = false;
+  let securityAudits: boolean;
   try {
     securityAudits = getPlatformCapabilities(context.env).securityAudits;
   } catch {

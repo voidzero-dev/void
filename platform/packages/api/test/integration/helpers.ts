@@ -1403,7 +1403,7 @@ export function mockCfApiRealDispatchScripts(overrides: Partial<CfApiMocks> = {}
       const script = cf.state.hostScripts.get(scriptName(url));
       return script
         ? cfSuccess(script.bindings)
-        : cfError('This Worker does not exist on your account.', 404, 10007);
+        : cfError('This Worker does not exist on your account.', 404, 10_007);
     },
     ...overrides,
   });
@@ -1876,7 +1876,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
           return dispatchNamespaces.has(parts[0]!)
             ? cfSuccess({ namespace_name: parts[0] })
             : Response.json(
-                { success: false, errors: [{ code: 100119, message: 'namespace not found' }] },
+                { success: false, errors: [{ code: 100_119, message: 'namespace not found' }] },
                 { status: 404 },
               );
         }
@@ -1896,7 +1896,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
           method === 'GET'
         ) {
           return Response.json(
-            { success: false, errors: [{ code: 10007, message: 'script not found' }] },
+            { success: false, errors: [{ code: 10_007, message: 'script not found' }] },
             { status: 404 },
           );
         }

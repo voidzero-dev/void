@@ -2,7 +2,8 @@
 // failed model call. After a session that did not submit, the runner asks the proxy why
 // (`GET /v1/void/last-failure`, spec §8.4) and uses that reason, not the CLI's error text.
 
-import { readProxyStopReason, type ProxyStopReason } from '../status.ts';
+import { readProxyStopReason } from '../status.ts';
+import type { ProxyStopReason } from '../status.ts';
 
 export const LAST_FAILURE_PATH = '/v1/void/last-failure';
 

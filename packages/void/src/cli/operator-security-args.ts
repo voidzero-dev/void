@@ -283,9 +283,9 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
   },
 ];
 
-const MODES = ['disabled', 'public', 'all'];
+const MODES = new Set(['disabled', 'public', 'all']);
 /** One project's own scan rule (M34). */
-const OVERRIDES = ['inherit', 'always', 'never'];
+const OVERRIDES = new Set(['inherit', 'always', 'never']);
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'informational'];
 const REASONS: Record<string, string> = {
   fixed: 'fixed',
@@ -427,7 +427,7 @@ export function applySecurityArgs(
       const mode = parameters[0]!;
       const project = values.project;
       if (project !== undefined) {
-        if (!OVERRIDES.includes(mode)) {
+        if (!OVERRIDES.has(mode)) {
           throw new Error(
             'platform: Usage: void platform security policy --project <project-id> <inherit|always|never>.',
           );
@@ -440,12 +440,12 @@ export function applySecurityArgs(
         parsed.body = { override: mode };
         return;
       }
-      if (OVERRIDES.includes(mode)) {
+      if (OVERRIDES.has(mode)) {
         throw new Error(
           `platform: ${mode} is a project rule; name the project: void platform security policy --project <project-id> ${mode}.`,
         );
       }
-      if (!MODES.includes(mode)) {
+      if (!MODES.has(mode)) {
         throw new Error('platform: Usage: void platform security policy <disabled|public|all>.');
       }
       parsed.body = { mode };

@@ -168,7 +168,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
           return {
             jsonrpc: '2.0',
             id,
-            error: { code: -32601, message: 'method not found' },
+            error: { code: -32_601, message: 'method not found' },
           };
       }
     },

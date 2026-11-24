@@ -13,8 +13,8 @@ import {
   isSecurityModelPriced,
   isThirdPartySecurityModel,
   SECURITY_MODEL_IDS,
-  type SecurityModelId,
 } from './security-models.ts';
+import type { SecurityModelId } from './security-models.ts';
 import { isPrintableText, record } from './validate.ts';
 
 /** `platform_settings` key that holds the policy. */
@@ -53,7 +53,7 @@ export const SECURITY_LIMIT_RANGES: Readonly<Record<SecurityLimitKey, SecurityLi
   concurrency: { min: 1, max: 10, default: 2 },
   timeoutMinutes: { min: 5, max: 60, default: 20 },
   maxInputTokens: { min: 50_000, max: 2_000_000, default: 1_200_000 },
-  maxOutputTokens: { min: 5_000, max: 200_000, default: 120_000 },
+  maxOutputTokens: { min: 5000, max: 200_000, default: 120_000 },
   modelCallsPerScan: { min: 10, max: 200, default: 80 },
 };
 

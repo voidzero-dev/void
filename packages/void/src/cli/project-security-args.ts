@@ -17,7 +17,7 @@ const SECURITY_ACTIONS = [
   'open',
 ] as const;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'informational'];
-const STATES = ['open', 'resolved', 'all'];
+const STATES = new Set(['open', 'resolved', 'all']);
 const REASONS: Record<string, 'fixed' | 'false_positive' | 'accepted_risk'> = {
   fixed: 'fixed',
   'false-positive': 'false_positive',
@@ -140,10 +140,11 @@ function parseFindingIds(values: Array<string>): Array<string> {
   return ids;
 }
 
+const digits = (text: string) => Array.from(text).every((char) => char >= '0' && char <= '9');
+
 /** A dollar amount with at most two decimals, as whole cents of precision. */
 function parseUsd(value: string): number {
   const [whole = '', fraction = '', ...extra] = value.split('.');
-  const digits = (text: string) => [...text].every((char) => char >= '0' && char <= '9');
   if (
     extra.length > 0 ||
     whole === '' ||
@@ -168,7 +169,7 @@ function requireComment(value: string | undefined): string {
       'project: A comment is required. Say why, for example: --comment "Added requireAdmin() in a1b2c3"',
     );
   }
-  if ([...text].length > SECURITY_COMMENT_MAX_CHARS) {
+  if (Array.from(text).length > SECURITY_COMMENT_MAX_CHARS) {
     throw new Error(`project: A comment can be at most ${SECURITY_COMMENT_MAX_CHARS} characters.`);
   }
   return text;
@@ -230,7 +231,7 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
   if (action === 'list') {
     noPositionals();
     const state = values.get('--state') ?? 'open';
-    if (!STATES.includes(state)) {
+    if (!STATES.has(state)) {
       throw new Error(`project: Invalid --state '${state}'. Use one of open|resolved|all.`);
     }
     const severity = values.get('--severity') ?? null;

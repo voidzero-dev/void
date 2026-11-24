@@ -17,36 +17,29 @@ import type { SecurityEngine } from '@void/platform/security-models';
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
 import type { DeployManifest } from '../../types.ts';
 import type { SecurityScanTier, SecurityScanTrigger } from '../schema.ts';
-import {
-  SECURITY_BACKLOG_MAX_PATHS,
-  selectSecurityFocus,
-  type SecurityFocusCandidate,
-} from './backlog.ts';
+import { SECURITY_BACKLOG_MAX_PATHS, selectSecurityFocus } from './backlog.ts';
+import type { SecurityFocusCandidate } from './backlog.ts';
 import { looksBinary, securityInputFilter } from './filters.ts';
-import {
-  buildSecurityMemory,
-  SECURITY_MEMORY_HISTORY_MAX_FILES,
-  type SecurityMemoryInput,
-} from './memory.ts';
-import {
-  reviewerTextLeads,
-  type SecurityServerLead,
-  type SecuritySecretLead,
-} from './phrase-check.ts';
-import { createSecurityRedactor, type SecuritySecret, type SecuritySecretHit } from './redact.ts';
+import { buildSecurityMemory, SECURITY_MEMORY_HISTORY_MAX_FILES } from './memory.ts';
+import type { SecurityMemoryInput } from './memory.ts';
+import { reviewerTextLeads } from './phrase-check.ts';
+import type { SecurityServerLead, SecuritySecretLead } from './phrase-check.ts';
+import { createSecurityRedactor } from './redact.ts';
+import type { SecuritySecret, SecuritySecretHit } from './redact.ts';
 import {
   assetInputPath,
   bundleSources,
   SECURITY_BUILT_PREFIX,
   SECURITY_CLIENT_PREFIX,
   changedSources,
-  type SecurityBundleSources,
-  type SecurityModuleFile,
-  type SecuritySourceFile,
 } from './t2.ts';
-import { assertTarPath, type TarEntry } from './tar.ts';
-import { classifyThirdParty, type SecurityLockfileIndex } from './third-party.ts';
-import { SECURITY_FULL_REASON_NOTES, type SecurityTierChoice } from './tier.ts';
+import type { SecurityBundleSources, SecurityModuleFile, SecuritySourceFile } from './t2.ts';
+import { assertTarPath } from './tar.ts';
+import type { TarEntry } from './tar.ts';
+import { classifyThirdParty } from './third-party.ts';
+import type { SecurityLockfileIndex } from './third-party.ts';
+import { SECURITY_FULL_REASON_NOTES } from './tier.ts';
+import type { SecurityTierChoice } from './tier.ts';
 
 /** Text sent to the container in all, so a scan input fits the API isolate's memory. */
 export const SECURITY_INPUT_MAX_BYTES = 32 * 1024 * 1024;
@@ -214,11 +207,11 @@ export function utf8Length(text: string): number {
     const code = text.charCodeAt(index);
     if (code < 0x80) {
       bytes += 1;
-    } else if (code < 0x800) {
+    } else if (code < 0x8_00) {
       bytes += 2;
-    } else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
+    } else if (code >= 0xd8_00 && code <= 0xdb_ff && index + 1 < text.length) {
       const next = text.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
+      if (next >= 0xdc_00 && next <= 0xdf_ff) {
         bytes += 4;
         index++;
       } else {

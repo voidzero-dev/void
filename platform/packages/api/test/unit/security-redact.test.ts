@@ -35,7 +35,7 @@ describe('createSecurityRedactor', () => {
     expect(forms).toEqual(
       expect.arrayContaining([
         secret.value,
-        'sk_live_a/b+c\\"d=1',
+        String.raw`sk_live_a/b+c\"d=1`,
         btoa(secret.value),
         encodeURIComponent(secret.value),
       ]),
@@ -126,7 +126,7 @@ describe('hitsIn (M31 secret findings)', () => {
       { name: 'LONG', forms: ['raw'], line: 1 },
       { name: 'SHORT', forms: ['raw'], line: 2 },
     ]);
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 
   it('finds nothing for short or plain values', () => {

@@ -45,8 +45,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -457,7 +457,9 @@ describe('public gate', () => {
     const s = await setup();
     await ask(s);
     const [before] = await env.db.select().from(securityPublicRequests);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
     expect(await reconcilePendingPublicRequests(s.platform, env.db)).toBe(1);
     const [held] = await env.db.select().from(securityPublicRequests);
     expect(held!.state).toBe(before!.state);

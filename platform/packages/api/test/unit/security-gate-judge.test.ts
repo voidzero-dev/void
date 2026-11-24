@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { publicRequestCopy } from '../../src/security/public-gate-copy.ts';
-import {
-  bypassSkips,
-  judgeGate,
-  type GateJudgeInput,
-  type GateScanFacts,
-} from '../../src/security/public-gate-judge.ts';
+import { bypassSkips, judgeGate } from '../../src/security/public-gate-judge.ts';
+import type { GateJudgeInput, GateScanFacts } from '../../src/security/public-gate-judge.ts';
 
 const scan = (patch: Partial<GateScanFacts> = {}): GateScanFacts => ({
   id: 'ss_1',

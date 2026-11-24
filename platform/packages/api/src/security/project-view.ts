@@ -9,9 +9,8 @@
 import {
   isThirdPartySecurityModel,
   SECURITY_PROVIDER_NOTICE_VERSION,
-  type SecurityModelId,
-  type SecurityPickProblem,
 } from '@void/platform/security-models';
+import type { SecurityModelId, SecurityPickProblem } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { and, asc, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
@@ -26,17 +25,14 @@ import {
   securityProjectCeiling,
   securityScanReserveNano,
   securitySpendMonth,
-  type SecurityCeilingSource,
-  type SecurityProjectCapSettings,
 } from './budget.ts';
+import type { SecurityCeilingSource, SecurityProjectCapSettings } from './budget.ts';
 import { securityCoverageLabel } from './input/tier.ts';
 import { resolveSecurityScanModel, securityPickProblem } from './models.ts';
 import { readSecurityPlanCap } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
-import {
-  readSecurityProjectPolicyOverride,
-  type SecurityProjectPolicyOverride,
-} from './project-policy.ts';
+import { readSecurityProjectPolicyOverride } from './project-policy.ts';
+import type { SecurityProjectPolicyOverride } from './project-policy.ts';
 import {
   projectSecuritySettings,
   securityFindings,
@@ -44,10 +40,8 @@ import {
   securityPublicRequests,
   securityScans,
   SECURITY_PUBLIC_REQUEST_OPEN_STATES,
-  type SecurityScanStatus,
-  type SecurityScanTier,
-  type SecuritySeverity,
 } from './schema.ts';
+import type { SecurityScanStatus, SecurityScanTier, SecuritySeverity } from './schema.ts';
 
 export type SecurityDetailLevel = 'full' | 'counts';
 
@@ -479,13 +473,13 @@ export function securityScanView(row: ScanRow, level: SecurityDetailLevel): Secu
 export type SecurityCursor = Readonly<{ at: string; id: string }>;
 
 export function encodeSecurityCursor(cursor: SecurityCursor): string {
-  return btoa(JSON.stringify(cursor)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(JSON.stringify(cursor)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 /** `null` for a cursor this server did not issue. */
 export function decodeSecurityCursor(value: string): SecurityCursor | null {
   try {
-    const parsed: unknown = JSON.parse(atob(value.replace(/-/g, '+').replace(/_/g, '/')));
+    const parsed: unknown = JSON.parse(atob(value.replaceAll('-', '+').replaceAll('_', '/')));
     if (
       parsed &&
       typeof parsed === 'object' &&

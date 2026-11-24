@@ -15,8 +15,8 @@ import {
   packSecurityLocalTree,
   sendSecurityLocalCheck,
   waitForSecurityLocalCheck,
-  type SecurityCheckDeps,
 } from './project-security-check.ts';
+import type { SecurityCheckDeps } from './project-security-check.ts';
 import { readProjectConfig } from './project.ts';
 import { getRequestedProjectSlug, requireProjectBySlug } from './resolve-project.ts';
 import type {
@@ -1105,7 +1105,7 @@ export async function runProjectSecurityCommand(
 
   if (args.action === 'open') {
     const link = await client.createProjectSecurityPageLink(projectId);
-    let safe = false;
+    let safe: boolean;
     try {
       const url = new URL(link.url);
       safe =

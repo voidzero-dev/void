@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vite-plus/test';
-import { createMcpServer, type McpServer } from '../../src/runner/mcp/server.ts';
+import { createMcpServer } from '../../src/runner/mcp/server.ts';
+import type { McpServer } from '../../src/runner/mcp/server.ts';
 import { createFsTools } from '../../src/runner/tools/fs.ts';
 import { confirmed, report } from '../helpers/findings.ts';
 
@@ -55,7 +56,7 @@ describe('void-scan MCP server', () => {
       ['grep', true],
       ['submit_findings', false],
     ]);
-    expect((await rpc('nope')).error?.code).toBe(-32601);
+    expect((await rpc('nope')).error?.code).toBe(-32_601);
     expect(await server.handle({ jsonrpc: '2.0', method: 'notifications/initialized' })).toBeNull();
     expect(await server.handle('junk')).toBeNull();
   });

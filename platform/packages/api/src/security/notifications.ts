@@ -29,8 +29,8 @@ import {
   sendSecurityPublicCanceledEmail,
   sendSecurityPublicHeldEmail,
   sendSecurityReopenEmail,
-  type PlatformEmailEnv,
 } from '../email.ts';
+import type { PlatformEmailEnv } from '../email.ts';
 import { generateId } from '../id.ts';
 import { projectRoleForUser } from '../project-access.ts';
 import { deployments, projects, projectZeroTrust, users } from '../schema.ts';
@@ -43,22 +43,21 @@ import {
   securityProjectCeilingCents,
   securitySpendCaps,
   securityUsdArgument,
-  type SecuritySpendCaps,
 } from './budget.ts';
-import {
-  readSecurityDigestCounts,
-  securityDigestIsEmpty,
-  type SecurityDigestCounts,
-} from './digest.ts';
+import type { SecuritySpendCaps } from './budget.ts';
+import { readSecurityDigestCounts, securityDigestIsEmpty } from './digest.ts';
+import type { SecurityDigestCounts } from './digest.ts';
 import { isUrgentSeverity, severityRank } from './findings.ts';
 import { securityCfDefaultModel } from './models.ts';
 import {
   SECURITY_EMAIL_MAX_FINDINGS,
   formatSecurityDay,
   securityActorRoleLabel,
-  type SecurityEmailFinding,
-  type SecurityPublicHeldState,
-  type SecurityStreakScanLine,
+} from './notification-copy.ts';
+import type {
+  SecurityEmailFinding,
+  SecurityPublicHeldState,
+  SecurityStreakScanLine,
 } from './notification-copy.ts';
 import { readSecurityPlanCap } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
@@ -68,8 +67,8 @@ import {
   resolveProjectSecurityRecipients,
   resolveProjectStreakRecipients,
   resolvePublicRequestRecipients,
-  type SecurityRecipient,
 } from './recipients.ts';
+import type { SecurityRecipient } from './recipients.ts';
 import {
   projectSecuritySettings,
   securityFindingEvents,
@@ -81,21 +80,16 @@ import {
   securityScanBypasses,
   securityScans,
   SECURITY_PLATFORM_NOTIFICATION_KINDS,
-  type SecurityNotificationKind,
-  type SecurityPublicRequestState,
 } from './schema.ts';
+import type { SecurityNotificationKind, SecurityPublicRequestState } from './schema.ts';
 import {
   listSecurityProjectStreaks,
   readSecurityInstallationFailures,
   securityInstallationFailing,
-  type SecurityProjectStreak,
 } from './streaks.ts';
-import {
-  postSecurityWebhook,
-  securityWebhookOn,
-  type SecurityWebhookEnv,
-  type SecurityWebhookEvent,
-} from './webhook.ts';
+import type { SecurityProjectStreak } from './streaks.ts';
+import { postSecurityWebhook, securityWebhookOn } from './webhook.ts';
+import type { SecurityWebhookEnv, SecurityWebhookEvent } from './webhook.ts';
 
 /** At most one findings email per project in this window; later scans merge into the next one. */
 export const SECURITY_FINDINGS_COOLDOWN_MS = 30 * 60_000;
@@ -221,7 +215,7 @@ export async function enqueueSecurityNotification(
 /** The highest threshold a total has reached on a cap, or `null`. */
 function highestThreshold(spentNano: number, capNano: number | null): 80 | 100 | null {
   const reached = securityBudgetThresholds(spentNano, capNano);
-  return reached.length === 0 ? null : reached[reached.length - 1]!;
+  return reached.length === 0 ? null : reached.at(-1)!;
 }
 
 /**
@@ -856,8 +850,8 @@ async function deliverReopen(db: Db, env: PlatformEmailEnv, row: Row): Promise<D
 /** `cap_*:<…>:<month>:<percent>` → the month and percent the key was queued for. */
 function capKeyParts(key: string): { month: string; percent: 80 | 100 } | null {
   const parts = key.split(':');
-  const percent = Number(parts[parts.length - 1]);
-  const month = parts[parts.length - 2];
+  const percent = Number(parts.at(-1));
+  const month = parts.at(-2);
   return month && (percent === 80 || percent === 100) ? { month, percent } : null;
 }
 
@@ -1076,9 +1070,10 @@ async function blockerFindings(
   projectId: string,
   ids: ReadonlyArray<string>,
 ): Promise<Array<SecurityEmailFinding>> {
-  const numbers = ids
-    .map((id) => (id.startsWith('F-') ? Number(id.slice(2)) : Number.NaN))
-    .filter((value) => Number.isInteger(value));
+  const numbers = ids.flatMap((id) => {
+    const value = id.startsWith('F-') ? Number(id.slice(2)) : Number.NaN;
+    return Number.isInteger(value) ? [value] : [];
+  });
   if (numbers.length === 0) {
     return [];
   }
@@ -1112,13 +1107,17 @@ async function blockerFindings(
     .slice(0, SECURITY_EMAIL_MAX_FINDINGS);
 }
 
-const HELD_STATES: ReadonlyArray<string> = ['held_findings', 'held_no_result', 'needs_deploy'];
+const HELD_STATES: ReadonlySet<string> = new Set([
+  'held_findings',
+  'held_no_result',
+  'needs_deploy',
+]);
 
 async function deliverPublicHeld(db: Db, env: PlatformEmailEnv, row: Row): Promise<Delivery> {
   const keyState = row.dedupe_key.split(':')[2] ?? '';
   const request = await loadRequest(db, row);
   const slug = row.project_id ? await projectSlug(db, row.project_id) : null;
-  if (!request || slug === null || !HELD_STATES.includes(keyState) || request.state !== keyState) {
+  if (!request || slug === null || !HELD_STATES.has(keyState) || request.state !== keyState) {
     // The request moved on since this was queued: the news is stale.
     return SKIP;
   }

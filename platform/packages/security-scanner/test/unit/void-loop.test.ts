@@ -9,14 +9,8 @@ import { createVoidLoopEngine } from '../../src/runner/engines/void-loop.ts';
 import { runScan } from '../../src/runner/run.ts';
 import type { StatusFile } from '../../src/runner/status.ts';
 import { createFsTools } from '../../src/runner/tools/fs.ts';
-import {
-  chatText,
-  chatToolCall,
-  chatToolCalls,
-  startFakeModel,
-  type FakeModel,
-  type FakeReply,
-} from '../fake-model/server.ts';
+import { chatText, chatToolCall, chatToolCalls, startFakeModel } from '../fake-model/server.ts';
+import type { FakeModel, FakeReply } from '../fake-model/server.ts';
 import { confirmed, lead, report } from '../helpers/findings.ts';
 import { buildTar } from '../helpers/tar.ts';
 
@@ -662,7 +656,9 @@ describe('runner CLI', () => {
       if (await check()) {
         return;
       }
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 25);
+      });
     }
     throw new Error('timed out waiting');
   }

@@ -8,8 +8,8 @@ import {
 import {
   parseSecurityScannerImagePins,
   securityScannerImagePins,
-  type SecurityScannerImagePin,
 } from '../../src/security/scanner-images.ts';
+import type { SecurityScannerImagePin } from '../../src/security/scanner-images.ts';
 import { createFakeRegistry, fakeImage } from '../__mocks__/image-registry.ts';
 
 // Copying the digest-pinned Engine A/C image into the operator's registry (design doc
@@ -173,7 +173,7 @@ describe('ensureSecurityScannerImage', () => {
       deadline: Date.now() + 200,
     });
     expect(result).toMatchObject({ ok: false, step: 'pending' });
-    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(Date.now() - started).toBeLessThan(5000);
     expect(registry.blobs.has(image.layers[0]!)).toBe(true);
   });
 
@@ -233,7 +233,7 @@ describe('ensureSecurityScannerImage', () => {
     install(pending);
     expect(
       await ensureSecurityScannerImage(TARGET, pin(image.digest), REPO, {
-        deadline: Date.now() + 1_000,
+        deadline: Date.now() + 1000,
       }),
     ).toMatchObject({ ok: false, step: 'pending' });
   });

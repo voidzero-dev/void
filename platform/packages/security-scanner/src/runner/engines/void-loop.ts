@@ -3,22 +3,13 @@
 // at most `maxTurns` model calls per session, one repair turn (spec §8.1).
 
 import { jsonFromText, validateFindingsLenient, validateFindingsTextLenient } from '../coerce.ts';
-import {
-  classifyProxyStop,
-  PROXY_STOP_HEADER,
-  readProxyStopReason,
-  type OutcomeBody,
-} from '../status.ts';
+import { classifyProxyStop, PROXY_STOP_HEADER, readProxyStopReason } from '../status.ts';
+import type { OutcomeBody } from '../status.ts';
 import { scanToolDefinitions } from '../tools/definitions.ts';
 import type { FsTools, ToolResult } from '../tools/fs.ts';
 import { describeValidationError } from '../validate-findings.ts';
-import {
-  emptyStats,
-  type Engine,
-  type SessionOutcome,
-  type SessionSpec,
-  type SessionTool,
-} from './types.ts';
+import { emptyStats } from './types.ts';
+import type { Engine, SessionOutcome, SessionSpec, SessionTool } from './types.ts';
 
 export const VOID_LOOP_VERSION = 'void-loop/1';
 export const MODEL_BASE_URL = 'http://model.void.internal';
@@ -250,7 +241,7 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
               continue;
             }
             const result = validateFindingsTextLenient(toolCall.function.arguments);
-            let problem: { kind: string; message: string } | null = null;
+            let problem: { kind: string; message: string };
             if (!result.ok) {
               problem = { kind: result.kind, message: describeValidationError(result) };
             } else {
@@ -344,7 +335,7 @@ function firstChoice(body: Record<string, unknown>): Choice | null {
 
 /** Adds a user note, joined to a user message that is already last. */
 function addUserNote(messages: Array<ChatMessage>, note: string): void {
-  const last = messages[messages.length - 1];
+  const last = messages.at(-1);
   if (last?.role === 'user') {
     last.content = `${last.content}\n\n${note}`;
     return;

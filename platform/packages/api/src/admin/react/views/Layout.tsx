@@ -7,7 +7,7 @@ import { Button } from '@astryxdesign/core/Button';
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { SideNav, SideNavItem, SideNavSection } from '@astryxdesign/core/SideNav';
 import { TopNav, TopNavHeading } from '@astryxdesign/core/TopNav';
-import { useNavigation, useRouter, useShared } from '@void/react';
+import { SharedContext, useNavigation, useRouter } from '@void/react';
 import {
   FolderKanban,
   Activity,
@@ -23,7 +23,7 @@ import {
   Terminal,
   Users,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { formatPlatformPageTitle } from '../../../platform-identity.ts';
 import { PageStack } from './PageStack.tsx';
@@ -38,11 +38,8 @@ type SecurityChrome = Readonly<{
 
 /** The navigation fallback renders the shell outside a Void page, where there is no shared data. */
 function useSecurityChrome(): SecurityChrome | undefined {
-  try {
-    return useShared<{ securityChrome?: SecurityChrome }>().securityChrome;
-  } catch {
-    return undefined;
-  }
+  const shared = useContext(SharedContext) as { securityChrome?: SecurityChrome } | null;
+  return shared?.securityChrome;
 }
 
 export function Layout({

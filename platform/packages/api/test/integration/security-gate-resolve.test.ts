@@ -19,21 +19,16 @@ import { deployments, projects, securityFindings, securityScans } from '../../sr
 import { ingestSecurityScanResult } from '../../src/security/ingest.ts';
 import { resolveSecurityFinding } from '../../src/security/project-findings.ts';
 import { recheckPublicRequest } from '../../src/security/public-gate-flow.ts';
-import {
-  clearTables,
-  createTestDeployment,
-  setupEnv,
-  teardownEnv,
-  type TestEnv,
-} from './helpers.ts';
+import { clearTables, createTestDeployment, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import {
   askPublic,
   setupGate,
   succeededScan,
   urgentFinding,
   ztRow,
-  type GateSetup,
 } from './security-gate-fixtures.ts';
+import type { GateSetup } from './security-gate-fixtures.ts';
 
 const CF = '@cf/zai-org/glm-5.3';
 

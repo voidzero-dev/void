@@ -1,4 +1,5 @@
-import { readPlatformCapability, type PlatformCapabilities } from '@void/platform';
+import { readPlatformCapability } from '@void/platform';
+import type { PlatformCapabilities } from '@void/platform';
 import type { MiddlewareHandler } from 'hono';
 import type { ApiEnv } from './env.ts';
 

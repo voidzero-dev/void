@@ -12,8 +12,8 @@ import {
   securityModelBadges,
   securityModelThirdPartyHost,
   securityProviderNotice,
-  type SecurityModelId,
 } from '@void/platform/security-models';
+import type { SecurityModelId } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { and, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Db } from '../db.ts';

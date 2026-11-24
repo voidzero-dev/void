@@ -59,6 +59,7 @@ describe('security audits deployment manifests', () => {
     installationSlug: 'team',
   };
   const roundTrip = (manifest: unknown) =>
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(manifest)));
 
   it('keeps the schema version and reads a missing capability as off', () => {

@@ -9,7 +9,8 @@
  * Every lookup is `WHERE project_id = :id AND (id = :fid OR number = :n)`, so a finding
  * of another project is a 404.
  */
-import { and, asc, desc, eq, gt, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import { generateId } from '../id.ts';
 import { requireProjectCapability } from '../project-access.ts';
@@ -24,16 +25,10 @@ import {
   securityDuplicateHints,
   securityFindingLabel,
   securityIso,
-  type SecurityDetailLevel,
-  type SecurityDuplicateHint,
 } from './project-view.ts';
-import {
-  SECURITY_SEVERITIES,
-  securityFindingEvents,
-  securityFindings,
-  type SecurityResolution,
-  type SecuritySeverity,
-} from './schema.ts';
+import type { SecurityDetailLevel, SecurityDuplicateHint } from './project-view.ts';
+import { SECURITY_SEVERITIES, securityFindingEvents, securityFindings } from './schema.ts';
+import type { SecurityResolution, SecuritySeverity } from './schema.ts';
 
 export const SECURITY_COMMENT_MAX_CHARS = 4000;
 
@@ -424,7 +419,7 @@ export function parseSecurityComment(value: unknown, field: string): string {
     );
   }
   const text = value.trim();
-  if ([...text].length > SECURITY_COMMENT_MAX_CHARS) {
+  if (Array.from(text).length > SECURITY_COMMENT_MAX_CHARS) {
     throw SecurityApiError.invalid(
       `${field} must be at most ${SECURITY_COMMENT_MAX_CHARS} characters.`,
     );

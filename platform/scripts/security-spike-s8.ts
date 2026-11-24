@@ -45,10 +45,8 @@ import {
   spikeEnv,
   summarize,
   t2Input,
-  type Fixture,
-  type ScanRun,
-  type ScanScore,
 } from './security-spike-s4.ts';
+import type { Fixture, ScanRun, ScanScore } from './security-spike-s4.ts';
 
 const COST_TARGET_USD = 3;
 const P95_TARGET_MINUTES = 20;
@@ -108,6 +106,9 @@ function s8Fixture(): Fixture {
   };
 }
 
+const log = (line: string) =>
+  console.error(`[s8 ${new Date().toISOString().slice(11, 19)}] ${line}`);
+
 async function main() {
   const { values } = parseArgs({
     options: {
@@ -128,8 +129,6 @@ async function main() {
   });
   const runs = Number(values.runs);
   const budget = Number(values['budget-usd']);
-  const log = (line: string) =>
-    console.error(`[s8 ${new Date().toISOString().slice(11, 19)}] ${line}`);
   const input = s8Input();
   const fixture = s8Fixture();
   const report: Record<string, unknown> = {

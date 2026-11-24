@@ -225,7 +225,7 @@ export async function walkSourceTarball(
 ): Promise<void> {
   // The Workers types read the writable side as `BufferSource`; it takes these bytes.
   const tar = gzipped.pipeThrough(
-    new DecompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>,
+    new DecompressionStream('gzip') as ReadableWritablePair<Uint8Array, Uint8Array>,
   );
   const bytes = new StreamBytes(tar.getReader());
   let files = 0;

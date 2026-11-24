@@ -1,4 +1,5 @@
-import { SECURITY_ERRORS, type SecurityErrorName } from '@void/platform/security-policy';
+import { SECURITY_ERRORS } from '@void/platform/security-policy';
+import type { SecurityErrorName } from '@void/platform/security-policy';
 
 /**
  * A refused security audit request. `code` is the `error` string the CLI matches

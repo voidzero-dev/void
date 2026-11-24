@@ -12,11 +12,13 @@ import {
   readGateState,
   readOpenPublicRequest,
   recordProtectionChange,
-  type GateActor,
-  type GateEffects,
-  type GateRequestedVia,
-  type GateStep,
-  type PublicRequestRow,
+} from '../security/public-gate.ts';
+import type {
+  GateActor,
+  GateEffects,
+  GateRequestedVia,
+  GateStep,
+  PublicRequestRow,
 } from '../security/public-gate.ts';
 import type { Project, ProjectZeroTrust } from '../types.ts';
 import type { ZeroTrustCloudflareClient } from './cloudflare.ts';

@@ -24,17 +24,18 @@ import {
   SECURITY_MODES,
   SECURITY_POLICY_SETTINGS_KEY,
   SECURITY_SWEEP_DAYS_RANGE,
-  type SecurityPolicy,
   formatPlanSecurityCap,
   parsePlanSecurityCapInput,
   planSecurityCap,
   readPlanSecurityCaps,
   withPlanSecurityCap,
 } from '../../src/security-policy.ts';
+import type { SecurityPolicy } from '../../src/security-policy.ts';
 
 const CHECKED_AT = '2026-11-18T03:00:00.000Z';
 
 function stored(overrides: Partial<Record<keyof SecurityPolicy, unknown>> = {}): unknown {
+  // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser, which drops undefined keys.
   return JSON.parse(JSON.stringify({ ...defaultSecurityPolicy(), ...overrides }));
 }
 
@@ -126,7 +127,7 @@ describe('security policy strict parser', () => {
         concurrency: 10,
         timeoutMinutes: 5,
         maxInputTokens: 2_000_000,
-        maxOutputTokens: 5_000,
+        maxOutputTokens: 5000,
         modelCallsPerScan: 10,
       },
       budgets: {
@@ -611,7 +612,7 @@ describe('security form text (M29)', () => {
 
   it('reads finding labels as the page prints them', () => {
     expect(parseSecurityFindingLabel('F-12')).toBe(12);
-    expect(parseSecurityFindingLabel('F-123456789')).toBe(123456789);
+    expect(parseSecurityFindingLabel('F-123456789')).toBe(123_456_789);
     for (const text of ['F-', 'F-1234567890', 'f-1', '12', 'F-1x', 'sf_1']) {
       expect(parseSecurityFindingLabel(text), text).toBeNull();
     }

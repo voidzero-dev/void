@@ -35,8 +35,8 @@ import {
   percentile,
   readSpikeEnv,
   waitForWorker,
-  type SpikeEnv,
 } from './security-spike-s1.ts';
+import type { SpikeEnv } from './security-spike-s1.ts';
 
 const SOURCE_REPO = 'library/busybox';
 const SOURCE_TAG = '1.37.0';
@@ -255,13 +255,17 @@ async function deleteCopiedImage(env: SpikeEnv, tag: string) {
 }
 
 async function getJson(url: string, key: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  if (!headers.has('x-spike-key')) {
+    headers.set('x-spike-key', key);
+  }
   for (let attempt = 0; ; attempt++) {
     const started = Date.now();
     let response: Response;
     try {
       response = await fetch(url, {
         ...init,
-        headers: { 'x-spike-key': key, ...init.headers },
+        headers,
         signal: AbortSignal.timeout(900_000),
       });
     } catch (error) {
@@ -278,7 +282,9 @@ async function getJson(url: string, key: string, init: RequestInit = {}) {
     const text = await response.text();
     // A fresh workers.dev route can still answer 404 for a while.
     if (response.status === 404 && attempt < 10) {
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 2000);
+      });
       continue;
     }
     let body: Record<string, unknown>;
@@ -465,7 +471,9 @@ async function main() {
         if (!preparation.ok || preparation.result.status !== 'pending') {
           break;
         }
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 2000);
+        });
       }
       D.imagePreparation = {
         ms: Date.now() - p0,

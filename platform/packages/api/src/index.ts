@@ -166,9 +166,9 @@ import { reconcileProjectZeroTrustDomains } from './zero-trust/project.ts';
 import {
   MAX_ROUTING_KEYS_PER_RUN,
   resolveProjectZeroTrustRoutingForPublication,
-  type RoutingBudget,
   withProjectZeroTrustRouting,
 } from './zero-trust/routing.ts';
+import type { RoutingBudget } from './zero-trust/routing.ts';
 import { markProjectCustomDomainsChanged } from './zero-trust/state.ts';
 
 function sharedEmailBootstrapFailureDetail(
@@ -839,7 +839,7 @@ async function runScheduledMaintenance(
 
   // Security audits: reaper, re-poke, backlog skip, sweeps, retention, daily probe.
   if (capabilities.securityAudits) {
-    await runSecurityMaintenance(env, db, Date.now()).catch((error) =>
+    await runSecurityMaintenance(env, db, Date.now()).catch((error: unknown) =>
       console.error('[scheduled] security audit maintenance failed:', error),
     );
   }
@@ -857,7 +857,7 @@ async function runScheduledMaintenance(
 
   // Public gate backstop: judge open public requests again (for example after an
   // installation operation ends). Flips only when the full reconcile fits its budget.
-  await reconcilePendingPublicRequests(env, db, undefined, routingBudget).catch((error) =>
+  await reconcilePendingPublicRequests(env, db, undefined, routingBudget).catch((error: unknown) =>
     console.error('[scheduled] public request re-check failed:', error),
   );
 

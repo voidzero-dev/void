@@ -22,12 +22,14 @@ import { securityLocalTreeKey } from '../local-check.ts';
 import { securityRawOutputPrefix } from '../maintenance.ts';
 import { endSecurityScanAttempt } from '../queue.ts';
 import { securityScans } from '../schema.ts';
-import { buildSecurityScanInput, type SecurityBuiltInput } from './build.ts';
+import { buildSecurityScanInput } from './build.ts';
+import type { SecurityBuiltInput } from './build.ts';
 import type { SecurityInputEnv, SecurityPreparedInput } from './prepare.ts';
 import { loadSecurityMemory, loadSecuritySecrets } from './project-data.ts';
 import { SourceTarballError, walkSourceTarball } from './source-tar.ts';
 import { securityRepoRank } from './t1.ts';
-import { sha256Hex, type SecuritySourceFile } from './t2.ts';
+import { sha256Hex } from './t2.ts';
+import type { SecuritySourceFile } from './t2.ts';
 import { assertTarEntries } from './tar.ts';
 import { chooseSecurityTier } from './tier.ts';
 

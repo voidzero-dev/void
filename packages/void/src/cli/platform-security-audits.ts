@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PlatformDeploymentManifest, PlatformInstallationManifest } from '@void/platform';
-import {
-  PlatformCloudflareApiError,
-  type PlatformCloudflareClient,
-} from './platform-cloudflare.ts';
+import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
 
 /**
  * A runtime without the scanner classes must not be paired with the capability: the
@@ -146,12 +144,16 @@ async function deleteScannerImages(
     return false;
   }
   const auth = `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64')}`;
-  const call = async (url: string, init: RequestInit = {}) =>
-    registryFetch(url, {
-      ...init,
-      headers: { Authorization: auth, Accept: MANIFEST_ACCEPT, ...init.headers },
-      signal: AbortSignal.timeout(30_000),
-    });
+  const call = async (url: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers);
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', auth);
+    }
+    if (!headers.has('Accept')) {
+      headers.set('Accept', MANIFEST_ACCEPT);
+    }
+    return registryFetch(url, { ...init, headers, signal: AbortSignal.timeout(30_000) });
+  };
   let removed = false;
   for (const repository of repositories) {
     const base = `https://${REGISTRY}/v2/${account}/${repository}`;

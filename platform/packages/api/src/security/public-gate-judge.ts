@@ -69,11 +69,11 @@ export type GateVerdict =
       scanId: string | null;
     }>;
 
-const WAITING_SCAN_STATUSES: ReadonlyArray<SecurityScanStatus> = [
+const WAITING_SCAN_STATUSES: ReadonlySet<SecurityScanStatus> = new Set<SecurityScanStatus>([
   'pending_input',
   'queued',
   'running',
-];
+]);
 
 function hold(
   state: GateHeldState,
@@ -119,7 +119,7 @@ export function judgeGate(input: GateJudgeInput): GateVerdict {
       blockers: unique([...input.urgent, ...input.unproven]),
     });
   }
-  if (scan !== null && WAITING_SCAN_STATUSES.includes(scan.status)) {
+  if (scan !== null && WAITING_SCAN_STATUSES.has(scan.status)) {
     return hold('waiting_scan', 'scan_waiting', scan);
   }
   if (scan === null) {

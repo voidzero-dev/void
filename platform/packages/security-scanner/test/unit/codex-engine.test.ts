@@ -7,9 +7,8 @@ import {
   CODEX_FINAL_SCHEMA,
   codexConfig,
   createCodexEngine,
-  type CodexEvent,
-  type CodexSdk,
 } from '../../src/runner/engines/codex.ts';
+import type { CodexEvent, CodexSdk } from '../../src/runner/engines/codex.ts';
 import { LAST_FAILURE_PATH } from '../../src/runner/engines/proxy-failure.ts';
 import type { SessionSpec } from '../../src/runner/engines/types.ts';
 import { confirmed, report } from '../helpers/findings.ts';

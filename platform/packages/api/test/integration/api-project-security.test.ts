@@ -1,8 +1,8 @@
 import {
   defaultSecurityPolicy,
   SECURITY_POLICY_SETTINGS_KEY,
-  type SecurityPolicy,
 } from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { signDeployToken } from '../../src/auth/deploy-token.ts';
@@ -32,8 +32,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import {
   askPublic,
   setupGate,
@@ -290,7 +290,9 @@ describe('GET /projects/:id/security: who sees what', () => {
     const { project, people } = await setup();
     const first = await createTestDeployment(env.db, project.id);
     await addScan(project.id, first.id);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
     await createTestDeployment(env.db, project.id);
     await createTestDeployment(env.db, project.id);
     for (let n = 1; n <= 7; n++) {

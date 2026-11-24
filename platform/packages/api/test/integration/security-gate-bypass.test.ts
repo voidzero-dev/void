@@ -19,7 +19,8 @@ import { projectZeroTrust } from '../../src/schema.ts';
 import { SecurityApiError } from '../../src/security/errors.ts';
 import { bypassPublicRequest, recheckPublicRequest } from '../../src/security/public-gate-flow.ts';
 import { ZeroTrustUnavailableError } from '../../src/zero-trust/errors.ts';
-import { clearTables, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { clearTables, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import {
   askPublic,
   gateOwner,
@@ -27,8 +28,8 @@ import {
   succeededScan,
   urgentFinding,
   ztRow,
-  type GateSetup,
 } from './security-gate-fixtures.ts';
+import type { GateSetup } from './security-gate-fixtures.ts';
 
 let env: TestEnv;
 beforeAll(async () => {

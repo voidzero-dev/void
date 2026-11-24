@@ -15,8 +15,8 @@ import {
   securityProviderNotice,
   securityProviderNoticeShort,
   securityScanReserveUsd,
-  type SecurityModelId,
 } from '../../src/security-models.ts';
+import type { SecurityModelId } from '../../src/security-models.ts';
 
 describe('security model list', () => {
   it('lists six models in fallback order, the default first', () => {

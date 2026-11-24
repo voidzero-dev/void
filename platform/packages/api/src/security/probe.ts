@@ -23,9 +23,8 @@ import {
   getSecurityModel,
   isSecurityModelPriced,
   SECURITY_MODEL_IDS,
-  type SecurityModelId,
-  type SecurityThirdPartyHost,
 } from '@void/platform/security-models';
+import type { SecurityModelId, SecurityThirdPartyHost } from '@void/platform/security-models';
 import type { SecurityEntitlement, SecurityPolicy } from '@void/platform/security-policy';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db, DbOrTx } from '../db.ts';
@@ -35,16 +34,18 @@ import { CF_API_BASE } from '../provisioning/cloudflare-api.ts';
 import {
   ensureSecurityScannerImage,
   scannerImageRef,
-  type ScannerImageResult,
 } from '../provisioning/security-scanner-images.ts';
+import type { ScannerImageResult } from '../provisioning/security-scanner-images.ts';
 import {
   assertSecurityScannerContainers,
   provisionSecurityScanner,
   SecurityScannerError,
   securityScannerNames,
   securityScannerTarget,
-  type SecurityScannerImages,
-  type SecurityScannerNames,
+} from '../provisioning/security-scanner.ts';
+import type {
+  SecurityScannerImages,
+  SecurityScannerNames,
 } from '../provisioning/security-scanner.ts';
 import type { ScannerEngine, SelfTestResult } from '../security-scanner-controller-runtime.ts';
 import {
@@ -56,14 +57,10 @@ import {
   loadSecurityProviderKeySlots,
   securityProviderKeySlotIds,
   testSecurityProviderKey,
-  type SecurityProviderKeyIds,
-  type SecurityProviderKeySlots,
 } from './provider-keys.ts';
-import {
-  securityImageEngineForHost,
-  securityScannerImagePins,
-  type SecurityImageEngine,
-} from './scanner-images.ts';
+import type { SecurityProviderKeyIds, SecurityProviderKeySlots } from './provider-keys.ts';
+import { securityImageEngineForHost, securityScannerImagePins } from './scanner-images.ts';
+import type { SecurityImageEngine } from './scanner-images.ts';
 
 export type SecurityProbeCheckName =
   | 'capability'

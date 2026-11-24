@@ -125,7 +125,7 @@ async function probeModel(
 
 export async function runSelfTest(options: SelfTestOptions = {}): Promise<SelfTestReport> {
   const fetchImpl = options.fetch ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 8_000;
+  const timeoutMs = options.timeoutMs ?? 8000;
   const targets = options.targets ?? SELF_TEST_EGRESS_TARGETS;
   const [model, ...egress] = await Promise.all([
     probeModel(options.baseUrl ?? MODEL_BASE_URL, timeoutMs, fetchImpl),

@@ -2,8 +2,8 @@ import { securityModelCostNanoUsd } from '@void/platform/security-models';
 import {
   defaultSecurityPolicy,
   SECURITY_POLICY_SETTINGS_KEY,
-  type SecurityPolicy,
 } from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vite-plus/test';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
@@ -23,8 +23,8 @@ import {
   handleSecurityModelRequest,
   loadSecurityModelScan,
   SECURITY_STOP_HEADER,
-  type SecurityModelProxyDeps,
 } from '../../src/security/model-proxy.ts';
+import type { SecurityModelProxyDeps } from '../../src/security/model-proxy.ts';
 import { readSecurityPolicyLenient } from '../../src/security/policy.ts';
 import {
   clearTables,
@@ -33,8 +33,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const CF = '@cf/zai-org/glm-5.3';
 const NOV = '2026-11-01';

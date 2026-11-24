@@ -17,7 +17,7 @@ export function looksBinary(text: string): boolean {
   const end = Math.min(text.length, 8192);
   for (let index = 0; index < end; index++) {
     const code = text.charCodeAt(index);
-    if (code === 0 || code === 0xfffd) {
+    if (code === 0 || code === 0xff_fd) {
       return true;
     }
   }

@@ -5,7 +5,8 @@ import { PlatformApiError, PlatformClient } from './client.ts';
 import type { ProjectZeroTrustResponse, ProjectZeroTrustUpdateResponse } from './client.ts';
 import { printSuccess, note, sanitizeTerminalText } from './output.ts';
 import type { ProjectZeroTrustArgs } from './project-args.ts';
-import { cleanLine, day, publicRequestLines, type RequestSecurity } from './project-security.ts';
+import { cleanLine, day, publicRequestLines } from './project-security.ts';
+import type { RequestSecurity } from './project-security.ts';
 import { readProjectConfig } from './project.ts';
 import { getRequestedProjectSlug, requireProjectBySlug } from './resolve-project.ts';
 import type { SecurityPublicRequest } from './security-api-types.ts';
@@ -17,10 +18,15 @@ export type ProjectZeroTrustDeps = {
   confirm?: (message: string) => Promise<boolean>;
 };
 
-const OPEN_REQUEST_STATES = ['waiting_scan', 'held_findings', 'held_no_result', 'needs_deploy'];
+const OPEN_REQUEST_STATES = new Set([
+  'waiting_scan',
+  'held_findings',
+  'held_no_result',
+  'needs_deploy',
+]);
 
 function isOpenRequest(request: SecurityPublicRequest | null | undefined): boolean {
-  return Boolean(request && OPEN_REQUEST_STATES.includes(request.state));
+  return Boolean(request && OPEN_REQUEST_STATES.has(request.state));
 }
 
 async function resolveTarget(root: string, args: ZeroTrustArgs) {

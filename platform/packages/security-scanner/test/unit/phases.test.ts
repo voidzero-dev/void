@@ -10,7 +10,8 @@ import {
 import { STANDARD_HUNT_FOCUS } from '../../src/runner/prompts.ts';
 import type { FindingRecord, ScanReport } from '../../src/runner/report.ts';
 import type { OutcomeBody } from '../../src/runner/status.ts';
-import { parseTask, type ScanTask } from '../../src/runner/task.ts';
+import { parseTask } from '../../src/runner/task.ts';
+import type { ScanTask } from '../../src/runner/task.ts';
 import { confirmed, lead, record, rejected } from '../helpers/findings.ts';
 
 const TASK: ScanTask = parseTask({

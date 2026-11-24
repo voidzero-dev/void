@@ -4,7 +4,8 @@
 // streams), a bare status with headers (proxy stops), a dropped connection, or no
 // answer at all.
 
-import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { IncomingMessage, Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 export type FakeReply =
@@ -71,7 +72,9 @@ export async function startFakeModel(script: FakeScript): Promise<FakeModel> {
     }
     res.writeHead(reply.status, reply.headers).end(reply.text ?? '');
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}`,

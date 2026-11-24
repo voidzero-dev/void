@@ -39,9 +39,10 @@ import {
   SECURITY_CREDITS_LINK,
   SECURITY_PROBE_COPY,
   securityProvisionMessage,
-  type SecurityProbeCheck,
 } from '../../src/security/probe.ts';
-import { createFakeRegistry, fakeImage, type FakeRegistry } from '../__mocks__/image-registry.ts';
+import type { SecurityProbeCheck } from '../../src/security/probe.ts';
+import { createFakeRegistry, fakeImage } from '../__mocks__/image-registry.ts';
+import type { FakeRegistry } from '../__mocks__/image-registry.ts';
 import {
   clearTables,
   createOperatorToken,
@@ -49,9 +50,8 @@ import {
   mockCfApiRealDispatchScripts as mockCfApi,
   setupEnv,
   teardownEnv,
-  type MockCfApiHandle,
-  type TestEnv,
 } from './helpers.ts';
+import type { MockCfApiHandle, TestEnv } from './helpers.ts';
 
 // The entitlement probe, checks 1–6 (spec §5.2), against fakes: the Cloudflare API
 // (mockCfApi), the dispatch gate (the controller's self-test answer), Workers AI and
@@ -320,7 +320,7 @@ describe('security probe', () => {
     fakes.cf = mockCfApi({
       listContainerApps: () =>
         Response.json(
-          { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
+          { success: false, errors: [{ code: 10_000, message: 'Authentication error' }] },
           { status: 403 },
         ),
     });

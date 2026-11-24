@@ -1,4 +1,5 @@
-import { defaultSecurityBudgets, type SecurityPolicyBudgets } from '@void/platform/security-policy';
+import { defaultSecurityBudgets } from '@void/platform/security-policy';
+import type { SecurityPolicyBudgets } from '@void/platform/security-policy';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   assertSecurityProjectCapAllowed,
@@ -22,8 +23,8 @@ import {
   refillRateBucket,
   SECURITY_CF_CALLS_PER_MINUTE,
   SECURITY_SESSION_CALL_LIMIT,
-  type CallLedgerStorage,
 } from '../../src/security/call-ledger.ts';
+import type { CallLedgerStorage } from '../../src/security/call-ledger.ts';
 import { SecurityApiError } from '../../src/security/errors.ts';
 
 function budgets(overrides: Partial<SecurityPolicyBudgets> = {}): SecurityPolicyBudgets {
@@ -187,7 +188,7 @@ describe('who sets what (spec §16.2)', () => {
 
   it('says "this project" for a limit set on this project alone', () => {
     expect(() =>
-      assertSecurityProjectCapAllowed(2_500, { cents: 1_000, source: 'project' }, ACME),
+      assertSecurityProjectCapAllowed(2500, { cents: 1000, source: 'project' }, ACME),
     ).toThrow(
       'The platform limits this project to $10.00 / month. Ask your platform admin to raise it for acme-web: void platform security budget --project proj_acme --usd 25',
     );

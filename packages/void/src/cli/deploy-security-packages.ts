@@ -17,8 +17,8 @@ import {
   SECURITY_LOCKFILE_NAMES,
   SECURITY_PACKAGE_CLAIMS_MAX,
   securityPackageClaims,
-  type SecurityPackageClaims,
 } from '@void/platform/security-lockfile';
+import type { SecurityPackageClaims } from '@void/platform/security-lockfile';
 import { basename, dirname, join } from 'pathslash';
 
 /** A lockfile bigger than this is not read. */

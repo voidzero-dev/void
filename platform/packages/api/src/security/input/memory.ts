@@ -30,7 +30,7 @@ export const SECURITY_MEMORY_HISTORY_COMMENT_CHARS = 4000;
 /** History files in all; past this the oldest resolved findings are left out. */
 export const SECURITY_MEMORY_HISTORY_MAX_BYTES = 8 * 1024 * 1024;
 /** History files at most, so code keeps its share of the runner's 20,000 tar entries. */
-export const SECURITY_MEMORY_HISTORY_MAX_FILES = 2_000;
+export const SECURITY_MEMORY_HISTORY_MAX_FILES = 2000;
 
 export type SecurityAuthorRole = 'collaborator' | 'admin' | 'owner' | 'installation_admin';
 

@@ -2,9 +2,8 @@ import { getSecurityModel, securityModelCostNanoUsd } from '@void/platform/secur
 import {
   defaultSecurityPolicy,
   SECURITY_POLICY_SETTINGS_KEY,
-  type SecurityEntitlement,
-  type SecurityPolicy,
 } from '@void/platform/security-policy';
+import type { SecurityEntitlement, SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vite-plus/test';
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
@@ -23,16 +22,16 @@ import { changeSecurityProviderKey } from '../../src/security/byok.ts';
 import {
   handleSecurityModelRequest,
   loadSecurityModelScan,
-  type SecurityModelProxyDeps,
 } from '../../src/security/model-proxy.ts';
+import type { SecurityModelProxyDeps } from '../../src/security/model-proxy.ts';
 import { changeSecurityPolicy, readSecurityPolicyLenient } from '../../src/security/policy.ts';
 import {
   probeAndRecord,
   runSecurityProbe,
   SECURITY_PROBE_COPY,
   securityProbeDeps,
-  type SecurityProbeDeps,
 } from '../../src/security/probe.ts';
+import type { SecurityProbeDeps } from '../../src/security/probe.ts';
 import {
   entitlementForSavedKeys,
   loadSecurityProviderKey,
@@ -41,8 +40,8 @@ import {
   SECURITY_PROVIDER_KEY_MALFORMED_ID,
   SECURITY_PROVIDER_KEYS_SETTINGS_KEY,
   securityProviderModelName,
-  type SecurityProviderKeySlots,
 } from '../../src/security/provider-keys.ts';
+import type { SecurityProviderKeySlots } from '../../src/security/provider-keys.ts';
 import {
   clearTables,
   createOperatorToken,
@@ -51,8 +50,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // BYOK (design doc 0095 M33): an installation's own OpenAI / Anthropic key, stored
 // encrypted, added server-side by the model proxy, checked by probe check 5, and still

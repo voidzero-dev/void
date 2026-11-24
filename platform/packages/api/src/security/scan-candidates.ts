@@ -13,7 +13,8 @@
  * list only narrows the work; it never decides alone.
  */
 import type { SecurityMode } from '@void/platform/security-policy';
-import { and, asc, count, eq, isNull, notLike, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, notLike, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { DbOrTx } from '../db.ts';
 import { deployments, projects, projectZeroTrust, users } from '../schema.ts';
 import { securityProjectInScopeSql } from './project-policy.ts';

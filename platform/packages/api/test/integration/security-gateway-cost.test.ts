@@ -13,8 +13,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const NOW = Date.parse('2026-11-18T12:00:00.000Z');
 const HOUR = 60 * 60_000;
@@ -131,7 +131,7 @@ describe('gateway cost of ended scans (spec §16)', () => {
         trigger: 'deploy' as const,
         status: 'succeeded' as const,
         model_calls: 1,
-        finished_at: ago(2 * HOUR + index * 1_000),
+        finished_at: ago(2 * HOUR + index * 1000),
       })),
     );
     let calls = 0;
@@ -212,7 +212,7 @@ describe('the gateway cost query', () => {
       since,
       until,
       answer({ errors: [{ message: 'bad token secret-token' }] }),
-    ).catch((caught: Error) => caught.message);
+    ).catch((caught: unknown) => (caught instanceof Error ? caught.message : String(caught)));
     expect(error).toContain('[redacted]');
     expect(error).not.toContain('secret-token');
     await expect(

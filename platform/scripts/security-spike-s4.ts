@@ -74,8 +74,8 @@ import {
   DEFAULT_SECURITY_MODEL,
   getSecurityModel,
   isSecurityModelId,
-  type SecurityModelId,
 } from '../../packages/platform/src/security-models.ts';
+import type { SecurityModelId } from '../../packages/platform/src/security-models.ts';
 import { startFakeModel } from '../packages/security-scanner/test/fake-model/server.ts';
 import {
   SPIKE_PREFIX,
@@ -85,8 +85,8 @@ import {
   percentile,
   runWrangler,
   waitForWorker,
-  type SpikeEnv,
 } from './security-spike-s1.ts';
+import type { SpikeEnv } from './security-spike-s1.ts';
 
 export const REPO = fileURLToPath(new URL('../../', import.meta.url));
 export const FIXTURES = join(REPO, 'platform/scripts/fixtures/security-seeded-apps');
@@ -420,7 +420,7 @@ export function fixtureInput(fixture: Fixture): ScanInput {
 // ---------- scan tar ----------
 
 function tarHeader(name: string, size: number, type: string): Buffer {
-  const block = Buffer.alloc(512);
+  const block: Buffer = Buffer.alloc(512);
   block.write(name, 0, 100, 'utf8');
   block.write('0000644\0', 100, 'ascii');
   block.write('0000000\0', 108, 'ascii');
@@ -441,7 +441,11 @@ function tarHeader(name: string, size: number, type: string): Buffer {
 
 function tarPad(data: Buffer): Buffer {
   const rest = data.length % 512;
-  return rest === 0 ? data : Buffer.concat([data, Buffer.alloc(512 - rest)]);
+  if (rest === 0) {
+    return data;
+  }
+  const padded: Buffer = Buffer.concat([data, Buffer.alloc(512 - rest)]);
+  return padded;
 }
 
 /** Plain ustar; a pax `path` record carries names longer than 99 bytes. */
@@ -461,7 +465,8 @@ export function buildTar(entries: Array<{ name: string; data: string }>): Buffer
     parts.push(tarHeader(entry.name.slice(0, 99), data.length, '0'), tarPad(data));
   }
   parts.push(Buffer.alloc(1024));
-  return Buffer.concat(parts);
+  const tar: Buffer = Buffer.concat(parts);
+  return tar;
 }
 
 export function scanTar(input: ScanInput, scanId: string, model: string): Buffer {
@@ -1024,17 +1029,21 @@ export function maxScanCost(model: SecurityModelId): number {
 }
 
 async function harnessFetch(harness: Harness, path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  if (!headers.has('x-spike-key')) {
+    headers.set('x-spike-key', harness.key);
+  }
   for (let attempt = 0; ; attempt++) {
     try {
       const response = await fetch(`${harness.url}${path}`, {
         ...init,
-        headers: { 'x-spike-key': harness.key, ...init.headers },
+        headers,
         signal: AbortSignal.timeout(300_000),
       });
       const text = await response.text();
       // A fresh workers.dev route answers 404 for a while; the Worker never does on these paths.
       if ((response.status === 404 || response.status >= 520) && attempt < 10) {
-        await sleep(3_000);
+        await sleep(3000);
         continue;
       }
       return { status: response.status, text };
@@ -1042,13 +1051,15 @@ async function harnessFetch(harness: Harness, path: string, init: RequestInit = 
       if (attempt >= 5) {
         throw error;
       }
-      await sleep(5_000);
+      await sleep(5000);
     }
   }
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export function parseFindings(text: string | null | undefined): Array<Finding> {
@@ -1150,50 +1161,52 @@ function round(value: number, digits: number): number {
 
 // ---------- local harness check (fake model, runner on this machine) ----------
 
+const record = (bug: PlantedBug, verdict: string) => ({
+  fingerprint: bug.id,
+  verdict,
+  severity: verdict === 'confirmed' ? bug.severity : null,
+  confidence: 'medium',
+  title: `${bug.class} in ${bug.file}`,
+  category: bug.class,
+  cwe: bug.cwe[0],
+  file: bug.file,
+  line_start: null,
+  line_end: null,
+  sink_path: bug.file,
+  outside_diff: false,
+  trace: [
+    { file: bug.file, line: null, note: 'fake source' },
+    { file: bug.file, line: null, note: 'fake sink' },
+  ],
+  evidence: 'fake',
+  conditions: '',
+  fix: 'fake',
+  reason: '',
+});
+
+const reply = (toolCalls: Array<{ name: string; args: unknown }>) => ({
+  json: {
+    choices: [
+      {
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: toolCalls.map((call, index) => ({
+            id: `call_${index}`,
+            type: 'function',
+            function: { name: call.name, arguments: JSON.stringify(call.args) },
+          })),
+        },
+        finish_reason: 'tool_calls',
+      },
+    ],
+    usage: { prompt_tokens: 1000, completion_tokens: 100 },
+  },
+});
+
 /** Runs the real runner bundle locally against a scripted model that "finds" the planted bugs. */
 export async function runLocalScan(input: ScanInput, fixture: Fixture): Promise<ScanRun> {
   ensureRunner();
-  const reply = (toolCalls: Array<{ name: string; args: unknown }>) => ({
-    json: {
-      choices: [
-        {
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: toolCalls.map((call, index) => ({
-              id: `call_${index}`,
-              type: 'function',
-              function: { name: call.name, arguments: JSON.stringify(call.args) },
-            })),
-          },
-          finish_reason: 'tool_calls',
-        },
-      ],
-      usage: { prompt_tokens: 1000, completion_tokens: 100 },
-    },
-  });
-  const record = (bug: PlantedBug, verdict: string) => ({
-    fingerprint: bug.id,
-    verdict,
-    severity: verdict === 'confirmed' ? bug.severity : null,
-    confidence: 'medium',
-    title: `${bug.class} in ${bug.file}`,
-    category: bug.class,
-    cwe: bug.cwe[0],
-    file: bug.file,
-    line_start: null,
-    line_end: null,
-    sink_path: bug.file,
-    outside_diff: false,
-    trace: [
-      { file: bug.file, line: null, note: 'fake source' },
-      { file: bug.file, line: null, note: 'fake sink' },
-    ],
-    evidence: 'fake',
-    conditions: '',
-    fix: 'fake',
-    reason: '',
-  });
   const model = await startFakeModel((request) => {
     const body = request.body as { messages: Array<{ role: string; content: string | null }> };
     const prompt = body.messages[1]?.content ?? '';
@@ -1229,7 +1242,9 @@ export async function runLocalScan(input: ScanInput, fixture: Fixture): Promise<
       { stdio: ['pipe', 'pipe', 'pipe'] },
     );
     child.stdin.end(scanTar(input, `local-${fixture.name}`, DEFAULT_SECURITY_MODEL));
-    const code = await new Promise<number | null>((done) => child.on('close', done));
+    const code = await new Promise<number | null>((done) => {
+      child.on('close', done);
+    });
     const statusPath = join(root, 'out/status.json');
     const status = existsSync(statusPath)
       ? (JSON.parse(readFileSync(statusPath, 'utf8')) as RunnerStatus)
@@ -1283,9 +1298,12 @@ function normPath(path: string | null | undefined): string {
 
 function filesOf(finding: Finding): Set<string> {
   return new Set(
-    [finding.file, finding.sink_path, ...(finding.trace ?? []).map((step) => step.file)]
-      .map(normPath)
-      .filter((path) => path.length > 0),
+    [finding.file, finding.sink_path, ...(finding.trace ?? []).map((step) => step.file)].flatMap(
+      (value) => {
+        const path = normPath(value);
+        return path.length > 0 ? [path] : [];
+      },
+    ),
   );
 }
 
@@ -1388,6 +1406,10 @@ export function scoreScan(run: ScanRun, fixture: Fixture, input: ScanInput): Sca
 
 // ---------- summary ----------
 
+const median = (values: Array<number>) => (values.length ? percentile(values, 50) : null);
+
+const p95 = (values: Array<number>) => (values.length ? percentile(values, 95) : null);
+
 export function summarize(runs: Array<ScanRun & { score?: ScanScore }>) {
   const scans = runs.length;
   const valid = runs.filter((run) => run.validOutput).length;
@@ -1395,8 +1417,6 @@ export function summarize(runs: Array<ScanRun & { score?: ScanScore }>) {
   const wall = runs.map((run) => run.wallMs);
   const active = runs.map((run) => run.activeMs);
   const calls = runs.map((run) => run.calls);
-  const median = (values: Array<number>) => (values.length ? percentile(values, 50) : null);
-  const p95 = (values: Array<number>) => (values.length ? percentile(values, 95) : null);
   const minutes = (value: number | null) => (value === null ? null : round(value / 60_000, 2));
   return {
     scans,
@@ -1468,7 +1488,7 @@ async function deleteHarness(env: SpikeEnv, worker: string) {
       const deleted = await cfApi(env, `/containers/applications/${app.id}`, { method: 'DELETE' });
       log.push(`DELETE container app ${app.name} (${app.id}): ${deleted.status}`);
     }
-    await sleep(3_000);
+    await sleep(3000);
   }
   const listed = await listSpikeResources(env);
   return {
@@ -1552,6 +1572,9 @@ export function confirmationsReport(
 
 // ---------- main ----------
 
+const log = (line: string) =>
+  console.error(`[s4 ${new Date().toISOString().slice(11, 19)}] ${line}`);
+
 async function main() {
   const { values } = parseArgs({
     options: {
@@ -1584,8 +1607,6 @@ async function main() {
   const fixtures = appNames.map(loadFixture);
   const runs = Number(values.runs);
   const budget = Number(values['budget-usd']);
-  const log = (line: string) =>
-    console.error(`[s4 ${new Date().toISOString().slice(11, 19)}] ${line}`);
 
   const inputs = new Map<string, ScanInput>();
   for (const fixture of fixtures) {

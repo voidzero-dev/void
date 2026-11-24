@@ -50,19 +50,19 @@ export async function cfApi<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<{ ok: boolean; status: number; result: T; errors: unknown }> {
+  const headers = new Headers(init.headers);
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${env.token}`);
+  }
+  if (init.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${env.accountId}${path}`,
-    {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${env.token}`,
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-        ...init.headers,
-      },
-    },
+    { ...init, headers },
   );
   const text = await response.text();
-  let body: { success?: boolean; result?: T; errors?: unknown } = {};
+  let body: { success?: boolean; result?: T; errors?: unknown };
   try {
     body = JSON.parse(text);
   } catch {
@@ -194,7 +194,9 @@ export async function deleteSpikeResources(env: SpikeEnv, workerNames: Array<str
       const deleted = await cfApi(env, `/containers/applications/${app.id}`, { method: 'DELETE' });
       log.push(`DELETE container app ${app.name} (${app.id}): ${deleted.status}`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 3000);
+    });
   }
   const after = await listSpikeResources(env);
   return { log, after };
@@ -214,7 +216,9 @@ export async function waitForWorker(url: string, key: string): Promise<number> {
     } catch {
       streak = 0;
     }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 1000);
+    });
   }
   throw new Error(`${url} did not become reachable within 180 s`);
 }
@@ -382,6 +386,11 @@ type ProbeItem = {
   [key: string]: unknown;
 };
 
+const blocked = (item: ProbeItem | undefined) =>
+  item !== undefined &&
+  !item.execError &&
+  (!item.ok || (item.status === 403 && (item.body ?? '').startsWith('egress denied')));
+
 function judgeProbe(run: RunResult) {
   const failures: Array<string> = [];
   const probe = run.probe ?? {};
@@ -401,10 +410,6 @@ function judgeProbe(run: RunResult) {
     failures.push(`model call: ${JSON.stringify(model)}`);
   }
   // Blocked = the request errored, or the DenyAll handler answered 403.
-  const blocked = (item: ProbeItem | undefined) =>
-    item !== undefined &&
-    !item.execError &&
-    (!item.ok || (item.status === 403 && (item.body ?? '').startsWith('egress denied')));
   const denials = [
     'httpExample',
     'httpUnknownHost',
@@ -446,8 +451,7 @@ function judgeProbe(run: RunResult) {
   }
   const slowDenials = denials
     .slice(0, 5)
-    .filter((name) => (probe[name]?.ms ?? 0) >= 2_000)
-    .map((name) => `${name}: ${probe[name]?.ms} ms`);
+    .flatMap((name) => ((probe[name]?.ms ?? 0) >= 2000 ? [`${name}: ${probe[name]?.ms} ms`] : []));
   return {
     failures,
     probe,
@@ -504,7 +508,9 @@ async function main() {
         if (response.status !== 404 || attempt >= 10) {
           break;
         }
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 2000);
+        });
       }
       if (!response.ok) {
         failures.push(`run ${index}: HTTP ${response.status} ${text.slice(0, 500)}`);

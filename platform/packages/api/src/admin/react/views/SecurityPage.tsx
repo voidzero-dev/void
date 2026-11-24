@@ -16,7 +16,7 @@ import { Heading } from '@astryxdesign/core/Text';
 import { useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import { SecurityView, securityRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { AdminCard } from './AdminCard.tsx';
 import { formatDateTime } from './format.ts';
 import { FormCheckbox, FormNumberInput, FormSelector } from './FormControls.tsx';
@@ -525,7 +525,7 @@ function FindingsSection({
 // Scans
 // ---------------------------------------------------------------------------
 
-const CANCELABLE = ['pending_input', 'queued', 'running'];
+const CANCELABLE = new Set(['pending_input', 'queued', 'running']);
 
 function ScansSection({
   path,
@@ -647,7 +647,7 @@ function ScansSection({
                   <TableCell>{usd(scan.gatewayUsd)}</TableCell>
                   <TableCell>{formatDateTime(scan.startedAt ?? scan.createdAt, tz)}</TableCell>
                   <TableCell>
-                    {capability && CANCELABLE.includes(scan.status) && (
+                    {capability && CANCELABLE.has(scan.status) && (
                       <form
                         method="post"
                         action={`${HOME}/scans/${scan.id}/cancel`}

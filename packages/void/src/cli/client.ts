@@ -1137,6 +1137,7 @@ export class PlatformClient {
       ) {
         throw new Error(
           'project: This Void platform cannot change finding severity yet. Ask its administrator to upgrade with `void platform upgrade`.',
+          { cause: error },
         );
       }
       throw securityApiError(error);
@@ -1196,6 +1197,7 @@ export class PlatformClient {
       ) {
         throw new Error(
           'project: This Void platform cannot run local security checks yet. Ask its administrator to upgrade with `void platform upgrade`.',
+          { cause: error },
         );
       }
       throw securityApiError(error);

@@ -19,9 +19,11 @@ import {
   isSecurityModelPriced,
   SECURITY_PROVIDER_NOTICE_VERSION,
   securityModelThirdPartyHost,
-  type SecurityEngine,
-  type SecurityModelId,
-  type SecurityPickProblem,
+} from '@void/platform/security-models';
+import type {
+  SecurityEngine,
+  SecurityModelId,
+  SecurityPickProblem,
 } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { securityFallbackModel } from './policy.ts';

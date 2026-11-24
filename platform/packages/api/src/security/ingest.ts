@@ -24,9 +24,8 @@ import { and, desc, eq, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm
 import {
   FINDINGS_SCHEMA_VERSION,
   REPORT_LIMITS,
-  type FindingRecord,
-  type ScanReport,
 } from '../../../security-scanner/src/runner/report.ts';
+import type { FindingRecord, ScanReport } from '../../../security-scanner/src/runner/report.ts';
 import {
   relativePathProblem,
   validateFindingsValue,
@@ -54,22 +53,24 @@ import {
   securityFingerprintKey,
   selectStoredRecords,
   uniqueStoredRecords,
-  type SecurityFindingPatch,
-  type SecurityIngestRecord,
-  type SecurityIngestScan,
-  type SecurityScanScope,
-  type SecurityStoredFinding,
+} from './findings.ts';
+import type {
+  SecurityFindingPatch,
+  SecurityIngestRecord,
+  SecurityIngestScan,
+  SecurityScanScope,
+  SecurityStoredFinding,
 } from './findings.ts';
 import { parseSecurityBacklog } from './input/backlog.ts';
 import type { SecurityServerLead } from './input/phrase-check.ts';
-import { SECURITY_SECRET_FORMS, type SecuritySecretForm } from './input/redact.ts';
+import { SECURITY_SECRET_FORMS } from './input/redact.ts';
+import type { SecuritySecretForm } from './input/redact.ts';
 import {
   deleteSecurityLocalTree,
   SECURITY_LOCAL_RESULT_MAX_FINDINGS,
   securityLocalResultKey,
-  type SecurityLocalCheckFinding,
-  type SecurityLocalCheckResult,
 } from './local-check.ts';
+import type { SecurityLocalCheckFinding, SecurityLocalCheckResult } from './local-check.ts';
 import { securityRawOutputPrefix } from './maintenance.ts';
 import { enqueueSecurityNotification } from './notifications.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
@@ -80,8 +81,8 @@ import {
   securityFindings,
   securityMemoryRejected,
   securityScans,
-  type SecurityFindingEventAction,
 } from './schema.ts';
+import type { SecurityFindingEventAction } from './schema.ts';
 
 // ---------------------------------------------------------------------------
 // status.json
@@ -388,7 +389,7 @@ function parseServerLead(value: unknown): SecurityServerLead | null {
     return null;
   }
   if (lead.kind === 'reviewer_text' && Array.isArray(lead.hits)) {
-    return lead as unknown as SecurityServerLead;
+    return lead as SecurityServerLead;
   }
   if (lead.kind === 'secret_in_output' && isSecretName(lead.secret)) {
     const forms = Array.isArray(lead.forms)
@@ -1188,7 +1189,7 @@ async function upsertFindings(
   const byKey = new Map(existing.map((finding) => [finding.fingerprint_key, finding]));
   const seenSince = await seenSinceResolve(
     tx,
-    existing.filter((finding) => finding.state === 'resolved').map((finding) => finding.id),
+    existing.flatMap((finding) => (finding.state === 'resolved' ? [finding.id] : [])),
   );
 
   const events: Array<typeof securityFindingEvents.$inferInsert> = [];

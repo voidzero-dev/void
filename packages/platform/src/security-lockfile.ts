@@ -25,7 +25,7 @@ export const SECURITY_LOCKFILE_NAMES: ReadonlyArray<string> = [
 ];
 
 /** Package names one deploy may claim, at most (the deploy body stays small). */
-export const SECURITY_PACKAGE_CLAIMS_MAX = 5_000;
+export const SECURITY_PACKAGE_CLAIMS_MAX = 5000;
 /** npm's own limit on a package name. */
 const MAX_PACKAGE_NAME = 214;
 
@@ -119,11 +119,7 @@ export function parsePackageLock(text: string): SecurityLockfileIndex | null {
 }
 
 function unquote(text: string): string {
-  if (
-    text.length >= 2 &&
-    (text[0] === "'" || text[0] === '"') &&
-    text[text.length - 1] === text[0]
-  ) {
+  if (text.length >= 2 && (text[0] === "'" || text[0] === '"') && text.at(-1) === text[0]) {
     return text.slice(1, -1);
   }
   return text;

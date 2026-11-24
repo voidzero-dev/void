@@ -24,8 +24,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // M30: making a scan's runtime copy against the database, R2 and a small fake
 // Cloudflare API. The copy runs the raw bundle, so a stored secret in it means no copy,

@@ -80,7 +80,7 @@ export async function queryAiGatewayTagCost(
     throw new Error(`AI Gateway cost query failed with HTTP ${response.status}`);
   }
   const result = (await response.json()) as CostResponse | null;
-  if (result?.errors != null) {
+  if (result?.errors !== undefined && result.errors !== null) {
     if (!Array.isArray(result.errors)) {
       throw new Error('AI Gateway cost query returned invalid GraphQL errors');
     }

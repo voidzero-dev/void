@@ -16,15 +16,12 @@ import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { OperatorError } from '../operator/common.ts';
 import { NANO_USD_PER_USD, securityScanReserveNano } from './budget.ts';
-import { queueSecurityRescan, type SecurityManualTrigger } from './operator.ts';
+import { queueSecurityRescan } from './operator.ts';
+import type { SecurityManualTrigger } from './operator.ts';
 import { installationZeroTrustProtects, readSecurityPolicyLenient } from './policy.ts';
 import { securityProjectModelView } from './project-view.ts';
-import {
-  countSecurityScanCandidates,
-  listSecurityScanCandidates,
-  type SecurityCandidate,
-  type SecurityCandidateQuery,
-} from './scan-candidates.ts';
+import { countSecurityScanCandidates, listSecurityScanCandidates } from './scan-candidates.ts';
+import type { SecurityCandidate, SecurityCandidateQuery } from './scan-candidates.ts';
 import { securityScans } from './schema.ts';
 
 /** Projects one backfill call queues, at most; run it again for the rest. */

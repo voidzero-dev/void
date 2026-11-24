@@ -15,15 +15,12 @@ import {
  */
 import type { Context } from 'hono';
 import { defineHandler, defineHead } from 'void';
-import {
-  apiClient,
-  fetchApi,
-  getApiErrorMessage,
-  readApiJson,
-  type ProjectListItem,
-  type ProjectSecurityBody,
-  type ProjectSecurityFindingsBody,
-  type ProjectSecurityScansBody,
+import { apiClient, fetchApi, getApiErrorMessage, readApiJson } from '../../../lib/api.ts';
+import type {
+  ProjectListItem,
+  ProjectSecurityBody,
+  ProjectSecurityFindingsBody,
+  ProjectSecurityScansBody,
 } from '../../../lib/api.ts';
 import { dashboardRequestOrigin } from '../../../lib/origin.ts';
 

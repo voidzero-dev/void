@@ -33,18 +33,15 @@ import {
 } from '../security/runtime-copy-names.ts';
 import { COPY_SANDBOX_SOURCE } from '../security/runtime-copy-sources.ts';
 import { sweepSecurityRuntimeCopies } from '../security/runtime-copy-sweep.ts';
-import {
-  SECURITY_IMAGE_ENGINE_SLUG,
-  SECURITY_IMAGE_ENGINES,
-  type SecurityImageEngine,
-} from '../security/scanner-images.ts';
+import { SECURITY_IMAGE_ENGINE_SLUG, SECURITY_IMAGE_ENGINES } from '../security/scanner-images.ts';
+import type { SecurityImageEngine } from '../security/scanner-images.ts';
 import { CF_API_BASE, cfFetch, CloudflareApiError } from './cloudflare-api.ts';
 import {
   deleteContainerApplicationIdempotent,
   findContainerApplication,
   tryCreateContainerApplication,
-  type ContainerApplicationInfo,
 } from './containers.ts';
+import type { ContainerApplicationInfo } from './containers.ts';
 import { deleteSecurityScannerImages } from './security-scanner-images.ts';
 
 export const SECURITY_SCANNER_CLASS = 'ScannerController';

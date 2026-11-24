@@ -46,7 +46,8 @@ import { ingestSecurityScanResult, serializeSecurityScanScope } from '../ingest.
 import { securityRawOutputPrefix } from '../maintenance.ts';
 import { endSecurityScanAttempt } from '../queue.ts';
 import { securityRuntimeCopyWanted } from '../runtime-copy-plan.ts';
-import { securityScans, type SecurityScanTrigger } from '../schema.ts';
+import { securityScans } from '../schema.ts';
+import type { SecurityScanTrigger } from '../schema.ts';
 import { parseSecurityBacklog, serializeSecurityBacklog } from './backlog.ts';
 import {
   buildSecurityScanInput,
@@ -54,17 +55,21 @@ import {
   SECURITY_INPUT_MAX_BYTES,
   securityDeployConfigText,
   utf8Length,
-  type SecurityBuiltInput,
-  type SecurityClientSource,
-  type SecurityInputAsset,
-  type SecuritySourceDiffInput,
+} from './build.ts';
+import type {
+  SecurityBuiltInput,
+  SecurityClientSource,
+  SecurityInputAsset,
+  SecuritySourceDiffInput,
 } from './build.ts';
 import { looksBinary, securityInputFilter } from './filters.ts';
 import { prepareLocalCheckInputFiles } from './local.ts';
 import { SECURITY_MEMORY_HISTORY_MAX_FILES } from './memory.ts';
 import { loadSecurityMemory, loadSecuritySecrets } from './project-data.ts';
-import { createSecurityRedactor, type SecuritySecret, type SecuritySecretHit } from './redact.ts';
-import { loadSecuritySourceDiff, type SecuritySourceDiffEnv } from './t1-github.ts';
+import { createSecurityRedactor } from './redact.ts';
+import type { SecuritySecret, SecuritySecretHit } from './redact.ts';
+import { loadSecuritySourceDiff } from './t1-github.ts';
+import type { SecuritySourceDiffEnv } from './t1-github.ts';
 import {
   assetInputPath,
   bundleSources,
@@ -72,16 +77,19 @@ import {
   oversizedTextAssets,
   readSourceMap,
   SECURITY_CLIENT_PREFIX,
-  type SecurityBundleSources,
-  type SecurityMapSource,
   securityModuleFile,
   sha256Hex,
   sourceMapFor,
-  type SecurityAssetEntry,
-  type SecurityModuleFile,
+} from './t2.ts';
+import type {
+  SecurityBundleSources,
+  SecurityMapSource,
+  SecurityAssetEntry,
+  SecurityModuleFile,
 } from './t2.ts';
 import { assertTarEntries, tarStream } from './tar.ts';
-import { parseSecurityPackageClaims, type SecurityLockfileIndex } from './third-party.ts';
+import { parseSecurityPackageClaims } from './third-party.ts';
+import type { SecurityLockfileIndex } from './third-party.ts';
 import { chooseSecurityTier, securityFallbackFullReason } from './tier.ts';
 
 export type SecurityInputEnv = Pick<
@@ -667,6 +675,8 @@ async function loadAssets(
   return { assets, unread };
 }
 
+const bare = (path: string) => (path.startsWith('/') ? path.slice(1) : path);
+
 /**
  * The client asset pass (M31): the sources of the deployed client bundles, from their
  * source maps (the `sourceMappingURL` comment of a bundle this scan read, an inline map,
@@ -682,7 +692,6 @@ async function loadClientSources(
   /** Bytes the read set has left after modules and assets: sources past it are never sent. */
   budget: number,
 ): Promise<{ sources: Array<SecurityClientSource>; unread: number }> {
-  const bare = (path: string) => (path.startsWith('/') ? path.slice(1) : path);
   const maps = new Map<string, SecurityAssetEntry>();
   for (const entry of head) {
     if (entry.path.endsWith('.map')) {

@@ -7,8 +7,8 @@ import {
   outcomeStatus,
   readProxyStopReason,
   safeLabel,
-  type CodexRunSignal,
 } from '../../src/runner/status.ts';
+import type { CodexRunSignal } from '../../src/runner/status.ts';
 import { confirmed, report } from '../helpers/findings.ts';
 
 describe('outcomeStatus (spec §8.4)', () => {

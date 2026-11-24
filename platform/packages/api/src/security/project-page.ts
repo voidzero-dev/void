@@ -23,23 +23,16 @@ import {
   listSecurityFindings,
   SECURITY_COMMENT_MAX_CHARS,
   securityFindingTimelines,
-  type SecurityFindingEventView,
-  type SecurityFindingView,
 } from './project-findings.ts';
+import type { SecurityFindingEventView, SecurityFindingView } from './project-findings.ts';
 import { SECURITY_PROJECT_POLICY_SKIP_REASON } from './project-policy.ts';
-import { readSecurityProjectModelChoices, type SecurityModelChoices } from './project-settings.ts';
-import {
-  listSecurityScans,
-  projectSecurityStatus,
-  securityDetailLevel,
-  type SecurityScanView,
-} from './project-view.ts';
+import { readSecurityProjectModelChoices } from './project-settings.ts';
+import type { SecurityModelChoices } from './project-settings.ts';
+import { listSecurityScans, projectSecurityStatus, securityDetailLevel } from './project-view.ts';
+import type { SecurityScanView } from './project-view.ts';
 import { publicRequestCopy } from './public-gate-copy.ts';
-import {
-  openPublicRequestView,
-  SECURITY_BYPASS_REASON_MAX_CHARS,
-  type PublicRequestView,
-} from './public-gate.ts';
+import { openPublicRequestView, SECURITY_BYPASS_REASON_MAX_CHARS } from './public-gate.ts';
+import type { PublicRequestView } from './public-gate.ts';
 import { securityScanBypasses } from './schema.ts';
 
 /** The most findings one block lists; the CLI has the rest. */
@@ -354,8 +347,10 @@ function findingBlock(
     plainText(finding.title),
   )}${where ? ` <span class="sec-file">${esc(where)}</span>` : ''}</summary>`;
   const meta = [finding.category, finding.cwe, finding.confidence]
-    .map(plainText)
-    .filter(Boolean)
+    .flatMap((value) => {
+      const shown = plainText(value);
+      return shown ? [shown] : [];
+    })
     .join(' · ');
   const resolution =
     finding.state === 'resolved'

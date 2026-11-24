@@ -48,12 +48,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
-import {
-  finishSpike,
-  REPO,
-  relaunchWithLocalLoader,
-  type SpikeCheck,
-} from './security-spike-local.ts';
+import { finishSpike, REPO, relaunchWithLocalLoader } from './security-spike-local.ts';
+import type { SpikeCheck } from './security-spike-local.ts';
 
 relaunchWithLocalLoader(import.meta.url);
 
@@ -153,7 +149,7 @@ const ESCAPE_ATTEMPTS: Array<{
     args: { path: 'dirlink/outside-secret.txt' },
     label: 'dir symlink to outside',
   },
-  { tool: 'read_file', args: { path: 'src\\..\\..\\task.json' }, label: 'backslashes' },
+  { tool: 'read_file', args: { path: String.raw`src\..\..\task.json` }, label: 'backslashes' },
   { tool: 'read_file', args: { path: 'src/app.ts\u0000../../task.json' }, label: 'NUL byte' },
   { tool: 'read_file', args: { path: '%2e%2e/task.json' }, label: 'URL-encoded ..' },
   { tool: 'read_file', args: { path: `${'a/'.repeat(600)}x` }, label: 'very long path' },
@@ -285,7 +281,7 @@ async function toolsSection(work: string) {
   const status = await runScan({
     root,
     retryDelayMs: 0,
-    engineFactory: (task: { model: string }, context: { tools: unknown }) =>
+    engineFactory: (task: { model: string }, context: { tools: unknown }): unknown =>
       createVoidLoopEngine({
         model: task.model,
         tools: context.tools as never,
@@ -693,7 +689,7 @@ async function mcpSection(work: string) {
     {
       label: '1001 records',
       report: findingsHelpers.report(
-        Array.from({ length: 1001 }, (_, index) =>
+        Array.from({ length: 1001 }, (_, index): unknown =>
           findingsHelpers.lead({ fingerprint: `f${index}` }),
         ),
       ),
@@ -1032,7 +1028,9 @@ async function outputSection() {
       label: '1001 records',
       text: JSON.stringify(
         findingsHelpers.report(
-          Array.from({ length: 1001 }, (_, i) => findingsHelpers.lead({ fingerprint: `f${i}` })),
+          Array.from({ length: 1001 }, (_, i): unknown =>
+            findingsHelpers.lead({ fingerprint: `f${i}` }),
+          ),
         ),
       ),
     },
@@ -1193,9 +1191,10 @@ function phrasesSection() {
   for (const row of fired) {
     check('phrases', `server lead fires: ${row.label}`, row.hits > 0);
   }
-  const missed = evasions
-    .map(([label, text]) => ({ label, hits: phrase.findReviewerPhrases(text).length }))
-    .filter((row) => row.hits === 0);
+  const missed = evasions.flatMap(([label, text]) => {
+    const hits = phrase.findReviewerPhrases(text).length;
+    return hits === 0 ? [{ label, hits }] : [];
+  });
   for (const row of missed) {
     risks.push({
       name: `phrases: server check misses "${row.label}" (model may still obey it)`,
@@ -1344,7 +1343,7 @@ function inputSection() {
   const names = built.entries.map((entry: { path: string }) => entry.path);
   const allText = built.entries
     .map((entry: { data: string | Uint8Array }) =>
-      typeof entry.data === 'string' ? entry.data : Buffer.from(entry.data).toString('utf8'),
+      typeof entry.data === 'string' ? entry.data : new TextDecoder().decode(entry.data),
     )
     .join('\n');
   check(
@@ -1459,7 +1458,7 @@ async function egressSection() {
   ];
   const denied: Array<number> = [];
   for (const url of hosts) {
-    denied.push((await deny.fetch(new Request(url))).status);
+    denied.push(deny.fetch(new Request(url)).status);
   }
   check(
     'egress',
@@ -1590,7 +1589,7 @@ async function openDb() {
     loadDataDir: await loadPGliteTemplateBundle(),
     relaxedDurability: true,
   });
-  const db = drizzle(client, { schema }) as unknown as Db;
+  const db = drizzle(client, { schema }) as Db;
   return { client, db };
 }
 
@@ -1602,7 +1601,7 @@ async function seedScan(db: Db, overrides: Record<string, unknown> = {}, project
     await db.insert(schema.users).values({
       id: `user_spike${n}`,
       provider: 'github',
-      provider_id: String(90000 + n),
+      provider_id: String(90_000 + n),
       login: `spike${n}`,
       email: null,
       plan: 'free',
@@ -1666,7 +1665,7 @@ function capsPolicy(overrides: Record<string, unknown> = {}) {
       ...base.limits,
       modelCallsPerScan: 10,
       maxInputTokens: 50_000,
-      maxOutputTokens: 5_000,
+      maxOutputTokens: 5000,
     },
     ...overrides,
   };
@@ -1690,7 +1689,9 @@ function proxyDeps(
     now: () => Date.now() + offset,
     sleep: async (ms: number) => {
       offset += ms;
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
     },
     loadScan: (scanId: string) => proxy.loadSecurityModelScan(db, scanId),
     readPolicy: async () => policy,
@@ -1714,7 +1715,9 @@ function proxyDeps(
         upstream.calls++;
         upstream.bodies.push(inputs);
         if (upstream.delayMs) {
-          await new Promise((resolve) => setTimeout(resolve, upstream.delayMs));
+          await new Promise((resolve) => {
+            setTimeout(resolve, upstream.delayMs);
+          });
         }
         if (upstream.stream) {
           return new ReadableStream({
@@ -1901,7 +1904,7 @@ async function capsSection(db: Db) {
       'caps',
       'max_tokens 10M is clamped to what the scan has left (≤ 5,000)',
       typeof sent.max_tokens === 'number' &&
-        (sent.max_tokens as number) <= 5_000 &&
+        (sent.max_tokens as number) <= 5000 &&
         sent.max_completion_tokens === undefined,
       { max_tokens: sent.max_tokens },
     );
@@ -1943,7 +1946,9 @@ async function capsSection(db: Db) {
     const upstream = { calls: 0, bodies: [] as Array<unknown>, stream: true };
     const deps = proxyDeps(db, capsPolicy(), upstream);
     const answer = await call(deps, scanId, chat('0', { stream: true }));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
     const row = await scanRow(scanId);
     check(
       'caps',
@@ -2081,6 +2086,18 @@ class MemoryR2 {
   }
 }
 
+const findingsText = (records: Array<unknown>) =>
+  JSON.stringify({ schema_version: 1, ...findingsHelpers.report(records), notes: '' });
+
+const statusFor = (scanId: string, status = 'succeeded', reason: string | null = null) => ({
+  schema_version: 1,
+  scan_id: scanId,
+  attempt: 1,
+  status,
+  reason,
+  engine_version: 'runner/1 void-loop/1',
+});
+
 async function ingestSection(db: Db) {
   const { eq } = await import(DB_PACKAGES.drizzle);
   const r2 = new MemoryR2();
@@ -2094,16 +2111,6 @@ async function ingestSection(db: Db) {
       }),
     },
   };
-  const statusFor = (scanId: string, status = 'succeeded', reason: string | null = null) => ({
-    schema_version: 1,
-    scan_id: scanId,
-    attempt: 1,
-    status,
-    reason,
-    engine_version: 'runner/1 void-loop/1',
-  });
-  const findingsText = (records: Array<unknown>) =>
-    JSON.stringify({ schema_version: 1, ...findingsHelpers.report(records), notes: '' });
   const run = async (scanId: string, records: Array<unknown>, attempt = 1, status?: unknown) =>
     ingest.ingestSecurityScanResult(env as never, db, scanId, attempt, {
       status: status ?? statusFor(scanId),
@@ -2261,7 +2268,7 @@ async function ingestSection(db: Db) {
   {
     const { projectId, scanId } = await seedScan(db);
     const records = [
-      ...Array.from({ length: 150 }, (_, i) =>
+      ...Array.from({ length: 150 }, (_, i): unknown =>
         findingsHelpers.confirmed({
           fingerprint: `flood:c${i}`,
           file: `src/c${i}.ts`,
@@ -2269,7 +2276,7 @@ async function ingestSection(db: Db) {
           trace: [{ file: `src/c${i}.ts`, line: 1, note: 'n' }],
         }),
       ),
-      ...Array.from({ length: 150 }, (_, i) =>
+      ...Array.from({ length: 150 }, (_, i): unknown =>
         findingsHelpers.lead({
           fingerprint: `flood:l${i}`,
           file: `src/l${i}.ts`,

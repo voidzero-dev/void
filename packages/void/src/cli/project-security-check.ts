@@ -19,8 +19,8 @@ import {
   SECURITY_LOCAL_CHECK_LIMITS,
   securityInputFilter,
   securityLocalTreeTar,
-  type SecurityLocalTreeFile,
 } from '@void/platform/security-local-check';
+import type { SecurityLocalTreeFile } from '@void/platform/security-local-check';
 import { join } from 'pathslash';
 import type { PlatformClient } from './client.ts';
 import { DirectR2PutError, uploadAssetsToR2 } from './direct-r2-upload.ts';
@@ -29,9 +29,9 @@ import type { SecurityCheckFinding, SecurityCheckView } from './security-api-typ
 /** Secret-like file names listed before the upload, at most. */
 const LISTED_SECRET_FILES = 5;
 /** How often the CLI asks for the result, and for how long. */
-export const SECURITY_CHECK_POLL_MS = 5_000;
+export const SECURITY_CHECK_POLL_MS = 5000;
 export const SECURITY_CHECK_WAIT_MS: number = 60 * 60_000;
-const ENDED_WITH_RESULT = ['succeeded', 'incomplete'];
+const ENDED_WITH_RESULT = new Set(['succeeded', 'incomplete']);
 
 export type SecurityLocalTree = {
   files: Array<SecurityLocalTreeFile>;
@@ -47,7 +47,7 @@ function listTrackedFiles(root: string): Array<string> {
   try {
     return execFileSync('git', ['ls-files', '-z', '--cached', '--', '.'], {
       cwd: root,
-      encoding: 'utf-8',
+      encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       maxBuffer: 64 * 1024 * 1024,
     })
@@ -246,7 +246,7 @@ export function checkResultLines(
     `${slug} · local check ${clean(check.id)}`,
     `  ${clean(check.status)}${check.statusReason ? ` (${clean(check.statusReason)})` : ''}${check.coverageLabel ? ` · ${clean(check.coverageLabel)}` : ''} · ${plural(check.filesScanned, 'file')}${check.model ? ` · ${clean(check.model)}` : ''}`,
   ];
-  if (!ENDED_WITH_RESULT.includes(check.status)) {
+  if (!ENDED_WITH_RESULT.has(check.status)) {
     return head;
   }
   if (result === null) {
@@ -383,7 +383,12 @@ export async function waitForSecurityLocalCheck(
   onState: (status: string) => void,
   deps: SecurityCheckDeps = {},
 ): Promise<SecurityCheckView | null> {
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+  const sleep =
+    deps.sleep ??
+    ((ms: number) =>
+      new Promise<void>((done) => {
+        setTimeout(done, ms);
+      }));
   const now = deps.now ?? Date.now;
   const until = now() + SECURITY_CHECK_WAIT_MS;
   let last = '';
@@ -404,5 +409,5 @@ export async function waitForSecurityLocalCheck(
 }
 
 export function checkEndedWithResult(view: SecurityCheckView): boolean {
-  return ENDED_WITH_RESULT.includes(view.check.status) && view.result !== null;
+  return ENDED_WITH_RESULT.has(view.check.status) && view.result !== null;
 }

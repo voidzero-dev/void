@@ -35,17 +35,17 @@ import {
   isSecurityModelPriced,
   SECURITY_PROVIDER_NOTICE_VERSION,
   securityModelCostNanoUsd,
-  type SecurityModelHost,
-  type SecurityModelId,
-  type SecurityThirdPartyHost,
 } from '@void/platform/security-models';
-import {
-  SECURITY_ERRORS,
-  type SecurityPlanCap,
-  type SecurityPolicy,
-} from '@void/platform/security-policy';
+import type {
+  SecurityModelHost,
+  SecurityModelId,
+  SecurityThirdPartyHost,
+} from '@void/platform/security-models';
+import { SECURITY_ERRORS } from '@void/platform/security-policy';
+import type { SecurityPlanCap, SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
-import { createDb, type DbOrTx } from '../db.ts';
+import { createDb } from '../db.ts';
+import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { CF_API_BASE } from '../provisioning/cloudflare-api.ts';
 import { deriveSecurityScanTag } from '../proxy-token.ts';
@@ -55,17 +55,19 @@ import {
   securitySpendCaps,
   securitySpendMonth,
   settleSecurityModelCall,
-  type SecurityCallHold,
-  type SecurityCallRefusal,
-  type SecurityCallSettlement,
-  type SecuritySpendCaps,
 } from './budget.ts';
-import {
-  SECURITY_MAX_SESSION_INDEX,
-  type AdmitModelCall,
-  type AdmitModelCallResult,
-  type ModelCallFailure,
-  type ModelCallFailureReason,
+import type {
+  SecurityCallHold,
+  SecurityCallRefusal,
+  SecurityCallSettlement,
+  SecuritySpendCaps,
+} from './budget.ts';
+import { SECURITY_MAX_SESSION_INDEX } from './call-ledger.ts';
+import type {
+  AdmitModelCall,
+  AdmitModelCallResult,
+  ModelCallFailure,
+  ModelCallFailureReason,
 } from './call-ledger.ts';
 import { judgeScanFence } from './control.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
@@ -76,8 +78,8 @@ import {
   callWithSecurityProviderKey,
   loadSecurityProviderKey,
   securityProviderModelName,
-  type SecurityProviderKey,
 } from './provider-keys.ts';
+import type { SecurityProviderKey } from './provider-keys.ts';
 import { projectSecuritySettings, securityScans } from './schema.ts';
 
 export const SECURITY_STOP_HEADER = 'x-void-scan-stop';
@@ -203,7 +205,10 @@ export function securityModelProxyDeps(env: ApiEnv['Bindings']): SecurityModelPr
     env.SECURITY_SCAN_SCHEDULER.get(env.SECURITY_SCAN_SCHEDULER.idFromName('global'));
   return {
     now: () => Date.now(),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    sleep: (ms) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, ms);
+      }),
     loadScan: (scanId) => loadSecurityModelScan(db, scanId),
     readPolicy: () => readSecurityPolicyLenient(db),
     admit: (input) => scheduler().admitModelCall(input),
@@ -829,7 +834,7 @@ export function workersAiErrorStatus(error: unknown): number | null {
       return null;
     }
     const head = rest.slice(0, colon).trim();
-    if (head.length > 0 && [...head].every((char) => char >= '0' && char <= '9')) {
+    if (head.length > 0 && Array.from(head).every((char) => char >= '0' && char <= '9')) {
       return WORKERS_AI_CODE_STATUS[head] ?? null;
     }
     // Not a code: skip one leading class name, then look once more.

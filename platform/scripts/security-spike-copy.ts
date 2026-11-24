@@ -46,7 +46,8 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { extname, join, relative, sep } from 'node:path';
 import { parseArgs } from 'node:util';
-import { cfApi, deploySpikeWorker, runWrangler, type SpikeEnv } from './security-spike-s1.ts';
+import { cfApi, deploySpikeWorker, runWrangler } from './security-spike-s1.ts';
+import type { SpikeEnv } from './security-spike-s1.ts';
 import {
   FIXTURES,
   REPO,
@@ -95,7 +96,9 @@ function walkFiles(root: string): Array<string> {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function round(value: number, digits: number): number {
@@ -156,7 +159,9 @@ function assetHash(bytes: Buffer, path: string): string {
   const hasher = blake3.createHasher();
   hasher.update(new TextEncoder().encode(bytes.toString('base64')));
   hasher.update(new TextEncoder().encode(extname(path).slice(1)));
-  return Buffer.from(hasher.finalize()).toString('hex').slice(0, 32);
+  return Array.from(hasher.finalize(), (byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 32);
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -227,7 +232,7 @@ async function apiForm<T>(
     body: form,
   });
   const text = await response.text();
-  let body: { success?: boolean; result?: T; errors?: unknown } = {};
+  let body: { success?: boolean; result?: T; errors?: unknown };
   try {
     body = JSON.parse(text);
   } catch {
@@ -488,7 +493,7 @@ async function deployWithRetry(
       if (attempt >= 3 || !String(error).includes('10007')) {
         throw error;
       }
-      await sleep(5_000 * attempt);
+      await sleep(5000 * attempt);
     }
   }
 }
@@ -564,7 +569,7 @@ async function waitForController(fixtures: Fixtures): Promise<void> {
     if (streak >= 3) {
       return;
     }
-    await sleep(1_000);
+    await sleep(1000);
   }
   throw new Error(`${fixtures.controllerUrl} did not become reachable within 180 s`);
 }
@@ -577,10 +582,14 @@ async function viaController(
   init: RequestInit = {},
 ): Promise<{ status: number; text: string; headers: Headers }> {
   counters.copyRequests++;
+  const headers = new Headers(init.headers);
+  if (!headers.has('x-spike-key')) {
+    headers.set('x-spike-key', fixtures.key);
+  }
   const response = await fetch(`${fixtures.controllerUrl}/copy/${script}${path}`, {
     redirect: 'manual',
     ...init,
-    headers: { 'x-spike-key': fixtures.key, ...init.headers },
+    headers,
     signal: AbortSignal.timeout(60_000),
   });
   return { status: response.status, text: await response.text(), headers: response.headers };
@@ -717,6 +726,8 @@ function seedFor(
   }
   return { seed: {} };
 }
+
+const snippet = (_status: number, text: string) => text.replaceAll('\n', ' ').slice(0, 140);
 
 async function createCopy(
   env: SpikeEnv,
@@ -1054,11 +1065,13 @@ async function createCopy(
   let firstStatus: number | null = null;
   let lastText = '';
   while (Date.now() - started < 5 * 60_000) {
-    const response = await viaController(fixtures, counters, script, '/').catch((error) => ({
-      status: 0,
-      text: String(error),
-      headers: new Headers(),
-    }));
+    const response = await viaController(fixtures, counters, script, '/').catch(
+      (error: unknown) => ({
+        status: 0,
+        text: String(error),
+        headers: new Headers(),
+      }),
+    );
     lastText = response.text.slice(0, 200);
     if (response.status === 200) {
       firstStatus = 200;
@@ -1092,7 +1105,6 @@ async function createCopy(
       failures.push(`${app} route ${name}: ${response.status} ${response.text.slice(0, 200)}`);
     }
   };
-  const snippet = (_status: number, text: string) => text.replaceAll('\n', ' ').slice(0, 140);
   await check(
     'GET / (app page)',
     '/',
@@ -1154,7 +1166,7 @@ async function createCopy(
         timings.kvSeedVisible = Date.now() - started;
         break;
       }
-      await sleep(5_000);
+      await sleep(5000);
     }
     await check(
       'charge (app fetch to the payments API) -> blocked, app errors',
@@ -1305,7 +1317,9 @@ async function reachability(
   const out: CopyResult['unreachable'] = {};
   const subdomain = await api<{ subdomain: string }>(env, counters, '/workers/subdomain');
   const direct = `https://${script}.${subdomain.subdomain}.workers.dev/`;
-  const response = await fetch(direct, { redirect: 'manual' }).catch((error) => error as Error);
+  const response = await fetch(direct, { redirect: 'manual' }).catch((error: unknown) =>
+    error instanceof Error ? error : new Error(String(error)),
+  );
   if (response instanceof Error) {
     out.workersDev = { ok: true, detail: `${direct}: ${response.message}` };
   } else {
@@ -1457,6 +1471,9 @@ async function deleteFixtures(env: SpikeEnv, fixtures: Partial<Fixtures> & { run
 
 // ---------- main ----------
 
+const log = (line: string) =>
+  console.error(`[s13 ${new Date().toISOString().slice(11, 19)}] ${line}`);
+
 async function main() {
   const { values } = parseArgs({
     options: {
@@ -1469,8 +1486,6 @@ async function main() {
   });
   const apps = values.apps.split(',').filter(Boolean);
   const warm = values.warm.split(',').filter(Boolean);
-  const log = (line: string) =>
-    console.error(`[s13 ${new Date().toISOString().slice(11, 19)}] ${line}`);
   const env = spikeEnv();
   const run = Date.now().toString(36);
   const failures: Array<string> = [];
@@ -1542,7 +1557,7 @@ async function main() {
       cleanup.push(...(await deleteFixtures(env, fixtures ?? { run })));
       let after = await listS13Resources(env);
       for (let attempt = 0; attempt < 5 && leftovers(after).length > 0; attempt++) {
-        await sleep(5_000);
+        await sleep(5000);
         after = await listS13Resources(env);
       }
       report.cleanup = { log: cleanup, after };
@@ -1557,8 +1572,8 @@ async function main() {
   report.summary = {
     copies: copies.length,
     readyMs: {
-      cold: copies.filter((copy) => !copy.warm).map((copy) => [copy.app, copy.readyMs]),
-      warm: copies.filter((copy) => copy.warm).map((copy) => [copy.app, copy.readyMs]),
+      cold: copies.flatMap((copy) => (copy.warm ? [] : [[copy.app, copy.readyMs]])),
+      warm: copies.flatMap((copy) => (copy.warm ? [[copy.app, copy.readyMs]] : [])),
       max: ready.length ? Math.max(...ready) : null,
     },
     deleteMs: copies.map((copy) => [copy.app, copy.deleteMs]),

@@ -16,18 +16,20 @@ import {
   composeSecurityPublicCanceledEmail,
   composeSecurityPublicHeldEmail,
   composeSecurityReopenEmail,
-  type SecurityBypassEmailData,
-  type SecurityDigestEmailData,
-  type SecurityEmailContent,
-  type SecurityEmailReason,
-  type SecurityFindingsEmailData,
-  type SecurityInstallationStreakEmailData,
-  type SecurityPlatformCapEmailData,
-  type SecurityProjectCapEmailData,
-  type SecurityProjectStreakEmailData,
-  type SecurityPublicEmailData,
-  type SecurityPublicHeldState,
-  type SecurityReopenEmailData,
+} from './security/notification-copy.ts';
+import type {
+  SecurityBypassEmailData,
+  SecurityDigestEmailData,
+  SecurityEmailContent,
+  SecurityEmailReason,
+  SecurityFindingsEmailData,
+  SecurityInstallationStreakEmailData,
+  SecurityPlatformCapEmailData,
+  SecurityProjectCapEmailData,
+  SecurityProjectStreakEmailData,
+  SecurityPublicEmailData,
+  SecurityPublicHeldState,
+  SecurityReopenEmailData,
 } from './security/notification-copy.ts';
 
 export type PlatformEmailEnv = Pick<

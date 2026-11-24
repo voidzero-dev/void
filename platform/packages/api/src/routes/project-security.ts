@@ -1,4 +1,5 @@
-import { type Context, Hono } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { ApiEnv } from '../env.ts';
 import { OperatorError } from '../operator/common.ts';
@@ -29,8 +30,8 @@ import {
   reopenSecurityFinding,
   resolveSecurityFinding,
   showSecurityFinding,
-  type SecurityFindingFilter,
 } from '../security/project-findings.ts';
+import type { SecurityFindingFilter } from '../security/project-findings.ts';
 import {
   parseSecurityBudgetRequest,
   parseSecurityModelRequest,
@@ -44,11 +45,12 @@ import {
   parseSecurityPageLimit,
   projectSecurityStatus,
   securityDetailLevel,
-  type SecurityViewer,
 } from '../security/project-view.ts';
+import type { SecurityViewer } from '../security/project-view.ts';
 import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
 import { openPublicRequestView, publicRequestView } from '../security/public-gate.ts';
-import { SECURITY_SEVERITIES, type SecuritySeverity } from '../security/schema.ts';
+import { SECURITY_SEVERITIES } from '../security/schema.ts';
+import type { SecuritySeverity } from '../security/schema.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
 
 function capabilityOn(context: Context<ApiEnv>): boolean {

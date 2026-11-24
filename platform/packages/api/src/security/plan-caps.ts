@@ -20,10 +20,10 @@ import {
   readPlanSecurityCaps,
   readStoredPlanSecurityCap,
   withPlanSecurityCap,
-  type PlanSecurityCaps,
-  type SecurityPlanCap,
 } from '@void/platform/security-policy';
-import { eq, sql, type SQL } from 'drizzle-orm';
+import type { PlanSecurityCaps, SecurityPlanCap } from '@void/platform/security-policy';
+import { eq, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { DbOrTx } from '../db.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';

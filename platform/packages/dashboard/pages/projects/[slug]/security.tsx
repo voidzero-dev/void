@@ -158,8 +158,10 @@ function FindingRow({
         <div className="security-detail">
           <p>
             {[finding.category, finding.cwe, finding.confidence]
-              .map(text)
-              .filter(Boolean)
+              .flatMap((value) => {
+                const shown = text(value);
+                return shown ? [shown] : [];
+              })
               .join(' · ')}
           </p>
           <Detail label="Trace" value={finding.trace} />

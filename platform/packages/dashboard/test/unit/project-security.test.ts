@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { actions, head, loader, type Props } from '../../pages/projects/[slug]/security.server.ts';
+import { actions, head, loader } from '../../pages/projects/[slug]/security.server.ts';
+import type { Props } from '../../pages/projects/[slug]/security.server.ts';
 import ProjectSecurityPage from '../../pages/projects/[slug]/security.tsx';
 import { loader as projectsLoader } from '../../pages/projects/index.server.ts';
 

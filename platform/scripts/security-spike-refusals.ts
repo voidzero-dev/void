@@ -23,12 +23,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import {
-  finishSpike,
-  REPO,
-  relaunchWithLocalLoader,
-  type SpikeCheck,
-} from './security-spike-local.ts';
+import { finishSpike, REPO, relaunchWithLocalLoader } from './security-spike-local.ts';
+import type { SpikeCheck } from './security-spike-local.ts';
 
 relaunchWithLocalLoader(import.meta.url);
 
