@@ -61,13 +61,13 @@ function honoMiddleware(
       }
 
       const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
-      const request = new Request(url.toString(), {
+      const init: RequestInit & { duplex?: 'half' } = {
         method: req.method,
         headers,
         body: hasBody ? (req as unknown as BodyInit) : undefined,
-        // @ts-ignore Node.js specific
         duplex: hasBody ? 'half' : undefined,
-      });
+      };
+      const request = new Request(url.toString(), init);
 
       const response = await app.fetch(request);
 

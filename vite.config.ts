@@ -428,7 +428,6 @@ const config = defineConfig({
       'react/rules-of-hooks': 'off',
       'react/set-state-in-effect': 'off',
       'typescript/await-thenable': 'off',
-      'typescript/ban-ts-comment': 'off',
       'typescript/consistent-type-imports': 'off',
       'typescript/no-empty-object-type': 'off',
       'typescript/no-import-type-side-effects': 'off',
