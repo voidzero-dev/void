@@ -559,6 +559,7 @@ const config = defineConfig({
       'quality/no-unsafe-dictionary-type': 'off',
       // Existing code spreads strings into code points, constructs plain records from runtime wrappers, and exercises nonstandard inputs in tests.
       'typescript/no-misused-spread': 'off',
+      // Generated routing and registry access rely on invariants enforced by code generation and preceding validation. Replace assertions with local checks as those paths change.
       'typescript/no-non-null-assertion': 'off',
       'typescript/no-unnecessary-type-assertion': 'off',
       'typescript/no-unsafe-argument': 'off',
