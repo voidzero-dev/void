@@ -17,6 +17,7 @@ import {
   changedSources,
   changedTextAssets,
   importGraphOrder,
+  onlyImportsAndExports,
   oversizedTextAssets,
   normalizeSourcePath,
   relativeImports,
@@ -156,6 +157,35 @@ describe('bundleSources', () => {
     const result = bundleSources([module('index.js', 'export default 1;')], 'index.js');
     expect(result.files).toMatchObject([{ path: '_worker/index.js', built: true }]);
     expect(result.noSourceMaps).toBe(1);
+  });
+
+  it('does not count a facade chunk with no map as missing source maps (#10)', () => {
+    const result = bundleSources(
+      [
+        module('handler.js', 'import "./handler-chunk.js";'),
+        module('handler-chunk.js', 'export const handler = 1;'),
+        module('handler-chunk.js.map', map(['src/handler.ts'], ['export const handler = 1;'])),
+      ],
+      'handler.js',
+    );
+    expect(result.noSourceMaps).toBe(0);
+    for (const text of [
+      '/* banner */\nimport"./a.js";import { b as c } from "./b.js";\nexport { c as default };',
+      "export * from './a.js'\nexport { default } from './b.js' // re-export\n",
+      '',
+    ]) {
+      expect(onlyImportsAndExports(text)).toBe(true);
+    }
+    for (const text of [
+      'import "./a.js"; console.log(1);',
+      'export default 1;',
+      'export const a = 1;',
+      'import("./a.js");',
+      'export { a };\nimport.meta.url;',
+      'importantWork();',
+    ]) {
+      expect(onlyImportsAndExports(text)).toBe(false);
+    }
   });
 
   it('keeps one copy per path; different text gets a suffix', () => {
@@ -955,6 +985,30 @@ describe('buildSecurityScanInput limits', () => {
       expect(built.sourceIndex.get('src/huge.ts')).toBe(sha256Hex('z'.repeat(16 * MIB + 1)));
       expect(built.entries.some((entry) => entry.path === 'input/src/huge.ts')).toBe(false);
     }
+  });
+
+  it('counts code and text assets that are not UTF-8 text, so coverage is partial (C6)', () => {
+    const built = buildSecurityScanInput(
+      plan({
+        head: {
+          modules: bundleOf({
+            'src/fffd.ts': '// caf�\nexport const a = 1;',
+            'src/nul.ts': 'export const b = "\u0000";',
+            'src/ok.ts': 'export const c = 3;',
+          }),
+          main: 'index.js',
+        },
+        assets: [{ path: '/legacy-latin1.js', text: 'var s = "�";' }],
+      }),
+    );
+    expect(built.entries.map((entry) => entry.path)).toEqual(['task.json', 'input/src/ok.ts']);
+    expect(built.notes).toContain('dropped-binary 3 files');
+    expect(built.notes).not.toContain('partial-third-party-only');
+    expect(built.coverage).toBe('partial');
+    expect(built.droppedFiles).toBe(3);
+    expect(built.backlog).toEqual([]);
+    // Seen as it is: the next diff scan does not take it as changed again.
+    expect(built.sourceIndex.has('src/nul.ts')).toBe(true);
   });
 
   it('keeps the tar within the runner entry limit, memory included (#3)', () => {

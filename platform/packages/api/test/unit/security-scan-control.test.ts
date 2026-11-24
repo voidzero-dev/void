@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   github: vi.fn(),
   copy: vi.fn(),
   deleteCopy: vi.fn(),
+  noteCopy: vi.fn(),
 }));
 vi.mock('cloudflare:workers', () => ({
   WorkerEntrypoint: class {
@@ -43,6 +44,7 @@ vi.mock('../../src/security/github-check.ts', () => ({
 vi.mock('../../src/security/runtime-copy.ts', () => ({
   prepareSecurityRuntimeCopy: mocks.copy,
   deleteSecurityRuntimeCopyForScan: mocks.deleteCopy,
+  noteSecurityRuntimeCopyOutcome: mocks.noteCopy,
 }));
 
 import { judgeScanFence, SecurityScanControl } from '../../src/security/control.ts';
@@ -228,6 +230,14 @@ describe('SecurityScanControl', () => {
     expect(mocks.copy).not.toHaveBeenCalled();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.copy.mockRejectedValue(new Error('cloudflare down'));
+    expect(await control().copy('ss_1', 2)).toEqual({ ok: false, reason: 'create_failed' });
+    // Not only a log line: the outcome goes to the scan row as a coverage note (C7).
+    expect(mocks.noteCopy).toHaveBeenLastCalledWith(expect.anything(), 'ss_1', 2, {
+      ok: false,
+      reason: 'create_failed',
+    });
+    // A note that cannot be stored does not change the answer.
+    mocks.noteCopy.mockRejectedValueOnce(new Error('database down'));
     expect(await control().copy('ss_1', 2)).toEqual({ ok: false, reason: 'create_failed' });
 
     // A requeued attempt is over too: its copy goes; a refused result keeps it.

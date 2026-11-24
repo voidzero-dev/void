@@ -16,7 +16,7 @@
  * database row. The live app, its data and its secrets are never touched: the D1 schema
  * read is the only call on a live resource and it reads `sqlite_master` only.
  */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import { getProjectResources } from '../db/resources.ts';
 import { getProjectSecrets } from '../db/secrets.ts';
@@ -567,6 +567,47 @@ async function dropCopy(
       error: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+/**
+ * Copy outcomes that are not a failure: the attempt is over (`fence`), or this deployment
+ * gets no copy by design (`planSecurityRuntimeCopy` skips).
+ */
+const COPY_NOT_WANTED: ReadonlySet<string> = new Set(['fence', 'no_manifest', 'static', 'engine']);
+
+/** The coverage note for a copy that was wanted and not made: the scan ran static-only. */
+export function securityRuntimeCopyNote(outcome: SecurityCopyOutcome): string | null {
+  if (outcome.ok || COPY_NOT_WANTED.has(outcome.reason)) {
+    return null;
+  }
+  return `runtime-copy-not-made (${outcome.reason})`;
+}
+
+/**
+ * Adds the copy's coverage note to the running attempt, once, so `status`, the project
+ * page and the panel say the scan ran static-only. Ingest keeps the row's notes.
+ */
+export async function noteSecurityRuntimeCopyOutcome(
+  db: Db,
+  scanId: string,
+  attempt: number,
+  outcome: SecurityCopyOutcome,
+): Promise<void> {
+  const note = securityRuntimeCopyNote(outcome);
+  if (note === null) {
+    return;
+  }
+  await db
+    .update(securityScans)
+    .set({ coverage_notes: sql`array_append(${securityScans.coverage_notes}, ${note})` })
+    .where(
+      and(
+        eq(securityScans.id, scanId),
+        eq(securityScans.attempt, attempt),
+        eq(securityScans.status, 'running'),
+        sql`NOT (${note} = ANY(${securityScans.coverage_notes}))`,
+      ),
+    );
 }
 
 /** After the result is stored: this attempt's copy goes (the reaper retries a failure). */

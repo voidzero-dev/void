@@ -10,7 +10,10 @@ import {
   vi,
 } from 'vite-plus/test';
 import { deployments, securityScans } from '../../src/schema.ts';
-import { prepareSecurityRuntimeCopy } from '../../src/security/runtime-copy.ts';
+import {
+  noteSecurityRuntimeCopyOutcome,
+  prepareSecurityRuntimeCopy,
+} from '../../src/security/runtime-copy.ts';
 import {
   cfError,
   cfSuccess,
@@ -184,5 +187,32 @@ describe('prepareSecurityRuntimeCopy', () => {
     expect(deleted[0]).toContain('/workers/dispatch/namespaces/');
     expect(deleted[1]!.startsWith('/d1/database/uuid-void-sec-copy-')).toBe(true);
     expect(await meter()).toBe(0);
+  });
+
+  it('notes a copy that was wanted and not made on the running attempt, once (C7)', async () => {
+    await setup('export default {}');
+    const notes = async () => {
+      const [row] = await env.db
+        .select({ notes: securityScans.coverage_notes })
+        .from(securityScans)
+        .where(eq(securityScans.id, 'scan_copy'));
+      return row!.notes;
+    };
+    await env.db
+      .update(securityScans)
+      .set({ coverage_notes: ['no-commit'] })
+      .where(eq(securityScans.id, 'scan_copy'));
+    const failed = { ok: false, reason: 'create_failed' } as const;
+    await noteSecurityRuntimeCopyOutcome(env.db, 'scan_copy', 1, failed);
+    await noteSecurityRuntimeCopyOutcome(env.db, 'scan_copy', 1, failed);
+    // Not a failure: no copy by design, or the attempt is over.
+    await noteSecurityRuntimeCopyOutcome(env.db, 'scan_copy', 1, { ok: false, reason: 'static' });
+    await noteSecurityRuntimeCopyOutcome(env.db, 'scan_copy', 1, { ok: false, reason: 'fence' });
+    // An older attempt writes nothing.
+    await noteSecurityRuntimeCopyOutcome(env.db, 'scan_copy', 2, {
+      ok: false,
+      reason: 'input_missing',
+    });
+    expect(await notes()).toEqual(['no-commit', 'runtime-copy-not-made (create_failed)']);
   });
 });

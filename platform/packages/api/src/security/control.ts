@@ -30,6 +30,7 @@ import { handleSecurityModelRequest, securityModelProxyDeps } from './model-prox
 import { recheckPublicRequestForScan } from './public-gate-flow.ts';
 import {
   deleteSecurityRuntimeCopyForScan,
+  noteSecurityRuntimeCopyOutcome,
   prepareSecurityRuntimeCopy,
   type SecurityCopyOutcome,
 } from './runtime-copy.ts';
@@ -123,21 +124,29 @@ export class SecurityScanControl extends WorkerEntrypoint<
     if (!this.trusted(scanId, attempt)) {
       return { ok: false, reason: 'fence' };
     }
+    const db = createDb(this.env.HYPERDRIVE.connectionString);
+    let outcome: SecurityCopyOutcome;
     try {
-      return await prepareSecurityRuntimeCopy(
-        this.env,
-        createDb(this.env.HYPERDRIVE.connectionString),
-        scanId,
-        attempt,
-      );
+      outcome = await prepareSecurityRuntimeCopy(this.env, db, scanId, attempt);
     } catch (error) {
       console.error('[security-scan] runtime copy could not be made', {
         scanId,
         attempt,
         error: error instanceof Error ? error.message : String(error),
       });
-      return { ok: false, reason: 'create_failed' };
+      outcome = { ok: false, reason: 'create_failed' };
     }
+    try {
+      // A copy that was wanted and not made shows as a coverage note, not only in a log.
+      await noteSecurityRuntimeCopyOutcome(db, scanId, attempt, outcome);
+    } catch (error) {
+      console.error('[security-scan] runtime copy note could not be stored', {
+        scanId,
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return outcome;
   }
 
   /** The model proxy: every model call of this scan attempt (spec §15.1). */

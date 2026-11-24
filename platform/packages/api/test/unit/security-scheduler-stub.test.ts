@@ -14,7 +14,7 @@ vi.mock('cloudflare:workers', () => ({
 const { getPlatformCapabilities } = await import('../../src/capabilities.ts');
 const { SecurityScanScheduler } = await import('../../src/security/scheduler.ts');
 
-function createScheduler(vars: Record<string, string | undefined> = {}) {
+function createScheduler(vars: Record<string, unknown> = {}) {
   const storage = {
     alarm: null as number | null,
     getAlarm: vi.fn(async () => storage.alarm),
@@ -82,5 +82,48 @@ describe('SecurityScanScheduler with the capability off', () => {
       await expect(scheduler.alarm()).resolves.toBeUndefined();
       expect(storage.setAlarm).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe('SecurityScanScheduler while the platform is disabled (C2, C10)', () => {
+  const capabilityOn = JSON.stringify({ ...getPlatformCapabilities({}), securityAudits: true });
+
+  it('starts no scan and changes nothing, then looks again later', async () => {
+    const { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } = await import('@void/platform');
+    const { SECURITY_SCHEDULER_PAUSED_RECHECK_MS } =
+      await import('../../src/security/scheduler.ts');
+    const disabledRouting = {
+      get: async (key: string) => (key === PLATFORM_DISABLED_KEY ? PLATFORM_DISABLED_VALUE : null),
+    };
+    for (const vars of [
+      { PLATFORM_TRAFFIC_STATE: 'staging' },
+      { PLATFORM_TRAFFIC_STATE: 'sandbox-drain' },
+      {
+        PLATFORM_TRAFFIC_STATE: undefined,
+        PLATFORM_INSTALLATION_ID: 'inst_1',
+        ROUTING: disabledRouting,
+      },
+    ]) {
+      // No HYPERDRIVE binding: reaching the database (or the scanner) throws.
+      const { scheduler, storage } = createScheduler({
+        PLATFORM_CAPABILITIES: capabilityOn,
+        ...vars,
+      });
+      const before = Date.now();
+      await expect(scheduler.alarm()).resolves.toBeUndefined();
+      expect(storage.setAlarm).toHaveBeenCalledTimes(1);
+      expect(storage.alarm).toBeGreaterThanOrEqual(before + SECURITY_SCHEDULER_PAUSED_RECHECK_MS);
+    }
+  });
+
+  it('runs the pass once the platform is enabled again', async () => {
+    const { scheduler } = createScheduler({
+      PLATFORM_CAPABILITIES: capabilityOn,
+      PLATFORM_TRAFFIC_STATE: undefined,
+      PLATFORM_INSTALLATION_ID: 'inst_1',
+      ROUTING: { get: async () => null },
+    });
+    // It goes on to the database, which this stub does not have.
+    await expect(scheduler.alarm()).rejects.toThrow('unexpected binding HYPERDRIVE');
   });
 });

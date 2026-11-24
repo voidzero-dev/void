@@ -186,6 +186,36 @@ describe('findings email recipients (spec §12)', () => {
     expect(byUser.get(authorB.id)).toEqual({ kind: 'author', deploymentIds: [second.id] });
   });
 
+  it('includes the authors of deployments a coalesced scan superseded (#46)', async () => {
+    const { owner, project } = await setup();
+    const authors = [await person('a'), await person('b'), await person('c')];
+    const deploymentIds: Array<string> = [];
+    for (const [index, author] of authors.entries()) {
+      await member(project.id, author.id, 'collaborator');
+      deploymentIds.push((await scannedDeploy(project.id, `scan_${index}`, author.id)).id);
+    }
+    // scan_0 -> scan_1 -> scan_2: only the last one ran.
+    for (const [from, to] of [
+      ['scan_0', 'scan_1'],
+      ['scan_1', 'scan_2'],
+    ] as const) {
+      await env.db
+        .update(securityScans)
+        .set({ status: 'superseded', superseded_by_scan_id: to })
+        .where(eq(securityScans.id, from));
+    }
+
+    const recipients = await resolveProjectSecurityRecipients(env.db, project.id, {
+      scanIds: ['scan_2'],
+    });
+    const byUser = new Map(recipients.map((recipient) => [recipient.userId, recipient.reason]));
+    expect([...byUser.keys()].sort()).toEqual([owner.id, ...authors.map((a) => a.id)].sort());
+    expect(byUser.get(authors[0]!.id)).toEqual({
+      kind: 'author',
+      deploymentIds: [deploymentIds[0]],
+    });
+  });
+
   it('skips an author who lost deploy before the send (#47)', async () => {
     const { project } = await setup();
     const author = await person('author');

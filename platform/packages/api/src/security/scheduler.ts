@@ -1,3 +1,4 @@
+import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from '@void/platform';
 import { isSecurityModelId } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { DurableObject } from 'cloudflare:workers';
@@ -49,6 +50,8 @@ import {
 const POKE_DELAY_MS = 50;
 /** While queued work remains the alarm runs again this far ahead. */
 export const SECURITY_SCHEDULER_RESCAN_MS = 30_000;
+/** While the platform is disabled or staged, the alarm looks again this often. */
+export const SECURITY_SCHEDULER_PAUSED_RECHECK_MS = 10 * 60_000;
 /** A scan whose start failed waits this long before its one retry. */
 export const SECURITY_SCAN_RETRY_BACKOFF_MS = 60_000;
 /** Model calls per minute one Engine B scan makes when it does not wait. */
@@ -614,8 +617,23 @@ export class SecurityScanScheduler extends DurableObject<ApiEnv['Bindings']> {
     if (!getPlatformCapabilities(this.env).securityAudits) {
       return;
     }
-    const db = createDb(this.env.HYPERDRIVE.connectionString);
     const passStart = Date.now();
+    // The same stop as the cron (`index.ts`): a disabled or staged platform starts no
+    // scan, spends nothing and changes no Access. Queued work waits until it is enabled.
+    if (
+      this.env.PLATFORM_TRAFFIC_STATE === 'staging' ||
+      this.env.PLATFORM_TRAFFIC_STATE === 'sandbox-drain' ||
+      (this.env.PLATFORM_INSTALLATION_ID &&
+        (await this.env.ROUTING.get(PLATFORM_DISABLED_KEY)) === PLATFORM_DISABLED_VALUE)
+    ) {
+      await armSecurityScheduler(
+        this.ctx.storage,
+        passStart + SECURITY_SCHEDULER_PAUSED_RECHECK_MS,
+        passStart,
+      );
+      return;
+    }
+    const db = createDb(this.env.HYPERDRIVE.connectionString);
     try {
       await runSecurityScanQueue({
         now: () => passStart,

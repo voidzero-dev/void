@@ -102,8 +102,41 @@ export async function resolveProjectAdminRecipients(
   return finish(db, await ownerAndAdmins(db, projectId));
 }
 
+/** Most links followed back along `superseded_by_scan_id` (a guard; real chains are short). */
+const MAX_SUPERSEDED_HOPS = 100;
+
 /**
- * Findings email: owner + admins + the deploy authors of the scanned deployments, each
+ * The scans and every scan they replaced while it waited (coalescing, §6.2): a coalesced
+ * scan covers the deployments of the rows it superseded too.
+ */
+async function withSupersededScans(
+  db: Db,
+  projectId: string,
+  scanIds: ReadonlyArray<string>,
+): Promise<Array<string>> {
+  const seen = new Set(scanIds);
+  let frontier = [...seen];
+  for (let hop = 0; hop < MAX_SUPERSEDED_HOPS && frontier.length > 0; hop++) {
+    const rows = await db
+      .select({ id: securityScans.id })
+      .from(securityScans)
+      .where(
+        and(
+          eq(securityScans.project_id, projectId),
+          inArray(securityScans.superseded_by_scan_id, frontier),
+        ),
+      );
+    frontier = rows.map((row) => row.id).filter((id) => !seen.has(id));
+    for (const id of frontier) {
+      seen.add(id);
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * Findings email: owner + admins + the deploy authors of the scanned deployments (a
+ * coalesced scan's superseded ones included, #46), each
  * only while they still hold `deploy`. A deployment with no user adds nobody.
  */
 export async function resolveProjectSecurityRecipients(
@@ -127,7 +160,7 @@ export async function resolveProjectSecurityRecipients(
       .where(
         and(
           eq(securityScans.project_id, projectId),
-          inArray(securityScans.id, [...options.scanIds]),
+          inArray(securityScans.id, await withSupersededScans(db, projectId, options.scanIds)),
         ),
       )
       .orderBy(deployments.created_at, deployments.id);

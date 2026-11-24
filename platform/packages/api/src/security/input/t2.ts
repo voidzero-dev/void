@@ -316,6 +316,91 @@ export function relativeImports(text: string): Array<string> {
   return found;
 }
 
+/** Index after the whitespace and `//` or block comments at `from`. */
+function skipBlank(text: string, from: number): number {
+  let index = from;
+  while (index < text.length) {
+    const char = text[index]!;
+    if (char === ' ' || char === '\n' || char === '\t' || char === '\r') {
+      index++;
+    } else if (text.startsWith('//', index)) {
+      const end = text.indexOf('\n', index);
+      index = end === -1 ? text.length : end + 1;
+    } else if (text.startsWith('/*', index)) {
+      const end = text.indexOf('*/', index + 2);
+      index = end === -1 ? text.length : end + 2;
+    } else {
+      break;
+    }
+  }
+  return index;
+}
+
+function isBindingChar(char: string): boolean {
+  return (
+    (char >= 'a' && char <= 'z') ||
+    (char >= 'A' && char <= 'Z') ||
+    (char >= '0' && char <= '9') ||
+    char === '_' ||
+    char === '$' ||
+    char === '{' ||
+    char === '}' ||
+    char === ',' ||
+    char === '*'
+  );
+}
+
+/**
+ * A facade chunk: only `import "./x.js"`, `import { a } from "./x.js"`,
+ * `export … from "./x.js"` and `export { a }` statements, with comments. It holds no
+ * code of its own, so a missing source map loses nothing. Plain text scan, no regex.
+ */
+export function onlyImportsAndExports(text: string): boolean {
+  let index = skipBlank(text, 0);
+  while (index < text.length) {
+    const keyword = text.startsWith('import', index)
+      ? 'import'
+      : text.startsWith('export', index)
+        ? 'export'
+        : null;
+    if (keyword === null) {
+      return false;
+    }
+    index += keyword.length;
+    let braces = false;
+    let ended = false;
+    while (!ended) {
+      index = skipBlank(text, index);
+      const char = text[index];
+      if (char === undefined || char === ';') {
+        // `export { a }` re-exports what an import above bound; anything else needs a specifier.
+        if (keyword !== 'export' || !braces) {
+          return false;
+        }
+        index++;
+        ended = true;
+      } else if (char === '"' || char === "'") {
+        const end = text.indexOf(char, index + 1);
+        if (end === -1) {
+          return false;
+        }
+        index = skipBlank(text, end + 1);
+        if (text[index] === ';') {
+          index++;
+        }
+        ended = true;
+      } else if (isBindingChar(char)) {
+        braces ||= char === '{';
+        index++;
+      } else {
+        return false;
+      }
+    }
+    index = skipBlank(text, index);
+  }
+  return true;
+}
+
 /**
  * Module names in import-graph order: breadth-first from `main` along relative
  * imports, then the modules nothing reached, by name.
@@ -420,7 +505,8 @@ export function bundleSources(
       }
       continue;
     }
-    if (isCodeModule(name)) {
+    // A facade chunk (`import "./chunk.js";`) has no code of its own to map back.
+    if (isCodeModule(name) && !onlyImportsAndExports(module.text)) {
       noSourceMaps++;
     }
     add({

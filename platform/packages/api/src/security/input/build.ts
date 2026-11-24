@@ -289,6 +289,8 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   let badPaths = 0;
   /** Files over the runner's per-file limit: they can never be sent (noted, not backlogged). */
   let oversized = 0;
+  /** Code or text assets that are not UTF-8 text (a NUL byte or U+FFFD): never sent, noted. */
+  let binary = 0;
   // Code left out for coverage reasons (registry packages, the input cap). Secret-like
   // files are dropped on purpose and do not make a scan partial.
   let lostBytes = 0;
@@ -297,6 +299,12 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   const unverified: Array<Candidate> = [];
   const dropBadPath = (bytes: number) => {
     badPaths++;
+    droppedFiles++;
+    droppedBytes += bytes;
+    lostBytes += bytes;
+  };
+  const dropBinary = (bytes: number) => {
+    binary++;
     droppedFiles++;
     droppedBytes += bytes;
     lostBytes += bytes;
@@ -322,7 +330,13 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       droppedBytes += bytes;
       continue;
     }
-    if (filter === 'skipped' || looksBinary(source.text)) {
+    if (filter === 'skipped') {
+      continue;
+    }
+    if (looksBinary(source.text)) {
+      // Not text the scanner can read: counted, so the scan is not labeled complete.
+      sourceIndex.set(source.path, source.sha256);
+      dropBinary(bytes);
       continue;
     }
     const party = classifyThirdParty(source.path, plan.lockfile);
@@ -399,11 +413,12 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     return inputPath;
   };
   for (const asset of plan.assets) {
-    if (looksBinary(asset.text)) {
-      continue;
-    }
     const path = assetPath(asset.path);
     if (path === null) {
+      continue;
+    }
+    if (looksBinary(asset.text)) {
+      dropBinary(0);
       continue;
     }
     assetFiles.push({
@@ -747,6 +762,9 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   if (oversized > 0) {
     notes.push(`dropped-oversize ${oversized} files`);
   }
+  if (binary > 0) {
+    notes.push(`dropped-binary ${binary} files`);
+  }
   if (capped > 0) {
     notes.push(`input-capped ${capped} files`);
   }
@@ -801,8 +819,16 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     capped > 0 ||
     badPaths > 0 ||
     oversized > 0 ||
+    binary > 0 ||
     unscanned.length > 0;
-  if (droppedPartial && backlog.length === 0 && capped === 0 && badPaths === 0 && oversized === 0) {
+  if (
+    droppedPartial &&
+    backlog.length === 0 &&
+    capped === 0 &&
+    badPaths === 0 &&
+    oversized === 0 &&
+    binary === 0
+  ) {
     // Only registry code was dropped: this does not hold a public request (§7.4, #92).
     notes.push('partial-third-party-only');
   }
