@@ -453,7 +453,6 @@ const config = defineConfig({
       'typescript/await-thenable': 'off',
       'typescript/consistent-type-imports': 'off',
       'typescript/no-empty-object-type': 'off',
-      'typescript/no-import-type-side-effects': 'off',
       'typescript/no-misused-promises': 'off',
       'typescript/no-misused-spread': 'off',
       'typescript/no-non-null-assertion': 'off',
