@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import MagicString from 'magic-string';
-import { dirname } from 'pathslash';
+import { toSlash } from 'pathslash';
 import { defaultServerConditions, normalizePath } from 'vite';
 import type { Plugin } from 'vite';
 import type { ApplicationAnalysis } from './application-analysis.ts';
@@ -45,7 +45,7 @@ const handlerFile = fileURLToPath(import.meta.resolve('#self/handler'));
 const envModuleFile = fileURLToPath(import.meta.resolve('#self/_env'));
 const envPublicFile = fileURLToPath(import.meta.resolve('#self/env'));
 // Packages Void depends on are installed for code in this directory.
-const voidDir = dirname(fileURLToPath(import.meta.url));
+const voidDir = toSlash(import.meta.dirname);
 
 const ASTRO_SERVER_ENTRY = '@astrojs/cloudflare/entrypoints/server';
 const ASTRO_SCOPED_SERVER_ENTRY = '\0void:astro-server-entry';

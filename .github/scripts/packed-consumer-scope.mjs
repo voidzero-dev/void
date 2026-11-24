@@ -1,6 +1,5 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path/posix';
-import { fileURLToPath } from 'node:url';
 
 const fullSuitePaths = [
   /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.node-version|\.npmrc|\.pnpmfile\.cjs|vite\.config\.[jt]s)$/,
@@ -97,7 +96,7 @@ export async function resolvePackedSuite({ eventName, event, requested = 'auto',
   return 'full';
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   const suite = await resolvePackedSuite({
     eventName: process.env.GITHUB_EVENT_NAME,
     event: JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')),

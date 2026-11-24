@@ -881,7 +881,7 @@ describe('routingPlugin', () => {
         expect(await resolve(specifier, appFile)).toBe(fileOf(specifier));
       }
       // A deeper subpath passes the aliases and resolves where better-auth is installed.
-      expect(await resolve('better-auth/client/plugins', fileURLToPath(import.meta.url))).toBe(
+      expect(await resolve('better-auth/client/plugins', import.meta.filename)).toBe(
         fileOf('better-auth/client/plugins'),
       );
     } finally {

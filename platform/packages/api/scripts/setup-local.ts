@@ -1,13 +1,11 @@
 import { execSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import * as p from '@voidzero-dev/vite-plus-prompts';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const platformDir = resolve(__dirname, '..');
-const seedSql = resolve(__dirname, 'seed.sql');
-const drizzleDir = resolve(__dirname, '../drizzle');
+const platformDir = resolve(import.meta.dirname, '..');
+const seedSql = resolve(import.meta.dirname, 'seed.sql');
+const drizzleDir = resolve(import.meta.dirname, '../drizzle');
 const localDbUrl = 'postgresql://void_dev:void_dev@localhost:5432/void_api_dev';
 
 // ---------------------------------------------------------------------------

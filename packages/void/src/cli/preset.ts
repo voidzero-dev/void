@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join, relative, resolve } from 'pathslash';
+import { join, relative, resolve } from 'pathslash';
 import { readProjectPaths } from '../project-paths.ts';
 import type { ProjectPaths } from '../project-paths.ts';
 import {
@@ -196,7 +195,7 @@ function shellQuoteExecutable(value: string): string {
 
 /** Resolve the bundled cf transport without consulting project dependencies. */
 export function resolveCloudflareOperationArgv(): Array<string> {
-  const directory = dirname(fileURLToPath(import.meta.url));
+  const directory = import.meta.dirname;
   const entry = [
     join(directory, 'cloudflare-operation-process.ts'),
     join(directory, 'cloudflare-operation-process.mjs'),

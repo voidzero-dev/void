@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { basename, dirname, join } from 'pathslash';
 import { buildSandboxController } from '../../../platform/packages/api/scripts/build-sandbox-controller.mjs';
 
-const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const packageRoot = join(import.meta.dirname, '..');
 const repositoryRoot = join(packageRoot, '..', '..');
 const runtimeRoot = join(packageRoot, 'dist', 'runtime');
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'void-platform-runtime-'));

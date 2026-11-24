@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
 import { writeSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { findEnvFile } from '../codegen/env-types.ts';
 import type { SelfHostSchemaFacts, SelfHostSchemaFailureReason } from './env-validation.ts';
 
@@ -71,7 +70,7 @@ async function spawnEnvSchemaProbe(
   spawn: EnvSchemaProbeSpawn,
 ): Promise<EnvSchemaProbeRawResult> {
   const childInput: ChildInput = { op, root: input.root };
-  const self = fileURLToPath(import.meta.url);
+  const self = import.meta.filename;
   const result = spawn(process.execPath, [self, PROBE_MARKER, JSON.stringify(childInput)], {
     cwd: input.root,
     env,

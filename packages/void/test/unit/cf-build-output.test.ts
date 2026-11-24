@@ -1175,9 +1175,7 @@ it('keeps Durable Objects, Queue triggers, and Containers in cf prebuilt output'
 }, 15_000);
 
 it('bundles a generated static Worker and staged assets into prebuilt cf output', async () => {
-  const root = mkdtempSync(
-    packageFixturePath(dirname(fileURLToPath(import.meta.url)), '.tmp-cf-static-'),
-  );
+  const root = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-cf-static-'));
   roots.push(root);
   writeFileSync(join(root, 'package.json'), '{"name":"static-app","type":"module"}');
   mkdirSync(join(root, 'node_modules'));

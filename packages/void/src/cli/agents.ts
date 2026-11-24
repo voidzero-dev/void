@@ -1,9 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { join } from 'pathslash';
+import { join, toSlash } from 'pathslash';
 
 export function getPackageDir(): string {
-  let dir = join(fileURLToPath(import.meta.url), '..');
+  let dir = toSlash(import.meta.dirname);
   for (let i = 0; i < 5; i++) {
     if (existsSync(join(dir, 'package.json'))) {
       const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));

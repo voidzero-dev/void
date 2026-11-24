@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { basename, dirname, resolve } from 'node:path/posix';
-import { fileURLToPath } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 
 function quote(value) {
@@ -173,7 +172,7 @@ export async function initializePackedProject(
   });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   initializePackedProject(...process.argv.slice(2)).catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
