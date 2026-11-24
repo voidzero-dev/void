@@ -608,6 +608,14 @@ const config = defineConfig({
         rules: { 'typescript/no-non-null-assertion': 'off' },
       },
       {
+        // These boundaries validate deployment, cache, email, and plan inputs.
+        files: [
+          'packages/{deploy-core,isr}/src/**/*',
+          'packages/platform/src/{email-protocol,plans}.ts',
+        ],
+        rules: { 'typescript/no-unsafe-type-assertion': 'error' },
+      },
+      {
         files: ['playground/vinext-app/.next/**/*.ts'],
         rules: {
           '@typescript-eslint/array-type': 'off',
