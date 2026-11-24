@@ -63,7 +63,7 @@ async function productionBaseline(options: {
     if (!Array.isArray(statuses)) {
       throw new Error('Invalid production deployment status.');
     }
-    if (statuses[0]?.state === 'success') {
+    if ((statuses[0] as { state?: unknown } | undefined)?.state === 'success') {
       return deployment.sha.toLowerCase();
     }
   }

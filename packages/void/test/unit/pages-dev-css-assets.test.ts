@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   appendInlineQuery,
   DEV_CSS_ASSET_ENDPOINT,

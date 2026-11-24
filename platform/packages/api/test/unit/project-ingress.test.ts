@@ -89,9 +89,19 @@ describe('project workers.dev ingress', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it('forwards the exact request and streaming response through its service binding', async () => {
-    const ingress = (
-      await import(`data:text/javascript,${encodeURIComponent(PROJECT_INGRESS_SOURCE)}`)
-    ).default;
+    const { default: ingress } = (await import(
+      `data:text/javascript,${encodeURIComponent(PROJECT_INGRESS_SOURCE)}`
+    )) as {
+      default: {
+        fetch(
+          request: Request,
+          env: {
+            VOID_APP_HOSTNAME: string;
+            PLATFORM_DISPATCH: { fetch(request: Request): Promise<Response> };
+          },
+        ): Promise<Response>;
+      };
+    };
     const hostname = platformProjectWorkersDevHostname(project, workersDev);
     const request = new Request(`https://${hostname}/api/stream?one=two`);
     const response = new Response('data: test\n\n', {

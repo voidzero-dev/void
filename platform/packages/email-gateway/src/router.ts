@@ -170,7 +170,7 @@ function forwardHeadersWithinBounds(headers: unknown): headers is Record<string,
     console.error('[email-router] action list dropped: forward headers is not a plain object');
     return false;
   }
-  const proto = Object.getPrototypeOf(headers);
+  const proto = Object.getPrototypeOf(headers) as object | null;
   if (proto !== Object.prototype && proto !== null) {
     console.error('[email-router] action list dropped: forward headers is not a plain object');
     return false;

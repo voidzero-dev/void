@@ -267,6 +267,7 @@ function evaluateClient(
   const code = compile('/auth.mjs')
     .replaceAll(/^(import .*|export \{.*)\n/gm, '')
     .replaceAll('export ', '');
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(
     'app',
     'env',

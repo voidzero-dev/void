@@ -11,6 +11,7 @@ import {
   isVoidSocialAuthProvider,
 } from '../../auth/providers.ts';
 import type { VoidAuthProvider, VoidSocialAuthProvider } from '../../auth/providers.ts';
+import { Buffer } from '../../cli/node-buffer.ts';
 import { isUnchangedStaticAsset } from '../routing/static-asset-marker.ts';
 import { authContext } from './index.ts';
 import type { AuthState, VoidAuthConfig } from './index.ts';
@@ -722,6 +723,7 @@ export function createVoidAuthRuntime(
       baseURL: origin,
       basePath: '/api/auth',
       secret: resolveSecret(env, runtime.dev === true),
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- The package typecheck resolves Better Auth's database options.
       database,
       ...(emailAndPassword ? { emailAndPassword } : {}),
       ...(socialProviders ? { socialProviders } : {}),

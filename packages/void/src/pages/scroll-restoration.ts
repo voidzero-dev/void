@@ -6,13 +6,14 @@ type ScrollRestoration = {
   save(): void;
   writeHistory(url: string, replace: boolean): void;
   commit(): void;
-  pop(state: HistoryState): ScrollPosition | null;
+  pop(state: unknown): ScrollPosition | null;
 };
 
 const STORAGE_PREFIX = 'void:scroll:';
 
-function readKey(state: HistoryState): string | null {
-  return typeof state?.__voidScrollKey === 'string' ? state.__voidScrollKey : null;
+function readKey(state: unknown): string | null {
+  const key = (state as HistoryState)?.__voidScrollKey;
+  return typeof key === 'string' ? key : null;
 }
 
 function readPosition(value: unknown): ScrollPosition | null {
@@ -83,7 +84,10 @@ export function createScrollRestoration(): ScrollRestoration {
       renderedKey = readKey(history.state);
       if (!renderedKey) {
         renderedKey = newKey();
-        history.replaceState({ ...history.state, __voidScrollKey: renderedKey }, '');
+        history.replaceState(
+          { ...(history.state as HistoryState), __voidScrollKey: renderedKey },
+          '',
+        );
       }
       history.scrollRestoration = 'manual';
       // Do not mutate history here: WebKit can already expose the incoming entry.
@@ -96,7 +100,7 @@ export function createScrollRestoration(): ScrollRestoration {
     writeHistory(url: string, replace: boolean): void {
       // A replaced entry keeps its key: its position is saved again when it is left.
       const key = (replace ? readKey(history.state) : null) ?? newKey();
-      const state = { ...(replace ? history.state : {}), __voidScrollKey: key };
+      const state = { ...(replace ? (history.state as HistoryState) : {}), __voidScrollKey: key };
       if (replace) {
         history.replaceState(state, '', url);
       } else {
@@ -112,8 +116,9 @@ export function createScrollRestoration(): ScrollRestoration {
       ready = true;
     },
 
-    pop(state: HistoryState): ScrollPosition | null {
+    pop(rawState: unknown): ScrollPosition | null {
       save();
+      const state = rawState as HistoryState;
       let key = readKey(state);
       // Ordinary fragment links copy the previous entry's state. Give the new
       // fragment entry its own identity before the adapter commits it.

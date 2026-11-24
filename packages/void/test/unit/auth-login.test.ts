@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { runPlatformLogin } from '../../src/cli/auth.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 vi.mock('../../src/cli/keyring.ts', () => ({
   readKeyringPassword: () => null,

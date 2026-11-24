@@ -1,11 +1,14 @@
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import type { Plugin } from 'vite-plus';
 import { defineConfig } from 'vite-plus';
 
 // Reuse the existing docs dependencies without making this a workspace or site route.
 const docsRequire = createRequire(new URL('../../docs/package.json', import.meta.url));
 const vitepressRequire = createRequire(docsRequire.resolve('vitepress'));
-const { default: vue } = await import(vitepressRequire.resolve('@vitejs/plugin-vue'));
+const { default: vue } = (await import(vitepressRequire.resolve('@vitejs/plugin-vue'))) as {
+  default: () => Plugin;
+};
 
 export default defineConfig({
   root: import.meta.dirname,

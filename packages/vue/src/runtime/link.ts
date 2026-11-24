@@ -68,13 +68,13 @@ void linkPropsMatchRuntime;
 
 function callHandler(handler: unknown, event: Event): void {
   if (Array.isArray(handler)) {
-    for (const fn of handler) {
+    for (const fn of handler as Array<unknown>) {
       if (typeof fn === 'function') {
-        fn(event);
+        (fn as (event: Event) => void)(event);
       }
     }
   } else if (typeof handler === 'function') {
-    handler(event);
+    (handler as (event: Event) => void)(event);
   }
 }
 

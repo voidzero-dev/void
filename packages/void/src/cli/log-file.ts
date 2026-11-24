@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'pathslash';
+import { Buffer } from './node-buffer.ts';
 
 type Level = 'debug' | 'info' | 'warn' | 'error';
 

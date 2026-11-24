@@ -20,6 +20,7 @@ import type { ErrorRenderer } from './errors.ts';
 import type { RoutingRule, RoutingRuntime } from './index.ts';
 import { markStaticAsset } from './static-asset-marker.ts';
 import { createAssetCachePolicy } from './worker.ts';
+import type { RuntimeEnvironment } from './worker.ts';
 
 type PageGetArguments = Parameters<typeof handlePageGet>;
 type PageModule = {
@@ -271,7 +272,7 @@ export function createPagesFallback(options: {
     ) {
       return c.text('Not Found', 404);
     }
-    const assets = c.env?.ASSETS;
+    const assets = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
     // A loader that called `c.notFound()` already claimed this URL. Serving a
     // static file that happens to share the path would turn its bytes into the
     // loader's return value, so answer from the not-found path instead.
@@ -316,7 +317,10 @@ export function createPagesFallback(options: {
       return Response.redirect(url.href, 301);
     }
     if (assetResponse.status !== 404) {
-      return markStaticAsset(c, await cachePolicy(c.req.raw, c.env, assetResponse));
+      return markStaticAsset(
+        c,
+        await cachePolicy(c.req.raw, c.env as RuntimeEnvironment, assetResponse),
+      );
     }
     const fallback = options.fallbackRules
       ? await options.routing.applyFallback(c, options.fallbackRules)
@@ -361,14 +365,14 @@ export function createSsrFallback(options: {
 }): (c: Context) => Promise<Response> {
   const cachePolicy = createAssetCachePolicy(options.assetsDir);
   const fetchAssets = async (c: Context): Promise<Response> => {
-    const binding = c.env?.ASSETS;
+    const binding = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
     if (!binding || typeof binding.fetch !== 'function') {
       return options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }));
     }
     const response: Response = await binding.fetch(c.req.raw);
     return response.status === 404
       ? options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }))
-      : markStaticAsset(c, await cachePolicy(c.req.raw, c.env, response));
+      : markStaticAsset(c, await cachePolicy(c.req.raw, c.env as RuntimeEnvironment, response));
   };
   return async (c) => {
     if (options.nodeTarget && options.fallbackRules) {
@@ -413,11 +417,14 @@ export function createAssetNotFound(options: {
   const cachePolicy = createAssetCachePolicy(options.assetsDir);
   return async (c) => {
     if (!options.nodeTarget) {
-      const assets = c.env?.ASSETS;
+      const assets = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
       if (assets && typeof assets.fetch === 'function') {
         const response: Response = await assets.fetch(c.req.raw);
         if (response.status !== 404) {
-          return markStaticAsset(c, await cachePolicy(c.req.raw, c.env, response));
+          return markStaticAsset(
+            c,
+            await cachePolicy(c.req.raw, c.env as RuntimeEnvironment, response),
+          );
         }
       }
     }

@@ -120,6 +120,7 @@ function resolveSchemaOptions(
     baseURL: origin,
     basePath: '/api/auth',
     secret: 'void-build-better-auth-secret',
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- Better Auth's database options are resolved by the package typecheck.
     database: {} as NonNullable<BetterAuthOptions['database']>,
     trustedOrigins: [origin],
     ...(emailAndPassword ? { emailAndPassword } : {}),
@@ -557,11 +558,11 @@ export function generateVoidAuthDrizzleSchema(
       `  ${JSON.stringify(defaultModelName)}: ${defaultToVariable.get(defaultModelName)},`,
     );
   }
-  lines.push('} as const;');
   lines.push(
+    '} as const;',
     `export const migrationSchema = ${JSON.stringify(migrationSchema, null, 2)} as const;`,
+    '',
   );
-  lines.push('');
 
   return lines.join('\n') + '\n';
 }

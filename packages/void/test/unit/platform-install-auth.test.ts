@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { parsePlatformAuthenticationSetup } from '@void/platform';
 import { password, text } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import type { PlatformCloudflareClient } from '../../src/cli/platform-cloudflare.ts';
 import {
   authenticationSetupRequestHash,

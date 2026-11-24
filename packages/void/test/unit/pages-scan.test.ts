@@ -402,6 +402,7 @@ export { handler as action, type actions };`,
 
     const scan = await scanPages(TMP);
     // The server registers pages in this order, and the client matcher keeps it.
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
     const { matchRoute } = new Function(
       `${generateComponentManifest(scan, '/project/pages')}\nreturn { matchRoute };`,
     )() as { matchRoute: (path: string) => string | null };

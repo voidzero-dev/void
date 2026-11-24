@@ -4881,6 +4881,7 @@ describe('POST /projects/:id/migrations/rename', () => {
             const rejectsCutover = transactionCount === 2;
             try {
               return await realTransaction(async (tx) => {
+                // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the transaction callback provided to this partial database mock.
                 const result = await fn(tx);
                 if (rejectsCutover) {
                   // The cutover callback completed and wrote external state,
@@ -4978,6 +4979,7 @@ describe('POST /projects/:id/migrations/rename', () => {
               throw new Error('injected compensation transaction failure');
             }
             return realTransaction(async (tx) => {
+              // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the transaction callback provided to this partial database mock.
               const result = await fn(tx);
               if (transactionCount === 2) {
                 throw new Error('injected rollback commit rejection');

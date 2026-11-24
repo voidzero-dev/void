@@ -1,10 +1,10 @@
-import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { outro, log, cancel, isCancel, password, confirm } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
 import { PlatformClient } from './client.ts';
 import { validateSecretValues } from './env-validation.ts';
+import { Buffer } from './node-buffer.ts';
 import { printSuccess, formatCount, note } from './output.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';
 import { getRequestedProjectSlug, resolveProjectBySlug } from './resolve-project.ts';
@@ -199,7 +199,6 @@ async function readSecretValue(): Promise<string> {
     if (value.length === 0) {
       throw new Error('Secret value is required.');
     }
-    // oxlint-disable-next-line typescript/no-unsafe-return -- The lint type service loses the Node Buffer method types here.
     return value;
   }
 

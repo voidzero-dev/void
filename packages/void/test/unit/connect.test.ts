@@ -106,7 +106,9 @@ describe('connect workflow', () => {
       .spyOn(process, 'stdin', 'get')
       .mockReturnValue({ isTTY: true } as typeof process.stdin);
     mocks.text.mockImplementationOnce(async ({ validate }) => {
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(validate('platform.example.com')).toBeUndefined();
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(validate('http://platform.example.com')).toContain('HTTPS');
       return 'platform.example.com';
     });
@@ -244,6 +246,7 @@ describe('connect workflow', () => {
     mocks.select.mockResolvedValueOnce('cloudflare');
     await runConnectCommand(root, parseConnectArgs([]), true);
     expect(
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       mocks.select.mock.calls[0][0].options.map((option: { value: string }) => option.value),
     ).toEqual(['cloudflare', 'void']);
     expect(mocks.cloudflare).toHaveBeenCalledOnce();

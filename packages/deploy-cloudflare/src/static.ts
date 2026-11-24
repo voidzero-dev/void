@@ -143,7 +143,7 @@ export function writeCloudflareStaticDeployConfig(options: CloudflareStaticDeplo
 
 function assertValidStaticConfig(text: string, configPath: string): void {
   const errors: Array<ParseError> = [];
-  const parsed = parse(text, errors, { allowTrailingComma: true });
+  const parsed: unknown = parse(text, errors, { allowTrailingComma: true });
   const root = parseTree(text, undefined, { allowTrailingComma: true });
   if (
     errors.length > 0 ||
@@ -160,7 +160,7 @@ function assertValidStaticConfig(text: string, configPath: string): void {
     if (node.type === 'object' && node.children) {
       const seen = new Set<string>();
       for (const property of node.children) {
-        const key = property.children?.[0]?.value;
+        const key: unknown = property.children?.[0]?.value;
         if (typeof key !== 'string') {
           continue;
         }

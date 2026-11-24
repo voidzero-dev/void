@@ -59,6 +59,7 @@ function compilePage(source: string): Vue.Component & Record<string, unknown> {
       return `const {${names.replaceAll(/\s+as\s+/g, ':')}} = Vue;`;
     })
     .replace('export default', 'return');
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function('Vue', code)(Vue) as Vue.Component & Record<string, unknown>;
 }
 
@@ -75,6 +76,7 @@ function extractPatchProps(moduleSource: string): PatchProps {
     throw new Error('Expected patchProps runtime boundary in generated module.');
   }
   const block = moduleSource.slice(start, end);
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(`${block}; return patchProps;`)() as PatchProps;
 }
 

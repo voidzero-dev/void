@@ -38,6 +38,7 @@ import {
 } from '../../src/cli/cf-version-runner.ts';
 import { readWranglerAuthToken } from '../../src/cli/deploy-cloudflare-auth.ts';
 import { formatCloudflareActivationError } from '../../src/cli/deploy-cloudflare-helpers.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   cleanups,
   expectSameJson,

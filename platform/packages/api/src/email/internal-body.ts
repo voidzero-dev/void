@@ -16,7 +16,7 @@ export async function readBoundedInternalJson(
   if (Number.isFinite(length) && length > maxBytes) {
     throw new EmailInternalBodyError(413, 'body too large');
   }
-  const reader = request.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = request.body?.getReader();
   if (!reader) {
     throw new EmailInternalBodyError(400, 'invalid body');
   }

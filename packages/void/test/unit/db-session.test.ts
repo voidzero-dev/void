@@ -367,6 +367,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
       expect(() => setSession('first-primary')).toThrow('createDb');
       expect(getBookmark()).toBe(BEFORE_SAVE);
       expect(getBookmark(db)).toBe(BEFORE_SAVE);
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Set the return value on the session mock supplied by the fixture.
       withSession.mock.results[0]!.value.getBookmark.mockReturnValue(AFTER_SAVE);
       expect(() => setSession({ bookmark: 'test-bookmark-003-newer' })).toThrow('createDb');
       expect(() => setSession('first-primary')).toThrow('createDb');
@@ -388,6 +389,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
         const session = withSession.mock.results[0]!.value;
         // D1 advances the bookmark as queries complete. Compare against that
         // progress, not just the session's original starting value.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Set the return value on the session mock supplied by the fixture.
         session.getBookmark.mockReturnValue(AFTER_SAVE);
         setSession({ bookmark: BEFORE_SAVE });
         setSession({ bookmark: AFTER_SAVE });

@@ -5,7 +5,7 @@ export function getPackageDir(): string {
   let dir = toSlash(import.meta.dirname);
   for (let i = 0; i < 5; i++) {
     if (existsSync(join(dir, 'package.json'))) {
-      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name?: unknown };
       if (pkg.name === 'void') {
         return dir;
       }

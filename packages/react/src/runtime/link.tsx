@@ -2,6 +2,9 @@ import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
 import type {
   MouseEvent,
+  MouseEventHandler,
+  FocusEventHandler,
+  TouchEventHandler,
   TouchEvent,
   FocusEvent,
   AnchorHTMLAttributes,
@@ -80,8 +83,8 @@ export function Link({
 
   const onClick = useCallback(
     (event: MouseEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onClickProp?.(event as any);
+      const callback: MouseEventHandler | undefined = onClickProp;
+      callback?.(event);
       handleLinkClick(event, router, link, {
         data,
         preserveScroll,
@@ -108,8 +111,8 @@ export function Link({
 
   const onMouseEnter = useCallback(
     (event: MouseEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onMouseEnterProp?.(event as any);
+      const callback: MouseEventHandler | undefined = onMouseEnterProp;
+      callback?.(event);
       if (event.defaultPrevented) {
         return;
       }
@@ -123,8 +126,8 @@ export function Link({
 
   const onMouseLeave = useCallback(
     (event: MouseEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onMouseLeaveProp?.(event as any);
+      const callback: MouseEventHandler | undefined = onMouseLeaveProp;
+      callback?.(event);
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
         hoverTimerRef.current = null;
@@ -135,8 +138,8 @@ export function Link({
 
   const onFocus = useCallback(
     (event: FocusEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onFocusProp?.(event as any);
+      const callback: FocusEventHandler | undefined = onFocusProp;
+      callback?.(event);
       if (!event.defaultPrevented) {
         doPrefetch();
       }
@@ -146,8 +149,8 @@ export function Link({
 
   const onMouseDown = useCallback(
     (event: MouseEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onMouseDownProp?.(event as any);
+      const callback: MouseEventHandler | undefined = onMouseDownProp;
+      callback?.(event);
       if (!event.defaultPrevented) {
         doPrefetch();
       }
@@ -157,8 +160,8 @@ export function Link({
 
   const onTouchStart = useCallback(
     (event: TouchEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onTouchStartProp?.(event as any);
+      const callback: TouchEventHandler | undefined = onTouchStartProp;
+      callback?.(event);
       if (!event.defaultPrevented) {
         doPrefetch();
       }

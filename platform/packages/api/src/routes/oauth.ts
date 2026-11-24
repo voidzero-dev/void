@@ -259,7 +259,11 @@ app.use('*', (context, next) =>
         )
           ? 48 * 1024 * 1024
           : 32_768,
-      })(context, next),
+      })(
+        // oxlint-disable-next-line typescript/no-unsafe-argument -- Hono's body-limit middleware does not read inferred route input.
+        context,
+        next,
+      ),
 );
 app.onError((error, context) =>
   error instanceof OAuthError

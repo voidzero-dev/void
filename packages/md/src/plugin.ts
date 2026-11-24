@@ -435,9 +435,11 @@ function generateMdClientEntry(scripts: Map<string, string>): string {
       `  ${JSON.stringify(id)}: () => import(${JSON.stringify('virtual:void-md-script:' + id)}),`,
     );
   }
-  lines.push('};');
-  lines.push(`const mdScriptId = document.getElementById("app")?.getAttribute("data-md-script");`);
-  lines.push(`if (mdScriptId && mdScripts[mdScriptId]) mdScripts[mdScriptId]();`);
+  lines.push(
+    '};',
+    `const mdScriptId = document.getElementById("app")?.getAttribute("data-md-script");`,
+    `if (mdScriptId && mdScripts[mdScriptId]) mdScripts[mdScriptId]();`,
+  );
   return lines.join('\n');
 }
 

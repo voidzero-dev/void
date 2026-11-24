@@ -202,7 +202,11 @@ function verify(bytes: ArrayBuffer, asset: Asset) {
 }
 
 async function verifyObject(object: R2ObjectBody, asset: Asset) {
-  const result = await computeAssetStreamHashes(object.body, asset.paths, asset.size);
+  const result = await computeAssetStreamHashes(
+    object.body as ReadableStream<Uint8Array>,
+    asset.paths,
+    asset.size,
+  );
   if (result.size !== asset.size || result.hashes.some((hash) => hash !== asset.hash)) {
     invalid(
       `Asset ${asset.paths[0]} failed content hash or size verification. No serving metadata was changed.`,

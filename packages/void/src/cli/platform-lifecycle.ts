@@ -15,6 +15,7 @@ import {
   text,
 } from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
+import { Buffer } from './node-buffer.ts';
 import { printSuccess, cliCommandName, formatUrl, note, pc } from './output.ts';
 import {
   selectInstallationAppAccess,
