@@ -10,6 +10,7 @@ import {
   vi,
 } from 'vite-plus/test';
 import { hmacSignState } from '../../src/auth/hmac.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as dbModule from '../../src/db.ts';
 import {
   createOAuthAccount,

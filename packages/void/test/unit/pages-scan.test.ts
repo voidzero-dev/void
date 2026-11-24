@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import * as tinyglobby from 'tinyglobby';
+import { glob as tinyglobbyGlob } from 'tinyglobby';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vite-plus/test';
 import type { MockInstance } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
@@ -15,7 +15,7 @@ import {
   MAX_REVALIDATE,
   pageFileEnvironment,
 } from '../../src/pages/scan.ts';
-import * as sourceAnalysisCache from '../../src/shared/source-analysis-cache.ts';
+import { deriveFromSource } from '../../src/shared/source-analysis-cache.ts';
 
 vi.mock('tinyglobby', { spy: true });
 vi.mock('../../src/shared/source-analysis-cache.ts', { spy: true });
@@ -1335,7 +1335,7 @@ const example = 'export const layout = "home"';
       expect(dev.pages[0]).toMatchObject({ serverPath: 'x.dev.server.ts', methods: ['loader'] });
 
       writeFile('x.dev.server.ts', 'export const loader = (');
-      const derive = vi.mocked(sourceAnalysisCache.deriveFromSource);
+      const derive = vi.mocked(deriveFromSource);
       derive.mockClear();
       expect((await scanPages(TMP, { environment: 'prod' })).pages).toEqual([]);
       expect(derive.mock.calls.map(([path]) => path)).toEqual([]);
@@ -1570,7 +1570,7 @@ describe('scanPages between saves', () => {
     for (const file of files) {
       writeFile(file, 'export default function Component() { return null; }');
     }
-    const glob = vi.mocked(tinyglobby.glob);
+    const glob = vi.mocked(tinyglobbyGlob);
     try {
       glob.mockResolvedValueOnce([...files]);
       const before = await scanPages(TMP);

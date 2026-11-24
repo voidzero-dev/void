@@ -21,6 +21,7 @@ import {
 } from 'vite-plus/test';
 import { cancelDeployment } from '../../src/db.ts';
 import app from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectIngress from '../../src/project-ingress.ts';
 import { deployments, projects } from '../../src/schema.ts';
 import { STATIC_RETENTION_LIMIT } from '../../src/tiers.ts';

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as dbModule from '../../src/db.ts';
 import {
   applyRoutingSuspension,
@@ -12,6 +13,7 @@ import {
 import { PLAN_LIMITS } from '../../src/tiers.ts';
 import type { PlanLimits } from '../../src/tiers.ts';
 import type { DeployManifest } from '../../src/types.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrust from '../../src/zero-trust/routing.ts';
 
 describe.each([

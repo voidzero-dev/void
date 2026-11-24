@@ -537,8 +537,6 @@ const config = defineConfig({
       // Project-wide exceptions for existing code.
       // Keep runtime dispatch and error classification based on native and framework class identity. Review cross-realm cases separately.
       '@nkzw/no-instanceof': 'off',
-      // Several Vite, filesystem, and test integrations use namespace objects for forwarding, mocking, or optional exports.
-      'import/no-namespace': 'off',
       // CLI output, platform Worker logging, and output-capture fixtures intentionally use the console across the workspace.
       'no-console': 'off',
       // Operator-facing errors often map provider failures to sanitized messages. Review nested causes for safe logging before attaching them.

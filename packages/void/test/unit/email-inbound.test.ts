@@ -26,7 +26,10 @@ import {
   replyEmail,
 } from '../../src/runtime/email/inbound.ts';
 import type { EmailEnvelope } from '../../src/runtime/email/inbound.ts';
-import * as emailBarrel from '../../src/runtime/email/index.ts';
+import {
+  MimeError as emailBarrelMimeError,
+  ParseEmailError as emailBarrelParseEmailError,
+} from '../../src/runtime/email/index.ts';
 import { MAX_MESSAGE_BYTES, MimeError } from '../../src/runtime/email/mime.ts';
 
 /** The one shape message the address rule (`email-validator`) throws; it never echoes the address. */
@@ -1901,8 +1904,8 @@ describe('parseEmail error contract', () => {
   // `void/email` is the only public path to the error classes, so a handler
   // can `instanceof` them only through it.
   it('reports an oversized message as INBOUND_TOO_LARGE, with the classes void/email exports', async () => {
-    expect(emailBarrel.ParseEmailError).toBe(ParseEmailError);
-    expect(emailBarrel.MimeError).toBe(MimeError);
+    expect(emailBarrelParseEmailError).toBe(ParseEmailError);
+    expect(emailBarrelMimeError).toBe(MimeError);
     const raw = new TextEncoder().encode('Subject: hi\r\n\r\nbody\r\n');
     const { message } = createMessageProxy(
       {
@@ -1917,7 +1920,7 @@ describe('parseEmail error contract', () => {
 
     await expect(parseEmail(message)).rejects.toSatisfy(
       (e: unknown) =>
-        e instanceof emailBarrel.ParseEmailError &&
+        e instanceof emailBarrelParseEmailError &&
         e.code === 'INBOUND_TOO_LARGE' &&
         /exceeds maximum/.test(e.message),
     );

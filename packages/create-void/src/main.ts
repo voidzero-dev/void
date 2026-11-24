@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import * as p from '@voidzero-dev/vite-plus-prompts';
+import { cancel, isCancel, log, outro, text } from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
 import pc from 'picocolors';
 import { parseCreateArgs, validateProjectName } from './args.ts';
@@ -14,19 +14,19 @@ async function main() {
   let appName = createArgs.appName;
 
   if (!appName && !process.stdin.isTTY) {
-    p.log.error('create-void: Pass a project name when running without an interactive terminal.');
+    log.error('create-void: Pass a project name when running without an interactive terminal.');
     process.exit(1);
   }
 
   if (!appName) {
-    const name = await p.text({
+    const name = await text({
       message: 'Project name:',
       defaultValue: 'my-app',
       placeholder: 'my-app',
       validate: validateProjectName,
     });
-    if (p.isCancel(name) || typeof name !== 'string') {
-      p.cancel('Cancelled.');
+    if (isCancel(name) || typeof name !== 'string') {
+      cancel('Cancelled.');
       process.exit(0);
     }
     appName = name;
@@ -37,7 +37,7 @@ async function main() {
   if (existsSync(targetDir)) {
     const entries = readdirSync(targetDir);
     if (entries.length > 0) {
-      p.log.error(`create-void: Directory '${pc.bold(appName)}' is not empty.`);
+      log.error(`create-void: Directory '${pc.bold(appName)}' is not empty.`);
       process.exit(1);
     }
   }
@@ -65,20 +65,20 @@ async function main() {
   // project can bootstrap without disabling pnpm's build-script protection.
   writePnpmBuildPolicy(targetDir, pm);
 
-  p.log.step('Installing Void...');
+  log.step('Installing Void...');
   await run(pmInstall(pm), targetDir);
 
-  p.log.step('Scaffolding starter...');
+  log.step('Scaffolding starter...');
   await run([...pmExec(pm), 'void', 'init', ...createArgs.initArgs], targetDir);
 
-  p.log.step('Installing starter dependencies...');
+  log.step('Installing starter dependencies...');
   await run(pmInstall(pm), targetDir);
 
-  p.outro(`\n${pc.green(`✓ Created ${appName}`)}`, { withGuide: false });
-  p.outro(`cd ${appName} && ${pm === 'npm' ? 'npm run' : pm} dev`);
+  outro(`\n${pc.green(`✓ Created ${appName}`)}`, { withGuide: false });
+  outro(`cd ${appName} && ${pm === 'npm' ? 'npm run' : pm} dev`);
 }
 
 await main().catch((err) => {
-  p.log.error(err.message);
+  log.error(err.message);
   process.exit(1);
 });

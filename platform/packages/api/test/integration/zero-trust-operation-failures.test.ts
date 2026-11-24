@@ -9,11 +9,13 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as db from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
 import app, { FAST_CRON, scheduled } from '../../src/index.ts';
 import { domains, platformSettings, projectZeroTrust } from '../../src/schema.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustConfiguration from '../../src/zero-trust/configuration.ts';
 import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
 import type { ZeroTrustConfigureInput } from '../../src/zero-trust/configuration.ts';
@@ -21,8 +23,10 @@ import {
   configurePlatformZeroTrust,
   disablePlatformZeroTrust,
 } from '../../src/zero-trust/installation.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustLock from '../../src/zero-trust/lock.ts';
 import { reconcilePendingProjectZeroTrust } from '../../src/zero-trust/maintenance.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustProject from '../../src/zero-trust/project.ts';
 import {
   reconcileProjectZeroTrust,

@@ -1,43 +1,54 @@
-import * as v from 'valibot';
+import {
+  boolean,
+  integer,
+  literal,
+  maxValue,
+  minValue,
+  number,
+  object,
+  pipe,
+  string,
+  variant,
+} from 'valibot';
 import { defineWebSocket } from 'void/ws';
 import type { WebSocketConnection } from 'void/ws';
 
-const NotificationClientMessage = v.variant('type', [
-  v.object({
-    type: v.literal('notifications.start'),
-    count: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
+const NotificationClientMessage = variant('type', [
+  object({
+    type: literal('notifications.start'),
+    count: pipe(number(), integer(), minValue(1), maxValue(8)),
   }),
-  v.object({
-    type: v.literal('notifications.stop'),
+  object({
+    type: literal('notifications.stop'),
   }),
-  v.object({
-    type: v.literal('notifications.ack'),
-    id: v.string(),
+  object({
+    type: literal('notifications.ack'),
+    id: string(),
   }),
 ]);
 
-const NotificationServerMessage = v.variant('type', [
-  v.object({
-    type: v.literal('notifications.status'),
-    streaming: v.boolean(),
-    pending: v.number(),
+const NotificationServerMessage = variant('type', [
+  object({
+    type: literal('notifications.status'),
+    streaming: boolean(),
+    pending: number(),
   }),
-  v.object({
-    type: v.literal('notifications.item'),
-    id: v.string(),
-    title: v.string(),
-    body: v.string(),
-    sentAt: v.string(),
-    index: v.number(),
-    total: v.number(),
+  object({
+    type: literal('notifications.item'),
+    id: string(),
+    title: string(),
+    body: string(),
+    sentAt: string(),
+    index: number(),
+    total: number(),
   }),
-  v.object({
-    type: v.literal('notifications.acked'),
-    id: v.string(),
+  object({
+    type: literal('notifications.acked'),
+    id: string(),
   }),
-  v.object({
-    type: v.literal('notifications.done'),
-    sent: v.number(),
+  object({
+    type: literal('notifications.done'),
+    sent: number(),
   }),
 ]);
 

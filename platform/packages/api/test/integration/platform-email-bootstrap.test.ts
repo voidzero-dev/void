@@ -17,6 +17,7 @@ import {
   emailOperationSteps,
   emailZoneConnections,
 } from '../../src/email/connection-schema.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as emailConnections from '../../src/email/connection-service.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';

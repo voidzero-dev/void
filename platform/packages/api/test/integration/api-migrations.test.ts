@@ -14,6 +14,7 @@ import {
 import { deleteRollbackLease } from '../../src/db.ts';
 import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
 import {
   deployments,

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as tinyglobby from 'tinyglobby';
+import { glob } from 'tinyglobby';
 import type { ResolvedConfig, ViteDevServer } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { scanPages } from 'void/pages';
@@ -93,7 +93,7 @@ async function startPlugin(root: string, command: 'serve' | 'build') {
 }
 
 afterEach(() => {
-  vi.mocked(tinyglobby.glob).mockReset();
+  vi.mocked(glob).mockReset();
   while (tempDirs.length > 0) {
     rmSync(tempDirs.pop()!, { recursive: true, force: true });
   }
@@ -173,7 +173,7 @@ describe('voidMarkdown invalid pages on the dev server', () => {
     const onChange = plugin.watchPages();
 
     // The glob result is stale by the time the file is read, as when switching branches.
-    vi.mocked(tinyglobby.glob).mockResolvedValueOnce(['index.md', 'removed.md']);
+    vi.mocked(glob).mockResolvedValueOnce(['index.md', 'removed.md']);
     await expect(onChange(join(pagesDir, 'index.md'))).resolves.toBeUndefined();
 
     expect(plugin.listPages().map((page) => page.path)).toEqual(['/']);
@@ -186,7 +186,7 @@ describe('voidMarkdown invalid pages on the dev server', () => {
     await plugin.scan();
     const onChange = plugin.watchPages();
 
-    vi.mocked(tinyglobby.glob).mockRejectedValueOnce(new Error('scan failed'));
+    vi.mocked(glob).mockRejectedValueOnce(new Error('scan failed'));
     await expect(onChange(join(pagesDir, 'index.md'))).resolves.toBeUndefined();
 
     expect(plugin.listPages().map((page) => page.path)).toEqual(['/']);
@@ -219,7 +219,7 @@ describe('voidMarkdown invalid pages in a build', () => {
     const { root } = createApp({ 'index.md': VALID });
     const plugin = await startPlugin(root, 'build');
 
-    vi.mocked(tinyglobby.glob).mockResolvedValueOnce(['removed.md']);
+    vi.mocked(glob).mockResolvedValueOnce(['removed.md']);
 
     await expect(plugin.scan()).rejects.toThrow(/pages\/removed\.md.*ENOENT/);
   });

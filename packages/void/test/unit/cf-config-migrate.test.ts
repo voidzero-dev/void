@@ -1,5 +1,9 @@
-import * as childProcess from 'node:child_process';
-import * as fs from 'node:fs';
+import {
+  execFileSync as childProcessExecFileSync,
+  spawn as childProcessSpawn,
+  spawnSync as childProcessSpawnSync,
+} from 'node:child_process';
+import { mkdtempSync as fsMkdtempSync, writeFileSync as fsWriteFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { migrateBuiltWranglerConfig } from '../../src/cli/cf-config-migrate.ts';
 
@@ -40,11 +44,11 @@ it('translates in process, without a subprocess or a file, and leaves its input 
     env: { MESSAGE: { type: 'text', value: 'hello' }, KV: { type: 'kv', id: 'kv-id' } },
   });
   expect(raw).toEqual(before);
-  for (const start of [childProcess.spawn, childProcess.spawnSync, childProcess.execFileSync]) {
+  for (const start of [childProcessSpawn, childProcessSpawnSync, childProcessExecFileSync]) {
     expect(start).not.toHaveBeenCalled();
   }
-  expect(fs.writeFileSync).not.toHaveBeenCalled();
-  expect(fs.mkdtempSync).not.toHaveBeenCalled();
+  expect(fsWriteFileSync).not.toHaveBeenCalled();
+  expect(fsMkdtempSync).not.toHaveBeenCalled();
 });
 
 it('returns a configuration that callers can change without affecting the next translation', () => {

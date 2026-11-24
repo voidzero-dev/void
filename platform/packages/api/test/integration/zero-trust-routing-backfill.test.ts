@@ -9,6 +9,7 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as database from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { scheduled } from '../../src/index.ts';

@@ -15,6 +15,7 @@ import type { ConfigEnv, ResolvedConfig, RunnableDevEnvironment, UserConfig } fr
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as authConfig from '../../src/auth/config.ts';
 import { ensureProjectTsconfig } from '../../src/codegen/project-tsconfig.ts';
 import { readConfig } from '../../src/config.ts';

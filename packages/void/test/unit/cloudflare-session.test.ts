@@ -8,6 +8,7 @@ import {
   ensureCloudflareAuthentication,
 } from '../../src/cli/cloudflare-auth.ts';
 import { runCloudflareCommand } from '../../src/cli/cloudflare-cmd.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as terminalOutput from '../../src/cli/output.ts';
 
 const fixture = vi.hoisted(() => ({ cli: '' }));

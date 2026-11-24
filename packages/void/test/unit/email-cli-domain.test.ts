@@ -15,6 +15,7 @@ import {
   normalizeEmailDomainInput,
 } from '../../src/cli/email.ts';
 import type { EmailDomainAddDeps } from '../../src/cli/email.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as output from '../../src/cli/output.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 

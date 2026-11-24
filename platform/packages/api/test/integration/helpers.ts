@@ -10,6 +10,7 @@ import type { Db } from '../../src/db.ts';
 import { generateId } from '../../src/id.ts';
 import { encryptProjectSecret } from '../../src/project-secrets.ts';
 import type { SandboxConcurrencyCounter } from '../../src/sandbox-concurrency-counter.ts';
+// oxlint-disable-next-line import/no-namespace -- Drizzle consumes the full schema module with its relations.
 import * as schema from '../../src/schema.ts';
 import {
   users,

@@ -26,6 +26,7 @@ import { tryActivateDomain } from '../../src/provisioning/activate-domain.ts';
 import { domains, platformAuthSettings } from '../../src/schema.ts';
 import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
 import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustInstallation from '../../src/zero-trust/installation.ts';
 import {
   initializeNewProjectZeroTrust,

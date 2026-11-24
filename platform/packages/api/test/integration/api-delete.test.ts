@@ -10,8 +10,10 @@ import {
   vi,
 } from 'vite-plus/test';
 import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as db from '../../src/db.ts';
 import app, { FAST_CRON, scheduled } from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
 import { reconcileProjectCleanupJobs } from '../../src/provisioning/cleanup.ts';
 import {
@@ -31,6 +33,7 @@ import {
   projectMembers,
   projectOwnershipPeriods,
 } from '../../src/schema.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustService from '../../src/zero-trust/project.ts';
 import {
   createTestBuild,

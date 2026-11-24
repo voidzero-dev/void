@@ -27,6 +27,7 @@ import {
 import type { Db } from '../../src/db.ts';
 // Namespace import so a test can spy the pre-tx `getGitHubInstallation` snapshot
 // (the under-lock re-read inside the handler hits the row directly, not via this).
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as db from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { createGitHubWebhookIngressProof } from '../../src/github/webhook-ingress-auth.ts';

@@ -25,6 +25,7 @@ import { setProjectAiLogging } from '../../src/ai-logging.ts';
 import { respondToProjectInvitation } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as systemOperations from '../../src/operator/system-operations.ts';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
