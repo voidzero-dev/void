@@ -75,7 +75,9 @@ export default function DbPage({ users, posts }: Props) {
                 <td>{user.active ? 'Yes' : 'No'}</td>
                 <td>{String(user.createdAt)}</td>
                 <td>
-                  <button onClick={() => deleteUser(user.id)}>Delete</button>
+                  <button type="button" onClick={() => deleteUser(user.id)}>
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}
@@ -152,7 +154,9 @@ export default function DbPage({ users, posts }: Props) {
                 <td>{post.author}</td>
                 <td>{String(post.createdAt)}</td>
                 <td>
-                  <button onClick={() => deletePost(post.id)}>Delete</button>
+                  <button type="button" onClick={() => deletePost(post.id)}>
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}

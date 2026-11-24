@@ -152,7 +152,9 @@ function ProfileRequest() {
     <>
       <p>
         <a href="/api/profile">Document load</a> |{' '}
-        <button onClick={request}>Fetch API response</button>
+        <button type="button" onClick={request}>
+          Fetch API response
+        </button>
       </p>
       <pre role="status">{result}</pre>
     </>

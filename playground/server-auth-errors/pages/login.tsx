@@ -37,7 +37,9 @@ export default function Login() {
         <label>
           Password <input type="password" disabled value={demoUser.password} />
         </label>
-        <button disabled={pending}>{pending ? 'Signing in…' : 'Sign in'}</button>
+        <button type="submit" disabled={pending}>
+          {pending ? 'Signing in…' : 'Sign in'}
+        </button>
         {error && <p role="alert">{error}</p>}
       </form>
     </section>

@@ -40,10 +40,12 @@ export default function ActionExample({ mode, email }: Props) {
       )}
       <div className="action-forms">
         <form method="post" action={path}>
-          <button>Native form POST</button>
+          <button type="submit">Native form POST</button>
         </form>
         <Form form={form} renderError={(error) => `${error.status}: ${error.message}`}>
-          <button disabled={form.pending}>Enhanced form POST</button>
+          <button type="submit" disabled={form.pending}>
+            Enhanced form POST
+          </button>
         </Form>
       </div>
     </section>

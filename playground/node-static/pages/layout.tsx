@@ -15,7 +15,10 @@ export default function Layout({ children }: { children: ReactNode }) {
           About
         </Link>{' '}
         | <Link href="/legacy">Legacy</Link> | <Link href="/external-legacy">External Legacy</Link>{' '}
-        | <button onClick={() => setCount((value) => value + 1)}>Layout count: {count}</button>
+        |{' '}
+        <button type="button" onClick={() => setCount((value) => value + 1)}>
+          Layout count: {count}
+        </button>
       </nav>
       <hr />
       {children}

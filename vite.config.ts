@@ -423,7 +423,6 @@ const config = defineConfig({
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
       'quality/no-widen-then-assert': 'off',
-      'react/button-has-type': 'off',
       'react/immutability': 'off',
       'react/no-unknown-property': 'off',
       'react/purity': 'off',
