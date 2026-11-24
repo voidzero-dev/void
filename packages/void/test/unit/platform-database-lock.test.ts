@@ -119,7 +119,7 @@ it('turns a dropped lifecycle lock connection into a clear failure instead of a 
     }
     return database.query(sql, values);
   };
-  mocks.pool.mockImplementation(function () {
+  mocks.pool.mockImplementation(function MockPool() {
     return Object.assign(pool, {
       connect: async () =>
         Object.assign(client, {

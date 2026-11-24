@@ -205,6 +205,14 @@ export function claimPlatformDatabase(
   });
 }
 
+/** The error a lifecycle-lock operation fails with once pg reported the held client closed. */
+function lostLockConnectionError(cause: Error): Error {
+  return new Error(
+    `platform: The PostgreSQL connection that holds the lifecycle lock was closed (${cause.message}). Rerun the command to continue.`,
+    { cause },
+  );
+}
+
 export async function acquirePlatformDatabaseLifecycleLock(
   databaseUrl: string,
   installationId: string,
@@ -223,23 +231,18 @@ export async function acquirePlatformDatabaseLifecycleLock(
   client.on('error', (error) => {
     lost ??= error;
   });
-  const lostError = (cause: Error) =>
-    new Error(
-      `platform: The PostgreSQL connection that holds the lifecycle lock was closed (${cause.message}). Rerun the command to continue.`,
-      { cause },
-    );
   const connection: QueryConnection = {
     query: async <Row extends Record<string, unknown>>(
       sql: string,
       values?: ReadonlyArray<unknown>,
     ) => {
       if (lost) {
-        throw lostError(lost);
+        throw lostLockConnectionError(lost);
       }
       try {
         return await client.query<Row>(sql, values ? [...values] : undefined);
       } catch (error) {
-        throw lost ? lostError(lost) : error;
+        throw lost ? lostLockConnectionError(lost) : error;
       }
     },
   };
