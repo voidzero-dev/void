@@ -577,6 +577,7 @@ const config = defineConfig({
       'typescript/no-unsafe-type-assertion': 'off',
       // Awaiting within catch and finally paths changes when failure handling and cleanup run. Review those paths with targeted tests.
       'typescript/return-await': 'off',
+      // Several adapters expose closure-backed operations and stable references. Review receiver binding and function identity before changing them.
       'typescript/unbound-method': 'off',
       'typescript/use-unknown-in-catch-callback-variable': 'off',
       'unicorn/catch-error-name': 'off',
