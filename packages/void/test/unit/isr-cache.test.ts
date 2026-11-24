@@ -16,10 +16,8 @@ import {
   readIsrCache,
   SHARED_CACHE_POLICY_VERSION,
   writeIsrCache,
-  type IsrCacheEnv,
-  type IsrCacheMetadata,
-  type RenderFn,
 } from '@void/isr/runtime';
+import type { IsrCacheEnv, IsrCacheMetadata, RenderFn } from '@void/isr/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 

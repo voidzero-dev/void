@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname } from 'pathslash';
-import { preprocess, type CompileResult, type PreprocessorGroup } from 'svelte/compiler';
+import { preprocess } from 'svelte/compiler';
+import type { CompileResult, PreprocessorGroup } from 'svelte/compiler';
 import type { Plugin, ResolvedConfig } from 'vite';
 import { generateComponentManifest, scanPages } from 'void/pages';
 import type { PageScanResult } from 'void/pages';
@@ -19,8 +20,8 @@ import {
   ISLANDS_CLIENT_ENTRY_ID,
   findIslandImports,
   editIslandSource,
-  type IslandSourceEdit,
 } from 'void/pages-islands-plugin';
+import type { IslandSourceEdit } from 'void/pages-islands-plugin';
 
 const COMPONENT_EXTENSIONS = ['.svelte', '.ts', '.js'];
 

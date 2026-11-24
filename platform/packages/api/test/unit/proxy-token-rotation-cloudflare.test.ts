@@ -5,8 +5,8 @@ import {
   CloudflareRateLimitError,
   createRotationCloudflareClient,
   RotationBudgetExhaustedError,
-  type ScriptBinding,
 } from '../../src/proxy-token-rotation-cloudflare.ts';
+import type { ScriptBinding } from '../../src/proxy-token-rotation-cloudflare.ts';
 import type { RotationBudget } from '../../src/proxy-token-rotation.ts';
 
 const ACCOUNT = 'acc_test';

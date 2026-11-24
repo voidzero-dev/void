@@ -1,7 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { BuildManager } from './build-manager.ts';
 import { buildManagerNamespace } from './build-namespace.ts';
-import { type BuildConfig, isContainerCapacityError } from './build-types.ts';
+import { isContainerCapacityError } from './build-types.ts';
+import type { BuildConfig } from './build-types.ts';
 import {
   cancelQueuedContainerBuildsForUsers,
   claimBuildForStartWithinLimit,

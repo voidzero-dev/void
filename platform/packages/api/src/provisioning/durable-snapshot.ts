@@ -3,8 +3,8 @@ import {
   trackedModuleStream,
   withKnownLength,
   WorkerModuleIntegrityError,
-  type WorkerModule,
 } from '../worker-upload.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 
 export async function snapshotDigest(value: string | ArrayBuffer | Uint8Array): Promise<string> {
   const bytes = new Uint8Array(

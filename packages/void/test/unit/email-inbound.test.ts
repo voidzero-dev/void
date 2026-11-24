@@ -24,8 +24,8 @@ import {
   parseEmail,
   ParseEmailError,
   replyEmail,
-  type EmailEnvelope,
 } from '../../src/runtime/email/inbound.ts';
+import type { EmailEnvelope } from '../../src/runtime/email/inbound.ts';
 import * as emailBarrel from '../../src/runtime/email/index.ts';
 import { MAX_MESSAGE_BYTES, MimeError } from '../../src/runtime/email/mime.ts';
 

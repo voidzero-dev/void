@@ -14,11 +14,8 @@ import {
   decodePageData,
   serializePageData,
 } from '../../src/pages/serialize.ts';
-import {
-  defineHandler,
-  type CloudContext,
-  type CloudEnv,
-} from '../../src/runtime/handler/index.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
+import type { CloudContext, CloudEnv } from '../../src/runtime/handler/index.ts';
 import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
 
 type RenderPage = { component: string };

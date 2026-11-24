@@ -13,8 +13,8 @@ import {
   logD1RestoreAfterDeployFailure,
 } from './deploy-migrations.ts';
 import { CloudflareAuthSecretError } from './deploy-resources.ts';
-import { type CloudflareDeployDeps } from './deploy-types.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CloudflareDeployDeps } from './deploy-types.ts';
+import type { CliLogger } from './log-file.ts';
 import { getErrorMessage } from './output.ts';
 import { readDeploymentPlatform } from './project.ts';
 

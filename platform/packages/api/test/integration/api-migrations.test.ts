@@ -11,7 +11,8 @@ import {
   afterEach,
   vi,
 } from 'vite-plus/test';
-import { deleteRollbackLease, type Db } from '../../src/db.ts';
+import { deleteRollbackLease } from '../../src/db.ts';
+import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import * as projectAccess from '../../src/project-access.ts';
 import {
@@ -33,8 +34,8 @@ import {
   mockCfApi,
   cfSuccess,
   cfError,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
 
 let env: TestEnv;

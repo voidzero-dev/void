@@ -1,5 +1,6 @@
 import { once } from 'node:events';
-import { createServer, type AddressInfo, type Socket } from 'node:net';
+import { createServer } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import mysql from 'mysql2';
 
 /** The parts of mysql2's server-side connection that the fake server uses. */

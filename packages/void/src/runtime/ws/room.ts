@@ -6,13 +6,11 @@
  * room's Durable Object, so they can broadcast or close connections locally.
  */
 import type { WebSocketRouteMap } from 'void/routes';
-import { getRawRuntimeEnv, type RuntimeEnv } from '../env/raw.ts';
+import { getRawRuntimeEnv } from '../env/raw.ts';
+import type { RuntimeEnv } from '../env/raw.ts';
 import type { RoomActionContext } from './index.ts';
-import {
-  buildWebSocketInstanceId,
-  __getWebSocketRoute,
-  type WebSocketRouteMeta,
-} from './server.ts';
+import { buildWebSocketInstanceId, __getWebSocketRoute } from './server.ts';
+import type { WebSocketRouteMeta } from './server.ts';
 
 type RouteParamsOf<P extends keyof WebSocketRouteMap> = WebSocketRouteMap[P] extends {
   params: infer T;

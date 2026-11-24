@@ -7,14 +7,14 @@ import {
   emailPayloadDigest,
   finishEmailAttempt,
   startEmailAttempt,
-  type Admission,
 } from './email-admission.ts';
+import type { Admission } from './email-admission.ts';
 import { leaseBearer, leaseEmailDomainCredential } from './email-lease.ts';
 import {
   EMAIL_PROVIDER_DEADLINE_MS,
   createEmailProviderDeadline,
-  type EmailProviderDeadline,
 } from './email-provider-deadline.ts';
+import type { EmailProviderDeadline } from './email-provider-deadline.ts';
 import type { Env, ProxyEnv } from './types.ts';
 
 const app = new Hono<ProxyEnv>();

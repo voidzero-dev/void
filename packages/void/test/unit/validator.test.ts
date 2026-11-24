@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { CloudContext } from '../../src/runtime/handler/index.ts';
-import { runValidation, type ValidatorSlots } from '../../src/runtime/handler/validator.ts';
+import { runValidation } from '../../src/runtime/handler/validator.ts';
+import type { ValidatorSlots } from '../../src/runtime/handler/validator.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type ValidationIssueBody = {

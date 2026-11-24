@@ -5,11 +5,8 @@ import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import {
-  SENDING_FREE_PLAN_HINT,
-  type EmailDns,
-  type EmailWranglerRunResult,
-} from '../../src/cli/email-cloudflare.ts';
+import { SENDING_FREE_PLAN_HINT } from '../../src/cli/email-cloudflare.ts';
+import type { EmailDns, EmailWranglerRunResult } from '../../src/cli/email-cloudflare.ts';
 import { runEmailCloudflareCommand, runEmailCommand } from '../../src/cli/email.ts';
 import * as terminalOutput from '../../src/cli/output.ts';
 

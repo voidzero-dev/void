@@ -30,21 +30,17 @@ import {
   publicAppManagementApplication,
 } from './cloudflare.ts';
 import {
-  type ZeroTrustConfiguration,
-  type ZeroTrustOperation,
   readZeroTrustConfigurationStrict,
   replaceZeroTrustConfiguration,
   writeZeroTrustConfiguration,
   zeroTrustWildcardDestinations,
 } from './configuration.ts';
+import type { ZeroTrustConfiguration, ZeroTrustOperation } from './configuration.ts';
 import { errorMessage, ZeroTrustUnavailableError } from './errors.ts';
 import { lockZeroTrustConfiguration, withProjectZeroTrustLock } from './lock.ts';
 import { reconcileProjectZeroTrust, reconcilePublicProjectForOperation } from './project.ts';
-import {
-  MAX_ROUTING_KEYS_PER_RUN,
-  publishProjectZeroTrustRoutingLocked,
-  type RoutingBudget,
-} from './routing.ts';
+import { MAX_ROUTING_KEYS_PER_RUN, publishProjectZeroTrustRoutingLocked } from './routing.ts';
+import type { RoutingBudget } from './routing.ts';
 import {
   applicationName,
   clientForConfiguration,

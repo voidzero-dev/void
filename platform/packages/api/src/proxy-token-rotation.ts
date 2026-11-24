@@ -1,13 +1,9 @@
-import { and, asc, eq, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DEFAULT_DISPATCH_NAMESPACE } from './constants.ts';
 import { snapshotCronScheduler, syncCronScheduler } from './cron-scheduler-client.ts';
-import {
-  getActiveDeployment,
-  getDeployment,
-  getProjectResources,
-  type Db,
-  type DbOrTx,
-} from './db.ts';
+import { getActiveDeployment, getDeployment, getProjectResources } from './db.ts';
+import type { Db, DbOrTx } from './db.ts';
 import type { ApiEnv } from './env.ts';
 import { getProjectDeploymentWorkerName, getProjectQueueName } from './naming.ts';
 import { hasProjectCapability, projectRoleForUser } from './project-access.ts';
@@ -18,16 +14,15 @@ import {
   CloudflareRateLimitError,
   createRotationCloudflareClient,
   RotationBudgetExhaustedError,
-  type RotationCloudflareClient,
-  type ScriptBinding,
 } from './proxy-token-rotation-cloudflare.ts';
+import type { RotationCloudflareClient, ScriptBinding } from './proxy-token-rotation-cloudflare.ts';
 import {
   PROXY_TOKEN_ROTATION_JOB_KIND,
   proxyTokenRotationTarget,
   requestProxyTokenRotation,
   rotationLog,
-  type ProxyTokenRotationReason,
 } from './proxy-token-rotation-request.ts';
+import type { ProxyTokenRotationReason } from './proxy-token-rotation-request.ts';
 import { deriveProxyToken, proxyTokenStateKey, serializeProxyTokenState } from './proxy-token.ts';
 import { deployments, projectCleanupJobs, projects, resources, users } from './schema.ts';
 import { isAdminSuspended } from './suspension.ts';

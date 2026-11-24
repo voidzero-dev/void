@@ -1,12 +1,12 @@
 import { existsSync } from 'node:fs';
 import { dirname } from 'pathslash';
-import { normalizePath, type Plugin, type ResolvedConfig, type UserConfig } from 'vite';
-import { assertLinkPrefetchValue, type CacheForInput, type LinkPrefetchValue } from './prefetch.ts';
+import { normalizePath } from 'vite';
+import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
+import { assertLinkPrefetchValue } from './prefetch.ts';
+import type { CacheForInput, LinkPrefetchValue } from './prefetch.ts';
 import { scanPages } from './scan.ts';
-import {
-  resolveStaticPageDataBuildOptions,
-  type StaticPageDataBuildOptions,
-} from './static-data.ts';
+import { resolveStaticPageDataBuildOptions } from './static-data.ts';
+import type { StaticPageDataBuildOptions } from './static-data.ts';
 import type { PageScanResult } from './types.ts';
 
 const RENDERER_ID = 'virtual:void-pages-renderer';

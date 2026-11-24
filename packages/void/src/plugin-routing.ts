@@ -3,22 +3,12 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { dirname, join, relative, resolve } from 'pathslash';
-import {
-  createRunnableDevEnvironment,
-  isRunnableDevEnvironment,
-  normalizePath,
-  type Plugin,
-  type ResolvedConfig,
-  type RunnableDevEnvironment,
-} from 'vite';
+import { createRunnableDevEnvironment, isRunnableDevEnvironment, normalizePath } from 'vite';
+import type { Plugin, ResolvedConfig, RunnableDevEnvironment } from 'vite';
 import type { ApplicationAnalysis } from './application-analysis.ts';
 import { completeApplicationAnalysis } from './application-routing.ts';
-import {
-  hasApiRoutes,
-  hasDocumentRoutes,
-  resolveAssetRoutingPolicy,
-  type AssetRoutingPolicy,
-} from './asset-routing.ts';
+import { hasApiRoutes, hasDocumentRoutes, resolveAssetRoutingPolicy } from './asset-routing.ts';
+import type { AssetRoutingPolicy } from './asset-routing.ts';
 import {
   isAssetBypassRule,
   isGeneratedAssetHeaders,
@@ -38,7 +28,8 @@ import { syncAuthTypesInProjectTsconfig } from './codegen/project-tsconfig.ts';
 import { generateQueueTypes } from './codegen/queue-types.ts';
 import { generateRouteTypes } from './codegen/route-types.ts';
 import { writeFileIfChanged } from './codegen/write-if-changed.ts';
-import { readConfig, getDatabaseDialect, type VoidConfig } from './config.ts';
+import { readConfig, getDatabaseDialect } from './config.ts';
+import type { VoidConfig } from './config.ts';
 import { collectPages, collectRevalidate, hasRevalidate } from './isr-config.ts';
 import { readProjectPaths } from './project-paths.ts';
 import { readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
@@ -49,10 +40,12 @@ import {
   compileWorkerClient,
   compileNodeApp,
   compileNodeServer,
-  type CompileOptions,
-  type SsrCompileOptions,
-  type PagesCompileOptions,
-  type WorkerEntryOptions,
+} from './router/compile.ts';
+import type {
+  CompileOptions,
+  SsrCompileOptions,
+  PagesCompileOptions,
+  WorkerEntryOptions,
 } from './router/compile.ts';
 import type { RouteEnvironment } from './router/parse-filename.ts';
 import type { ScanResult } from './router/scan.ts';

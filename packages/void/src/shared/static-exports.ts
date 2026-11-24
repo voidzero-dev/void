@@ -1,13 +1,12 @@
 import { parseSync } from 'vite';
 import { bindingNames } from './ast-bindings.ts';
-import {
-  isIdentifier,
-  moduleExportName,
-  type AstExportAllDeclaration,
-  type AstExportNamedDeclaration,
-  type AstNode,
-  type AstProgram,
-  type AstVariableDeclaration,
+import { isIdentifier, moduleExportName } from './ast.ts';
+import type {
+  AstExportAllDeclaration,
+  AstExportNamedDeclaration,
+  AstNode,
+  AstProgram,
+  AstVariableDeclaration,
 } from './ast.ts';
 
 /** How a module exports some names, as far as its source shows without running it. */

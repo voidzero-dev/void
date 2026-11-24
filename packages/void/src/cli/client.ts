@@ -10,8 +10,8 @@ import {
   formatPlatformApiError,
   parsePlatformErrorBody,
   platformErrorMessage,
-  type ProjectPermission,
 } from './platform-errors.ts';
+import type { ProjectPermission } from './platform-errors.ts';
 import { normalizePlatformApiUrl } from './platform-registry.ts';
 import type {
   DeployAssetUploadRequest,

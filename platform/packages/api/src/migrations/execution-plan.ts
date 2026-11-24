@@ -4,8 +4,8 @@ import {
   classifySqlMigration,
   getMigrationPlanHashInput,
   MIGRATION_CLASSIFIER_VERSION,
-  type MigrationPlanHashInput,
 } from '@void/deploy-core';
+import type { MigrationPlanHashInput } from '@void/deploy-core';
 
 export type ServerMigrationPlan = {
   name: string;

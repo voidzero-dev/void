@@ -4,8 +4,8 @@ import {
   parsePlatformInstallationManifest,
   recordInstallationResource,
   PLATFORM_APPLICATION_KEY,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { PlatformCloudflareClient } from '../../src/cli/platform-cloudflare.ts';
 import {

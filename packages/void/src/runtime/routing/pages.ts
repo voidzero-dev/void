@@ -1,4 +1,5 @@
-import { Context, type MiddlewareHandler } from 'hono';
+import { Context } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import {
   PRESERVED_QUERY_HEADER,
   markActionKey,

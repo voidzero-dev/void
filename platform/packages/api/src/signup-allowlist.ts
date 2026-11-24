@@ -1,8 +1,5 @@
-import {
-  isPlatformSignupAllowed,
-  parsePlatformSignupAllowlistEntry,
-  type PlatformSignupAllowlistEntry,
-} from '@void/platform';
+import { isPlatformSignupAllowed, parsePlatformSignupAllowlistEntry } from '@void/platform';
+import type { PlatformSignupAllowlistEntry } from '@void/platform';
 
 export type AllowlistEntry = PlatformSignupAllowlistEntry;
 

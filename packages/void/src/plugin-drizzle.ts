@@ -2,7 +2,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, relative } from 'pathslash';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin } from 'vite';
 import { DRIZZLE_OPERATORS, generateDbDts } from './codegen/db-types.ts';
 import {
   AUTH_SCHEMA_FILE,
@@ -14,12 +15,12 @@ import {
   getDatabaseDialect,
   readConfig,
   resolveBindingNames,
-  type DatabaseCasing,
-  type VoidConfig,
 } from './config.ts';
+import type { DatabaseCasing, VoidConfig } from './config.ts';
 import { discoverSchema } from './drizzle/discover.ts';
 import { voidWarn } from './log.ts';
-import { readProjectPaths, resolveProjectPaths, type ProjectPaths } from './project-paths.ts';
+import { readProjectPaths, resolveProjectPaths } from './project-paths.ts';
+import type { ProjectPaths } from './project-paths.ts';
 
 // Resolve drizzle-orm paths from void's own deps so they work in any project
 // (including metaframeworks where drizzle-orm isn't a direct dependency).

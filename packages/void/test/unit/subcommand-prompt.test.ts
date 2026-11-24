@@ -9,7 +9,8 @@ import {
   updateSettings,
 } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { promptSubcommand, type SubcommandDef } from '../../src/cli/subcommand-prompt.ts';
+import { promptSubcommand } from '../../src/cli/subcommand-prompt.ts';
+import type { SubcommandDef } from '../../src/cli/subcommand-prompt.ts';
 
 vi.mock('../../src/cli/output.ts', async () => {
   const { default: colors } = await import('picocolors');

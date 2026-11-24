@@ -1,16 +1,10 @@
 import { isRecord } from '@void/deploy-core';
-import {
-  chooseCloudflareQueueName,
-  otherQueueConsumers,
-  type CloudflareQueueState,
-} from '../queues/cloudflare-names.ts';
+import { chooseCloudflareQueueName, otherQueueConsumers } from '../queues/cloudflare-names.ts';
+import type { CloudflareQueueState } from '../queues/cloudflare-names.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
-import { type CloudflareDeployDeps } from './deploy-types.ts';
-import {
-  assertValidResourceName,
-  isQueueConfirmedAbsent,
-  type DesiredResourceSet,
-} from './provision.ts';
+import type { CloudflareDeployDeps } from './deploy-types.ts';
+import { assertValidResourceName, isQueueConfirmedAbsent } from './provision.ts';
+import type { DesiredResourceSet } from './provision.ts';
 
 function isValidQueueName(name: string): boolean {
   try {

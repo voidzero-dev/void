@@ -4,7 +4,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import mime from 'mime';
 import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
-import { isFileServingAllowed, type Plugin } from 'vite';
+import { isFileServingAllowed } from 'vite';
+import type { Plugin } from 'vite';
 import { findVoidDependentPackages } from './installed-packages.ts';
 import { readProjectPaths } from './project-paths.ts';
 

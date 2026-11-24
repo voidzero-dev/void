@@ -4,8 +4,9 @@ import {
   isSandboxRegistryImage,
 } from '@void/deploy-core';
 import { and, eq, sql as drizzleSql } from 'drizzle-orm';
-import { type Context } from 'hono';
-import { paginatedR2Delete, type AssetManifestEntry } from '../assets.ts';
+import type { Context } from 'hono';
+import { paginatedR2Delete } from '../assets.ts';
+import type { AssetManifestEntry } from '../assets.ts';
 import { verifyOAuthDeployment, OAuthError } from '../auth/oauth.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import {
@@ -33,15 +34,16 @@ import {
   recordUploadedDeploymentInput,
   uploadedDeploymentInput,
   uploadedWorkerInputProblem,
-  type DeploymentInput,
 } from '../deployment-execution.ts';
+import type { DeploymentInput } from '../deployment-execution.ts';
 import {
   getSharedEmailRecipientReadiness,
   reconcileSharedEmailRecipient,
 } from '../email/shared-recipient-service.ts';
 import type { ApiEnv } from '../env.ts';
 import { checkCliVersionOrRespond } from '../middleware/cli-version.ts';
-import { createDeployLogger, type DeployLogger } from '../observability/logger.ts';
+import { createDeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import { resolvePlanLimits } from '../plans.ts';
 import { ProjectAccessDeniedError, projectAccessErrorBody } from '../project-access.ts';
 import { ProjectRequiresNormalizationError, requireNormalizedProject } from '../project-state.ts';
@@ -49,13 +51,10 @@ import { assertManagedSandboxEntitlement } from '../provisioning/sandbox-control
 import { requestRotationIfReplacingUntrustedCode } from '../proxy-token-rotation.ts';
 import { requireProjectRouteCapability } from '../routes/project-access.ts';
 import { deploymentOperations } from '../schema.ts';
-import {
-  SUPPORTED_MANIFEST_VERSIONS,
-  type DeployManifest,
-  type Deployment,
-  type Project,
-} from '../types.ts';
-import { blobWorkerModule, type WorkerModule } from '../worker-upload.ts';
+import { SUPPORTED_MANIFEST_VERSIONS } from '../types.ts';
+import type { DeployManifest, Deployment, Project } from '../types.ts';
+import { blobWorkerModule } from '../worker-upload.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import { zeroTrustNotReadyMessage } from '../zero-trust/errors.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import {
@@ -74,10 +73,10 @@ import {
   resolvePersistedDeploymentType,
   databaseTimestampMs,
   CUTOVER_RECOVERY_STALE_MS,
-  type CutoverMarker,
   replayDeploymentCutover,
   clearProjectExternalState,
 } from './recovery.ts';
+import type { CutoverMarker } from './recovery.ts';
 import {
   assertPersistedDeploymentServingAssetsExist,
   StaticAssetDisappearedError,
@@ -91,8 +90,8 @@ import {
   moduleContentType,
   workerFilesError,
   workerInputProblem,
-  type WorkerInput,
 } from './shared.ts';
+import type { WorkerInput } from './shared.ts';
 
 const WORKER_UPLOAD_CLAIMED_MESSAGE =
   'this Worker upload belongs to another deployment; run the deploy again';

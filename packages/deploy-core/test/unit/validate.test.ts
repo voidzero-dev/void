@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { validateManifestShape, type DeployManifest } from '../../src/index.ts';
+import { validateManifestShape } from '../../src/index.ts';
+import type { DeployManifest } from '../../src/index.ts';
 
 describe('D1 read replication', () => {
   it.each([undefined, false, true])('accepts readReplication %s', (readReplication) => {

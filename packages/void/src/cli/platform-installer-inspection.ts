@@ -1,18 +1,18 @@
 import {
   parseCloudflareVersionMessage,
   readCloudflareVersionMigrationTag,
-  type CloudflareTriggerConfig,
 } from '@void/deploy-cloudflare';
+import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import {
   createPlatformResourceOwnershipMarker,
   parsePlatformResourceOwnershipMarker,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { assertCleanPlatformWrangler } from './platform-installer-errors.ts';
 import { runPlatformWrangler } from './platform-installer-process.ts';
-import {
-  type PlatformWorkerDeployment,
-  type WorkerInspectionClient,
+import type {
+  PlatformWorkerDeployment,
+  WorkerInspectionClient,
 } from './platform-installer-types.ts';
 
 export class PlatformWorkerOwnershipError extends Error {}

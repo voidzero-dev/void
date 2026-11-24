@@ -1,23 +1,25 @@
 import { createHash } from 'node:crypto';
 import { createDeployArtifact, createDeployUploadPayload } from '@void/deploy-core';
 import { getContentType } from '@void/edge';
-import { type SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
-import { type NotFoundHandling, type RoutingConfig } from '../config.ts';
+import type { SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
+import type { NotFoundHandling, RoutingConfig } from '../config.ts';
 import { getTokenSource } from './auth.ts';
-import { PlatformClient, type ManifestOnlyDeployPayload } from './client.ts';
+import { PlatformClient } from './client.ts';
+import type { ManifestOnlyDeployPayload } from './client.ts';
 import {
   formatConnectionLostMessage,
   formatDeployFailureMessage,
   formatStreamDeployError,
 } from './deploy-errors.ts';
 import { log, DeployEventError } from './deploy-helpers.ts';
-import { type ApplyDeployEventResult, type StreamDeployResult } from './deploy-types.ts';
-import { uploadAssetsToR2, type DirectR2PutItem } from './direct-r2-upload.ts';
-import { type GitDeployMetadata } from './git-metadata.ts';
+import type { ApplyDeployEventResult, StreamDeployResult } from './deploy-types.ts';
+import { uploadAssetsToR2 } from './direct-r2-upload.ts';
+import type { DirectR2PutItem } from './direct-r2-upload.ts';
+import type { GitDeployMetadata } from './git-metadata.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './headers.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { formatCount } from './output.ts';
-import { type AssetManifestEntry } from './package.ts';
+import type { AssetManifestEntry } from './package.ts';
 import type { DeployEvent, DeployManifest, DeployWorkerInput } from './types.ts';
 
 /**

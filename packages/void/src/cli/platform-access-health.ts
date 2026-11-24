@@ -1,15 +1,12 @@
 import { createHash } from 'node:crypto';
-import {
-  PLATFORM_HEALTH_HOSTNAME_LABEL,
-  parsePlatformAppAccessSetup,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { PLATFORM_HEALTH_HOSTNAME_LABEL, parsePlatformAppAccessSetup } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import {
   PlatformAccessClient,
   platformAccessCreateRejected,
   platformAccessPublicDestinations,
-  type PlatformAccessCheckpoint,
 } from './platform-access-provision.ts';
+import type { PlatformAccessCheckpoint } from './platform-access-provision.ts';
 import { parsePlatformAccessSetupSpec } from './platform-access-setup.ts';
 import { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';

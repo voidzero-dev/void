@@ -11,9 +11,8 @@ import {
   workerUploadBody,
   workerUploadDeadline,
   WorkerModuleIntegrityError,
-  type UploadProgress,
-  type WorkerModule,
 } from '../../src/worker-upload.ts';
+import type { UploadProgress, WorkerModule } from '../../src/worker-upload.ts';
 
 const encoder = new TextEncoder();
 

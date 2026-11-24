@@ -53,8 +53,8 @@ import {
   recordingBuildManager,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // The callback mints an installation token (which would otherwise require a
 // real RS256 PKCS#8 key via createAppJwt). Stub it so the test only exercises

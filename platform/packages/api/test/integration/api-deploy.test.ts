@@ -21,8 +21,8 @@ import {
   removeProjectMember,
   updateDeploymentStatus,
   updateUserPlan,
-  type Db,
 } from '../../src/db.ts';
+import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import { createIsrStore } from '../../src/isr-store.ts';
 import { writePlanCatalog } from '../../src/plans.ts';
@@ -59,9 +59,8 @@ import {
   readAllEvents,
   CF_ACCOUNT_ID,
   JWT_SECRET,
-  type MockCfApiHandle,
-  type TestEnv,
 } from './helpers.ts';
+import type { MockCfApiHandle, TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
 
 const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);

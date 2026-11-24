@@ -4,9 +4,11 @@ import {
   hyperdriveOriginFromConnectionString,
   hyperdriveOriginLocationMatches,
   hyperdriveOriginMatches,
-  type CloudflareHyperdriveConfig,
-  type CloudflareHyperdriveOriginLocation,
-  type PlatformCloudflareClient,
+} from './platform-cloudflare.ts';
+import type {
+  CloudflareHyperdriveConfig,
+  CloudflareHyperdriveOriginLocation,
+  PlatformCloudflareClient,
 } from './platform-cloudflare.ts';
 import type { PlatformExternalHyperdrive } from './platform-plan.ts';
 

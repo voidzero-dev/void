@@ -1,6 +1,8 @@
 import { and, count, desc, eq, getTableColumns, ilike, or } from 'drizzle-orm';
-import { cancelDeployment, getDeployment, getProject, type Db } from '../db.ts';
-import { type ApiEnv, isDevBypass } from '../env.ts';
+import { cancelDeployment, getDeployment, getProject } from '../db.ts';
+import type { Db } from '../db.ts';
+import { isDevBypass } from '../env.ts';
+import type { ApiEnv } from '../env.ts';
 import { LOG_ROW_GROUP_BY, runtimeLogsField } from '../observability/log-rows.ts';
 import { deployments, projects } from '../schema.ts';
 import { OperatorError } from './common.ts';

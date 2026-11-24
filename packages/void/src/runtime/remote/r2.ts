@@ -4,8 +4,8 @@ import {
   R2_OBJECT_HEADER,
   serializeR2Conditional,
   serializeR2HttpMetadata,
-  type RemoteR2HttpMetadata,
 } from './r2-conditions.ts';
+import type { RemoteR2HttpMetadata } from './r2-conditions.ts';
 
 /** Object fields from the binding handler or from the proxy's REST fallback. */
 type RemoteR2Object = {

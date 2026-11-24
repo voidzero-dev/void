@@ -10,10 +10,10 @@ import { resolveZeroTrustApplicationEnvironment } from './application.ts';
 import { ZeroTrustCloudflareClient } from './cloudflare.ts';
 import {
   ZERO_TRUST_CREDENTIAL_ID,
-  type ZeroTrustConfiguration,
   zeroTrustConfigurationStatus,
   readZeroTrustConfigurationStrict,
 } from './configuration.ts';
+import type { ZeroTrustConfiguration } from './configuration.ts';
 import { errorMessage, ZeroTrustUnavailableError } from './errors.ts';
 
 export const MAX_ZERO_TRUST_CUSTOM_DOMAINS_PER_PROJECT = 100;

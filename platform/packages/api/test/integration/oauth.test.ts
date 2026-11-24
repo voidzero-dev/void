@@ -46,8 +46,8 @@ import {
   createMockExecutionContext,
   mockCfApi,
   readAllEvents,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv & { DEPLOYMENTS_QUEUE?: Queue };
 let user: Awaited<ReturnType<typeof createTestUser>>;

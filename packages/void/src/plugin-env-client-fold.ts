@@ -1,17 +1,14 @@
 import MagicString from 'magic-string';
-import { parseSync, type Plugin, type ResolvedConfig } from 'vite';
+import { parseSync } from 'vite';
+import type { Plugin, ResolvedConfig } from 'vite';
 import {
   extractEnvBindings,
   isVoidEnvScriptCandidate,
   walkEnvReads,
-  type ImportBindings,
 } from './plugin-env-client-guard.ts';
-import {
-  isIdentifier,
-  isLiteral,
-  type AstMemberExpression,
-  type AstProgram,
-} from './shared/ast.ts';
+import type { ImportBindings } from './plugin-env-client-guard.ts';
+import { isIdentifier, isLiteral } from './shared/ast.ts';
+import type { AstMemberExpression, AstProgram } from './shared/ast.ts';
 import { isClientEnvKey } from './shared/env.ts';
 
 type FoldHit = {

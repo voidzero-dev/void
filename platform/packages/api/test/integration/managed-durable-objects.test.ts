@@ -39,9 +39,8 @@ import {
   setupEnv,
   skipOrphanSweepDelay,
   teardownEnv,
-  type TestEnv,
-  type MockCfApiHandle,
 } from './helpers.ts';
+import type { TestEnv, MockCfApiHandle } from './helpers.ts';
 
 let env: TestEnv;
 let user: Awaited<ReturnType<typeof createTestUser>>;

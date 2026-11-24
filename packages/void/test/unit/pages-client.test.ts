@@ -10,8 +10,8 @@ import {
   mergeDataIntoHref,
   ssrProxy,
   submitAction,
-  type VoidRouterConfig,
 } from '../../src/pages/client.ts';
+import type { VoidRouterConfig } from '../../src/pages/client.ts';
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
@@ -24,8 +24,8 @@ import {
   createPageMutationHandler,
   createNamedActionMarker,
   createRoutingRuntime,
-  type RoutingContext,
 } from '../../src/runtime/routing/index.ts';
+import type { RoutingContext } from '../../src/runtime/routing/index.ts';
 
 type DeferredTestWindow = Window & {
   __resolveDeferred(group: string, data: unknown): void;

@@ -2,13 +2,12 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'pathslash';
 import { parseSync } from 'vite';
 import { bindingNames } from '../shared/ast-bindings.ts';
-import {
-  isIdentifier,
-  moduleExportName,
-  type AstExportNamedDeclaration,
-  type AstFunctionDeclaration,
-  type AstProgram,
-  type AstVariableDeclaration,
+import { isIdentifier, moduleExportName } from '../shared/ast.ts';
+import type {
+  AstExportNamedDeclaration,
+  AstFunctionDeclaration,
+  AstProgram,
+  AstVariableDeclaration,
 } from '../shared/ast.ts';
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']);

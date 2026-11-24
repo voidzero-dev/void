@@ -2,13 +2,8 @@
 import { Icon } from '@iconify/vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 import { frameworks } from './frameworks';
-import {
-  advanceStackGame,
-  createStackGame,
-  dropStackTile,
-  LAYER_HEIGHT,
-  type Tile,
-} from './stack-and-ship';
+import { advanceStackGame, createStackGame, dropStackTile, LAYER_HEIGHT } from './stack-and-ship';
+import type { Tile } from './stack-and-ship';
 import StackTile from './StackTile.vue';
 
 type Phase = 'idle' | 'playing' | 'paused' | 'over';

@@ -17,8 +17,8 @@ import {
   createTestProject,
   createTestProjectSecret,
   mockCfApi,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

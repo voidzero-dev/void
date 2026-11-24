@@ -24,8 +24,8 @@ import {
   parseCapturedMessage,
   pushToDevBuffer,
   serializeCapturedMessage,
-  type CapturedMessage,
 } from '../../src/runtime/email/dev-inbox.ts';
+import type { CapturedMessage } from '../../src/runtime/email/dev-inbox.ts';
 import { sendEmail } from '../../src/runtime/email/index.ts';
 import {
   buildMime,

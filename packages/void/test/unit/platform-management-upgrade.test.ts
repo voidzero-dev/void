@@ -13,8 +13,8 @@ import {
   recordInstallationResource,
   recordInstallationStep,
   transitionInstallation,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { getPlatformRuntimeDirectory, resolvePlatformRuntime } from '@void/platform/installer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { printSuccess } from '../../src/cli/output.ts';
@@ -297,10 +297,8 @@ import {
   platformLifecycleResumeCommand,
   runInstalledPlatformCommand,
 } from '../../src/cli/platform-management.ts';
-import {
-  createPlatformInstallPlan,
-  type PlatformInstallPlanAction,
-} from '../../src/cli/platform-plan.ts';
+import { createPlatformInstallPlan } from '../../src/cli/platform-plan.ts';
+import type { PlatformInstallPlanAction } from '../../src/cli/platform-plan.ts';
 import {
   acquirePlatformLifecycleLock,
   readInstallationRecoverySecrets,

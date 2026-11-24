@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,14 +10,14 @@ import {
   createPlatformDeploymentManifest,
   PLATFORM_DISABLED_KEY,
   PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { hyperdriveOriginFromConnectionString } from '../../src/cli/platform-cloudflare.ts';
 import { verifyPlatformWorkerCutoverVersions } from '../../src/cli/platform-installer-cutover.ts';
-import {
-  type PlatformInstallerDependencies,
-  type PlatformInstallationSecrets,
+import type {
+  PlatformInstallerDependencies,
+  PlatformInstallationSecrets,
 } from '../../src/cli/platform-installer-types.ts';
 import {
   createPlatformInstallationSecrets,

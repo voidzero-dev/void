@@ -10,8 +10,9 @@ import {
 } from '../schema.ts';
 import type { GitHubInstallationRepository } from '../schema.ts';
 import type { GitHubConnection, GitHubInstallation, GitHubInstallationMember } from '../types.ts';
-import { type TerminatedBuild, terminateBuildsForProject } from './builds.ts';
-import { type Db } from './client.ts';
+import { terminateBuildsForProject } from './builds.ts';
+import type { TerminatedBuild } from './builds.ts';
+import type { Db } from './client.ts';
 import {
   githubConnectionAuthorityClause,
   installationSelectionCoversRepoClause,

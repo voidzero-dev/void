@@ -1,11 +1,7 @@
 import MagicString from 'magic-string';
 import { parseSync } from 'vite';
-import {
-  isIdentifier,
-  type AstExportNamedDeclaration,
-  type AstNode,
-  type AstProgram,
-} from './shared/ast.ts';
+import { isIdentifier } from './shared/ast.ts';
+import type { AstExportNamedDeclaration, AstNode, AstProgram } from './shared/ast.ts';
 
 type HooksTransform = { code: string; map: ReturnType<MagicString['generateMap']> };
 

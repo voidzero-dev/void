@@ -1,6 +1,7 @@
 import { log, outro } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
-import { PlatformClient, type RequestEntry } from './client.ts';
+import { PlatformClient } from './client.ts';
+import type { RequestEntry } from './client.ts';
 import { dim, pc } from './output.ts';
 import { readProjectConfig } from './project.ts';
 

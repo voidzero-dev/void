@@ -1,19 +1,19 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'pathslash';
 import { parseSync } from 'vite';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
 import { bindingNames, bindingResolver } from '../shared/ast-bindings.ts';
-import {
-  isIdentifier,
-  moduleExportName,
-  type AstCallExpression,
-  type AstExportDefaultDeclaration,
-  type AstExportNamedDeclaration,
-  type AstExportSpecifier,
-  type AstFunctionDeclaration,
-  type AstNode,
-  type AstProgram,
-  type AstVariableDeclaration,
+import { isIdentifier, moduleExportName } from '../shared/ast.ts';
+import type {
+  AstCallExpression,
+  AstExportDefaultDeclaration,
+  AstExportNamedDeclaration,
+  AstExportSpecifier,
+  AstFunctionDeclaration,
+  AstNode,
+  AstProgram,
+  AstVariableDeclaration,
 } from '../shared/ast.ts';
 import { unwrapStaticExpression } from '../shared/static-exports.ts';
 

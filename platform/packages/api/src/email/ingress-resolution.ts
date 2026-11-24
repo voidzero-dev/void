@@ -1,5 +1,6 @@
 import { and, eq, or } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { constantTimeEqual, hmacVerifyState } from '../auth/hmac.ts';
 import type { ApiEnv } from '../env.ts';
 import { getProjectDeploymentWorkerName } from '../naming.ts';

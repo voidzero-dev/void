@@ -21,7 +21,8 @@ import {
 } from '../../pages/action-key.ts';
 import { pagesRedirectResponse } from '../../pages/redirect.ts';
 import { SHARED_CACHE_HEADERS, authDependentRequests } from '../auth/response.ts';
-import { VoidAssetRewriteError, type CloudContext } from '../handler/index.ts';
+import { VoidAssetRewriteError } from '../handler/index.ts';
+import type { CloudContext } from '../handler/index.ts';
 import { convertReturnValue } from '../handler/response.ts';
 import { ASSET_EXTENSIONS } from './assets.ts';
 import { markRouteHandler } from './pages.ts';

@@ -1,7 +1,8 @@
 import { buildManagerNamespace } from '../build-namespace.ts';
 import { isTerminalBuildStatus } from '../build-status.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
-import { getBuild, type Db } from '../db.ts';
+import { getBuild } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { OperatorError } from './common.ts';
 

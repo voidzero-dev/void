@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   closeSync,
@@ -17,8 +18,10 @@ import { createRequire } from 'node:module';
 import { resolve as resolvePosixPath } from 'node:path/posix';
 import { resolve as resolveWindowsPath } from 'node:path/win32';
 import type { CloudflareOperation } from '@void/deploy-cloudflare';
-import { isRecord, type R2LocationHint } from '@void/deploy-core';
-import { parse, type ParseError } from 'jsonc-parser';
+import { isRecord } from '@void/deploy-core';
+import type { R2LocationHint } from '@void/deploy-core';
+import { parse } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import lockfile from 'proper-lockfile';
 import { voidLog, voidWarn } from '../log.ts';
@@ -34,8 +37,8 @@ import {
   persistMaterializedWranglerConfig,
   readProvisionedBindingEntry,
   writeProvisionedWranglerConfig,
-  type WriteProvisionedWranglerResult,
 } from './wrangler.ts';
+import type { WriteProvisionedWranglerResult } from './wrangler.ts';
 
 /** The Cloudflare resources an app needs, computed by the deploy orchestrator. */
 export interface DesiredResourceSet {

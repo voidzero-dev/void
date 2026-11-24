@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import { ProjectsPageView, projectsPageRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { Layout } from './Layout.tsx';
 import { Pagination } from './Pagination.tsx';
 import { ProjectsTable } from './ProjectsTable.tsx';

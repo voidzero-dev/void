@@ -1,4 +1,5 @@
-import { chromium, webkit, type Browser } from 'playwright';
+import { chromium, webkit } from 'playwright';
+import type { Browser } from 'playwright';
 
 /** Select WebKit for cross-engine Pages regressions; normal CI uses Chromium. */
 export function launchPagesBrowser(): Promise<Browser> {

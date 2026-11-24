@@ -1,11 +1,9 @@
 import {
   PLAN_LIMITS as BUILTIN_PLAN_LIMITS,
-  type PlanLimits,
-  type PlanId,
   BUILD_INSTANCE_FREE,
   BUILD_INSTANCE_LARGE,
-  type BuildInstanceType,
 } from '@void/platform/plans';
+import type { PlanLimits, PlanId, BuildInstanceType } from '@void/platform/plans';
 export const PLAN_LIMITS: Record<string, PlanLimits> = BUILTIN_PLAN_LIMITS;
 export { BUILD_INSTANCE_FREE, BUILD_INSTANCE_LARGE };
 export type { PlanId, PlanLimits, BuildInstanceType };

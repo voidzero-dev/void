@@ -1,11 +1,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { createServer, type IncomingHttpHeaders } from 'node:http';
+import { createServer } from 'node:http';
+import type { IncomingHttpHeaders } from 'node:http';
 import { join } from 'node:path';
-import {
-  VOID_SECRET_DRAFT_MESSAGE,
-  VOID_SECRET_DRAFT_SOURCE,
-  type CloudflareOperation,
-} from '@void/deploy-cloudflare';
+import { VOID_SECRET_DRAFT_MESSAGE, VOID_SECRET_DRAFT_SOURCE } from '@void/deploy-cloudflare';
+import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { expect, it } from 'vite-plus/test';
 import { decodeCloudflareOperationResult } from '../../src/cli/cloudflare-process.ts';
 import {

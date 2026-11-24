@@ -1,7 +1,8 @@
 import { resolve as resolveWindowsPath } from 'node:path/win32';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'pathslash';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin } from 'vite';
 import { bundleWorkerSqlDriver } from './cli/wrapper.ts';
 import { getDatabaseDialect, readConfig } from './config.ts';
 import { voidDbBundlerPlugin } from './plugin-drizzle.ts';

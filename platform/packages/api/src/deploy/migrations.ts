@@ -1,4 +1,4 @@
-import { type DeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 
 /**
  * Detect the known CF WfP bug where APIs return plain text about asset state

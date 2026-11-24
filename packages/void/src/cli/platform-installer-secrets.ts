@@ -1,21 +1,19 @@
 import { createHash, randomBytes } from 'node:crypto';
-import {
-  type PlatformInstallationManifest,
-  parsePlatformAuthenticationSetup,
-} from '@void/platform';
+import { parsePlatformAuthenticationSetup } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import {
   checkpointPlatformAccessResources,
   isPlatformAuthenticationPreparationKey,
 } from './platform-access-setup.ts';
-import {
-  type PlatformInstallationSecrets,
-  type PlatformWorkerKey,
-  type PlatformWorkerSecretUpdateIntent,
-  type PlatformWorkerSecretUpdateName,
-  PLATFORM_WORKER_SECRET_UPDATE_NAMES,
-  type PlatformWorkerSecretUpdates,
+import { PLATFORM_WORKER_SECRET_UPDATE_NAMES } from './platform-installer-types.ts';
+import type {
+  PlatformInstallationSecrets,
+  PlatformWorkerKey,
+  PlatformWorkerSecretUpdateIntent,
+  PlatformWorkerSecretUpdateName,
+  PlatformWorkerSecretUpdates,
 } from './platform-installer-types.ts';
-import { type PlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformInstallPlan } from './platform-plan.ts';
 
 export function createPlatformInstallationSecrets(input: {
   configurableAuthentication?: boolean;

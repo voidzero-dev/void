@@ -18,8 +18,8 @@ import {
   advanceProxyTokenRotation,
   reconcileProxyTokenRotations,
   requestProxyTokenRotation,
-  type ProxyTokenRotationEnv,
 } from '../../src/proxy-token-rotation.ts';
+import type { ProxyTokenRotationEnv } from '../../src/proxy-token-rotation.ts';
 import { deriveProxyToken } from '../../src/proxy-token.ts';
 import { databaseTimestampMs } from '../../src/routes/deploy.ts';
 import { readSandboxDrainCheckpoint } from '../../src/sandbox-drain.ts';
@@ -46,9 +46,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type MockCfApiHandle,
-  type TestEnv,
 } from './helpers.ts';
+import type { MockCfApiHandle, TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let token: string;

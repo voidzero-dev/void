@@ -17,8 +17,8 @@ import {
   setActiveDeployment,
   updateProjectType,
   TERMINAL_DEPLOYMENT_STATUSES,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getProjectQueueName } from '../naming.ts';
 import { resolvePlanLimits } from '../plans.ts';
@@ -33,7 +33,7 @@ import { reconcileManagedDurableObjects } from '../provisioning/durable-objects.
 import { requestRotationIfReplacingUntrustedCode } from '../proxy-token-rotation.ts';
 import { projectRouteKey } from '../routing.ts';
 import { buildRoutingJson, buildStaticRoutingJson, computeDispatchLimits } from '../routing.ts';
-import { type DeployManifest, type Deployment, type Project } from '../types.ts';
+import type { DeployManifest, Deployment, Project } from '../types.ts';
 import {
   resolveProjectZeroTrustRouting,
   resolveProjectZeroTrustRoutingForPublication,

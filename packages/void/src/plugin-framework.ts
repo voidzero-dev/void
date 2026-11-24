@@ -2,8 +2,9 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import MagicString from 'magic-string';
 import { dirname } from 'pathslash';
-import { defaultServerConditions, normalizePath, type Plugin } from 'vite';
-import { type ApplicationAnalysis } from './application-analysis.ts';
+import { defaultServerConditions, normalizePath } from 'vite';
+import type { Plugin } from 'vite';
+import type { ApplicationAnalysis } from './application-analysis.ts';
 import {
   ensureWranglerCompat,
   ensureWranglerCompatibilityDate,

@@ -17,8 +17,8 @@ import {
   liftPlatformProjectZeroTrustFenceConnection,
   lockPlatformProjectZeroTrustConnection,
   readPlatformProjectZeroTrustStateConnection,
-  type QueryConnection,
 } from '../../../../../packages/void/src/cli/platform-zero-trust-uninstall.ts';
+import type { QueryConnection } from '../../../../../packages/void/src/cli/platform-zero-trust-uninstall.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import app from '../../src/index.ts';
 import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
@@ -39,8 +39,8 @@ import {
   setupEnv,
   skipOrphanSweepDelay,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // The platform uninstall check in the CLI reads and locks this database
 // directly, so these tests run it against the API's real schema and writers.

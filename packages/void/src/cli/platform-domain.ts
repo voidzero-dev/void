@@ -4,9 +4,8 @@ import {
   normalizeApplicationDomain,
   PLATFORM_HEALTH_HOSTNAME_LABEL,
   PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY,
-  type PlatformApplication,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformApplication, PlatformInstallationManifest } from '@void/platform';
 import { confirm, isCancel, text } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { printSuccess, note } from './output.ts';
@@ -31,7 +30,8 @@ import {
   selectAuthoritativePlatformManifest,
   verifyPlatformInstallationOwnership,
 } from './platform-management.ts';
-import { createPlatformInstallPlan, type PlatformInstallPlan } from './platform-plan.ts';
+import { createPlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformInstallPlan } from './platform-plan.ts';
 import {
   acquirePlatformLifecycleLock,
   readInstallationRecoverySecrets,

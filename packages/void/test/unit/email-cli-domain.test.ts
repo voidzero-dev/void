@@ -1,11 +1,7 @@
 import { log, note } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import {
-  PlatformApiError,
-  PlatformClient,
-  type EmailDomainResponse,
-  type RemoveEmailDomainResponse,
-} from '../../src/cli/client.ts';
+import { PlatformApiError, PlatformClient } from '../../src/cli/client.ts';
+import type { EmailDomainResponse, RemoveEmailDomainResponse } from '../../src/cli/client.ts';
 import {
   buildCfApiTokenTemplateUrl,
   classifyCfApiTokenShape,
@@ -17,8 +13,8 @@ import {
   emailDomainRotateSecret,
   isValidEmailDomainInput,
   normalizeEmailDomainInput,
-  type EmailDomainAddDeps,
 } from '../../src/cli/email.ts';
+import type { EmailDomainAddDeps } from '../../src/cli/email.ts';
 import * as output from '../../src/cli/output.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 

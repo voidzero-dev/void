@@ -40,8 +40,8 @@ import {
   REASON_SANDBOX_RUNTIME_EXCEEDED,
 } from '../suspension.ts';
 import type { Deployment, Invitation, PlatformEvent, Project, User } from '../types.ts';
-import { type TerminatedBuild } from './builds.ts';
-import { type Db } from './client.ts';
+import type { TerminatedBuild } from './builds.ts';
+import type { Db } from './client.ts';
 import { invalidateGitHubConnectionAuthorizedBy } from './github.ts';
 import { getUser } from './users.ts';
 

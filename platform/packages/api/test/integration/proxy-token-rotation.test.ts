@@ -34,17 +34,19 @@ import {
   requestBulkProxyTokenRotations,
   requestProxyTokenRotation,
   requestRotationIfReplacingUntrustedCode,
-  type ProjectRotationOutcome,
-  type ProxyTokenRotationEnv,
-  type ProxyTokenRotationReason,
+} from '../../src/proxy-token-rotation.ts';
+import type {
+  ProjectRotationOutcome,
+  ProxyTokenRotationEnv,
+  ProxyTokenRotationReason,
 } from '../../src/proxy-token-rotation.ts';
 import {
   deriveProxyInternalAuth,
   deriveProxyToken,
   PROXY_INTERNAL_AUTH_HEADER,
   proxyTokenStateKey,
-  type ProxyInternalRoute,
 } from '../../src/proxy-token.ts';
+import type { ProxyInternalRoute } from '../../src/proxy-token.ts';
 import {
   deployments,
   projectCleanupJobs,
@@ -69,10 +71,8 @@ import {
   readAllEvents,
   setupEnv,
   teardownEnv,
-  type CfApiMocks,
-  type MockCfApiHandle,
-  type TestEnv,
 } from './helpers.ts';
+import type { CfApiMocks, MockCfApiHandle, TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

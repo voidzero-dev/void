@@ -1,11 +1,8 @@
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createCodeChallenge } from '../../src/cli/auth.ts';
-import {
-  PlatformApiError,
-  type GithubInstallation,
-  type PlatformClient,
-} from '../../src/cli/client.ts';
+import { PlatformApiError } from '../../src/cli/client.ts';
+import type { GithubInstallation, PlatformClient } from '../../src/cli/client.ts';
 import * as gitMetadata from '../../src/cli/git-metadata.ts';
 import type { GithubArgs } from '../../src/cli/github-args.ts';
 import { runConnect } from '../../src/cli/github-cmd.ts';

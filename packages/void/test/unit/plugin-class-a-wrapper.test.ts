@@ -15,7 +15,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { toSlash } from 'pathslash';
-import { createServer, normalizePath, type Plugin, type ResolvedConfig } from 'vite';
+import { createServer, normalizePath } from 'vite';
+import type { Plugin, ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { bundleEntry } from '../../src/cli/wrapper.ts';
 import {

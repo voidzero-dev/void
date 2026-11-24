@@ -7,8 +7,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { collectWorkerFiles } from '../../src/cli/package.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');

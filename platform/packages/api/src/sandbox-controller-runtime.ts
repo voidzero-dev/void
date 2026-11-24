@@ -1,10 +1,6 @@
 import { RpcTarget, WorkerEntrypoint } from 'cloudflare:workers';
-import {
-  SandboxContainer,
-  validateSandboxOptions,
-  type SandboxOptions,
-  type SandboxInstance,
-} from 'void/_sandbox-container';
+import { SandboxContainer, validateSandboxOptions } from 'void/_sandbox-container';
+import type { SandboxOptions, SandboxInstance } from 'void/_sandbox-container';
 import { getSandboxShim } from './sandbox-shim.ts';
 
 type Admission = { ok: true } | { ok: false; reason: string };

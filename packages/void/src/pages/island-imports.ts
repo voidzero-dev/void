@@ -1,6 +1,7 @@
 import MagicString from 'magic-string';
 import { parseSync } from 'vite';
-import { isIdentifier, isLiteral, type AstNode, type AstProgram } from '../shared/ast.ts';
+import { isIdentifier, isLiteral } from '../shared/ast.ts';
+import type { AstNode, AstProgram } from '../shared/ast.ts';
 
 export type IslandImportSource = {
   start: number;

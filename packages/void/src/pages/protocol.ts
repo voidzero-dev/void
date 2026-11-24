@@ -5,16 +5,16 @@ import { executeComposedHandler, getHandlerComposition } from '../runtime/handle
 import type { CloudBindings, CloudContext } from '../runtime/handler/index.ts';
 import { isConvertedResponse } from '../runtime/handler/response.ts';
 import { hasActionKey, searchWithoutActionKey } from './action-key.ts';
-import { DEFERRED, separateDeferred, type ResolvedDeferredGroup } from './defer.ts';
+import { DEFERRED, separateDeferred } from './defer.ts';
+import type { ResolvedDeferredGroup } from './defer.ts';
 import {
   absolutizeHead,
   resolveHead,
   renderBodyAttrs,
   renderHeadToString,
   renderHtmlAttrs,
-  type HeadDescriptor,
-  type HeadConfig,
 } from './head.ts';
+import type { HeadDescriptor, HeadConfig } from './head.ts';
 import { withLoaderNotFoundDecision } from './not-found-context.ts';
 import { escapeScriptJson } from './script-json.ts';
 import { serializePageData } from './serialize.ts';

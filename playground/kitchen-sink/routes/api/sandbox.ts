@@ -1,6 +1,7 @@
 import { defineHandler } from 'void';
 import { UsageLimit } from 'void/limits';
-import { getSandbox, type SandboxClient } from 'void/sandbox';
+import { getSandbox } from 'void/sandbox';
+import type { SandboxClient } from 'void/sandbox';
 import { sampleRequests } from '../../lib/sandbox-demo.ts';
 
 const MAX_CODE_LENGTH = 8000;

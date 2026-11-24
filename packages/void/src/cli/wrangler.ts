@@ -1,11 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
-import {
-  appendSqliteClassMigration,
-  isRecord,
-  type DurableObjectMigrationStep,
-} from '@void/deploy-core';
+import { appendSqliteClassMigration, isRecord } from '@void/deploy-core';
+import type { DurableObjectMigrationStep } from '@void/deploy-core';
 import {
   applyEdits,
   createScanner,
@@ -14,10 +11,8 @@ import {
   parse,
   parseTree,
   SyntaxKind,
-  type FormattingOptions,
-  type Node,
-  type ParseError,
 } from 'jsonc-parser';
+import type { FormattingOptions, Node, ParseError } from 'jsonc-parser';
 import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import {
   ignoreMaterializedCloudflareConfig,
@@ -27,7 +22,8 @@ import {
 } from '../cloudflare-config.ts';
 import { TYPED_CONFIG_FILE } from '../config-loader.ts';
 import { writeVoidProjectConfig } from '../config-write.ts';
-import { readConfig, type VoidConfig } from '../config.ts';
+import { readConfig } from '../config.ts';
+import type { VoidConfig } from '../config.ts';
 import type { DurableObjectModule } from '../durable/scan.ts';
 import type { InferredBindings } from '../inference/walk.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';

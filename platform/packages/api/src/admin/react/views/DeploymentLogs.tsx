@@ -4,7 +4,8 @@ import { Button } from '@astryxdesign/core/Button';
 import { Selector } from '@astryxdesign/core/Selector';
 import { isRecord } from '@void/deploy-core';
 import { useCallback, useEffect, useState } from 'react';
-import { useFateClient, useView, type ViewRef } from 'react-fate';
+import { useFateClient, useView } from 'react-fate';
+import type { ViewRef } from 'react-fate';
 import {
   DeploymentLogSettingsView,
   DeploymentLogsView,

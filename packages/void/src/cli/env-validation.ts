@@ -1,11 +1,8 @@
 /** Env-schema validation for `void env check`, `void secret`, and both deploy paths. */
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import {
-  parseRootWranglerConfig,
-  readWranglerTopLevelString,
-  type CloudflareOperation,
-} from '@void/deploy-cloudflare';
+import { parseRootWranglerConfig, readWranglerTopLevelString } from '@void/deploy-cloudflare';
+import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { dirname, join, resolve } from 'pathslash';
 import { findEnvFile } from '../codegen/env-types.ts';
 import { loadUserEnvFile } from '../host/load-user-env.ts';

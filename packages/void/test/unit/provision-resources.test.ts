@@ -15,9 +15,8 @@ import {
   resolvePinnedApiBaseUrl,
   resolveWorkersDevComplianceRegion,
   WranglerQuarantineError,
-  type DesiredResourceSet,
-  type RunWrangler,
 } from '../../src/cli/provision.ts';
+import type { DesiredResourceSet, RunWrangler } from '../../src/cli/provision.ts';
 import { materializeCloudflareConfig } from '../../src/cloudflare-config.ts';
 import {
   AMBIENT_ACCOUNT,

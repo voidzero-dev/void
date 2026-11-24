@@ -4,7 +4,8 @@ import type { PageObject } from 'void/pages-protocol';
 import type { ApiEnv } from '../../env.ts';
 import { formatPlatformPageTitle } from '../../platform-identity.ts';
 import type { createAdminFateClient } from '../fate/client.ts';
-import { adminComponents, adminLayoutTree, type AdminPageId } from './pages.ts';
+import { adminComponents, adminLayoutTree } from './pages.ts';
+import type { AdminPageId } from './pages.ts';
 
 export async function renderAdminPage(
   context: Context<ApiEnv>,

@@ -9,8 +9,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { setGetProjectOverride } from './setup.ts';
 
 // A JSON deploy keeps running after its response is returned until the NDJSON

@@ -25,7 +25,8 @@ import {
   writeRootConfig,
   writeWorkerConfig,
 } from '@cloudflare/build-output-utils';
-import { type ModuleType, BuildOutputContainerConfigSchema } from '@cloudflare/config';
+import { BuildOutputContainerConfigSchema } from '@cloudflare/config';
+import type { ModuleType } from '@cloudflare/config';
 import ignore from 'ignore';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'pathslash';
 import type { Plugin } from 'vite';

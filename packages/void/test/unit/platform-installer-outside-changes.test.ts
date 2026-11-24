@@ -1,19 +1,15 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  encodeCloudflareVersionMessage,
-  type CloudflareOperation,
-  type CloudflareTriggerConfig,
-} from '@void/deploy-cloudflare';
+import { encodeCloudflareVersionMessage } from '@void/deploy-cloudflare';
+import type { CloudflareOperation, CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import {
   createPlatformDeploymentManifest,
   createPlatformInstallationManifest,
   createPlatformResourceOwnershipMarker,
   recordInstallationResource,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { InstallationResourceKind, PlatformInstallationManifest } from '@void/platform';
 import { getPlatformRuntimeDirectory, resolvePlatformRuntime } from '@void/platform/installer';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
@@ -43,13 +39,13 @@ import {
   findPlatformWorkerOutsideChanges,
   reviewPlatformWorkerOutsideChanges,
   uploadPlatformWorkerOutsideChanges,
-  type PlatformOutsideChangeInstallation,
-  type PlatformWorkerOutsideChange,
 } from '../../src/cli/platform-installer-outside-changes.ts';
-import {
-  deployPlatformWorker,
-  type runPlatformWrangler,
-} from '../../src/cli/platform-installer-workers.ts';
+import type {
+  PlatformOutsideChangeInstallation,
+  PlatformWorkerOutsideChange,
+} from '../../src/cli/platform-installer-outside-changes.ts';
+import { deployPlatformWorker } from '../../src/cli/platform-installer-workers.ts';
+import type { runPlatformWrangler } from '../../src/cli/platform-installer-workers.ts';
 import type {
   PlatformInstallPlan,
   PlatformInstallPlanAction,

@@ -1,4 +1,5 @@
-import { cloudflareCommandDiagnostic, type CloudflareOperation } from '@void/deploy-cloudflare';
+import { cloudflareCommandDiagnostic } from '@void/deploy-cloudflare';
+import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   cfOperationName,

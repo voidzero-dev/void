@@ -5,9 +5,11 @@ import {
   parseRootWranglerConfig,
   readExistingCloudflareWorker,
   readWranglerTopLevelString,
-  type ApprovedCloudflareKvBinding,
-  type CloudflareCommandRunner,
-  type ExistingCloudflareWorker,
+} from '@void/deploy-cloudflare';
+import type {
+  ApprovedCloudflareKvBinding,
+  CloudflareCommandRunner,
+  ExistingCloudflareWorker,
 } from '@void/deploy-cloudflare';
 import { join } from 'pathslash';
 import { materializeCloudflareConfig } from '../cloudflare-config.ts';
@@ -26,19 +28,16 @@ import {
   assertCloudflareCandidateUnchanged,
   clearCloudflareCandidate,
   recordCloudflareCandidateUpload,
-  type CloudflareCandidateReceipt,
 } from './cloudflare-candidate.ts';
-import {
-  observeCfCommand,
-  observeCloudflareRunner,
-  type CloudflareChildReporter,
-} from './cloudflare-child-report.ts';
+import type { CloudflareCandidateReceipt } from './cloudflare-candidate.ts';
+import { observeCfCommand, observeCloudflareRunner } from './cloudflare-child-report.ts';
+import type { CloudflareChildReporter } from './cloudflare-child-report.ts';
 import {
   assertCloudflareLinkUnchanged,
   completeCloudflareLink,
   recordCloudflareCandidate,
-  type CloudflareLink,
 } from './cloudflare-link.ts';
+import type { CloudflareLink } from './cloudflare-link.ts';
 import {
   createCloudflareEmptyCronPublisher,
   createCloudflareEmptyDomainPublisher,
@@ -62,15 +61,16 @@ import {
 import { log } from './deploy-helpers.ts';
 import { deployChildEnv, resolveDeployTransport } from './deploy-transport.ts';
 import type { CloudflareDeployDeps, DeployWranglerRun } from './deploy-types.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { createSpinner, getErrorMessage } from './output.ts';
-import { resolveWorkersDevComplianceRegion, type ComplianceRegion } from './provision.ts';
+import { resolveWorkersDevComplianceRegion } from './provision.ts';
+import type { ComplianceRegion } from './provision.ts';
 import {
   acknowledgeWranglerManagedQueueRemovals,
   readWranglerPublishedTrafficSnapshot,
   writeWranglerPublishedTrafficSnapshot,
-  type readWranglerManagedQueueCleanupCandidates,
 } from './wrangler.ts';
+import type { readWranglerManagedQueueCleanupCandidates } from './wrangler.ts';
 
 type CloudflareActivationOptions = Parameters<typeof activateCloudflareVersion>[0];
 type CloudflareActivationResult = Awaited<ReturnType<typeof activateCloudflareVersion>>;

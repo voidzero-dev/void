@@ -1,8 +1,5 @@
-import {
-  createPlatformDeploymentManifest,
-  parsePlatformDeploymentManifest,
-  type PlatformDeploymentManifest,
-} from './manifest.ts';
+import { createPlatformDeploymentManifest, parsePlatformDeploymentManifest } from './manifest.ts';
+import type { PlatformDeploymentManifest } from './manifest.ts';
 import {
   assertRecord,
   isSandboxDrainProtocol,

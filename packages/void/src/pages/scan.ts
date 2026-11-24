@@ -4,23 +4,19 @@ import { glob } from 'tinyglobby';
 import { parseSync } from 'vite';
 import { readConfig } from '../config.ts';
 import { voidWarn } from '../log.ts';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
-import {
-  isRouteEnabledForEnvironment,
-  parseRouteFilename,
-  type RouteEnvironment,
-} from '../router/parse-filename.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
+import { isRouteEnabledForEnvironment, parseRouteFilename } from '../router/parse-filename.ts';
+import type { RouteEnvironment } from '../router/parse-filename.ts';
 import { compareRouteSpecificity } from '../router/route-order.ts';
 import { bindingNames } from '../shared/ast-bindings.ts';
-import {
-  isIdentifier,
-  isLiteral,
-  moduleExportName,
-  type AstExportNamedDeclaration,
-  type AstFunctionDeclaration,
-  type AstNode,
-  type AstProgram,
-  type AstVariableDeclaration,
+import { isIdentifier, isLiteral, moduleExportName } from '../shared/ast.ts';
+import type {
+  AstExportNamedDeclaration,
+  AstFunctionDeclaration,
+  AstNode,
+  AstProgram,
+  AstVariableDeclaration,
 } from '../shared/ast.ts';
 import { ROUTE_EXTENSIONS, ROUTE_EXTENSIONS_SET } from '../shared/route-extensions.ts';
 import { deriveFromSource } from '../shared/source-analysis-cache.ts';

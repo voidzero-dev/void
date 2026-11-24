@@ -3,7 +3,8 @@ import { Hono } from 'hono';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vite-plus/test';
 import { z } from 'zod';
-import { defineHandler, type CloudContext } from '../../src/runtime/handler/index.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
 import { convertReturnValue } from '../../src/runtime/handler/response.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 

@@ -23,7 +23,7 @@ import {
 } from '../suspension.ts';
 import type { PlanId } from '../tiers.ts';
 import type { Build } from '../types.ts';
-import { type Db } from './client.ts';
+import type { Db } from './client.ts';
 import { installationCoversRepoInTx } from './github-authority.ts';
 
 // ---------------------------------------------------------------------------

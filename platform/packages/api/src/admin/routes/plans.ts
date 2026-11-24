@@ -1,9 +1,7 @@
-import {
-  PLAN_EDITABLE_LIMIT_KEYS,
-  parsePlatformPlanId,
-  type PlatformPlanCatalog,
-} from '@void/platform/plans';
-import { Hono, type Context } from 'hono';
+import { PLAN_EDITABLE_LIMIT_KEYS, parsePlatformPlanId } from '@void/platform/plans';
+import type { PlatformPlanCatalog } from '@void/platform/plans';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { PlanAiLoggingPublishProgress } from '../../ai-logging-plans.ts';
 import { isAiLoggingMode } from '../../ai-logging-policy.ts';
@@ -14,8 +12,8 @@ import {
   getOperatorPlanCatalog,
   mutateOperatorPlanCatalog,
   syncOperatorPlanCatalog,
-  type PlanCatalogAction,
 } from '../../operator/plans.ts';
+import type { PlanCatalogAction } from '../../operator/plans.ts';
 import { getPlatformDisplayName } from '../../platform-identity.ts';
 import { renderFateListPage } from '../fate/render.ts';
 import type { AdminPlanPreview, AdminPlanProgress } from '../plans.ts';

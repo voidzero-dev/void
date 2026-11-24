@@ -27,8 +27,8 @@ import {
   emailOperations,
   emailOperationSteps,
   emailZoneConnections,
-  type EmailInboundMode,
 } from './connection-schema.ts';
+import type { EmailInboundMode } from './connection-schema.ts';
 import { isValidEmailDomain, normalizeEmailDomain } from './domain-name.ts';
 import { RELAY_COMPATIBILITY_DATE, RELAY_SOURCE, RELAY_VERSION } from './relay-worker.ts';
 

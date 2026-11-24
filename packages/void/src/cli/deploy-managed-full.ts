@@ -7,9 +7,10 @@ import {
   hasDocumentRoutes as routeScanHasDocumentRoutes,
   resolveAssetConfig,
 } from '../asset-routing.ts';
-import { type VoidConfig, isNodeTarget } from '../config.ts';
+import { isNodeTarget } from '../config.ts';
+import type { VoidConfig } from '../config.ts';
 import { collectRevalidate } from '../isr-config.ts';
-import { type DetectedFramework } from '../plugin-inference.ts';
+import type { DetectedFramework } from '../plugin-inference.ts';
 import { assertNoPrerenderFailures } from '../prerender-render.ts';
 import {
   collectPrerenderPaths,
@@ -49,16 +50,17 @@ import {
 import { runStaticDeploy, assembleVoidManifest } from './deploy-managed-static.ts';
 import { formatDeploySummary, printDeploySuccess } from './deploy-summary.ts';
 import { MANAGED_DEPLOY_BUILD_ENV } from './deploy-transport.ts';
-import { type GitDeployMetadata } from './git-metadata.ts';
-import { type CliLogger } from './log-file.ts';
+import type { GitDeployMetadata } from './git-metadata.ts';
+import type { CliLogger } from './log-file.ts';
 import { createSpinner, formatCount, note } from './output.ts';
 import {
   collectAndHashAssets,
   collectWorkerFiles,
   detectNonSpaFallbackWarning,
 } from './package.ts';
-import { formatProjectCommand, type FrameworkPreset } from './preset.ts';
-import { type ProjectConfig } from './project.ts';
+import { formatProjectCommand } from './preset.ts';
+import type { FrameworkPreset } from './preset.ts';
+import type { ProjectConfig } from './project.ts';
 import type { AssetConfig } from './types.ts';
 import type { WrapperFeatures } from './wrapper.ts';
 import { needsWrapper } from './wrapper.ts';

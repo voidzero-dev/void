@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vite-plus/test';
-import {
-  applyHeaderRules,
-  parseClearSiteData,
-  sanitizeClearSiteData,
-  type HeaderRule,
-} from '../../src/headers.ts';
+import { applyHeaderRules, parseClearSiteData, sanitizeClearSiteData } from '../../src/headers.ts';
+import type { HeaderRule } from '../../src/headers.ts';
 
 describe('applyHeaderRules', () => {
   it('returns original response when no rules', () => {

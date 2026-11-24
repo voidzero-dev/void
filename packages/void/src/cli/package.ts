@@ -25,12 +25,8 @@ import type {
   WebSocketManifestMeta,
 } from './types.ts';
 export type { DeployAssetManifestEntry as AssetManifestEntry } from './types.ts';
-import {
-  DEFAULT_LIVE_BINDING,
-  DEFAULT_LIVE_CLASS,
-  LIVE_MIGRATION_TAG,
-  type LiveBindingConfig,
-} from './wrangler.ts';
+import { DEFAULT_LIVE_BINDING, DEFAULT_LIVE_CLASS, LIVE_MIGRATION_TAG } from './wrangler.ts';
+import type { LiveBindingConfig } from './wrangler.ts';
 
 const textEncoder = new TextEncoder();
 

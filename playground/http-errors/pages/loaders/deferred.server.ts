@@ -1,4 +1,5 @@
-import { defineHandler, defer, type InferProps } from 'void/handler';
+import { defineHandler, defer } from 'void/handler';
+import type { InferProps } from 'void/handler';
 import { statusMessages } from '../../src/utils.ts';
 
 export const loader = defineHandler((c) => {

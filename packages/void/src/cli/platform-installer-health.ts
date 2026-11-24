@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { normalizeApplicationDomain, PLATFORM_HEALTH_HOSTNAME_LABEL } from '@void/platform';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
-import { type PlatformHealthCheckContext } from './platform-installer-types.ts';
+import type { PlatformHealthCheckContext } from './platform-installer-types.ts';
 
 export class PlatformAccessBlockedError extends Error {
   constructor(url: string, context?: PlatformHealthCheckContext) {

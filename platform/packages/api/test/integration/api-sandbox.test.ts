@@ -24,8 +24,8 @@ import {
   mockCfApi,
   skipOrphanSweepDelay,
   readAllEvents,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Managed Sandbox deploys isolate the trusted controller in an account Worker.

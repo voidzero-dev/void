@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import {
   mkdir,
   mkdirSync,
@@ -17,12 +18,12 @@ import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, vi } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { operationFixture } from '../../../deploy-cloudflare/test/operation-fixture.ts';
-import {
-  type DesiredResourceSet,
-  type ProvisionLogger,
-  type RunWrangler,
-  type RunWranglerResult,
-  type WranglerCallContext,
+import type {
+  DesiredResourceSet,
+  ProvisionLogger,
+  RunWrangler,
+  RunWranglerResult,
+  WranglerCallContext,
 } from '../../src/cli/provision.ts';
 
 /** proper-lockfile's callback-style fs seam. Tests override single calls on top of it. */

@@ -311,7 +311,7 @@ const config = defineConfig({
       {
         // Fate may emit unused imports; still lint and typecheck the generated client.
         files: ['platform/packages/api/src/admin/fate/client.generated.ts'],
-        rules: { 'no-unused-vars': 'off' },
+        rules: { 'import/consistent-type-specifier-style': 'off', 'no-unused-vars': 'off' },
       },
       {
         files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
@@ -431,7 +431,6 @@ const config = defineConfig({
       // Temporarily disabled during the shared preset migration.
       '@nkzw/no-instanceof': 'off',
       eqeqeq: 'off',
-      'import/consistent-type-specifier-style': 'off',
       'import/no-namespace': 'off',
       'no-console': 'off',
       'no-promise-executor-return': 'off',

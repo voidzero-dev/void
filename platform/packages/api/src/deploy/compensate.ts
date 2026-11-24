@@ -1,6 +1,6 @@
 import { platformProjectHostname, readPlatformApplication } from '@void/platform';
 import { sql as drizzleSql } from 'drizzle-orm';
-import { type Context } from 'hono';
+import type { Context } from 'hono';
 import { deleteDispatchScript } from '../cf-api.ts';
 import {
   getProject,
@@ -17,17 +17,17 @@ import {
 import { sendDeployFailedEmail } from '../email.ts';
 import type { ApiEnv } from '../env.ts';
 import { createIsrStore } from '../isr-store.ts';
-import { type DeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import { ProjectAccessDeniedError } from '../project-access.ts';
 import { reconcileManagedDurableObjects } from '../provisioning/durable-objects.ts';
 import { deleteSandboxController } from '../provisioning/sandbox-controller.ts';
 import { projectRouteKey } from '../routing.ts';
-import {
-  type DeployManifest,
-  type DeployEvent,
-  type Deployment,
-  type Project,
-  type DeploymentStatus,
+import type {
+  DeployManifest,
+  DeployEvent,
+  Deployment,
+  Project,
+  DeploymentStatus,
 } from '../types.ts';
 import {
   resolveProjectZeroTrustRoutingForPublication,

@@ -4,7 +4,8 @@ import app from '../../src/index.ts';
 import { deriveAiUsageTag } from '../../src/proxy-token.ts';
 import { projects, projectOwnershipPeriods, users } from '../../src/schema.ts';
 import { getCurrentBillingPeriodStart } from '../../src/tiers.ts';
-import { UsageCounter, type CounterState } from '../../src/usage-counter.ts';
+import { UsageCounter } from '../../src/usage-counter.ts';
+import type { CounterState } from '../../src/usage-counter.ts';
 import {
   clearTables,
   createTestProject,
@@ -13,8 +14,8 @@ import {
   skipOrphanSweepDelay,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {

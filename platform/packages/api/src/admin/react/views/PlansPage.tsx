@@ -10,12 +10,8 @@ import {
   TableRow,
 } from '@astryxdesign/core/Table';
 import { useToast } from '@astryxdesign/core/Toast';
-import {
-  PLAN_EDITABLE_LIMIT_KEYS,
-  PLAN_LIMITS,
-  type EditablePlanLimit,
-  type PlatformPlanDefinition,
-} from '@void/platform/plans';
+import { PLAN_EDITABLE_LIMIT_KEYS, PLAN_LIMITS } from '@void/platform/plans';
+import type { EditablePlanLimit, PlatformPlanDefinition } from '@void/platform/plans';
 import { Link } from '@void/react';
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';

@@ -1,4 +1,4 @@
-import { type Plugin } from 'vite';
+import type { Plugin } from 'vite';
 
 export function createClientStubsPlugin(): Plugin {
   const STUB_PREFIX = '\0void-client-stub:';

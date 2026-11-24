@@ -13,8 +13,8 @@ import {
   objectFromRecord,
   optionsFromRecord,
   toOutputValue,
-  type UnknownRecord,
 } from './converter-helpers.ts';
+import type { UnknownRecord } from './converter-helpers.ts';
 import { convertExports } from './exports.ts';
 import { CONFIGURATION_DOCS_URL, createFollowUp, followUpToComment } from './follow-ups.ts';
 import { convertTriggers } from './triggers.ts';

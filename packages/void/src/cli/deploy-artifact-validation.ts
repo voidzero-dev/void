@@ -5,11 +5,13 @@ import {
   readConfigEntryString as readD1EntryString,
   readStoredResourceName,
   assertExistingCloudflareConfig,
-  type ExistingCloudflareWorker,
-  type ApprovedCloudflareKvBinding,
+} from '@void/deploy-cloudflare';
+import type {
+  ExistingCloudflareWorker,
+  ApprovedCloudflareKvBinding,
 } from '@void/deploy-cloudflare';
 import { dirname, resolve } from 'pathslash';
-import { type RoutingConfig } from '../config.ts';
+import type { RoutingConfig } from '../config.ts';
 import {
   deployPointerPath,
   desiredIdentityBindings,
@@ -28,7 +30,7 @@ import {
 import { log } from './deploy-helpers.ts';
 import { BETTER_AUTH_SECRET_NAME } from './deploy-resources.ts';
 import { buildSchemaProbeEnv } from './deploy-transport.ts';
-import { type BindingIdentitySnapshot, type CloudflareDeployDeps } from './deploy-types.ts';
+import type { BindingIdentitySnapshot, CloudflareDeployDeps } from './deploy-types.ts';
 import type {
   EnvSchemaProbeInput,
   EnvSchemaProbeResult,
@@ -43,8 +45,8 @@ import {
   SelfHostFirstDeployError,
   SelfHostSchemaError,
   SelfHostSecretListError,
-  type SelfHostSchemaFacts,
 } from './env-validation.ts';
+import type { SelfHostSchemaFacts } from './env-validation.ts';
 import { readGeneratedWranglerConfigFile } from './generated-wrangler-config.ts';
 import { getErrorMessage } from './output.ts';
 import type { DesiredResourceSet } from './provision.ts';

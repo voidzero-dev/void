@@ -9,8 +9,8 @@ import {
   getDomainByHostname,
   getDomainByHostnameOrCfHostnameId,
   deleteDomain,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { tryActivateDomain } from '../provisioning/activate-domain.ts';
 import {
@@ -18,8 +18,8 @@ import {
   createCustomHostname,
   deleteCustomHostname,
   getCustomHostnameByHostname,
-  type CustomHostnameInfo,
 } from '../provisioning/cloudflare-api.ts';
+import type { CustomHostnameInfo } from '../provisioning/cloudflare-api.ts';
 import type { DomainVerificationData } from '../schema.ts';
 import { ZeroTrustUnavailableError } from '../zero-trust/errors.ts';
 import { lockZeroTrustConfiguration } from '../zero-trust/lock.ts';

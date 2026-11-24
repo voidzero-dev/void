@@ -17,10 +17,12 @@ import {
   renderEmailChecklist,
   subdomainDashboardFallback,
   SENDING_FREE_PLAN_HINT,
-  type EmailCloudflareInputs,
-  type EmailDns,
-  type EmailPreflight,
-  type EmailWranglerRunResult,
+} from '../../src/cli/email-cloudflare.ts';
+import type {
+  EmailCloudflareInputs,
+  EmailDns,
+  EmailPreflight,
+  EmailWranglerRunResult,
 } from '../../src/cli/email-cloudflare.ts';
 import type { EmailHandlersScan } from '../../src/router/email.ts';
 import { compileEmailPattern } from '../../src/shared/email-pattern.ts';

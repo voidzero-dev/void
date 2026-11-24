@@ -5,19 +5,17 @@ import { requireProjectCapability } from '../project-access.ts';
 import type { projectZeroTrust } from '../schema.ts';
 import type { Project, ProjectZeroTrust } from '../types.ts';
 import { bypassPolicy, reusablePolicyReferences, ZeroTrustCloudflareClient } from './cloudflare.ts';
-import {
-  type ManagedAccessApplication,
-  type ZeroTrustConfiguration,
-  readZeroTrustConfigurationStrict,
-} from './configuration.ts';
+import { readZeroTrustConfigurationStrict } from './configuration.ts';
+import type { ManagedAccessApplication, ZeroTrustConfiguration } from './configuration.ts';
 import { ZeroTrustUnavailableError } from './errors.ts';
-import { withProjectZeroTrustLock, type RecordProjectErrors } from './lock.ts';
+import { withProjectZeroTrustLock } from './lock.ts';
+import type { RecordProjectErrors } from './lock.ts';
 import {
   publishProjectZeroTrustRoutingLocked,
   requiredRoutingBudget,
   routingProtection,
-  type RoutingBudget,
 } from './routing.ts';
+import type { RoutingBudget } from './routing.ts';
 import {
   applicationName,
   clientForConfiguration,

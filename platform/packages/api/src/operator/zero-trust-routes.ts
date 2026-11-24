@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { getProject, type Db } from '../db.ts';
+import { getProject } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import {
   ZeroTrustConfigurationError,

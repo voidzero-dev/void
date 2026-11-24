@@ -46,8 +46,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // Stub the OIDC verifier so we exercise the route's connection-resolution and
 // token-minting logic without a real GitHub JWKS. `setVerifyResult` controls

@@ -1,4 +1,5 @@
-import { parsePlatformDiscoveryDocument, type PlatformDiscoveryDocument } from '@void/platform';
+import { parsePlatformDiscoveryDocument } from '@void/platform';
+import type { PlatformDiscoveryDocument } from '@void/platform';
 import { normalizePlatformApiUrl } from './platform-registry.ts';
 
 /** Discovery was refused because the platform traffic gate is closed. */

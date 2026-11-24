@@ -4,12 +4,12 @@ import {
   resolvePageTtl,
   resolveRevalidateTtl,
   SHARED_CACHE_POLICY_VERSION,
-  type IsrCacheMetadata,
 } from '@void/isr/core';
+import type { IsrCacheMetadata } from '@void/isr/core';
 import { platformProjectHostname, readPlatformApplication } from '@void/platform';
 import { sql as drizzleSql } from 'drizzle-orm';
-import { type Context } from 'hono';
-import { type AssetManifestEntry } from '../assets.ts';
+import type { Context } from 'hono';
+import type { AssetManifestEntry } from '../assets.ts';
 import { deleteDispatchScript } from '../cf-api.ts';
 import { uploadPool } from '../concurrency.ts';
 import { clearCronScheduler, syncCronScheduler } from '../cron-scheduler-client.ts';
@@ -21,12 +21,12 @@ import {
   markDeploymentRetained,
   getRetainedDeploymentsExcluding,
   getProjectResources,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { createIsrStore } from '../isr-store.ts';
 import { getProjectQueueName } from '../naming.ts';
-import { type DeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import { resolvePlanLimits } from '../plans.ts';
 import { addQueueConsumer, removeQueueConsumer } from '../provisioning/cloudflare-api.ts';
 import {
@@ -41,12 +41,12 @@ import { projectRouteKey } from '../routing.ts';
 import { buildRoutingJson, computeDispatchLimits } from '../routing.ts';
 import { REASON_REQUESTS_EXCEEDED } from '../suspension.ts';
 import type { PlanLimits } from '../tiers.ts';
-import {
-  type DeployManifest,
-  type DeployEvent,
-  type Deployment,
-  type Project,
-  type DeploymentStatus,
+import type {
+  DeployManifest,
+  DeployEvent,
+  Deployment,
+  Project,
+  DeploymentStatus,
 } from '../types.ts';
 import type { WorkerModule } from '../worker-upload.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
@@ -57,8 +57,8 @@ import {
   requireActiveDeployAccess,
   cutoverIntentKey,
   cutoverReadyKey,
-  type CutoverMarker,
 } from './recovery.ts';
+import type { CutoverMarker } from './recovery.ts';
 import { projectPublicUrls } from './shared.ts';
 
 export async function publishWorkerDeployment(input: {

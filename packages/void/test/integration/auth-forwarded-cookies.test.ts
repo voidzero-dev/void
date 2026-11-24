@@ -5,12 +5,12 @@ import { getCookieCache } from 'better-auth/cookies';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
-import {
-  createVoidAuthRuntime,
-  type VoidAuthRuntimeOptions,
-} from '../../src/runtime/auth/better-auth-shared.ts';
-import { getAuth, getSession, getUser, type VoidAuthConfig } from '../../src/runtime/auth/index.ts';
-import { createRoutingRuntime, type RoutingContext } from '../../src/runtime/routing/index.ts';
+import { createVoidAuthRuntime } from '../../src/runtime/auth/better-auth-shared.ts';
+import type { VoidAuthRuntimeOptions } from '../../src/runtime/auth/better-auth-shared.ts';
+import { getAuth, getSession, getUser } from '../../src/runtime/auth/index.ts';
+import type { VoidAuthConfig } from '../../src/runtime/auth/index.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
+import type { RoutingContext } from '../../src/runtime/routing/index.ts';
 import { createPageMutationHandler } from '../../src/runtime/routing/pages.ts';
 
 const env = { BETTER_AUTH_SECRET: 'local-test-secret-with-at-least-32-characters' };

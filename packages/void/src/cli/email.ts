@@ -9,13 +9,8 @@ import { readConfig } from '../config.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import { scanEmailHandlersSync } from '../router/email.ts';
 import { getToken, openBrowser } from './auth.ts';
-import {
-  PlatformApiError,
-  PlatformClient,
-  type EmailDomainResponse,
-  type EmailOperationResponse,
-  type EmailSharedInbound,
-} from './client.ts';
+import { PlatformApiError, PlatformClient } from './client.ts';
+import type { EmailDomainResponse, EmailOperationResponse, EmailSharedInbound } from './client.ts';
 import {
   createDeployWranglerRunner,
   deriveWorkerName,
@@ -35,11 +30,13 @@ import {
   probeMx,
   renderAddressMap,
   renderEmailChecklist,
-  type EmailCloudflareInputs,
-  type EmailDns,
-  type EmailFetch,
-  type EmailPreflight,
-  type EmailWranglerRun,
+} from './email-cloudflare.ts';
+import type {
+  EmailCloudflareInputs,
+  EmailDns,
+  EmailFetch,
+  EmailPreflight,
+  EmailWranglerRun,
 } from './email-cloudflare.ts';
 import { printSuccess, createSpinner, formatUrl, note, pc } from './output.ts';
 import { resolveCommandProjectId } from './resolve-project.ts';

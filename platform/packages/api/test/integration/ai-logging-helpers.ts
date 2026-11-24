@@ -1,5 +1,6 @@
 import { expect, vi } from 'vite-plus/test';
-import { aiLoggingKey, type PublishedAiLoggingMode } from '../../src/ai-logging-policy.ts';
+import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
+import type { PublishedAiLoggingMode } from '../../src/ai-logging-policy.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
 import type { TestEnv } from './helpers.ts';

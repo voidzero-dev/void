@@ -35,8 +35,8 @@ import {
   setupEnv,
   skipOrphanSweepDelay,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv, operatorToken: string;
 // Each custom mail hostname is the apex of its own test zone.

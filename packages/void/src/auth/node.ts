@@ -11,12 +11,8 @@ import {
   pgMigrationRunner,
 } from '../runtime/auth/migrations.ts';
 import { loadLocalEnv } from '../shared/env.ts';
-import {
-  findVoidAuthConfig,
-  loadVoidAuthConfig,
-  projectAuthConfigImporter,
-  type ModuleImporter,
-} from './config.ts';
+import { findVoidAuthConfig, loadVoidAuthConfig, projectAuthConfigImporter } from './config.ts';
+import type { ModuleImporter } from './config.ts';
 import { resolveVoidAuthMigrationSchema } from './drizzle.ts';
 
 export async function runLocalVoidAuthMigrations(

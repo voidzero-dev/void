@@ -7,12 +7,8 @@ import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import type { Project } from '../types.ts';
 import { createCfCustomerClient } from './cf-customer.ts';
-import {
-  emailDomainRoutes,
-  emailOperations,
-  emailZoneConnections,
-  type EmailInboundMode,
-} from './connection-schema.ts';
+import { emailDomainRoutes, emailOperations, emailZoneConnections } from './connection-schema.ts';
+import type { EmailInboundMode } from './connection-schema.ts';
 import {
   EmailOperationError,
   credentialFor,

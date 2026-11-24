@@ -1,13 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
-import {
-  type AliasOptions,
-  isRunnableDevEnvironment,
-  parseSync,
-  runnerImport,
-  type ViteDevServer,
-} from 'vite';
+import { isRunnableDevEnvironment, parseSync, runnerImport } from 'vite';
+import type { AliasOptions, ViteDevServer } from 'vite';
 import { discoverSchema } from '../drizzle/discover.ts';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
 import type { VoidAuthConfig } from '../runtime/auth/index.ts';
 import type { AstNode, AstProgram } from '../shared/ast.ts';
 

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { applyEdits, modify, parse as parseJsoncConfig, type ParseError } from 'jsonc-parser';
+import { applyEdits, modify, parse as parseJsoncConfig } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 
 /** Parse a root Wrangler JSON/JSONC config without accepting a partial parse. */
 export function parseRootWranglerConfig(configPath: string): Record<string, unknown> {

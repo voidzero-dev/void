@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { translateWranglerConfig } from '../../src/cli/cf-config-migrate.ts';
 import cases from '../fixtures/cf-config-cases.json' with { type: 'json' };
-import { translateWithCodemod, type CodemodTranslation } from './cf-config-codemod.ts';
+import { translateWithCodemod } from './cf-config-codemod.ts';
+import type { CodemodTranslation } from './cf-config-codemod.ts';
 
 // The codemod reports what a project must install. Void's translation has no project.
 const projectFollowUp = /^(?:cf-install|vite-plugin-(?:install|upgrade)|wrangler-upgrade)/;

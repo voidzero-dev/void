@@ -7,13 +7,8 @@ import {
   openBrowser,
   getToken,
 } from './auth.ts';
-import {
-  PlatformApiError,
-  PlatformClient,
-  parsePlatformErrorBody,
-  type GithubConnection,
-  type GithubInstallation,
-} from './client.ts';
+import { PlatformApiError, PlatformClient, parsePlatformErrorBody } from './client.ts';
+import type { GithubConnection, GithubInstallation } from './client.ts';
 import { collectGitDeployMetadata } from './git-metadata.ts';
 import type { GithubArgs } from './github-args.ts';
 import { printSuccess, formatUrl, pc } from './output.ts';

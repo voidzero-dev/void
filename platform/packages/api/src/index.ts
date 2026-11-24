@@ -51,8 +51,8 @@ import {
   getOpenProjectOwnershipPeriodsByProjectIds,
   getProjectsByIds,
   getUsersByIds,
-  type Db,
 } from './db.ts';
+import type { Db } from './db.ts';
 import {
   deploymentExecutionStatus,
   dispatchPendingDeployments,
@@ -70,7 +70,8 @@ import { isValidEmailDomain, MAX_DOMAIN_LENGTH } from './email/domain-name.ts';
 import emailIngressResolution from './email/ingress-resolution.ts';
 import { repairEmailRecipientPolicyMirror } from './email/settings.ts';
 import { reconcileSharedEmailRecipients } from './email/shared-recipient-service.ts';
-import { isDevBypass, type ApiEnv } from './env.ts';
+import { isDevBypass } from './env.ts';
+import type { ApiEnv } from './env.ts';
 import { ErrorAlertMonitor } from './error-alert-monitor.ts';
 import { armFastMaintenance, fastMaintenanceArmedAt } from './fast-maintenance.ts';
 import { cancelContainerBuildDos } from './github/cancel-builds.ts';

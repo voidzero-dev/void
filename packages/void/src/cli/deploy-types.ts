@@ -2,13 +2,12 @@ import {
   activateCloudflareVersion,
   readExistingCloudflareWorker,
   assertCloudflareDurableObjectLifecycleSupported,
-  type CloudflareCommandResult,
-  type CloudflareOperation,
 } from '@void/deploy-cloudflare';
-import { type VoidConfig } from '../config.ts';
+import type { CloudflareCommandResult, CloudflareOperation } from '@void/deploy-cloudflare';
+import type { VoidConfig } from '../config.ts';
 import { runMySqlMigrations } from '../migrations/runner-mysql.ts';
 import { runPgMigrations } from '../migrations/runner-pg.ts';
-import { type EmailHandlersScan } from '../router/email.ts';
+import type { EmailHandlersScan } from '../router/email.ts';
 import { verifyGeneratedDeployConfig } from './deploy-artifact-validation.ts';
 import { ensureCloudflareAuthSecret } from './deploy-cloudflare-auth.ts';
 import { prepareCloudflareFrameworkArtifact } from './deploy-cloudflare-static.ts';
@@ -17,15 +16,17 @@ import {
   checkWranglerMigrationApplySet,
   validateAuthMigrationSchema,
 } from './deploy-migrations.ts';
-import { renderAddressMap, type EmailDns, type EmailFetch } from './email-cloudflare.ts';
+import { renderAddressMap } from './email-cloudflare.ts';
+import type { EmailDns, EmailFetch } from './email-cloudflare.ts';
 import type {
   EnvSchemaProbeInput,
   EnvSchemaProbeResult,
   EnvSchemaValidateResult,
 } from './env-schema-probe.ts';
-import { dischargeSelfHostEnvContext, type EmittedWorkerVarsResult } from './env-validation.ts';
-import { type CliLogger } from './log-file.ts';
-import { type DeploymentPlatform } from './project.ts';
+import { dischargeSelfHostEnvContext } from './env-validation.ts';
+import type { EmittedWorkerVarsResult } from './env-validation.ts';
+import type { CliLogger } from './log-file.ts';
+import type { DeploymentPlatform } from './project.ts';
 import type { provisionCloudflareResources } from './provision.ts';
 import type { DeployEvent, DeployTargetAdapter } from './types.ts';
 

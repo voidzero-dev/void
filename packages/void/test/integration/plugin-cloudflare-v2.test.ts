@@ -16,14 +16,8 @@ import {
   getWorkerAssetsDir,
   readBuildOutput,
 } from '@cloudflare/build-output-utils';
-import {
-  createBuilder,
-  createServer,
-  normalizePath,
-  preview,
-  resolveConfig,
-  type InlineConfig,
-} from 'vite';
+import { createBuilder, createServer, normalizePath, preview, resolveConfig } from 'vite';
+import type { InlineConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
 import {

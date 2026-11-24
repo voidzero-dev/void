@@ -1,4 +1,5 @@
-import { defineHandler, type InferProps } from 'void';
+import { defineHandler } from 'void';
+import type { InferProps } from 'void';
 import { defaultSandboxCode, sampleRequests } from '../lib/sandbox-demo.ts';
 
 export type Props = InferProps<typeof loader>;

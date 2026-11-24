@@ -1,9 +1,11 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vite-plus/test';
-import { createSsrRouter, type NavigationMethod, type NavigationState } from 'void/pages-client';
+import { createSsrRouter } from 'void/pages-client';
+import type { NavigationMethod, NavigationState } from 'void/pages-client';
 import { NavigationContext, RouterContext } from '../../src/runtime/context.ts';
-import { Link, type LinkProps } from '../../src/runtime/link.tsx';
+import { Link } from '../../src/runtime/link.tsx';
+import type { LinkProps } from '../../src/runtime/link.tsx';
 
 function renderAt(url: string | null, props: LinkProps): string {
   return renderToStaticMarkup(

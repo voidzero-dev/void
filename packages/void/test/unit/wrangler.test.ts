@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse as parseJsoncRaw, type ParseError } from 'jsonc-parser';
+import { parse as parseJsoncRaw } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 import { toSlash } from 'pathslash';
 import { describe, it, expect, afterEach } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
@@ -22,10 +23,11 @@ import {
   syncWranglerBindings,
   syncWranglerDurableObjects,
   syncWranglerWebSockets,
-  type ProvisionedWranglerPatch,
   writeProvisionedWranglerConfig,
 } from '../../src/cli/wrangler.ts';
-import { readConfig, type VoidConfig } from '../../src/config.ts';
+import type { ProvisionedWranglerPatch } from '../../src/cli/wrangler.ts';
+import { readConfig } from '../../src/config.ts';
+import type { VoidConfig } from '../../src/config.ts';
 import type { InferredBindings } from '../../src/inference/walk.ts';
 
 const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-wrangler-test');

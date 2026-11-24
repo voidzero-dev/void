@@ -66,9 +66,8 @@ import {
   evaluateAiLimit,
   evaluateSandboxRuntimeLimit,
   UsageCounter,
-  type CounterState,
-  type UsageEvent,
 } from '../../src/usage-counter.ts';
+import type { CounterState, UsageEvent } from '../../src/usage-counter.ts';
 
 vi.mock('../../src/routes/usage.ts', () => ({
   queryProjectAiUsage: vi.fn(async () => ({ neurons: 0 })),

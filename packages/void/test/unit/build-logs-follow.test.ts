@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { followBuildLogs, isFatalFollowError, runBuildCommand } from '../../src/cli/build-cmd.ts';
-import { PlatformApiError, PlatformClient, type BuildLogsResponse } from '../../src/cli/client.ts';
+import { PlatformApiError, PlatformClient } from '../../src/cli/client.ts';
+import type { BuildLogsResponse } from '../../src/cli/client.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 
 const registries: Array<string> = [];

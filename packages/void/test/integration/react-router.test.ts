@@ -8,10 +8,10 @@ import {
   killChild,
   spawnFixtureServer,
   startServer,
-  type IsolatedPlayground,
-  type StartedServer,
 } from '../../../../test/integration-helpers.ts';
-import { startFakeMySqlServer, type FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import type { IsolatedPlayground, StartedServer } from '../../../../test/integration-helpers.ts';
+import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import type { FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/react-router';

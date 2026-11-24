@@ -22,8 +22,10 @@ import {
   restoreCloudflareD1Database,
   syncCloudflareSecrets,
   tailCloudflareWorker,
-  type CloudflareOperationContext,
-  type CloudflareOperationRunner,
+} from '../../src/cli/cloudflare-operations.ts';
+import type {
+  CloudflareOperationContext,
+  CloudflareOperationRunner,
 } from '../../src/cli/cloudflare-operations.ts';
 import {
   readWranglerCustomDomains,

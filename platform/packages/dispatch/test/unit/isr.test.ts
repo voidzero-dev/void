@@ -21,8 +21,8 @@ import {
   extractPageDataFromHtml,
   normalizePageDataForJsonCache,
   writeIsrCache,
-  type IsrCacheEntry,
 } from '../../src/isr.ts';
+import type { IsrCacheEntry } from '../../src/isr.ts';
 
 describe('isrCacheKey', () => {
   it('maps root path to __index__', () => {

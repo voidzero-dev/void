@@ -31,7 +31,8 @@
 import { isUnmaskActive, redactMessage } from '../../shared/env-mask.ts';
 import { ENV_REGISTRY_KEY } from '../../shared/env-registry.ts';
 import type { StandardSchemaV1 } from '../../standard-schema.ts';
-import { getRawRuntimeEnv, type RuntimeEnv } from './raw.ts';
+import { getRawRuntimeEnv } from './raw.ts';
+import type { RuntimeEnv } from './raw.ts';
 import { getRuntimeEnv, isInternalBinding } from './runtime.ts';
 
 type AnyValidator = StandardSchemaV1<unknown, unknown>;

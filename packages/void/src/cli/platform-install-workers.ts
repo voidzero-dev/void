@@ -1,4 +1,5 @@
-import { createPlatformWorkerConfigs, type PlatformInstallationManifest } from '@void/platform';
+import { createPlatformWorkerConfigs } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { writePlatformTiming } from './platform-installer-process.ts';
 import {
   recordResource,
@@ -7,14 +8,14 @@ import {
   mergePlatformWorkerTrafficConfig,
 } from './platform-installer-resources.ts';
 import { platformWorkerSecretPayload } from './platform-installer-secrets.ts';
-import {
-  type InstallationCheckpointWriter,
-  type InstallerClient,
-  type PlatformInstallerDependencies,
-  type PlatformWorkerDeploymentOptions,
-  type PlatformInstallationSecrets,
-  type PlatformInstallRunState,
-  type PlatformWorkerKey,
+import type {
+  InstallationCheckpointWriter,
+  InstallerClient,
+  PlatformInstallerDependencies,
+  PlatformWorkerDeploymentOptions,
+  PlatformInstallationSecrets,
+  PlatformInstallRunState,
+  PlatformWorkerKey,
 } from './platform-installer-types.ts';
 import {
   runPlatformWrangler,
@@ -24,7 +25,7 @@ import {
   recordWorkerCutoverStage,
   recordWorkerUnsafeTraffic,
 } from './platform-installer-workers.ts';
-import { type PlatformInstallPlan, type PlatformInstallPlanAction } from './platform-plan.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
 import { writeInstallationManifest } from './platform-registry.ts';
 import { platformManagedWorkerTraffic, recordPlatformWorkerTraffic } from './platform-traffic.ts';
 

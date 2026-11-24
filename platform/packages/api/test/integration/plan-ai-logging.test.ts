@@ -23,8 +23,8 @@ import {
   aiLoggingClearedKey,
   aiLoggingKey,
   PLAN_AI_LOGGING_SETTING,
-  type PlanAiLoggingSettings,
 } from '../../src/ai-logging-policy.ts';
+import type { PlanAiLoggingSettings } from '../../src/ai-logging-policy.ts';
 import {
   AI_LOGGING_SWEEP_KV_BUDGET,
   AI_LOGGING_SWEEP_STATUS_PAGE,
@@ -51,8 +51,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // Hosted Void Cloud does not set PLATFORM_AUTH_DATABASE_UNCACHED. Nothing here may
 // depend on it.

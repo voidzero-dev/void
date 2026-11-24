@@ -1,4 +1,5 @@
-import { getUser, type AuthUser } from '../auth/index.ts';
+import { getUser } from '../auth/index.ts';
+import type { AuthUser } from '../auth/index.ts';
 import { getRawRuntimeEnv } from '../env/raw.ts';
 import type { CloudContext, CloudEnv } from '../handler/index.ts';
 import { connectionInstanceName, internalUrl, topicDigest, topicInstanceName } from './names.ts';

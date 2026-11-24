@@ -16,7 +16,7 @@ import {
   DEFAULT_EMAIL_MONTHLY_LIMIT as DEFAULT_MONTHLY_LIMIT,
 } from '../../../email/limits.ts';
 import { EmailProjectView, emailProjectRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { STATUS_COLORS, formatDateTime } from './format.ts';
 import { FormNumberInput, FormTextInput } from './FormControls.tsx';
 import { Layout } from './Layout.tsx';

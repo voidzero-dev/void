@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vite-plus/test';
 
 vi.mock('cloudflare:workers', () => ({ env: {} }));
 
-import { createKV, type KVClient } from '../../src/runtime/kv/index.ts';
+import { createKV } from '../../src/runtime/kv/index.ts';
+import type { KVClient } from '../../src/runtime/kv/index.ts';
 
 function createMockKVNamespace() {
   const ns = {

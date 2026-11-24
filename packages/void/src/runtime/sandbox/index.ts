@@ -2,14 +2,12 @@ import type { Files } from '@cloudflare/sandbox';
 import { getRawRuntimeEnv } from '../env/raw.ts';
 import { requireRuntimeBinding } from '../env/runtime.ts';
 import { UsageLimit } from '../limits/index.ts';
-import {
-  SandboxContainer,
-  SANDBOX_PORT_HEADER,
-  validateSandboxOptions,
-  type SandboxCapability,
-  type SandboxOptions,
-  type SandboxExecOptions,
-  type SandboxProcessWire,
+import { SandboxContainer, SANDBOX_PORT_HEADER, validateSandboxOptions } from './container.ts';
+import type {
+  SandboxCapability,
+  SandboxOptions,
+  SandboxExecOptions,
+  SandboxProcessWire,
 } from './container.ts';
 
 export * from '@cloudflare/sandbox';

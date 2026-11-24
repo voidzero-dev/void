@@ -1,15 +1,12 @@
 import { parseSync } from 'vite';
-import {
-  isCallExpression,
-  isIdentifier,
-  isMemberExpression,
-  isObjectExpression,
-  type AstImportDeclaration,
-  type AstImportNamespaceSpecifier,
-  type AstImportSpecifier,
-  type AstNode,
-  type AstProgram,
-  type AstVariableDeclaration,
+import { isCallExpression, isIdentifier, isMemberExpression, isObjectExpression } from './ast.ts';
+import type {
+  AstImportDeclaration,
+  AstImportNamespaceSpecifier,
+  AstImportSpecifier,
+  AstNode,
+  AstProgram,
+  AstVariableDeclaration,
 } from './ast.ts';
 import { isResourceName } from './resource-name.ts';
 import { staticLiteral, unwrapStaticExpression } from './static-exports.ts';

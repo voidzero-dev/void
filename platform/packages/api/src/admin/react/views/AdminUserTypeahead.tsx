@@ -1,11 +1,7 @@
 /** @jsxImportSource react */
 
-import {
-  Typeahead,
-  TypeaheadItem,
-  type SearchSource,
-  type SearchableItem,
-} from '@astryxdesign/core/Typeahead';
+import { Typeahead, TypeaheadItem } from '@astryxdesign/core/Typeahead';
+import type { SearchSource, SearchableItem } from '@astryxdesign/core/Typeahead';
 import { useMemo } from 'react';
 import { useFateClient } from 'react-fate';
 import { UserSuggestionsView, userSuggestionsRequest } from '../../fate/views.ts';

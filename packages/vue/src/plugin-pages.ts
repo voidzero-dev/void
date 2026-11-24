@@ -1,5 +1,6 @@
 import { readdirSync } from 'node:fs';
-import { normalizePath, type Plugin, type UserConfig } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin, UserConfig } from 'vite';
 import { createPagesPlugin, generateComponentManifest, resolvePrefetchConfig } from 'void/pages';
 import type {
   PageScanResult,
@@ -7,7 +8,8 @@ import type {
   PrefetchConfig,
   StaticPageDataBuildOptions,
 } from 'void/pages';
-import { babelParse, parse, type SFCScriptCompileOptions } from 'vue/compiler-sfc';
+import { babelParse, parse } from 'vue/compiler-sfc';
+import type { SFCScriptCompileOptions } from 'vue/compiler-sfc';
 
 export type { PrefetchConfig } from 'void/pages';
 

@@ -1,4 +1,5 @@
-import { execSync, type spawn } from 'node:child_process';
+import { execSync } from 'node:child_process';
+import type { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import {
   cpSync,
@@ -12,7 +13,8 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer, type AddressInfo } from 'node:net';
+import { createServer } from 'node:net';
+import type { AddressInfo } from 'node:net';
 import { basename, join, relative } from 'node:path/posix';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stripVTControlCharacters } from 'node:util';

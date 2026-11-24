@@ -15,9 +15,8 @@ import {
   SelfHostFirstDeployError,
   SelfHostSchemaError,
   SelfHostSecretListError,
-  type SecretListRunResult,
-  type SelfHostSchemaFacts,
 } from '../../src/cli/env-validation.ts';
+import type { SecretListRunResult, SelfHostSchemaFacts } from '../../src/cli/env-validation.ts';
 import { number, string } from '../../src/runtime/env/helpers.ts';
 import { defineEnv } from '../../src/runtime/env/public.ts';
 import { _resetUnmaskCacheForTests } from '../../src/shared/env-mask.ts';

@@ -1,5 +1,6 @@
 import { isRecord } from '@void/deploy-core';
-import { clientSchema, dataView, memo, type EntityOf } from 'react-fate';
+import { clientSchema, dataView, memo } from 'react-fate';
+import type { EntityOf } from 'react-fate';
 import { createFateClient } from './client.generated.ts';
 import type {
   AdminDeploymentDetail as ServerDeploymentDetail,

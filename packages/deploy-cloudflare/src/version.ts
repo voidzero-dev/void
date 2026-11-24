@@ -7,13 +7,8 @@ import { canonicalJson, isRecord } from '@void/deploy-core';
 import { join } from 'pathslash';
 import { parseRootWranglerConfig } from './config.ts';
 import { cloudflareCommandDiagnostic } from './diagnostics.ts';
-import {
-  isCleanCommandExit,
-  isCompletedCommand,
-  isWorkerNotFound,
-  type CloudflareCommandResult,
-  type CloudflareCommandRunner,
-} from './execute.ts';
+import { isCleanCommandExit, isCompletedCommand, isWorkerNotFound } from './execute.ts';
+import type { CloudflareCommandResult, CloudflareCommandRunner } from './execute.ts';
 import type { CloudflareUploadResult } from './operations.ts';
 import {
   isVoidSecretDraftHeader,

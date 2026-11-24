@@ -1,6 +1,7 @@
 import { users, posts, insertUserSchema, insertPostSchema } from '@schema';
 import * as v from 'valibot';
-import { defineHandler, type InferProps } from 'void';
+import { defineHandler } from 'void';
+import type { InferProps } from 'void';
 import { db, eq, desc } from 'void/db';
 
 export type Props = InferProps<typeof loader>;

@@ -3,8 +3,8 @@ import {
   PLATFORM_DISABLED_KEY,
   PLATFORM_APP_ACCESS_SETUP_PROOF_PREFIX,
   PLATFORM_APP_ACCESS_TURN_OFF_PROOF_PREFIX,
-  type PlatformAppAccessSetup,
 } from '@void/platform';
+import type { PlatformAppAccessSetup } from '@void/platform';
 import { sql } from 'drizzle-orm';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import {
@@ -39,8 +39,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 const installationId = 'company-123456789abc';

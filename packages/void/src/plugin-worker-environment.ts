@@ -2,9 +2,11 @@ import { readFileSync } from 'node:fs';
 import { builtinModules, createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'pathslash';
-import { type Plugin } from 'vite';
-import { ensureWranglerCompat, type WranglerCompat } from './cli/wrangler.ts';
-import { readConfig, isNodeTarget, type DatabaseDialect } from './config.ts';
+import type { Plugin } from 'vite';
+import { ensureWranglerCompat } from './cli/wrangler.ts';
+import type { WranglerCompat } from './cli/wrangler.ts';
+import { readConfig, isNodeTarget } from './config.ts';
+import type { DatabaseDialect } from './config.ts';
 
 const CLOUDFLARE_BUILTIN_IMPORT = /^cloudflare:/;
 

@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as tinyglobby from 'tinyglobby';
-import { describe, expect, it, beforeEach, afterEach, vi, type MockInstance } from 'vite-plus/test';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { resolveLayoutIds } from '../../src/pages/layout-resolution.ts';

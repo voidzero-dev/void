@@ -1,10 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import {
-  CloudflareWorkerInspectionError,
-  type CloudflareCommandResult,
-  type ExistingCloudflareWorker,
-} from '@void/deploy-cloudflare';
+import { CloudflareWorkerInspectionError } from '@void/deploy-cloudflare';
+import type { CloudflareCommandResult, ExistingCloudflareWorker } from '@void/deploy-cloudflare';
 import { isCancel, select } from '@voidzero-dev/vite-plus-prompts';
 import { isCI as ciInfoIsCI } from 'ci-info';
 import {
@@ -22,7 +19,7 @@ import { createCloudflareProcessRunner, isCleanCloudflareExit } from './cloudfla
 import { log } from './deploy-helpers.ts';
 import { CloudflareAuthSecretError, BETTER_AUTH_SECRET_NAME } from './deploy-resources.ts';
 import { deployChildEnv } from './deploy-transport.ts';
-import { type DeployWranglerRun, type DeployWranglerRunResult } from './deploy-types.ts';
+import type { DeployWranglerRun, DeployWranglerRunResult } from './deploy-types.ts';
 import {
   listSelfHostSecretNames,
   SelfHostFirstDeployError,

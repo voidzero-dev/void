@@ -17,23 +17,25 @@ import {
   encodeCloudflareVersionMessage,
   readCloudflareTriggerConfig,
   stabilizeCloudflareVersionTriggers,
-  type CloudflareCommandResult,
-  type CloudflareOperation,
-  type CloudflareTriggerConfig,
+} from '@void/deploy-cloudflare';
+import type {
+  CloudflareCommandResult,
+  CloudflareOperation,
+  CloudflareTriggerConfig,
 } from '@void/deploy-cloudflare';
 import {
   createPlatformWorkerConfigs,
   PLATFORM_DISABLED_KEY,
   PLATFORM_DISABLED_VALUE,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { dirname, join, resolve } from 'pathslash';
 import { getErrorMessage } from './output.ts';
 import {
   PlatformWorkerCustomDomainsChangedError,
   PlatformWorkerRoutesChangedError,
-  type CloudflareWorkerCustomDomainOrigin,
 } from './platform-cloudflare.ts';
+import type { CloudflareWorkerCustomDomainOrigin } from './platform-cloudflare.ts';
 import {
   readTriggerConfigFromObject,
   recordWorkerCutoverResolution,
@@ -73,18 +75,18 @@ import {
   validateReplannedWorkerActions,
   withoutPlatformWorkerTrafficAttachments,
 } from './platform-installer-resources.ts';
-import {
-  type InstallerClient,
-  type PlatformInstallerDependencies,
-  type InstallationCheckpointWriter,
-  type InterruptedWorkerCutover,
-  type PlatformWorkerKey,
-  type PlatformWorkerDeploymentOptions,
-  type PlatformWorkerRollback,
-  type PlatformWorkerDeployment,
-  PlatformWorkerRecoveryIncompleteError,
+import { PlatformWorkerRecoveryIncompleteError } from './platform-installer-types.ts';
+import type {
+  InstallerClient,
+  PlatformInstallerDependencies,
+  InstallationCheckpointWriter,
+  InterruptedWorkerCutover,
+  PlatformWorkerKey,
+  PlatformWorkerDeploymentOptions,
+  PlatformWorkerRollback,
+  PlatformWorkerDeployment,
 } from './platform-installer-types.ts';
-import { type PlatformInstallPlan, type PlatformInstallPlanAction } from './platform-plan.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
 import { writeInstallationManifest } from './platform-registry.ts';
 import { platformWorkerLiveTriggersMatch } from './platform-trigger-proof.ts';
 import { resolveCloudflareOperationArgv } from './preset.ts';

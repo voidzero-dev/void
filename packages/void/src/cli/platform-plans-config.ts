@@ -1,10 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
-import {
-  AI_LOGGING_MODES,
-  parsePlanAiLoggingInput,
-  type AiLoggingMode,
-} from '@void/platform/ai-logging';
+import { AI_LOGGING_MODES, parsePlanAiLoggingInput } from '@void/platform/ai-logging';
+import type { AiLoggingMode } from '@void/platform/ai-logging';
 import {
   PLAN_EDITABLE_LIMIT_KEYS,
   PLAN_LIMITS,
@@ -12,16 +9,10 @@ import {
   parsePlanName,
   parseBuildInstanceType,
   parsePlatformPlanId,
-  type PlatformPlanCatalog,
-  type PlatformPlanDefinition,
 } from '@void/platform/plans';
-import {
-  type CANCEL_SYMBOL,
-  confirm,
-  isCancel,
-  select,
-  text,
-} from '@voidzero-dev/vite-plus-prompts';
+import type { PlatformPlanCatalog, PlatformPlanDefinition } from '@void/platform/plans';
+import { confirm, isCancel, select, text } from '@voidzero-dev/vite-plus-prompts';
+import type { CANCEL_SYMBOL } from '@voidzero-dev/vite-plus-prompts';
 import { utcTime } from './operator-ai-logging.ts';
 import { readOperatorToken, resolveOperatorOrigin } from './operator-auth.ts';
 import { OperatorClient, OperatorClientError } from './operator-client.ts';

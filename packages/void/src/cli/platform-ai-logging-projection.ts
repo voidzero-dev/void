@@ -9,9 +9,8 @@ import {
   PLAN_AI_LOGGING_SETTING,
   planAiLogging,
   resolveAiLogging,
-  type AiLoggingPlanCatalog,
-  type PlanAiLoggingSettings,
 } from '@void/platform/ai-logging';
+import type { AiLoggingPlanCatalog, PlanAiLoggingSettings } from '@void/platform/ai-logging';
 import { createDefaultPlanCatalog, parsePlatformPlanCatalog } from '@void/platform/plans';
 import type {
   CloudflareKvBulkEntry,

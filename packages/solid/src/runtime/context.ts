@@ -1,4 +1,5 @@
-import { createContext, type Context } from 'solid-js';
+import { createContext } from 'solid-js';
+import type { Context } from 'solid-js';
 import type { NavigationState, VoidRouter } from 'void/pages-client';
 
 export const SharedContext: Context<Record<string, unknown> | null> = createContext<Record<

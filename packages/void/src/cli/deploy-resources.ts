@@ -5,21 +5,18 @@ import {
   readWranglerTopLevelString,
 } from '@void/deploy-cloudflare';
 import { basename, join } from 'pathslash';
-import { type ApplicationAnalysis } from '../application-analysis.ts';
+import type { ApplicationAnalysis } from '../application-analysis.ts';
 import { analyzeApplication, completeApplicationAnalysis } from '../application-routing.ts';
 import { MATERIALIZED_CLOUDFLARE_FILE } from '../cloudflare-config.ts';
-import { type DatabaseDialect, type VoidConfig } from '../config.ts';
+import type { DatabaseDialect, VoidConfig } from '../config.ts';
 import { collectRevalidate, hasRevalidate } from '../isr-config.ts';
 import { scopedCloudflareQueueName } from '../queues/cloudflare-names.ts';
-import { hasEmailHandlers, type EmailHandlersScan } from '../router/email.ts';
+import { hasEmailHandlers } from '../router/email.ts';
+import type { EmailHandlersScan } from '../router/email.ts';
 import { DEFAULT_VOID_AI_BINDING } from './deploy-binding-snapshot.ts';
-import { type CloudflareAuthSecretFailureReason } from './deploy-types.ts';
-import {
-  isRealD1Id,
-  isRealKvId,
-  type DesiredResourceSet,
-  type ProvisionDriftEntry,
-} from './provision.ts';
+import type { CloudflareAuthSecretFailureReason } from './deploy-types.ts';
+import { isRealD1Id, isRealKvId } from './provision.ts';
+import type { DesiredResourceSet, ProvisionDriftEntry } from './provision.ts';
 
 /** Human labels for a drifted resource kind, used in guidance messages. */
 export const CLOUDFLARE_RESOURCE_LABELS: Record<ProvisionDriftEntry['kind'], string> = {

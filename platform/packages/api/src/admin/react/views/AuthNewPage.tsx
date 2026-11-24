@@ -2,7 +2,7 @@
 
 import { useRequest, useView } from 'react-fate';
 import { AuthNewView, authNewRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { ConnectionForm } from './ConnectionForm.tsx';
 import { Layout } from './Layout.tsx';
 import { SectionStack } from './SectionStack.tsx';

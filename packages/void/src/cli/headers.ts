@@ -10,8 +10,8 @@ import {
   isProtocolRelative,
   parseHostPrefixedSource,
   VALID_REDIRECT_STATUSES,
-  type RoutingConfig,
 } from '../config.ts';
+import type { RoutingConfig } from '../config.ts';
 import { voidWarn } from '../log.ts';
 import type { DevRedirectRule, HeaderRule } from './types.ts';
 

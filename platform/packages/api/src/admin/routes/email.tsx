@@ -1,5 +1,6 @@
 import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getPlatformCapabilities } from '../../capabilities.ts';
 import { deleteEmailDestination, getEmailDestinationsByProjectId, getProject } from '../../db.ts';
 import { emailMonthlyUsage, emailProjectControls } from '../../email/admission-schema.ts';

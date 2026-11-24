@@ -2,7 +2,8 @@ import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { signConfirmToken, type ConfirmTokenPayload } from '../auth/confirm-token.ts';
+import { signConfirmToken } from '../auth/confirm-token.ts';
+import type { ConfirmTokenPayload } from '../auth/confirm-token.ts';
 import { capabilityMiddleware } from '../capabilities.ts';
 import {
   deleteEmailDestination,
@@ -16,9 +17,8 @@ import {
   queueUnreferencedEmailDestinationCleanup,
   tryCreateEmailDestination,
   updateEmailDestinationStatus,
-  type Db,
-  type OwnerVerificationAudit,
 } from '../db.ts';
+import type { Db, OwnerVerificationAudit } from '../db.ts';
 import { getProjectEmailUsage, getProjectEmailLogs } from '../email/admission.ts';
 import { emailDomainRoutes, emailZoneConnections } from '../email/connection-schema.ts';
 import { EmailOperationError } from '../email/connection-service.ts';
@@ -57,8 +57,8 @@ import {
   addDestination,
   isAlreadyExistsError,
   listDestinations,
-  type CfDestinationAddress,
 } from '../provisioning/email-routing.ts';
+import type { CfDestinationAddress } from '../provisioning/email-routing.ts';
 import { projects } from '../schema.ts';
 import type { EmailDestination } from '../types.ts';
 import { requireProjectRouteCapability } from './project-access.ts';

@@ -10,11 +10,8 @@ import {
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
-import {
-  acquireProvisionLock,
-  WranglerQuarantineError,
-  type RunWrangler,
-} from '../../src/cli/provision.ts';
+import { acquireProvisionLock, WranglerQuarantineError } from '../../src/cli/provision.ts';
+import type { RunWrangler } from '../../src/cli/provision.ts';
 import {
   emptyDesired,
   makeRunner,

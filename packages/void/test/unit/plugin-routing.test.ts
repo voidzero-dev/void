@@ -10,14 +10,8 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  createServer,
-  normalizePath,
-  type ConfigEnv,
-  type ResolvedConfig,
-  type RunnableDevEnvironment,
-  type UserConfig,
-} from 'vite';
+import { createServer, normalizePath } from 'vite';
+import type { ConfigEnv, ResolvedConfig, RunnableDevEnvironment, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';

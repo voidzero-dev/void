@@ -11,8 +11,8 @@ import {
   resolveAssetContentTypes,
   scanProjectAssetOrphanCandidates,
   uploadAssetBuckets,
-  type AssetEntry,
 } from '../../src/assets.ts';
+import type { AssetEntry } from '../../src/assets.ts';
 
 const enc = new TextEncoder();
 

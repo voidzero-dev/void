@@ -1,18 +1,7 @@
-import {
-  createComponent,
-  createEffect,
-  ErrorBoundary,
-  lazy,
-  Suspense,
-  type Component,
-  type JSX,
-} from 'solid-js';
-import {
-  clientPageError,
-  showTerminalPageError,
-  type ClientPageBoundary,
-  type ErrorPageProps,
-} from 'void/pages-client';
+import { createComponent, createEffect, ErrorBoundary, lazy, Suspense } from 'solid-js';
+import type { Component, JSX } from 'solid-js';
+import { clientPageError, showTerminalPageError } from 'void/pages-client';
+import type { ClientPageBoundary, ErrorPageProps } from 'void/pages-client';
 
 type Props = {
   boundaries?: Array<ClientPageBoundary>;

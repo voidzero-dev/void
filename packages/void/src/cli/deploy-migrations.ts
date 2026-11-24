@@ -3,7 +3,7 @@ import { cloudflareCommandDiagnostic, readBindingFieldPresence } from '@void/dep
 import { Minimatch } from 'minimatch';
 import { dirname, join, normalize, resolve } from 'pathslash';
 import type { VoidAuthMigrationSchema } from '../auth/drizzle.ts';
-import { type DatabaseDialect } from '../config.ts';
+import type { DatabaseDialect } from '../config.ts';
 import { openMigrationValidationDatabase } from '../migrations/sqlite-validation.ts';
 import { assertJournalCoherence, validateMigrations } from '../migrations/validate.ts';
 import { readProjectPaths } from '../project-paths.ts';
@@ -11,11 +11,11 @@ import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import { hasDeploySchemaDrift, getDeploySchemaDriftMessage } from './deploy-drift.ts';
 import { log } from './deploy-helpers.ts';
 import { CLOUDFLARE_RESOURCE_LABELS } from './deploy-resources.ts';
-import {
-  type RequiredAuthTable,
-  type TableInfoRow,
-  type DeployWranglerRun,
-  type DeployWranglerRunResult,
+import type {
+  RequiredAuthTable,
+  TableInfoRow,
+  DeployWranglerRun,
+  DeployWranglerRunResult,
 } from './deploy-types.ts';
 import { formatCount, getErrorMessage } from './output.ts';
 import type { ProvisionDriftEntry } from './provision.ts';

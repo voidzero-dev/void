@@ -11,8 +11,8 @@ import {
   readBindingFieldPresence,
   readWranglerTopLevelString,
   resolveD1MigrateTarget,
-  type CloudflareVersionMetadata,
 } from '@void/deploy-cloudflare';
+import type { CloudflareVersionMetadata } from '@void/deploy-cloudflare';
 import { join } from 'pathslash';
 import { materializeCloudflareConfig, persistCloudflareConfig } from '../cloudflare-config.ts';
 import { createCloudflareProcessRunner } from './cloudflare-process.ts';
@@ -30,8 +30,8 @@ import {
   readWranglerPublishedTrafficSnapshot,
   writeWranglerPublishedTrafficSnapshot,
   updateWranglerCustomDomain,
-  type WranglerCustomDomain,
 } from './wrangler.ts';
+import type { WranglerCustomDomain } from './wrangler.ts';
 
 export type CloudflareOperationRunner = (
   args: CloudflareOperation,

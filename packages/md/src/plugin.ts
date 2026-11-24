@@ -2,13 +2,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'pathslash';
 import { glob } from 'tinyglobby';
-import {
-  normalizePath,
-  type Logger,
-  type Plugin,
-  type ResolvedConfig,
-  type ViteDevServer,
-} from 'vite';
+import { normalizePath } from 'vite';
+import type { Logger, Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { pageFileEnvironment, resolvePagesDir } from 'void/pages';
 import type { CompileOptions } from './compile.ts';
 import { emitReactComponent } from './emit-react.ts';

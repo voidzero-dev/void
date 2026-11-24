@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import {
-  SandboxConcurrencyCounter,
-  type SandboxUsageAttribution,
-} from '../../src/sandbox-concurrency-counter.ts';
+import { SandboxConcurrencyCounter } from '../../src/sandbox-concurrency-counter.ts';
+import type { SandboxUsageAttribution } from '../../src/sandbox-concurrency-counter.ts';
 import { verifyUsageEnvelope } from '../../src/usage-auth.ts';
 import type { UsageEvent } from '../../src/usage-counter.ts';
 

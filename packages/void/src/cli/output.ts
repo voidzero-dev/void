@@ -7,9 +7,8 @@ import {
   outro,
   settings,
   spinner,
-  type SpinnerOptions,
-  type SpinnerResult,
 } from '@voidzero-dev/vite-plus-prompts';
+import type { SpinnerOptions, SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
 import pc from 'picocolors';
 import terminalLink from 'terminal-link';
 

@@ -50,8 +50,8 @@ import {
   recordingBuildManager,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const WEBHOOK_SECRET = 'test-webhook-secret';
 const INGRESS_SECRET = 'test-purpose-separated-ingress-secret';

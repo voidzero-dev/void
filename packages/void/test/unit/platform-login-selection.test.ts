@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { selectPlatformLoginMethod, type LoginPlatform } from '../../src/cli/login.ts';
+import { selectPlatformLoginMethod } from '../../src/cli/login.ts';
+import type { LoginPlatform } from '../../src/cli/login.ts';
 
 const platform: LoginPlatform = {
   apiUrl: 'https://platform.example.com',

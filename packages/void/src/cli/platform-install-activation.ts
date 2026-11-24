@@ -2,9 +2,8 @@ import {
   createPlatformWorkerConfigs,
   PLATFORM_DISABLED_KEY,
   transitionInstallation,
-  type PlatformInstallationManifest,
-  type PlatformLifecycleOperation,
 } from '@void/platform';
+import type { PlatformInstallationManifest, PlatformLifecycleOperation } from '@void/platform';
 import type { PlatformRuntimeManifest } from '@void/platform/installer';
 import { platformWorkerAction, platformWorkerDeployCallbacks } from './platform-install-workers.ts';
 import { verifyPlatformHealth, bootstrapPlatformSharedEmail } from './platform-installer-health.ts';
@@ -18,14 +17,14 @@ import {
   createPlatformHealthProbeToken,
   platformWorkerSecretPayload,
 } from './platform-installer-secrets.ts';
-import {
-  type InstallationCheckpointWriter,
-  type PlatformDatabaseLifecycleLock,
-  type PlatformInstallerDependencies,
-  type PlatformInstallationSecrets,
-  type PlatformInstallRunState,
-  type PlatformWorkerKey,
-  type PlatformHealthCheckContext,
+import type {
+  InstallationCheckpointWriter,
+  PlatformDatabaseLifecycleLock,
+  PlatformInstallerDependencies,
+  PlatformInstallationSecrets,
+  PlatformInstallRunState,
+  PlatformWorkerKey,
+  PlatformHealthCheckContext,
 } from './platform-installer-types.ts';
 import {
   recordWorkerCutoverResolution,
@@ -36,7 +35,8 @@ import {
   deployPlatformWorker,
   verifyPlatformWorkerCutoverVersions,
 } from './platform-installer-workers.ts';
-import { platformWorkersDevUrl, type PlatformInstallPlanAction } from './platform-plan.ts';
+import { platformWorkersDevUrl } from './platform-plan.ts';
+import type { PlatformInstallPlanAction } from './platform-plan.ts';
 import { writeInstallationManifest, writePendingInstallationSecrets } from './platform-registry.ts';
 import { platformManagedWorkerTraffic } from './platform-traffic.ts';
 

@@ -1,10 +1,5 @@
-import {
-  normalizePath,
-  parseSync,
-  type EnvironmentModuleNode,
-  type Plugin,
-  type ViteDevServer,
-} from 'vite';
+import { normalizePath, parseSync } from 'vite';
+import type { EnvironmentModuleNode, Plugin, ViteDevServer } from 'vite';
 import { staticModuleReferences } from '../shared/module-references.ts';
 import type { DevCssAsset } from './types.ts';
 

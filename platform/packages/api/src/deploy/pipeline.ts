@@ -1,6 +1,6 @@
 import { platformProjectHostnames, readPlatformApplication } from '@void/platform';
 import { and, eq, or, sql as drizzleSql } from 'drizzle-orm';
-import { type Context } from 'hono';
+import type { Context } from 'hono';
 import { findR2Assets, persistedR2AssetSizes } from '../asset-inventory.ts';
 import {
   computeAssetHash,
@@ -8,16 +8,12 @@ import {
   deleteWorkerBundle,
   scanProjectAssetOrphanCandidates,
   deleteUnreferencedAssets,
-  type AssetEntry,
-  type AssetManifestEntry,
 } from '../assets.ts';
+import type { AssetEntry, AssetManifestEntry } from '../assets.ts';
 import { activeOAuthApproval } from '../auth/oauth.ts';
 import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
-import {
-  restoreCronScheduler,
-  snapshotCronScheduler,
-  type CronSyncState,
-} from '../cron-scheduler-client.ts';
+import { restoreCronScheduler, snapshotCronScheduler } from '../cron-scheduler-client.ts';
+import type { CronSyncState } from '../cron-scheduler-client.ts';
 import {
   getProject,
   getUser,
@@ -30,32 +26,29 @@ import {
   countUserDeploymentsToday,
   getActiveDeployment,
   getInFlightDeploymentsExcluding,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import {
   appendDeploymentEvent,
   assertDeploymentExecutionAuthority,
 } from '../deployment-execution.ts';
 import type { ApiEnv } from '../env.ts';
-import { type DeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import { PLAN_CATALOG_SETTING, resolvePlanLimits } from '../plans.ts';
 import { getPlatformSetting } from '../platform-settings.ts';
 import { ensureProjectIngress } from '../project-ingress.ts';
-import {
-  restoreQueueConsumer,
-  snapshotQueueConsumer,
-  type QueueConsumerInfo,
-} from '../provisioning/cloudflare-api.ts';
+import { restoreQueueConsumer, snapshotQueueConsumer } from '../provisioning/cloudflare-api.ts';
+import type { QueueConsumerInfo } from '../provisioning/cloudflare-api.ts';
 import { computeDispatchLimits, resolveRoutingUndo } from '../routing.ts';
 import { deployments } from '../schema.ts';
 import { routingSuspensionReason } from '../suspension.ts';
 import { isWithinLimit } from '../tiers.ts';
-import {
-  type DeployManifest,
-  type DeployEvent,
-  type Deployment,
-  type Project,
-  type DeploymentStatus,
+import type {
+  DeployManifest,
+  DeployEvent,
+  Deployment,
+  Project,
+  DeploymentStatus,
 } from '../types.ts';
 import type { WorkerModule } from '../worker-upload.ts';
 import {

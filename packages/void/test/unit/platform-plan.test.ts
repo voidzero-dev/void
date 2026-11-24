@@ -7,9 +7,8 @@ import {
   recordInstallationResource,
   recordInstallationStep,
   setInstallationEndpoints,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { InstallationResourceKind, PlatformInstallationManifest } from '@void/platform';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { pc } from '../../src/cli/output.ts';
 import {
@@ -25,8 +24,8 @@ import {
   formatPlatformInstallPlan,
   platformProvisionIntentHash,
   revalidatePlatformInstallAction,
-  type PlatformInstallPlan,
 } from '../../src/cli/platform-plan.ts';
+import type { PlatformInstallPlan } from '../../src/cli/platform-plan.ts';
 import { ownershipMarker } from '../helpers/platform-installation.ts';
 
 const expectedRejection = (): never => {

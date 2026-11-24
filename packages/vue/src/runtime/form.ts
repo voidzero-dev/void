@@ -3,21 +3,10 @@ import {
   formRetryMessage,
   formSubmissionBlocked,
   scheduleFormRetry,
-  type FormModel,
-  type FormMethod,
-  type VoidActionError,
 } from 'void/pages-client';
-import {
-  defineComponent,
-  h,
-  onMounted,
-  onUnmounted,
-  ref,
-  watch,
-  type Component,
-  type PropType,
-  type VNodeChild,
-} from 'vue';
+import type { FormModel, FormMethod, VoidActionError } from 'void/pages-client';
+import { defineComponent, h, onMounted, onUnmounted, ref, watch } from 'vue';
+import type { Component, PropType, VNodeChild } from 'vue';
 
 export const Form: Component = defineComponent({
   name: 'VoidForm',

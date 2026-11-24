@@ -1,5 +1,6 @@
 import type { BuiltinPlanId } from '@void/platform/plans';
-import { eq, sql, type SQL } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import {
   AI_LOGGING_CACHE_TTL_SECONDS,
   AI_LOGGING_SETTLE_MS,
@@ -16,11 +17,13 @@ import {
   planPublishPending,
   publishOrder,
   resolveAiLogging,
-  type AiLoggingMode,
-  type AiLoggingSource,
-  type PlanAiLogging,
-  type PlanAiLoggingPublish,
-  type PlanAiLoggingSettings,
+} from './ai-logging-policy.ts';
+import type {
+  AiLoggingMode,
+  AiLoggingSource,
+  PlanAiLogging,
+  PlanAiLoggingPublish,
+  PlanAiLoggingSettings,
 } from './ai-logging-policy.ts';
 import type { Db, DbOrTx, Tx } from './db.ts';
 import { OperatorError } from './operator/common.ts';

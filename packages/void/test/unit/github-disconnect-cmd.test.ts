@@ -1,6 +1,7 @@
 import { confirm, log } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { PlatformApiError, type PlatformClient } from '../../src/cli/client.ts';
+import { PlatformApiError } from '../../src/cli/client.ts';
+import type { PlatformClient } from '../../src/cli/client.ts';
 import { runGithubDisconnect } from '../../src/cli/github-cmd.ts';
 import * as output from '../../src/cli/output.ts';
 import { makeConnection, makeProject, projectId, slug } from '../helpers/github-cli.ts';

@@ -1,6 +1,7 @@
 import { outro, log, wrapTextWithPrefix } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
-import { PlatformClient, type LogEntry, type LogsResult } from './client.ts';
+import { PlatformClient } from './client.ts';
+import type { LogEntry, LogsResult } from './client.ts';
 import { dim, errorStackFrames, formatCount, pc } from './output.ts';
 import { MINIMAL_RUNTIME_LOGS_NOTE } from './platform-runtime-logs.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';

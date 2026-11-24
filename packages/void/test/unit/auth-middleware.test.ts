@@ -1,4 +1,5 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 const mocks = vi.hoisted(() => ({
@@ -13,15 +14,10 @@ vi.mock('better-auth', () => ({
 import {
   createVoidAuthRuntime,
   privateCachePolicy,
-  type VoidAuthRuntimeOptions,
 } from '../../src/runtime/auth/better-auth-shared.ts';
-import {
-  getAuth,
-  getUser,
-  requireAuth,
-  type AuthState,
-  type AuthUser,
-} from '../../src/runtime/auth/index.ts';
+import type { VoidAuthRuntimeOptions } from '../../src/runtime/auth/better-auth-shared.ts';
+import { getAuth, getUser, requireAuth } from '../../src/runtime/auth/index.ts';
+import type { AuthState, AuthUser } from '../../src/runtime/auth/index.ts';
 import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
 import { markStaticAsset } from '../../src/runtime/routing/static-asset-marker.ts';
 

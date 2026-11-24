@@ -1,6 +1,7 @@
 import { join } from 'node:path';
-import { type Browser } from 'playwright';
-import { createServer, type ViteDevServer } from 'vite';
+import type { Browser } from 'playwright';
+import { createServer } from 'vite';
+import type { ViteDevServer } from 'vite';
 import { afterAll, beforeAll, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';

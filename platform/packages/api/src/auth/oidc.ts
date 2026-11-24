@@ -1,4 +1,5 @@
-import { type PlatformLoginConfiguration, parsePlatformIdentityUrl } from '@void/platform';
+import { parsePlatformIdentityUrl } from '@void/platform';
+import type { PlatformLoginConfiguration } from '@void/platform';
 import * as oauth from 'oauth4webapi';
 import { assertPublicIdentityUrl, boundedIdentityResponse } from './identity-network.ts';
 import { LoginFailure } from './login-failure.ts';

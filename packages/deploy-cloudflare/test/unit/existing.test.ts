@@ -11,8 +11,8 @@ import {
   readCloudflareVersionMigrationTag,
   assertExistingCloudflareConfig,
   assertCloudflareBindingsPreserved,
-  type ExistingCloudflareWorker,
 } from '../../src/existing.ts';
+import type { ExistingCloudflareWorker } from '../../src/existing.ts';
 import type { CloudflareOperation } from '../../src/operations.ts';
 import { operationFixture } from '../operation-fixture.ts';
 import { apiSecretDraftVersion, voidSecretDraftVersion } from '../secret-draft-fixture.ts';

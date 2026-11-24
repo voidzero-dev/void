@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { relative } from 'pathslash';
 import { voidWarn } from '../log.ts';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
 
 /** Roots already warned about duplicate env.ts files — dedupes noisy repeat calls. */
 const warnedRoots = new Set<string>();

@@ -1,4 +1,5 @@
-import { LoginFailure, type LoginFailureCode } from './login-failure.ts';
+import { LoginFailure } from './login-failure.ts';
+import type { LoginFailureCode } from './login-failure.ts';
 
 /** GitHub token errors with a fix of their own; any other error is github_failed. */
 const GITHUB_TOKEN_ERRORS = new Set([

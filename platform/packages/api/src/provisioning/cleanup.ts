@@ -18,7 +18,6 @@ import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
 import { clearCronScheduler } from '../cron-scheduler-client.ts';
 import {
   TERMINAL_DEPLOYMENT_STATUSES,
-  type Db,
   deleteProjectCascade,
   cleanupJobsForResource,
   enqueueProjectCleanupJobs,
@@ -31,8 +30,8 @@ import {
   getProjectResources,
   getUser,
   terminateBuildsForProject,
-  type ProjectCleanupJobInput,
 } from '../db.ts';
+import type { Db, ProjectCleanupJobInput } from '../db.ts';
 import { drainProjectEmailAdmissions } from '../email/admission.ts';
 import { emailDomainRoutes, emailZoneConnections } from '../email/connection-schema.ts';
 import { requestEmailDomainRemove, runEmailOperation } from '../email/connection-service.ts';

@@ -1,4 +1,5 @@
-import { readUsageLimit, usageLimitResponse, type UsageLimitData } from '@void/edge';
+import { readUsageLimit, usageLimitResponse } from '@void/edge';
+import type { UsageLimitData } from '@void/edge';
 export { readUsageLimit, type UsageLimitData } from '@void/edge';
 
 export class UsageLimit extends Error {

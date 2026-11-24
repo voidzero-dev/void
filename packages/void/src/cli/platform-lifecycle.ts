@@ -3,8 +3,8 @@ import {
   createPlatformResourceNames,
   normalizeApplicationDomain,
   normalizeInstallationSlug,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import {
   confirm,
   isCancel,
@@ -39,8 +39,8 @@ import {
   PlatformCloudflareApiError,
   PlatformRuntimeTokenEmailPermissionError,
   verifyPlatformRuntimeTokenPermissions,
-  type CloudflareAccount,
 } from './platform-cloudflare.ts';
+import type { CloudflareAccount } from './platform-cloudflare.ts';
 import { platformCredentialHelp } from './platform-credential-label.ts';
 import {
   selectInstallationAuthentication,
@@ -65,8 +65,8 @@ import {
   createPlatformInstallPlan,
   formatPlatformInstallPlan,
   revalidatePlatformInstallAction,
-  type PlatformExternalHyperdrive,
 } from './platform-plan.ts';
+import type { PlatformExternalHyperdrive } from './platform-plan.ts';
 import { createPlatformProgress, withPlatformProgress } from './platform-progress.ts';
 import {
   acquirePlatformLifecycleLock,

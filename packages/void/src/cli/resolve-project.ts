@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { join } from 'pathslash';
 import type { PlatformClient, ProjectResponse } from './client.ts';
-import { readProjectConfig, type ProjectConfig } from './project.ts';
+import { readProjectConfig } from './project.ts';
+import type { ProjectConfig } from './project.ts';
 
 export function getRequestedProjectSlug(options?: { projectSlug?: string }): string | null {
   const cliSlug = options?.projectSlug?.trim();

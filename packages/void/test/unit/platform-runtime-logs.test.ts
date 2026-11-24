@@ -6,8 +6,8 @@ import {
   projectWorkerObservability,
   shouldUpdateProjectWorkerRuntimeLogs,
   updateProjectWorkerRuntimeLogs,
-  type PlatformRuntimeLogsClient,
 } from '../../src/cli/platform-runtime-logs.ts';
+import type { PlatformRuntimeLogsClient } from '../../src/cli/platform-runtime-logs.ts';
 
 const full = createPlatformDeploymentManifest({
   application: { baseDomain: 'example.com', zoneName: 'example.com' },

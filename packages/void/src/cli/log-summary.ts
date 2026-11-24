@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import pc from 'picocolors';
-import { type ErrChainNode, formatErrorNodeInline } from './log-file.ts';
+import { formatErrorNodeInline } from './log-file.ts';
+import type { ErrChainNode } from './log-file.ts';
 
 /** How many trailing records the tail block shows. */
 export const LOG_TAIL_LIMIT = 20;

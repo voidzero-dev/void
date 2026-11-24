@@ -3,39 +3,30 @@ import { readFileSync } from 'node:fs';
 import { isCancel, log as clackLog, text } from '@voidzero-dev/vite-plus-prompts';
 import { join, resolve } from 'pathslash';
 import { findEnvFile } from '../codegen/env-types.ts';
-import { type DatabaseDialect, type VoidConfig, isNodeTarget } from '../config.ts';
+import { isNodeTarget } from '../config.ts';
+import type { DatabaseDialect, VoidConfig } from '../config.ts';
 import type { JobDefinition } from '../crons/scan.ts';
-import {
-  assertJournalCoherence,
-  validateMigrations,
-  type MigrationFile,
-} from '../migrations/validate.ts';
+import { assertJournalCoherence, validateMigrations } from '../migrations/validate.ts';
+import type { MigrationFile } from '../migrations/validate.ts';
 import type { QueueDefinition } from '../queues/scan.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
-import { PlatformClient, type DeploymentResponse, type ProjectResponse } from './client.ts';
+import { PlatformClient } from './client.ts';
+import type { DeploymentResponse, ProjectResponse } from './client.ts';
 import { formatCloudflareUserMessage } from './cloudflare-user-output.ts';
 import { promptAndCreateProject, reportProjectCreationWarnings } from './create-project.ts';
-import {
-  type PrerenderSourceInputs,
-  type NonPageBackendInputs,
-  type ResourceSummary,
-  type RunDeployOptions,
+import type {
+  PrerenderSourceInputs,
+  NonPageBackendInputs,
+  ResourceSummary,
+  RunDeployOptions,
 } from './deploy-types.ts';
 import { fetchRemoteSecretNames, formatEnvReport, validateProdEnv } from './env-validation.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { formatCount, getErrorMessage, pc } from './output.ts';
-import {
-  detectPreset,
-  formatProjectCommand,
-  resolveProjectCommand,
-  type StaticPreset,
-} from './preset.ts';
-import {
-  attachSelectedPlatform,
-  shouldLinkDeployProject,
-  writeProjectConfig,
-  type ProjectConfig,
-} from './project.ts';
+import { detectPreset, formatProjectCommand, resolveProjectCommand } from './preset.ts';
+import type { StaticPreset } from './preset.ts';
+import { attachSelectedPlatform, shouldLinkDeployProject, writeProjectConfig } from './project.ts';
+import type { ProjectConfig } from './project.ts';
 import { promptProjectSelection, promptProjectSetupAction } from './prompt.ts';
 import type { DeployManifest, QueueMeta, ScheduleMeta } from './types.ts';
 import {
@@ -44,9 +35,8 @@ import {
   ensureWranglerCompat,
   resolveLiveBindingConfig,
   syncWranglerBindings,
-  type LiveBindingConfig,
-  type WranglerCompat,
 } from './wrangler.ts';
+import type { LiveBindingConfig, WranglerCompat } from './wrangler.ts';
 import type { WrapperFeatures } from './wrapper.ts';
 import { needsWrapper, generateWrapper } from './wrapper.ts';
 

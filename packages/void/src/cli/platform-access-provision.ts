@@ -4,13 +4,10 @@ import {
   isPlatformAccessIdentityRule,
   parsePlatformAccessProtection,
   parsePlatformLoginConfiguration,
-  type PlatformAccessProtection,
-  type PlatformLoginConfiguration,
 } from '@void/platform';
-import {
-  PlatformCloudflareApiError,
-  type PlatformCloudflareClient,
-} from './platform-cloudflare.ts';
+import type { PlatformAccessProtection, PlatformLoginConfiguration } from '@void/platform';
+import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
 
 type ObjectValue = Record<string, unknown>;
 type AccessResource = {

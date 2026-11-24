@@ -5,7 +5,8 @@ import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import { CloudflareApiError } from '../provisioning/cloudflare-api.ts';
 import { deployments, projects } from '../schema.ts';
-import { createCfCustomerClient, type CfEmailRoutingRule } from './cf-customer.ts';
+import { createCfCustomerClient } from './cf-customer.ts';
+import type { CfEmailRoutingRule } from './cf-customer.ts';
 import {
   emailDomainRoutes,
   emailSharedRecipients,

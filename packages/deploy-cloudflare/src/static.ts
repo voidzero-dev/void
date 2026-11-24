@@ -1,13 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { AssetConfig, HeaderRule, RedirectRule } from '@void/deploy-core';
-import {
-  createScanner,
-  parse,
-  parseTree,
-  type Node,
-  type ParseError,
-  SyntaxKind,
-} from 'jsonc-parser';
+import { createScanner, parse, parseTree, SyntaxKind } from 'jsonc-parser';
+import type { Node, ParseError } from 'jsonc-parser';
 import { dirname, join, relative, resolve } from 'pathslash';
 import { setJsoncValue } from './config.ts';
 

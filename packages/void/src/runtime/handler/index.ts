@@ -8,7 +8,8 @@ import type { TypedRoutes } from '../routing/route-url.ts';
 import type { AssetBinding } from '../routing/worker.ts';
 import { executeComposedHandler, setHandlerComposition } from './composition.ts';
 import { convertReturnValue } from './response.ts';
-import { runValidation, type ValidatorSlots, type HandlerInput } from './validator.ts';
+import { runValidation } from './validator.ts';
+import type { ValidatorSlots, HandlerInput } from './validator.ts';
 
 /**
  * Thrown when `c.rewrite()` is called with a destination whose final path

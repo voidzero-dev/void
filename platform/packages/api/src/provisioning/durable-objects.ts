@@ -6,10 +6,11 @@ import {
   uploadAssetBuckets,
   buildAssetMetadata,
   resolveAssetContentTypes,
-  type AssetManifestEntry,
 } from '../assets.ts';
+import type { AssetManifestEntry } from '../assets.ts';
 import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
-import { getProjectResources, type Db } from '../db.ts';
+import { getProjectResources } from '../db.ts';
+import type { Db } from '../db.ts';
 import { projectObservability } from '../deploy/shared.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
@@ -27,8 +28,8 @@ import {
   withKnownLength,
   workerUploadBody,
   workerUploadDeadline,
-  type WorkerModule,
 } from '../worker-upload.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import { CF_API_BASE, cfFetch, CloudflareApiError } from './cloudflare-api.ts';
 import { putDurableSnapshotModule, putDurableSnapshotObject } from './durable-snapshot.ts';
 

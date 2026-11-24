@@ -50,8 +50,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // Each fixture domain below is the apex of its own visible test zone.
 const zones = Object.fromEntries(

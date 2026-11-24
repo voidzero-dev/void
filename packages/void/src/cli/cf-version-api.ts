@@ -8,11 +8,8 @@ import {
   getWorkerBundleDir,
   readBuildOutput,
 } from '@cloudflare/build-output-utils';
-import {
-  convertToWranglerConfig,
-  type ParsedCloudflareConfig,
-  type ParsedBuildOutputWorkerConfig,
-} from '@cloudflare/config';
+import { convertToWranglerConfig } from '@cloudflare/config';
+import type { ParsedCloudflareConfig, ParsedBuildOutputWorkerConfig } from '@cloudflare/config';
 import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
 import ignore from 'ignore';
 import mime from 'mime';

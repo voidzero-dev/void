@@ -5,13 +5,15 @@
  * virtual module that auto-wires the D1 binding with the user's schema.
  * This stub exists for the published npm package and type declarations.
  */
-import { drizzle as _drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
+import { drizzle as _drizzle } from 'drizzle-orm/d1';
+import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import {
   getRuntimeBinding,
   getRuntimeRequestResource,
   requireRuntimeBinding,
 } from '../env/runtime.ts';
-import { createD1SessionAccess, resolveD1SessionStart, type DbSessionStart } from './session.ts';
+import { createD1SessionAccess, resolveD1SessionStart } from './session.ts';
+import type { DbSessionStart } from './session.ts';
 
 // Re-export commonly used Drizzle utilities so consumers never need
 // to depend on drizzle-orm directly.

@@ -8,8 +8,8 @@ import {
   applyMySqlMigrations,
   readMySqlAppliedMigrations,
   runMySqlMigrations,
-  type MySqlClient,
 } from '../../src/migrations/runner-mysql.ts';
+import type { MySqlClient } from '../../src/migrations/runner-mysql.ts';
 import { runVoidAuthMigrations } from '../../src/runtime/auth/better-auth-mysql.ts';
 import { createMigrationHandler } from '../../src/runtime/db/migrations/mysql-handler.ts';
 import { holdMySqlMigrationLease } from '../../src/runtime/db/migrations/mysql-lock.ts';

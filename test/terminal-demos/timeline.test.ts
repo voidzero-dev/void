@@ -5,8 +5,8 @@ import {
   PlaybackClock,
   playbackSpeeds,
   terminalFrame,
-  type TerminalDemo,
 } from '../../docs/.vitepress/theme/terminal/timeline.ts';
+import type { TerminalDemo } from '../../docs/.vitepress/theme/terminal/timeline.ts';
 
 void test('pause and speed changes preserve playback position without counting paused time', () => {
   const clock = new PlaybackClock(20_000);

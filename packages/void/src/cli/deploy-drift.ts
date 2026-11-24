@@ -9,7 +9,7 @@ import {
   rmSync,
 } from 'node:fs';
 import { dirname, join, relative } from 'pathslash';
-import { type DatabaseDialect } from '../config.ts';
+import type { DatabaseDialect } from '../config.ts';
 import { PLACEHOLDER_DB_URL, writeDrizzleConfig } from '../drizzle/config.ts';
 import { discoverSchema } from '../drizzle/discover.ts';
 import { collectMigrations } from '../migrations/collect.ts';

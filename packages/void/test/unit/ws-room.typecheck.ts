@@ -1,6 +1,8 @@
 import { expectTypeOf } from 'vite-plus/test';
-import { defineRoom, type RoomActionContext } from '../../src/runtime/ws/index.ts';
-import { getRoom, type RoomHandle } from '../../src/runtime/ws/room.ts';
+import { defineRoom } from '../../src/runtime/ws/index.ts';
+import type { RoomActionContext } from '../../src/runtime/ws/index.ts';
+import { getRoom } from '../../src/runtime/ws/room.ts';
+import type { RoomHandle } from '../../src/runtime/ws/room.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 declare module 'void/routes' {

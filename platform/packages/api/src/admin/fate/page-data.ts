@@ -1,8 +1,5 @@
-import {
-  PLATFORM_LOGIN_KINDS,
-  parsePlatformLoginConfiguration,
-  type PlatformLoginConfiguration,
-} from '@void/platform';
+import { PLATFORM_LOGIN_KINDS, parsePlatformLoginConfiguration } from '@void/platform';
+import type { PlatformLoginConfiguration } from '@void/platform';
 import { and, eq, gt, inArray, ne } from 'drizzle-orm';
 import type { Context } from 'hono';
 import { getPlatformCapabilities } from '../../capabilities.ts';

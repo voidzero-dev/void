@@ -10,11 +10,8 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import {
-  acquireProvisionLock,
-  WranglerQuarantineError,
-  type RunWrangler,
-} from '../../src/cli/provision.ts';
+import { acquireProvisionLock, WranglerQuarantineError } from '../../src/cli/provision.ts';
+import type { RunWrangler } from '../../src/cli/provision.ts';
 import {
   emptyDesired,
   fail,

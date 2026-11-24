@@ -3,8 +3,8 @@ import { parsePlatformRuntimeManifest, platformDatabaseSchemaDigest } from '../.
 import {
   createPlatformDeploymentManifest,
   parsePlatformDeploymentManifest,
-  type PlatformDeploymentManifestInput,
 } from '../../src/manifest.ts';
+import type { PlatformDeploymentManifestInput } from '../../src/manifest.ts';
 import { deploymentInput, workerConfigs } from '../worker-config-fixture.ts';
 
 const workersDevInput: PlatformDeploymentManifestInput = {

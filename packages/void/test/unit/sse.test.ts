@@ -6,8 +6,8 @@ import {
   formatSseText,
   getLastEventId,
   SseStreamClosedError,
-  type SseStream,
 } from '../../src/runtime/sse/index.ts';
+import type { SseStream } from '../../src/runtime/sse/index.ts';
 import { MockEventSource } from '../helpers/mock-event-source.ts';
 
 const decoder = new TextDecoder();

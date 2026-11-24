@@ -11,8 +11,8 @@ import React, {
   useState,
   useSyncExternalStore,
   useTransition,
-  type ComponentType,
 } from 'react';
+import type { ComponentType } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import {
   createRouterFacade,
@@ -23,13 +23,15 @@ import {
   refreshPage,
   pageBoundarySlots,
   showTerminalPageError,
-  type BoundaryManifest,
   toUrlString,
-  type PageNavigationResource,
-  type PageNavigationResult,
-  type NavigationState,
-  type VisitOptions,
-  type VoidRouter,
+} from 'void/pages-client';
+import type {
+  BoundaryManifest,
+  PageNavigationResource,
+  PageNavigationResult,
+  NavigationState,
+  VisitOptions,
+  VoidRouter,
 } from 'void/pages-client';
 import type { CacheForResult, LinkPrefetchValue } from 'void/pages-prefetch';
 import type { PageObject } from 'void/pages-protocol';

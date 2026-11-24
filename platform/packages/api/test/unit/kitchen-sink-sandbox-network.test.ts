@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { createServer, type Socket } from 'node:net';
+import { createServer } from 'node:net';
+import type { Socket } from 'node:net';
 import { promisify } from 'node:util';
 import { expect, it } from 'vite-plus/test';
 import { internetAccessProbe } from '../../../../scripts/fixtures/kitchen-sink-sandbox/lib/internet-probe.ts';

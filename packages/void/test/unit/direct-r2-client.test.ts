@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import {
-  DEPLOY_POST_ATTEMPTS,
-  PlatformClient,
-  type ManifestOnlyDeployPayload,
-} from '../../src/cli/client.ts';
+import { DEPLOY_POST_ATTEMPTS, PlatformClient } from '../../src/cli/client.ts';
+import type { ManifestOnlyDeployPayload } from '../../src/cli/client.ts';
 import type { DeployManifest } from '../../src/cli/types.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 

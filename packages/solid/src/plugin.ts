@@ -2,7 +2,8 @@ import type { Plugin } from 'vite';
 import solid from 'vite-plugin-solid';
 import { resolvePagesDir } from 'void/pages';
 import { islandsPlugin } from './plugin-islands.ts';
-import { pagesPlugin, type PrefetchConfig } from './plugin-pages.ts';
+import { pagesPlugin } from './plugin-pages.ts';
+import type { PrefetchConfig } from './plugin-pages.ts';
 
 const SOLID_RUNTIME_PACKAGE = '@void/solid';
 

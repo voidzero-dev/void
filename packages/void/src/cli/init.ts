@@ -5,7 +5,8 @@ import { parseArgs } from 'node:util';
 import { isRecord } from '@void/deploy-core';
 import type { PlatformDiscoveryDocument } from '@void/platform';
 import { log, confirm, isCancel, cancel, select, text } from '@voidzero-dev/vite-plus-prompts';
-import { parse, type ParseError } from 'jsonc-parser';
+import { parse } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'pathslash';
 import {
   MATERIALIZED_CLOUDFLARE_FILE,
@@ -20,20 +21,20 @@ import {
   getDatabaseCasing,
   getDatabaseDialect,
   readConfig,
-  type DatabaseDialect,
-  type VoidConfig,
 } from '../config.ts';
+import type { DatabaseDialect, VoidConfig } from '../config.ts';
 import { PLACEHOLDER_DB_URL, writeDrizzleConfig } from '../drizzle/config.ts';
 import { snapshotDrizzleOutputs } from '../drizzle/generate.ts';
-import { detectFramework, type DetectedFramework } from '../plugin-inference.ts';
+import { detectFramework } from '../plugin-inference.ts';
+import type { DetectedFramework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import { ensureGitignoreLines } from '../shared/gitignore.ts';
 import {
   getPackageDependencies,
   hasPackageDependency,
   readPackageJson,
-  type PackageDependencyField,
 } from '../shared/package-json.ts';
+import type { PackageDependencyField } from '../shared/package-json.ts';
 import { detectAgents, getOwnVersion, getPackageDir } from './agents.ts';
 import { connectCloudflare } from './cloudflare-connect.ts';
 import { maybeSetupDeployProject } from './deploy-setup.ts';
@@ -48,12 +49,8 @@ import { migrateLegacyVoidConfig } from './migrate.ts';
 import { formatDuration, formatUrl, note, printSuccess } from './output.ts';
 import { discoverPlatform, saveDiscoveredPlatform } from './platform-cmd.ts';
 import { formatProjectCommand } from './preset.ts';
-import {
-  readDeploymentPlatform,
-  readProjectConfig,
-  writeDeploymentPlatform,
-  type DeploymentPlatform,
-} from './project.ts';
+import { readDeploymentPlatform, readProjectConfig, writeDeploymentPlatform } from './project.ts';
+import type { DeploymentPlatform } from './project.ts';
 import {
   createPagesStarterTemplate,
   detectScaffoldFrameworkFromDependencies,
@@ -63,10 +60,8 @@ import {
   SCAFFOLD_FRAMEWORK_OPTIONS,
   SCAFFOLD_GITIGNORE_LINES,
   SCAFFOLD_TOOLCHAIN_OPTIONS,
-  type ScaffoldFramework,
-  type ScaffoldStarterMode,
-  type ScaffoldToolchain,
 } from './template.ts';
+import type { ScaffoldFramework, ScaffoldStarterMode, ScaffoldToolchain } from './template.ts';
 import { patchViteConfigWithVoidPlugin } from './vite-config-patch.ts';
 import { LATEST_KNOWN_COMPAT_DATE, writeProvisionedWranglerConfig } from './wrangler.ts';
 import {

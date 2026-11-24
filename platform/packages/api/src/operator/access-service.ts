@@ -8,7 +8,6 @@ import {
   readLoginRevision,
 } from '../auth/configuration.ts';
 import {
-  type Db,
   countInvitations,
   createInvitation,
   getAllInvitations,
@@ -19,10 +18,12 @@ import {
   revokeInvitation,
   setInvitationEmailDeliveryStatus,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import { sendInvitationEmail } from '../email.ts';
 import type { ApiEnv } from '../env.ts';
 import { platformAuthSettings, platformLoginConnections } from '../schema.ts';
-import { type AllowlistEntry, getAllowlist, putAllowlist } from '../signup-allowlist.ts';
+import { getAllowlist, putAllowlist } from '../signup-allowlist.ts';
+import type { AllowlistEntry } from '../signup-allowlist.ts';
 import type { Invitation } from '../types.ts';
 import { OperatorError, preview } from './common.ts';
 

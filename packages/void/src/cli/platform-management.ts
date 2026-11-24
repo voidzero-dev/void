@@ -8,9 +8,11 @@ import {
   recordInstallationStep,
   setInstallationDesiredState,
   transitionInstallation,
-  type InstallationResource,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
+} from '@void/platform';
+import type {
+  InstallationResource,
+  InstallationResourceKind,
+  PlatformInstallationManifest,
 } from '@void/platform';
 import { confirm, isCancel, log, outro, select } from '@voidzero-dev/vite-plus-prompts';
 import { ensurePlatformAccessToken } from './cf-access.ts';
@@ -55,8 +57,8 @@ import {
   readPlatformProjectZeroTrustState,
   REMOTE_INSTALLATION_MANIFEST_KEY,
   resolveBootstrapGitHubId,
-  type PlatformDatabaseLifecycleLock,
 } from './platform-installer.ts';
+import type { PlatformDatabaseLifecycleLock } from './platform-installer.ts';
 import {
   assertNoninteractivePlatformMutationAcknowledged,
   resolvePlatformInstallDatabaseUrl,
@@ -74,10 +76,8 @@ import {
   revalidatePlatformInstallAction,
 } from './platform-plan.ts';
 import { createPlatformProgress, withPlatformProgress } from './platform-progress.ts';
-import {
-  type PlatformR2CredentialCheck,
-  verifyPlatformR2Credentials,
-} from './platform-r2-credentials.ts';
+import { verifyPlatformR2Credentials } from './platform-r2-credentials.ts';
+import type { PlatformR2CredentialCheck } from './platform-r2-credentials.ts';
 import {
   acquirePlatformLifecycleLock,
   listInstallationManifests,
@@ -110,14 +110,13 @@ import {
   purgeResourcesPermissions,
   PURGE_RESOURCES_STEP_PREFIX,
   runPurgeResourcesTeardown,
-  type PurgeResourcesClient,
-  type PurgeResourcesCredential,
 } from './platform-teardown.ts';
+import type { PurgeResourcesClient, PurgeResourcesCredential } from './platform-teardown.ts';
 import {
   assertProjectZeroTrustAllowsUninstall,
   formatZeroTrustApplications,
-  type PlatformProjectZeroTrustState,
 } from './platform-zero-trust-uninstall.ts';
+import type { PlatformProjectZeroTrustState } from './platform-zero-trust-uninstall.ts';
 
 type PlatformManagementClient = Pick<
   PlatformCloudflareClient,

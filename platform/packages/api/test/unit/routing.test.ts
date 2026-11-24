@@ -9,7 +9,8 @@ import {
   setProjectAiBlock,
   setProjectsRoutingSuspension,
 } from '../../src/routing.ts';
-import { PLAN_LIMITS, type PlanLimits } from '../../src/tiers.ts';
+import { PLAN_LIMITS } from '../../src/tiers.ts';
+import type { PlanLimits } from '../../src/tiers.ts';
 import type { DeployManifest } from '../../src/types.ts';
 import * as zeroTrust from '../../src/zero-trust/routing.ts';
 

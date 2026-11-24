@@ -13,8 +13,8 @@ import {
   INTERNAL_BINDING_EXACT_NAMES,
   INTERNAL_BINDING_PREFIXES,
   isIsrActive,
-  type RuntimeEnv,
 } from './raw.ts';
+import type { RuntimeEnv } from './raw.ts';
 
 export type { RuntimeEnv };
 

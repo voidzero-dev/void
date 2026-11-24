@@ -3,8 +3,8 @@ import {
   extractWorkersDevSubdomain,
   normalizeReadinessAccessOrigin,
   normalizeWorkersDevSubdomain,
-  type CloudflareWorkersDevSubdomainLookup,
 } from '@void/deploy-cloudflare';
+import type { CloudflareWorkersDevSubdomainLookup } from '@void/deploy-cloudflare';
 import { dirname, join } from 'pathslash';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import type { DeployWranglerRun } from './deploy-types.ts';

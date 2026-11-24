@@ -1,12 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stripVTControlCharacters } from 'node:util';
-import {
-  parsePlatformLoginConfiguration,
-  type PlatformLoginConfiguration,
-  type PlatformLoginKind,
-  parsePlatformAdmissionPolicy,
-  type PlatformAdmissionPolicy,
+import { parsePlatformLoginConfiguration, parsePlatformAdmissionPolicy } from '@void/platform';
+import type {
+  PlatformLoginConfiguration,
+  PlatformLoginKind,
+  PlatformAdmissionPolicy,
 } from '@void/platform';
 import { confirm, multiselect, password, select, text } from '@voidzero-dev/vite-plus-prompts';
 import { openBrowser } from './auth.ts';

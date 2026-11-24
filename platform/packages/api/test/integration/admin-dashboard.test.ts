@@ -55,8 +55,8 @@ import {
   createTestDeployment,
   mockCfApi,
   skipOrphanSweepDelay,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { nativeFormSubmission } from './native-form-browser.ts';
 import { createUsageCounterFixture } from './usage-counter-fixture.ts';
 

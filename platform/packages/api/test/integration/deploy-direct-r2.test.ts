@@ -33,8 +33,8 @@ import {
   mockCfApi,
   cfSuccess,
   readAllEvents,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

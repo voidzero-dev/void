@@ -1,9 +1,5 @@
-import {
-  matchLiteralPattern,
-  PAGES_PROTOCOL_VERSION,
-  redirectToHttps,
-  type ProjectZeroTrustRouting,
-} from '@void/edge';
+import { matchLiteralPattern, PAGES_PROTOCOL_VERSION, redirectToHttps } from '@void/edge';
+import type { ProjectZeroTrustRouting } from '@void/edge';
 import { clientRevalidateResponse, isEventStreamResponse } from '@void/isr/runtime';
 import {
   PLATFORM_HEALTH_HOSTNAME_LABEL,
@@ -15,7 +11,8 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import { projectAccessVerifier } from './access.ts';
 import type { Env } from './env.ts';
 import { createErrorResponse, createMaintenanceResponse } from './error-page.ts';
-import { applyHeaderRules, type HeaderRule } from './headers.ts';
+import { applyHeaderRules } from './headers.ts';
+import type { HeaderRule } from './headers.ts';
 import {
   readIsrCache,
   writeIsrCache,
@@ -38,25 +35,21 @@ import {
   normalizePageDataForJsonCache,
 } from './isr.ts';
 import { createLimitResponse } from './limit-response.ts';
-import {
-  recordPlatformLog,
-  recordRequest,
-  sendUsageEvent,
-  type FailureKind,
-  type RequestType,
-} from './metering.ts';
+import { recordPlatformLog, recordRequest, sendUsageEvent } from './metering.ts';
+import type { FailureKind, RequestType } from './metering.ts';
 import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from './platform-lifecycle.ts';
 import { applicationEdgeCache, resolveProjectHostname } from './project-hostname.ts';
 import { classifyDynamicRequestType, hasExtension, isApiPath } from './request-type.ts';
-import { applyRoutingRules, mergeQueryIntoLocation, type RedirectRule } from './routing-rules.ts';
+import { applyRoutingRules, mergeQueryIntoLocation } from './routing-rules.ts';
+import type { RedirectRule } from './routing-rules.ts';
 import { resolveStaticPath, resolveAssetContentType, safeDecodePathname } from './static.ts';
 import type { AssetConfig } from './static.ts';
 import {
   buildVariantOriginalUrl,
   exactQueryAllowlist,
   hasUnlistedQueryParams,
-  type QueryAllowlist,
 } from './variant-key.ts';
+import type { QueryAllowlist } from './variant-key.ts';
 import {
   DispatchTimeoutError,
   resolveTimeoutMs,

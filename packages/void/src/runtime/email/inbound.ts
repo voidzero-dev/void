@@ -9,8 +9,8 @@ import {
   EMAIL_MAX_METADATA_BYTES,
   EMAIL_MAX_REPLY_BYTES,
   EMAIL_MAX_RESPONSE_BYTES,
-  type EmailWireAction,
 } from '@void/platform/email-protocol';
+import type { EmailWireAction } from '@void/platform/email-protocol';
 import type { Email as PostalMimeEmail } from 'postal-mime';
 import { base64ToBytes } from '../../shared/base64.ts';
 import { getRawRuntimeEnv } from '../env/raw.ts';

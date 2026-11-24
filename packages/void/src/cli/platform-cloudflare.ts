@@ -4,8 +4,10 @@ import {
   describePlatformCredential,
   formatPlatformCredentialDenials,
   platformCredentialHelp,
-  type PlatformCredentialDenial,
-  type PlatformCredentialLabel,
+} from './platform-credential-label.ts';
+import type {
+  PlatformCredentialDenial,
+  PlatformCredentialLabel,
 } from './platform-credential-label.ts';
 import { resolvePinnedApiBaseUrl } from './provision.ts';
 

@@ -1,5 +1,6 @@
 import { Link } from '@void/react';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { SourceLink } from '../src/source-link.tsx';
 
 const loaders = [

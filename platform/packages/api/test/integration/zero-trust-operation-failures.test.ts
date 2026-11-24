@@ -15,10 +15,8 @@ import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
 import app, { FAST_CRON, scheduled } from '../../src/index.ts';
 import { domains, platformSettings, projectZeroTrust } from '../../src/schema.ts';
 import * as zeroTrustConfiguration from '../../src/zero-trust/configuration.ts';
-import {
-  type ZeroTrustConfigureInput,
-  readZeroTrustConfigurationStrict,
-} from '../../src/zero-trust/configuration.ts';
+import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
+import type { ZeroTrustConfigureInput } from '../../src/zero-trust/configuration.ts';
 import {
   configurePlatformZeroTrust,
   disablePlatformZeroTrust,
@@ -43,8 +41,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

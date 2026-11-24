@@ -6,7 +6,7 @@ import {
   assertCloudflareDurableObjectLifecycleSupported,
 } from '@void/deploy-cloudflare';
 import { dirname, relative } from 'pathslash';
-import { type VoidConfig } from '../config.ts';
+import type { VoidConfig } from '../config.ts';
 import { collectMigrations } from '../migrations/collect.ts';
 import { SqliteMigrationError } from '../migrations/sqlite-validation.ts';
 import { detectFramework } from '../plugin-inference.ts';
@@ -33,9 +33,9 @@ import {
   scrubWranglerAuthCredentials,
   deployChildEnv,
 } from './deploy-transport.ts';
-import { type CloudflareDeployDeps } from './deploy-types.ts';
+import type { CloudflareDeployDeps } from './deploy-types.ts';
 import { getErrorMessage } from './output.ts';
-import { type FrameworkPreset } from './preset.ts';
+import type { FrameworkPreset } from './preset.ts';
 import { deleteEnvVarCaseAware } from './provision.ts';
 
 export type CloudflareBuild = Awaited<ReturnType<typeof buildCloudflareWorker>>;

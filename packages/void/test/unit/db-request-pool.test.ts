@@ -9,7 +9,8 @@ import { createServer } from 'pglite-server';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
-import { startFakeMySqlServer, type FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import type { FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
 
 const USERS = [

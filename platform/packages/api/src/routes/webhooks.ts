@@ -32,8 +32,8 @@ import {
   VOID_BUILD_CHECK_RUN_NAME,
   completeCheckRun,
   preservedCheckRunConclusion,
-  type CheckRunConclusion,
 } from '../github/check-run.ts';
+import type { CheckRunConclusion } from '../github/check-run.ts';
 import { listInstallationRepositories } from '../github/installation-repos.ts';
 import {
   getBranchExistence,

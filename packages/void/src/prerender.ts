@@ -14,8 +14,8 @@ import {
   readPrerenderPathsResponse,
   renderPrerenderPaths,
   renderBoundary404,
-  type PrerenderResult,
 } from './prerender-render.ts';
+import type { PrerenderResult } from './prerender-render.ts';
 export type { PrerenderResult } from './prerender-render.ts';
 import { renderDefaultErrorPage } from './runtime/routing/error-pages/index.ts';
 import { scopedAccessCredentials } from './shared/cf-access.ts';

@@ -1,4 +1,5 @@
-import { Hono, type Context, type MiddlewareHandler } from 'hono';
+import { Hono } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { etag } from 'hono/etag';
 import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
@@ -10,25 +11,20 @@ import { ValidationError } from '../../src/pages/protocol.ts';
 import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
 import { _validateEnvOnce, defineEnv, env } from '../../src/runtime/env/public.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
-import {
-  defineHandler,
-  defineMiddleware,
-  type CloudContext,
-} from '../../src/runtime/handler/index.ts';
-import {
-  createClientAssetTags,
-  createManifestLoader,
-  type ClientManifest,
-  type ManifestLoader,
-} from '../../src/runtime/routing/assets.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler/index.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
+import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing/assets.ts';
+import type { ClientManifest, ManifestLoader } from '../../src/runtime/routing/assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing/errors.ts';
 import {
   createHttpRouteHandler,
   createModuleLoader,
   createRoutingRuntime,
-  type RoutingContext,
-  type RoutingHeaderRule,
-  type RoutingRuntime,
+} from '../../src/runtime/routing/index.ts';
+import type {
+  RoutingContext,
+  RoutingHeaderRule,
+  RoutingRuntime,
 } from '../../src/runtime/routing/index.ts';
 import {
   createAssetNotFound,
@@ -45,8 +41,8 @@ import {
   createAssetFallback,
   createWorkerFetch,
   filterInternalBindings,
-  type RuntimeEnvironment,
 } from '../../src/runtime/routing/worker.ts';
+import type { RuntimeEnvironment } from '../../src/runtime/routing/worker.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 const context = { waitUntil() {}, passThroughOnException() {}, props: {} };

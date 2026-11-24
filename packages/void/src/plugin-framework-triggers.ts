@@ -1,11 +1,14 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'pathslash';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin } from 'vite';
 import { readRootWranglerConfig } from './cli/wrangler.ts';
-import { scanJobsSync, type JobDefinition } from './crons/scan.ts';
+import { scanJobsSync } from './crons/scan.ts';
+import type { JobDefinition } from './crons/scan.ts';
 import { voidWarn } from './log.ts';
 import { readProjectPaths } from './project-paths.ts';
-import { scanQueuesSync, type QueueDefinition } from './queues/scan.ts';
+import { scanQueuesSync } from './queues/scan.ts';
+import type { QueueDefinition } from './queues/scan.ts';
 import { ensureGitignoreLines } from './shared/gitignore.ts';
 
 type FrameworkTriggersOptions = {

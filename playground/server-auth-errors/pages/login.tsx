@@ -1,5 +1,6 @@
 import { useRouter } from '@void/react';
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
+import type { FormEvent } from 'react';
 import { auth } from 'void/client/react';
 import { demoUser } from '../src/demo-user.ts';
 

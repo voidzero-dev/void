@@ -1,9 +1,5 @@
 import { planWebSocketMigrations } from '@void/deploy-core';
-import {
-  type DeployManifest,
-  type LiveMigrationMeta,
-  type WebSocketMigrationMeta,
-} from '../types.ts';
+import type { DeployManifest, LiveMigrationMeta, WebSocketMigrationMeta } from '../types.ts';
 import { sortUnique } from './serving-assets.ts';
 
 export function buildDurableObjectUploadMigrations(

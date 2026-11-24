@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { type NotFoundHandling, type RoutingConfig } from '../config.ts';
+import type { NotFoundHandling, RoutingConfig } from '../config.ts';
 import { collectPages } from '../isr-config.ts';
 import type { PageScanResult } from '../pages/types.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
@@ -13,12 +13,12 @@ import {
 } from './deploy-managed-events.ts';
 import { formatDeploySummary, printDeploySuccess } from './deploy-summary.ts';
 import { MANAGED_DEPLOY_BUILD_ENV } from './deploy-transport.ts';
-import { type GitDeployMetadata } from './git-metadata.ts';
-import { type CliLogger } from './log-file.ts';
+import type { GitDeployMetadata } from './git-metadata.ts';
+import type { CliLogger } from './log-file.ts';
 import { createSpinner, formatCount, note } from './output.ts';
 import { collectAndHashAssets, buildVoidManifest, buildStaticManifest } from './package.ts';
-import { type StaticPreset } from './preset.ts';
-import { type ProjectConfig } from './project.ts';
+import type { StaticPreset } from './preset.ts';
+import type { ProjectConfig } from './project.ts';
 import type { DeployManifest, DevRedirectRule, HeaderRule } from './types.ts';
 
 /**

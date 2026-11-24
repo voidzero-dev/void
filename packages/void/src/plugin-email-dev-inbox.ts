@@ -29,8 +29,8 @@ import {
   listDevMessages,
   parseCapturedMessage,
   pushToDevBuffer,
-  type CapturedMessage,
 } from './runtime/email/dev-inbox.ts';
+import type { CapturedMessage } from './runtime/email/dev-inbox.ts';
 
 const SECURITY_HEADERS = {
   'Cache-Control': 'no-store',

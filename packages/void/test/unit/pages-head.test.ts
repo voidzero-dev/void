@@ -5,9 +5,8 @@ import {
   renderHeadToString,
   renderHtmlAttrs,
   renderBodyAttrs,
-  type HeadConfig,
-  type HeadDescriptor,
 } from '../../src/pages/head.ts';
+import type { HeadConfig, HeadDescriptor } from '../../src/pages/head.ts';
 
 describe('resolveHead', () => {
   it('returns undefined when all inputs are undefined', () => {

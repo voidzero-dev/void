@@ -11,8 +11,8 @@ import {
   compileWorkerEntry,
   compileNodeApp,
   compileNodeServer,
-  type CompileOptions,
 } from '../../src/router/compile.ts';
+import type { CompileOptions } from '../../src/router/compile.ts';
 import type { ScanResult } from '../../src/router/scan.ts';
 import { VoidAssetRewriteError } from '../../src/runtime/handler/index.ts';
 import {
@@ -28,8 +28,8 @@ import {
   createManifestLoader,
   createSsrFallback,
   createAssetNotFound,
-  type RoutingRuntime,
 } from '../../src/runtime/routing/index.ts';
+import type { RoutingRuntime } from '../../src/runtime/routing/index.ts';
 
 const testOptions = {
   runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',

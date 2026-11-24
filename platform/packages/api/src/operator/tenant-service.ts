@@ -18,11 +18,10 @@ import {
   publishProjectsAiLogging,
   runUserAiLoggingPublishPage,
   startUserAiLoggingPublish,
-  type UserAiLoggingPublishProgress,
 } from '../ai-logging-plans.ts';
+import type { UserAiLoggingPublishProgress } from '../ai-logging-plans.ts';
 import { readProjectAiLoggingStatus } from '../ai-logging.ts';
 import {
-  type Db,
   ACTIVE_BUILD_STATUSES,
   countUserDeploymentsToday,
   deleteUser,
@@ -41,6 +40,7 @@ import {
   unsuspendUser,
   updateUserPlan,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { cancelContainerBuildDos } from '../github/cancel-builds.ts';
 import { generateId } from '../id.ts';

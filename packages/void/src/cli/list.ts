@@ -1,6 +1,7 @@
 import { outro, log } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
-import { PlatformClient, type DeploymentResponse } from './client.ts';
+import { PlatformClient } from './client.ts';
+import type { DeploymentResponse } from './client.ts';
 import {
   dim,
   formatCount,

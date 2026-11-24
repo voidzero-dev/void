@@ -1,16 +1,8 @@
-import {
-  isRecord,
-  isR2LocationHint,
-  R2_LOCATION_HINTS,
-  type AssetConfig,
-  type StorageConfig,
-} from '@void/deploy-core';
+import { isRecord, isR2LocationHint, R2_LOCATION_HINTS } from '@void/deploy-core';
+import type { AssetConfig, StorageConfig } from '@void/deploy-core';
 import type { RewriteDestination } from 'void/routes';
-import {
-  VOID_AUTH_PROVIDERS,
-  isVoidAuthProvider,
-  type VoidAuthProvider,
-} from './auth/providers.ts';
+import { VOID_AUTH_PROVIDERS, isVoidAuthProvider } from './auth/providers.ts';
+import type { VoidAuthProvider } from './auth/providers.ts';
 import type { DevRedirectRule, HeaderRule } from './cli/types.ts';
 import { loadVoidConfig } from './config-loader.ts';
 import type { HeadConfig } from './pages/head.ts';

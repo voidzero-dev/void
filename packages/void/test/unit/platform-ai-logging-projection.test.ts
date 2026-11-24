@@ -8,8 +8,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-
 import {
   projectPlatformAiLoggingConnection,
   publishInstallationAiLogging,
-  type AiLoggingProjectionKv,
 } from '../../src/cli/platform-ai-logging-projection.ts';
+import type { AiLoggingProjectionKv } from '../../src/cli/platform-ai-logging-projection.ts';
 import type { CloudflareKvBulkEntry } from '../../src/cli/platform-cloudflare.ts';
 import { preparePlatformDatabaseConnection } from '../../src/cli/platform-installer-database.ts';
 import type { QueryConnection } from '../../src/cli/platform-zero-trust-uninstall.ts';

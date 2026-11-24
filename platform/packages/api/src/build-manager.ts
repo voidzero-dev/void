@@ -8,7 +8,8 @@ import {
 } from './auth/deploy-token.ts';
 import { constantTimeEqual } from './auth/hmac.ts';
 import { TERMINAL_STATUSES, isTerminalBuildStatus } from './build-status.ts';
-import { type BuildConfig, type BuildLogLine, isContainerCapacityError } from './build-types.ts';
+import { isContainerCapacityError } from './build-types.ts';
+import type { BuildConfig, BuildLogLine } from './build-types.ts';
 import { SITE_DOMAIN } from './constants.ts';
 import {
   createDb,
@@ -20,15 +21,11 @@ import {
   markBuildTerminalIfActive,
   requeueBuildIfStarting,
   setBuildCheckRunId,
-  type Db,
 } from './db.ts';
+import type { Db } from './db.ts';
 import type { ApiEnv } from './env.ts';
-import {
-  type CheckRunConclusion,
-  VOID_BUILD_CHECK_RUN_NAME,
-  completeCheckRun,
-  createCheckRun,
-} from './github/check-run.ts';
+import { VOID_BUILD_CHECK_RUN_NAME, completeCheckRun, createCheckRun } from './github/check-run.ts';
+import type { CheckRunConclusion } from './github/check-run.ts';
 import {
   generateSourceTarballUrl,
   getBranchHeadComparisonStatus,

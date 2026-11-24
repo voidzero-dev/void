@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import {
-  inferBindingsFromSource,
-  mergeBindings,
-  type InferredBindings,
-} from '../../src/inference/walk.ts';
+import { inferBindingsFromSource, mergeBindings } from '../../src/inference/walk.ts';
+import type { InferredBindings } from '../../src/inference/walk.ts';
 
 const NO_BINDINGS: InferredBindings = {
   needsD1: false,

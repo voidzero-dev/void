@@ -1,13 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'pathslash';
-import {
-  isCSSRequest,
-  normalizePath,
-  type Plugin,
-  type ResolvedConfig,
-  type UserConfig,
-  type ViteDevServer,
-} from 'vite';
+import { isCSSRequest, normalizePath } from 'vite';
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { createBoundaryManifest } from './boundary-plans.ts';
 import { findIslandImports, findStaticCssImports } from './island-imports.ts';
 import { toLayoutId } from './layout-resolution.ts';

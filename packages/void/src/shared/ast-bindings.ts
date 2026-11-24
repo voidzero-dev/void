@@ -1,5 +1,6 @@
 import { walk } from 'estree-walker';
-import { isIdentifier, type AstNode, type AstProgram } from './ast.ts';
+import { isIdentifier } from './ast.ts';
+import type { AstNode, AstProgram } from './ast.ts';
 
 /** Names introduced by a binding pattern, excluding keys and default expressions. */
 export function bindingNames(node: AstNode | null | undefined): Array<string> {

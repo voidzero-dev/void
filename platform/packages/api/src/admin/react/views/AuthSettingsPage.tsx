@@ -6,7 +6,7 @@ import { Heading } from '@astryxdesign/core/Text';
 import type { PlatformLoginConfiguration } from '@void/platform';
 import { useRequest, useView } from 'react-fate';
 import { AuthSettingsView, authSettingsRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { AdminCard } from './AdminCard.tsx';
 import { CodeBlock } from './CodeBlock.tsx';
 import { Layout } from './Layout.tsx';

@@ -1,6 +1,8 @@
-import { and, asc, eq, gt, lt, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, lt, notInArray, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
-import { TERMINAL_DEPLOYMENT_STATUSES, type Db } from '../db.ts';
+import { TERMINAL_DEPLOYMENT_STATUSES } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getProjectDeploymentWorkerName } from '../naming.ts';
 import { CloudflareApiError } from '../provisioning/cloudflare-api.ts';
@@ -10,17 +12,16 @@ import {
   findDurableObjectNamespaceId,
   getContainerApplication,
   perDeployContainerApplicationName,
-  type ContainerApplicationInfo,
 } from '../provisioning/containers.ts';
+import type { ContainerApplicationInfo } from '../provisioning/containers.ts';
 import { settleDeploymentForSandboxDrain } from '../routes/deploy.ts';
 import {
   acquireSandboxDrainLease,
   checkpointSandboxDrain,
   completeSandboxDrain,
   readSandboxDrainCheckpoint,
-  type SandboxDrainCursor,
-  type SandboxDrainPhase,
 } from '../sandbox-drain.ts';
+import type { SandboxDrainCursor, SandboxDrainPhase } from '../sandbox-drain.ts';
 import { deployments, projects, resources } from '../schema.ts';
 import { OperatorError, preview } from './common.ts';
 

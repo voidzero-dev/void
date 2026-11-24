@@ -1,23 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'pathslash';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
-import {
-  isIdentifier,
-  isLiteral,
-  isObjectExpression,
-  type AstNode,
-  type AstProperty,
-} from '../shared/ast.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
+import { isIdentifier, isLiteral, isObjectExpression } from '../shared/ast.ts';
+import type { AstNode, AstProperty } from '../shared/ast.ts';
 import { listRouteFiles } from '../shared/convention-files.ts';
 import { readResourceDefinition } from '../shared/resource-definition.ts';
 import { resourceNameWords } from '../shared/resource-name.ts';
 import { ROUTE_EXTENSIONS } from '../shared/route-extensions.ts';
-import {
-  isRouteEnabledForEnvironment,
-  parseWebSocketFilename,
-  type RouteDefinition,
-  type RouteEnvironment,
-} from './parse-filename.ts';
+import { isRouteEnabledForEnvironment, parseWebSocketFilename } from './parse-filename.ts';
+import type { RouteDefinition, RouteEnvironment } from './parse-filename.ts';
 import { compareRouteSpecificity } from './route-order.ts';
 
 const WEBSOCKET_ROUTE_RE = new RegExp(

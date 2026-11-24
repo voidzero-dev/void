@@ -18,8 +18,8 @@ import {
   CloudflareWorkerInspectionError,
   parseCloudflareVersionMessage,
   parseRootWranglerConfig,
-  type CloudflareOperation,
 } from '@void/deploy-cloudflare';
+import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import ignore from 'ignore';
 import { toSlash } from 'pathslash';
@@ -70,25 +70,30 @@ import type {
   DeployWranglerRunResult,
 } from '../../src/cli/deploy-types.ts';
 import { runDeploy } from '../../src/cli/deploy.ts';
-import { SENDING_FREE_PLAN_HINT, type EmailDns } from '../../src/cli/email-cloudflare.ts';
+import { SENDING_FREE_PLAN_HINT } from '../../src/cli/email-cloudflare.ts';
+import type { EmailDns } from '../../src/cli/email-cloudflare.ts';
 import { runEmailCloudflareCommand } from '../../src/cli/email.ts';
 import {
   resolveEnvSchemaFactsViaSubprocess,
   validateEmittedVarsViaSubprocess,
-  type EnvSchemaProbeResult,
-  type EnvSchemaProbeSpawnResult,
 } from '../../src/cli/env-schema-probe.ts';
-import {
-  dischargeSelfHostEnvContext,
-  type EmittedWorkerVarsResult,
-  type SelfHostEnvContext,
-  type SelfHostSchemaFacts,
+import type {
+  EnvSchemaProbeResult,
+  EnvSchemaProbeSpawnResult,
+} from '../../src/cli/env-schema-probe.ts';
+import { dischargeSelfHostEnvContext } from '../../src/cli/env-validation.ts';
+import type {
+  EmittedWorkerVarsResult,
+  SelfHostEnvContext,
+  SelfHostSchemaFacts,
 } from '../../src/cli/env-validation.ts';
-import { openDeployLog, type CliLogger } from '../../src/cli/log-file.ts';
+import { openDeployLog } from '../../src/cli/log-file.ts';
+import type { CliLogger } from '../../src/cli/log-file.ts';
 import { migrateLegacyVoidConfig } from '../../src/cli/migrate.ts';
 import { FRAMEWORK_PRESETS } from '../../src/cli/preset.ts';
 import { parseProjectArgs } from '../../src/cli/project-args.ts';
-import { provisionCloudflareResources, type ProvisionResult } from '../../src/cli/provision.ts';
+import { provisionCloudflareResources } from '../../src/cli/provision.ts';
+import type { ProvisionResult } from '../../src/cli/provision.ts';
 import {
   FRIENDLY_BINDING_NAMES,
   readWranglerManagedQueueCleanupCandidates,

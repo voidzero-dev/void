@@ -1,6 +1,7 @@
 import { walk } from 'estree-walker';
 import { parseSync } from 'vite';
-import { isIdentifier, isMemberExpression, type AstNode } from '../shared/ast.ts';
+import { isIdentifier, isMemberExpression } from '../shared/ast.ts';
+import type { AstNode } from '../shared/ast.ts';
 import { staticModuleReferences } from '../shared/module-references.ts';
 import { staticLiteral, unwrapStaticExpression } from '../shared/static-exports.ts';
 import { CLIENT_MODULES, inferClientAuth } from './client-auth.ts';

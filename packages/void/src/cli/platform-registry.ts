@@ -10,10 +10,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, hostname } from 'node:os';
-import {
-  parsePlatformInstallationManifest,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { parsePlatformInstallationManifest } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { join, resolve } from 'pathslash';
 import { writeFileAtomic } from '../shared/atomic-write.ts';
 import { readKeyringPassword, writeKeyringPassword } from './keyring.ts';

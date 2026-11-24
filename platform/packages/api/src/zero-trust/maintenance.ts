@@ -5,20 +5,14 @@ import type { ApiEnv } from '../env.ts';
 import { projects, projectZeroTrust } from '../schema.ts';
 import { candidateQuery } from './candidates.ts';
 import type { ZeroTrustCloudflareClient } from './cloudflare.ts';
-import {
-  type ZeroTrustConfiguration,
-  readZeroTrustConfigurationStrict,
-  zeroTrustConfigurationStatus,
-} from './configuration.ts';
+import { readZeroTrustConfigurationStrict, zeroTrustConfigurationStatus } from './configuration.ts';
+import type { ZeroTrustConfiguration } from './configuration.ts';
 import { ZeroTrustUnavailableError } from './errors.ts';
 import { resumePlatformZeroTrustOperation } from './installation.ts';
 import { withProjectZeroTrustLock } from './lock.ts';
 import { reconcileProjectZeroTrust } from './project.ts';
-import {
-  MAX_ROUTING_KEYS_PER_RUN,
-  publishProjectZeroTrustRoutingLocked,
-  type RoutingBudget,
-} from './routing.ts';
+import { MAX_ROUTING_KEYS_PER_RUN, publishProjectZeroTrustRoutingLocked } from './routing.ts';
+import type { RoutingBudget } from './routing.ts';
 import {
   clientForConfiguration,
   getProjectZeroTrustState,

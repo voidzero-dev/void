@@ -3,12 +3,12 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { getWorkerConfigPath, readBuildOutput } from '@cloudflare/build-output-utils';
-import {
-  parseCloudflareVersionMessage,
-  type CloudflareCommandResult,
-  type CloudflareCommandRunner,
-  type CloudflareOperation,
-  type CloudflareVersionActivationOptions,
+import { parseCloudflareVersionMessage } from '@void/deploy-cloudflare';
+import type {
+  CloudflareCommandResult,
+  CloudflareCommandRunner,
+  CloudflareOperation,
+  CloudflareVersionActivationOptions,
 } from '@void/deploy-cloudflare';
 import { isRecord as record } from '@void/deploy-core';
 import { dirname, join } from 'pathslash';
@@ -20,11 +20,8 @@ import {
 } from './cf-command-values.ts';
 import { migrateBuiltWranglerConfig } from './cf-config-migrate.ts';
 import { getCfCliVersion } from './cf-user-agent.ts';
-import {
-  isSecretBindingType,
-  uploadPinnedCloudflareVersion,
-  type CfCommand,
-} from './cf-version-api.ts';
+import { isSecretBindingType, uploadPinnedCloudflareVersion } from './cf-version-api.ts';
+import type { CfCommand } from './cf-version-api.ts';
 import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import type { WranglerAuthTokenResult } from './deploy-cloudflare-auth.ts';

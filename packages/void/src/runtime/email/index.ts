@@ -17,8 +17,8 @@ import {
   dispatchToSinks,
   hasActiveSink,
   serializeCapturedMessage,
-  type CapturedMessage,
 } from './dev-inbox.ts';
+import type { CapturedMessage } from './dev-inbox.ts';
 import {
   bytesToReadableStream,
   readEnvString,

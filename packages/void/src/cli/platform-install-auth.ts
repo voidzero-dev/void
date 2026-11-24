@@ -7,10 +7,12 @@ import {
   parsePlatformAuthenticationSetup,
   parsePlatformLoginConfiguration,
   platformDashboardUrl,
-  type PlatformAppAccess,
-  type PlatformAuthenticationSetup,
-  type PlatformDeploymentManifest,
-  type PlatformLoginKind,
+} from '@void/platform';
+import type {
+  PlatformAppAccess,
+  PlatformAuthenticationSetup,
+  PlatformDeploymentManifest,
+  PlatformLoginKind,
 } from '@void/platform';
 import { confirm, multiselect, password, select, text } from '@voidzero-dev/vite-plus-prompts';
 import { formatUrl } from './output.ts';
@@ -18,8 +20,8 @@ import {
   activatePlatformAccessCredentials,
   parsePlatformAccessSetupSpec,
   preparePlatformAccessSetup,
-  type PlatformAccessSetupSpec,
 } from './platform-access-setup.ts';
+import type { PlatformAccessSetupSpec } from './platform-access-setup.ts';
 import type { PlatformManagementAccess } from './platform-auth.ts';
 import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';

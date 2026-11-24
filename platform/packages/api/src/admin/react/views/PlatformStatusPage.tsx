@@ -10,7 +10,8 @@ import { formatDateTime } from './format.ts';
 import { Layout } from './Layout.tsx';
 import { PageStack } from './PageStack.tsx';
 import { SectionStack } from './SectionStack.tsx';
-import { LastCheckedTime, StatusCard, type StatusCardState } from './StatusCard.tsx';
+import { LastCheckedTime, StatusCard } from './StatusCard.tsx';
+import type { StatusCardState } from './StatusCard.tsx';
 
 const PHASE_LABELS: Record<PlatformLifecycleOperation['phase'], string> = {
   preparing: 'Preparing the platform',
