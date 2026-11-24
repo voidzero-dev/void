@@ -7,21 +7,21 @@ import {
   emailPayloadDigest,
   finishEmailAttempt,
   startEmailAttempt,
-  type Admission,
 } from './email-admission.ts';
+import type { Admission } from './email-admission.ts';
 import { leaseBearer, leaseEmailDomainCredential } from './email-lease.ts';
 import {
   EMAIL_PROVIDER_DEADLINE_MS,
   createEmailProviderDeadline,
-  type EmailProviderDeadline,
 } from './email-provider-deadline.ts';
+import type { EmailProviderDeadline } from './email-provider-deadline.ts';
 import type { Env, ProxyEnv } from './types.ts';
 
 const app = new Hono<ProxyEnv>();
 // The SDK aborts at 60s. Body/auth can precede this handler, and final ledger
 // writes need time after provider work stops.
 const EMAIL_SEND_DEADLINE_MS = 50_000;
-const EMAIL_SEND_FINALIZATION_MARGIN_MS = 5_000;
+const EMAIL_SEND_FINALIZATION_MARGIN_MS = 5000;
 
 /**
  * Cap inbound MIME bytes well below CF's ~10 MB base64-inflated ceiling. The
@@ -124,7 +124,7 @@ export function readSenderDomain(env: Pick<Env, 'EMAIL_SENDER_DOMAIN'>): string 
 const RE_METACHARS_RE = /[.*+?^${}()|[\]\\]/g;
 
 function escapeRegExp(value: string): string {
-  return value.replace(RE_METACHARS_RE, '\\$&');
+  return value.replaceAll(RE_METACHARS_RE, String.raw`\$&`);
 }
 
 /**
@@ -177,10 +177,9 @@ function strictFromRe(domain: string): RegExp {
  * control run inside the window collapses to one space and nothing is
  * refilled from beyond it — which loses nothing on a log line.
  */
-// oxlint-disable-next-line no-control-regex
-const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001f\\u007f]+', 'g');
+const CONTROL_CHARS_RE = new RegExp(String.raw`[\u0000-\u001f\u007f]+`, 'g');
 export function sanitizeForLog(value: string, maxLen = 200): string {
-  return value.slice(0, maxLen).replace(CONTROL_CHARS_RE, ' ');
+  return value.slice(0, maxLen).replaceAll(CONTROL_CHARS_RE, ' ');
 }
 
 /**
@@ -471,7 +470,7 @@ function singleMailboxAddrSpec(value: string): string | null {
   // One printable-ASCII token. Rules out an empty `<>`, WSP inside the
   // brackets, and a code point that only LOOKS like the sender before the
   // caller lower-cases it for the compare.
-  return /^[\x21-\x7e]+$/.test(addrSpec) ? addrSpec : null;
+  return /^[\u0021-\u007e]+$/.test(addrSpec) ? addrSpec : null;
 }
 
 /**
@@ -506,7 +505,7 @@ app.post('/send', async (context) => {
   const callerKey = asString(body.idempotencyKey);
   if (
     callerKey !== null &&
-    (callerKey.length === 0 || callerKey.length > 128 || !/^[\x20-\x7e]+$/.test(callerKey))
+    (callerKey.length === 0 || callerKey.length > 128 || !/^[\u0020-\u007e]+$/.test(callerKey))
   ) {
     return context.json(
       { ok: false, error: { code: 'INVALID_TO', message: 'invalid idempotency key' } },
@@ -515,7 +514,7 @@ app.post('/send', async (context) => {
   }
   const operationKey =
     callerKey ??
-    (requestIdRaw && requestIdRaw.length <= 128 && /^[\x20-\x7e]+$/.test(requestIdRaw)
+    (requestIdRaw && requestIdRaw.length <= 128 && /^[\u0020-\u007e]+$/.test(requestIdRaw)
       ? requestIdRaw
       : crypto.randomUUID());
   const recipientsRaw = Array.isArray(body.recipients) ? body.recipients : null;
@@ -706,7 +705,7 @@ app.post('/send', async (context) => {
   // cannot change under case folding. U+212A KELVIN SIGN lowercases to 'k' and
   // U+0130 to 'i', so a non-ASCII `from` can satisfy a lowercased regex and
   // still reach the shared envelope sender intact. Refuse it before that.
-  if (!/^[\x21-\x7e]+$/.test(from)) {
+  if (!/^[\u0021-\u007e]+$/.test(from)) {
     return context.json(
       {
         ok: false,
@@ -1135,7 +1134,7 @@ async function sendViaCustomDomain(
   // The envelope is forwarded verbatim to the customer's account, so the
   // printable-ASCII guard runs here for the same reason as on the shared
   // path (case folding must not change the bytes downstream sees).
-  if (!/^[\x21-\x7e]+$/.test(from)) {
+  if (!/^[\u0021-\u007e]+$/.test(from)) {
     return context.json(
       {
         ok: false,

@@ -27,7 +27,7 @@ export function highlightCode(code: string, language: Exclude<CodeLanguage, 'tex
           Object.entries(token.htmlStyle ?? {}).map(([property, value]) => [
             property.startsWith('--')
               ? property
-              : property.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase()),
+              : property.replaceAll(/-([a-z])/g, (_, letter: string) => letter.toUpperCase()),
             value,
           ]),
         ),

@@ -1,19 +1,15 @@
-import {
-  createServer,
-  request as httpRequest,
-  type IncomingHttpHeaders,
-  type Server,
-} from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
+import type { IncomingHttpHeaders, Server } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { AddressInfo } from 'node:net';
-import {
-  type CloudflareCommandResult,
-  type CloudflareOperation,
-  type CloudflareCommandRunner,
+import type {
+  CloudflareCommandResult,
+  CloudflareOperation,
+  CloudflareCommandRunner,
 } from '@void/deploy-cloudflare';
-import {
-  type ConditionalWorkerCreateProxy,
-  type ConditionalWorkerCreateState,
+import type {
+  ConditionalWorkerCreateProxy,
+  ConditionalWorkerCreateState,
 } from './platform-installer-types.ts';
 import { resolveCloudflareOperationArgv } from './preset.ts';
 import { createDefaultRunWrangler, resolvePinnedApiBaseUrl } from './provision.ts';
@@ -157,7 +153,7 @@ async function startConditionalWorkerCreateProxy(
       const isTopLevelWorkerUpload =
         incoming.method === 'PUT' &&
         new RegExp(
-          `^${basePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/accounts/[^/]+/workers/scripts/[^/]+$`,
+          `^${basePath.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}/accounts/[^/]+/workers/scripts/[^/]+$`,
         ).test(incomingUrl.pathname);
       const isReadOnly =
         incoming.method === 'GET' || incoming.method === 'HEAD' || incoming.method === 'OPTIONS';

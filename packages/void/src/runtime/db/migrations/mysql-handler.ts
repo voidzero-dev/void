@@ -1,10 +1,7 @@
 import type { Connection } from 'mysql2/promise';
 import type { MigrationEntry, MigrationResponse, MigrationResult } from './d1-handler.ts';
-import {
-  acquireMySqlMigrationLease,
-  holdMySqlMigrationLease,
-  type MySqlMigrationLease,
-} from './mysql-lock.ts';
+import { acquireMySqlMigrationLease, holdMySqlMigrationLease } from './mysql-lock.ts';
+import type { MySqlMigrationLease } from './mysql-lock.ts';
 import { splitMySqlMigrationStatements } from './mysql-sql.ts';
 
 export function createMigrationHandler(

@@ -2,11 +2,12 @@ import {
   createDeployArtifact,
   deployArtifactDigest,
   validateManifestShape,
-  type DeployArtifact,
 } from '@void/deploy-core';
+import type { DeployArtifact } from '@void/deploy-core';
 import { browserPageLead, escapeBrowserHtml } from '@void/platform/browser-page';
 import { and, eq, gt, isNull, desc, or } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { readAuthSettings, readEnabledLoginConnections } from '../auth/configuration.ts';
@@ -25,8 +26,10 @@ import { hashLoginProof, randomLoginProof } from '../auth/proofs.ts';
 import { validateHumanSession } from '../auth/sessions.ts';
 import { platformBrowserPage, platformBrowserError } from '../browser-page.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
-import { consumeCliAuthCode, getProjectBySlug, getUser, type DbOrTx } from '../db.ts';
-import { isDevBypass, type ApiEnv } from '../env.ts';
+import { consumeCliAuthCode, getProjectBySlug, getUser } from '../db.ts';
+import type { DbOrTx } from '../db.ts';
+import { isDevBypass } from '../env.ts';
+import type { ApiEnv } from '../env.ts';
 import { MAX_SLUG_LENGTH } from '../project-names.ts';
 import { oauthClients, oauthGrants, oauthRefreshTokens, oauthRequests } from '../schema.ts';
 import { isAdminSuspended } from '../suspension.ts';
@@ -255,7 +258,7 @@ app.use('*', (context, next) =>
           context.req.path,
         )
           ? 48 * 1024 * 1024
-          : 32768,
+          : 32_768,
       })(context, next),
 );
 app.onError((error, context) =>
@@ -526,6 +529,15 @@ app.post('/approve', async (context) => {
   return context.redirect(redirect.href);
 });
 
+const revoke = (tx: DbOrTx, grantId: string) =>
+  tx
+    .update(oauthGrants)
+    .set({ revoked_at: new Date().toISOString() })
+    .where(eq(oauthGrants.id, grantId));
+
+const invalid = () =>
+  new OAuthError('invalid_grant', 'The refresh token is invalid, expired, or was already used.');
+
 // Redeem and rotate a refresh token. Locks follow the documented order and take
 // the grant FOR UPDATE before the token row, the same order as the cascade when
 // a grant is deleted. A request rejected by a later check (scope, grant,
@@ -540,13 +552,6 @@ async function refreshAccessToken(
     throw new OAuthError('invalid_request', 'A refresh token is required.');
   }
   const db = context.get('db');
-  const invalid = () =>
-    new OAuthError('invalid_grant', 'The refresh token is invalid, expired, or was already used.');
-  const revoke = (tx: DbOrTx, grantId: string) =>
-    tx
-      .update(oauthGrants)
-      .set({ revoked_at: new Date().toISOString() })
-      .where(eq(oauthGrants.id, grantId));
   // A token's grant, hash and expiry never change, and used_at is set once.
   const [found] = await db
     .select({ token: oauthRefreshTokens, clientId: oauthGrants.client_id })

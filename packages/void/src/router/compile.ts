@@ -7,7 +7,8 @@ import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { createBoundaryManifest } from '../pages/boundary-plans.ts';
 import { resolveLayoutIds } from '../pages/layout-resolution.ts';
 import { patternToRegex } from '../pages/manifest.ts';
-import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
+import { cloudflareQueueName } from '../queues/cloudflare-names.ts';
+import type { CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
 import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env/raw.ts';
 import { ASSET_EXTENSIONS } from '../runtime/routing/assets.ts';
@@ -758,7 +759,7 @@ export function compileRouteTable(
       // Reject unmatched mail so the sender gets a bounce instead of silent loss.
       lines.push('  if (typeof message.setReject === "function") {');
       lines.push(
-        '    message.setReject("no handler matched recipient \\"" + __to + "\\" — add email/_default.ts to handle unmatched mail");',
+        String.raw`    message.setReject("no handler matched recipient \"" + __to + "\" — add email/_default.ts to handle unmatched mail");`,
       );
       lines.push('  }');
     }
@@ -986,6 +987,8 @@ function compilePrerenderCollector(
   lines.push('');
 }
 
+const virtualDevUrl = (id: string): string => '/@id/__x00__' + id;
+
 function compilePageRoutes(
   lines: Array<string>,
   scan: ScanResult,
@@ -1016,7 +1019,6 @@ function compilePageRoutes(
   const projectRoot = options.projectRoot;
   const toDevRootUrl = (absolutePath: string): string =>
     '/' + absolutePath.replaceAll('\\', '/').slice(projectRoot.replaceAll('\\', '/').length + 1);
-  const virtualDevUrl = (id: string): string => '/@id/__x00__' + id;
   for (const page of scan.pages.pages) {
     const keys: Array<string> = [];
     const routeRootPhases: Array<Array<string>> = [
@@ -1056,22 +1058,20 @@ function compilePageRoutes(
     pageDevRootPhases[page.componentId] = routeRootPhases.filter((phase) => phase.length > 0);
   }
   for (const plan of Object.values(boundaryManifest.plans)) {
-    const files = [...scan.pages.layouts, ...scan.pages.namedLayouts]
-      .filter((layout) => {
-        const id =
-          'name' in layout
-            ? layout.directory
-              ? layout.directory + '/_layouts/' + layout.name
-              : '_layouts/' + layout.name
-            : layout.directory
-              ? layout.directory + '/layout'
-              : 'layout';
-        const key = scan.pages.pages.some((page) => page.componentId === id)
-          ? id.replace(/(^|\/)([^/]+)$/, '$1_$2')
-          : id;
-        return plan.layouts.includes(key);
-      })
-      .map((layout) => layout.filePath);
+    const files = [...scan.pages.layouts, ...scan.pages.namedLayouts].flatMap((layout) => {
+      const id =
+        'name' in layout
+          ? layout.directory
+            ? layout.directory + '/_layouts/' + layout.name
+            : '_layouts/' + layout.name
+          : layout.directory
+            ? layout.directory + '/layout'
+            : 'layout';
+      const key = scan.pages.pages.some((page) => page.componentId === id)
+        ? id.replace(/(^|\/)([^/]+)$/, '$1_$2')
+        : id;
+      return plan.layouts.includes(key) ? [layout.filePath] : [];
+    });
     files.push(plan.filePath);
     pageCssKeys[plan.id] = files.map((file) => `${relPagesDir}/${file}`);
     pageDevRootPhases[plan.id] = [

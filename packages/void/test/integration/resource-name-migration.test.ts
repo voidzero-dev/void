@@ -48,14 +48,14 @@ async function connectRoom(active: Runtime, path: string): Promise<unknown> {
   });
   expect(response.status).toBe(101);
   const socket = response.webSocket!;
-  const message = new Promise<MessageEvent>((resolve) =>
-    socket.addEventListener('message', resolve, { once: true }),
-  );
+  const message = new Promise<MessageEvent>((resolve) => {
+    socket.addEventListener('message', resolve, { once: true });
+  });
   socket.accept();
   const result = JSON.parse((await message).data);
-  const closed = new Promise<CloseEvent>((resolve) =>
-    socket.addEventListener('close', resolve, { once: true }),
-  );
+  const closed = new Promise<CloseEvent>((resolve) => {
+    socket.addEventListener('close', resolve, { once: true });
+  });
   socket.close(1000, 'fixture complete');
   expect((await closed).code).toBe(1000);
   return result;

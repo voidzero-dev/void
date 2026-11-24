@@ -35,7 +35,7 @@ export const CODE_COPY_SCRIPT: string =
   'if(!p||!navigator.clipboard)return;' +
   'const t=Array.from(p.querySelectorAll(".line:not(.diff.remove)"),l=>l.textContent);' +
   't[t.length-1]===""&&t.pop();' +
-  'navigator.clipboard.writeText(t.join("\\n")).then(()=>{b.classList.add("copied");' +
+  String.raw`navigator.clipboard.writeText(t.join("\n")).then(()=>{b.classList.add("copied");` +
   'setTimeout(()=>b.classList.remove("copied"),2e3)},()=>{})}))</script>';
 
 /**

@@ -1,6 +1,8 @@
-import { and, asc, eq, gt, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Db } from '../db.ts';
-import { type ApiEnv, isDevBypass } from '../env.ts';
+import { isDevBypass } from '../env.ts';
+import type { ApiEnv } from '../env.ts';
 import { isProjectId } from '../id.ts';
 import {
   advanceProxyTokenRotation,

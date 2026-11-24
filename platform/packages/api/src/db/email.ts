@@ -4,7 +4,7 @@ import { generateId } from '../id.ts';
 import { requireProjectCapability } from '../project-access.ts';
 import { users, projects, emailDestinations, emailDestinationCleanups } from '../schema.ts';
 import type { EmailDestination } from '../types.ts';
-import { type DbOrTx, type Db, type Tx } from './client.ts';
+import type { DbOrTx, Db, Tx } from './client.ts';
 
 // --- Email destinations ---
 

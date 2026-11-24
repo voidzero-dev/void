@@ -99,7 +99,7 @@ export function createRouteFetch(
   return async (path, options) => {
     const url = interpolateRouteParams(path, options?.params);
 
-    return client(url, {
+    return client<unknown>(url, {
       method: options?.method ?? 'GET',
       body: options?.body as Record<string, unknown> | BodyInit | null | undefined,
       query: options?.query,

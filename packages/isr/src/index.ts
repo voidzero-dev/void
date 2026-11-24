@@ -145,9 +145,9 @@ export function isrLegacyCacheVariantPrefix(
   return `${isrLegacyCachePrefix(projectId, deploymentId)}${normalizeIsrPath(pathname)}${ISR_VARIANT_SEPARATOR}`;
 }
 
-const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
-const FNV_PRIME = 0x100000001b3n;
-const FNV_MASK = 0xffffffffffffffffn;
+const FNV_OFFSET_BASIS = 0xcb_f2_9c_e4_84_22_23_25n;
+const FNV_PRIME = 0x1_00_00_00_01_b3n;
+const FNV_MASK = 0xff_ff_ff_ff_ff_ff_ff_ffn;
 
 /**
  * Hash an original URL into a 16-hex-char variant token (FNV-1a 64-bit), used

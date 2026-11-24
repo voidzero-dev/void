@@ -150,7 +150,7 @@ it(
         response.end(
           JSON.stringify({
             success: false,
-            errors: [{ code: 10007, message: 'The given script does not exist.' }],
+            errors: [{ code: 10_007, message: 'The given script does not exist.' }],
             result: null,
           }),
         );
@@ -161,7 +161,7 @@ it(
       { cwd: root, capture: true },
     );
     expect(missing.status).toBe(1);
-    expect(missing.errorCode).toBe(10007);
+    expect(missing.errorCode).toBe(10_007);
     expect(requests).toEqual([
       '/client/v4/accounts/test-account/workers/scripts/missing-worker/deployments',
     ]);
@@ -199,7 +199,7 @@ it(
         response.end(
           JSON.stringify({
             success: false,
-            errors: [{ code: 10007, message: 'The given script does not exist.' }],
+            errors: [{ code: 10_007, message: 'The given script does not exist.' }],
             result: null,
           }),
         );
@@ -343,7 +343,7 @@ it.each([false, true])(
             upload && rejected
               ? {
                   success: false,
-                  errors: [{ code: 10021, message: 'Uploaded script has a validation error.' }],
+                  errors: [{ code: 10_021, message: 'Uploaded script has a validation error.' }],
                   messages: [],
                   result: null,
                 }
@@ -692,11 +692,11 @@ serialIt.runIf(process.platform !== 'win32')(
         signal: 'SIGKILL',
         error: 'Cloudflare command timed out.',
       });
-      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(Date.now() - started).toBeLessThan(5000);
       const identity = JSON.parse(result.stdout.trim()) as { pid: number; descendant: number };
       expect(identity.pid).toBe(group);
       for (const pid of [identity.pid, identity.descendant]) {
-        const deadline = Date.now() + 2_000;
+        const deadline = Date.now() + 2000;
         for (;;) {
           try {
             process.kill(pid, 0);
@@ -707,7 +707,9 @@ serialIt.runIf(process.platform !== 'win32')(
           if (Date.now() >= deadline) {
             throw new Error('Container command descendant survived termination.');
           }
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 20);
+          });
         }
       }
     } finally {

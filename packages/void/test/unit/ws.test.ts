@@ -151,7 +151,7 @@ describe('typed websocket client', () => {
       MockWebSocket.instances[0]!.emit('close', { code: 1006, wasClean: false });
 
       socket.close(1000, 'unmount');
-      vi.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1000);
 
       expect(MockWebSocket.instances).toHaveLength(1);
     });

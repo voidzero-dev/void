@@ -26,7 +26,7 @@ const CF_EMAIL_ERROR_CODES: Readonly<Record<number, string>> = {
   2062: 'Email Routing is not enabled on this zone',
   2040: 'already onboarded for Email Sending',
   2036: 'account is not entitled to Email Sending',
-  10105: 'account is not entitled to Email Sending',
+  10_105: 'account is not entitled to Email Sending',
 };
 
 /** The one-time dashboard step printed when the subdomain routing call cannot be made. */
@@ -298,7 +298,7 @@ export function parseWhoamiJson(data: unknown): WhoamiJson | null {
   ) {
     return null;
   }
-  return data as unknown as WhoamiJson;
+  return data as Record<string, unknown> & WhoamiJson;
 }
 
 export interface RoutingSettings {
@@ -770,10 +770,8 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
   //    Email Routing settings (Zone Settings Read), which a sending-only token lacks.
   //    A `null` bearer leaves these rows `unknown`.
   let sendingRead: SessionBearerResponse | null = null;
-  let bearer: string | null = null;
-  if (pre.session.state === 'ok') {
-    bearer = await inputs.getSessionBearer().catch(() => null);
-  }
+  const bearer =
+    pre.session.state === 'ok' ? await inputs.getSessionBearer().catch(() => null) : null;
   if (bearer) {
     if (!receivesEmail) {
       pre.zone.state = 'not-found';
@@ -852,7 +850,6 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
       );
     }
   }
-  bearer = null;
   if (!receivesEmail && pre.session.state === 'ok' && pre.zone.state === 'unknown') {
     block(
       'all',
@@ -1327,7 +1324,7 @@ export async function fetchWithSessionBearer(
     success?: boolean;
     result?: unknown;
     errors?: Array<{ code?: number; message?: string }>;
-  } = {};
+  };
   try {
     payload = (await response.json()) as typeof payload;
   } catch {
@@ -1372,6 +1369,17 @@ export interface EmailApplyResult {
   /** The capabilities used by the app are configured, including its send binding. */
   ready: boolean;
 }
+
+const describeFailure = (response: SessionBearerResponse | null): string => {
+  if (!response) {
+    // `auth token --json` failed, so no bearer could be borrowed.
+    return 'could not borrow the Cloudflare session (session-bearer step failed)';
+  }
+  const first = response.errors[0];
+  const code = first?.code ? ` [code: ${first.code}]` : '';
+  const known = first?.code ? CF_EMAIL_ERROR_CODES[first.code] : undefined;
+  return `Cloudflare answered ${response.status}${code}${known ? ` — ${known}` : first?.message ? ` — ${first.message}` : ''}`;
+};
 
 /**
  * Run only the rows preflight found not ready:
@@ -1458,16 +1466,6 @@ export async function applyEmailSetup(
       bearerFailed = true;
     }
     return response;
-  };
-  const describeFailure = (response: SessionBearerResponse | null): string => {
-    if (!response) {
-      // `auth token --json` failed, so no bearer could be borrowed.
-      return 'could not borrow the Cloudflare session (session-bearer step failed)';
-    }
-    const first = response.errors[0];
-    const code = first?.code ? ` [code: ${first.code}]` : '';
-    const known = first?.code ? CF_EMAIL_ERROR_CODES[first.code] : undefined;
-    return `Cloudflare answered ${response.status}${code}${known ? ` — ${known}` : first?.message ? ` — ${first.message}` : ''}`;
   };
 
   // 1. Routing.

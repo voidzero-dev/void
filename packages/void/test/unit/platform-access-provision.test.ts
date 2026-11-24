@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
   inspectPlatformAccess,
   provisionPlatformAccess,
-  type PlatformAccessCheckpoint,
-  type PlatformAccessProvisionInput,
+} from '../../src/cli/platform-access-provision.ts';
+import type {
+  PlatformAccessCheckpoint,
+  PlatformAccessProvisionInput,
 } from '../../src/cli/platform-access-provision.ts';
 import { platformAccessFixture as fixture } from '../fixtures/platform-access.ts';
 

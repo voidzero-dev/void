@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import {
-  DEPLOY_POST_ATTEMPTS,
-  PlatformClient,
-  type ManifestOnlyDeployPayload,
-} from '../../src/cli/client.ts';
+import { DEPLOY_POST_ATTEMPTS, PlatformClient } from '../../src/cli/client.ts';
+import type { ManifestOnlyDeployPayload } from '../../src/cli/client.ts';
 import type { DeployManifest } from '../../src/cli/types.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 
@@ -482,7 +479,7 @@ describe('PlatformClient.finalizeDeploy', () => {
       expect(DEPLOY_POST_ATTEMPTS).toBe(4);
       expect(new Set(idempotencyKeys()).size).toBe(1);
       const retries = cliLog.warn.mock.calls.filter(([msg]) => msg === 'deploy_fetch_retry');
-      expect(retries.map(([, fields]) => fields?.delayMs)).toEqual([1000, 5000, 10000]);
+      expect(retries.map(([, fields]) => fields?.delayMs)).toEqual([1000, 5000, 10_000]);
       expect(cliLog.error).toHaveBeenCalledWith(
         'deploy_fetch_rejected',
         expect.any(TypeError),

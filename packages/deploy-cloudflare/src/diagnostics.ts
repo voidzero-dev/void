@@ -24,8 +24,8 @@ function withoutLogLines(output: string): string {
 
 /** Keep the uploader's error, excluding cf's log lines and redacting common credential formats. */
 export function cloudflareCommandDiagnostic(result: CloudflareCommandResult): string | undefined {
-  const stderr = stripVTControlCharacters(result.stderr).replace(/\r\n?/g, '\n');
-  const stdout = stripVTControlCharacters(result.stdout).replace(/\r\n?/g, '\n');
+  const stderr = stripVTControlCharacters(result.stderr).replaceAll(/\r\n?/g, '\n');
+  const stdout = stripVTControlCharacters(result.stdout).replaceAll(/\r\n?/g, '\n');
   let message = result.error || stderr;
   for (const output of [stderr, stdout]) {
     const marker = /(?:^|\n)[ \t]*(?:[✘×X][ \t]+)?\[ERROR\]\s*/i.exec(output);
@@ -65,13 +65,13 @@ export function cloudflareCommandDiagnostic(result: CloudflareCommandResult): st
   }
 
   message = message
-    .replace(/\b(Bearer|Basic)\s+\S+/gi, '$1 [redacted]')
-    .replace(
+    .replaceAll(/\b(Bearer|Basic)\s+\S+/gi, '$1 [redacted]')
+    .replaceAll(
       /([?&](?:X-Amz-[A-Za-z0-9-]+|signature|sig|token|access_token|key)=)[^&\s]+/gi,
       '$1[redacted]',
     )
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]*@/gi, '$1[redacted]@')
-    .replace(
+    .replaceAll(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]*@/gi, '$1[redacted]@')
+    .replaceAll(
       /(\b(?:CLOUDFLARE_API_TOKEN|CF_ACCESS_CLIENT_SECRET|access_token|refresh_token|api[_-]?(?:key|token)|password|secret)\b["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
       '$1[redacted]',
     );

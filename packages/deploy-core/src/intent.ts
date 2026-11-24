@@ -1,5 +1,6 @@
 import type { DeployManifest } from './index.ts';
-import { createDeployResourcePlan, type DeployResourcePlan } from './resource-plan.ts';
+import { createDeployResourcePlan } from './resource-plan.ts';
+import type { DeployResourcePlan } from './resource-plan.ts';
 import type { DeployAppType } from './target.ts';
 
 export type DeployRuntimeFeatures = Readonly<{

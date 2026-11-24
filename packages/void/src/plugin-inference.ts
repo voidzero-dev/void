@@ -2,15 +2,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, toSlash } from 'pathslash';
 import { globSync } from 'tinyglobby';
 import { applyBindingOverrides } from './application-features.ts';
-import { inferBindingsFromSource, mergeBindings, type InferredBindings } from './inference/walk.ts';
+import { inferBindingsFromSource, mergeBindings } from './inference/walk.ts';
+import type { InferredBindings } from './inference/walk.ts';
 import { pageFileEnvironment } from './pages/scan.ts';
-import { readProjectPaths, type ProjectPaths } from './project-paths.ts';
+import { readProjectPaths } from './project-paths.ts';
+import type { ProjectPaths } from './project-paths.ts';
 import {
   isRouteEnabledForEnvironment,
   parseRouteFilename,
   parseWebSocketFilename,
-  type RouteEnvironment,
 } from './router/parse-filename.ts';
+import type { RouteEnvironment } from './router/parse-filename.ts';
 import { isWebSocketPatternFile } from './router/websocket.ts';
 import { conventionFileGlobs, isRouteFile } from './shared/convention-files.ts';
 import { deriveFromSource } from './shared/source-analysis-cache.ts';
@@ -82,7 +84,7 @@ const FRAMEWORK_PACKAGES: Record<string, DetectedFramework> = {
 export function detectFramework(root: string): DetectedFramework | undefined {
   let pkg: Record<string, unknown>;
   try {
-    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   } catch {
     return undefined;
   }

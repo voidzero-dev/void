@@ -711,7 +711,7 @@ describe('WfP asset fallback on CF stub', () => {
   });
 
   it('does not buffer the body for non-matching responses (large JSON API reply)', async () => {
-    const largeBody = JSON.stringify({ items: new Array(100).fill({ x: 1 }) });
+    const largeBody = JSON.stringify({ items: Array.from({ length: 100 }, () => ({ x: 1 })) });
     const apiResponse = new Response(largeBody, {
       status: 200,
       headers: {

@@ -18,11 +18,11 @@ import {
   getDatabaseCasing,
   getDatabaseDialect,
   resolveBindingNames,
-  type DatabaseCasing,
-  type DatabaseDialect,
 } from '../config.ts';
+import type { DatabaseCasing, DatabaseDialect } from '../config.ts';
 import type { DatabaseProviderAdapter, DatabaseProviderDialect } from '../database-provider.ts';
-import { resolveLocalD1Target, type LocalD1Target } from '../local-d1.ts';
+import { resolveLocalD1Target } from '../local-d1.ts';
+import type { LocalD1Target } from '../local-d1.ts';
 import {
   collectMigrations,
   readJournal,
@@ -226,8 +226,8 @@ export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
 
 export function writeLocalDatabaseUrl(root: string, connectionString: string): void {
   const envPath = join(root, '.env');
-  const original = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : '';
-  const lines = original ? original.replace(/\r\n/g, '\n').split('\n') : [];
+  const original = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
+  const lines = original ? original.replaceAll('\r\n', '\n').split('\n') : [];
   const assignment = `DATABASE_URL=${JSON.stringify(connectionString)}`;
   const index = lines.findIndex((line) => /^\s*(?:export\s+)?DATABASE_URL\s*=/.test(line));
   if (index === -1) {
@@ -775,7 +775,7 @@ async function runSeed(
   // Load the seed before the reset, so a wrong path or a broken module stops the command
   // before any data is dropped. Importing a module runs its code, so ask about the database first.
   const seed = resolveSeedTarget(root, file);
-  const sql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf-8') : undefined;
+  const sql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf8') : undefined;
   await confirmReset(root, dialect, yes);
   const seedFn = sql === undefined ? await loadSeedFunction(seed.path) : undefined;
 
@@ -830,7 +830,7 @@ function isSafeStatement(sql: string): boolean {
   if (sql.replace(/;\s*$/, '').includes(';')) {
     return false;
   }
-  const decommented = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+  const decommented = sql.replaceAll(/\/\*[\s\S]*?\*\//g, ' ').replaceAll(/--[^\n]*/g, ' ');
   const stripped = decommented.replace(/;\s*$/, '');
   if (/^\s*SELECT\b/i.test(stripped)) {
     return true;
@@ -958,7 +958,7 @@ async function runExecute(
 ): Promise<void> {
   if (remote) {
     const directCloudflare = readDeploymentPlatform(root) === 'cloudflare';
-    const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+    const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
 
     if (directCloudflare) {
       const bulkImport =
@@ -1102,7 +1102,7 @@ async function runExecute(
   }
 
   if (dialect === 'postgresql') {
-    const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+    const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
     await withPgClient(root, async (client) => {
       const result = await client.query(sql);
       if (result.rows && result.rows.length > 0) {
@@ -1114,7 +1114,7 @@ async function runExecute(
   }
 
   if (dialect === 'mysql') {
-    const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+    const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
     await withMySqlClient(root, async (client) => {
       const rows = await client.query(sql);
       if (rows.length > 0) {
@@ -1133,7 +1133,7 @@ async function runExecute(
     process.exit(1);
   }
 
-  const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+  const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
 
   const db = await openSqliteDatabase(dbPath);
   try {
@@ -1639,6 +1639,9 @@ async function hasDeployedCloudflareDatabase(root: string): Promise<boolean> {
   );
 }
 
+// Drizzle-kit finds a snapshot by the part of the journal tag before the first underscore.
+const snapshotPrefix = (tag: string): string => tag.split('_')[0];
+
 async function runRenameMigrations(root: string, dialect: DatabaseDialect): Promise<void> {
   const paths = readProjectPaths(root);
   const migrationsDir = paths.migrationsDir;
@@ -1740,8 +1743,6 @@ async function runRenameMigrations(root: string, dialect: DatabaseDialect): Prom
     ? readFileSync(journalPath)
     : null;
   const journal = readJournal(migrationsDir, paths.sourceRelative);
-  // Drizzle-kit finds a snapshot by the part of the journal tag before the first underscore.
-  const snapshotPrefix = (tag: string): string => tag.split('_')[0];
   const snapshotPathFor = (tag: string): string =>
     join(metaDir, `${snapshotPrefix(tag)}_snapshot.json`);
 
@@ -2026,7 +2027,9 @@ function formatMySqlExportValue(value: unknown): string {
   if (value instanceof Uint8Array) {
     return `X'${Array.from(value, (byte) => byte.toString(16).padStart(2, '0')).join('')}'`;
   }
-  return `'${String(value).replaceAll('\\', '\\\\').replaceAll("'", "''")}'`;
+  return `'${String(value)
+    .replaceAll('\\', String.raw`\\`)
+    .replaceAll("'", "''")}'`;
 }
 
 function formatSqliteExportValue(value: unknown): string {
@@ -2134,7 +2137,7 @@ async function runExport(
               if (typeof value === 'number') {
                 return String(value);
               }
-              return `'${String(value).replace(/'/g, "''")}'`;
+              return `'${String(value).replaceAll("'", "''")}'`;
             });
             parts.push(
               `INSERT INTO ${tableName} (${cols.map(quoteSqlIdentifier).join(', ')})${overriding} VALUES (${vals.join(', ')});`,
@@ -2401,9 +2404,10 @@ function resolveSeedTarget(root: string, file: string | undefined): SeedTarget {
   }
 
   const paths = readProjectPaths(root);
-  const defaults = DEFAULT_SEED_FILES.map((candidate) => paths.sourceRelative(candidate)).filter(
-    (candidate) => existsSync(join(root, candidate)),
-  );
+  const defaults = DEFAULT_SEED_FILES.flatMap((candidate) => {
+    const mappedCandidate = paths.sourceRelative(candidate);
+    return existsSync(join(root, mappedCandidate)) ? [mappedCandidate] : [];
+  });
   if (defaults.length === 0) {
     log.error(
       `db: No seed file found. Create one of: ${DEFAULT_SEED_FILES.map((candidate) => paths.sourceRelative(candidate)).join(', ')} or pass --file <path>.`,
@@ -2522,12 +2526,14 @@ async function loadSeedSchema(root: string): Promise<Record<string, unknown>> {
 
   const files = collectSchemaModuleFiles(location.path);
   const parts = await Promise.all(files.map((file) => importLocalModule(file)));
-  return Object.assign(
-    {},
+  const schema: Record<string, unknown> = {};
+  Object.assign(
+    schema,
     ...parts.map((mod) =>
       Object.fromEntries(Object.entries(mod).filter(([name]) => name !== 'default')),
     ),
   );
+  return schema;
 }
 
 function collectSchemaModuleFiles(dir: string): Array<string> {

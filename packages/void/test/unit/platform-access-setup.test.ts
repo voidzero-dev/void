@@ -12,10 +12,8 @@ import {
   platformAccessResourceInventory,
   preparePlatformAccessSetup,
 } from '../../src/cli/platform-access-setup.ts';
-import {
-  PlatformCloudflareApiError,
-  type PlatformCloudflareClient,
-} from '../../src/cli/platform-cloudflare.ts';
+import { PlatformCloudflareApiError } from '../../src/cli/platform-cloudflare.ts';
+import type { PlatformCloudflareClient } from '../../src/cli/platform-cloudflare.ts';
 import { platformAccessFixture } from '../fixtures/platform-access.ts';
 
 const prompts = vi.hoisted(() => ({

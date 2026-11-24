@@ -2,10 +2,11 @@ import {
   createDeployArtifact,
   deployArtifactDigest,
   validateManifestShape,
-  type DeployArtifact,
 } from '@void/deploy-core';
+import type { DeployArtifact } from '@void/deploy-core';
 import { and, count, eq, gt, sql } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import {
   AiLoggingPublishError,
@@ -13,7 +14,8 @@ import {
   publishProjectAiLogging,
 } from '../ai-logging.ts';
 import { signJwt, verifyJwt } from '../auth/jwt.ts';
-import { activeOAuthClient, activeOAuthGrant, oauthBearer, OAuthError } from '../auth/oauth.ts';
+import type { activeOAuthClient } from '../auth/oauth.ts';
+import { activeOAuthGrant, oauthBearer, OAuthError } from '../auth/oauth.ts';
 import { hashLoginProof, randomLoginProof } from '../auth/proofs.ts';
 import { createProject, getProject } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
@@ -92,7 +94,7 @@ app.post('/previews', async (context) => {
       }
       const [renewed] = await tx
         .update(projects)
-        .set({ preview_expires_at: expiry(7 * 86400) })
+        .set({ preview_expires_at: expiry(7 * 86_400) })
         .where(eq(projects.id, existing.id))
         .returning();
       return renewed!;
@@ -118,7 +120,7 @@ app.post('/previews', async (context) => {
       .set({
         preview_client_id: grant.client_id,
         preview_workspace_id: body.workspace,
-        preview_expires_at: expiry(7 * 86400),
+        preview_expires_at: expiry(7 * 86_400),
       })
       .where(eq(projects.id, created.id))
       .returning();
@@ -235,7 +237,7 @@ app.post('/preview-deployment-requests', async (context) => {
       approved_at: new Date().toISOString(),
       consumed_at: new Date().toISOString(),
       expires_at: new Date(
-        Math.min(Date.now() + 900000, Date.parse(grant.expires_at)),
+        Math.min(Date.now() + 900_000, Date.parse(grant.expires_at)),
       ).toISOString(),
     });
   });

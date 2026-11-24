@@ -1,10 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import {
-  parsePlatformAccessProtection,
-  platformProtectionProofMessage,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { parsePlatformAccessProtection, platformProtectionProofMessage } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { ensurePlatformAccessToken } from './cf-access.ts';

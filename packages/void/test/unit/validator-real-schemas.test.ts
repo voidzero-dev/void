@@ -1,9 +1,10 @@
 import { type } from 'arktype';
 import { Hono } from 'hono';
-import * as v from 'valibot';
+import { email as valibotEmail, minLength, object, pipe, string } from 'valibot';
 import { describe, expect, it } from 'vite-plus/test';
 import { z } from 'zod';
-import { defineHandler, type CloudContext } from '../../src/runtime/handler/index.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
 import { convertReturnValue } from '../../src/runtime/handler/response.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
@@ -38,9 +39,9 @@ const libraries: Array<{ library: string; CreateUser: StandardSchemaV1 }> = [
   },
   {
     library: 'valibot',
-    CreateUser: v.object({
-      name: v.pipe(v.string(), v.minLength(1)),
-      email: v.pipe(v.string(), v.email()),
+    CreateUser: object({
+      name: pipe(string(), minLength(1)),
+      email: pipe(string(), valibotEmail()),
     }),
   },
   {

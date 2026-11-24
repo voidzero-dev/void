@@ -25,6 +25,7 @@ import { setProjectAiLogging } from '../../src/ai-logging.ts';
 import { respondToProjectInvitation } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as systemOperations from '../../src/operator/system-operations.ts';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
@@ -55,8 +56,8 @@ import {
   createTestDeployment,
   mockCfApi,
   skipOrphanSweepDelay,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { nativeFormSubmission } from './native-form-browser.ts';
 import { createUsageCounterFixture } from './usage-counter-fixture.ts';
 
@@ -782,7 +783,7 @@ function zeroTrustSetting(overrides: Record<string, unknown> = {}) {
     key: 'zeroTrust.configuration',
     value: {
       version: 1,
-      revision: 918273645,
+      revision: 918_273_645,
       enabled: true,
       protectNewProjects: true,
       accountId: 'zero-trust-account',
@@ -2485,8 +2486,8 @@ describe('GET /admin/projects', () => {
     expect(projectLink).toContain('target="_blank"');
     expect(projectLink).toContain('rel="noopener noreferrer"');
     expect(projectLink).toContain('<svg');
-    expect(projectLink?.replace(/<[^>]+>/g, '')).toContain('my-proj.void.app');
-    expect(projectLink?.replace(/<[^>]+>/g, '')).not.toContain('https://');
+    expect(projectLink?.replaceAll(/<[^>]+>/g, '')).toContain('my-proj.void.app');
+    expect(projectLink?.replaceAll(/<[^>]+>/g, '')).not.toContain('https://');
   });
 
   test('paginates projects', async () => {

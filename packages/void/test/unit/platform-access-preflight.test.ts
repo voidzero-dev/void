@@ -5,10 +5,8 @@ import {
 } from '@void/platform';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { verifyInstalledPlatformAccessProtection } from '../../src/cli/platform-access-preflight.ts';
-import {
-  provisionPlatformAccess,
-  type PlatformAccessCheckpoint,
-} from '../../src/cli/platform-access-provision.ts';
+import { provisionPlatformAccess } from '../../src/cli/platform-access-provision.ts';
+import type { PlatformAccessCheckpoint } from '../../src/cli/platform-access-provision.ts';
 import type { PlatformCloudflareClient } from '../../src/cli/platform-cloudflare.ts';
 import { platformAccessFixture } from '../fixtures/platform-access.ts';
 

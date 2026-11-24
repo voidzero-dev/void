@@ -4,7 +4,7 @@ import type { Heading } from '../compile.ts';
 import { extractHeadings } from '../metadata.ts';
 
 const TOC_RE = /^\[\[toc\]\]$/i;
-const TOC_LEVELS: ReadonlyArray<number> = [2, 3];
+const TOC_LEVELS = new Set([2, 3]);
 
 function renderHeaders(headers: ReadonlyArray<Heading>): string {
   if (headers.length === 0) {
@@ -56,7 +56,7 @@ export function tocPlugin(md: MarkdownExit): void {
   );
 
   md.renderer.rules.toc_body = (tokens: Array<Token>) => {
-    const headers = extractHeadings(tokens).filter((heading) => TOC_LEVELS.includes(heading.depth));
+    const headers = extractHeadings(tokens).filter((heading) => TOC_LEVELS.has(heading.depth));
     return renderHeaders(headers);
   };
 }

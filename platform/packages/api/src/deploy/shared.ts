@@ -54,8 +54,7 @@ export const WORKER_UPLOAD_MAX_AGE_MS = 12 * 60 * 60 * 1000;
  * isolate cap with margin.
  */
 export function decodeBase64ToBytes(raw: string): Uint8Array {
-  const fromBase64 = (Uint8Array as unknown as { fromBase64?: (s: string) => Uint8Array })
-    .fromBase64;
+  const fromBase64 = (Uint8Array as { fromBase64?: (s: string) => Uint8Array }).fromBase64;
   if (typeof fromBase64 === 'function') {
     return fromBase64(raw);
   }
@@ -74,7 +73,9 @@ export function projectPublicUrls(
   domains: ReadonlyArray<Readonly<{ hostname: string; status: string }>>,
 ): Array<string> {
   return [
-    ...domains.filter((domain) => domain.status === 'active').map((d) => `https://${d.hostname}`),
+    ...domains.flatMap((domain) =>
+      domain.status === 'active' ? [`https://${domain.hostname}`] : [],
+    ),
     `https://${platformProjectHostname(project, readPlatformApplication(env))}`,
   ];
 }
@@ -235,7 +236,12 @@ export function workerUploadModulesProblem(
   for (let index = 0; index < value.length; index++) {
     const entry: unknown = value[index];
     const at = `${label}[${index}]`;
-    if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) {
+    if (
+      entry === null ||
+      entry === undefined ||
+      typeof entry !== 'object' ||
+      Array.isArray(entry)
+    ) {
       return { status: 400, message: `${at} must be an object` };
     }
     const { name, size, sha256 } = entry as Record<string, unknown>;
@@ -272,7 +278,7 @@ export function workerUploadModulesProblem(
 
 /** Explain why a deploy body's `workerInput` cannot be accepted, or return null. */
 export function workerInputProblem(value: unknown): WorkerUploadProblem | null {
-  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+  if (value === null || value === undefined || typeof value !== 'object' || Array.isArray(value)) {
     return { status: 400, message: 'workerInput must be an object with id and modules' };
   }
   const { id, modules } = value as Record<string, unknown>;

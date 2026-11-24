@@ -10,9 +10,11 @@ import {
 import { platformProjectHostnames, readPlatformApplication } from '@void/platform';
 import type { Context } from 'hono';
 import { R2_CONCURRENCY, uploadPool } from './concurrency.ts';
-import { getDomainsByProjectId, type Db } from './db.ts';
+import { getDomainsByProjectId } from './db.ts';
+import type { Db } from './db.ts';
 import type { ApiEnv } from './env.ts';
-import { resolveCurrentIsrDeployments, type IsrRoutingTarget } from './isr-cache.ts';
+import { resolveCurrentIsrDeployments } from './isr-cache.ts';
+import type { IsrRoutingTarget } from './isr-cache.ts';
 import {
   legacyIsrCacheKey,
   legacyIsrCachePrefix,

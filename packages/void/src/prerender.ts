@@ -14,8 +14,8 @@ import {
   readPrerenderPathsResponse,
   renderPrerenderPaths,
   renderBoundary404,
-  type PrerenderResult,
 } from './prerender-render.ts';
+import type { PrerenderResult } from './prerender-render.ts';
 export type { PrerenderResult } from './prerender-render.ts';
 import { renderDefaultErrorPage } from './runtime/routing/error-pages/index.ts';
 import { scopedAccessCredentials } from './shared/cf-access.ts';
@@ -42,7 +42,7 @@ export type PrerenderRunResult = PrerenderResult & {
 };
 
 function normalizeWorkerModulePath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\.\//, '');
+  return path.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
 function resolveWorkerModuleType(relativePath: string): PrerenderWorkerModuleType | null {
@@ -92,7 +92,7 @@ export function collectPrerenderWorkerModules(
 
       const file = readFileSync(filePath);
       const contents: PrerenderWorkerModule['contents'] =
-        type === 'CompiledWasm' || type === 'Data' ? new Uint8Array(file) : file.toString('utf-8');
+        type === 'CompiledWasm' || type === 'Data' ? new Uint8Array(file) : file.toString('utf8');
 
       return [{ path: filePath, relativePath, type, contents }];
     },
@@ -168,7 +168,7 @@ async function createCloudflarePrerenderRunner(options: {
   if (!existsSync(wranglerPath)) {
     throw new Error(`prerender: wrangler.json not found in '${workerDir}'.`);
   }
-  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf-8'));
+  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf8'));
   const wranglerCompat = ensureWranglerCompat(root, readConfig(root), workerDir);
   const workerMain = wranglerConfig.main ?? 'index.js';
 
@@ -214,6 +214,7 @@ async function createCloudflarePrerenderRunner(options: {
   // config shape; the flat single-worker options below are the v4 shape, which it
   // still exports a converter for. `@cloudflare/vite-plugin` 1.54 builds its own
   // Miniflare instances the same way (`new Miniflare(convertV4MiniflareOptions(...))`).
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- Miniflare dispatchFetch and the worker share the Fetch API at runtime.
   const { Miniflare, convertV4MiniflareOptions } = (await import('miniflare')) as unknown as {
     Miniflare: new (options: Record<string, unknown>) => {
       dispatchFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;

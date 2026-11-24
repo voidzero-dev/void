@@ -3,10 +3,8 @@ import { buildVoidManifest, buildFrameworkManifest } from '../../src/cli/package
 import type { InferredBindings } from '../../src/inference/walk.ts';
 import { buildMigrationPlanBundle } from '../../src/migrations/plan.ts';
 import type { MigrationFile } from '../../src/migrations/validate.ts';
-import {
-  createMigrationHandler,
-  type MigrationResponse,
-} from '../../src/runtime/db/migrations/d1-handler.ts';
+import { createMigrationHandler } from '../../src/runtime/db/migrations/d1-handler.ts';
+import type { MigrationResponse } from '../../src/runtime/db/migrations/d1-handler.ts';
 
 const noBindings: InferredBindings = {
   needsD1: false,

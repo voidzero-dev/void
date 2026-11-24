@@ -6,8 +6,8 @@ import {
   getProjectsByIds,
   suspendUser,
   unsuspendUserIfReason,
-  type Db,
 } from './db.ts';
+import type { Db } from './db.ts';
 import type { ApiEnv } from './env.ts';
 import { resolvePlanLimits } from './plans.ts';
 import { queryProjectAiUsage } from './routes/usage.ts';
@@ -18,12 +18,8 @@ import {
   verifyActiveProjectOwner,
 } from './routing.ts';
 import { REASON_REQUESTS_EXCEEDED, REASON_SANDBOX_RUNTIME_EXCEEDED } from './suspension.ts';
-import {
-  getCurrentBillingPeriodStart,
-  getPlanLimits,
-  isWithinLimit,
-  type PlanLimits,
-} from './tiers.ts';
+import { getCurrentBillingPeriodStart, getPlanLimits, isWithinLimit } from './tiers.ts';
+import type { PlanLimits } from './tiers.ts';
 import { SANDBOX_USAGE_RETENTION_MS } from './usage-auth.ts';
 
 // --- Exported types ---

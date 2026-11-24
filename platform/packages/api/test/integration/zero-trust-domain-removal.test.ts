@@ -24,8 +24,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 vi.mock('../../src/zero-trust/project.ts', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../src/zero-trust/project.ts')>();

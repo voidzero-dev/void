@@ -5,7 +5,8 @@ import {
   readBuildOutput,
 } from '@cloudflare/build-output-utils';
 import { convertToWranglerConfig } from '@cloudflare/config';
-import { cloudflare as cloudflareV2, type PluginConfig } from '@cloudflare/vite-plugin';
+import { cloudflare as cloudflareV2 } from '@cloudflare/vite-plugin';
+import type { PluginConfig } from '@cloudflare/vite-plugin';
 import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
 import type { BuildEnvironment, Plugin } from 'vite';
 import { readGeneratedWranglerConfigFile } from './cli/generated-wrangler-config.ts';
@@ -14,9 +15,8 @@ import {
   nativeAuxiliaryWorkers,
   restoreLocalContainerBindings,
   toNativeCloudflareConfig,
-  type AuxiliaryWorkerConfig,
-  type WorkerConfig,
 } from './plugin-cloudflare-config.ts';
+import type { AuxiliaryWorkerConfig, WorkerConfig } from './plugin-cloudflare-config.ts';
 import { withLocalPreviewBindings } from './plugin-cloudflare-preview.ts';
 import { isVitestServer } from './plugin-dev-config.ts';
 import { writeFileAtomic } from './shared/atomic-write.ts';

@@ -1,4 +1,5 @@
-import { parsePlatformDiscoveryDocument, type PlatformDiscoveryDocument } from '@void/platform';
+import { parsePlatformDiscoveryDocument } from '@void/platform';
+import type { PlatformDiscoveryDocument } from '@void/platform';
 import { normalizePlatformApiUrl } from './platform-registry.ts';
 
 /** Discovery was refused because the platform traffic gate is closed. */
@@ -47,6 +48,7 @@ export async function readPlatformDiscoveryResponse(
   try {
     discovery = parsePlatformDiscoveryDocument(value);
   } catch (error) {
+    // oxlint-disable-next-line preserve-caught-error -- The discovery error message retains the relevant information without the raw response.
     throw new Error(
       `platform: ${apiUrl} returned invalid discovery metadata: ${error instanceof Error ? error.message : String(error)}`,
     );

@@ -3,19 +3,17 @@ import { globSync } from 'tinyglobby';
 import type { JobDefinition } from '../crons/scan.ts';
 import { scanPages } from '../pages/scan.ts';
 import type { PageScanResult } from '../pages/types.ts';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
 import type { QueueDefinition } from '../queues/scan.ts';
 import { listRouteFiles } from '../shared/convention-files.ts';
 import { detectHttpExports } from './detect-exports.ts';
 import type { EmailHandlersScan } from './email.ts';
-import {
-  isRouteEnabledForEnvironment,
-  parseRouteFilename,
-  type RouteDefinition,
-  type RouteEnvironment,
-} from './parse-filename.ts';
+import { isRouteEnabledForEnvironment, parseRouteFilename } from './parse-filename.ts';
+import type { RouteDefinition, RouteEnvironment } from './parse-filename.ts';
 import { compareRouteSpecificity } from './route-order.ts';
-import { isWebSocketPatternFile, type WebSocketRouteDefinition } from './websocket.ts';
+import { isWebSocketPatternFile } from './websocket.ts';
+import type { WebSocketRouteDefinition } from './websocket.ts';
 
 export type ScanResult = {
   routes: Array<RouteDefinition>;
@@ -36,14 +34,18 @@ export type MiddlewareDefinition = {
 
 function parseMiddlewareDefinitions(files: Array<string>): Array<MiddlewareDefinition> {
   return files
-    .filter((f) => !f.startsWith('_'))
-    .map((f) => {
+    .flatMap((f) => {
+      if (f.startsWith('_')) {
+        return [];
+      }
       const basename = f.split('/').pop()!;
       const match = basename.match(/^(\d+)\./);
-      return {
-        order: match ? parseInt(match[1], 10) : Infinity,
-        filePath: f,
-      };
+      return [
+        {
+          order: match ? Number.parseInt(match[1], 10) : Infinity,
+          filePath: f,
+        },
+      ];
     })
     .sort((a, b) => a.order - b.order);
 }

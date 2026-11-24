@@ -1,5 +1,6 @@
 import type { CompileResult } from './compile.ts';
-import { buildRenderChunks, type ResolvedIsland } from './emit-shared.ts';
+import { buildRenderChunks } from './emit-shared.ts';
+import type { ResolvedIsland } from './emit-shared.ts';
 
 export function emitVueComponent(
   result: CompileResult,

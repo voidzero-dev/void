@@ -1,5 +1,6 @@
 import { queueResults } from '@schema';
-import { defineHandler, type InferProps } from 'void';
+import { defineHandler } from 'void';
+import type { InferProps } from 'void';
 import { db, eq, desc } from 'void/db';
 import { queues } from 'void/queues';
 

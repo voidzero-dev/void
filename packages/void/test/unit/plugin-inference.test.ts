@@ -611,15 +611,15 @@ describe('detectFramework', () => {
       expect(existsSync(join(root, 'void.json'))).toBe(false);
       expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
       expect(existsSync(join(root, '.void-wrangler.jsonc'))).toBe(false);
-      expect(JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8'))).toMatchObject({
+      expect(JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8'))).toMatchObject({
         compatibility_date: LATEST_KNOWN_COMPAT_DATE,
         compatibility_flags: ['nodejs_als'],
       });
 
       // A second run reads the pinned date and leaves the root file alone.
-      const written = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+      const written = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
       config.call({}, {}, { command: 'serve', mode: 'development' } as import('vite').ConfigEnv);
-      expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(written);
+      expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(written);
     } finally {
       cwd.mockRestore();
     }
@@ -645,15 +645,15 @@ describe('detectFramework', () => {
       const config = {
         build: { ssr: true },
         server: {
-          hmr: { port: 24678, server: sharedServer },
-          ws: { port: 24678, server: sharedServer },
+          hmr: { port: 24_678, server: sharedServer },
+          ws: { port: 24_678, server: sharedServer },
         },
       } as unknown as import('vite').ResolvedConfig;
 
       configResolved(config);
 
-      expect(config.server.hmr).toMatchObject({ port: 24678, server: undefined });
-      expect(config.server.ws).toMatchObject({ port: 24678, server: undefined });
+      expect(config.server.hmr).toMatchObject({ port: 24_678, server: undefined });
+      expect(config.server.ws).toMatchObject({ port: 24_678, server: undefined });
     } finally {
       cwd.mockRestore();
     }
@@ -807,7 +807,7 @@ describe('detectFramework', () => {
 
     try {
       voidPlugin();
-      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf-8');
+      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf8');
       expect(entry).toContain('VoidLiveStreamDurableObject');
       expect(entry).toContain('export { VoidLiveStreamDurableObject };');
       expect(entry).toContain('__setLiveBindingName("VOID_LIVE");');
@@ -829,7 +829,7 @@ describe('detectFramework', () => {
 
     try {
       voidPlugin();
-      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf-8');
+      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf8');
       expect(entry).toContain('import __voidDurableObject0 from');
       expect(entry).toContain('/durable-objects/shopping-cart.ts');
       expect(entry).toContain('__voidDurableObject0.__bind("SHOPPING_CART")');

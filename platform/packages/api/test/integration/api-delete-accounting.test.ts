@@ -4,7 +4,8 @@ import app from '../../src/index.ts';
 import { deriveAiUsageTag } from '../../src/proxy-token.ts';
 import { projects, projectOwnershipPeriods, users } from '../../src/schema.ts';
 import { getCurrentBillingPeriodStart } from '../../src/tiers.ts';
-import { UsageCounter, type CounterState } from '../../src/usage-counter.ts';
+import { UsageCounter } from '../../src/usage-counter.ts';
+import type { CounterState } from '../../src/usage-counter.ts';
 import {
   clearTables,
   createTestProject,
@@ -13,8 +14,8 @@ import {
   skipOrphanSweepDelay,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -90,9 +91,9 @@ it.each(['fresh', 'initialized'] as const)(
   'deletes through the real %s counter during an analytics outage and reconciles after restart',
   async (counterMode) => {
     const owner = await createTestUser(env.db, `delete-accounting-${counterMode}`);
-    const cycleStart = new Date(Date.now() - 86400000).toISOString();
+    const cycleStart = new Date(Date.now() - 86_400_000).toISOString();
     const billingPeriodStart = getCurrentBillingPeriodStart(cycleStart).toISOString();
-    const ownershipStartedAt = new Date(Date.now() - 3600000).toISOString();
+    const ownershipStartedAt = new Date(Date.now() - 3_600_000).toISOString();
     await env.db
       .update(users)
       .set({ billing_cycle_start: cycleStart })

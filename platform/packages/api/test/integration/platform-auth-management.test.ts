@@ -10,8 +10,8 @@ import {
   disableLoginConnection,
   enableLoginConnection,
   linkTestedIdentity,
-  type AuthenticationActor,
 } from '../../src/auth/management.ts';
+import type { AuthenticationActor } from '../../src/auth/management.ts';
 import { createHumanSession, validateHumanSession } from '../../src/auth/sessions.ts';
 import { createUserForPlatform } from '../../src/db.ts';
 import {
@@ -20,7 +20,8 @@ import {
   platformLoginIdentities,
   platformLoginTests,
 } from '../../src/schema.ts';
-import { clearTables, createTestUser, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { clearTables, createTestUser, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let admin: Awaited<ReturnType<typeof createTestUser>>;

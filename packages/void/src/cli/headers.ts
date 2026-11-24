@@ -10,8 +10,8 @@ import {
   isProtocolRelative,
   parseHostPrefixedSource,
   VALID_REDIRECT_STATUSES,
-  type RoutingConfig,
 } from '../config.ts';
+import type { RoutingConfig } from '../config.ts';
 import { voidWarn } from '../log.ts';
 import type { DevRedirectRule, HeaderRule } from './types.ts';
 
@@ -48,7 +48,7 @@ export function parseHeadersFile(dir: string): Array<HeaderRule> | undefined {
     return undefined;
   }
 
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, 'utf8');
   const rules: Array<HeaderRule> = [];
   let current: HeaderRule | null = null;
 
@@ -109,7 +109,7 @@ export function readGeneratedAssetHeadersFile(dir: string): string | undefined {
   if (!existsSync(filePath)) {
     return undefined;
   }
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, 'utf8');
   return isGeneratedAssetHeaders(content) ? content : undefined;
 }
 
@@ -129,7 +129,7 @@ export function parseRedirectsFile(dir: string): ParsedRedirects | undefined {
     return undefined;
   }
 
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, 'utf8');
   const rules: Array<DevRedirectRule> = [];
   let redundantForceOn3xx = 0;
 
@@ -173,14 +173,14 @@ export function parseRedirectsFile(dir: string): ParsedRedirects | undefined {
     if (statusStr) {
       if (statusStr.endsWith('!')) {
         const numericPart = statusStr.slice(0, -1);
-        status = parseInt(numericPart, 10);
+        status = Number.parseInt(numericPart, 10);
         if (status === 200) {
           force = true;
         } else if (status >= 300 && status < 400) {
           redundantForceOn3xx++;
         }
       } else {
-        status = parseInt(statusStr, 10);
+        status = Number.parseInt(statusStr, 10);
       }
     } else {
       status = 302;

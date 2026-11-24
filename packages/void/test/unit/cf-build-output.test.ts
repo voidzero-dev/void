@@ -35,10 +35,10 @@ import { createBuilder } from 'vite';
 import { afterAll, afterEach, expect, it as serialIt, vi } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
-  type CfBuildOutput,
   prepareCfFrameworkBuildOutput,
   prepareCfStaticBuildOutput,
 } from '../../src/cli/cf-build-output.ts';
+import type { CfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { resolveGeneratedDeployConfigPathDefault } from '../../src/cli/deploy-artifact-validation.ts';
 import { deployPointerPath } from '../../src/cli/deploy-binding-snapshot.ts';
 import { writeWranglerPublishedTrafficSnapshot } from '../../src/cli/wrangler.ts';
@@ -370,7 +370,7 @@ it('preserves native auxiliary Workers and already-built Container declarations'
   );
 });
 
-it.each(['../outside.js', '/outside.js', 'C:/outside.js', 'assets\\outside.js'])(
+it.each(['../outside.js', '/outside.js', 'C:/outside.js', String.raw`assets\outside.js`])(
   'rejects a native manifest module outside its portable bundle: %s',
   async (module) => {
     const root = await nativeBuild();
@@ -949,7 +949,7 @@ it(
   CF_BUILD_TIMEOUT_MS,
 );
 
-it.each(['../index.js', '/index.js', 'C:\\index.js'])(
+it.each(['../index.js', '/index.js', String.raw`C:\index.js`])(
   'rejects an out-of-bundle entry %s',
   async (main) => {
     const output = worker({ name: 'void-test', compatibility_date: '2026-09-29', main });
@@ -1175,9 +1175,7 @@ it('keeps Durable Objects, Queue triggers, and Containers in cf prebuilt output'
 }, 15_000);
 
 it('bundles a generated static Worker and staged assets into prebuilt cf output', async () => {
-  const root = mkdtempSync(
-    packageFixturePath(dirname(fileURLToPath(import.meta.url)), '.tmp-cf-static-'),
-  );
+  const root = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-cf-static-'));
   roots.push(root);
   writeFileSync(join(root, 'package.json'), '{"name":"static-app","type":"module"}');
   mkdirSync(join(root, 'node_modules'));

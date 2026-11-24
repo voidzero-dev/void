@@ -1,23 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'pathslash';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
-import {
-  isIdentifier,
-  isLiteral,
-  isObjectExpression,
-  type AstNode,
-  type AstProperty,
-} from '../shared/ast.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
+import { isIdentifier, isLiteral, isObjectExpression } from '../shared/ast.ts';
+import type { AstNode, AstProperty } from '../shared/ast.ts';
 import { listRouteFiles } from '../shared/convention-files.ts';
 import { readResourceDefinition } from '../shared/resource-definition.ts';
 import { resourceNameWords } from '../shared/resource-name.ts';
 import { ROUTE_EXTENSIONS } from '../shared/route-extensions.ts';
-import {
-  isRouteEnabledForEnvironment,
-  parseWebSocketFilename,
-  type RouteDefinition,
-  type RouteEnvironment,
-} from './parse-filename.ts';
+import { isRouteEnabledForEnvironment, parseWebSocketFilename } from './parse-filename.ts';
+import type { RouteDefinition, RouteEnvironment } from './parse-filename.ts';
 import { compareRouteSpecificity } from './route-order.ts';
 
 const WEBSOCKET_ROUTE_RE = new RegExp(
@@ -39,17 +31,17 @@ type WebSocketSourceInfo = {
 };
 
 function isWebSocketRouteFile(filePath: string): boolean {
-  return WEBSOCKET_ROUTE_RE.test(filePath.replace(/\\/g, '/'));
+  return WEBSOCKET_ROUTE_RE.test(filePath.replaceAll('\\', '/'));
 }
 
 function identifierWords(segment: string): Array<string> {
   const normalized = segment
-    .replace(/^\(\s*|\s*\)$/g, '')
+    .replaceAll(/^\(\s*|\s*\)$/g, '')
     .replace(/^\[\.\.\.(.+)\]$/, '$1')
     .replace(/^\[(.+)\]$/, '$1')
     .replace(/\.ws$/, '')
     .replace(/\.(dev|prod)$/, '')
-    .replace(/[^a-zA-Z0-9]+/g, ' ');
+    .replaceAll(/[^a-zA-Z0-9]+/g, ' ');
 
   return normalized.split(' ').filter(Boolean);
 }
@@ -63,7 +55,7 @@ export function deriveWebSocketClassNameFromName(name: string): string {
 }
 
 export function inferWebSocketResourceName(filePath: string): string {
-  let normalized = filePath.replace(/\\/g, '/');
+  let normalized = filePath.replaceAll('\\', '/');
   const extension = ROUTE_EXTENSIONS.find((ext) => normalized.endsWith(`.${ext}`));
   if (extension) {
     normalized = normalized.slice(0, -(extension.length + 1));
@@ -96,7 +88,7 @@ function getPropertyName(node: AstNode | undefined): string | null {
 const WEBSOCKET_HELPERS = new Set(['defineRoom', 'defineWebSocket']);
 
 export function detectWebSocketDefinition(absPath: string): WebSocketSourceInfo | null {
-  const code = readFileSync(absPath, 'utf-8');
+  const code = readFileSync(absPath, 'utf8');
   const definition = readResourceDefinition(absPath, code, WEBSOCKET_HELPERS);
   if (!definition) {
     return null;
@@ -145,10 +137,11 @@ function parseWebSocketFiles(
 ): Array<WebSocketRouteDefinition> {
   const routes = files
     .filter((f) => isWebSocketRouteFile(f))
-    .filter((filePath) =>
-      isRouteEnabledForEnvironment(parseWebSocketFilename(filePath), environment),
+    .flatMap((filePath) =>
+      isRouteEnabledForEnvironment(parseWebSocketFilename(filePath), environment)
+        ? [buildWebSocketRoute(root, filePath, paths)]
+        : [],
     )
-    .map((filePath) => buildWebSocketRoute(root, filePath, paths))
     .sort(compareRouteSpecificity);
   const byClass = new Map<string, Array<WebSocketRouteDefinition>>();
   for (const route of routes) {

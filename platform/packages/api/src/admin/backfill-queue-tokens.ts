@@ -1,8 +1,6 @@
 import { hmacSignState } from '../auth/hmac.ts';
-import {
-  getDispatchWorkerProxyToken,
-  type ProxyTokenLookup,
-} from '../provisioning/cloudflare-api.ts';
+import { getDispatchWorkerProxyToken } from '../provisioning/cloudflare-api.ts';
+import type { ProxyTokenLookup } from '../provisioning/cloudflare-api.ts';
 
 export type BackfillQueueTokensOptions = Readonly<{
   accountId: string;

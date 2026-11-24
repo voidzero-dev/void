@@ -11,8 +11,8 @@ import {
   compileWorkerEntry,
   compileNodeApp,
   compileNodeServer,
-  type CompileOptions,
 } from '../../src/router/compile.ts';
+import type { CompileOptions } from '../../src/router/compile.ts';
 import type { ScanResult } from '../../src/router/scan.ts';
 import { VoidAssetRewriteError } from '../../src/runtime/handler/index.ts';
 import {
@@ -28,8 +28,8 @@ import {
   createManifestLoader,
   createSsrFallback,
   createAssetNotFound,
-  type RoutingRuntime,
 } from '../../src/runtime/routing/index.ts';
+import type { RoutingRuntime } from '../../src/runtime/routing/index.ts';
 
 const testOptions = {
   runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
@@ -247,11 +247,11 @@ function evalCompiledApp(code: string): Hono {
   // Drop imports, the node-target `withRuntimeEnv` const and `export` keywords so
   // the module body runs inside `new Function`; a noop `withRuntimeEnv` replaces both forms.
   const stripped = code
-    .replace(/^import\s+\{[^}]*\}\s+from\s+["'][^"']+["'];?\s*$/gm, '')
-    .replace(/^const\s+withRuntimeEnv\s+=.*$/gm, '')
-    .replace(/^export\s+default\s+app;?\s*$/gm, '')
-    .replace(/^export\s+(const|async\s+function|function)\s+/gm, '$1 ')
-    .replace(/^export\s+\{[^}]*\};?\s*$/gm, '');
+    .replaceAll(/^import\s+\{[^}]*\}\s+from\s+["'][^"']+["'];?\s*$/gm, '')
+    .replaceAll(/^const\s+withRuntimeEnv\s+=.*$/gm, '')
+    .replaceAll(/^export\s+default\s+app;?\s*$/gm, '')
+    .replaceAll(/^export\s+(const|async\s+function|function)\s+/gm, '$1 ')
+    .replaceAll(/^export\s+\{[^}]*\};?\s*$/gm, '');
 
   const factory = new Function(
     'Hono',
@@ -1102,10 +1102,10 @@ describe('compileNodeApp', () => {
     'distinguishes files from directory indexes on Windows for %s',
     async (target) => {
       const files = new Map([
-        ['C:\\client\\index.html', 'home'],
-        ['C:\\client\\about\\index.html', 'about'],
-        ['C:\\client\\terms.html', 'terms'],
-        ['C:\\client\\LICENSE', 'license'],
+        [String.raw`C:\client\index.html`, 'home'],
+        [String.raw`C:\client\about\index.html`, 'about'],
+        [String.raw`C:\client\terms.html`, 'terms'],
+        [String.raw`C:\client\LICENSE`, 'license'],
       ]);
       // Windows accepts a trailing separator in a file lookup. Exercise the
       // generated asset handler with those semantics on every test host.
@@ -1115,13 +1115,13 @@ describe('compileNodeApp', () => {
       }>();
       innerApp.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
       const code = compileNodeApp(target)
-        .replace(/^import .*;$/gm, '')
+        .replaceAll(/^import .*;$/gm, '')
         .replace('import.meta.voidClientDirectory', '"client"')
         .replace('export default app;', 'return app;');
       const app: Hono = new Function('Hono', 'innerApp', 'fileURLToPath', 'serveStatic', code)(
         Hono,
         innerApp,
-        () => 'C:\\client',
+        () => String.raw`C:\client`,
         (options: Parameters<typeof serveStatic>[0]) =>
           serveStatic({
             ...options,

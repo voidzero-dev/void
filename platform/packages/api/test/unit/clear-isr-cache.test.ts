@@ -16,7 +16,7 @@ function makeKv(keys: Array<string>) {
       if (!cursor) {
         listedPrefixes.push(prefix);
       }
-      const matching = [...store].filter((k) => k.startsWith(prefix)).map((name) => ({ name }));
+      const matching = [...store].flatMap((name) => (name.startsWith(prefix) ? [{ name }] : []));
       return { keys: matching, list_complete: true, cursor: undefined };
     },
     delete: async (name: string) => {
@@ -35,7 +35,7 @@ describe('clearIsrCache', () => {
     const objects = new Set([`isr-cache/${current}`, `isr-cache/${retained}`]);
     const bucket = {
       list: async ({ prefix }: { prefix: string }) => ({
-        objects: [...objects].filter((key) => key.startsWith(prefix)).map((key) => ({ key })),
+        objects: [...objects].flatMap((key) => (key.startsWith(prefix) ? [{ key }] : [])),
         truncated: false,
       }),
       delete: async (key: string) => {

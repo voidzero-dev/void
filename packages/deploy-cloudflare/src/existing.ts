@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import { isRecord } from '@void/deploy-core';
 import { parseRootWranglerConfig } from './config.ts';
-import { isCleanCommandExit, isWorkerNotFound, type CloudflareCommandRunner } from './execute.ts';
+import { isCleanCommandExit, isWorkerNotFound } from './execute.ts';
+import type { CloudflareCommandRunner } from './execute.ts';
 import type { CloudflareOperation } from './operations.ts';
 import {
   isVoidSecretDraftHeader,

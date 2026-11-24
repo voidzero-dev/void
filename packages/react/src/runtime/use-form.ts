@@ -8,7 +8,6 @@ import {
   useState,
 } from 'react';
 import {
-  VoidActionError,
   cloneFormValue,
   getValidationErrors,
   interpolateRouteParams,
@@ -17,9 +16,8 @@ import {
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
-  type FormResetOptions,
-  type FormState,
 } from 'void/pages-client';
+import type { FormResetOptions, FormState, VoidActionError } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { RouterContext } from './context.ts';
 

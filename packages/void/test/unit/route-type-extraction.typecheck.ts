@@ -1,5 +1,5 @@
 import { type as arktype } from 'arktype';
-import * as v from 'valibot';
+import { object, string } from 'valibot';
 import { describe, expectTypeOf, it } from 'vite-plus/test';
 import { z } from 'zod';
 import { defineHandler, defineMiddleware } from '../../src/runtime/handler/index.ts';
@@ -59,8 +59,8 @@ describe('ExtractInput<handler.__validators>', () => {
 
   it('extracts params + body from valibot schemas', () => {
     const handler = defineHandler.withValidator({
-      params: v.object({ id: v.string() }),
-      body: v.object({ title: v.string() }),
+      params: object({ id: string() }),
+      body: object({ title: string() }),
     })((_c, { params, body }) => ({
       id: params.id,
       title: body.title,

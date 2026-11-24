@@ -3,12 +3,12 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { getWorkerConfigPath, readBuildOutput } from '@cloudflare/build-output-utils';
-import {
-  parseCloudflareVersionMessage,
-  type CloudflareCommandResult,
-  type CloudflareCommandRunner,
-  type CloudflareOperation,
-  type CloudflareVersionActivationOptions,
+import { parseCloudflareVersionMessage } from '@void/deploy-cloudflare';
+import type {
+  CloudflareCommandResult,
+  CloudflareCommandRunner,
+  CloudflareOperation,
+  CloudflareVersionActivationOptions,
 } from '@void/deploy-cloudflare';
 import { isRecord as record } from '@void/deploy-core';
 import { dirname, join } from 'pathslash';
@@ -20,11 +20,8 @@ import {
 } from './cf-command-values.ts';
 import { migrateBuiltWranglerConfig } from './cf-config-migrate.ts';
 import { getCfCliVersion } from './cf-user-agent.ts';
-import {
-  isSecretBindingType,
-  uploadPinnedCloudflareVersion,
-  type CfCommand,
-} from './cf-version-api.ts';
+import { isSecretBindingType, uploadPinnedCloudflareVersion } from './cf-version-api.ts';
+import type { CfCommand } from './cf-version-api.ts';
 import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import type { WranglerAuthTokenResult } from './deploy-cloudflare-auth.ts';
@@ -358,7 +355,10 @@ export function createCfCommand(options: {
         }
         const output = Buffer.concat(stdout).toString('utf8');
         const diagnostic = Buffer.concat(stderr).toString('utf8');
-        const completed = typeof status === 'number' && signal == null && error == null;
+        const completed =
+          typeof status === 'number' &&
+          (signal === null || signal === undefined) &&
+          (error === null || error === undefined);
         const code = completed
           ? (output + '\n' + diagnostic).match(/\[(?:code:\s*)?(\d{4,})\]/)?.[1]
           : undefined;
@@ -373,7 +373,7 @@ export function createCfCommand(options: {
           args[1] === 'versions' &&
           args[2] === 'create' &&
           (output + '\n' + diagnostic)
-            .replace(/\s+/g, ' ')
+            .replaceAll(/\s+/g, ' ')
             .includes('You cannot upload a new version of a Worker that does not yet exist.');
         resolve({
           status: typeof status === 'number' ? status : 1,
@@ -391,6 +391,26 @@ export function createCfCommand(options: {
     });
   };
 }
+
+const uploadedResult = (result: CloudflareCommandResult): CloudflareCommandResult => {
+  if (!isCleanCloudflareExit(result)) {
+    return result;
+  }
+  if (record(result.data) && typeof result.data.versionId === 'string') {
+    return result;
+  }
+  const { versionId, previewUrl, workersDevUrl } = readCfUploadOutput(result);
+  return {
+    ...result,
+    data: versionId
+      ? {
+          versionId,
+          ...(previewUrl ? { previewUrl } : {}),
+          ...(workersDevUrl ? { workersDevUrl } : {}),
+        }
+      : undefined,
+  };
+};
 
 /**
  * Adapt the stable activation protocol to cf's prebuilt and API commands.
@@ -412,25 +432,6 @@ export function createCfVersionRunner(options: {
   const run = async (args: Array<string>, capture: boolean, cwd = output.directory) => {
     const result = await runCf(args, { cwd, capture });
     return { ...result, data: result.data ?? parseJson(result.stdout) };
-  };
-  const uploadedResult = (result: CloudflareCommandResult): CloudflareCommandResult => {
-    if (!isCleanCloudflareExit(result)) {
-      return result;
-    }
-    if (record(result.data) && typeof result.data.versionId === 'string') {
-      return result;
-    }
-    const { versionId, previewUrl, workersDevUrl } = readCfUploadOutput(result);
-    return {
-      ...result,
-      data: versionId
-        ? {
-            versionId,
-            ...(previewUrl ? { previewUrl } : {}),
-            ...(workersDevUrl ? { workersDevUrl } : {}),
-          }
-        : undefined,
-    };
   };
   // Session bearer read before upload, so a deploy that cannot get one (Global API Key session,
   // broken helper child) stops while traffic is unchanged. The pinned upload reuses it. The
@@ -561,7 +562,7 @@ export function createCfVersionRunner(options: {
       const body = result.data;
       const deployments = record(body) ? body.deployments : undefined;
       if (Array.isArray(deployments) && deployments.length === 0) {
-        return { ...failed('The Cloudflare Worker has no deployments.'), errorCode: 10007 };
+        return { ...failed('The Cloudflare Worker has no deployments.'), errorCode: 10_007 };
       }
       if (!Array.isArray(deployments) || !record(deployments[0])) {
         return failed('The Cloudflare Worker deployment was not readable.');
@@ -593,7 +594,7 @@ export function createCfVersionRunner(options: {
             Array.isArray(body) &&
             body.length <= pageSize &&
             body.every(
-              (item) =>
+              (item: unknown): item is { id: string; number: number } =>
                 record(item) && typeof item.id === 'string' && Number.isSafeInteger(item.number),
             ) &&
             new Set(body.map((item) => item.number)).size === body.length

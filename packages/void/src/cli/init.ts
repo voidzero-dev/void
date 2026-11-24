@@ -5,7 +5,8 @@ import { parseArgs } from 'node:util';
 import { isRecord } from '@void/deploy-core';
 import type { PlatformDiscoveryDocument } from '@void/platform';
 import { log, confirm, isCancel, cancel, select, text } from '@voidzero-dev/vite-plus-prompts';
-import { parse, type ParseError } from 'jsonc-parser';
+import { parse } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'pathslash';
 import {
   MATERIALIZED_CLOUDFLARE_FILE,
@@ -20,20 +21,20 @@ import {
   getDatabaseCasing,
   getDatabaseDialect,
   readConfig,
-  type DatabaseDialect,
-  type VoidConfig,
 } from '../config.ts';
+import type { DatabaseDialect, VoidConfig } from '../config.ts';
 import { PLACEHOLDER_DB_URL, writeDrizzleConfig } from '../drizzle/config.ts';
 import { snapshotDrizzleOutputs } from '../drizzle/generate.ts';
-import { detectFramework, type DetectedFramework } from '../plugin-inference.ts';
+import { detectFramework } from '../plugin-inference.ts';
+import type { DetectedFramework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import { ensureGitignoreLines } from '../shared/gitignore.ts';
 import {
   getPackageDependencies,
   hasPackageDependency,
   readPackageJson,
-  type PackageDependencyField,
 } from '../shared/package-json.ts';
+import type { PackageDependencyField } from '../shared/package-json.ts';
 import { detectAgents, getOwnVersion, getPackageDir } from './agents.ts';
 import { connectCloudflare } from './cloudflare-connect.ts';
 import { maybeSetupDeployProject } from './deploy-setup.ts';
@@ -48,12 +49,8 @@ import { migrateLegacyVoidConfig } from './migrate.ts';
 import { formatDuration, formatUrl, note, printSuccess } from './output.ts';
 import { discoverPlatform, saveDiscoveredPlatform } from './platform-cmd.ts';
 import { formatProjectCommand } from './preset.ts';
-import {
-  readDeploymentPlatform,
-  readProjectConfig,
-  writeDeploymentPlatform,
-  type DeploymentPlatform,
-} from './project.ts';
+import { readDeploymentPlatform, readProjectConfig, writeDeploymentPlatform } from './project.ts';
+import type { DeploymentPlatform } from './project.ts';
 import {
   createPagesStarterTemplate,
   detectScaffoldFrameworkFromDependencies,
@@ -63,10 +60,8 @@ import {
   SCAFFOLD_FRAMEWORK_OPTIONS,
   SCAFFOLD_GITIGNORE_LINES,
   SCAFFOLD_TOOLCHAIN_OPTIONS,
-  type ScaffoldFramework,
-  type ScaffoldStarterMode,
-  type ScaffoldToolchain,
 } from './template.ts';
+import type { ScaffoldFramework, ScaffoldStarterMode, ScaffoldToolchain } from './template.ts';
 import { patchViteConfigWithVoidPlugin } from './vite-config-patch.ts';
 import { LATEST_KNOWN_COMPAT_DATE, writeProvisionedWranglerConfig } from './wrangler.ts';
 import {
@@ -127,7 +122,7 @@ export function parseInitArgs(args: Array<string>): InitArgs {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`init: ${message}.`);
+    throw new Error(`init: ${message}.`, { cause: error });
   }
 
   return {
@@ -294,7 +289,7 @@ function asRecord(value: unknown): JsonObject | null {
 
 function parseJsoncFile(path: string): JsonObject | null {
   const errors: Array<ParseError> = [];
-  const parsed = asRecord(parse(readFileSync(path, 'utf-8'), errors));
+  const parsed = asRecord(parse(readFileSync(path, 'utf8'), errors));
   return errors.length === 0 ? parsed : null;
 }
 
@@ -499,7 +494,7 @@ function createVoidTsconfigPatch(root: string, outputBaseDir: string): TsconfigI
   const hasSchema = hasDrizzleSchema(root);
   const voidConfig = createProjectTsconfig(root, undefined, hasSchema, hasSchema);
   return collectTsconfigPatchFromConfig(
-    voidConfig as unknown as JsonObject,
+    voidConfig as JsonObject,
     join(root, '.void', 'tsconfig.json'),
     root,
     outputBaseDir,
@@ -508,7 +503,7 @@ function createVoidTsconfigPatch(root: string, outputBaseDir: string): TsconfigI
 }
 
 function hasTopLevelYamlKey(yaml: string, key: string): boolean {
-  const keyPattern = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`);
+  const keyPattern = new RegExp(`^${key.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}\\s*:`);
   return yaml.split(/\r?\n/).some((rawLine) => {
     const line = stripYamlLineComment(rawLine);
     return keyPattern.test(line);
@@ -517,7 +512,7 @@ function hasTopLevelYamlKey(yaml: string, key: string): boolean {
 
 function isEmptyProjectAllowedPnpmWorkspaceFile(root: string): boolean {
   try {
-    const yaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf-8');
+    const yaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
     return !hasTopLevelYamlKey(yaml, 'packages');
   } catch {
     return false;
@@ -568,7 +563,7 @@ export function isScaffoldableEmptyProject(root: string): boolean {
 
   let pkgRaw: unknown;
   try {
-    pkgRaw = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+    pkgRaw = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
   } catch {
     return false;
   }
@@ -752,7 +747,7 @@ function hasAncestorPnpmMarkers(start: string): boolean {
   const pkgPath = join(workspaceRoot, 'package.json');
   if (existsSync(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
       if (parsePackageManagerField(pkg) === 'pnpm') {
         return true;
       }
@@ -807,7 +802,7 @@ function findWorkspaceRoot(start: string): string | undefined {
     const pkgPath = join(dir, 'package.json');
     if (existsSync(pkgPath)) {
       try {
-        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as Record<string, unknown>;
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>;
         if (pkg && typeof pkg === 'object' && 'workspaces' in pkg) {
           return dir;
         }
@@ -834,7 +829,7 @@ function readWorkspacePatterns(workspaceRoot: string): Array<string> {
   const pnpmWorkspacePath = join(workspaceRoot, 'pnpm-workspace.yaml');
   if (existsSync(pnpmWorkspacePath)) {
     try {
-      const yaml = readFileSync(pnpmWorkspacePath, 'utf-8');
+      const yaml = readFileSync(pnpmWorkspacePath, 'utf8');
       return extractPnpmWorkspacePackages(yaml);
     } catch {
       return [];
@@ -843,7 +838,7 @@ function readWorkspacePatterns(workspaceRoot: string): Array<string> {
   const pkgPath = join(workspaceRoot, 'package.json');
   if (existsSync(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as Record<string, unknown>;
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>;
       const workspaces = (pkg as { workspaces?: unknown }).workspaces;
       if (Array.isArray(workspaces)) {
         return workspaces.filter((x): x is string => typeof x === 'string');
@@ -971,11 +966,11 @@ function matchesWorkspacePattern(relPath: string, pattern: string): boolean {
 function matchesSingleWorkspacePattern(relPath: string, pattern: string): boolean {
   const normalizedPattern = pattern.replace(/^\.\/+/, '');
   const pathSegs = relPath
-    .replace(/^\/+|\/+$/g, '')
+    .replaceAll(/^\/+|\/+$/g, '')
     .split('/')
     .filter(Boolean);
   const patSegs = normalizedPattern
-    .replace(/^\/+|\/+$/g, '')
+    .replaceAll(/^\/+|\/+$/g, '')
     .split('/')
     .filter(Boolean);
   const compiled = patSegs.map(compilePatternSegment);
@@ -999,7 +994,7 @@ function compilePatternSegment(seg: string): CompiledSegment {
     '^' +
       seg
         .split('*')
-        .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`))
         .join('[^/]*') +
       '$',
   );
@@ -1108,7 +1103,7 @@ export function detectProjectState(root: string): ProjectState {
   let hasTypescript = false;
   let pkg: unknown;
   try {
-    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
     const pkgRecord = (pkg ?? {}) as { dependencies?: unknown; devDependencies?: unknown };
     const allDeps = {
       ...(asRecord(pkgRecord.dependencies) ?? {}),
@@ -1198,7 +1193,7 @@ function defaultPackageName(root: string): string {
   return (
     basename(root)
       .toLowerCase()
-      .replace(/[^a-z0-9-]/g, '-') || 'my-app'
+      .replaceAll(/[^a-z0-9-]/g, '-') || 'my-app'
   );
 }
 
@@ -1305,7 +1300,7 @@ function setupTsconfig(
     let dependencyRemoved = false;
     try {
       const pkgPath = join(root, 'package.json');
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
       let pkgUpdated = false;
       if (pkg.dependencies?.['@cloudflare/workers-types']) {
         delete pkg.dependencies['@cloudflare/workers-types'];
@@ -1959,7 +1954,7 @@ function patchWorkflowProjectSlug(root: string, slug: string, report: InitReport
   if (!existsSync(workflowPath)) {
     return false;
   }
-  const yaml = readFileSync(workflowPath, 'utf-8');
+  const yaml = readFileSync(workflowPath, 'utf8');
   // The placeholder block that `getWorkflowYaml` emits.
   const placeholderBlock =
     '  # Set a VOID_PROJECT repository variable to your project slug\n' +
@@ -2076,7 +2071,7 @@ function insertPnpmAllowBuilds(yaml: string, allowBuilds: string): string {
     insertIndex += 1;
   }
   lines.splice(insertIndex, 0, '', ...allowBuilds.split('\n'), '');
-  return `${lines.join('\n').replace(/\n{3,}/g, '\n\n')}\n`;
+  return `${lines.join('\n').replaceAll(/\n{3,}/g, '\n\n')}\n`;
 }
 
 function resolvePnpmConfigRoot(root: string, pkg: JsonObject): string {
@@ -2102,7 +2097,7 @@ function ensurePnpmAllowBuilds(root: string, pkg: JsonObject, report: InitReport
   const workspacePath = join(configRoot, 'pnpm-workspace.yaml');
   const displayPath = configRoot === root ? 'pnpm-workspace.yaml' : relative(root, workspacePath);
   const existed = existsSync(workspacePath);
-  const before = existed ? readFileSync(workspacePath, 'utf-8') : '';
+  const before = existed ? readFileSync(workspacePath, 'utf8') : '';
   // A same-line value such as `allowBuilds: {...}` cannot be merged line by
   // line, and a second `allowBuilds:` key would make the file invalid.
   const inline = /^allowBuilds:[ \t]*([^\s#].*)$/m.exec(before)?.[1];
@@ -2192,7 +2187,7 @@ export function resolveProjectInstall(
     cwd: root,
     stdio: 'ignore',
     shell: process.platform === 'win32',
-    timeout: 5_000,
+    timeout: 5000,
   });
   if (probe.status === 0) {
     return install;
@@ -2294,7 +2289,7 @@ function scaffoldPagesApp(
 
   if (packageJsonExisted) {
     try {
-      pkg = asRecord(JSON.parse(readFileSync(packageJsonPath, 'utf-8'))) ?? {};
+      pkg = asRecord(JSON.parse(readFileSync(packageJsonPath, 'utf8'))) ?? {};
     } catch {
       throw new Error('Could not parse package.json in empty project');
     }
@@ -2423,7 +2418,7 @@ function ensureExistingProjectPackage(
   if (existsSync(packageJsonPath)) {
     existedBefore = true;
     try {
-      pkg = asRecord(JSON.parse(readFileSync(packageJsonPath, 'utf-8'))) ?? {};
+      pkg = asRecord(JSON.parse(readFileSync(packageJsonPath, 'utf8'))) ?? {};
     } catch {
       throw new Error('Could not parse package.json while configuring Void');
     }
@@ -2608,7 +2603,7 @@ function ensureExistingProjectViteConfig(
   }
 
   const fullPath = join(root, configPath);
-  const original = readFileSync(fullPath, 'utf-8');
+  const original = readFileSync(fullPath, 'utf8');
   const updated = patchViteConfigWithVoidPlugin(configPath, original);
   if (updated === undefined) {
     noteManualViteConfigSetup(configPath);
@@ -2755,10 +2750,10 @@ async function injectAgentBlock(
   const filePath = 'AGENTS.md';
   const fullPath = join(root, filePath);
   const version = getOwnVersion();
-  const template = readFileSync(join(getPackageDir(), 'AGENTS_TEMPLATE.md'), 'utf-8');
+  const template = readFileSync(join(getPackageDir(), 'AGENTS_TEMPLATE.md'), 'utf8');
   const openMarker = `<!--injected-by-void-v${version}-->`;
   const block = `${openMarker}\n${template}\n${MARKER_CLOSE}`;
-  const existing = existsSync(fullPath) ? readFileSync(fullPath, 'utf-8') : null;
+  const existing = existsSync(fullPath) ? readFileSync(fullPath, 'utf8') : null;
   const managedBlock = existing?.match(MARKER_BLOCK_RE);
   if (managedBlock?.[0] === block) {
     return;
@@ -3151,7 +3146,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     state.packageManager === 'pnpm' &&
     projectInstaller(readPackageJson(root), state.packageManager) === 'vp'
       ? process.platform === 'win32'
-        ? '.\\node_modules\\.bin\\void.cmd'
+        ? String.raw`.\node_modules\.bin\void.cmd`
         : './node_modules/.bin/void'
       : projectVoidRunner[state.packageManager];
   const manualMigration = `${voidRunner} db generate`;

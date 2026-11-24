@@ -1,10 +1,7 @@
 import { log, outro } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
-import {
-  PlatformClient,
-  type ProjectZeroTrustResponse,
-  type ProjectZeroTrustUpdateResponse,
-} from './client.ts';
+import { PlatformClient } from './client.ts';
+import type { ProjectZeroTrustResponse, ProjectZeroTrustUpdateResponse } from './client.ts';
 import { printSuccess, note, sanitizeTerminalText } from './output.ts';
 import type { ProjectArgs } from './project-args.ts';
 import { readProjectConfig } from './project.ts';

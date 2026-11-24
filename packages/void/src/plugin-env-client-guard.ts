@@ -1,14 +1,14 @@
 import { relative } from 'pathslash';
-import { parseSync, type Plugin } from 'vite';
+import { parseSync } from 'vite';
+import type { Plugin } from 'vite';
 import { bindingResolver } from './shared/ast-bindings.ts';
-import {
-  isIdentifier,
-  isMemberExpression,
-  type AstImportDeclaration,
-  type AstImportNamespaceSpecifier,
-  type AstImportSpecifier,
-  type AstMemberExpression,
-  type AstProgram,
+import { asAstProgram, isIdentifier, isMemberExpression } from './shared/ast.ts';
+import type {
+  AstImportDeclaration,
+  AstImportNamespaceSpecifier,
+  AstImportSpecifier,
+  AstMemberExpression,
+  AstProgram,
 } from './shared/ast.ts';
 import { isClientEnvKey } from './shared/env.ts';
 
@@ -274,7 +274,7 @@ export function envClientGuardPlugin(root: string): Plugin {
         return;
       }
 
-      const program = parsed.program as unknown as AstProgram;
+      const program = asAstProgram(parsed.program);
       const bindings = extractEnvBindings(program);
       if (!bindings) {
         return;

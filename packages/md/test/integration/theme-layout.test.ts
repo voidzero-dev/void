@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { chromium, type Browser } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser } from 'playwright';
 import { afterAll, beforeAll, expect, it } from 'vite-plus/test';
 import { compile } from '../../src/compile.ts';
 

@@ -33,7 +33,7 @@ function normalizeQueueConcurrency(raw: JsonObject): JsonObject {
     ...raw,
     queues: {
       ...queues,
-      consumers: queues.consumers.map((value) => {
+      consumers: queues.consumers.map((value: unknown) => {
         const consumer = record(value);
         // Wrangler's null and cf's omitted limit both mean automatic concurrency.
         if (consumer?.max_concurrency !== null) {
@@ -370,6 +370,7 @@ function containersFromWrangler(raw: JsonObject, exports: JsonObject): Array<Jso
   });
 }
 
+// oxlint-disable-next-line quality/no-chained-type-assertions -- The config converter supplies the arguments for the dynamically selected Cloudflare helper.
 const configHelpers = { bindings, exports: workerExports, triggers } as unknown as Record<
   string,
   Record<string, (...args: Array<unknown>) => unknown>
@@ -408,6 +409,7 @@ export function translateWranglerConfig(
 ): { config: unknown; followUps: Array<MigrationFollowUp> } {
   // Settings are JSON: a key without a value is absent. The copy also keeps the converter from
   // sharing objects with the caller.
+  // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the value to the JSON configuration written to disk.
   const converted = convertWranglerConfig(JSON.parse(JSON.stringify(raw)), 'vite', []);
   const branch = converted.environments.get(mode) ?? converted.base;
   const input = record(outputValue(branch.config));
@@ -429,6 +431,7 @@ export function translateWranglerConfig(
     throw new Error('cf could not translate the built Cloudflare configuration.');
   }
   // Only JSON values, as the settings will be written to a file.
+  // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the value to the JSON configuration written to disk.
   return { config: JSON.parse(JSON.stringify(parsed.data)), followUps: converted.followUps };
 }
 

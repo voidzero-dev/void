@@ -186,8 +186,10 @@ function createEnv(options: {
       },
       list: async (opts: { prefix: string; limit?: number }) => {
         const all = [...kvStore.keys()]
-          .map((key) => `isr-cache/${key}`)
-          .filter((key) => key.startsWith(opts.prefix))
+          .flatMap((key) => {
+            const mappedKey = `isr-cache/${key}`;
+            return mappedKey.startsWith(opts.prefix) ? [mappedKey] : [];
+          })
           .sort();
         const limit = opts.limit ?? 1000;
         const slice = all.slice(0, limit);
@@ -6773,7 +6775,9 @@ describe('foreground worker duration', () => {
         revalidate,
       },
       workerFetchImpl: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 11_000));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 11_000);
+        });
         completed();
         return new Response('completed', { headers: { 'Content-Type': 'text/html' } });
       },
@@ -6810,7 +6814,9 @@ describe('foreground worker duration', () => {
           if (++calls === 1) {
             return new Response('missing', { status: 404, headers: { 'X-Void-No-Match': '1' } });
           }
-          await new Promise((resolve) => setTimeout(resolve, 11_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 11_000);
+          });
           return new Response('fallback', { headers: { 'Content-Type': 'text/html' } });
         },
       });
@@ -6844,7 +6850,9 @@ describe('foreground worker duration', () => {
         },
         assetManifest: { '/bundle.js': '!bundle' },
         workerFetchImpl: async () => {
-          await new Promise((resolve) => setTimeout(resolve, 11_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 11_000);
+          });
           return new Response(stubBody, {
             headers: {
               'Content-Type': 'text/plain;charset=UTF-8',
@@ -6868,7 +6876,7 @@ describe('foreground worker duration', () => {
         });
       await vi.advanceTimersByTimeAsync(11_000);
       expect(get).toHaveBeenCalledOnce();
-      await vi.advanceTimersByTimeAsync(9_999);
+      await vi.advanceTimersByTimeAsync(9999);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
 

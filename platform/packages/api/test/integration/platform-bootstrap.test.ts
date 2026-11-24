@@ -1,7 +1,5 @@
-import {
-  platformAuthenticationRecoveryMessage,
-  type PlatformAuthenticationRecovery,
-} from '@void/platform';
+import { platformAuthenticationRecoveryMessage } from '@void/platform';
+import type { PlatformAuthenticationRecovery } from '@void/platform';
 import { eq, sql } from 'drizzle-orm';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { chromium } from 'playwright';
@@ -47,8 +45,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const origin = 'https://api.example.com';
 const issuer = 'https://identity.bootstrap-example.com';

@@ -39,7 +39,7 @@ export type ClearSiteDataMember = Readonly<{
  * inner quote (or a dangling escape) is malformed.
  */
 function parseQuotedString(member: string): string | null {
-  if (member.length < 2 || member[0] !== '"' || member[member.length - 1] !== '"') {
+  if (member.length < 2 || member[0] !== '"' || member.at(-1) !== '"') {
     return null;
   }
   let content = '';

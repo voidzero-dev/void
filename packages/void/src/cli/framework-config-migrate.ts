@@ -76,7 +76,7 @@ function applyEdits(source: string, edits: Array<Edit>): string {
 }
 
 function parseSource(source: string, file: string): Expression {
-  return parseSync(file, source).program as unknown as Expression;
+  return parseSync(file, source).program as Expression;
 }
 
 function asNode(value: unknown): Expression | undefined {

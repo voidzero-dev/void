@@ -1,6 +1,7 @@
-import { KV_THRESHOLD, type AssetManifestEntry } from '../assets.ts';
+import { KV_THRESHOLD } from '../assets.ts';
+import type { AssetManifestEntry } from '../assets.ts';
 import type { ApiEnv } from '../env.ts';
-import { type DeployManifest, type Deployment } from '../types.ts';
+import type { DeployManifest, Deployment } from '../types.ts';
 
 export function sortUnique(values: ReadonlyArray<string> | undefined): ReadonlyArray<string> {
   return [...new Set(values ?? [])].sort((left, right) => left.localeCompare(right));

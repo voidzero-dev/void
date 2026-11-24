@@ -1,10 +1,10 @@
 import { basename } from 'pathslash';
 import { runWranglerAuthToken } from './deploy-cloudflare-auth.ts';
 import { log } from './deploy-helpers.ts';
-import {
-  type CloudflareEmailStepInput,
-  type CloudflareEmailStepResult,
-  type EmailAddressMapInput,
+import type {
+  CloudflareEmailStepInput,
+  CloudflareEmailStepResult,
+  EmailAddressMapInput,
 } from './deploy-types.ts';
 import {
   applyEmailSetup,
@@ -15,11 +15,11 @@ import {
   preflightEmail,
   SEND_EMAIL_BINDING,
   renderEmailChecklist,
-  type EmailCloudflareInputs,
-  type EmailPreflight,
 } from './email-cloudflare.ts';
+import type { EmailCloudflareInputs, EmailPreflight } from './email-cloudflare.ts';
 import { getErrorMessage } from './output.ts';
-import { writeProvisionedWranglerConfig, type ProvisionedWranglerPatch } from './wrangler.ts';
+import { writeProvisionedWranglerConfig } from './wrangler.ts';
+import type { ProvisionedWranglerPatch } from './wrangler.ts';
 
 /** Whether the root config carries the `send_email` binding Void writes. */
 export function hasVoidSendEmailBinding(rootConfig: Record<string, unknown>): boolean {

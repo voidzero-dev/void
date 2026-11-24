@@ -4,8 +4,10 @@ import {
   describePlatformCredential,
   formatPlatformCredentialDenials,
   platformCredentialHelp,
-  type PlatformCredentialDenial,
-  type PlatformCredentialLabel,
+} from './platform-credential-label.ts';
+import type {
+  PlatformCredentialDenial,
+  PlatformCredentialLabel,
 } from './platform-credential-label.ts';
 import { resolvePinnedApiBaseUrl } from './provision.ts';
 
@@ -427,15 +429,20 @@ export class PlatformCloudflareClient {
     path: string,
     init?: RequestInit,
   ): Promise<{ result: T; resultInfo: CloudflareEnvelope<T>['result_info'] }> {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/json');
+    }
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${this.#token}`);
+    }
+    // FormData sets its own multipart boundary.
+    if (typeof init?.body === 'string' && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
     const response = await this.#fetcher(`${this.apiBaseUrl}${path}`, {
       ...init,
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${this.#token}`,
-        // FormData sets its own multipart boundary.
-        ...(typeof init?.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
-        ...init?.headers,
-      },
+      headers,
       signal: init?.signal ?? AbortSignal.timeout(30_000),
       redirect: 'manual',
     });
@@ -1383,7 +1390,7 @@ export class PlatformCloudflareClient {
     if (response.status === 404) {
       return;
     }
-    let envelope: CloudflareEnvelope<unknown> = {};
+    let envelope: CloudflareEnvelope<unknown>;
     try {
       envelope = (await response.json()) as CloudflareEnvelope<unknown>;
     } catch {
@@ -1562,18 +1569,19 @@ export class PlatformCloudflareClient {
         break;
       }
     }
-    return entries
-      .filter(
-        (entry) =>
-          !(Array.isArray(entry.matchers) ? entry.matchers : []).some(
-            (matcher: unknown) => (matcher as { type?: unknown } | null)?.type === 'all',
-          ),
+    return entries.flatMap((entry) =>
+      !(Array.isArray(entry.matchers) ? entry.matchers : []).some(
+        (matcher: unknown) => (matcher as { type?: unknown } | null)?.type === 'all',
       )
-      .map((entry) => ({
-        // `tag` is the deprecated name of `id`.
-        id: requiredString(entry.id ?? entry.tag, 'Email Routing rule id'),
-        ...parseEmailRoutingTarget(entry),
-      }));
+        ? [
+            {
+              // `tag` is the deprecated name of `id`.
+              id: requiredString(entry.id ?? entry.tag, 'Email Routing rule id'),
+              ...parseEmailRoutingTarget(entry),
+            },
+          ]
+        : [],
+    );
   }
 
   async deleteEmailRoutingRule(zoneId: string, ruleId: string): Promise<void> {
@@ -1675,7 +1683,7 @@ function cloudflarePrerequisiteHelp(
   if (scope !== 'accounts' || !accountId) {
     return;
   }
-  if (service === 'r2' && envelope.errors?.some((error) => error.code === 10042)) {
+  if (service === 'r2' && envelope.errors?.some((error) => error.code === 10_042)) {
     return (
       'Cloudflare R2 is not enabled for this account (code 10042). ' +
       `Complete R2 activation at ${formatUrl(`https://dash.cloudflare.com/${accountId}/r2/overview`)}, then retry the same command.`
@@ -1684,7 +1692,7 @@ function cloudflarePrerequisiteHelp(
   if (
     service === 'workers' &&
     resource === 'dispatch' &&
-    envelope.errors?.some((error) => error.code === 10121)
+    envelope.errors?.some((error) => error.code === 10_121)
   ) {
     return (
       'Cloudflare Workers for Platforms requires a paid subscription for this account (code 10121). ' +
@@ -1882,9 +1890,13 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
     user: typeof record.user === 'string' && record.user ? record.user : null,
   };
   let parsedOrigin: CloudflareHyperdriveOrigin;
-  if (record.service_id != null) {
+  if (record.service_id !== null && record.service_id !== undefined) {
     const serviceId = requiredString(record.service_id, 'Hyperdrive origin service ID');
-    if (record.host != null || record.port != null || record.access_client_id != null) {
+    if (
+      (record.host !== null && record.host !== undefined) ||
+      (record.port !== null && record.port !== undefined) ||
+      (record.access_client_id !== null && record.access_client_id !== undefined)
+    ) {
       throw new Error(
         'platform: Cloudflare Hyperdrive config mixes Workers VPC and host origin fields.',
       );
@@ -1896,11 +1908,11 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
         ? record.access_client_id
         : undefined;
     const port =
-      accessClientId && record.port == null
+      accessClientId && (record.port === null || record.port === undefined)
         ? null
         : typeof record.port === 'number' || typeof record.port === 'string'
           ? Number(record.port)
-          : NaN;
+          : Number.NaN;
     if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
       throw new Error('platform: Cloudflare Hyperdrive config has an invalid origin port.');
     }

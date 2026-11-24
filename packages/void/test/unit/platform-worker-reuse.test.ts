@@ -69,7 +69,6 @@ async function attemptReuse(input: {
   const retainNewWorker = vi.fn(async () => {});
   let uploadedScript: string | null = null;
   let uploadedHash: string | null = null;
-  let expectedHash: string | null = null;
   try {
     const main = join(directory, 'worker.js');
     const configPath = join(directory, 'wrangler.json');
@@ -87,7 +86,6 @@ async function attemptReuse(input: {
     writeFileSync(configPath, JSON.stringify(config));
     const originalHash = platformWorkerUploadFingerprint(config);
     expect(originalHash).toMatch(/^[a-f0-9]{64}$/);
-    expectedHash = originalHash;
     const triggers = readCloudflareTriggerConfig(configPath);
     if (input.changeScript) {
       writeFileSync(main, 'export default { fetch() { return new Response("two"); } };');
@@ -294,7 +292,7 @@ async function attemptReuse(input: {
       retainNewWorker,
       uploadedScript,
       uploadedHash,
-      expectedHash,
+      expectedHash: originalHash,
       ...outcome,
     };
   } finally {
@@ -374,7 +372,7 @@ it.each([
   );
   expect(run.calls.filter((call) => call === 'versions.deploy')).toHaveLength(1);
   expect(run.postActivationReads).toBe(4);
-  expect(wait.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([250, 500, 1_000]);
+  expect(wait.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([250, 500, 1000]);
   expect(run.onTrafficPublished).not.toHaveBeenCalled();
 });
 

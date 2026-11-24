@@ -1,20 +1,22 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import MagicString from 'magic-string';
-import { dirname } from 'pathslash';
-import { defaultServerConditions, normalizePath, type Plugin } from 'vite';
-import { type ApplicationAnalysis } from './application-analysis.ts';
+import { toSlash } from 'pathslash';
+import { defaultServerConditions, normalizePath } from 'vite';
+import type { Plugin } from 'vite';
+import type { ApplicationAnalysis } from './application-analysis.ts';
+import type { resolveLiveBindingConfig } from './cli/wrangler.ts';
 import {
   ensureWranglerCompat,
   ensureWranglerCompatibilityDate,
   ensureWranglerNodejsAlsFlag,
   readWranglerCompat,
-  resolveLiveBindingConfig,
   syncWranglerBindings,
 } from './cli/wrangler.ts';
-import { getDatabaseCasing, readConfig } from './config.ts';
+import type { readConfig } from './config.ts';
+import { getDatabaseCasing } from './config.ts';
 import { findDependencyClosure, findVoidDependentPackages } from './installed-packages.ts';
-import { resolveLocalD1Target } from './local-d1.ts';
+import type { resolveLocalD1Target } from './local-d1.ts';
 import { voidLog } from './log.ts';
 import { bindingRuntimePlugin } from './plugin-binding-runtime.ts';
 import { devTriggerSecretGuardPlugin } from './plugin-dev-config.ts';
@@ -43,7 +45,7 @@ const handlerFile = fileURLToPath(import.meta.resolve('#self/handler'));
 const envModuleFile = fileURLToPath(import.meta.resolve('#self/_env'));
 const envPublicFile = fileURLToPath(import.meta.resolve('#self/env'));
 // Packages Void depends on are installed for code in this directory.
-const voidDir = dirname(fileURLToPath(import.meta.url));
+const voidDir = toSlash(import.meta.dirname);
 
 const ASTRO_SERVER_ENTRY = '@astrojs/cloudflare/entrypoints/server';
 const ASTRO_SCOPED_SERVER_ENTRY = '\0void:astro-server-entry';
@@ -388,7 +390,7 @@ export function createFrameworkPlugins(input: {
             },
           },
           load: {
-            // oxlint-disable-next-line no-control-regex -- \0 prefix is Vite's virtual module convention
+            // \0 prefix is Vite's virtual module convention
             filter: { id: /^\0void:astro-server-entry$/ },
             handler() {
               const imports = [

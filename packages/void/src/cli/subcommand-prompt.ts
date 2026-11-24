@@ -50,11 +50,25 @@ export type SubcommandResult = {
   extraArgs?: Array<string>;
 };
 
-const isUpKey = (key: string) => key === '\x1B[A' || key === '\x1BOA';
-const isDownKey = (key: string) => key === '\x1B[B' || key === '\x1BOB';
+const isUpKey = (key: string) => key === '\u001B[A' || key === '\u001BOA';
+const isDownKey = (key: string) => key === '\u001B[B' || key === '\u001BOB';
 const isEnterKey = (key: string) => key === '\r' || key === '\n';
-const isBackspaceKey = (key: string) => key === '\x7F' || key === '\b';
+const isBackspaceKey = (key: string) => key === '\u007F' || key === '\b';
 const isPrintableKey = (key: string) => key.length === 1 && key >= ' ';
+
+function checkboxMarker(selected: boolean, focused: boolean): string {
+  const checkbox = selected
+    ? pc.blue(S_CHECKBOX_SELECTED)
+    : focused
+      ? pc.blue(S_CHECKBOX_INACTIVE)
+      : pc.dim(S_CHECKBOX_INACTIVE);
+  const pointer = focused ? pc.blue(S_RADIO_ACTIVE) : S_RADIO_INACTIVE;
+  return pointer + ' ' + checkbox;
+}
+
+function guidePrefix(): string {
+  return getGuide() ? pc.gray(S_BAR) + ' ' : '  ';
+}
 
 export function promptSubcommand(
   command: string,
@@ -81,7 +95,7 @@ export function promptSubcommand(
     const wasRaw = stdin.isRaw;
     stdin.setRawMode(true);
     stdin.resume();
-    stdout.write('\x1B[?25l'); // hide cursor
+    stdout.write('\u001B[?25l'); // hide cursor
 
     function clear() {
       if (previousFrame) {
@@ -89,7 +103,7 @@ export function promptSubcommand(
           hard: true,
           trim: false,
         }).split('\n').length;
-        stdout.write(`\x1B[${rows}A\r\x1B[0J`);
+        stdout.write(`\u001B[${rows}A\r\u001B[0J`);
         previousFrame = '';
       }
     }
@@ -111,10 +125,6 @@ export function promptSubcommand(
       return `${lines[0]}…`;
     }
 
-    function guidePrefix(): string {
-      return getGuide() ? pc.gray(S_BAR) + ' ' : '  ';
-    }
-
     function renderOption(marker: string, label: string, focused: boolean, suffix = ''): string {
       return (
         guidePrefix() +
@@ -126,16 +136,6 @@ export function promptSubcommand(
           suffix,
         )
       );
-    }
-
-    function checkboxMarker(selected: boolean, focused: boolean): string {
-      const checkbox = selected
-        ? pc.blue(S_CHECKBOX_SELECTED)
-        : focused
-          ? pc.blue(S_CHECKBOX_INACTIVE)
-          : pc.dim(S_CHECKBOX_INACTIVE);
-      const pointer = focused ? pc.blue(S_RADIO_ACTIVE) : S_RADIO_INACTIVE;
-      return pointer + ' ' + checkbox;
     }
 
     function instructions(items: Array<string>): Array<string> {
@@ -310,7 +310,7 @@ export function promptSubcommand(
       stdin.removeListener('data', onData);
       stdout.removeListener('resize', render);
       process.removeListener('exit', onExit);
-      stdout.write('\x1B[?25h');
+      stdout.write('\u001B[?25h');
     }
 
     function submit(result: SubcommandResult | null) {
@@ -568,23 +568,23 @@ export function promptSubcommand(
       const key = data.toString();
 
       // Ctrl+C
-      if (key === '\x03') {
+      if (key === '\u0003') {
         submit(null);
         return;
       }
       // Escape
-      if (key === '\x1B' && data.length === 1) {
+      if (key === '\u001B' && data.length === 1) {
         submit(null);
         return;
       }
       // Arrow keys and other escape sequences need to stay grouped.
-      if (key.startsWith('\x1B')) {
+      if (key.startsWith('\u001B')) {
         handleKey(key);
         return;
       }
 
       for (const char of key) {
-        if (char === '\x03') {
+        if (char === '\u0003') {
           submit(null);
           return;
         }
@@ -598,7 +598,7 @@ export function promptSubcommand(
     // Safety cleanup on exit
     function onExit() {
       if (!resolved) {
-        stdout.write('\x1B[?25h');
+        stdout.write('\u001B[?25h');
       }
     }
     process.on('exit', onExit);

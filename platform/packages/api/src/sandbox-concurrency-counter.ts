@@ -31,7 +31,7 @@ type EntriesMap = Record<string, Entry>;
 const STORAGE_KEY = 'controlled-entries-v1';
 const COMPLETIONS_KEY = 'controlled-completions-v1';
 const COMPLETION_RETENTION_MS = 24 * 60 * 60 * 1000;
-const MAX_COMPLETIONS = 4_096;
+const MAX_COMPLETIONS = 4096;
 const unavailable: SandboxControlResult = { ok: false, reason: 'unavailable' };
 
 /** Account-wide capacity and usage, callable only through the private SandboxControl entrypoint. */

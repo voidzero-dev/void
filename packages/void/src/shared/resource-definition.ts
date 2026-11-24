@@ -1,15 +1,18 @@
 import { parseSync } from 'vite';
 import {
+  asAstProgram,
   isCallExpression,
   isIdentifier,
   isMemberExpression,
   isObjectExpression,
-  type AstImportDeclaration,
-  type AstImportNamespaceSpecifier,
-  type AstImportSpecifier,
-  type AstNode,
-  type AstProgram,
-  type AstVariableDeclaration,
+} from './ast.ts';
+import type {
+  AstImportDeclaration,
+  AstImportNamespaceSpecifier,
+  AstImportSpecifier,
+  AstNode,
+  AstProgram,
+  AstVariableDeclaration,
 } from './ast.ts';
 import { isResourceName } from './resource-name.ts';
 import { staticLiteral, unwrapStaticExpression } from './static-exports.ts';
@@ -22,7 +25,7 @@ export function readResourceDefinition(
 ): { helper: string; options?: AstNode; name?: string } | null {
   let program: AstProgram;
   try {
-    program = parseSync(filename, source).program as unknown as AstProgram;
+    program = asAstProgram(parseSync(filename, source).program);
   } catch {
     return null;
   }

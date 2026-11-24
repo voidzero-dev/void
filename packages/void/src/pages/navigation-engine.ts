@@ -10,7 +10,8 @@ import type { HeadDescriptor } from './head.ts';
 import { PrefetchCache, parseCacheFor } from './prefetch.ts';
 import type { CacheForInput, CacheForResult, LinkPrefetchValue } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
-import { fetchPages, type PagesFetchOptions, type PagesFetchResult } from './redirect.ts';
+import { fetchPages } from './redirect.ts';
+import type { PagesFetchOptions, PagesFetchResult } from './redirect.ts';
 import { createScrollRestoration } from './scroll-restoration.ts';
 import { decodePageData, deserializePageData, serializePageData } from './serialize.ts';
 import { decodePagePath, isSameOrigin } from './url.ts';
@@ -138,9 +139,9 @@ export type PageNavigationEngine = {
   flush(url: string, method?: string): void;
   flushAll(): void;
   setPopStateHandler(handler: (url: string, options: VisitOptions) => void): void;
-  start(): void;
+  start(this: void): void;
   /** Called after the adapter commits the initial page DOM. */
-  commitInitialRender(): void;
+  commitInitialRender(this: void): void;
 };
 
 const PAGE_DATA_SCRIPT_ID = '__VOID_PAGE_DATA__';
@@ -168,7 +169,7 @@ export function objectToFormData(
 ): FormData {
   form = form || new FormData();
   for (const key in source) {
-    if (!Object.prototype.hasOwnProperty.call(source, key)) {
+    if (!Object.hasOwn(source, key)) {
       continue;
     }
     const composed = parentKey ? parentKey + '[' + key + ']' : key;
@@ -229,6 +230,10 @@ function parsePageDataFromHtml(html: string): PageData | null {
   }
 }
 
+async function skipCommit(): Promise<boolean> {
+  return false;
+}
+
 function abortError(): DOMException {
   return new DOMException('Navigation aborted', 'AbortError');
 }
@@ -254,6 +259,27 @@ async function fetchPageResponse(
     }
     return null;
   }
+}
+
+function restoreScroll(scrollPosition: VisitOptions['_scrollPosition'], hash: string): void {
+  if (scrollPosition) {
+    window.scrollTo(scrollPosition.x, scrollPosition.y);
+    return;
+  }
+  if (hash) {
+    const el = document.getElementById(hash.slice(1));
+    if (el) {
+      el.scrollIntoView();
+      return;
+    }
+  }
+  window.scrollTo(0, 0);
+}
+
+function getStaticPageDataUrl(url: string): string {
+  const { pathname } = new URL(url || '/', window.location.origin);
+  const filePath = pathname === '/' ? 'index' : pathname.replace(/^\/+/, '');
+  return `${STATIC_PAGE_DATA_PREFIX}/${filePath}${pathname !== '/' && pathname.endsWith('/') ? 'index' : ''}.json`;
 }
 
 export async function createPageNavigationEngine(
@@ -330,12 +356,6 @@ export async function createPageNavigationEngine(
       }
     }
     throw error;
-  }
-
-  function getStaticPageDataUrl(url: string): string {
-    const { pathname } = new URL(url || '/', window.location.origin);
-    const filePath = pathname === '/' ? 'index' : pathname.replace(/^\/+/, '');
-    return `${STATIC_PAGE_DATA_PREFIX}/${filePath}${pathname !== '/' && pathname.endsWith('/') ? 'index' : ''}.json`;
   }
 
   function isUsablePageData(pageData: unknown, matchedId: string): pageData is PageData {
@@ -632,21 +652,6 @@ export async function createPageNavigationEngine(
         return data;
       });
     });
-  }
-
-  function restoreScroll(scrollPosition: VisitOptions['_scrollPosition'], hash: string): void {
-    if (scrollPosition) {
-      window.scrollTo(scrollPosition.x, scrollPosition.y);
-      return;
-    }
-    if (hash) {
-      const el = document.getElementById(hash.slice(1));
-      if (el) {
-        el.scrollIntoView();
-        return;
-      }
-    }
-    window.scrollTo(0, 0);
   }
 
   const deferredWindow = window as DeferredWindow;
@@ -1200,7 +1205,7 @@ export async function createPageNavigationEngine(
         deferredRegistry,
       );
 
-      let commitResource: () => Promise<boolean> = async () => false;
+      let commitResource = skipCommit;
       const stop = () => {
         controller.abort(abortError());
         deferredRegistry.dispose();

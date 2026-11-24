@@ -21,12 +21,14 @@ import {
   removeProjectMember,
   updateDeploymentStatus,
   updateUserPlan,
-  type Db,
 } from '../../src/db.ts';
+import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import { createIsrStore } from '../../src/isr-store.ts';
 import { writePlanCatalog } from '../../src/plans.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectIngress from '../../src/project-ingress.ts';
 import { deriveProxyToken } from '../../src/proxy-token.ts';
 import { validateManifestShape } from '../../src/routes/deploy.ts';
@@ -59,9 +61,8 @@ import {
   readAllEvents,
   CF_ACCOUNT_ID,
   JWT_SECRET,
-  type MockCfApiHandle,
-  type TestEnv,
 } from './helpers.ts';
+import type { MockCfApiHandle, TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
 
 const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
@@ -179,13 +180,13 @@ async function buildDeployRequest(
 ): Promise<Request> {
   const baseManifest = opts?.manifest ?? { version: 3, bindings: {} };
   // JSON-mode requires assetManifestVersion: 2.
-  const manifest: Record<string, unknown> = {
+  const manifest = {
     assetManifestVersion: 2,
     ...baseManifest,
   };
 
   // Decide whether worker files are appropriate for this manifest type.
-  const manifestType = (manifest as { type?: unknown }).type;
+  const manifestType = 'type' in manifest ? manifest.type : undefined;
   const isStaticManifest = manifestType === 'spa' || manifestType === 'static';
 
   // Default worker file for non-static manifests so callers can use the
@@ -2401,7 +2402,7 @@ describe('POST /projects/:id/deploy', () => {
     const eventNames = events.filter(isDeployEvent).map((event) => event.event);
 
     expect(eventNames[0]).toBe('start');
-    expect(eventNames[eventNames.length - 1]).toBe('done');
+    expect(eventNames.at(-1)).toBe('done');
     expect(eventNames).toContain('worker_upload');
     expect(eventNames).toContain('worker_upload_done');
   });
@@ -2902,9 +2903,9 @@ describe('POST /projects/:id/deploy', () => {
       }).migration_tag;
     }
 
-    const tokenConsumed = () => cfError('Completion token has already been consumed', 400, 100312);
+    const tokenConsumed = () => cfError('Completion token has already been consumed', 400, 100_312);
     const tagMoved = () =>
-      cfError("Actor migration tag precondition failed, got tag ''", 412, 10079);
+      cfError("Actor migration tag precondition failed, got tag ''", 412, 10_079);
 
     const websocketManifest = {
       version: 3,
@@ -2960,7 +2961,7 @@ describe('POST /projects/:id/deploy', () => {
           maxAttempts: 4,
           latencyMs: expect.any(Number),
           status: 400,
-          cfCode: 100312,
+          cfCode: 100_312,
           bodyPreview: expect.stringContaining('100312'),
         }),
       ]);
@@ -3337,7 +3338,7 @@ describe('POST /projects/:id/deploy', () => {
           uploadCalls++;
           return uploadCalls === 1
             ? new Response('service unavailable', { status: 503 })
-            : cfError('Uncaught SyntaxError', 400, 10021);
+            : cfError('Uncaught SyntaxError', 400, 10_021);
         },
       });
 
@@ -5815,7 +5816,7 @@ describe('POST /projects/:id/deploy (streaming response headers / heartbeat)', (
     const order = nonHeartbeat.map((e) => e.event);
     expect(order).toContain('asset_upload');
     expect(order).toContain('asset_upload_done');
-    expect(order[order.length - 1]).toBe('done');
+    expect(order.at(-1)).toBe('done');
 
     // Sanity: the deploy actually succeeded with the right asset count.
     const doneEvent = nonHeartbeat.find((e) => e.event === 'done') as {

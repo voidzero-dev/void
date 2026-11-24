@@ -2,12 +2,8 @@ import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { objectToFormData } from '../../src/pages/navigation-engine.ts';
-import {
-  defineHandler,
-  defineMiddleware,
-  type CloudContext,
-  type TypedHandler,
-} from '../../src/runtime/handler/index.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler/index.ts';
+import type { CloudContext, TypedHandler } from '../../src/runtime/handler/index.ts';
 import { convertReturnValue } from '../../src/runtime/handler/response.ts';
 import { createHttpRouteHandler } from '../../src/runtime/routing/index.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
@@ -518,7 +514,7 @@ describe('defineHandler.withValidator', () => {
         }
       } else {
         // Append syntax must share the same allocation budget across arrays.
-        for (let i = 0; i < 6_000; i++) {
+        for (let i = 0; i < 6000; i++) {
           form.append('first[]', 'value');
           form.append('second[]', 'value');
         }

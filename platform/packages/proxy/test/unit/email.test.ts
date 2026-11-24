@@ -38,7 +38,7 @@ function base64urlEncode(data: Uint8Array): string {
   for (const byte of data) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 async function signHmac(data: string, secret: string): Promise<string> {
@@ -257,7 +257,7 @@ function parseJsonc(source: string): Record<string, unknown> {
     }
     out += ch;
   }
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1')) as Record<string, unknown>;
+  return JSON.parse(out.replaceAll(/,(\s*[}\]])/g, '$1')) as Record<string, unknown>;
 }
 
 const wranglerConfig = parseJsonc(
@@ -614,7 +614,9 @@ describe('POST /email/send — request validation', () => {
       apiFetch.mockImplementation(async (url, init) => {
         if (String(url).endsWith('/admit')) {
           markAdmissionStarted();
-          await new Promise((resolve) => setTimeout(resolve, 10_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 10_000);
+          });
         }
         return normalFetch(url, init);
       });
@@ -625,7 +627,7 @@ describe('POST /email/send — request validation', () => {
       await firstSubmitted;
       await vi.advanceTimersByTimeAsync(30_000);
       await secondSubmitted;
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       const body = await readSend(await pending);
 
       expect(send).toHaveBeenCalledTimes(2);
@@ -963,7 +965,7 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
       ['a quoted display name', { email: DEFAULT_FROM, name: 'Smith, John' }],
       [
         'a display name with quotes and backslashes',
-        { email: DEFAULT_FROM, name: 'Acme "Co" \\ Ltd <x>' },
+        { email: DEFAULT_FROM, name: String.raw`Acme "Co" \ Ltd <x>` },
       ],
       ['a short non-ASCII display name', { email: DEFAULT_FROM, name: 'Jürgen Müller' }],
       ['a 200-character CJK display name (folded)', { email: DEFAULT_FROM, name: longName }],
@@ -1118,7 +1120,7 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
       // keep accepting what the framework's own preflight accepts: the fix
       // for the per-line cost was to stop retaining lines, not to cap the
       // value, and a cap would be a contract change owned by the framework.
-      const name = '東京都千代田区'.repeat(15000).slice(0, 100_000);
+      const name = '東京都千代田区'.repeat(15_000).slice(0, 100_000);
       const email = await normalizeEmail({
         from: { email: DEFAULT_FROM, name },
         to: 'dev@example.com',
@@ -1254,15 +1256,14 @@ describe('POST /email/send — the envelope handed to CF', () => {
     ['ASCII upper case', `ACME@${PROD_DOMAIN}`, 'acme'],
     ['a code point that case-folds into the slug', `acmeK@${PROD_DOMAIN}`, 'acmek'],
     ['a carriage return', `acme\r\nX-Bcc: attacker@evil.com@${PROD_DOMAIN}`, 'acme'],
-    ['a null byte', `acme\x00@${PROD_DOMAIN}`, 'acme'],
+    ['a null byte', `acme\u0000@${PROD_DOMAIN}`, 'acme'],
   ])('never hands a control character to the send binding (%s)', async (_label, from, slug) => {
     const kv = happyPathKv({ 'email-slug:proj_000000000001': slug });
     const sender = createSender();
     const env = createMockEnv(kv, { SEND_EMAIL: sender.binding });
     await postSend(env, await sendBody({ from }));
     for (const call of sender.calls) {
-      // oxlint-disable-next-line no-control-regex
-      expect(new RegExp('[\\u0000-\\u001f\\u007f]').test(call.from)).toBe(false);
+      expect(new RegExp(String.raw`[\u0000-\u001f\u007f]`).test(call.from)).toBe(false);
     }
   });
 });
@@ -1277,8 +1278,7 @@ describe('POST /email/send — the envelope handed to CF', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /email/send — requestId is bounded and sanitized at intake', () => {
-  // oxlint-disable-next-line no-control-regex
-  const CONTROL = new RegExp('[\\u0000-\\u001f\\u007f]');
+  const CONTROL = new RegExp(String.raw`[\u0000-\u001f\u007f]`);
 
   it('a 5 MB control-heavy requestId still sends, and logs a short clean id', async () => {
     // Alternating LF / letter: one regex match per LF, the shape that made

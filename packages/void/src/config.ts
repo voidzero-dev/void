@@ -1,16 +1,8 @@
-import {
-  isRecord,
-  isR2LocationHint,
-  R2_LOCATION_HINTS,
-  type AssetConfig,
-  type StorageConfig,
-} from '@void/deploy-core';
+import { isRecord, isR2LocationHint, R2_LOCATION_HINTS } from '@void/deploy-core';
+import type { AssetConfig, StorageConfig } from '@void/deploy-core';
 import type { RewriteDestination } from 'void/routes';
-import {
-  VOID_AUTH_PROVIDERS,
-  isVoidAuthProvider,
-  type VoidAuthProvider,
-} from './auth/providers.ts';
+import { VOID_AUTH_PROVIDERS, isVoidAuthProvider } from './auth/providers.ts';
+import type { VoidAuthProvider } from './auth/providers.ts';
 import type { DevRedirectRule, HeaderRule } from './cli/types.ts';
 import { loadVoidConfig } from './config-loader.ts';
 import type { HeadConfig } from './pages/head.ts';
@@ -230,7 +222,7 @@ const VALID_DATABASE_VALUES = new Set(['pg', 'mysql']);
 const VALID_DATABASE_DIALECTS = new Set(['sqlite', 'pg', 'mysql']);
 const VALID_DATABASE_CASINGS = new Set(['snake_case', 'camelCase']);
 /** Cloudflare's hard maximum for Workers CPU time per request (5 minutes). */
-const MAX_WORKER_CPU_MS = 300000;
+const MAX_WORKER_CPU_MS = 300_000;
 const VALID_SANDBOX_INSTANCE_TYPES = new Set<SandboxInstanceType>([
   'lite',
   'basic',
@@ -254,7 +246,7 @@ const SANDBOX_KEYS = [...SANDBOX_STRING_KEYS, 'instanceType'];
  * `compilePattern` (`@void/edge`) gives `:name*` its own group, so it never clashes with a splat.
  */
 export function countSplats(source: string): number {
-  return source.replace(/:[A-Za-z0-9_]+\*/g, '').match(/\*/g)?.length ?? 0;
+  return source.replaceAll(/:[A-Za-z0-9_]+\*/g, '').match(/\*/g)?.length ?? 0;
 }
 
 /**
@@ -439,7 +431,7 @@ export function validateConfig(config: unknown, source: string = CONFIG_FILE): V
     return validateConfigObject(config);
   } catch (error) {
     if (source !== CONFIG_FILE && error instanceof Error) {
-      // No `cause`: Node would print its message too, which names the placeholder.
+      // oxlint-disable-next-line preserve-caught-error -- Node would display the placeholder file name from the original message.
       throw new Error(error.message.replaceAll(CONFIG_FILE, source));
     }
     throw error;
@@ -1078,6 +1070,7 @@ function parseEmailFrom(value: unknown): void {
     const detail = error instanceof MimeError ? ` ${error.message}` : '';
     throw new Error(
       `config: "email.from" in ${CONFIG_FILE} must be a single email address, optionally with a display name (e.g. "Acme <noreply@mail.acme.com>").${detail}`,
+      { cause: error },
     );
   }
 }

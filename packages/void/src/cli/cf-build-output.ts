@@ -25,7 +25,8 @@ import {
   writeRootConfig,
   writeWorkerConfig,
 } from '@cloudflare/build-output-utils';
-import { type ModuleType, BuildOutputContainerConfigSchema } from '@cloudflare/config';
+import { BuildOutputContainerConfigSchema } from '@cloudflare/config';
+import type { ModuleType } from '@cloudflare/config';
 import ignore from 'ignore';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'pathslash';
 import type { Plugin } from 'vite';
@@ -41,7 +42,7 @@ export interface CfBuildOutput {
     versionId: string;
     bindings: ReadonlyArray<{ name: string; type: 'secret_text' | 'secret_key' }>;
   };
-  dispose(): Promise<void>;
+  dispose(this: void): Promise<void>;
 }
 
 // Match the additional modules emitted by the Cloudflare Vite plugin. A complete

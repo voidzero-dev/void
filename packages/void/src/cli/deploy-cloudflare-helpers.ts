@@ -1,13 +1,15 @@
 import { existsSync } from 'node:fs';
 import {
-  activateCloudflareVersion,
   assertCloudflareBindingsPreserved,
   parseRootWranglerConfig,
   readExistingCloudflareWorker,
   readWranglerTopLevelString,
-  type ApprovedCloudflareKvBinding,
-  type CloudflareCommandRunner,
-  type ExistingCloudflareWorker,
+} from '@void/deploy-cloudflare';
+import type {
+  ApprovedCloudflareKvBinding,
+  CloudflareCommandRunner,
+  ExistingCloudflareWorker,
+  activateCloudflareVersion,
 } from '@void/deploy-cloudflare';
 import { join } from 'pathslash';
 import { materializeCloudflareConfig } from '../cloudflare-config.ts';
@@ -26,19 +28,16 @@ import {
   assertCloudflareCandidateUnchanged,
   clearCloudflareCandidate,
   recordCloudflareCandidateUpload,
-  type CloudflareCandidateReceipt,
 } from './cloudflare-candidate.ts';
-import {
-  observeCfCommand,
-  observeCloudflareRunner,
-  type CloudflareChildReporter,
-} from './cloudflare-child-report.ts';
+import type { CloudflareCandidateReceipt } from './cloudflare-candidate.ts';
+import { observeCfCommand, observeCloudflareRunner } from './cloudflare-child-report.ts';
+import type { CloudflareChildReporter } from './cloudflare-child-report.ts';
 import {
   assertCloudflareLinkUnchanged,
   completeCloudflareLink,
   recordCloudflareCandidate,
-  type CloudflareLink,
 } from './cloudflare-link.ts';
+import type { CloudflareLink } from './cloudflare-link.ts';
 import {
   createCloudflareEmptyCronPublisher,
   createCloudflareEmptyDomainPublisher,
@@ -62,15 +61,16 @@ import {
 import { log } from './deploy-helpers.ts';
 import { deployChildEnv, resolveDeployTransport } from './deploy-transport.ts';
 import type { CloudflareDeployDeps, DeployWranglerRun } from './deploy-types.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { createSpinner, getErrorMessage } from './output.ts';
-import { resolveWorkersDevComplianceRegion, type ComplianceRegion } from './provision.ts';
+import { resolveWorkersDevComplianceRegion } from './provision.ts';
+import type { ComplianceRegion } from './provision.ts';
 import {
   acknowledgeWranglerManagedQueueRemovals,
   readWranglerPublishedTrafficSnapshot,
   writeWranglerPublishedTrafficSnapshot,
-  type readWranglerManagedQueueCleanupCandidates,
 } from './wrangler.ts';
+import type { readWranglerManagedQueueCleanupCandidates } from './wrangler.ts';
 
 type CloudflareActivationOptions = Parameters<typeof activateCloudflareVersion>[0];
 type CloudflareActivationResult = Awaited<ReturnType<typeof activateCloudflareVersion>>;
@@ -637,10 +637,10 @@ function formatCloudflareActivationFailure(
       ].join('\n');
     case 'readiness-staging-failed': {
       const hint =
-        result.cloudflareErrorCode === 10210 &&
+        result.cloudflareErrorCode === 10_210 &&
         (result.diagnostic ?? '').toLowerCase().includes('durable object migration')
           ? '\n\nReview the Durable Object migration, then run `void deploy --platform cloudflare --atomic`. For future deploys, set deploy.cloudflare.mode to "atomic" in void.config.ts.'
-          : result.cloudflareErrorCode === 100405
+          : result.cloudflareErrorCode === 100_405
             ? '\n\nThe new version declares different exports from the live version (for example a Durable Object or Workflow class), so Cloudflare cannot split traffic between them. Run `void deploy --platform cloudflare --atomic` once to publish it at 100% directly; it receives traffic before readiness is checked.'
             : '';
       return `deploy: Cloudflare could not stage the uploaded Worker Version at zero-percent traffic${status}; production traffic is unchanged.${cloudflareCode}${diagnostic}${hint}`;

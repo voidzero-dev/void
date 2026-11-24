@@ -25,7 +25,7 @@ describe('splitMySqlMigrationSql', () => {
 
   it('keeps semicolons inside strings, quoted names and comments', () => {
     const statements = [
-      "INSERT INTO t (s) VALUES ('a;b', 'it''s;', 'it\\'s; \\\\', \"x;y\");",
+      String.raw`INSERT INTO t (s) VALUES ('a;b', 'it''s;', 'it\'s; \\', "x;y");`,
       // A backslash does not escape in a quoted name.
       'CREATE TABLE `dir\\` (id int);',
       'CREATE TABLE `odd;name` (`a``;b` int); # trailing; comment',
@@ -33,7 +33,7 @@ describe('splitMySqlMigrationSql', () => {
       'SELECT 1 /* a; b */ + 1;',
     ];
     expect(splitMySqlMigrationSql(statements.join('\n'))).toEqual([
-      "INSERT INTO t (s) VALUES ('a;b', 'it''s;', 'it\\'s; \\\\', \"x;y\");",
+      String.raw`INSERT INTO t (s) VALUES ('a;b', 'it''s;', 'it\'s; \\', "x;y");`,
       'CREATE TABLE `dir\\` (id int);',
       'CREATE TABLE `odd;name` (`a``;b` int);',
       'UPDATE t SET n = 5--3;',

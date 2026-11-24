@@ -2,9 +2,11 @@ import { readFileSync } from 'node:fs';
 import { builtinModules, createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'pathslash';
-import { type Plugin } from 'vite';
-import { ensureWranglerCompat, type WranglerCompat } from './cli/wrangler.ts';
-import { readConfig, isNodeTarget, type DatabaseDialect } from './config.ts';
+import type { Plugin } from 'vite';
+import { ensureWranglerCompat } from './cli/wrangler.ts';
+import type { WranglerCompat } from './cli/wrangler.ts';
+import { isNodeTarget } from './config.ts';
+import type { DatabaseDialect, readConfig } from './config.ts';
 
 const CLOUDFLARE_BUILTIN_IMPORT = /^cloudflare:/;
 
@@ -181,7 +183,10 @@ async function readWorkerdNodeBuiltins(compat: WranglerCompat): Promise<Set<stri
   const { getCloudflarePreset } = (await import(
     pathToFileURL(join(dirname(manifestPath), manifest.exports['.'].import)).href
   )) as {
-    getCloudflarePreset(compat: { compatibilityDate: string; compatibilityFlags: Array<string> }): {
+    getCloudflarePreset(
+      this: void,
+      compat: { compatibilityDate: string; compatibilityFlags: Array<string> },
+    ): {
       external: Array<string>;
     };
   };
@@ -265,7 +270,7 @@ export function createServerRuntimeOptimizerPlugin(
       },
     },
     load: {
-      // oxlint-disable-next-line no-control-regex -- \0 prefix is Vite's virtual module convention
+      // \0 prefix is Vite's virtual module convention
       filter: { id: /^\0void:node-require:/ },
       handler(id) {
         // A built-in's default export is its CommonJS exports, and `require` returns an ES

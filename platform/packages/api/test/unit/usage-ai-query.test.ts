@@ -191,7 +191,9 @@ describe('account usage query bounds', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
       active++;
       peak = Math.max(peak, active);
-      await new Promise((resolve) => setTimeout(resolve, 1));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1);
+      });
       active--;
       return Response.json(payload([{ sum: { cost: 0.000011 } }]));
     });

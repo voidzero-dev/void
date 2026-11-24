@@ -84,14 +84,14 @@ function createBuildTrace(root: string) {
   let driverDir: string | undefined;
 
   const show = (path: string) => {
-    let text = path.replaceAll('\0', '\\0');
+    let text = path.replaceAll('\0', String.raw`\0`);
     for (const [prefix, name] of [
       [root, '<app>'],
       [REPO_ROOT, '<repo>'],
     ] as const) {
       text = text.replaceAll(prefix, name).replaceAll(prefix.replaceAll('\\', '/'), name);
     }
-    text = text.replace(/\.pnpm([\\/])[^\\/]+[\\/]node_modules[\\/]/g, '.pnpm$1…$1');
+    text = text.replaceAll(/\.pnpm([\\/])[^\\/]+[\\/]node_modules[\\/]/g, '.pnpm$1…$1');
     return text.length > 240 ? `${text.slice(0, 240)}…` : text;
   };
   const record = (list: Array<string>, text: string) => {
@@ -167,7 +167,7 @@ function createBuildTrace(root: string) {
         if (typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
           Promise.resolve(result).then(
             (resolved) => settle(describeResult(hook, resolved)),
-            (error) => settle(`rejected ${String(error)}`, true),
+            (error: unknown) => settle(`rejected ${String(error)}`, true),
           );
         } else {
           settle(describeResult(hook, result));

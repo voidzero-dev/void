@@ -29,7 +29,7 @@ export function lineNumberPlugin(md: MarkdownExit): void {
     let startLineNumber = 1;
     const matchStart = info.match(/=(\d+)/);
     if (matchStart?.[1]) {
-      startLineNumber = parseInt(matchStart[1]);
+      startLineNumber = Number.parseInt(matchStart[1]);
     }
 
     const code = rawCode.slice(rawCode.indexOf('<code>'), rawCode.indexOf('</code>'));

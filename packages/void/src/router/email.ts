@@ -28,11 +28,8 @@
 
 import { join } from 'pathslash';
 import { globSync } from 'tinyglobby';
-import {
-  compareEmailRoutes,
-  compileEmailPattern,
-  type CompiledEmailPattern,
-} from '../shared/email-pattern.ts';
+import { compareEmailRoutes, compileEmailPattern } from '../shared/email-pattern.ts';
+import type { CompiledEmailPattern } from '../shared/email-pattern.ts';
 
 const EMAIL_EXTENSIONS = ['ts', 'mts', 'js', 'mjs'];
 

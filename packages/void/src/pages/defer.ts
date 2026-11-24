@@ -34,6 +34,7 @@ export function defer(
     typeof groupOrResolver === 'string'
       ? [groupOrResolver, maybeResolver!]
       : [null, groupOrResolver];
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- The server sends a sentinel which the client replaces with the advertised deferred resource.
   return { [DEFERRED]: true, group, resolver } as unknown as Deferred<unknown>;
 }
 
