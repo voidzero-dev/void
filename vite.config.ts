@@ -573,6 +573,7 @@ const config = defineConfig({
       'typescript/no-unsafe-member-access': 'off',
       // Several adapter return types inherit any from dependencies or JSON parsers. Define and validate the boundary contracts first.
       'typescript/no-unsafe-return': 'off',
+      // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',
       'typescript/return-await': 'off',
       'typescript/unbound-method': 'off',
