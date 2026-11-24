@@ -1287,28 +1287,27 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
     const requestId = `\na`.repeat((5 * 1024 * 1024) / 2);
     const forged = `req_1\n[email-log] proj_victim x@example.com sent forged @0`;
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    // One send on a fresh env; times only the request, not building the body.
-    const timedSend = async (id: string) => {
+    // Both call through; `mock.contexts` keeps the string each one ran on.
+    const replaceSpy = vi.spyOn(String.prototype, 'replace');
+    const replaceAllSpy = vi.spyOn(String.prototype, 'replaceAll');
+    try {
       const sender = createSender();
       const env = createMockEnv(happyPathKv(), { SEND_EMAIL: sender.binding });
-      const body = await sendBody({ requestId: id });
-      logSpy.mockClear();
-      const t0 = performance.now();
+      const body = await sendBody({ requestId });
+      replaceSpy.mockClear();
+      replaceAllSpy.mockClear();
       const res = await postSend(env, body);
-      return { ms: performance.now() - t0, res, sender, env };
-    };
-    try {
-      // Compare with a same-size id that has no control characters, so the bound
-      // follows the machine's load. The fastest of 3 runs drops one-off pauses.
-      let baseline = Infinity;
-      let elapsed = Infinity;
-      let run!: Awaited<ReturnType<typeof timedSend>>;
-      for (let i = 0; i < 3; i++) {
-        baseline = Math.min(baseline, (await timedSend('a'.repeat(requestId.length))).ms);
-        run = await timedSend(requestId);
-        elapsed = Math.min(elapsed, run.ms);
-      }
-      const { res, sender, env } = run;
+      // Slice first, then strip: no part of the id longer than the 128 cap may
+      // reach a replace. Timing could not tell the two orders apart under load.
+      const replacedIdLengths = [
+        ...replaceSpy.mock.contexts,
+        ...replaceAllSpy.mock.contexts,
+      ].flatMap((context) => {
+        const value = String(context);
+        return value.startsWith('\na\na') ? [value.length] : [];
+      });
+      expect(replacedIdLengths.length).toBeGreaterThan(0);
+      expect(Math.max(...replacedIdLengths)).toBeLessThanOrEqual(128);
       expect(res.status).toBe(200);
       expect((await readSend(res)).ok).toBe(true);
       expect(sender.calls).toHaveLength(1);
@@ -1323,9 +1322,6 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
       expect(lines[0].length).toBeLessThanOrEqual(fixed + 128);
       expect(lines[0]).not.toMatch(CONTROL);
       expect(lines[0].split(' ')[1]).toBe('proj_000000000001');
-      // Fastest of 3, slice-first measured 2.3-2.9x the plain id (escaped LFs cost
-      // more to parse) and replace-then-slice 8.5-13.5x, idle and under load.
-      expect(elapsed).toBeLessThan(baseline * 5 + 10);
 
       // And a newline can no longer forge a second `[email-log]` line.
       logSpy.mockClear();
@@ -1339,6 +1335,8 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
       expect(lines2[0]).not.toContain('\n[email-log]');
       expect(lines2[0].split(' ')[1]).toBe('proj_000000000001');
     } finally {
+      replaceAllSpy.mockRestore();
+      replaceSpy.mockRestore();
       logSpy.mockRestore();
     }
   });
