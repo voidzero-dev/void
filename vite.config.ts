@@ -543,6 +543,7 @@ const config = defineConfig({
       'no-console': 'off',
       // Review the assignments in deploy, recovery, and cleanup flows alongside their failure-path tests before removing them.
       'no-useless-assignment': 'off',
+      // Operator-facing errors often map provider failures to sanitized messages. Review nested causes for safe logging before attaching them.
       'preserve-caught-error': 'off',
       'quality/no-array-filter-map': 'off',
       'quality/no-chained-type-assertions': 'off',
