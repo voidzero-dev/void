@@ -25,10 +25,11 @@ export {
 } from './island-imports.ts';
 
 type VoidMdPluginApi = {
+  clientEntryId?: string;
   getClientScripts?(): Map<string, unknown>;
 };
 
-type VoidMdPlugin = {
+export type VoidMdPlugin = {
   name: string;
   api?: VoidMdPluginApi;
 };

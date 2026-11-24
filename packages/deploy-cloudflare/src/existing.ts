@@ -487,7 +487,10 @@ export function assertExistingCloudflareConfig(
     const entries = config.kv_namespaces;
     for (const addition of additions) {
       const matches = Array.isArray(entries)
-        ? entries.filter((entry) => isRecord(entry) && entry.binding === addition.binding)
+        ? (entries as Array<unknown>).filter(
+            (entry): entry is Record<string, unknown> =>
+              isRecord(entry) && entry.binding === addition.binding,
+          )
         : [];
       if (
         (built || matches.length > 0) &&

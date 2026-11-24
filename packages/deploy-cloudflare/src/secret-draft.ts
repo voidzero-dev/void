@@ -133,7 +133,8 @@ export function isVoidSecretOnlyDraft(entry: Record<string, unknown>): boolean {
     Object.keys(module).length !== 3 ||
     module.name !== 'index.js' ||
     module.content_type !== 'application/javascript+module' ||
-    module.content_base64 !== Buffer.from(VOID_SECRET_DRAFT_SOURCE).toString('base64')
+    module.content_base64 !==
+      (Buffer as BufferConstructor).from(VOID_SECRET_DRAFT_SOURCE).toString('base64')
   ) {
     return false;
   }

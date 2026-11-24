@@ -2004,7 +2004,8 @@ async function isVoidSecretDraftPlaceholderVersion(
     return (
       isRecord(module) &&
       module.name === entry.main_module &&
-      module.content_base64 === Buffer.from(VOID_SECRET_DRAFT_SOURCE).toString('base64') &&
+      module.content_base64 ===
+        (Buffer as BufferConstructor).from(VOID_SECRET_DRAFT_SOURCE).toString('base64') &&
       entry.bindings.every((binding) => isRecord(binding) && binding.type === 'secret_text')
     );
   } catch {
@@ -2028,11 +2029,14 @@ async function readRecentCloudflareVersionIds(
     }
     return null;
   }
-  const versions = result.data;
+  const data: unknown = result.data;
+  if (!Array.isArray(data)) {
+    return null;
+  }
+  const versions: Array<unknown> = data;
   if (
-    !Array.isArray(versions) ||
     !versions.every(
-      (version) =>
+      (version): version is Record<string, unknown> & { id: string; number: number } =>
         isRecord(version) &&
         typeof version.id === 'string' &&
         typeof version.number === 'number' &&
@@ -2042,9 +2046,9 @@ async function readRecentCloudflareVersionIds(
     return null;
   }
   return versions.map((version) => ({
-    id: version.id as string,
-    number: version.number as number,
-    inspection: version as Record<string, unknown>,
+    id: version.id,
+    number: version.number,
+    inspection: version,
   }));
 }
 

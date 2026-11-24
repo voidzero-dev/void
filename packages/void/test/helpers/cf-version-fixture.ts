@@ -14,11 +14,16 @@ import { Buffer } from '../../src/cli/node-buffer.ts';
 const roots: Array<string> = [];
 const outputRoots = new WeakMap<object, string>();
 const cleanups: Array<() => unknown> = [];
-const pinnedCfVersion = JSON.parse(
-  readFileSync(fileURLToPath(import.meta.resolve('cf/package.json')), 'utf8'),
-).version as string;
-const voidVersion = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
-  .version as string;
+const pinnedCfVersion: string = (
+  JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('cf/package.json')), 'utf8')) as {
+    version: string;
+  }
+).version;
+const voidVersion: string = (
+  JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+    version: string;
+  }
+).version;
 const cfUserAgent: string = `cf-cli/${pinnedCfVersion} void/${voidVersion}`;
 // Each real cf subprocess loads cf's bundle before it does any work. That takes about half a
 // second when idle and several seconds on a busy machine, which can pass Vitest's 5s default.

@@ -583,8 +583,6 @@ const config = defineConfig({
       'typescript/no-unnecessary-type-assertion': 'off',
       // Runtime adapter calls and mixed Node and Worker declarations need typed entry points before broad enforcement.
       'typescript/no-unsafe-call': 'off',
-      // Provider response schemas and dynamic module interfaces need coverage before enforcing typed member access everywhere.
-      'typescript/no-unsafe-member-access': 'off',
       // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.
