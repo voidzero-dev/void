@@ -69,10 +69,9 @@ type StoredConnection = {
   state?: unknown;
 };
 
-function matchRoute(
-  pattern: string,
-  pathname: string,
-): { matched: boolean; params: Record<string, string> } {
+type RoomRouteMatch = { matched: boolean; params: Record<string, string> };
+
+function matchRoute(pattern: string, pathname: string): RoomRouteMatch {
   const patternSegments = pattern.split('/').filter(Boolean);
   const pathSegments = pathname.split('/').filter(Boolean);
   const params: Record<string, string> = {};
@@ -430,7 +429,8 @@ export function createWebSocketDurableObject(
         return new Response(null, { status: 101, webSocket: client });
       }
 
-      if (!definition.onRequest) {
+      const onRequest = definition.onRequest;
+      if (!onRequest) {
         return new Response('Upgrade Required', { status: 426 });
       }
 
@@ -442,7 +442,7 @@ export function createWebSocketDurableObject(
         authState,
       };
       const ctx = this.#context(request, new WebSocketPair()[1], stored);
-      return withAuthState(authState, () => definition.onRequest!(ctx as never));
+      return withAuthState(authState, () => onRequest.call(definition, ctx as never));
     }
 
     webSocketMessage(

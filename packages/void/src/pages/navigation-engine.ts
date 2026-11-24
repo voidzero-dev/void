@@ -596,6 +596,7 @@ export async function createPageNavigationEngine(
 
     if (verifyPageResponse) {
       const pageData = parsePageDataFromHtml(await response.text());
+      // oxlint-disable-next-line quality/no-known-value-widening -- Validate the prefetched response before it can select a page.
       if (!isUsablePageData(pageData, matchedId)) {
         return null;
       }
@@ -611,6 +612,7 @@ export async function createPageNavigationEngine(
     }
 
     const pageData = parsePageDataFromHtml(await response.text());
+    // oxlint-disable-next-line quality/no-known-value-widening -- Cached data needs the same validation as a new response.
     if (!isUsablePageData(pageData, matchedId) || pageData.deferredKeys) {
       return null;
     }
@@ -718,7 +720,8 @@ export async function createPageNavigationEngine(
     // that component. Handle it while data is pending, even if the visit aborts.
     preloadComponentPromise?.catch(() => {});
 
-    const headers: Record<string, string> = {
+    const headers: Record<'X-VoidPages' | 'X-VoidPages-Version' | 'Accept', string> &
+      Partial<Record<typeof PRESERVED_QUERY_HEADER | 'Content-Type', string>> = {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
       Accept: 'application/json',
@@ -848,8 +851,14 @@ export async function createPageNavigationEngine(
 
       if (pageData !== undefined) {
         // Static page-data fallback already loaded the page object.
+      } else if (!response) {
+        window.location.href = url;
+        return undefined;
       } else if (contentType.includes('application/x-ndjson')) {
-        const reader = (response!.body! as ReadableStream<Uint8Array>).getReader();
+        if (!response.body) {
+          throw new Error('pages: Missing response body for streamed page data.');
+        }
+        const reader = (response.body as ReadableStream<Uint8Array>).getReader();
         const decoder = new TextDecoder();
         let buffer = '';
         let firstLine = true;
@@ -906,7 +915,7 @@ export async function createPageNavigationEngine(
           }
         })();
       } else {
-        pageData = decodePageData<PageData>(await response!.json());
+        pageData = decodePageData<PageData>(await response.json());
         deferredRegistry.setup(pageData);
       }
 

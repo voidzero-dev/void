@@ -355,10 +355,11 @@ function unboundDeployments(payload: JobPayload | undefined): ReadonlySet<string
 }
 
 function parseCursor(cursor: string | undefined): { createdAt: string; id: string } | undefined {
-  const split = cursor ? cursor.indexOf('|') : -1;
-  return split > 0
-    ? { createdAt: cursor!.slice(0, split), id: cursor!.slice(split + 1) }
-    : undefined;
+  if (!cursor) {
+    return undefined;
+  }
+  const split = cursor.indexOf('|');
+  return split > 0 ? { createdAt: cursor.slice(0, split), id: cursor.slice(split + 1) } : undefined;
 }
 
 // --- Steps ---

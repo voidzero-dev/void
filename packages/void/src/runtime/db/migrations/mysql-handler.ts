@@ -123,7 +123,7 @@ async function runMySqlMigrations(
  * at position", or 1149 for several statements it can parse. A syntax error inside the body looks
  * the same, so the note says "if".
  */
-function withBreakpointNote(error: unknown, name: string): unknown {
+function withBreakpointNote<T>(error: T, name: string): T | Error {
   if (!(error instanceof Error)) {
     return error;
   }

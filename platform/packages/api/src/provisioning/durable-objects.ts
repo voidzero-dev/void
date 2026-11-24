@@ -226,12 +226,9 @@ async function upload(
   }
 }
 
-function idle(
-  env: Env,
-  projectId: string,
-  className: string,
-  create = false,
-): { metadata: Record<string, unknown>; modules: Array<WorkerModule> } {
+type IdleWorkerUpload = { metadata: Record<string, unknown>; modules: Array<WorkerModule> };
+
+function idle(env: Env, projectId: string, className: string, create = false): IdleWorkerUpload {
   return {
     metadata: {
       main_module: ENTRY,

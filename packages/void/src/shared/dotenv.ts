@@ -64,6 +64,10 @@ export function parseDotenvFile(
   return parseDotenv(readFileSync(filePath, 'utf8'), options);
 }
 
+interface ExpandedEnvironment {
+  [key: string]: string;
+}
+
 /**
  * Expand `${VAR}` / `$VAR` references in every value of a record against
  * the other entries in that same record. Matches the surface of
@@ -83,7 +87,7 @@ export function parseDotenvFile(
 export function expandDotenv(
   input: Record<string, string>,
   options: { onWarn?: (message: string) => void } = {},
-): Record<string, string> {
+): ExpandedEnvironment {
   const out: Record<string, string> = {};
   const resolving = new Set<string>();
   const warned = new Set<string>();

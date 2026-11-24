@@ -68,7 +68,8 @@ export function escapeBrowserHtml(value: string): string {
   return value.replaceAll(
     /[&<>"']/g,
     (character) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!,
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ??
+      character,
   );
 }
 

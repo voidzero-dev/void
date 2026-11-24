@@ -414,8 +414,16 @@ export function serializeHeaders(response: Response): SerializedHeaders {
 /** Validate page data before storing it as the JSON ISR variant. */
 export function normalizePageDataForJsonCache(raw: string): string | null {
   try {
-    const parsed = JSON.parse(raw) as { deferred?: unknown; deferredKeys?: unknown };
-    return parsed.deferred === undefined && parsed.deferredKeys === undefined ? raw : null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed === null ||
+      (typeof parsed === 'object' &&
+        (('deferred' in parsed && parsed.deferred !== undefined) ||
+          ('deferredKeys' in parsed && parsed.deferredKeys !== undefined)))
+    ) {
+      return null;
+    }
+    return raw;
   } catch {
     return null;
   }

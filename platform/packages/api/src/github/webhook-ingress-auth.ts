@@ -31,10 +31,12 @@ export class GitHubWebhookRequestError extends Error {
   }
 }
 
+type GitHubWebhookHeaders = { event: string; deliveryId: string | null; signature: string };
+
 export function readGitHubWebhookHeaders(
   headers: Headers,
   options: { requireDelivery: boolean },
-): { event: string; deliveryId: string | null; signature: string } {
+): GitHubWebhookHeaders {
   const contentType = headers.get('Content-Type');
   if (contentType?.toLowerCase() !== 'application/json') {
     throw new GitHubWebhookRequestError('invalid_content_type', 400);

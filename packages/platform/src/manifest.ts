@@ -309,7 +309,7 @@ export function createPlatformDeploymentManifest(
     workersDev && input.application.zoneName === ''
       ? ''
       : normalizeApplicationDomain(input.application.zoneName);
-  if (!zoneName && baseDomain !== `${workersDev!.subdomain}.workers.dev`) {
+  if (!zoneName && (!workersDev || baseDomain !== `${workersDev.subdomain}.workers.dev`)) {
     throw new Error('workers.dev application domain must match its account subdomain.');
   }
   const resources = { ...createPlatformResourceNames(installationSlug), ...input.resources };

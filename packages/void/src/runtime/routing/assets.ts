@@ -116,7 +116,10 @@ function collectManifestFiles(
   const seen = new Set<string>();
   const pending = [entryId];
   for (let index = 0; depthFirst ? pending.length > 0 : index < pending.length;) {
-    const id = depthFirst ? pending.pop()! : pending[index++];
+    const id = depthFirst ? pending.pop() : pending[index++];
+    if (id === undefined) {
+      break;
+    }
     if (seen.has(id)) {
       continue;
     }
@@ -192,10 +195,12 @@ export function createClientAssetTags(
       return empty;
     }
     const ids = collectManifestFiles(manifest, options.entryId, options.kind === 'ssr');
-    const extraEntry = options.extraEntryId ? manifest[options.extraEntryId] : undefined;
-    const hasExtra = extraEntry && typeof extraEntry.file === 'string';
+    const extraEntryId = options.extraEntryId;
+    const extraEntry = extraEntryId ? manifest[extraEntryId] : undefined;
+    const extraFile = extraEntry?.file;
+    const hasExtra = extraEntryId && typeof extraFile === 'string';
     if (hasExtra) {
-      ids.push(...collectManifestFiles(manifest, options.extraEntryId!, false));
+      ids.push(...collectManifestFiles(manifest, extraEntryId, false));
     }
     const css =
       options.kind === 'ssr'
@@ -205,7 +210,7 @@ export function createClientAssetTags(
             ...(options.pageCssKeys?.[componentId] ?? []),
           ]);
     if (hasExtra) {
-      for (const file of collectRouteCss(manifest, [options.extraEntryId!])) {
+      for (const file of collectRouteCss(manifest, [extraEntryId])) {
         css.add(file);
       }
     }
@@ -226,7 +231,7 @@ export function createClientAssetTags(
     }
     let body = script('/' + entry.file);
     if (hasExtra) {
-      body += '\n' + script('/' + extraEntry.file!);
+      body += '\n' + script('/' + extraFile);
     }
     return {
       css: [...css]

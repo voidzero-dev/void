@@ -97,7 +97,10 @@ function usePlanConfirmation(path: string) {
   const toast = useToast();
   useEffect(() => {
     const url = new URL(window.location.href);
-    const messages: Record<string, string> = {
+    interface PlanNotices {
+      [notice: string]: string | undefined;
+    }
+    const messages: PlanNotices = {
       'plan-saved': 'Plan saved.',
       'plan-removed': 'Plan removed.',
       'plans-updated': 'Account updates complete.',

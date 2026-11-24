@@ -397,10 +397,7 @@ type LineComment = Readonly<{
  * escape, `"..."` / `` `...` `` / `[...]` identifier quotes with doubled
  * closing-quote escape, `-- line` comments, and `/* block *\/` comments.
  */
-function stripSqlStringsAndComments(sql: string): {
-  code: string;
-  lineComments: ReadonlyArray<LineComment>;
-} {
+function stripSqlStringsAndComments(sql: string) {
   let code = '';
   const lineComments: Array<LineComment> = [];
 
@@ -2055,8 +2052,16 @@ const app = new Hono<ApiEnv>()
           await appendAppliedMigrations(tx, locked.active_deployment_id, effectiveNames);
         }
 
+        type LegacyMigrationResponse = Pick<typeof result, 'applied' | 'skipped'> & {
+          ok: boolean;
+          error?: string;
+          failed?: NonNullable<typeof result.failed>;
+          migration_protocol?: 'legacy';
+          migration_stability?: 'legacy';
+          warnings?: Array<string>;
+        };
         if (result.failed) {
-          const responseBody: Record<string, unknown> = {
+          const responseBody: LegacyMigrationResponse = {
             ok: false,
             error: `migration ${result.failed.name} failed: ${result.failed.error}`,
             applied: result.applied,
@@ -2073,7 +2078,7 @@ const app = new Hono<ApiEnv>()
           };
         }
 
-        const responseBody: Record<string, unknown> = {
+        const responseBody: LegacyMigrationResponse = {
           ok: true,
           applied: result.applied,
           skipped: result.skipped,
@@ -3107,6 +3112,7 @@ function parseDuration(input: string): number | null {
   }
   const value = Number.parseInt(match[1], 10);
   const unit = match[2];
+  // oxlint-disable-next-line quality/no-known-value-widening -- The duration regex restricts its string capture to supported units.
   const multipliers: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
   const ms = value * multipliers[unit];
   if (ms > 7 * 86_400_000) {

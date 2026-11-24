@@ -13,7 +13,11 @@ export type AssetFallbackOptions = {
   serveSpaFallback?: boolean;
   notFound?: 'none' | '404-page' | 'single-page-application';
 };
-const ASSET_CONTENT_TYPES: Readonly<Record<string, string>> = {
+interface AssetContentTypes {
+  readonly [extension: string]: string | undefined;
+}
+
+const ASSET_CONTENT_TYPES: AssetContentTypes = {
   '.avif': 'image/avif',
   '.css': 'text/css; charset=utf-8',
   '.gif': 'image/gif',

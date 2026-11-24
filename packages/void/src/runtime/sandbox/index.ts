@@ -72,7 +72,9 @@ function rethrowSandboxError(error: unknown): never {
   throw error;
 }
 
-function encodeOptions(value: unknown): { options: unknown; finish(): void } {
+type EncodedSandboxOptions = { options: unknown; finish(): void };
+
+function encodeOptions(value: unknown): EncodedSandboxOptions {
   if (!value || typeof value !== 'object') {
     return { options: value, finish() {} };
   }
@@ -268,4 +270,6 @@ export async function getSandbox(
   await stub.configure(sandboxOptions);
   return client(stub, (request) => stub.fetch(request));
 }
-export const sandbox: { get: typeof getSandbox } = { get: getSandbox };
+type SandboxFactory = { get: typeof getSandbox };
+
+export const sandbox: SandboxFactory = { get: getSandbox };

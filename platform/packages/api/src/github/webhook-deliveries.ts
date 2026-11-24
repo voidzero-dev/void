@@ -52,7 +52,7 @@ type DeliveryItem = Readonly<{
 
 type FailureReason = 'network-error' | 'http-4xx' | 'http-5xx' | 'exhausted' | 'jwt-error';
 
-function errInfo(err: unknown): { name?: string; message: string } {
+function errInfo(err: unknown) {
   if (err instanceof Error) {
     return { name: err.name, message: err.message };
   }
@@ -102,7 +102,7 @@ export function parseNextCursorUrl(linkHeader: string | null): string | null {
   return null;
 }
 
-function appJwtHeaders(appJwt: string): Record<string, string> {
+function appJwtHeaders(appJwt: string) {
   return {
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${appJwt}`,

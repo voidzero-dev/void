@@ -200,7 +200,7 @@ export function islandsPlugin(
             if (!setupMatch) {
               throw new Error(`islands: Expected a <script setup> block in '${id}'.`);
             }
-            const openEnd = setupMatch.index! + setupMatch[0].length;
+            const openEnd = (setupMatch.index ?? 0) + setupMatch[0].length;
             const closeIdx = code.indexOf('</script>', openEnd);
             if (closeIdx === -1) {
               throw new Error(`islands: Expected a closing </script> tag in '${id}'.`);

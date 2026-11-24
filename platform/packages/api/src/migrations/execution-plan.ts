@@ -60,13 +60,13 @@ export async function validateSubmittedExecutionPlans(
     if (plan.stability !== serverPlan.stability) {
       return `executionPlans[${index}].stability does not match server classification`;
     }
-    const hashInput: Record<string, unknown> = {
+    const hashInput: ReturnType<typeof getMigrationPlanHashInput> = {
       classifierVersion: plan.classifierVersion,
       dialect: plan.dialect,
       kind,
       name: plan.name,
       sqlHash: plan.sqlHash,
-      stability: plan.stability,
+      stability: serverPlan.stability,
     };
     if (kind === 'breakpoint-framed') {
       const serverStatements = serverPlan.kind === 'breakpoint-framed' ? serverPlan.statements : [];

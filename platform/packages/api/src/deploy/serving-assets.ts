@@ -82,11 +82,15 @@ function inferPersistedAssetStore(
   return entry.size >= KV_THRESHOLD ? 'r2' : 'kv';
 }
 
+interface AssetManifest {
+  [key: string]: AssetManifestEntry;
+}
+
 export function attachServingStoreMetadata(
   assetManifest: Readonly<Record<string, AssetManifestEntry>>,
   servingManifest: Readonly<Record<string, string>>,
   scopedR2 = false,
-): Record<string, AssetManifestEntry> {
+): AssetManifest {
   const persisted: Record<string, AssetManifestEntry> = {};
   const missing: Array<string> = [];
   for (const [path, entry] of Object.entries(assetManifest)) {
@@ -112,10 +116,14 @@ export function attachServingStoreMetadata(
   return persisted;
 }
 
+interface ServingManifest {
+  [key: string]: string;
+}
+
 function reconstructPersistedServingManifest(
   deployment: Deployment,
   assetManifest: Readonly<Record<string, { hash?: unknown; size?: unknown; store?: unknown }>>,
-): Record<string, string> {
+): ServingManifest {
   const deployManifest = parseManifest(deployment.manifest);
   const servingManifest: Record<string, string> = {};
   const invalid: Array<string> = [];

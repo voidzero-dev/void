@@ -189,8 +189,9 @@ async function resolveIngress(
   const value = route as Partial<Route>;
   if (
     typeof value.routeId !== 'string' ||
+    typeof value.routeGeneration !== 'number' ||
     !Number.isSafeInteger(value.routeGeneration) ||
-    value.routeGeneration! < 1 ||
+    value.routeGeneration < 1 ||
     typeof value.projectId !== 'string' ||
     typeof value.connectionId !== 'string' ||
     typeof value.workerName !== 'string' ||

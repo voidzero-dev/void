@@ -226,7 +226,11 @@ function validateContentId(field: string, value: string): void {
   }
 }
 
-const COMMON_TYPES: Record<string, string> = {
+interface MimeTypes {
+  [key: string]: string;
+}
+
+const COMMON_TYPES: MimeTypes = {
   txt: 'text/plain',
   html: 'text/html',
   htm: 'text/html',
@@ -348,13 +352,15 @@ function unquotePairs(text: string): string {
   return codeUnitsToString(out);
 }
 
+type ParsedAddress = { email: string; name?: string };
+
 /**
  * Parse one address — a bare `email@domain` or `Display Name <email@domain>`
  * — into its parts, throwing a `MimeError` for `field` on anything else.
  * Exported so `void.config.ts` `email.from` is validated by the same rules
  * the runtime applies to `from` at send time.
  */
-export function parseAddress(value: Address, field: string): { email: string; name?: string } {
+export function parseAddress(value: Address, field: string): ParsedAddress {
   if (typeof value === 'string') {
     rejectCRLF(`${field} address`, value);
     // `Display Name <email@domain>`, quotes paired or absent. The unquoted
@@ -1294,11 +1300,13 @@ function generateMessageId(fromEmail: string): string {
   return `<${id}@${domain}>`;
 }
 
+type BuiltMime = { raw: Uint8Array; messageId: string };
+
 /**
  * Build the raw RFC 5322 message body. Returns the message bytes plus the
  * generated Message-ID header so callers can surface it in the result.
  */
-export function buildMime(email: NormalizedEmail): { raw: Uint8Array; messageId: string } {
+export function buildMime(email: NormalizedEmail): BuiltMime {
   // Project the size before rendering, which holds several copies of the
   // message: an oversize body or header must fail with `MIME_ERROR`, not
   // exhaust the isolate. Each term is a lower bound; the final check rules.

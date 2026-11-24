@@ -14,7 +14,11 @@ const VOID_FILE_MARKER = '__voidFile';
 // back to `Authorization: Bearer <key>` (correct for openai, groq, mistral,
 // grok, deepseek, openrouter, perplexity, cohere, cerebras, huggingface,
 // replicate). A caller's `apiKeyHeader`/`apiKeyPrefix` override still wins.
-const PROVIDER_AUTH_DEFAULTS: Record<string, { header: string; prefix: string }> = {
+interface ProviderAuthDefaults {
+  [key: string]: { header: string; prefix: string };
+}
+
+const PROVIDER_AUTH_DEFAULTS: ProviderAuthDefaults = {
   'google-ai-studio': { header: 'x-goog-api-key', prefix: '' },
   anthropic: { header: 'x-api-key', prefix: '' },
   elevenlabs: { header: 'xi-api-key', prefix: '' },
@@ -275,6 +279,8 @@ function isUnsafeProviderPath(path: string): boolean {
   return false;
 }
 
+type DirectAiRequestBody = { body: BodyInit | undefined; contentType?: string };
+
 /**
  * Build a real outgoing HTTP body for the user's own AI Gateway (self-host).
  *
@@ -282,7 +288,7 @@ function isUnsafeProviderPath(path: string): boolean {
  * envelope decoded on the proxy side), this emits an actual `BodyInit` +
  * content-type for a direct `fetch` to the gateway.
  */
-function toDirectBody(body: unknown): { body: BodyInit | undefined; contentType?: string } {
+function toDirectBody(body: unknown): DirectAiRequestBody {
   if (body === undefined || body === null) {
     return { body: undefined };
   }
@@ -683,6 +689,7 @@ function streamResponse(body: ReadableStream, signal?: AbortSignal | null): Resp
             return;
           }
           const limit = classifyAiLimit(error);
+          // oxlint-disable-next-line quality/no-known-value-widening -- The same stream can carry a provider limit response with arbitrary JSON.
           let data: unknown = { message: 'Generation was interrupted. Please try again.' };
           if (limit) {
             data = await limit.response().json();

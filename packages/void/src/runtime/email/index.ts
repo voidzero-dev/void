@@ -270,7 +270,7 @@ function resolveDefaultFrom(opts: SendEmailOptions): SendEmailOptions {
     // Drop `null` so the caller reports a clean INVALID_FROM.
     if (supplied === null) {
       const next = { ...opts };
-      delete (next as { from?: unknown }).from;
+      delete next.from;
       return next;
     }
     return opts;

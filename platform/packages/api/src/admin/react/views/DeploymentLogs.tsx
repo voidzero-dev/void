@@ -25,7 +25,11 @@ type LogEntry = {
   exceptions?: ReadonlyArray<unknown>;
 };
 
-const LEVEL_COLORS: Record<string, string> = {
+interface LogLevelColors {
+  [key: string]: string | undefined;
+}
+
+const LEVEL_COLORS: LogLevelColors = {
   error: '#dc2626',
   warn: '#d97706',
   info: '#6b7280',

@@ -91,7 +91,15 @@ function emit(
   // minimal record that preserves level + phase + msg.
   let line: string;
   try {
-    const record: Record<string, unknown> = {
+    type DeployLogRecord = DeployLogContext & {
+      ts: number;
+      lvl: Level;
+      area: string;
+      phase: string;
+      msg: string;
+      err?: ReturnType<typeof serializeError>;
+    };
+    const record: DeployLogRecord = {
       ts: Date.now(),
       lvl: level,
       area: 'deploy',

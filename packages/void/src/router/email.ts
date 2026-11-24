@@ -49,10 +49,12 @@ export interface EmailHandlersScan {
   defaultHandler?: string;
 }
 
-function parseEmailFiles(files: Array<string>): {
+type ParsedEmailFiles = {
   addresses: Array<EmailHandlerDefinition>;
   defaultHandler?: string;
-} {
+};
+
+function parseEmailFiles(files: Array<string>): ParsedEmailFiles {
   const addresses: Array<EmailHandlerDefinition> = [];
   let defaultHandler: string | undefined;
 

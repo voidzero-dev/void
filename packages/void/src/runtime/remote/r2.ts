@@ -94,7 +94,17 @@ export class ProxyR2Bucket {
       base64 = bytesToBase64(new Uint8Array(await new Response(value).arrayBuffer()));
     }
 
-    const body: Record<string, unknown> = {
+    type PutRequest = {
+      binding: string;
+      key: string;
+      base64?: string;
+      value?: string;
+      httpMetadata?: ReturnType<typeof serializeR2HttpMetadata>;
+      contentType?: string;
+      customMetadata?: R2PutOptions['customMetadata'];
+      onlyIf?: ReturnType<typeof serializeR2Conditional>;
+    };
+    const body: PutRequest = {
       binding: this.binding,
       key,
     };
@@ -117,9 +127,10 @@ export class ProxyR2Bucket {
       body.customMetadata = options.customMetadata;
     }
 
-    const conditional = options?.onlyIf !== undefined;
+    const onlyIf = options?.onlyIf;
+    const conditional = onlyIf !== undefined;
     if (conditional) {
-      body.onlyIf = serializeR2Conditional(options.onlyIf!);
+      body.onlyIf = serializeR2Conditional(onlyIf);
     }
     // A separate endpoint prevents older proxies/workers from silently ignoring onlyIf.
     const res = await this.client.fetch(conditional ? '/r2/put-conditional' : '/r2/put', body);
@@ -155,7 +166,8 @@ export class ProxyR2Bucket {
   }
 
   async delete(keys: string | Array<string>): Promise<void> {
-    const body: Record<string, unknown> = { binding: this.binding };
+    const body: Record<'binding', string> &
+      Partial<Record<'key' | 'keys', string | Array<string>>> = { binding: this.binding };
     if (Array.isArray(keys)) {
       body.keys = keys;
     } else {
@@ -321,6 +333,7 @@ function makeR2ObjectBody(key: string, res: Response): R2ObjectBody {
 
   return {
     ...obj,
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- The remote GET returns an object body for a successful lookup, including zero-length objects.
     body: res.body!,
     get bodyUsed() {
       return res.bodyUsed;

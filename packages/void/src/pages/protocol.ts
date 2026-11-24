@@ -147,7 +147,7 @@ function varyPagesResponse(c: CloudContext): void {
   const headers = new Headers(c.res.headers);
   appendVary(headers, 'X-VoidPages');
   appendVary(headers, 'X-VoidPages-Version');
-  c.header('Vary', headers.get('Vary')!);
+  c.header('Vary', headers.get('Vary') ?? undefined);
 }
 
 function escapeHtmlAttr(value: string): string {
@@ -600,8 +600,12 @@ function runPageHandler(
     : endpoint(handler);
 }
 
+interface FormValidationErrors {
+  [key: string]: string;
+}
+
 /** Flatten withValidator's { issues: [{ slot, issues: [{ message, path }] }] } into { field: message } */
-export function flattenValidationErrors(body: unknown): Record<string, string> {
+export function flattenValidationErrors(body: unknown): FormValidationErrors {
   const errors: Record<string, string> = {};
   const issues = (body as ValidationErrorBody | null)?.issues;
   if (issues) {
@@ -619,7 +623,7 @@ export function flattenValidationErrors(body: unknown): Record<string, string> {
 }
 
 /** Strip deferred sentinels from props, setting their keys to null. Used by mutations. */
-function stripDeferred(props: Record<string, unknown>): Record<string, unknown> {
+function stripDeferred(props: Record<string, unknown>) {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(props)) {
     if (value && typeof value === 'object' && DEFERRED in value) {
@@ -837,7 +841,7 @@ async function runPageGet(
           // Prefetch requests: resolve all deferred props inline (plain JSON, no streaming)
           const isPrefetch = c.req.header('purpose') === 'prefetch';
           if (isPrefetch && hasDeferred) {
-            const resolvedProps: Record<string, unknown> = { ...immediateProps };
+            const resolvedProps = { ...immediateProps };
             let deferredErrors: Record<string, string> | undefined;
             await Promise.all(
               Object.entries(deferredMap).map(async ([group, { resolver, keys }]) => {

@@ -633,7 +633,10 @@ export function initIslands(
   const hydrate = (el: Element, mod: unknown, props: Record<string, unknown>) =>
     hydrateFn(el, mod, props, frontmatter);
   document.querySelectorAll('[data-island]').forEach((el) => {
-    const id = el.getAttribute('data-island')!;
+    const id = el.getAttribute('data-island');
+    if (id === null) {
+      return;
+    }
     const props = deserializePageData<Record<string, unknown>>(
       el.getAttribute('data-props') || '{}',
     );

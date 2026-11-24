@@ -38,7 +38,7 @@ function parseMiddlewareDefinitions(files: Array<string>): Array<MiddlewareDefin
       if (f.startsWith('_')) {
         return [];
       }
-      const basename = f.split('/').pop()!;
+      const basename = f.slice(f.lastIndexOf('/') + 1);
       const match = basename.match(/^(\d+)\./);
       return [
         {

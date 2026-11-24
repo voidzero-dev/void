@@ -51,8 +51,12 @@ export type AiProviderFetchInit = {
   signal?: AbortSignal | null;
 };
 
+interface ProviderEnvironmentKeys {
+  [key: string]: string;
+}
+
 /** Maps provider prefix to expected env var name for the API key */
-export const PROVIDER_KEY_MAP: Record<string, string> = {
+export const PROVIDER_KEY_MAP: ProviderEnvironmentKeys = {
   openai: 'OPENAI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
   'google-ai-studio': 'GOOGLE_API_KEY',

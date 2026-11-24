@@ -31,7 +31,11 @@ function readClientKey(key: string): unknown {
   );
 }
 
-export const env: Record<string, unknown> = new Proxy(
+interface PublicClientEnvironment {
+  [name: string]: unknown;
+}
+
+export const env: PublicClientEnvironment = new Proxy(
   {},
   {
     get(_target, key) {

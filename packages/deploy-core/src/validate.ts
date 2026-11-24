@@ -366,17 +366,17 @@ export function validateManifestShape(manifest: unknown): string | null {
     const assetConfig = manifest.assetConfig;
     if (
       assetConfig.not_found_handling !== undefined &&
-      !['none', 'single-page-application', '404-page'].includes(
-        assetConfig.not_found_handling as string,
-      )
+      (typeof assetConfig.not_found_handling !== 'string' ||
+        !['none', 'single-page-application', '404-page'].includes(assetConfig.not_found_handling))
     ) {
       return 'invalid manifest shape: assetConfig.not_found_handling must be one of none, single-page-application, 404-page';
     }
     if (
       assetConfig.html_handling !== undefined &&
-      !['auto-trailing-slash', 'force-trailing-slash', 'drop-trailing-slash', 'none'].includes(
-        assetConfig.html_handling as string,
-      )
+      (typeof assetConfig.html_handling !== 'string' ||
+        !['auto-trailing-slash', 'force-trailing-slash', 'drop-trailing-slash', 'none'].includes(
+          assetConfig.html_handling,
+        ))
     ) {
       return 'invalid manifest shape: assetConfig.html_handling must be one of auto-trailing-slash, force-trailing-slash, drop-trailing-slash, none';
     }
@@ -535,12 +535,16 @@ export function validateManifestShape(manifest: unknown): string | null {
       return 'invalid manifest shape: sandbox must be an object';
     }
     const sandbox = manifest.sandbox;
-    for (const key of ['bindingName', 'className', 'containerName', 'image']) {
+    for (const key of ['bindingName', 'className', 'containerName']) {
       if (typeof sandbox[key] !== 'string' || sandbox[key].length === 0) {
         return `invalid manifest shape: sandbox.${key} must be a non-empty string`;
       }
     }
-    if (isLocalImageReference(sandbox.image as string)) {
+    const image = sandbox.image;
+    if (typeof image !== 'string' || image.length === 0) {
+      return 'invalid manifest shape: sandbox.image must be a non-empty string';
+    }
+    if (isLocalImageReference(image)) {
       return 'invalid manifest shape: sandbox.image must be a registry image reference';
     }
     if (sandbox.instanceType !== undefined && typeof sandbox.instanceType !== 'string') {

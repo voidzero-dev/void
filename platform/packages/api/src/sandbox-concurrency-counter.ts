@@ -258,7 +258,10 @@ export class SandboxConcurrencyCounter extends DurableObject<ApiEnv['Bindings']>
 
   private async finishStopped(entries: EntriesMap, id: string): Promise<void> {
     const entry = entries[id];
-    await this.meterThrough(id, entry, entry.stoppedAt!);
+    if (entry.stoppedAt === undefined) {
+      throw new Error('Cannot finalize a sandbox lease before it has stopped.');
+    }
+    await this.meterThrough(id, entry, entry.stoppedAt);
     // Receipt precedes capacity release; any partial failure is safe to retry.
     await this.recordCompletion(id, entry.generation);
     delete entries[id];

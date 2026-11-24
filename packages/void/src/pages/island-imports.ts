@@ -111,6 +111,8 @@ export function findStaticCssImports(code: string, filename: string): Array<Stat
   return imports;
 }
 
+type EditedIslandSource = { code: string; map: ReturnType<MagicString['generateMap']> };
+
 export function editIslandSource(
   code: string,
   edits: ReadonlyArray<IslandSourceEdit>,
@@ -119,7 +121,7 @@ export function editIslandSource(
     append?: string;
     insert?: ReadonlyArray<{ offset: number; text: string }>;
   },
-): { code: string; map: ReturnType<MagicString['generateMap']> } {
+): EditedIslandSource {
   const ms = new MagicString(code);
   for (const edit of edits) {
     ms.overwrite(edit.start, edit.end, edit.text);

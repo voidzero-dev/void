@@ -301,7 +301,7 @@ export class ZeroTrustCloudflareClient {
     }
   }
 
-  private applicationBody(spec: AccessApplicationSpec): ObjectValue {
+  private applicationBody(spec: AccessApplicationSpec) {
     const destinations = [...new Set(spec.destinations)];
     if (destinations.length < 1 || destinations.length > 100) {
       throw new Error('An Access application needs between 1 and 100 destinations.');

@@ -150,11 +150,13 @@ export function buildLiveUploadBindings(live: DeployManifest['live'] | undefined
   ];
 }
 
+type EnrichedDurableManifest = { manifest: DeployManifest; changed: boolean; nextVersion: number };
+
 export function enrichWebSocketManifest(
   manifest: DeployManifest,
   previousManifest: DeployManifest | null,
   currentVersion: number,
-): { manifest: DeployManifest; changed: boolean; nextVersion: number } {
+): EnrichedDurableManifest {
   const previousMigrations = previousManifest?.websocket?.migrations ?? [];
   const planned = planWebSocketMigrations({
     nextClasses: manifest.websocket?.classes,
@@ -201,7 +203,7 @@ export function enrichLiveManifest(
   manifest: DeployManifest,
   previousManifest: DeployManifest | null,
   currentVersion: number,
-): { manifest: DeployManifest; changed: boolean; nextVersion: number } {
+): EnrichedDurableManifest {
   if (!manifest.live) {
     return { manifest, changed: false, nextVersion: currentVersion };
   }
