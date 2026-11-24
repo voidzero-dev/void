@@ -437,7 +437,14 @@ export type SecurityBundleSources = Readonly<{
   files: ReadonlyArray<SecuritySourceFile>;
   /** Modules (not maps) scanned as built code. */
   noSourceMaps: number;
+  /**
+   * Each code module's mapped sources as `files` holds them, also the ones `files`
+   * keeps under an earlier module (same path and text).
+   */
+  moduleSources: ReadonlyMap<string, ReadonlyArray<SecurityModuleSource>>;
 }>;
+
+export type SecurityModuleSource = Readonly<{ path: string; sha256: string }>;
 
 function isCodeModule(name: string): boolean {
   return name.endsWith('.js') || name.endsWith('.mjs') || name.endsWith('.cjs');
@@ -466,9 +473,18 @@ export function bundleSources(
   const files: Array<SecuritySourceFile> = [];
   const byPath = new Map<string, SecuritySourceFile>();
   let noSourceMaps = 0;
+  const moduleSources = new Map<string, Array<SecurityModuleSource>>();
   const add = (file: SecuritySourceFile) => {
+    const own = (): Array<SecurityModuleSource> => {
+      const list = moduleSources.get(file.module) ?? [];
+      moduleSources.set(file.module, list);
+      return list;
+    };
     const existing = byPath.get(file.path);
     if (existing?.sha256 === file.sha256) {
+      if (!file.built) {
+        own().push({ path: existing.path, sha256: existing.sha256 });
+      }
       return;
     }
     let path = file.path;
@@ -478,6 +494,9 @@ export function bundleSources(
     const placed = { ...file, path };
     byPath.set(path, placed);
     files.push(placed);
+    if (!file.built) {
+      own().push({ path, sha256: file.sha256 });
+    }
   };
   for (const name of importGraphOrder(code, main)) {
     const module = byName.get(name)!;
@@ -515,7 +534,7 @@ export function bundleSources(
       built: true,
     });
   }
-  return { files, noSourceMaps };
+  return { files, noSourceMaps, moduleSources };
 }
 
 /**
@@ -543,6 +562,46 @@ export function changedSources(
     }
     return baseSources === null || baseSources.get(file.path) !== file.sha256;
   });
+}
+
+/**
+ * Changed code modules a source diff cannot see: each source their map lists is
+ * unchanged, so the change is only in the built code (a `define` value, a build
+ * plugin, or an edited bundle). Returned as built files to read. A facade, or bytes
+ * some base module already had (a renamed chunk), is not one. Needs a base source index.
+ */
+export function builtOnlyChanges(
+  modules: ReadonlyArray<SecurityModuleFile>,
+  sourcesOf: ReadonlyMap<string, ReadonlyArray<SecurityModuleSource>>,
+  baseModules: ReadonlyMap<string, string>,
+  baseSources: ReadonlyMap<string, string> | null,
+): Array<SecuritySourceFile> {
+  if (baseSources === null) {
+    return [];
+  }
+  const baseHashes = new Set(baseModules.values());
+  const result: Array<SecuritySourceFile> = [];
+  for (const module of modules) {
+    const sources = sourcesOf.get(module.name);
+    if (
+      sources === undefined ||
+      baseModules.get(module.name) === module.sha256 ||
+      baseHashes.has(module.sha256) ||
+      onlyImportsAndExports(module.text) ||
+      sources.some((file) => baseSources.get(file.path) !== file.sha256)
+    ) {
+      continue;
+    }
+    result.push({
+      path: `${SECURITY_BUILT_PREFIX}${module.name}`,
+      text: module.text,
+      sha256: module.sha256,
+      module: module.name,
+      map: null,
+      built: true,
+    });
+  }
+  return result;
 }
 
 export type SecurityAssetEntry = Readonly<{ path: string; hash: string; size: number }>;

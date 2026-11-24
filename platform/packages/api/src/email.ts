@@ -384,7 +384,11 @@ export function sendSecurityPublicHeldEmail(
   env: PlatformEmailEnv,
   to: string,
   data: WithoutPlatform<SecurityPublicEmailData> &
-    Readonly<{ state: SecurityPublicHeldState; noResultReason: string | null }>,
+    Readonly<{
+      state: SecurityPublicHeldState;
+      noResultReason: string | null;
+      unreadFiles?: boolean;
+    }>,
   reason: SecurityEmailReason,
 ): Promise<void> {
   return sendSecurityContent(env, to, (platform) =>

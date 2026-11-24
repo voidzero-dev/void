@@ -215,6 +215,9 @@ function skipLine(request: SecurityPublicRequest): string {
       ? 'A fix you resolved is not checked by a scan yet.'
       : `The live deployment ${target} cannot be scanned until you deploy again.`;
   }
+  if (request.heldReason === 'unread_files') {
+    return `The scan of ${target} could not read some project files.`;
+  }
   const why = request.heldReason ? cleanLine(request.heldReason.split('_').join(' ')) : '';
   return `The scan of ${target} did not finish${why ? ` (${why})` : ''}.`;
 }

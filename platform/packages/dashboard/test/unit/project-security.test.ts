@@ -443,4 +443,21 @@ describe('project security page markup', () => {
     });
     expect(findings).not.toContain('action="?bypass"');
   });
+
+  it('says when a held request left project files unread', () => {
+    const held = {
+      ...status,
+      urgent: { count: 0, counts: { critical: 0, high: 0 } },
+      lastScan: null,
+      lastSuccessfulScan: null,
+      publicRequest: {
+        state: 'held_no_result',
+        heldReason: 'unread_files',
+        blockers: { count: 0, ids: [] },
+      },
+    };
+    const page = render('owner', { open: [], status: held as never });
+    expect(page).toContain('held: the security scan could not read some project files');
+    expect(page).not.toContain('did not finish');
+  });
 });

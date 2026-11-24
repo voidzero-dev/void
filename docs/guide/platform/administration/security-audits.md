@@ -203,12 +203,13 @@ The gate needs a scan mode of Public or All, a recent probe pass, and platform Z
 
 When someone runs `void project zero-trust public`, the project **stays protected** and the request waits for a scan. Deploys keep working. The request is in one of these states:
 
-| State            | Meaning                                                      | What to do                                  |
-| ---------------- | ------------------------------------------------------------ | ------------------------------------------- |
-| Waiting          | The scan is queued or running                                | Wait, or bypass                             |
-| Held by findings | An urgent finding is open                                    | Resolve it. There is no bypass              |
-| No result        | The scan failed, was refused, timed out, or hit a cap        | Run `public` again, deploy again, or bypass |
-| Needs a deploy   | The live code cannot prove it, or a fix needs a newer deploy | Deploy again, or bypass                     |
+| State            | Meaning                                                                                    | What to do                                  |
+| ---------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| Waiting          | The scan is queued or running                                                              | Wait, or bypass                             |
+| Held by findings | An urgent finding is open                                                                  | Resolve it. There is no bypass              |
+| No result        | The scan failed, was refused, timed out, or hit a cap                                      | Run `public` again, deploy again, or bypass |
+| Files not read   | The scan could not read some project files (too large, not text, or a path it cannot send) | Fix them and deploy again, or bypass        |
+| Needs a deploy   | The live code cannot prove it, or a fix needs a newer deploy                               | Deploy again, or bypass                     |
 
 A finding resolved as false positive or accepted risk lets the request go on at once. A finding resolved as **fixed** only counts after a clean scan of a newer deploy. A rescan of the same deployment proves nothing. An unchanged Worker redeploy is enough to prove a fix. A static site needs a changed deploy.
 

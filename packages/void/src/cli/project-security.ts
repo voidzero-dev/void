@@ -367,7 +367,12 @@ export function publicRequestLines(
       );
       break;
     case 'held_no_result': {
-      if (reason === 'failed_installation') {
+      if (reason === 'unread_files') {
+        // Asking again scans the same code: it does not help.
+        lines.push(
+          `Stays protected: the security scan could not read some project files (too large, not text, or a path the scanner cannot send). Fix them and deploy again, or bypass the scan: ${bypass}`,
+        );
+      } else if (reason === 'failed_installation') {
         lines.push(
           `Stays protected: the security scan could not run (a platform problem; your platform admin can see it). A project admin or owner can bypass the scan: ${bypass}`,
         );

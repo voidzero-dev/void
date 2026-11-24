@@ -28,6 +28,7 @@ import { createSecurityRedactor } from './redact.ts';
 import type { SecuritySecret, SecuritySecretHit } from './redact.ts';
 import {
   assetInputPath,
+  builtOnlyChanges,
   bundleSources,
   SECURITY_BUILT_PREFIX,
   SECURITY_CLIENT_PREFIX,
@@ -71,6 +72,27 @@ export const SECURITY_DROPPED_PARTIAL_SHARE = 0.05;
  * it is queued, kept by the builder, so a fallback of that rescan asks for it too.
  */
 export const SECURITY_CLIENT_ASSETS_NOTE = 'client-assets';
+/** Project files the scan never read, as `<note> N files`: each one holds the public gate. */
+export const SECURITY_DROPPED_BAD_PATH_NOTE = 'dropped-bad-path';
+export const SECURITY_DROPPED_OVERSIZE_NOTE = 'dropped-oversize';
+export const SECURITY_DROPPED_BINARY_NOTE = 'dropped-binary';
+/** Client assets left out the same ways: noted apart, they do not hold the gate. */
+export const SECURITY_ASSETS_DROPPED_NOTE = 'assets-dropped';
+/**
+ * Unverified third-party code (a package the lockfile does not name) left out the
+ * same ways: noted apart, it does not hold the gate, as the user did not write it.
+ */
+export const SECURITY_UNVERIFIED_DROPPED_NOTE = 'third-party-unverified-dropped';
+const UNREAD_FILE_NOTES = [
+  SECURITY_DROPPED_BAD_PATH_NOTE,
+  SECURITY_DROPPED_OVERSIZE_NOTE,
+  SECURITY_DROPPED_BINARY_NOTE,
+];
+
+/** True when the coverage notes say a project file was never read. */
+export function securityNotesLeftFilesUnread(notes: ReadonlyArray<string>): boolean {
+  return notes.some((note) => UNREAD_FILE_NOTES.some((name) => note.startsWith(`${name} `)));
+}
 
 /** A source of a client bundle, from the source map of a deployed asset (M31). */
 export type SecurityClientSource = Readonly<{
@@ -278,7 +300,21 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
         },
       ]
     : [];
-  const sources = [...deployConfig, ...(sourceDiff?.files ?? bundle.files)];
+  // A diff of the bundle reads a changed module as built code when its map does not
+  // explain the change; a full scan reads the map's sources (§7.1).
+  const builtOnly =
+    plan.tier.tier === 'built_diff' && plan.base
+      ? builtOnlyChanges(
+          plan.head.modules,
+          bundle.moduleSources,
+          plan.base.modules,
+          plan.base.sources,
+        )
+      : [];
+  if (builtOnly.length > 0) {
+    notes.push(`built-only-change ${builtOnly.length}`);
+  }
+  const sources = [...deployConfig, ...(sourceDiff?.files ?? bundle.files), ...builtOnly];
   const sourceIndex = new Map<string, string>();
   let totalSourceBytes = 0;
   let droppedFiles = 0;
@@ -287,8 +323,12 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   let badPaths = 0;
   /** Files over the runner's per-file limit: they can never be sent (noted, not backlogged). */
   let oversized = 0;
-  /** Code or text assets that are not UTF-8 text (a NUL byte or U+FFFD): never sent, noted. */
+  /** Code that is not UTF-8 text (a NUL byte or U+FFFD): never sent, noted. */
   let binary = 0;
+  /** Client assets with a bad path, not text, or over the per-file limit. */
+  let assetsDropped = 0;
+  /** Unverified third-party code dropped the same ways. */
+  let unverifiedDropped = 0;
   // Code left out for coverage reasons (registry packages, the input cap). Secret-like
   // files are dropped on purpose and do not make a scan partial.
   let lostBytes = 0;
@@ -306,6 +346,19 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     droppedFiles++;
     droppedBytes += bytes;
     lostBytes += bytes;
+  };
+  const dropAsset = (bytes: number) => {
+    assetsDropped++;
+    droppedFiles++;
+    droppedBytes += bytes;
+    lostBytes += bytes;
+  };
+  const dropUnverified = (file: Readonly<{ path: string; sha256: string; bytes: number }>) => {
+    unverifiedDropped++;
+    droppedFiles++;
+    droppedBytes += file.bytes;
+    lostBytes += file.bytes;
+    sourceIndex.set(file.path, file.sha256);
   };
   const dropOversized = (file: Readonly<{ path: string; sha256: string; bytes: number }>) => {
     oversized++;
@@ -331,12 +384,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     if (filter === 'skipped') {
       continue;
     }
-    if (looksBinary(source.text)) {
-      // Not text the scanner can read: counted, so the scan is not labeled complete.
-      sourceIndex.set(source.path, source.sha256);
-      dropBinary(bytes);
-      continue;
-    }
+    // Registry code first: left out by design, whatever its bytes.
     const party = classifyThirdParty(source.path, plan.lockfile);
     if (party === 'registry') {
       sourceIndex.set(source.path, source.sha256);
@@ -344,6 +392,16 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       lostBytes += bytes;
       droppedFiles++;
       droppedBytes += bytes;
+      continue;
+    }
+    if (party === 'unverified' && (looksBinary(source.text) || !usableInputPath(source.path))) {
+      dropUnverified({ path: source.path, sha256: source.sha256, bytes });
+      continue;
+    }
+    if (looksBinary(source.text)) {
+      // Not text the scanner can read: counted, so the scan is not labeled complete.
+      sourceIndex.set(source.path, source.sha256);
+      dropBinary(bytes);
       continue;
     }
     if (!usableInputPath(source.path)) {
@@ -404,7 +462,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       return null;
     }
     if (!usableInputPath(inputPath)) {
-      dropBadPath(0);
+      dropAsset(0);
       return null;
     }
     taken.add(inputPath);
@@ -416,7 +474,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       continue;
     }
     if (looksBinary(asset.text)) {
-      dropBinary(0);
+      dropAsset(0);
       continue;
     }
     assetFiles.push({
@@ -524,7 +582,13 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     if (result === 'never') {
       // Like a bad path: noted and counted as lost, never left in the backlog, so a
       // public request does not queue gate scans for it forever.
-      dropOversized(file);
+      if (file.asset !== null) {
+        dropAsset(file.bytes);
+      } else if (file.unverified) {
+        dropUnverified(file);
+      } else {
+        dropOversized(file);
+      }
     } else if (result === 'full') {
       cut.push(file);
     }
@@ -755,13 +819,19 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     notes.push(`dropped ${secretFiles.length - MAX_LISTED_SECRET_FILES} more secret-like files`);
   }
   if (badPaths > 0) {
-    notes.push(`dropped-bad-path ${badPaths} files`);
+    notes.push(`${SECURITY_DROPPED_BAD_PATH_NOTE} ${badPaths} files`);
   }
   if (oversized > 0) {
-    notes.push(`dropped-oversize ${oversized} files`);
+    notes.push(`${SECURITY_DROPPED_OVERSIZE_NOTE} ${oversized} files`);
   }
   if (binary > 0) {
-    notes.push(`dropped-binary ${binary} files`);
+    notes.push(`${SECURITY_DROPPED_BINARY_NOTE} ${binary} files`);
+  }
+  if (assetsDropped > 0) {
+    notes.push(`${SECURITY_ASSETS_DROPPED_NOTE} ${assetsDropped} files`);
+  }
+  if (unverifiedDropped > 0) {
+    notes.push(`${SECURITY_UNVERIFIED_DROPPED_NOTE} ${unverifiedDropped} files`);
   }
   if (capped > 0) {
     notes.push(`input-capped ${capped} files`);
@@ -818,6 +888,8 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     badPaths > 0 ||
     oversized > 0 ||
     binary > 0 ||
+    assetsDropped > 0 ||
+    unverifiedDropped > 0 ||
     unscanned.length > 0;
   if (
     droppedPartial &&
@@ -825,7 +897,9 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     capped === 0 &&
     badPaths === 0 &&
     oversized === 0 &&
-    binary === 0
+    binary === 0 &&
+    assetsDropped === 0 &&
+    unverifiedDropped === 0
   ) {
     // Only registry code was dropped: this does not hold a public request (§7.4, #92).
     notes.push('partial-third-party-only');

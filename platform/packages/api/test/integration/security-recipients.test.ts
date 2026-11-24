@@ -615,6 +615,54 @@ describe('the outbox', () => {
     expect(rootA.id).toBeTruthy();
   });
 
+  it('says files were left unread, not "did not finish (succeeded)", in the held and bypass emails', async () => {
+    const { owner, project } = await setup();
+    await person('root-a', { role: 'admin' });
+    await scannedDeploy(project.id, 'scan_unread', null);
+    const request = await openRequest(project.id, owner.id, 'held_no_result');
+    await env.db
+      .update(securityPublicRequests)
+      .set({ held_reason: 'unread_files', gate_scan_id: 'scan_unread' })
+      .where(eq(securityPublicRequests.id, request.id));
+    await enqueueSecurityNotification(env.db, {
+      kind: 'public_held',
+      projectId: project.id,
+      requestId: request.id,
+      state: 'held_no_result',
+      gateScanId: 'scan_unread',
+    });
+    await env.db.insert(securityScanBypasses).values({
+      id: 'sbp_unread',
+      project_id: project.id,
+      request_id: request.id,
+      deployment_id: 'dpl_target',
+      actor_kind: 'user',
+      actor_user_id: owner.id,
+      actor_role: 'owner',
+      reason: 'Fonts are binary',
+      request_state: 'held_no_result',
+      held_reason: 'unread_files',
+      gate_scan_id: 'scan_unread',
+    });
+    await enqueueSecurityNotification(env.db, {
+      kind: 'scan_bypass',
+      projectId: project.id,
+      requestId: request.id,
+      bypassId: 'sbp_unread',
+    });
+    const { mail, sent } = mailer();
+    await runSecurityNotifications(env.db, mail);
+    const held = sent.find((message) => message.subject.includes('stays protected'));
+    const bypass = sent.find((message) => message.subject.includes('bypassed'));
+    expect(held?.subject).toBe(
+      `[Void Cloud] ${project.slug} stays protected: the security scan could not read some project files`,
+    );
+    expect(held?.text).toContain('Fix them and deploy again, or bypass the scan.');
+    expect(held?.text).not.toContain('Ask again');
+    expect(bypass?.text).toContain('the scan could not read some project files');
+    expect(bypass?.text).not.toContain('succeeded');
+  });
+
   async function openRequest(
     projectId: string,
     userId: string,

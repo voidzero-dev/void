@@ -10,6 +10,7 @@ const scan = (patch: Partial<GateScanFacts> = {}): GateScanFacts => ({
   failureCause: null,
   backlogFiles: 0,
   capped: false,
+  unreadFiles: false,
   ...patch,
 });
 
@@ -36,6 +37,14 @@ describe('judgeGate', () => {
       reason: 'deployment_moving',
     });
     expect(judgeGate(input({ activeDeploymentId: 'dpl_2' }))).toMatchObject({
+      reason: 'deployment_moving',
+    });
+  });
+
+  it('passes a request made during a first deploy that never went live', () => {
+    const nothingLive = { targetDeploymentId: '', activeDeploymentId: null, scan: null };
+    expect(judgeGate(input(nothingLive))).toEqual({ kind: 'pass', scanId: null });
+    expect(judgeGate(input({ ...nothingLive, deploymentMoving: true }))).toMatchObject({
       reason: 'deployment_moving',
     });
   });
@@ -124,6 +133,21 @@ describe('judgeGate', () => {
     });
   });
 
+  it('holds a scan that left project files unread, and never queues it again', () => {
+    expect(judgeGate(input({ scan: scan({ unreadFiles: true }) }))).toMatchObject({
+      state: 'held_no_result',
+      reason: 'unread_files',
+      queue: false,
+    });
+    expect(judgeGate(input({ scan: scan({ unreadFiles: true }), hasInput: false }))).toMatchObject({
+      state: 'needs_deploy',
+      reason: 'no_input',
+    });
+    expect(judgeGate(input({ scan: scan({ unreadFiles: false }) }))).toMatchObject({
+      kind: 'pass',
+    });
+  });
+
   it('asks for a deploy when a scan with no result left no code to scan again (#54)', () => {
     expect(
       judgeGate(
@@ -157,6 +181,9 @@ describe('bypassSkips and copy', () => {
     expect(bypassSkips('held_no_result', 'failed_project', [])).toBe(
       'the scan did not finish (failed project)',
     );
+    expect(bypassSkips('held_no_result', 'unread_files', [])).toBe(
+      'the scan could not read some project files',
+    );
     expect(bypassSkips('held_no_result', 'failed_project', ['F-6'])).toBe(
       'the scan did not finish (failed project); the fix of F-6 is not checked by a scan yet',
     );
@@ -177,6 +204,9 @@ describe('bypassSkips and copy', () => {
       expect(publicRequestCopy({ ...base, state }).length).toBeGreaterThan(10);
     }
     expect(publicRequestCopy({ ...base, state: 'held_findings' })).toContain('F-1');
+    const unread = publicRequestCopy({ ...base, state: 'held_no_result', reason: 'unread_files' });
+    expect(unread).toContain('could not read some project files');
+    expect(unread).not.toContain('Ask again');
   });
 
   it('says what a waiting request waits for (edge #75, #86)', () => {

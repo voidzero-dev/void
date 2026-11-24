@@ -61,6 +61,7 @@ import type {
 } from './notification-copy.ts';
 import { readSecurityPlanCap } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
+import { SECURITY_GATE_UNREAD_FILES } from './public-gate-judge.ts';
 import {
   resolveInstallationAdminRecipients,
   resolveProjectAdminRecipients,
@@ -1134,6 +1135,8 @@ async function deliverPublicHeld(db: Db, env: PlatformEmailEnv, row: Row): Promi
         : [],
     blockerCount: request.blockers,
     noResultReason: keyState === 'held_no_result' ? noResultReason(scan) : null,
+    unreadFiles:
+      keyState === 'held_no_result' && request.held_reason === SECURITY_GATE_UNREAD_FILES,
   };
   const recipients = await resolvePublicRequestRecipients(
     db,
@@ -1246,11 +1249,13 @@ async function deliverBypass(
     .orderBy(asc(securityFindings.number));
   const why = noResultReason(scan);
   const skipped =
-    bypass.request_state === 'held_no_result'
-      ? `the scan did not finish${why ? ` (${why})` : ''}`
-      : bypass.request_state === 'needs_deploy'
-        ? 'the live deployment had no scan to judge'
-        : 'the scan had not finished';
+    bypass.request_state === 'held_no_result' && bypass.held_reason === SECURITY_GATE_UNREAD_FILES
+      ? 'the scan could not read some project files'
+      : bypass.request_state === 'held_no_result'
+        ? `the scan did not finish${why ? ` (${why})` : ''}`
+        : bypass.request_state === 'needs_deploy'
+          ? 'the live deployment had no scan to judge'
+          : 'the scan had not finished';
   const data = {
     slug,
     actor: actor?.email?.trim() || actor?.login || bypass.actor_user_id,

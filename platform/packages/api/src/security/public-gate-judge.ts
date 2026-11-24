@@ -3,6 +3,7 @@
  * request, what is its state? No database, no clock. `public-gate.ts` reads the facts
  * and applies the verdict.
  *
+ *   nothing live, nothing moving (target '') ─► pass: a first deploy that never went live
  *   deployment moving ─────────────────────────► waiting_scan (re-check at cutover)
  *   Zero Trust row not ready ──────────────────► waiting_scan (re-check later)
  *   urgent finding open ───────────────────────► held_findings   (never a bypass)
@@ -15,6 +16,8 @@
  *   succeeded + backlog ───────────────────────► waiting_scan, queue the next gate scan
  *                                                 (input gone: needs_deploy)
  *   succeeded + findings capped ───────────────► held_no_result (input gone: needs_deploy)
+ *   succeeded + project files unread ──────────► held_no_result, never queued again
+ *                                                 (input gone: needs_deploy)
  *   succeeded, nothing above ──────────────────► pass
  */
 import type { SecurityPublicRequestState, SecurityScanStatus } from './schema.ts';
@@ -33,6 +36,8 @@ export type GateScanFacts = Readonly<{
   backlogFiles: number;
   /** The scan stopped storing findings at the cap: more may be hidden. */
   capped: boolean;
+  /** A project file was never read (bad path, over 16 MB, or not text). */
+  unreadFiles: boolean;
 }>;
 
 export type GateJudgeInput = Readonly<{
@@ -57,7 +62,8 @@ export type GateJudgeInput = Readonly<{
 }>;
 
 export type GateVerdict =
-  | Readonly<{ kind: 'pass'; scanId: string }>
+  // `scanId` is null when nothing is live or on its way: there is no code to judge.
+  | Readonly<{ kind: 'pass'; scanId: string | null }>
   | Readonly<{
       kind: 'hold';
       state: GateHeldState;
@@ -74,6 +80,9 @@ const WAITING_SCAN_STATUSES: ReadonlySet<SecurityScanStatus> = new Set<SecurityS
   'queued',
   'running',
 ]);
+
+/** `held_reason` of a scan that left project files unread: a rescan reads no more. */
+export const SECURITY_GATE_UNREAD_FILES = 'unread_files';
 
 function hold(
   state: GateHeldState,
@@ -108,6 +117,15 @@ export function gateNoResultReason(scan: GateScanFacts): string {
 
 export function judgeGate(input: GateJudgeInput): GateVerdict {
   const { scan } = input;
+  if (
+    input.activeDeploymentId === null &&
+    input.targetDeploymentId === '' &&
+    !input.deploymentMoving
+  ) {
+    // Asked while a first deploy was on its way, and it never went live: nothing is
+    // exposed, as when nothing was live at the ask.
+    return { kind: 'pass', scanId: null };
+  }
   if (input.deploymentMoving || input.activeDeploymentId !== input.targetDeploymentId) {
     return hold('waiting_scan', 'deployment_moving', scan);
   }
@@ -156,6 +174,11 @@ export function judgeGate(input: GateJudgeInput): GateVerdict {
       ? hold('held_no_result', 'findings_capped', scan)
       : hold('needs_deploy', 'no_input', scan);
   }
+  if (scan.unreadFiles) {
+    return input.hasInput
+      ? hold('held_no_result', SECURITY_GATE_UNREAD_FILES, scan)
+      : hold('needs_deploy', 'no_input', scan);
+  }
   return { kind: 'pass', scanId: scan.id };
 }
 
@@ -173,9 +196,11 @@ export function bypassSkips(
       return 'the scan has not finished yet';
     case 'held_no_result': {
       const scan =
-        reason && reason !== 'findings_capped'
-          ? `the scan did not finish (${reason.split('_').join(' ')})`
-          : 'the scan did not finish';
+        reason === SECURITY_GATE_UNREAD_FILES
+          ? 'the scan could not read some project files'
+          : reason && reason !== 'findings_capped'
+            ? `the scan did not finish (${reason.split('_').join(' ')})`
+            : 'the scan did not finish';
       return unproven.length > 0
         ? `${scan}; the fix of ${unproven.join(', ')} is not checked by a scan yet`
         : scan;

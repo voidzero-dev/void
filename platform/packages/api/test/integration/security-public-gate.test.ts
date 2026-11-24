@@ -19,14 +19,20 @@ import type { ApiEnv } from '../../src/env.ts';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
   deploymentOperations,
+  deployments,
   projectZeroTrust,
+  projects,
   securityFindings,
   securityProjectEvents,
   securityPublicRequests,
   securityScanBypasses,
   securityScans,
 } from '../../src/schema.ts';
-import { securityScanHoldsInput, securityScanInputPrefix } from '../../src/security/enqueue.ts';
+import {
+  enqueueSecurityScanForLiveDeployment,
+  securityScanHoldsInput,
+  securityScanInputPrefix,
+} from '../../src/security/enqueue.ts';
 import { SecurityApiError } from '../../src/security/errors.ts';
 import {
   bypassPublicRequest,
@@ -366,6 +372,28 @@ describe('public gate', () => {
     expect((await ztRow(s.project.id)).desired_protected).toBe(true);
   });
 
+  it('holds a scan that left project files unread, and asking again queues no scan', async () => {
+    const s = await setup();
+    const key = securityScanInputPrefix(s.project.id, s.deployment.id);
+    await env.STATIC_ASSETS_R2.put(`${key}modules.json`, '{"version":1,"modules":[]}');
+    await endedScan(s, 'ss_unread', {
+      status: 'succeeded',
+      coverage: 'partial',
+      coverage_notes: ['dropped-binary 1 files'],
+    });
+    for (let round = 0; round < 2; round++) {
+      const asked = await ask(s);
+      expect(asked.publicRequest).toMatchObject({
+        state: 'held_no_result',
+        held_reason: 'unread_files',
+        gate_scan_id: 'ss_unread',
+      });
+    }
+    // The same code gives the same unread files: only a deploy or a bypass moves it on.
+    expect(await gateScans(s)).toHaveLength(1);
+    expect((await ztRow(s.project.id)).desired_protected).toBe(true);
+  });
+
   it('asks for a deploy when a scan with no result left no code to scan again (#54)', async () => {
     const s = await setup();
     await endedScan(s, 'ss_budget', {
@@ -488,6 +516,101 @@ describe('public gate', () => {
     // Enabled again: the same re-check lets it go public.
     await recheckPublicRequestForScan(s.platform, env.db, 'ss_ok');
     expect((await ztRow(s.project.id)).desired_protected).toBe(false);
+  });
+
+  it('holds a first deploy that is still in cutover, then follows it live (§5.5)', async () => {
+    vi.stubGlobal('fetch', accessApi().fetcher);
+    const platform = bindings();
+    await configurePlatformZeroTrust(platform, env.db, input);
+    await savePolicy(true);
+    const user = await createTestUser(env.db, `gate-${crypto.randomUUID()}`);
+    const project = await createTestProject(env.db, user.id);
+    await setProjectZeroTrustProtection(platform, env.db, project.id, true);
+    const actor = { actorUserId: user.id };
+    // Nothing deployed and nothing moving: going public needs no scan.
+    expect(
+      (await setProjectZeroTrustProtection(platform, env.db, project.id, false, actor)).held,
+    ).toBe(false);
+
+    // The first deploy wrote its routes but is not the live one yet.
+    const deployment = await createTestDeployment(env.db, project.id, 'pending');
+    await env.db
+      .update(deployments)
+      .set({ status: 'cutover' })
+      .where(eq(deployments.id, deployment.id));
+    await env.ROUTING.put(
+      project.slug,
+      JSON.stringify({
+        projectId: project.id,
+        userId: user.id,
+        workerName: `user-${project.slug}-${deployment.id}`,
+        version: deployment.id,
+      }),
+    );
+    // Protecting again republishes the cutover deployment's route behind Access.
+    await setProjectZeroTrustProtection(platform, env.db, project.id, true);
+    const asked = await setProjectZeroTrustProtection(platform, env.db, project.id, false, actor);
+    expect(asked.held).toBe(true);
+    expect(asked.publicRequest).toMatchObject({
+      state: 'waiting_scan',
+      held_reason: 'deployment_moving',
+    });
+    expect((await ztRow(project.id)).desired_protected).toBe(true);
+    const route = JSON.parse((await env.ROUTING.get(project.slug)) ?? '{}') as Record<
+      string,
+      unknown
+    >;
+    expect(route.zeroTrust).toBeDefined();
+
+    // The commit makes it live: the open request follows it and its scan is the gate scan.
+    await env.db
+      .update(deployments)
+      .set({ status: 'live' })
+      .where(eq(deployments.id, deployment.id));
+    await env.db
+      .update(projects)
+      .set({ active_deployment_id: deployment.id })
+      .where(eq(projects.id, project.id));
+    await enqueueSecurityScanForLiveDeployment(env.db, platform, {
+      projectId: project.id,
+      deploymentId: deployment.id,
+    });
+    const [request] = await env.db.select().from(securityPublicRequests);
+    expect(request.target_deployment_id).toBe(deployment.id);
+    const scans = await env.db
+      .select()
+      .from(securityScans)
+      .where(eq(securityScans.project_id, project.id));
+    expect(scans.map((scan) => [scan.deployment_id, scan.trigger])).toEqual([
+      [deployment.id, 'gate'],
+    ]);
+  });
+
+  it('lets a request go public when the first deploy it waited for fails', async () => {
+    vi.stubGlobal('fetch', accessApi().fetcher);
+    const platform = bindings();
+    await configurePlatformZeroTrust(platform, env.db, input);
+    await savePolicy(true);
+    const user = await createTestUser(env.db, `gate-${crypto.randomUUID()}`);
+    const project = await createTestProject(env.db, user.id);
+    await setProjectZeroTrustProtection(platform, env.db, project.id, true);
+    const deployment = await createTestDeployment(env.db, project.id, 'pending');
+    await env.db
+      .update(deployments)
+      .set({ status: 'cutover' })
+      .where(eq(deployments.id, deployment.id));
+    const actor = { actorUserId: user.id };
+    const asked = await setProjectZeroTrustProtection(platform, env.db, project.id, false, actor);
+    expect(asked.publicRequest).toMatchObject({ state: 'waiting_scan', target_deployment_id: '' });
+
+    // The cutover fails and compensates: nothing is live and nothing is moving.
+    await env.db
+      .update(deployments)
+      .set({ status: 'failed' })
+      .where(eq(deployments.id, deployment.id));
+    const rechecked = await recheckPublicRequest(platform, env.db, project.id);
+    expect(rechecked).toMatchObject({ state: 'passed', gate_scan_id: null });
+    expect((await ztRow(project.id)).desired_protected).toBe(false);
   });
 
   it('protecting again cancels the open request and keeps the project protected', async () => {

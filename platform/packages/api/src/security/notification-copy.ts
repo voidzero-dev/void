@@ -438,6 +438,8 @@ export function composeSecurityPublicHeldEmail(
       state: SecurityPublicHeldState;
       /** `refused by anthropic/claude-opus-5.5`, for the no-result subject. */
       noResultReason: string | null;
+      /** The scan finished but left project files unread: asking again reads no more. */
+      unreadFiles?: boolean;
     }>,
   reason: SecurityEmailReason,
 ): SecurityEmailContent {
@@ -469,6 +471,15 @@ export function composeSecurityPublicHeldEmail(
       `Resolve ${plural(data.blockerCount, 'it', 'them')}, then ${data.slug} goes public. A fix needs a new deploy that scans clean.`,
     ];
     actions = [`Review:  void project zero-trust status --project ${data.slug}`];
+  } else if (data.state === 'held_no_result' && data.unreadFiles === true) {
+    subject = `${bracket(data.platform)} ${data.slug} stays protected: the security scan could not read some project files`;
+    notes = [
+      `${data.slug} stays protected by Zero Trust. Some project files are too large, not text, or have a path the scanner cannot send. Fix them and deploy again, or bypass the scan.`,
+    ];
+    actions = [
+      `Review:  void project zero-trust status --project ${data.slug}`,
+      `Bypass:  ${BYPASS_LINE}`,
+    ];
   } else if (data.state === 'held_no_result') {
     subject = `${bracket(data.platform)} ${data.slug} stays protected: the security scan did not finish${data.noResultReason ? ` (${data.noResultReason})` : ''}`;
     notes = [

@@ -421,6 +421,33 @@ describe('project Zero Trust command with a public request', () => {
     expect(flat).toContain('void project zero-trust bypass --reason');
   });
 
+  it('says which project files held the request, and that asking again does not help', async () => {
+    const root = setup(
+      vi.fn(async () =>
+        Response.json(
+          {
+            ok: true,
+            project: { ...project, state: 'reconciling' },
+            publicRequest: request('held_no_result', { heldReason: 'unread_files' }),
+            message: 'Stays protected.',
+          },
+          { status: 202 },
+        ),
+      ),
+    );
+    const out = capture();
+    await runProjectCommand(root, { ...base, action: 'public' });
+    const flat = stripVTControlCharacters(out.text())
+      .split('\n')
+      .join(' ')
+      .split(' ')
+      .filter(Boolean)
+      .join(' ');
+    expect(flat).toContain('the security scan could not read some project files');
+    expect(flat).toContain('void project zero-trust bypass');
+    expect(flat).not.toContain('Ask again');
+  });
+
   it('says protect canceled the open request (spec §11.4, edge #80)', async () => {
     const root = setup(
       vi.fn(async () => Response.json({ ok: true, project, publicRequest: request('canceled') })),

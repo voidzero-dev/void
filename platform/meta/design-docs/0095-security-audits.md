@@ -492,8 +492,9 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   scan row `UPDATE` that checks attempt, `running`, lease, call cap and token caps. One
   transaction, always scan → project → platform row (also for reserve, settle,
   release, so no lock cycle). After the answer the hold is replaced by tokens × list
-  price; a failed upstream call costs 0; a paid answer with no usage, a dropped stream
-  or a failed settle keeps the worst case (the meter errs high). The proxy clamps the
+  price; an upstream error with an HTTP status or a Workers AI code costs 0; a paid
+  answer with no usage, a call lost with no status or code, a dropped stream or a failed settle keeps the worst case
+  (the meter errs high). The proxy clamps the
   output limit to what the scan has left (`max_tokens` / `max_output_tokens`; 16,384
   when the caller sets none) so the worst case is bounded. Stops answer 429 (402 for
   credits) with `x-void-scan-stop`; other failures carry no header (runner retries once).
@@ -717,7 +718,10 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   base → `first-scan`, snapshot gone → `no-usable-base`, else T2 (T1 is M11). T2: a source
   changed when its module or that module's map changed and its text hash differs from the
   base index (no index: every source of a changed module); modules with no map are read as
-  built code under `input/_worker/` (`no-source-maps`); changed text assets (≤ 256 KB)
+  built code under `input/_worker/` (`no-source-maps`); a changed module whose mapped
+  sources all match the base index is read as built code too (`built-only-change N`, #14a:
+  a `define` value or an edited bundle), unless some base module had the same bytes (a
+  renamed chunk) or it is a facade; T3 still reads map sources; changed text assets (≤ 256 KB)
   under `input/_assets/`, read from R2 then KV. Priority: breadth-first over relative
   imports from `workerMain` (plain text scan), then assets, then `third-party-unverified`.
   Source paths: scheme and query cut, resolved against the map folder and `sourceRoot`,
@@ -747,7 +751,11 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   seen. A path over 960 characters becomes `_long/<hash>/<name>`; a path the runner still
   refuses is dropped (`dropped-bad-path`, partial), not the whole tar. A file over the
   runner's 16 MB is dropped the same way (`dropped-oversize`, partial), never backlogged:
-  no scan can send it, so a gate scan would be queued for it forever. Inline source maps
+  no scan can send it, so a gate scan would be queued for it forever. A project file
+  dropped as bad-path, oversize or binary holds a public request instead (`held_no_result`,
+  `unread_files`, #92a; asking again queues no scan); registry files are classified first,
+  and client assets or unverified third-party code dropped the same ways are noted
+  `assets-dropped N files` / `third-party-unverified-dropped N files` and do not hold it. Inline source maps
   are found at any length. `partial` = backlog left, a cut, bad-path or oversize file, or > 5 % of
   source bytes lost to registry drops or the cap; secret-like files are dropped and
   counted in `dropped_files` but do not make a scan partial; a partial from registry

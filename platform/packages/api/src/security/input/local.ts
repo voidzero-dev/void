@@ -196,7 +196,7 @@ export async function prepareLocalCheckInputFiles(
     },
     tier: chooseSecurityTier({ trigger: 'local', baseDeploymentId: null, baseSnapshot: false }),
     head: { modules: [], main: null },
-    bundle: { files: orderLocalSources(sources), noSourceMaps: 0 },
+    bundle: { files: orderLocalSources(sources), noSourceMaps: 0, moduleSources: new Map() },
     base: null,
     assets: [],
     backlog: [],

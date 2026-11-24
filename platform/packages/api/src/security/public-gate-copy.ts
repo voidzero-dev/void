@@ -3,6 +3,7 @@
  * The CLI and the page add their own command lines; these are the sentences the API
  * itself returns (`message` of the 202 reply, the bypass 409).
  */
+import { SECURITY_GATE_UNREAD_FILES } from './public-gate-judge.ts';
 import type { SecurityPublicRequestState } from './schema.ts';
 
 export type PublicRequestCopyInput = Readonly<{
@@ -73,7 +74,9 @@ export function publicRequestCopy(input: PublicRequestCopyInput): string {
         ? `Stays protected: ${ids(input.blockerIds)} ${input.blockerIds.length === 1 ? 'was' : 'were'} resolved as fixed. Deploy the fix (if it is already live, deploy again); ${slug} goes public when the scan of that deploy is clean.`
         : `Stays protected: the live deployment ${deploymentId} cannot be scanned (its code was not kept for scanning). Deploy again; that deploy is scanned before ${slug} goes public.`;
     case 'held_no_result':
-      return `Stays protected: the security scan did not finish (${noResultCause(input.reason)}). Ask again, deploy again, or bypass the scan with a reason.`;
+      return input.reason === SECURITY_GATE_UNREAD_FILES
+        ? `Stays protected: the security scan could not read some project files (too large, not text, or a path the scanner cannot send). Fix them and deploy again, or bypass the scan with a reason.`
+        : `Stays protected: the security scan did not finish (${noResultCause(input.reason)}). Ask again, deploy again, or bypass the scan with a reason.`;
     case 'passed':
       return `Security scan passed (nothing urgent found). Zero Trust is being turned off for ${slug}.`;
     case 'bypassed':

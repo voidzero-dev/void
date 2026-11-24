@@ -378,6 +378,29 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     expect(h.rateLimited).toHaveBeenCalledWith(CF, NOW);
   });
 
+  it('keeps the worst case charged when a binding call is lost with no status', async () => {
+    h.aiRun.mockRejectedValue(new Error('Network connection lost.'));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const response = await call(h, '/v1/chat/completions', chatBody());
+    spy.mockRestore();
+    expect(response.status).toBe(502);
+    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
+    expect(h.failures.at(-1)?.reason).toBe('upstream');
+    expect(h.settles[0].actualNano).toBe(h.holds[0].worstNano);
+    expect(h.settles[0].inputTokens).toBeGreaterThan(0);
+
+    // A known status means no answer was made: it costs nothing.
+    h.aiRun.mockRejectedValue(new Error('3040: Capacity temporarily exceeded'));
+    await call(h, '/v1/chat/completions', chatBody());
+    expect(h.settles[1]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
+
+    // A coded refusal with no mapped status was answered, not lost: it costs nothing.
+    h.aiRun.mockRejectedValue(new Error('5006: Error: oneOf at "/" not met'));
+    const refused = await call(h, '/v1/chat/completions', chatBody());
+    expect(refused.status).toBe(502);
+    expect(h.settles[2]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
+  });
+
   it('maps Workers AI error codes, also after a class name, and nothing else', () => {
     expect(workersAiErrorStatus(new Error('3040: Capacity temporarily exceeded'))).toBe(429);
     expect(workersAiErrorStatus(new Error('InferenceUpstreamError: 3040: busy'))).toBe(429);
@@ -666,6 +689,18 @@ describe('third-party calls through AI Gateway REST', () => {
     expect(h.failures.at(-1)?.reason).toBe('upstream');
   });
 
+  it('keeps the worst case charged when the call is lost before an answer', async () => {
+    h.fetch.mockRejectedValue(new Error('Network connection lost.'));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
+    spy.mockRestore();
+    expect(response.status).toBe(502);
+    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
+    expect(h.failures.at(-1)?.reason).toBe('upstream');
+    expect(h.settles[0]).toMatchObject({ actualNano: h.holds[0].worstNano, outputTokens: 10 });
+    expect(h.settles[0].inputTokens).toBeGreaterThan(0);
+  });
+
   it('prices Anthropic cache writes at 1.25× (5 min) and 2× (1 h) input', async () => {
     h.fetch.mockResolvedValue(
       Response.json({
@@ -808,6 +843,7 @@ describe('third-party calls through AI Gateway REST', () => {
     expect(response.status).toBe(529);
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
     expect(h.failures.at(-1)?.reason).toBe('upstream');
+    expect(h.settles[0]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
   });
 });
 

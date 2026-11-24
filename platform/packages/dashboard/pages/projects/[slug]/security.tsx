@@ -47,6 +47,9 @@ const REQUEST_STATES: RequestStateCopy = {
   needs_deploy: 'held: deploy again so the live deployment can be scanned',
 };
 
+/** The `held_no_result` label when the scan finished but left project files unread. */
+const UNREAD_FILES_LABEL = 'held: the security scan could not read some project files';
+
 function Notice({ notice }: { notice: Props['notice'] }) {
   if (!notice) {
     return null;
@@ -428,7 +431,9 @@ function Body({
         )}
         {request && (
           <Field label="Public">
-            {REQUEST_STATES[request.state] ?? request.state}
+            {request.state === 'held_no_result' && request.heldReason === 'unread_files'
+              ? UNREAD_FILES_LABEL
+              : (REQUEST_STATES[request.state] ?? request.state)}
             {request.blockers.ids.length > 0 ? ` (${request.blockers.ids.join(', ')})` : ''}
           </Field>
         )}

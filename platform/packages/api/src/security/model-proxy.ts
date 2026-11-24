@@ -742,7 +742,8 @@ type CallPlan = Readonly<{
 type Upstream =
   | Readonly<{ kind: 'json'; value: unknown }>
   | Readonly<{ kind: 'stream'; body: ReadableStream<Uint8Array> }>
-  // 2xx the proxy cannot read: the provider billed it, so the worst case stays charged.
+  // A 2xx the proxy cannot read, or a call lost with no status: billing is unknown, so
+  // the worst case stays charged.
   | Readonly<{ kind: 'paid_unreadable'; detail: string }>
   | Readonly<{ kind: 'failed'; status: number; credits: boolean; detail: string }>;
 
@@ -831,9 +832,10 @@ const WORKERS_AI_CODE_STATUS: WorkersAiCodeStatus = {
 
 /**
  * Reads the leading `<code>:` of a Workers AI binding error, also after a class name
- * (`InferenceUpstreamError: 3040: …`, `AiError: 3040: …`). Returns its HTTP status.
+ * (`InferenceUpstreamError: 3040: …`, `AiError: 3040: …`). A code means Workers AI
+ * answered with a refusal, so nothing was billed.
  */
-export function workersAiErrorStatus(error: unknown): number | null {
+export function workersAiErrorCode(error: unknown): string | null {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   let rest = message.trimStart();
   for (let part = 0; part < 2; part++) {
@@ -843,12 +845,18 @@ export function workersAiErrorStatus(error: unknown): number | null {
     }
     const head = rest.slice(0, colon).trim();
     if (head.length > 0 && Array.from(head).every((char) => char >= '0' && char <= '9')) {
-      return WORKERS_AI_CODE_STATUS[head] ?? null;
+      return head;
     }
     // Not a code: skip one leading class name, then look once more.
     rest = rest.slice(colon + 1).trimStart();
   }
   return null;
+}
+
+/** The HTTP status of a mapped Workers AI code (see {@link workersAiErrorCode}). */
+export function workersAiErrorStatus(error: unknown): number | null {
+  const code = workersAiErrorCode(error);
+  return code === null ? null : (WORKERS_AI_CODE_STATUS[code] ?? null);
 }
 
 /** The binding answer in chat-completions shape, which Engine B reads. */
@@ -929,8 +937,16 @@ async function callWorkersAi(
     }
     return { kind: 'json', value: asChatCompletion(plan.model, result) };
   } catch (error) {
-    const status = statusOf(error) ?? workersAiErrorStatus(error) ?? 502;
     const detail = error instanceof Error ? error.message : String(error);
+    let status = statusOf(error) ?? workersAiErrorStatus(error);
+    if (status === null) {
+      if (workersAiErrorCode(error) === null) {
+        // No status and no Workers AI code: the model may have answered and billed it.
+        return { kind: 'paid_unreadable', detail };
+      }
+      // A coded refusal (`5006: …`, `5007: No such model`): nothing was billed.
+      status = 502;
+    }
     // Only a 402 is a credits stop: an error text is not read for it.
     return { kind: 'failed', status, credits: status === 402, detail };
   }
@@ -963,6 +979,10 @@ async function callGateway(
     }
   }
   const path = plan.route === 'messages' ? 'messages' : 'responses';
+  if (plan.ownKey && !deps.ai) {
+    // Nothing is sent, so nothing is billed.
+    return { kind: 'failed', status: 503, credits: false, detail: 'no AI binding' };
+  }
   let response: Response;
   try {
     if (plan.ownKey) {
@@ -982,10 +1002,9 @@ async function callGateway(
       });
     }
   } catch (error) {
+    // Lost on the way: the provider may have answered and billed it.
     return {
-      kind: 'failed',
-      status: 502,
-      credits: false,
+      kind: 'paid_unreadable',
       detail: error instanceof Error ? error.message : String(error),
     };
   }
@@ -1297,7 +1316,12 @@ export async function handleSecurityModelRequest(
   }
   if (upstream.kind === 'paid_unreadable') {
     await settle(null, true);
-    console.error('[security-model-proxy] unreadable answer', { scanId, attempt, model });
+    console.error('[security-model-proxy] unreadable answer', {
+      scanId,
+      attempt,
+      model,
+      detail: upstream.detail.slice(0, 500),
+    });
     return failed(
       'upstream',
       refuse(502, 'upstream_failed', 'The model answer could not be read.'),

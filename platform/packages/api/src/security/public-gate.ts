@@ -40,11 +40,12 @@ import { projectZeroTrustAvailable } from '../zero-trust/state.ts';
 import { securityScanHoldsInputSql, securityScanInputPrefix } from './enqueue.ts';
 import { SecurityApiError } from './errors.ts';
 import { SECURITY_FINDINGS_CAPPED_NOTE } from './findings.ts';
+import { securityNotesLeftFilesUnread } from './input/build.ts';
 import { enqueueSecurityNotification } from './notifications.ts';
 import { lockSecurityPolicyShared, readSecurityPolicyStrict } from './policy.ts';
 import { SECURITY_PROJECT_POLICY_SKIP_REASON } from './project-policy.ts';
 import { urgentFindingsRefusal } from './public-gate-copy.ts';
-import { bypassSkips, judgeGate } from './public-gate-judge.ts';
+import { bypassSkips, judgeGate, SECURITY_GATE_UNREAD_FILES } from './public-gate-judge.ts';
 import type {
   GateHeldState,
   GateJudgeInput,
@@ -251,6 +252,7 @@ async function newestScan(
         failureCause: row.failureCause,
         backlogFiles: row.backlogFiles,
         capped: row.notes.includes(SECURITY_FINDINGS_CAPPED_NOTE),
+        unreadFiles: securityNotesLeftFilesUnread(row.notes),
       }
     : null;
 }
@@ -357,6 +359,21 @@ async function zeroTrustReady(tx: DbOrTx, projectId: string): Promise<boolean> {
   return row?.status === 'ready' && row.desired && row.effective;
 }
 
+/** Item 3: a cutover writes routes before it moves the active deployment. */
+async function deploymentMoving(tx: DbOrTx, projectId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: deployments.id })
+    .from(deployments)
+    .where(
+      and(
+        eq(deployments.project_id, projectId),
+        inArray(deployments.status, ['cutover', 'compensating']),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
 /** Flip re-check items 1–5 for the deployment that is live now. Reads only. */
 export async function judgeRequest(
   tx: DbOrTx,
@@ -367,16 +384,7 @@ export async function judgeRequest(
 ): Promise<Judged> {
   const projectId = request.project_id;
   const target = active ?? request.target_deployment_id;
-  const [moving] = await tx
-    .select({ id: deployments.id })
-    .from(deployments)
-    .where(
-      and(
-        eq(deployments.project_id, projectId),
-        inArray(deployments.status, ['cutover', 'compensating']),
-      ),
-    )
-    .limit(1);
+  const moving = await deploymentMoving(tx, projectId);
   const scan = await newestScan(tx, projectId, target);
   const waiting =
     scan !== null &&
@@ -384,12 +392,16 @@ export async function judgeRequest(
   // Also for a scan with no usable result: asking again queues a new gate scan from it.
   const needsInput =
     !waiting &&
-    (scan === null || scan.status !== 'succeeded' || scan.backlogFiles > 0 || scan.capped);
+    (scan === null ||
+      scan.status !== 'succeeded' ||
+      scan.backlogFiles > 0 ||
+      scan.capped ||
+      scan.unreadFiles);
   const input = needsInput ? await findLiveInput(env, tx, projectId, target) : null;
   const judgeInput: GateJudgeInput = {
     targetDeploymentId: target,
     activeDeploymentId: active,
-    deploymentMoving: moving !== undefined,
+    deploymentMoving: moving,
     zeroTrustReady: options.zeroTrustReady ?? (await zeroTrustReady(tx, projectId)),
     scan,
     hasInput: input !== null,
@@ -520,7 +532,11 @@ async function applyHold(
   let scanId = verdict.scanId;
   // Asking again on `held_no_result` queues one new gate scan (edge #79). The judge
   // gives `needs_deploy` when the live deployment's code is gone (edge #54).
-  const askAgain = options.askAgain === true && verdict.state === 'held_no_result';
+  const askAgain =
+    options.askAgain === true &&
+    verdict.state === 'held_no_result' &&
+    // A rescan of the same code leaves the same files unread.
+    verdict.reason !== SECURITY_GATE_UNREAD_FILES;
   if ((verdict.queue || askAgain) && judged.input !== null && judged.activeDeploymentId !== null) {
     scanId = await queueGateScan(tx, request, target, judged.input, options.mode);
     state = 'waiting_scan';
@@ -628,7 +644,11 @@ async function activeDeploymentOf(tx: DbOrTx, projectId: string): Promise<string
   return row?.id ?? null;
 }
 
-function goPassed(request: PublicRequestRow, scanId: string, effects: GateEffects): GateStep {
+function goPassed(
+  request: PublicRequestRow,
+  scanId: string | null,
+  effects: GateEffects,
+): GateStep {
   return {
     kind: 'go',
     request,
@@ -678,8 +698,8 @@ export async function gateAsk(
   const { project, actor, effects } = input;
   const active = await activeDeploymentOf(tx, project.id);
   const existing = await readOpenPublicRequest(tx, project.id);
-  if (active === null && existing === null) {
-    // Nothing is live, so there is nothing a scan could review or an exposure to hold.
+  if (active === null && existing === null && !(await deploymentMoving(tx, project.id))) {
+    // Nothing is live or on its way, so there is nothing a scan could review or an exposure to hold.
     return { kind: 'open' };
   }
   let request =

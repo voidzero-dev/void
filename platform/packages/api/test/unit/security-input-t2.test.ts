@@ -9,6 +9,7 @@ import {
   SECURITY_DEPLOY_CONFIG_PATH,
   SECURITY_MAX_SECRET_LEADS,
   securityDeployConfigText,
+  securityNotesLeftFilesUnread,
   utf8Length,
 } from '../../src/security/input/build.ts';
 import type { SecurityInputPlan } from '../../src/security/input/build.ts';
@@ -556,6 +557,79 @@ describe('buildSecurityScanInput', () => {
     expect(same.noChanges).toBe(true);
   });
 
+  it('reads a changed module as built code when its mapped sources did not change', () => {
+    const source = 'export default { fetch: () => new Response("ok") }';
+    const sourceMap = module('index.js.map', map(['src/app.ts'], [source]));
+    const chunkMap = map(['src/a.ts'], ['export const a = 1;']);
+    const chunk = [
+      module('chunks/a-1111.js', 'export const a=1;'),
+      module('chunks/a-1111.js.map', chunkMap),
+    ];
+    const headOf = (index: string, chunks = chunk) => ({
+      modules: [module('index.js', index), sourceMap, ...chunks],
+      main: 'index.js',
+    });
+    const baseHead = headOf('export default{fetch:()=>new Response("ok")}');
+    const first = buildSecurityScanInput(plan({ head: baseHead }));
+    const base = {
+      modules: new Map(baseHead.modules.map((m) => [m.name, m.sha256])),
+      sources: first.sourceIndex,
+    };
+    const diff = (head: ReturnType<typeof headOf>) =>
+      buildSecurityScanInput(plan({ tier: { tier: 'built_diff', fullReason: null }, base, head }));
+
+    // The executable changed next to the same map: the change is only in the built code.
+    const edited = diff(
+      headOf(
+        'export default{fetch:(r,e)=>new URL(r.url).pathname==="/admin"?e.DB.exec(r.url):new Response("ok")}',
+      ),
+    );
+    expect(edited.noChanges).toBe(false);
+    expect(edited.focus).toEqual(['_worker/index.js']);
+    expect(edited.notes).toContain('built-only-change 1');
+
+    // Same bytes redeployed: still no changes (edge #14).
+    expect(diff(baseHead).noChanges).toBe(true);
+    // A chunk renamed with the same bytes is no change of the built code.
+    const renamed = diff(
+      headOf(baseHead.modules[0].text, [
+        module('chunks/a-2222.js', chunk[0].text),
+        module('chunks/a-2222.js.map', chunkMap),
+      ]),
+    );
+    expect(renamed.noChanges).toBe(true);
+    expect(renamed.notes.some((note) => note.startsWith('built-only-change'))).toBe(false);
+  });
+
+  it('reads a built-only change of a module whose source another module already mapped', () => {
+    const shared = 'export const mode = MODE;';
+    const headOf = (b: string) => ({
+      modules: [
+        module('index.js', 'export const mode="a";'),
+        module('index.js.map', map(['src/shared.ts'], [shared])),
+        module('worker-b.js', b),
+        module('worker-b.js.map', map(['src/shared.ts'], [shared])),
+      ],
+      main: 'index.js',
+    });
+    const baseHead = headOf('export const mode="a";//b');
+    const first = buildSecurityScanInput(plan({ head: baseHead }));
+    const base = {
+      modules: new Map(baseHead.modules.map((m) => [m.name, m.sha256])),
+      sources: first.sourceIndex,
+    };
+    // Only worker-b.js inlines the new `define` value; its map sources are the same.
+    const edited = buildSecurityScanInput(
+      plan({
+        tier: { tier: 'built_diff', fullReason: null },
+        base,
+        head: headOf('export const mode="admin";//b'),
+      }),
+    );
+    expect(edited.noChanges).toBe(false);
+    expect(edited.focus).toEqual(['_worker/worker-b.js']);
+  });
+
   it('marks an unchanged redeploy as no changes (edge #14), but a gate scan re-checks (edge #85)', () => {
     const base = {
       modules: new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256])),
@@ -1000,13 +1074,73 @@ describe('buildSecurityScanInput limits', () => {
       }),
     );
     expect(built.entries.map((entry) => entry.path)).toEqual(['task.json', 'input/src/ok.ts']);
-    expect(built.notes).toContain('dropped-binary 3 files');
+    // Project code and client assets are noted apart: only project code holds the gate.
+    expect(built.notes).toContain('dropped-binary 2 files');
+    expect(built.notes).toContain('assets-dropped 1 files');
+    expect(securityNotesLeftFilesUnread(built.notes)).toBe(true);
     expect(built.notes).not.toContain('partial-third-party-only');
     expect(built.coverage).toBe('partial');
     expect(built.droppedFiles).toBe(3);
     expect(built.backlog).toEqual([]);
     // Seen as it is: the next diff scan does not take it as changed again.
     expect(built.sourceIndex.has('src/nul.ts')).toBe(true);
+  });
+
+  it('leaves unread project files in the notes, but not client assets or registry code', () => {
+    const assetsOnly = buildSecurityScanInput(
+      plan({
+        head: { modules: bundleOf({ 'src/ok.ts': 'export const c = 3;' }), main: 'index.js' },
+        assets: [{ path: '/legacy-latin1.js', text: 'var s = "\uFFFD";' }],
+      }),
+    );
+    expect(assetsOnly.notes).toContain('assets-dropped 1 files');
+    expect(securityNotesLeftFilesUnread(assetsOnly.notes)).toBe(false);
+
+    const registry = buildSecurityScanInput(
+      plan({
+        head: {
+          modules: bundleOf({
+            'src/ok.ts': 'export const c = 3;',
+            'node_modules/hono/index.js': 'var s = "\uFFFD";',
+          }),
+          main: 'index.js',
+        },
+        lockfile: new Map([['hono', 'registry' as const]]),
+      }),
+    );
+    expect(registry.notes).toContain('third-party-dropped 1 files');
+    expect(registry.notes).toContain('partial-third-party-only');
+    expect(securityNotesLeftFilesUnread(registry.notes)).toBe(false);
+
+    // No lockfile: the package is unverified, still not a file the user wrote.
+    const unverifiedCode = buildSecurityScanInput(
+      plan({
+        head: {
+          modules: bundleOf({
+            'src/ok.ts': 'export const c = 3;',
+            'node_modules/some-lib/tables.js': 'var s = "\uFFFD";',
+          }),
+          main: 'index.js',
+        },
+      }),
+    );
+    expect(unverifiedCode.notes).toContain('third-party-unverified-dropped 1 files');
+    expect(unverifiedCode.notes).not.toContain('dropped-binary 1 files');
+    expect(unverifiedCode.coverage).toBe('partial');
+    expect(unverifiedCode.sourceIndex.has('node_modules/some-lib/tables.js')).toBe(true);
+    expect(securityNotesLeftFilesUnread(unverifiedCode.notes)).toBe(false);
+
+    const project = buildSecurityScanInput(
+      plan({
+        head: {
+          modules: bundleOf({ 'src/ok.ts': 'ok', 'src/admin.ts': 'const R = "\uFFFD"; eval(x);' }),
+          main: 'index.js',
+        },
+      }),
+    );
+    expect(project.notes).toContain('dropped-binary 1 files');
+    expect(project.backlog).toEqual([]);
+    expect(securityNotesLeftFilesUnread(project.notes)).toBe(true);
   });
 
   it('keeps the tar within the runner entry limit, memory included (#3)', () => {
