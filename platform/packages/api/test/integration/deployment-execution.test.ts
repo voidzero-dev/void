@@ -47,6 +47,7 @@ import {
 import type { DeployEvent } from '../../src/types.ts';
 import { WORKER_UPLOAD_OUT_OF_TIME } from '../../src/worker-upload.ts';
 import { ZeroTrustUnavailableError } from '../../src/zero-trust/errors.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustRouting from '../../src/zero-trust/routing.ts';
 import {
   createTestBuild,
