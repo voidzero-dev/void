@@ -137,7 +137,7 @@ function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): st
         type?.type === 'TSTypeLiteral'
           ? type.members.map((member) => {
               if (member.type !== 'TSPropertySignature' || member.computed) {
-                return;
+                return undefined;
               }
               if (member.key.type === 'Identifier') {
                 return member.key.name;
@@ -145,6 +145,7 @@ function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): st
               if (member.key.type === 'StringLiteral') {
                 return member.key.value;
               }
+              return undefined;
             })
           : undefined;
       const literal = names?.every((name) => name !== undefined) === true;

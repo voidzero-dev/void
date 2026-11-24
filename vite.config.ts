@@ -403,7 +403,6 @@ const config = defineConfig({
     rules: {
       // Temporarily disabled during the shared preset migration.
       '@nkzw/no-instanceof': 'off',
-      'array-callback-return': 'off',
       eqeqeq: 'off',
       'import/consistent-type-specifier-style': 'off',
       'import/export': 'off',
