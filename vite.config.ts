@@ -451,7 +451,6 @@ const config = defineConfig({
       'typescript/use-unknown-in-catch-callback-variable': 'off',
       'unicorn/catch-error-name': 'off',
       'unicorn/consistent-function-scoping': 'off',
-      'unicorn/no-array-fill-with-reference-type': 'off',
       'unicorn/no-hex-escape': 'off',
       'unicorn/prefer-at': 'off',
       'unicorn/prefer-dom-node-append': 'off',
