@@ -277,6 +277,11 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // Database tests intentionally await proxy and mock values to verify thenable handling.
+        files: ['packages/void/test/unit/{db-session,plugin-drizzle}.test.ts'],
+        rules: { 'typescript/await-thenable': 'off' },
+      },
+      {
         // Void uses empty defaults in public route and binding types and their test fixtures.
         files: [
           'platform/packages/api/src/admin/fate/client.generated.ts',
@@ -486,7 +491,6 @@ const config = defineConfig({
       'quality/no-unsafe-dictionary-type': 'off',
       'quality/no-widen-then-assert': 'off',
       'react/set-state-in-effect': 'off',
-      'typescript/await-thenable': 'off',
       'typescript/no-misused-spread': 'off',
       'typescript/no-non-null-assertion': 'off',
       'typescript/no-unnecessary-type-assertion': 'off',

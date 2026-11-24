@@ -369,10 +369,7 @@ app.post('/:projectId/domains/:domain/revoke', async (context) => {
       const result = await removeEmailDomainForProject(context, project, domain, 'admin');
       if (!result.ok) {
         return {
-          response: await context.html(
-            '<h1>Email domain removal failed</h1>',
-            result.status as 400,
-          ),
+          response: context.html('<h1>Email domain removal failed</h1>', result.status as 400),
           succeeded: false,
         };
       }
@@ -395,10 +392,7 @@ app.post('/:projectId/domains/:domain/rotate-secret', async (context) => {
       const result = await rotateEmailIngressSecretForProject(context, project, domain, 'admin');
       if (!result.ok) {
         return {
-          response: await context.html(
-            '<h1>Email ingress rotation failed</h1>',
-            result.status as 400,
-          ),
+          response: context.html('<h1>Email ingress rotation failed</h1>', result.status as 400),
           succeeded: false,
         };
       }
