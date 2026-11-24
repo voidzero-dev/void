@@ -28,7 +28,7 @@ export interface DbSessionAccess {
   getSession(): D1Database;
   setSession(start: DbSessionStart): void;
   getBookmark<TSchema extends Record<string, unknown>>(
-    client?: DrizzleD1Database<TSchema> | undefined,
+    client?: DrizzleD1Database<TSchema>,
   ): D1SessionBookmark | null;
 }
 
@@ -88,9 +88,7 @@ export function createD1SessionAccess(bindingName: string): DbSessionAccess {
       current.start = typeof start === 'object' ? { bookmark: value } : start;
     },
 
-    getBookmark<TSchema extends Record<string, unknown>>(
-      client?: DrizzleD1Database<TSchema> | undefined,
-    ) {
+    getBookmark<TSchema extends Record<string, unknown>>(client?: DrizzleD1Database<TSchema>) {
       if (client) {
         const session = Reflect.get(client, '$client');
         if (!session?.getBookmark) {

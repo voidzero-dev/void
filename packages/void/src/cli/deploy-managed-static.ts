@@ -35,7 +35,7 @@ export function assembleVoidManifest(
   pageScan: PageScanResult | null,
   isFrameworkMode: boolean,
   opts: Parameters<typeof buildVoidManifest>[0],
-  revalidateConfig?: number | Record<string, number> | undefined,
+  revalidateConfig?: number | Record<string, number>,
   isrEnabled = true,
 ): DeployManifest {
   return buildVoidManifest({

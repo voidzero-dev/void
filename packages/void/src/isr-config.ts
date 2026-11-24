@@ -98,7 +98,7 @@ function resolvePageBuildTtl(
  */
 export function collectPages(
   pageScan: PageScanResult | null,
-  revalidateConfig?: number | Record<string, number> | undefined,
+  revalidateConfig?: number | Record<string, number>,
   isrEnabled = true,
 ): Array<{ pattern: string; revalidate?: number }> | undefined {
   if (!pageScan || pageScan.pages.length === 0) {

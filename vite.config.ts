@@ -434,7 +434,6 @@ const config = defineConfig({
       'typescript/await-thenable': 'off',
       'typescript/ban-ts-comment': 'off',
       'typescript/consistent-type-imports': 'off',
-      'typescript/no-duplicate-type-constituents': 'off',
       'typescript/no-empty-object-type': 'off',
       'typescript/no-import-type-side-effects': 'off',
       'typescript/no-misused-promises': 'off',

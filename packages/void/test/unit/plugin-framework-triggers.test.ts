@@ -75,10 +75,7 @@ function triggerRequest(kind: 'scheduled' | 'queue', payload: unknown): Request 
 }
 
 function callConfigureServer(
-  plugin:
-    | ReturnType<typeof nitroDevTriggerInjectPlugin>
-    | ReturnType<typeof astroDevTriggerInjectPlugin>
-    | ReturnType<typeof analogDevTriggerInjectPlugin>,
+  plugin: ReturnType<typeof nitroDevTriggerInjectPlugin>,
   serverOverrides: Record<string, unknown> = {},
 ) {
   const hook = plugin.configureServer;
