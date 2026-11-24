@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import {
   closeSync,
@@ -16,6 +15,7 @@ import type { PlatformInstallationManifest } from '@void/platform';
 import { join, resolve } from 'pathslash';
 import { writeFileAtomic } from '../shared/atomic-write.ts';
 import { readKeyringPassword, writeKeyringPassword } from './keyring.ts';
+import { Buffer } from './node-buffer.ts';
 
 const PLATFORM_REGISTRY_SCHEMA_VERSION = 1 as const;
 
@@ -280,7 +280,7 @@ export function getActivePlatformConnection(
   const registry = readRegistry(directory);
   return (
     registry.connections.find((connection) => connection.id === registry.activeConnectionId) ??
-    (registry.connections.length === 1 ? registry.connections[0]! : null)
+    (registry.connections.length === 1 ? registry.connections[0] : null)
   );
 }
 
@@ -294,7 +294,7 @@ export function platformConnectionSlug(
       manifest.id === connection.installationId &&
       (connection.accountId === null || connection.accountId === manifest.account.id),
   );
-  return matches.length === 1 ? matches[0]!.deployment.installationSlug : null;
+  return matches.length === 1 ? matches[0].deployment.installationSlug : null;
 }
 
 /** Resolve saved platforms without selecting one or changing its credentials. */
@@ -358,7 +358,7 @@ export function selectPlatformConnection(
           : `platform: More than one platform matches ${JSON.stringify(selector)}. Use its id or URL.`,
       );
     }
-    const selected = { ...matches[0]!, lastUsedAt: new Date().toISOString() };
+    const selected = { ...matches[0], lastUsedAt: new Date().toISOString() };
     const connections = current.connections.map((entry) =>
       entry.id === selected.id ? selected : entry,
     );
@@ -453,7 +453,7 @@ export function resolveInstallationManifest(
         : 'platform: Multiple local installations match; specify an installation id.',
     );
   }
-  return manifests[0]!;
+  return manifests[0];
 }
 
 export function writePendingInstallationSecrets(
@@ -684,7 +684,6 @@ function writeEncryptedRecoveryMaterial(
 }
 
 function recoveryAad(manifest: PlatformInstallationManifest, kind: 'pending' | 'recovery'): Buffer {
-  // oxlint-disable-next-line typescript/no-unsafe-return -- The lint type service loses the Node Buffer method types here.
   return Buffer.from(
     `void-platform-recovery-v1\0${manifest.account.id}\0${manifest.id}\0${manifest.ownershipNonce}\0${kind}`,
   );
@@ -719,7 +718,6 @@ function parseRecoveryKey(value: string, name: string): Buffer {
   if (key.byteLength !== 32 || key.toString('base64') !== value) {
     throw new Error(`platform: ${name} must be a canonical base64-encoded 32-byte key.`);
   }
-  // oxlint-disable-next-line typescript/no-unsafe-return -- The lint type service loses the Node Buffer method types here.
   return key;
 }
 

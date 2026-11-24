@@ -204,7 +204,7 @@ export function runCloudflareAuthCommand(
   if (cloudflareAuthNeedsTerminal(operation)) {
     // cf can prompt or print a device code while the browser login is active.
     return new Promise((resolve) => {
-      const child = spawn(command!, [...prefix, ...args], {
+      const child = spawn(command, [...prefix, ...args], {
         cwd: root,
         env: cloudflareAuthEnvironment(),
         shell: false,
@@ -223,7 +223,7 @@ export function runCloudflareAuthCommand(
   }
   return new Promise((resolve) => {
     const child = execFile(
-      command!,
+      command,
       [...prefix, ...args],
       {
         cwd: root,

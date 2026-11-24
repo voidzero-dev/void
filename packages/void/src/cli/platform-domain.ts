@@ -275,7 +275,7 @@ async function probePlatformDomain(
         ...cfAccessHeaders(process.env, url),
       },
     });
-    const body = (await response.json()) as { ok?: boolean; installationId?: string };
+    const body = await response.json<{ ok?: boolean; installationId?: string }>();
     if (!response.ok || body.ok !== true || body.installationId !== manifest.id) {
       throw new Error('Identity or health did not match.');
     }
@@ -383,7 +383,7 @@ export async function runPlatformDomainCommand(args: DomainArgs): Promise<void> 
           },
           body: JSON.stringify({ zoneId, domain }),
         });
-        const body = (await response.json()) as { ok?: boolean; installationId?: string };
+        const body = await response.json<{ ok?: boolean; installationId?: string }>();
         if (!response.ok || body.ok !== true || body.installationId !== manifest.id) {
           throw new Error(
             `platform: The running platform could not verify cache-purge access for ${domain}. Grant its existing runtime token Cache Purge: Purge on this zone, then rerun this command.`,

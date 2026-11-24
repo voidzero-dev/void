@@ -223,7 +223,7 @@ export async function verifyPlatformRuntimeTokenPermissions(
       ? emailDenial
       : new Error(
           `platform: ${formatPlatformCredentialDenials(credential, [...denials, ...(emailDenial?.denials ?? [])])}`,
-          { cause: denials[0]!.error },
+          { cause: denials[0].error },
         );
   const check = async (permission: string, action: () => Promise<unknown>) => {
     try {
@@ -448,7 +448,7 @@ export class PlatformCloudflareClient {
     });
     let envelope: CloudflareEnvelope<T>;
     try {
-      envelope = (await response.json()) as CloudflareEnvelope<T>;
+      envelope = await response.json<CloudflareEnvelope<T>>();
     } catch {
       throw new PlatformCloudflareApiError(
         `Cloudflare returned a non-JSON response (HTTP ${response.status}).`,
@@ -458,7 +458,7 @@ export class PlatformCloudflareClient {
     }
     if (!response.ok || envelope.success !== true || envelope.result === undefined) {
       const details = cloudflareErrorDetails(envelope, response.status);
-      const requestPath = path.split('?')[0]!;
+      const requestPath = path.split('?')[0];
       const error = this.#apiError(
         `Cloudflare API error: ${details} (HTTP ${response.status}; ${init?.method ?? 'GET'} ${requestPath}).`,
         response.status,
@@ -746,7 +746,7 @@ export class PlatformCloudflareClient {
     const after = await this.listWorkerRoutes(zoneId);
     for (const pattern of patterns) {
       const matches = after.filter((route) => route.pattern === pattern);
-      if (matches.length !== 1 || matches[0]!.script !== workerName) {
+      if (matches.length !== 1 || matches[0].script !== workerName) {
         throw new PlatformWorkerRoutesChangedError(
           `platform: Worker route ${JSON.stringify(pattern)} changed concurrently after publication; retaining live routes for safe reconciliation.`,
         );
@@ -810,11 +810,11 @@ export class PlatformCloudflareClient {
         if (!Array.isArray(result)) {
           throw new Error('platform: Cloudflare returned an invalid certificate inventory.');
         }
-        for (const entry of result) {
+        for (const entry of result as ReadonlyArray<Record<string, unknown>>) {
           const certificates =
             kind === 'ssl/certificate_packs'
               ? Array.isArray(entry.certificates)
-                ? entry.certificates
+                ? (entry.certificates as Array<unknown>)
                 : []
               : [entry];
           if (certificates.some(covers)) {
@@ -897,7 +897,7 @@ export class PlatformCloudflareClient {
         | ReadonlyArray<{ creation_date?: unknown; name?: unknown }>
       >(`/accounts/${encodeURIComponent(accountId)}/r2/buckets?${query}`);
       const page = Array.isArray(result)
-        ? result
+        ? (result as ReadonlyArray<{ creation_date?: unknown; name?: unknown }>)
         : 'buckets' in result
           ? (result.buckets ?? [])
           : [];
@@ -1095,7 +1095,7 @@ export class PlatformCloudflareClient {
       if (!Array.isArray(result)) {
         throw new Error('platform: Cloudflare returned an invalid KV key list.');
       }
-      for (const entry of result) {
+      for (const entry of result as ReadonlyArray<{ name?: unknown; metadata?: unknown }>) {
         const name = requiredString(entry.name, 'KV key name');
         keys.push(entry.metadata === undefined ? { name } : { name, metadata: entry.metadata });
       }
@@ -1297,9 +1297,7 @@ export class PlatformCloudflareClient {
       if (response.status === 404) {
         return;
       }
-      const envelope = (await response.json()) as CloudflareEnvelope<
-        ReadonlyArray<{ key?: unknown }>
-      >;
+      const envelope = await response.json<CloudflareEnvelope<ReadonlyArray<{ key?: unknown }>>>();
       if (!response.ok || envelope.success !== true || !Array.isArray(envelope.result)) {
         const details =
           envelope.errors
@@ -1312,7 +1310,7 @@ export class PlatformCloudflareClient {
           path,
         );
       }
-      const keys = envelope.result
+      const keys = (envelope.result as ReadonlyArray<{ key?: unknown }>)
         .map((object) => requiredString(object.key, 'R2 object key'))
         .filter((key) => !preservedKeys.has(key));
       if (keys.length > 0) {
@@ -1392,7 +1390,7 @@ export class PlatformCloudflareClient {
     }
     let envelope: CloudflareEnvelope<unknown>;
     try {
-      envelope = (await response.json()) as CloudflareEnvelope<unknown>;
+      envelope = await response.json<CloudflareEnvelope<unknown>>();
     } catch {
       // Judge an empty body by its status alone.
       envelope = { success: response.ok };

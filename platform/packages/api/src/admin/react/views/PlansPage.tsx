@@ -71,7 +71,7 @@ const aiLoggingLabels: Record<AiLoggingMode, string> = {
   full: 'Full (prompts and responses)',
 };
 function aiLoggingMode(modes: PlanAiLoggingSettings['modes'], planId: string): AiLoggingMode {
-  return Object.hasOwn(modes, planId) ? modes[planId]! : 'inherit';
+  return Object.hasOwn(modes, planId) ? modes[planId] : 'inherit';
 }
 /** The form value of a cap: `inherit`, `none` or cents, compared on submit (`securityCapInitial`). */
 function securityCapFormValue(cap: SecurityPlanCap): string {
@@ -698,7 +698,7 @@ export function PlanProgressPage({
             'Account updates paused. Reload plans to inspect the saved configuration, then retry.',
           );
         }
-        const next = (await response.json()) as AdminPlanProgress;
+        const next = await response.json<AdminPlanProgress>();
         if (
           next.revision !== initial.revision ||
           typeof next.complete !== 'boolean' ||

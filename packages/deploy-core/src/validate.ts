@@ -602,7 +602,9 @@ export function validateManifestShape(manifest: unknown): string | null {
     const names = new Set<string>();
     const classes = new Set<string>();
     const otherBindings = new Set([
-      ...Object.values(bindings).filter(Array.isArray).flat(),
+      ...Object.values(bindings)
+        .filter((value): value is Array<unknown> => Array.isArray(value))
+        .flat(),
       ...Object.keys(isRecord(manifest.vars) ? manifest.vars : {}),
       ...queueBindingNames,
       ...webSocketBindingNames,

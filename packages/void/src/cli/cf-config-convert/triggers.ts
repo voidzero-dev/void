@@ -26,7 +26,7 @@ export function convertTriggers(
   const converted: Array<OutputValue> = [];
   const routes: Array<unknown> = [
     ...(hasOwn(source, 'route') ? [source.route] : []),
-    ...(Array.isArray(source.routes) ? source.routes : []),
+    ...(Array.isArray(source.routes) ? (source.routes as Array<unknown>) : []),
   ];
 
   for (const [index, route] of routes.entries()) {

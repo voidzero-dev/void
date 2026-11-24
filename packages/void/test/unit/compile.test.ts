@@ -1,7 +1,6 @@
 import { win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compilePattern as sharedCompilePattern, matchPatternCaptures } from '@void/edge';
-/* oxlint-disable typescript-eslint/no-explicit-any -- these tests wire the void context augmentations by hand (`c.rewrite`, `c.originalUrl`, `c.isRewritten`) to exercise generated code paths directly; `as any` is the least noisy way to assign/read those members without re-declaring the full Hono context shape per test. */
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/serve-static';
 import { parseSync } from 'vite';
@@ -29,7 +28,7 @@ import {
   createSsrFallback,
   createAssetNotFound,
 } from '../../src/runtime/routing/index.ts';
-import type { RoutingRuntime } from '../../src/runtime/routing/index.ts';
+import type { RoutingContext, RoutingRuntime } from '../../src/runtime/routing/index.ts';
 
 const testOptions = {
   runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
@@ -268,7 +267,7 @@ function evalCompiledApp(code: string): Hono {
     '__createSsrFallback',
     '__createAssetNotFound',
     ['const withRuntimeEnv = (_e, fn) => fn();', stripped, 'return app;'].join('\n'),
-  );
+  ) as (...imports: Array<unknown>) => Hono;
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- vitest runs in node; node:async_hooks is built-in.
   const { AsyncLocalStorage } = require('node:async_hooks');
   return factory(
@@ -285,7 +284,7 @@ function evalCompiledApp(code: string): Hono {
     createManifestLoader,
     createSsrFallback,
     createAssetNotFound,
-  ) as Hono;
+  );
 }
 
 const runtimeByApp = new WeakMap<Hono, RoutingRuntime>();
@@ -330,7 +329,7 @@ async function rewriteError(destination: string): Promise<unknown> {
   let caught: unknown;
   app.get('/from', (c) => {
     try {
-      (c as any).rewrite(destination);
+      void (c as RoutingContext).rewrite(destination);
     } catch (err) {
       caught = err;
     }
@@ -347,13 +346,13 @@ describe('c.rewrite runtime wrapper', () => {
     const app = new Hono();
     installVoidWrappers(app);
 
-    app.get('/external', (c) => (c as any).rewrite('/internal'));
+    app.get('/external', (c) => (c as RoutingContext).rewrite('/internal'));
     app.get('/internal', (c) => {
       return new Response('internal-body', {
         headers: {
           'X-Handler': 'internal',
-          'X-Original-Url': (c as any).originalUrl()?.href ?? '',
-          'X-Is-Rewritten': (c as any).isRewritten() ? '1' : '0',
+          'X-Original-Url': (c as RoutingContext).originalUrl()?.href ?? '',
+          'X-Is-Rewritten': (c as RoutingContext).isRewritten() ? '1' : '0',
         },
       });
     });
@@ -374,8 +373,8 @@ describe('c.rewrite runtime wrapper', () => {
     app.get('/en/docs', (c) => {
       return new Response('docs-body', {
         headers: {
-          'X-Original-Url': (c as any).originalUrl()?.href ?? '',
-          'X-Is-Rewritten': (c as any).isRewritten() ? '1' : '0',
+          'X-Original-Url': (c as RoutingContext).originalUrl()?.href ?? '',
+          'X-Is-Rewritten': (c as RoutingContext).isRewritten() ? '1' : '0',
         },
       });
     });
@@ -397,7 +396,7 @@ describe('c.rewrite runtime wrapper', () => {
 
     installVoidWrappers(app);
     app.use('*', async (c, next) => {
-      if (!(c as any).isRewritten()) {
+      if (!(c as RoutingContext).isRewritten()) {
         ruleMatches++;
       }
       await next();
@@ -408,7 +407,7 @@ describe('c.rewrite runtime wrapper', () => {
 
     app.get('/a', (c) => {
       return new Response('handler-a', {
-        headers: { 'X-Is-Rewritten': (c as any).isRewritten() ? '1' : '0' },
+        headers: { 'X-Is-Rewritten': (c as RoutingContext).isRewritten() ? '1' : '0' },
       });
     });
 
@@ -467,11 +466,11 @@ describe('c.rewrite runtime wrapper', () => {
     const observed: Array<boolean> = [];
     app.use('*', async (c, next) => {
       invocations++;
-      observed.push((c as any).isRewritten());
+      observed.push((c as RoutingContext).isRewritten());
       await next();
     });
 
-    app.get('/from', (c) => (c as any).rewrite('/to'));
+    app.get('/from', (c) => (c as RoutingContext).rewrite('/to'));
     app.get('/to', (c) => c.text('to-handler', 200));
 
     const res = await app.fetch(new Request('http://localhost/from'));
@@ -491,7 +490,7 @@ describe('c.rewrite runtime wrapper', () => {
     app.use('*', async (c, next) => {
       invocations++;
       observedReqUrls.push(c.req.url);
-      observedOriginalUrls.push((c as any).originalUrl());
+      observedOriginalUrls.push((c as RoutingContext).originalUrl());
       await next();
     });
 
@@ -520,7 +519,7 @@ describe('c.rewrite runtime wrapper', () => {
 
     app.use('*', async (c, next) => {
       if (new URL(c.req.url).pathname === '/trigger') {
-        return (c as any).rewrite('/missing');
+        return (c as RoutingContext).rewrite('/missing');
       }
       await next();
     });
@@ -553,7 +552,7 @@ describe('c.rewrite runtime wrapper', () => {
       const app = new Hono();
       installVoidWrappers(app);
 
-      app.get('/from', (c) => (c as any).rewrite(destination));
+      app.get('/from', (c) => (c as RoutingContext).rewrite(destination));
       app.get(pathname, (c) => {
         const u = new URL(c.req.url);
         return new Response('ok', {
@@ -606,7 +605,7 @@ describe('c.rewrite runtime wrapper', () => {
     async (destination) => {
       const app = new Hono();
       installVoidWrappers(app);
-      app.get('/from', (c) => (c as any).rewrite(destination));
+      app.get('/from', (c) => (c as RoutingContext).rewrite(destination));
       app.get(destination, (c) => c.text('target', 200));
 
       const res = await app.fetch(new Request('http://localhost/from'));
@@ -657,11 +656,7 @@ describe('default-target dev parity', () => {
       passThroughOnException: () => undefined,
       props: {},
     };
-    const res = await app.fetch(
-      new Request('http://localhost/redirect'),
-      {},
-      stubCtx as unknown as ExecutionContext,
-    );
+    const res = await app.fetch(new Request('http://localhost/redirect'), {}, stubCtx);
 
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('https://example.com/next');
@@ -671,8 +666,8 @@ describe('default-target dev parity', () => {
   it('runs native Cloudflare prod rewrites, headers, and post-asset fallbacks', async () => {
     const code = compileWithRules({ nodeTarget: false, dev: false, managedDispatch: false });
     const app = evalCompiledApp(code);
-    app.get('/new', (c: any) =>
-      c.text(c.originalUrl()?.pathname === '/rewrite' ? 'rewritten' : 'new'),
+    app.get('/new', (c) =>
+      c.text((c as RoutingContext).originalUrl()?.pathname === '/rewrite' ? 'rewritten' : 'new'),
     );
     app.get('/docs.html', (c) => c.text('fallback'));
 
@@ -753,12 +748,12 @@ describe('default-target dev parity', () => {
       const app = evalCompiledApp(code);
 
       // Registered after eval so the compiled context middleware runs first.
-      app.get('/probe', (c: any) => {
-        const orig = c.originalUrl();
+      app.get('/probe', (c) => {
+        const orig = (c as RoutingContext).originalUrl();
         return new Response('probe', {
           headers: {
             'X-Original-Url': orig?.href ?? '',
-            'X-Is-Rewritten': c.isRewritten() ? '1' : '0',
+            'X-Is-Rewritten': (c as RoutingContext).isRewritten() ? '1' : '0',
           },
         });
       });
@@ -774,7 +769,7 @@ describe('default-target dev parity', () => {
           headers: { 'X-Void-Original-URL': 'http://localhost/spoof' },
         }),
         {},
-        stubCtx as unknown as ExecutionContext,
+        stubCtx,
       );
 
       expect(res.status, `${label}: probe should return 200`).toBe(200);
@@ -1118,6 +1113,7 @@ describe('compileNodeApp', () => {
         .replaceAll(/^import .*;$/gm, '')
         .replace('import.meta.voidClientDirectory', '"client"')
         .replace('export default app;', 'return app;');
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
       const app: Hono = new Function('Hono', 'innerApp', 'fileURLToPath', 'serveStatic', code)(
         Hono,
         innerApp,

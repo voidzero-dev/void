@@ -745,7 +745,7 @@ const dispatcher = {
       });
     }
 
-    const routing: RoutingEntry = JSON.parse(routingRaw);
+    const routing = JSON.parse(routingRaw) as RoutingEntry;
     if (selected.projectId && selected.projectId !== routing.projectId) {
       return createErrorResponse(request, 404, 'Not Found');
     }
@@ -2307,7 +2307,7 @@ async function fetchStaticAssetOnce(
       ...(obj.size ? { 'Content-Length': String(obj.size) } : {}),
     };
     if (contentType) {
-      (headers as Record<string, string>)['Content-Type'] = contentType;
+      headers['Content-Type'] = contentType;
     }
     return new Response(obj.body, { headers });
   }
@@ -2322,10 +2322,10 @@ async function fetchStaticAssetOnce(
     }
     const contentType = resolveAssetContentType(metadata?.ct, path);
     const headers: HeadersInit = {
-      'Content-Length': String((value as ArrayBuffer).byteLength),
+      'Content-Length': String(value.byteLength),
     };
     if (contentType) {
-      (headers as Record<string, string>)['Content-Type'] = contentType;
+      headers['Content-Type'] = contentType;
     }
     return new Response(value, { headers });
   };

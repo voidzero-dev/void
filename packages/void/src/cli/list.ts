@@ -199,16 +199,17 @@ function formatDeploymentRow(
   d: DeploymentResponse,
   activeDeploymentId: string | null,
 ): DeploymentRow {
-  let manifest: {
+  type Manifest = {
     type?: string;
     static?: string;
     framework?: string;
     revalidate?: number;
     pathRevalidate?: Record<string, number>;
-  } | null = null;
+  };
+  let manifest: Manifest | null = null;
   if (d.manifest) {
     try {
-      manifest = JSON.parse(d.manifest);
+      manifest = JSON.parse(d.manifest) as Manifest | null;
     } catch {
       // ignore
     }

@@ -54,13 +54,13 @@ export async function buildLogs(
   if (!response.ok) {
     throw new OperatorError(502, `Build log service failed (${response.status}).`);
   }
-  const body = (await response.json()) as {
+  const body = await response.json<{
     lines: Array<{ seq: number; line: string; stream: string; ts: number }>;
     lastSeq: number;
     status?: string | null;
     terminal?: boolean;
     logsComplete?: boolean | null;
-  };
+  }>();
   if (
     !Array.isArray(body.lines) ||
     !Number.isSafeInteger(body.lastSeq) ||

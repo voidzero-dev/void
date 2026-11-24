@@ -121,7 +121,7 @@ class FakeMySqlDatabase {
     }
     const name = String(params[0]);
     if (sql === 'SELECT DATABASE() AS db') {
-      return [{ db: this.sessions[session - 1]!.database ?? 'app' }];
+      return [{ db: this.sessions[session - 1].database ?? 'app' }];
     }
     if (sql.startsWith('SELECT GET_LOCK')) {
       const holder = this.locks.get(name);
@@ -159,7 +159,7 @@ class FakeMySqlDatabase {
     const now = Date.now();
     const clock = /UTC_TIMESTAMP\(6\)/.test(sql)
       ? now
-      : now + (this.sessions[session - 1]!.utcOffsetMs ?? 0);
+      : now + (this.sessions[session - 1].utcOffsetMs ?? 0);
     // The statement's own expiry filter, if it has one.
     const filter = /`expires_at` ([<>]) (?:NOW|UTC_TIMESTAMP)\(6\)/.exec(sql)?.[1];
     const matches = (lease: Lease) =>
@@ -234,7 +234,7 @@ async function migrate(
       headers: { 'x-void-internal': 'token' },
     }),
   );
-  return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  return { status: response.status, body: await response.json<Record<string, unknown>>() };
 }
 
 /** Runs `start` to its end while fake time moves on one second at a time. */
@@ -903,7 +903,7 @@ describe('MySQL Better Auth migrations under the lock', () => {
 
     expect(bodies.map((body) => body.ok)).toEqual([true, true]);
     expect(runs).toHaveLength(2);
-    expect(runs[1]!.start).toBeGreaterThanOrEqual(runs[0]!.end);
+    expect(runs[1].start).toBeGreaterThanOrEqual(runs[0].end);
   });
 
   it('keeps the lease while Better Auth migrations outlast it', async () => {

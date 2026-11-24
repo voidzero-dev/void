@@ -64,8 +64,7 @@ function callConfigResolved(plugin: Plugin, config: Partial<ResolvedConfig>) {
   if (typeof fn !== 'function') {
     throw new Error('configResolved not callable');
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (fn as any)(config);
+  (fn as (options: typeof config) => void)(config);
 }
 
 afterEach(() => {
@@ -132,10 +131,13 @@ describe('Class A framework custom entry', () => {
           join(root, '.void/tanstack-start-trigger-wrapper.ts'),
         );
         const original = await server.ssrLoadModule(join(root, 'server.mjs'));
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
         const response = await wrapped.default.fetch(new Request('https://example.test/'), {}, {});
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
         expect(await response.text()).toBe('custom entry');
         expect(wrapped.Counter).toBe(original.Counter);
         expect(wrapped.marker).toBe('custom entry');
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
         expect(wrapped.default.scheduled()).toBe('scheduled');
       } finally {
         await server.close();
@@ -218,7 +220,7 @@ describe('Class A framework build wrapper', () => {
       callConfigResolved(wrapperPlugin, {
         command: 'build',
         build: { assetsDir: 'static' } as ResolvedConfig['build'],
-      } as Partial<ResolvedConfig>);
+      });
 
       const code = readFileSync(join(root, '.void', 'tanstack-start-trigger-wrapper.ts'), 'utf8');
       expect(code).toContain('return serveWithAssets(request, env, await original.fetch');
@@ -296,7 +298,7 @@ describe('Class A bare void imports', () => {
         server: { middlewareMode: true, ws: false, preTransformRequests: false },
       });
       try {
-        const resolved = await server.environments[environment]!.pluginContainer.resolveId(
+        const resolved = await server.environments[environment].pluginContainer.resolveId(
           'void',
           join(root, 'crons/tick.ts'),
         );
@@ -331,7 +333,7 @@ describe('Class A framework request scope', () => {
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'assets' } as ResolvedConfig['build'],
-    } as Partial<ResolvedConfig>);
+    });
     const build = readFileSync(wrapperPath, 'utf8');
     // The asset fallback helper that ends the build wrapper is covered above.
     return { dev, build: build.slice(0, build.indexOf('import { createAssetFallback')) };
@@ -529,7 +531,7 @@ export default defineEnv({
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'assets' } as ResolvedConfig['build'],
-    } as Partial<ResolvedConfig>);
+    });
     return { root, wrapperPath, dev, build: readFileSync(wrapperPath, 'utf8') };
   }
 
@@ -755,7 +757,7 @@ describe('Class A routing.notFound self-host warning', () => {
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'static' } as ResolvedConfig['build'],
-    } as Partial<ResolvedConfig>);
+    });
 
     expect(notFoundWarnings(logSpy.mock.calls.map((args) => args.join(' ')))).toEqual([]);
   });

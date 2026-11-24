@@ -50,7 +50,7 @@ describe('runValidation', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      const json = (await result.response.json()) as ValidationIssueBody;
+      const json = await result.response.json<ValidationIssueBody>();
       expect(json.issues[0].issues[0].path).toBe('name');
     }
   });

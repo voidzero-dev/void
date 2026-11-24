@@ -25,6 +25,7 @@ import type { CfCommand } from './cf-version-api.ts';
 import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import type { WranglerAuthTokenResult } from './deploy-cloudflare-auth.ts';
+import { Buffer } from './node-buffer.ts';
 
 function failed(message: string): CloudflareCommandResult {
   return { status: 1, stdout: '', stderr: message };
@@ -116,7 +117,7 @@ export async function pinActiveWorkerSecrets(options: {
   if (!record(worker) || (worker.env !== undefined && !record(worker.env))) {
     return false;
   }
-  const env = (worker.env ?? {}) as Record<string, unknown>;
+  const env = worker.env ?? {};
   for (const [name, value] of Object.entries(env)) {
     if (
       record(value) &&
@@ -619,8 +620,8 @@ export function createCfVersionRunner(options: {
           return failed('The Cloudflare Worker version history was not readable.');
         }
         if (second.versions.length > 0) {
-          const firstNumbers = versions.map((item) => item.number as number);
-          const secondNumbers = second.versions.map((item) => item.number as number);
+          const firstNumbers = versions.map((item) => item.number);
+          const secondNumbers = second.versions.map((item) => item.number);
           if (Math.min(...secondNumbers) > Math.max(...firstNumbers)) {
             versions.push(...second.versions);
             let last = Math.max(...secondNumbers);
@@ -635,7 +636,7 @@ export function createCfVersionRunner(options: {
               if (next.versions.length === 0) {
                 break;
               }
-              const numbers = next.versions.map((item) => item.number as number);
+              const numbers = next.versions.map((item) => item.number);
               if (Math.min(...numbers) <= last) {
                 return failed('The Cloudflare Worker version history changed during inspection.');
               }
@@ -655,7 +656,7 @@ export function createCfVersionRunner(options: {
       }
       return {
         ...first.result,
-        data: versions.sort((a, b) => (a.number as number) - (b.number as number)).slice(-10),
+        data: versions.sort((a, b) => a.number - b.number).slice(-10),
       };
     }
 
@@ -835,7 +836,7 @@ export function createCfVersionRunner(options: {
           return failed('The Cloudflare trigger snapshot was not convertible.');
         }
         const next = migrated.triggers ?? [];
-        const previous = Array.isArray(worker.triggers) ? worker.triggers : [];
+        const previous = Array.isArray(worker.triggers) ? (worker.triggers as Array<unknown>) : [];
         const preserveRoutes = raw.routes === undefined && raw.route === undefined;
         const preserveEmail = raw.addresses === undefined;
         worker.triggers = [
@@ -937,7 +938,9 @@ export function createCfVersionRunner(options: {
       if (!Array.isArray(allQueues)) {
         return failed('The Cloudflare Queue list was not readable.');
       }
-      const queue = allQueues.find((item) => record(item) && item.queue_name === queueName);
+      const queue = (allQueues as Array<unknown>).find(
+        (item) => record(item) && item.queue_name === queueName,
+      );
       if (!record(queue) || typeof queue.queue_id !== 'string') {
         return failed(`Cloudflare Queue ${queueName} was not found.`);
       }

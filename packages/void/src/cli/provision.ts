@@ -1489,7 +1489,7 @@ function createDefaultListHyperdriveConfigs(apiToken?: string): ListHyperdriveCo
       if (!res.ok) {
         throw new Error(`Cloudflare API returned HTTP ${res.status} listing Hyperdrive configs`);
       }
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = await res.json<Record<string, unknown>>();
       if (!isRecord(body) || body.success !== true || !Array.isArray(body.result)) {
         throw new Error(
           'Cloudflare API returned an unsuccessful or malformed Hyperdrive configs payload',
@@ -2122,7 +2122,7 @@ function readRootConfig(configPath: string): Record<string, unknown> {
   const raw = readFileSync(configPath, 'utf8');
   const content = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
   const errors: Array<ParseError> = [];
-  const parsed = parse(content, errors, { allowTrailingComma: true });
+  const parsed: unknown = parse(content, errors, { allowTrailingComma: true });
   if (errors.length > 0) {
     throw new Error(
       `provision: cannot read "${configPath}" — it is not valid JSON/JSONC. Fix the file and retry.`,

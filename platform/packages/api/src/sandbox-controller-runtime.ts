@@ -245,7 +245,7 @@ export class SandboxController extends SandboxContainer<ControllerEnv> {
   protected override get image(): string {
     return this.env.__VOID_SANDBOX_IMAGE === 'cloudflare/debian-trixie'
       ? 'cloudflare/debian-trixie'
-      : this.container.images.default!;
+      : this.container.images.default;
   }
   protected override get entrypoint(): Array<string> | undefined {
     return this.image === 'cloudflare/debian-trixie' ? ['sleep', 'infinity'] : undefined;

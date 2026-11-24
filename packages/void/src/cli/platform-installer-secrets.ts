@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { parsePlatformAuthenticationSetup } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
+import { Buffer } from './node-buffer.ts';
 import {
   checkpointPlatformAccessResources,
   isPlatformAuthenticationPreparationKey,
@@ -587,7 +588,7 @@ export async function resolveBootstrapGitHubId(
       `platform: Could not resolve GitHub user ${JSON.stringify(normalizedLogin)} (HTTP ${response.status}). Verify the username and retry.`,
     );
   }
-  const body = (await response.json()) as { id?: unknown };
+  const body = await response.json<{ id?: unknown }>();
   const id = typeof body.id === 'number' && Number.isSafeInteger(body.id) ? String(body.id) : '';
   if (!/^[1-9][0-9]*$/.test(id)) {
     throw new Error(

@@ -280,7 +280,7 @@ it.each([390, 1280])(
         await route.fulfill({
           status: response.status,
           headers: Object.fromEntries(response.headers),
-          body: Buffer.from(await response.arrayBuffer()),
+          body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
         });
       });
       await page.goto('http://localhost/admin/status');

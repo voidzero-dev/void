@@ -44,7 +44,7 @@ export function FormTextInput({
       value={value}
       onChange={setValue}
       // Astryx forwards the type to the native input but its type union omits url.
-      type={type as 'text' | 'password' | 'email'}
+      type={type}
       isRequired={required}
       {...({ required, maxLength } satisfies InputHTMLAttributes<HTMLInputElement>)}
       placeholder={placeholder}

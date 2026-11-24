@@ -117,7 +117,7 @@ function streamingR2(contentType: string | undefined = 'text/html; charset=utf-8
           return;
         }
         const chunks = strict ? [1, 2, 5] : [64 * 1024];
-        const end = Math.min(offset + chunks[nextSize++ % chunks.length]!, bytes.byteLength);
+        const end = Math.min(offset + chunks[nextSize++ % chunks.length], bytes.byteLength);
         controller.enqueue(bytes.subarray(offset, end));
         offset = end;
       },
@@ -134,7 +134,7 @@ function streamingR2(contentType: string | undefined = 'text/html; charset=utf-8
           headers.set('Content-Type', type);
         }
       },
-    } as R2ObjectBody;
+    };
   });
   return { get, arrayBuffer };
 }
@@ -253,7 +253,7 @@ function inventory(query = '') {
 async function preview(id: string, cursor?: string): Promise<Result> {
   const response = await request(id, { dryRun: true, ...(cursor ? { cursor } : {}) });
   expect(response.status, await response.clone().text()).toBe(200);
-  const result = (await response.json()) as Result;
+  const result = await response.json<Result>();
   expect(result).toMatchObject({ dryRun: true, action: 'deployment.migrate-assets', target: id });
   expect(result.expected).toBeDefined();
   return result;
@@ -276,9 +276,12 @@ async function assertMigrated(id: string, projectId: string, entries: Array<Asse
     const object = await env.STATIC_ASSETS_R2.get(`assets/${projectId}/${entry.hash}`);
     // Compare every byte without Vitest walking millions of typed-array keys
     // in the historical 2 MiB boundary case on a shared CI runner.
-    expect(Buffer.compare(Buffer.from(await object!.arrayBuffer()), Buffer.from(entry.bytes))).toBe(
-      0,
-    );
+    expect(
+      (Buffer as BufferConstructor).compare(
+        (Buffer as BufferConstructor).from(await object!.arrayBuffer()),
+        (Buffer as BufferConstructor).from(entry.bytes),
+      ),
+    ).toBe(0);
   }
 }
 
@@ -499,7 +502,7 @@ describe('operator deployment asset migration', () => {
     const first = await apply(deployment.id);
     expect(first.status, await first.clone().text()).toBeGreaterThanOrEqual(200);
     expect(first.status).toBeLessThan(300);
-    const firstResult = (await first.json()) as Result;
+    const firstResult = await first.json<Result>();
     expect(firstResult).toMatchObject({
       complete: false,
       nextCursor: expect.stringMatching(/^[0-9a-f]{32}$/),
@@ -534,7 +537,7 @@ describe('operator deployment asset migration', () => {
     }
     const first = await apply(deployment.id);
     expect(first.status, await first.clone().text()).toBe(200);
-    const result = (await first.json()) as Result;
+    const result = await first.json<Result>();
     expect(result.complete).toBe(false);
     // Model a second operator request seeing a stale KV replica after the
     // first page committed its verified scoped placement in PostgreSQL.
@@ -555,7 +558,7 @@ describe('operator deployment asset migration', () => {
       if (state === 'partial') {
         await env.ROUTING.put(
           `manifest:${deployment.id}`,
-          JSON.stringify({ [entries[0]!.path]: entries[0]!.hash }),
+          JSON.stringify({ [entries[0].path]: entries[0].hash }),
         );
       }
       for (const entry of entries) {
@@ -766,7 +769,7 @@ describe('operator deployment asset migration', () => {
       asset('/second.html', 'Missing second asset', 'kv'),
     ].sort((a, b) => a.hash.localeCompare(b.hash));
     const { project, deployment } = await fixture(entries);
-    await env.STATIC_ASSETS.put(`assets/${entries[0]!.hash}`, entries[0]!.bytes);
+    await env.STATIC_ASSETS.put(`assets/${entries[0].hash}`, entries[0].bytes);
     const oldServing = await env.ROUTING.get(`manifest:${deployment.id}`);
     const oldMetadata = (await getDeployment(env.db, deployment.id))!.asset_hashes;
     const response = await apply(deployment.id);
@@ -776,10 +779,10 @@ describe('operator deployment asset migration', () => {
     ).toHaveLength(1);
     expect((await getDeployment(env.db, deployment.id))!.asset_hashes).toBe(oldMetadata);
     expect(await env.ROUTING.get(`manifest:${deployment.id}`)).toBe(oldServing);
-    expect(await env.STATIC_ASSETS.get(`assets/${entries[0]!.hash}`, 'arrayBuffer')).toEqual(
-      entries[0]!.bytes,
+    expect(await env.STATIC_ASSETS.get(`assets/${entries[0].hash}`, 'arrayBuffer')).toEqual(
+      entries[0].bytes,
     );
-    await env.STATIC_ASSETS.put(`assets/${entries[1]!.hash}`, entries[1]!.bytes);
+    await env.STATIC_ASSETS.put(`assets/${entries[1].hash}`, entries[1].bytes);
     const retry = await apply(deployment.id);
     expect(retry.status, await retry.clone().text()).toBe(200);
     await assertMigrated(deployment.id, project.id, entries);
@@ -863,13 +866,13 @@ describe('operator asset migration inventory', () => {
     const unprotected = await createTestDeployment(env.db, project.id, 'failed');
     const firstResponse = await inventory('?limit=2&page=1');
     expect(firstResponse.status, await firstResponse.clone().text()).toBe(200);
-    const first = (await firstResponse.json()) as {
+    const first = await firstResponse.json<{
       deployments: Array<{ id: string; active: boolean; retained: boolean; bundleStored: boolean }>;
       pagination: unknown;
-    };
+    }>();
     const secondResponse = await inventory('?limit=2&page=2');
     expect(secondResponse.status, await secondResponse.clone().text()).toBe(200);
-    const second = (await secondResponse.json()) as typeof first;
+    const second = await secondResponse.json<typeof first>();
     expect(first.pagination).toEqual({ page: 1, limit: 2, total: 3, totalPages: 2 });
     expect(second.pagination).toEqual({ page: 2, limit: 2, total: 3, totalPages: 2 });
     expect(first.deployments).toHaveLength(2);

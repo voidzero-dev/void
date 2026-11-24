@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   analogDevTriggerInjectPlugin,
   astroDevTriggerInjectPlugin,
@@ -37,8 +38,7 @@ function callConfigResolved(plugin: ReturnType<typeof frameworkTriggersPlugin>) 
   if (typeof fn !== 'function') {
     throw new Error('configResolved not callable');
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (fn as any)({} as never);
+  (fn as (config: object) => void)({});
 }
 
 type DevTrigger = (
@@ -83,8 +83,7 @@ function callConfigureServer(
   if (typeof fn !== 'function') {
     throw new Error('configureServer not callable');
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (fn as any)({
+  (fn as (server: object) => void)({
     httpServer: { once() {} },
     middlewares: { use() {} },
     ...serverOverrides,
@@ -638,12 +637,12 @@ describe('astroDevTriggerInjectPlugin', () => {
         rmSync(middlewarePath);
       }
       startServer();
-      closeServer[0]!();
+      closeServer[0]();
       expect(existsSync(middlewarePath)).toBe(true);
       expect(readFileSync(join(root, '.gitignore'), 'utf8')).toContain('src/middleware.ts');
       expect(log).not.toHaveBeenCalled();
 
-      closeServer[1]!();
+      closeServer[1]();
       expect(existsSync(middlewarePath)).toBe(false);
       expect(readFileSync(join(root, '.gitignore'), 'utf8')).toBe('node_modules/\n');
     },
@@ -669,10 +668,10 @@ describe('astroDevTriggerInjectPlugin', () => {
 
     startServer();
     startServer();
-    closeServer[0]!();
+    closeServer[0]();
     expect(existsSync(middlewarePath)).toBe(true);
 
-    closeServer[1]!();
+    closeServer[1]();
     expect(existsSync(middlewarePath)).toBe(false);
     expect(readFileSync(join(root, '.gitignore'), 'utf8')).toBe('node_modules/\n');
   });
@@ -754,7 +753,7 @@ describe('analogDevTriggerInjectPlugin', () => {
     });
     expect(next).not.toHaveBeenCalled();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0]![0]).toBe('http://localhost:51234/api/__void/cron-trigger');
+    expect(fetchSpy.mock.calls[0][0]).toBe('http://localhost:51234/api/__void/cron-trigger');
     expect(res.statusCode).toBe(202);
     expect(res.body?.toString()).toBe('ok');
   });
@@ -765,7 +764,7 @@ describe('analogDevTriggerInjectPlugin', () => {
     ['::1', 'IPv6', 'http://[::1]:51234/api/__void/cron-trigger'],
   ])('proxies to the dev server bound to %s', async (bound, family, expected) => {
     const { fetchSpy } = await proxyTrigger({ address: bound, family, port: 51_234 });
-    expect(fetchSpy.mock.calls[0]![0]).toBe(expected);
+    expect(fetchSpy.mock.calls[0][0]).toBe(expected);
   });
 
   it('leaves trigger requests alone when the dev server is not listening', async () => {

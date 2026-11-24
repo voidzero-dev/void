@@ -586,7 +586,7 @@ const app = new Hono<ApiEnv>()
             getDomainsByProjectIds(context.get('db'), projectIds),
             getLatestDeploymentsByProjectIds(context.get('db'), projectIds),
             isDevBypass(context.env)
-              ? Promise.resolve(new Map())
+              ? Promise.resolve(new Map<string, never>())
               : queryProjectRequestOverview(
                   context.env.CF_ACCOUNT_ID,
                   context.env.CF_API_TOKEN,
@@ -594,7 +594,7 @@ const app = new Hono<ApiEnv>()
                   projectIds,
                 ),
           ])
-        : [new Map(), new Map(), new Map()];
+        : ([new Map<string, never>(), new Map<string, never>(), new Map<string, never>()] as const);
 
     const projectsWithSummaries = projects.map(({ project: p, role, owner }): ProjectListItem => {
       const pDomains = domainMap.get(p.id);
@@ -991,7 +991,7 @@ const app = new Hono<ApiEnv>()
                 ) {
                   throw new RollbackError(409, `deploy in progress: ${activeDeploy.id}`);
                 }
-                const migrationDiff = lease.migrationDiff as Array<string>;
+                const migrationDiff = lease.migrationDiff;
                 const released = await deleteRollbackLease(tx, activeDeploy.id, lease.ownerId);
                 if (!released) {
                   throw new RollbackError(409, `deploy in progress: ${activeDeploy.id}`);
@@ -1140,7 +1140,7 @@ const app = new Hono<ApiEnv>()
           }
 
           const targetMigrations: Array<string> = target.applied_migrations
-            ? JSON.parse(target.applied_migrations)
+            ? (JSON.parse(target.applied_migrations) as Array<string>)
             : [];
 
           const projectMigrationNames = await getProjectMigrationNames(tx, projectId);
@@ -1151,7 +1151,7 @@ const app = new Hono<ApiEnv>()
             projectMigrationNames.length > 0
               ? [...projectMigrationNames]
               : currentActive?.applied_migrations
-                ? JSON.parse(currentActive.applied_migrations)
+                ? (JSON.parse(currentActive.applied_migrations) as Array<string>)
                 : [];
           const diff = currentMigrations.filter((m) => !targetMigrations.includes(m));
 
@@ -1197,7 +1197,7 @@ const app = new Hono<ApiEnv>()
 
           // Build routing JSON from the freshly-read target manifest.
           const manifest: DeployManifest | null = target.manifest
-            ? JSON.parse(target.manifest)
+            ? (JSON.parse(target.manifest) as DeployManifest)
             : null;
           const dispatchLimits = computeDispatchLimits(
             await resolvePlanLimits(tx, lockedAccess.owner.plan),
@@ -1211,7 +1211,9 @@ const app = new Hono<ApiEnv>()
           // sweep below for why the union uses `deployed_at IS NOT NULL`.
           const workerName = getProjectDeploymentWorkerName(lockedProject.slug, target.id);
           const existingRouting = await context.env.ROUTING.get(projectRouteKey(lockedProject));
-          const existingEntry = existingRouting ? JSON.parse(existingRouting) : null;
+          const existingEntry = existingRouting
+            ? (JSON.parse(existingRouting) as { suspended?: string })
+            : null;
           const zeroTrust = await resolveProjectZeroTrustRouting(tx, projectId).catch(
             (error: unknown) => {
               const message = zeroTrustNotReadyMessage(error);
@@ -1420,7 +1422,7 @@ const app = new Hono<ApiEnv>()
               }
               let depManifest: DeployManifest | null = null;
               try {
-                depManifest = JSON.parse(d.manifest);
+                depManifest = JSON.parse(d.manifest) as DeployManifest;
               } catch {
                 // Skip deployments with unparseable manifests rather than
                 // blowing up the whole rollback.
@@ -1921,7 +1923,7 @@ const app = new Hono<ApiEnv>()
     }
 
     const body = await context.req.json<{
-      migrations: ReadonlyArray<{ name: string; sql: string }>;
+      migrations: Array<{ name: string; sql: string }>;
       migrationProtocolVersion?: number;
       executionPlans?: ReadonlyArray<Record<string, unknown>>;
     }>();
@@ -2105,7 +2107,7 @@ const app = new Hono<ApiEnv>()
       return access;
     }
 
-    const body = await context.req.json<{ renames: ReadonlyArray<{ from: string; to: string }> }>();
+    const body = await context.req.json<{ renames: Array<{ from: string; to: string }> }>();
     if (!body.renames || !Array.isArray(body.renames) || body.renames.length === 0) {
       return context.json({ error: 'renames array required' }, 400);
     }
@@ -2775,13 +2777,13 @@ const app = new Hono<ApiEnv>()
     const ns = buildManagerNamespace(context.env, build.instance_type);
     const stub = ns.get(ns.idFromName(build.id));
     const res = await stub.fetch(`http://manager/logs?since=${since}`);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: ReadonlyArray<{ seq: number; line: string; stream: string; ts: number }>;
       lastSeq: number;
       status?: string;
       terminal?: boolean;
       logsComplete?: boolean | null;
-    };
+    }>();
     // Claiming a container build durably sets started_at. Only a terminal row
     // that was never claimed can prove completion without a producer marker.
     const logsComplete = body.logsComplete ?? (terminal && build.started_at === null ? true : null);

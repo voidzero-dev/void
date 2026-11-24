@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { toSlash } from 'pathslash';
 import { expect, it } from 'vite-plus/test';
 import { encodeCloudflareOperation } from '../../src/cli/cloudflare-process.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { withConditionalPlatformWorkerCreate } from '../../src/cli/platform-installer-process.ts';
 import { resolveCloudflareOperationArgv } from '../../src/cli/preset.ts';
 
@@ -121,7 +122,7 @@ it.each(['none', 'batch', 'single-file'] as const)(
         async (apiBase) => {
           await new Promise<void>((resolve) => {
             const child = execFile(
-              command!,
+              command,
               [
                 ...prefix,
                 ...encodeCloudflareOperation({ type: 'worker.deploy', configPath: config }),

@@ -232,9 +232,9 @@ describe('void email alias <name>', () => {
 
   it('exits 1 without a prompt or a request when not interactive and --yes is missing', async () => {
     const api = client();
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('process.exit');
-    }) as never);
+    });
 
     await expect(
       emailAlias(api, 'prj_1', 'short', { yes: false, isInteractive: false }),
@@ -253,7 +253,7 @@ describe('void email alias <name>', () => {
     await emailAlias(api, 'prj_1', 'short', { yes: false, isInteractive: true });
 
     expect(confirm).toHaveBeenCalledTimes(1);
-    const prompt = vi.mocked(confirm).mock.calls[0]![0];
+    const prompt = vi.mocked(confirm).mock.calls[0][0];
     expect(prompt.message).toContain('"short"');
     expect(prompt.message).toContain('cannot be changed');
     expect(prompt.initialValue).toBe(false);

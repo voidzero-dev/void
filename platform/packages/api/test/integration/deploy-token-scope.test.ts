@@ -195,9 +195,9 @@ describe('deploy token scope enforcement', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       deployments: ReadonlyArray<{ manifest: string | null }>;
-    };
+    }>();
     expect(body.deployments).toHaveLength(1);
     const returned = JSON.parse(body.deployments[0].manifest!) as Record<string, unknown>;
     // The plaintext env values must be gone...
@@ -239,9 +239,9 @@ describe('deploy token scope enforcement', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       deployments: ReadonlyArray<{ manifest: string | null }>;
-    };
+    }>();
     expect(body.deployments).toHaveLength(1);
     const returned = JSON.parse(body.deployments[0].manifest!) as Record<string, unknown>;
     expect(returned.vars).toEqual({ SECRET: 'super-secret-value' });
@@ -264,9 +264,9 @@ describe('deploy token scope enforcement', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       deployments: ReadonlyArray<{ manifest: string | null }>;
-    };
+    }>();
     expect(body.deployments).toHaveLength(2);
     for (const deployment of body.deployments) {
       expect(deployment.manifest).toBeNull();
@@ -303,7 +303,7 @@ describe('deploy token scope enforcement', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as ReadonlyArray<{ id: string; slug: string }>;
+    const body = await res.json<ReadonlyArray<{ id: string; slug: string }>>();
     const ids = body.map((p) => p.id);
     // The scoped project must be present so the CLI can resolve slug→id...
     expect(ids).toContain(projectP.id);
@@ -325,7 +325,7 @@ describe('deploy token scope enforcement', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as ReadonlyArray<{ id: string; slug: string }>;
+    const body = await res.json<ReadonlyArray<{ id: string; slug: string }>>();
     const ids = body.map((p) => p.id);
     // A full `api` token (deployScope unset) keeps the complete listing.
     expect(ids).toContain(projectP.id);

@@ -12,9 +12,9 @@ void test('perfect drops preserve the footprint and reward streaks', () => {
     game = result.game;
     assert.equal(result.perfect, true);
     assert.equal(result.fragment, null);
-    assert.equal(game.tiles[level]!.width, 240);
-    assert.equal(game.tiles[level]!.depth, 240);
-    assert.equal(game.tiles[level]![game.axis], -120);
+    assert.equal(game.tiles[level].width, 240);
+    assert.equal(game.tiles[level].depth, 240);
+    assert.equal(game.tiles[level][game.axis], -120);
     assert.equal(game.combo, level);
   }
   assert.equal(game.score, 400);
@@ -29,12 +29,12 @@ void test('overhangs on either side leave a matching cut piece and reduce the ne
     assert.equal(perfect, false);
     assert.equal(game.combo, 0);
     assert.equal(game.score, 10);
-    assert.equal(game.tiles[1]!.width, 200);
+    assert.equal(game.tiles[1].width, 200);
     assert.equal(game.moving!.width, 200);
     assert.equal(game.moving!.depth, 240);
     assert.equal(fragment!.width, 40);
     assert.equal(fragment!.x, delta < 0 ? -160 : 120);
-    assert.equal(game.tiles[1]!.x, delta < 0 ? -120 : -80);
+    assert.equal(game.tiles[1].x, delta < 0 ? -120 : -80);
   }
 });
 
@@ -119,7 +119,7 @@ void test('each shuffled set includes all nine frameworks before any repeat', ()
 
 void test('a new shuffled set cannot repeat the last logo of the previous set', () => {
   const initial = createStackGame(() => 0);
-  const top = initial.tiles[0]!;
+  const top = initial.tiles[0];
   const result = dropStackTile(
     { ...initial, moving: { ...initial.moving!, x: top.x }, remainingFrameworks: [] },
     () => 0,

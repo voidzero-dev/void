@@ -43,7 +43,7 @@ describe('cf browser login', () => {
     vi.spyOn(log, 'info').mockImplementation(() => {});
     let reads = 0;
     vi.mocked(spawnSync).mockImplementation((_command, args, options) => {
-      const action = JSON.parse(args![1] as string).type;
+      const action = JSON.parse(args![1]).type;
       if (action === 'auth.login') {
         expect(
           options?.stdio === 'inherit' ||
@@ -72,9 +72,11 @@ describe('cf browser login', () => {
     ).resolves.toMatchObject({
       accounts: [{ id: 'account-id' }],
     });
-    expect(
-      vi.mocked(spawnSync).mock.calls.map((call) => JSON.parse(call[1]![1] as string)),
-    ).toEqual([{ type: 'auth.whoami' }, { type: 'auth.login' }, { type: 'auth.whoami' }]);
+    expect(vi.mocked(spawnSync).mock.calls.map((call) => JSON.parse(call[1]![1]))).toEqual([
+      { type: 'auth.whoami' },
+      { type: 'auth.login' },
+      { type: 'auth.whoami' },
+    ]);
   });
 
   it('captures and decodes logout even when the caller requests human output', async () => {

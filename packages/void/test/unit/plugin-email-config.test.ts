@@ -84,10 +84,9 @@ async function resolveCloudflareConfig(
   const plugins = voidPlugin();
 
   const envPlugin = plugins.find((plugin) => plugin.name === 'void:env');
-  const config = getHookHandler(envPlugin?.config) as (
-    config: import('vite').UserConfig,
-    env: import('vite').ConfigEnv,
-  ) => void;
+  const config = getHookHandler<
+    (config: import('vite').UserConfig, env: import('vite').ConfigEnv) => void
+  >(envPlugin?.config);
   config({}, configEnv);
 
   const cloudflarePlugin = plugins.find(
@@ -97,6 +96,7 @@ async function resolveCloudflareConfig(
     throw new Error('Expected mocked Cloudflare plugin.');
   }
 
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
   return cloudflarePlugin.api.pluginConfig.config(resolved);
 }
 

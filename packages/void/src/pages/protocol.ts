@@ -338,7 +338,7 @@ async function extractProps(result: unknown): Promise<Record<string, unknown>> {
   if (result instanceof Response) {
     const contentType = result.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      return (await result.json()) as Record<string, unknown>;
+      return await result.json<Record<string, unknown>>();
     }
     return {};
   }
@@ -491,7 +491,7 @@ async function renderPageFailure(
     console.error(error);
   }
   const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
-  const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
+  const middlewareHead = c.get('headDefaults');
   let head: HeadDescriptor | undefined;
   // Invalid shared/head input is not repairable by trying another component.
   try {
@@ -705,7 +705,7 @@ function streamDeferredResponse(
   assetTags?: AssetTags,
 ): Response {
   const encoder = new TextEncoder();
-  const { readable, writable } = new TransformStream();
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
 
   const entries = Object.entries(deferredMap);
@@ -799,7 +799,7 @@ async function runPageGet(
         // Read at render time so per-route middleware can set them before next()
         const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
         const pageHead = headFn ? headFn(c, props) : undefined;
-        const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
+        const middlewareHead = c.get('headDefaults');
         const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
         if (renderMode !== 'island') {
           varyPagesResponse(c);
@@ -998,7 +998,7 @@ async function runPageMutation(
     errors: Record<string, string> | null,
   ): PageObject {
     const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
-    const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
+    const middlewareHead = c.get('headDefaults');
     const pageHead = headFn ? headFn(c, props) : undefined;
     const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
     return {

@@ -405,7 +405,7 @@ export default extendConfig(
           },
         ],
         '/integrations/': (() => {
-          const frameworkIcons: Record<string, IconOption> = {
+          const frameworkIcons: Record<string, string | { light: string; dark: string }> = {
             'TanStack Start': 'simple-icons:tanstack',
             'React Router': {
               light: 'logos:react-router',
@@ -416,7 +416,7 @@ export default extendConfig(
             Nuxt: 'logos:nuxt-icon',
             Analog: 'logos:analog',
           };
-          const itemIcons: Record<string, IconOption> = {
+          const itemIcons: Record<string, string> = {
             'Coding Agents': 'lucide:bot',
             Hono: 'logos:hono',
             Cloudflare: 'devicon:cloudflare',

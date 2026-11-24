@@ -163,7 +163,7 @@ describe('installed Access protection preflight', () => {
     'fails closed on changed %s without provisioning',
     async (change) => {
       const { env, state, input } = await fixture();
-      const app = env.apps.get(state.resources.protection!.id!)!;
+      const app = env.apps.get(state.resources.protection.id!)!;
       if (change === 'policy') {
         env.policy.include = [{ everyone: {} }];
       }
@@ -184,7 +184,7 @@ describe('installed Access protection preflight', () => {
         });
       }
       if (change === 'token') {
-        env.tokens.get(state.resources['service-token']!.id!)!.expires_at = new Date(
+        env.tokens.get(state.resources['service-token'].id!)!.expires_at = new Date(
           0,
         ).toISOString();
       }
@@ -219,7 +219,7 @@ describe('installed Access protection preflight', () => {
         accessSetupSpecJson: JSON.stringify({
           mode: 'existing',
           accountId: 'identity-account',
-          protectionApplicationId: state.resources.protection!.id,
+          protectionApplicationId: state.resources.protection.id,
           identityProviderIds: ['company-idp'],
           policyIds: ['employees'],
         }),

@@ -591,7 +591,7 @@ async function save(
       typeof details === 'object' &&
       'catalog' in details
     ) {
-      return details as Record<string, unknown>;
+      return details;
     }
     throw error;
   }

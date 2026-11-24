@@ -71,17 +71,17 @@ export async function runRollbackCommand(
       cancel('Rollback cancelled.');
       process.exit(0);
     }
-    targetId = result as string;
+    targetId = result;
   }
 
   // Compute migration diff client-side for warning
   const active = deployments.find((d) => d.id === activeDeploymentId);
   const target = candidates.find((d) => d.id === targetId)!;
   const currentMigrations: Array<string> = active?.applied_migrations
-    ? JSON.parse(active.applied_migrations)
+    ? (JSON.parse(active.applied_migrations) as Array<string>)
     : [];
   const targetMigrations: Array<string> = target.applied_migrations
-    ? JSON.parse(target.applied_migrations)
+    ? (JSON.parse(target.applied_migrations) as Array<string>)
     : [];
   const migrationDiff = currentMigrations.filter((m) => !targetMigrations.includes(m));
   await confirmUnrevertedMigrations(migrationDiff, 'deployment');

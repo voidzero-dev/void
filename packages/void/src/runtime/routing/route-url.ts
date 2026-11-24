@@ -164,7 +164,7 @@ export function routeUrl<P extends RoutePath>(
     ? [options?: RouteOptions<P>]
     : [options: RouteOptions<P>]
 ): RouteUrl {
-  return buildRouteUrl(path, args[0]) as RouteUrl;
+  return buildRouteUrl(path, args[0]);
 }
 
 /** @internal Convert navigation inputs to URL strings without requiring an origin. */
@@ -181,7 +181,7 @@ export function toUrlString(value: string | URL | ({ pathname: string } & UrlOpt
   return buildRouteUrl(value.pathname, value);
 }
 
-function buildRouteUrl(path: string, options?: UrlOptions): string {
+function buildRouteUrl(path: string, options?: UrlOptions): BuiltRouteUrl {
   const params = Object.fromEntries(
     Object.entries(options?.params ?? {}).map(([name, value]) => {
       if (typeof value !== 'string' && typeof value !== 'number') {
@@ -204,5 +204,5 @@ function buildRouteUrl(path: string, options?: UrlOptions): string {
   if (options?.hash) {
     url.hash = options.hash;
   }
-  return url.pathname + url.search + url.hash;
+  return (url.pathname + url.search + url.hash) as BuiltRouteUrl;
 }

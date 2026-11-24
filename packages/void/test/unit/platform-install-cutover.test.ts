@@ -13,6 +13,7 @@ import {
 } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { hyperdriveOriginFromConnectionString } from '../../src/cli/platform-cloudflare.ts';
 import { verifyPlatformWorkerCutoverVersions } from '../../src/cli/platform-installer-cutover.ts';
 import type {
@@ -241,7 +242,7 @@ async function createFakeCloudflare() {
   const plainTextBindings = async (_account: string, name: string) => {
     const entry = workers.get(name);
     const active = entry?.deployments[0]?.versions[0]?.version_id;
-    const version = active ? entry!.versions.get(active) : undefined;
+    const version = active ? entry.versions.get(active) : undefined;
     return Object.fromEntries(
       (version?.resources.bindings ?? []).map((binding) => [binding.name, binding.text]),
     );
@@ -345,13 +346,13 @@ async function createFakeCloudflare() {
     secretUploads,
     replaceActiveVersion: (name: string) => {
       const worker = workers.get(name)!;
-      const active = worker.versions.get(worker.deployments[0]!.versions[0]!.version_id)!;
+      const active = worker.versions.get(worker.deployments[0].versions[0].version_id)!;
       const replacement = { ...structuredClone(active), id: randomUUID() };
       worker.versions.set(replacement.id, replacement);
       activate(name, replacement.id);
     },
     restorePreviousVersion: (name: string) => {
-      activate(name, workers.get(name)!.deployments[1]!.versions[0]!.version_id);
+      activate(name, workers.get(name)!.deployments[1].versions[0].version_id);
     },
   };
 }
@@ -437,7 +438,7 @@ async function runInstall(
 }
 
 function currentManifest(): PlatformInstallationManifest {
-  return listInstallationManifests(process.env.VOID_PLATFORM_REGISTRY_DIR!)[0]!;
+  return listInstallationManifests(process.env.VOID_PLATFORM_REGISTRY_DIR)[0];
 }
 
 function workerStepKeys(manifest: PlatformInstallationManifest) {

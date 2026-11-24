@@ -71,7 +71,7 @@ function unresolvedWorkerSecretUpdate(
   if (pending.length === 0) {
     return null;
   }
-  return { generation: latestGeneration, id: pending[0]!.id };
+  return { generation: latestGeneration, id: pending[0].id };
 }
 
 function readLatestWorkerGeneration(manifest: PlatformInstallationManifest): number {

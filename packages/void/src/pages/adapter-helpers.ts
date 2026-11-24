@@ -63,7 +63,7 @@ export function mergeDataIntoHref(href: Href, data?: Record<string, unknown>): H
 
   const query = params.toString();
   // Adding query parameters keeps a route, same-page or external URL valid.
-  return `${path}${query ? `?${query}` : ''}${hash}` as Href;
+  return `${path}${query ? `?${query}` : ''}${hash}`;
 }
 
 export function isModifiedEvent(

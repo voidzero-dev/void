@@ -6,6 +6,7 @@ import { getPackageDir } from './agents.ts';
 import { getApiUrl } from './auth.ts';
 import { ensurePlatformAccessToken, isCloudflareAccessChallenge } from './cf-access.ts';
 import type { CliLogger } from './log-file.ts';
+import { Buffer } from './node-buffer.ts';
 import { readPlatformDiscoveryResponse } from './platform-discovery.ts';
 import {
   formatPlatformApiError,
@@ -788,9 +789,7 @@ export class PlatformClient {
     if (!response.ok && response.status !== 404) {
       await throwPlatformApiError('Failed to check migration capabilities', response, 'deploy');
     }
-    const capabilities = response.ok
-      ? ((await response.json()) as { skipMigrations?: unknown })
-      : null;
+    const capabilities = response.ok ? await response.json<{ skipMigrations?: unknown }>() : null;
     if (capabilities?.skipMigrations !== true) {
       throw new Error(
         'deploy: This Void platform does not support --skip-migrations. Ask its administrator to upgrade with `void platform upgrade`.',
@@ -811,7 +810,7 @@ export class PlatformClient {
       );
     }
     const capabilities = response.ok
-      ? ((await response.json()) as { d1ReadReplication?: unknown })
+      ? await response.json<{ d1ReadReplication?: unknown }>()
       : null;
     if (capabilities?.d1ReadReplication !== true) {
       throw new Error(
@@ -933,7 +932,7 @@ export class PlatformClient {
       signal?: AbortSignal;
     },
   ): Promise<T> {
-    return (await this.call(url, action, options)).json() as Promise<T>;
+    return (await this.call(url, action, options)).json<Promise<T>>();
   }
 
   async startIdentityLink(
@@ -1551,9 +1550,9 @@ export class PlatformClient {
       await throwPlatformApiError('Failed to request upload URLs', res, 'deploy');
     }
 
-    const json = (await res.json()) as {
+    const json = await res.json<{
       urls: Record<string, { url: string; headers: Record<string, string> }>;
-    };
+    }>();
     return json.urls;
   }
 
@@ -1588,7 +1587,7 @@ export class PlatformClient {
     }
 
     // Module i uploads to urls[i], so a short or malformed list must not start.
-    const json = (await res.json()) as Partial<DeployWorkerUploadResponse> | null;
+    const json = await res.json<Partial<DeployWorkerUploadResponse> | null>();
     if (
       typeof json?.id !== 'string' ||
       !json.id ||
@@ -1708,7 +1707,7 @@ export class PlatformClient {
       yield* this.followDeploymentEvents(projectId, receipt, cursor, observationDeadline);
       return;
     }
-    const reader = res.body.getReader();
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let bytesRead = 0;
@@ -1870,7 +1869,7 @@ export class PlatformClient {
         if (!response.ok) {
           await throwPlatformApiError('Failed to observe deployment', response, 'read');
         }
-        page = (await response.json()) as typeof page;
+        page = await response.json<typeof page>();
         if (Date.now() >= deadline) {
           throw new DeploymentObservationTimeoutError(deploymentId);
         }
@@ -2316,7 +2315,7 @@ export class PlatformClient {
     );
     // 201 registered the address now; 200 found it already listed. Whether a
     // link went out is the body's `verificationSent`, not the status.
-    const body = (await res.json()) as EmailDestinationResponse;
+    const body = await res.json<EmailDestinationResponse>();
     return { ...body, created: res.status === 201 };
   }
 

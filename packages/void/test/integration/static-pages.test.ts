@@ -101,12 +101,16 @@ describe('playground/static-pages build (output: static)', () => {
   });
 
   it('emits static page data for prerendered routes', () => {
-    const indexData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
-    const aboutData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
+    const indexData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf8'));
+    const aboutData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf8'));
 
     expect(indexData.component).toBe('index');
     expect(indexData.url).toBe('/');
@@ -128,9 +132,11 @@ describe('playground/static-pages build (output: static)', () => {
     expect(html).not.toContain('data-testid="client-only-title"');
     expect(html).not.toContain('client-only static page component rendered on the server');
 
-    const pageData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/client-only.json'), 'utf8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
+    const pageData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/client-only.json'), 'utf8'));
     expect(pageData.component).toBe('client-only');
     expect(pageData.url).toBe('/client-only');
     expect(pageData.props.title).toBe('Client-only Static Page');

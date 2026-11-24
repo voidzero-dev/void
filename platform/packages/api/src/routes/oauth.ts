@@ -168,7 +168,7 @@ async function newRequest(
   if (bindBrowser) {
     setCookie(context, browserCookie, proof, cookieOptions(context, FLOW_SECONDS));
   }
-  return request!;
+  return request;
 }
 async function loginPage(context: Context<ApiEnv>, id: string) {
   const settings = await readAuthSettings(context.get('db'));
@@ -259,7 +259,11 @@ app.use('*', (context, next) =>
         )
           ? 48 * 1024 * 1024
           : 32_768,
-      })(context, next),
+      })(
+        // oxlint-disable-next-line typescript/no-unsafe-argument -- Hono's body-limit middleware does not read inferred route input.
+        context,
+        next,
+      ),
 );
 app.onError((error, context) =>
   error instanceof OAuthError
@@ -482,10 +486,10 @@ app.post('/approve', async (context) => {
         try {
           const result = await createUserProject(context, { slug: data.slug! });
           if (!result.ok) {
-            const payload = (await result.json()) as { error: string };
+            const payload = await result.json<{ error: string }>();
             throw new OAuthError('invalid_request', payload.error);
           }
-          project = (await result.json()) as NonNullable<typeof project>;
+          project = await result.json<NonNullable<typeof project>>();
         } finally {
           context.set('db', original);
         }

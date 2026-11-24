@@ -192,10 +192,10 @@ describe('WfP dispatch path', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as {
+      const data = await res.json<{
         results: Array<{ id: number; name: string }>;
         success: boolean;
-      };
+      }>();
       expect(data.results).toEqual([{ id: 1, name: 'Alice' }]);
       expect(data.success).toBe(true);
 
@@ -224,11 +224,13 @@ describe('WfP dispatch path', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as Array<{
-        results: Array<{ count: number }>;
-        success: boolean;
-        meta: Record<string, unknown>;
-      }>;
+      const data = await res.json<
+        Array<{
+          results: Array<{ count: number }>;
+          success: boolean;
+          meta: Record<string, unknown>;
+        }>
+      >();
       expect(data).toHaveLength(2);
     });
 
@@ -373,7 +375,7 @@ describe('WfP dispatch path', () => {
         return path.includes('/internal/resolve-worker/')
           ? Response.json({ workerName: 'user-my-app', deploymentId: 'dpl_active' })
           : Response.json({ cf_id: 'kv-namespace' });
-      }) as unknown as typeof env.API.fetch;
+      });
       const restFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('from-rest'));
 
       const res = await worker.fetch(
@@ -437,11 +439,11 @@ describe('WfP dispatch path', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as {
+      const data = await res.json<{
         objects: Array<{ key: string; size: number; lastModified: string }>;
         truncated: boolean;
         cursor: string | null;
-      };
+      }>();
       expect(data.objects).toHaveLength(1);
     });
   });
@@ -474,7 +476,7 @@ describe('WfP dispatch path', () => {
           return Response.json({ cf_id: 'd1-uuid-abc' });
         }
         return Response.json({ error: 'not found' }, { status: 404 });
-      }) as unknown as typeof env.API.fetch;
+      });
 
       const res = await worker.fetch(
         post('/d1/query', {
@@ -489,10 +491,10 @@ describe('WfP dispatch path', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as {
+      const data = await res.json<{
         results: Array<{ id: number; name: string }>;
         success: boolean;
-      };
+      }>();
       expect(data.results).toEqual(rows);
 
       expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -530,7 +532,7 @@ describe('WfP dispatch path', () => {
           return Response.json({ cf_id: 'd1-uuid-abc' });
         }
         return Response.json({ error: 'not found' }, { status: 404 });
-      }) as unknown as typeof env.API.fetch;
+      });
 
       const res = await worker.fetch(
         post('/d1/query', {
@@ -562,7 +564,7 @@ describe('WfP dispatch path', () => {
           workerName,
           deploymentId: workerName?.split('-').at(-1),
         });
-      }) as unknown as typeof env.API.fetch;
+      });
 
       // First call
       await worker.fetch(

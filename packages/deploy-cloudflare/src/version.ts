@@ -668,7 +668,7 @@ function desiredTriggerConfigFor(
 /** A well-formed `addresses` array, or `undefined` when the field is absent or malformed. */
 function readEmailAddresses(value: unknown): ReadonlyArray<string> | undefined {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string')
-    ? (value as ReadonlyArray<string>)
+    ? value
     : undefined;
 }
 
@@ -985,7 +985,7 @@ async function activateCloudflareVersionWithSecretsFile(
         inheritedChain.length > 0 &&
         inheritedChain.every(
           (version, index) =>
-            index === 0 || version.number === inheritedChain[index - 1]!.number + 1,
+            index === 0 || version.number === inheritedChain[index - 1].number + 1,
         ) &&
         (arraysEqual(inheritedCandidates, trustedInheritanceVersionIds ?? []) ||
           options.pinActiveSecrets !== undefined);
@@ -1315,7 +1315,7 @@ async function activateCloudflareVersionWithSecretsFile(
         recent?.length === baseline.length &&
         recent.every(
           (version, index) =>
-            version.id === baseline[index]!.id && version.number === baseline[index]!.number,
+            version.id === baseline[index].id && version.number === baseline[index].number,
         );
       return unchanged ? null : recent;
     };
@@ -2004,7 +2004,8 @@ async function isVoidSecretDraftPlaceholderVersion(
     return (
       isRecord(module) &&
       module.name === entry.main_module &&
-      module.content_base64 === Buffer.from(VOID_SECRET_DRAFT_SOURCE).toString('base64') &&
+      module.content_base64 ===
+        (Buffer as BufferConstructor).from(VOID_SECRET_DRAFT_SOURCE).toString('base64') &&
       entry.bindings.every((binding) => isRecord(binding) && binding.type === 'secret_text')
     );
   } catch {
@@ -2028,11 +2029,14 @@ async function readRecentCloudflareVersionIds(
     }
     return null;
   }
-  const versions = result.data;
+  const data: unknown = result.data;
+  if (!Array.isArray(data)) {
+    return null;
+  }
+  const versions: Array<unknown> = data;
   if (
-    !Array.isArray(versions) ||
     !versions.every(
-      (version) =>
+      (version): version is Record<string, unknown> & { id: string; number: number } =>
         isRecord(version) &&
         typeof version.id === 'string' &&
         typeof version.number === 'number' &&
@@ -2042,8 +2046,8 @@ async function readRecentCloudflareVersionIds(
     return null;
   }
   return versions.map((version) => ({
-    id: version.id as string,
-    number: version.number as number,
+    id: version.id,
+    number: version.number,
     inspection: version,
   }));
 }
@@ -2540,7 +2544,7 @@ function versionPercentages(
 ): Array<{ versionId: string; percentage: number }> {
   return values.map((value) => {
     const [versionId, percentage] = value.split('@');
-    return { versionId: versionId!, percentage: Number(percentage) };
+    return { versionId, percentage: Number(percentage) };
   });
 }
 
@@ -2772,7 +2776,7 @@ async function probeReadiness(
         signal: AbortSignal.timeout(Math.max(1, Math.min(10_000, remaining))),
       });
       if (response.ok) {
-        const body = (await response.json()) as { ready?: unknown; versionId?: unknown };
+        const body = await response.json<{ ready?: unknown; versionId?: unknown }>();
         if (
           body.ready === true &&
           (expectedVersionId === undefined || body.versionId === expectedVersionId)

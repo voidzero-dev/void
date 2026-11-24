@@ -38,6 +38,7 @@ import {
 } from '../../src/cli/cf-version-runner.ts';
 import { readWranglerAuthToken } from '../../src/cli/deploy-cloudflare-auth.ts';
 import { formatCloudflareActivationError } from '../../src/cli/deploy-cloudflare-helpers.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   cleanups,
   expectSameJson,
@@ -258,12 +259,7 @@ it(
       });
       expect(uploads, `${result.stdout}\n${result.stderr}`).toHaveLength(1);
       // A keep_bindings without the secret types would make Cloudflare drop the live secrets.
-      expect(uploads[0]!.keep_bindings).toEqual([
-        'plain_text',
-        'json',
-        'secret_text',
-        'secret_key',
-      ]);
+      expect(uploads[0].keep_bindings).toEqual(['plain_text', 'json', 'secret_text', 'secret_key']);
     } finally {
       await prepared.dispose();
     }
@@ -742,7 +738,7 @@ it(
       expect(uploads.map(({ apiDate }) => apiDate)).toEqual(['2026-11-09', '2026-11-09']);
       const [cf, pinned] = uploads.map(({ exports }) => JSON.stringify(exports, null, 2));
       expect(pinned).toBe(cf);
-      expect(JSON.parse(pinned!)).toEqual({
+      expect(JSON.parse(pinned)).toEqual({
         Rpc: { type: 'worker', cache: { enabled: false } },
         Room: { type: 'durable-object', storage: 'sqlite' },
         Legacy: { type: 'durable-object', storage: 'legacy-kv' },
@@ -1085,8 +1081,8 @@ it.each([
 
   expect(result).toEqual({ value: { id: '22222222-2222-4222-8222-222222222222', urls: [] } });
   expect(uploads).toHaveLength(1);
-  expect(uploads[0]!.url.endsWith(atomic ? '/versions?deploy=true' : '/versions')).toBe(true);
-  expectSameJson(uploads[0]!.body.placement, { mode: 'targeted', ...placement });
+  expect(uploads[0].url.endsWith(atomic ? '/versions?deploy=true' : '/versions')).toBe(true);
+  expectSameJson(uploads[0].body.placement, { mode: 'targeted', ...placement });
 });
 
 it('accepts an upload reply that lists the target', async () => {
@@ -2302,7 +2298,7 @@ it('preserves activation metadata and sorts cf version history for the existing 
     );
     const deployArgs = calls.at(-1)!;
     expect(deployArgs.slice(0, 3)).toEqual(['workers', 'deployments', 'create']);
-    expect(JSON.parse(deployArgs[deployArgs.indexOf('--body') + 1]!)).toMatchObject({
+    expect(JSON.parse(deployArgs[deployArgs.indexOf('--body') + 1])).toMatchObject({
       strategy: 'percentage',
       annotations: { 'workers/message': 'void:metadata' },
       versions: [{ version_id: '00000000-0000-0000-0000-000000000001', percentage: 100 }],
@@ -2468,7 +2464,7 @@ it.each([
 
 it('applies the immutable trigger snapshot through a private cf output copy', async () => {
   const prepared = await output();
-  const triggerConfig = join(roots[0]!, 'trigger.json');
+  const triggerConfig = join(roots[0], 'trigger.json');
   writeFileSync(
     triggerConfig,
     JSON.stringify({

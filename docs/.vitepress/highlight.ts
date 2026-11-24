@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { codeToTokens, isSupportedLanguage } from '@pierre/highlights';
-import type { Lang, ThemedToken } from '@pierre/highlights';
+import type { ThemedToken } from '@pierre/highlights';
 import dark from '@pierre/highlights/themes/github-dark';
 import light from '@pierre/highlights/themes/github-light';
 
@@ -281,7 +281,7 @@ export function createCodeHighlighter(): CodeHighlighter {
       }
       return html;
     };
-    const tokensByLine = codeToTokens(input.trimEnd(), { lang: lang as Lang, ...OPTIONS }).tokens;
+    const tokensByLine = codeToTokens(input.trimEnd(), { lang, ...OPTIONS }).tokens;
     const shell = ['shellscript', 'shell', 'bash', 'sh', 'zsh'].includes(lang);
     const highlighted = metaHighlightedRanges(attrs);
     const preClasses = new Set<string>();

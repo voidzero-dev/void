@@ -455,7 +455,7 @@ export function convertWranglerConfig(
   bundler: MigrationBundler,
   secretFiles: Array<string>,
 ): ConvertedWranglerConfig {
-  const source = rawConfig as UnknownRecord;
+  const source = rawConfig;
   const imports = new Set<string>();
   const followUps: Array<MigrationFollowUp> = [];
   addUnknownFieldFollowUps(source, '', followUps);

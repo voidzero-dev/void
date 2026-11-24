@@ -13,6 +13,7 @@ import {
   startServer,
 } from '../../../../test/integration-helpers.ts';
 import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 declare global {
   interface Window {
@@ -135,15 +136,13 @@ describe('playground/kitchen-sink', () => {
       await waitForHydration(page);
 
       await page.evaluate(() => {
-        (document.querySelector('nav') as NavElement | null)!.__stamp = 1;
+        document.querySelector<NavElement>('nav')!.__stamp = 1;
       });
 
       await page.click('a[href="/env"]');
       await page.waitForFunction(() => document.querySelector('h1')?.textContent?.includes('Env'));
 
-      const stamp = await page.evaluate(
-        () => (document.querySelector('nav') as NavElement | null)?.__stamp,
-      );
+      const stamp = await page.evaluate(() => document.querySelector<NavElement>('nav')?.__stamp);
       expect(stamp).toBe(1);
     } finally {
       await page.context().close();

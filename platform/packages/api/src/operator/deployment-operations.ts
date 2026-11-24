@@ -287,7 +287,7 @@ export async function deploymentLogs(
   if (!response.ok) {
     throw new OperatorError(502, `Log query failed (Cloudflare status ${response.status}).`);
   }
-  const result = (await response.json()) as { data?: ReadonlyArray<LogRow> };
+  const result = await response.json<{ data?: ReadonlyArray<LogRow> }>();
   const rows = result.data ?? [];
   const nextCursor =
     rows.length > limit

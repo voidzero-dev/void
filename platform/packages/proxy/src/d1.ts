@@ -48,12 +48,12 @@ d1.post('/query', async (context) => {
     return context.json({ error: 'D1 query failed', status: cfRes.status }, 502);
   }
 
-  const cfData = (await cfRes.json()) as {
+  const cfData = await cfRes.json<{
     result?: ReadonlyArray<{
       results?: ReadonlyArray<Record<string, unknown>>;
       meta?: Record<string, unknown>;
     }>;
-  };
+  }>();
   const queryResult = cfData.result?.[0];
 
   if (!queryResult) {

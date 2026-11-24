@@ -167,7 +167,10 @@ export function detectValidator(root: string): Validator | null {
     return null;
   }
 
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
   const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
   if ('valibot' in allDeps) {
@@ -208,7 +211,7 @@ async function resolveValidator(root: string): Promise<Validator> {
     log.warn(`Remember to install ${choice}: npm install ${choice}`);
   }
 
-  return choice as Validator;
+  return choice;
 }
 
 type SchemaValidator = Exclude<Validator, 'none'>;
@@ -719,7 +722,10 @@ function detectFramework(root: string): 'react' | 'vue' | 'svelte' | 'solid' {
     process.exit(1);
   }
 
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
   const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
   if ('react' in allDeps) {

@@ -31,8 +31,8 @@ function setupPlugin(options?: { dev?: boolean }) {
   const plugins = islandsPlugin(PAGES_DIR);
   const plugin = plugins[0] as IslandsPluginHooks;
 
-  const command = options?.dev ? 'serve' : 'build';
-  const config = { root: TMP, command: command as 'serve' | 'build', plugins: [] };
+  const command: 'build' | 'serve' = options?.dev ? 'serve' : 'build';
+  const config = { root: TMP, command, plugins: [] };
   plugin.configResolved?.(config);
 
   return {
@@ -261,6 +261,7 @@ describe('islandsPlugin — island style loader', () => {
             };
           }
           const value = Reflect.get(target, key, target);
+          // oxlint-disable-next-line typescript/no-unsafe-call -- The proxy delegates the original method to its receiver with the fixture arguments.
           return typeof value === 'function' ? value.bind(target) : value;
         },
       });

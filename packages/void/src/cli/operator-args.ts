@@ -664,7 +664,7 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
     ...booleanFlagsFor(args),
   ]);
   for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
+    const arg = args[index];
     if (!arg.startsWith('-')) {
       positional.push(arg);
       continue;
@@ -771,8 +771,8 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
   parsed.path = command.path;
   parsed.method = command.method ?? 'GET';
   if (identitySignupEntry) {
-    const connectionId = parameters[1]!;
-    const subject = parameters[2]!;
+    const connectionId = parameters[1];
+    const subject = parameters[2];
     try {
       parsePlatformLoginId(connectionId);
     } catch {

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import type { DeployManifest } from '../../src/cli/types.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 
@@ -136,7 +137,7 @@ function installPlatformMocks(opts?: {
   };
 
   fetchMock.mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : (input as Request).url;
+    const url = typeof input === 'string' ? input : input.url;
     const reqInit = init ?? {};
     const method = reqInit.method ?? 'GET';
 

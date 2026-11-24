@@ -94,7 +94,9 @@ export default { async fetch(request, env) {
         },
       });
     }
+    // oxlint-disable-next-line typescript/no-unsafe-call -- The Worker test environment resolves the SDK fixture dependency dynamically.
     runtime = new Miniflare(
+      // oxlint-disable-next-line typescript/no-unsafe-call -- The Worker test environment resolves the SDK fixture dependency dynamically.
       convertV4MiniflareOptions({
         workers: [
           {

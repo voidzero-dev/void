@@ -65,7 +65,7 @@ export async function listInstallationRepositories(
       );
     }
 
-    const data = (await res.json()) as InstallationRepositoriesResponse;
+    const data = await res.json<InstallationRepositoriesResponse>();
     if (page === 1) {
       // `repository_selection` is a property of the installation, identical on
       // every page; read it from the first. Only the literal `'all'` grants

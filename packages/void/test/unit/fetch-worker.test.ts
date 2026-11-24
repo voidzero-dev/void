@@ -267,6 +267,7 @@ function evaluateClient(
   const code = compile('/auth.mjs')
     .replaceAll(/^(import .*|export \{.*)\n/gm, '')
     .replaceAll('export ', '');
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(
     'app',
     'env',
@@ -362,7 +363,7 @@ describe.each([false, true])('server fetch documented options (nodeTarget: %s)',
       cause: { name: 'AbortError' },
     });
     expect(dispatch).toHaveBeenCalledTimes(1);
-    expect((dispatch.mock.calls[0]![0] as Request).signal.aborted).toBe(true);
+    expect((dispatch.mock.calls[0][0] as Request).signal.aborted).toBe(true);
   });
 
   it.each([
@@ -447,7 +448,7 @@ describe.each([false, true])('server fetch documented options (nodeTarget: %s)',
 
     expect(dispatch).not.toHaveBeenCalled();
     expect(networkFetch).toHaveBeenCalledTimes(1);
-    const external = networkFetch.mock.calls[0]![0] as Request;
+    const external = networkFetch.mock.calls[0][0] as Request;
     expect(external.url).toBe('https://external.example/prefix/api/hello');
     expect(external.headers.get('cookie')).toBeNull();
     expect(external.headers.get('authorization')).toBeNull();
@@ -482,7 +483,7 @@ it.each([false, true])(
     await client.fetch('/files/:id2/:id/:path{.+}', {
       params: { id: 'one', id2: 'two', path: 'docs/start here' },
     });
-    const req = fetch.mock.calls[0]![0] as Request;
+    const req = fetch.mock.calls[0][0] as Request;
     expect(new URL(req.url).pathname).toBe('/files/two/one/docs/start%20here');
   },
 );

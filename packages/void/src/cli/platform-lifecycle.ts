@@ -15,6 +15,7 @@ import {
   text,
 } from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
+import { Buffer } from './node-buffer.ts';
 import { printSuccess, cliCommandName, formatUrl, note, pc } from './output.ts';
 import {
   selectInstallationAppAccess,
@@ -341,7 +342,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           (install) => install.deployment.installationSlug === slug,
         );
         if (process.stdin.isTTY && matches.length > 0) {
-          let selected = matches[0]!;
+          let selected = matches[0];
           if (matches.length > 1) {
             const choice = await select({
               message: `Which ${slug} installation do you want to resume?`,
@@ -1696,10 +1697,10 @@ async function selectAccount(
         `platform: Cloudflare account ${JSON.stringify(selector)} is ambiguous. Use --account <id> to select a specific account.`,
       );
     }
-    return matches[0]!.id;
+    return matches[0].id;
   }
   if (accounts.length === 1) {
-    return accounts[0]!.id;
+    return accounts[0].id;
   }
   if (!process.stdin.isTTY) {
     throw new Error(

@@ -38,7 +38,7 @@ describe('createRemoteEnv', () => {
 
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn(async () => Response.json({ results: [], success: true, meta: {} }));
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock;
     try {
       await (env.DB as D1Database).prepare('SELECT 1').all();
     } finally {

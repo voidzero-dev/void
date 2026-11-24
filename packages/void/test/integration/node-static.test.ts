@@ -211,15 +211,21 @@ describe('playground/node-static build (target: node, output: static)', () => {
   });
 
   it('emits static page data for prerendered routes', () => {
-    const indexData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
-    const aboutData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
-    const legacyData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/legacy.json'), 'utf8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
+    const indexData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf8'));
+    const aboutData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf8'));
+    const legacyData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/legacy.json'), 'utf8'));
 
     expect(indexData.component).toBe('index');
     expect(indexData.url).toBe('/');
@@ -242,7 +248,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
       await page.evaluate(() => {
         window.__SPA_MARKER = true;
-        (document.querySelector('nav') as NavElement | null)!.__STAMP = 1;
+        document.querySelector<NavElement>('nav')!.__STAMP = 1;
       });
 
       await page.click('a[href="/about"]');
@@ -250,9 +256,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
       expect(page.url()).toBe(`${staticBase}/about`);
       expect(await page.evaluate(() => window.__SPA_MARKER)).toBe(true);
-      expect(
-        await page.evaluate(() => (document.querySelector('nav') as NavElement | null)?.__STAMP),
-      ).toBe(1);
+      expect(await page.evaluate(() => document.querySelector<NavElement>('nav')?.__STAMP)).toBe(1);
     } finally {
       await page.close();
       await browser.close();
@@ -359,9 +363,9 @@ describe('playground/node-static build (target: node, output: static)', () => {
       const routerUrl = () => page.textContent('[data-testid="router-url"]');
 
       // The page HTML and its static page data were rendered for the path, without a query.
-      const pageData = deserializePageData(
+      const pageData = deserializePageData<{ url: string }>(
         readFileSync(join(DIST, 'client/_void/pages/router-url/plain.json'), 'utf8'),
-      ) as { url: string };
+      );
       expect(pageData.url).toBe('/router-url/plain');
       await page.goto(`${staticBase}/router-url/plain?foo=bar#baz`);
       await page.waitForSelector('#app[data-hydrated="true"]');

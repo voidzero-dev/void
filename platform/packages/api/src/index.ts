@@ -1284,7 +1284,7 @@ async function processUserRollover(
           if (!raw) {
             continue;
           }
-          const routing = JSON.parse(raw);
+          const routing = JSON.parse(raw) as { userId?: string };
           if (!routing.userId) {
             routing.userId = current.user_id;
             await env.ROUTING.put(

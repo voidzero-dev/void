@@ -13,8 +13,13 @@ function nodes(root: AstNode): Array<AstNode> {
     found.push(node);
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) {
-        for (const child of value) {
-          if (child && typeof child === 'object' && typeof child.type === 'string') {
+        for (const child of value as Array<unknown>) {
+          if (
+            child &&
+            typeof child === 'object' &&
+            'type' in child &&
+            typeof child.type === 'string'
+          ) {
             pending.push(child as AstNode);
           }
         }
@@ -58,7 +63,7 @@ export function transformWorkerRequireBundle(
       if (
         specifiers?.length !== 1 ||
         !isIdentifier(specifiers[0]?.imported as AstNode | undefined) ||
-        (specifiers[0]!.imported as { name: string }).name !== 'createRequire'
+        (specifiers[0].imported as { name: string }).name !== 'createRequire'
       ) {
         throw new Error(
           `deploy: Unsupported node:module import in ${database} bundle ${filename}.`,

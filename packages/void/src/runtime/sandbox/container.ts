@@ -1,5 +1,4 @@
 import { Files } from '@cloudflare/sandbox';
-import type { FileOperationOptions } from '@cloudflare/sandbox';
 import { DurableObject, RpcTarget } from 'cloudflare:workers';
 
 export type SandboxInstance =
@@ -207,7 +206,7 @@ export class SandboxContainer<Env = unknown> extends DurableObject<Env> {
     if (!this.ctx.container) {
       throw new Error('Sandbox container binding is missing.');
     }
-    return this.ctx.container as SandboxNativeContainer;
+    return this.ctx.container;
   }
 
   async configure(options: SandboxOptions): Promise<void> {
@@ -294,7 +293,7 @@ export class SandboxContainer<Env = unknown> extends DurableObject<Env> {
     return undefined;
   }
   protected get image(): string {
-    return this.container.images.default!;
+    return this.container.images.default;
   }
 
   protected async ensureRunning(): Promise<void> {
@@ -375,7 +374,7 @@ export class SandboxContainer<Env = unknown> extends DurableObject<Env> {
       await this.ensureRunning();
       const index = method === 'writeFile' || method === 'rename' ? 2 : 1;
       const { options, finish } = operationOptions(parameters[index]);
-      parameters[index] = options as FileOperationOptions;
+      parameters[index] = options;
       try {
         const files = new Files({ exec: (argv, options) => this.execProcess(argv, options) });
         const target = files[method as keyof Files] as (
@@ -420,7 +419,7 @@ export class SandboxContainer<Env = unknown> extends DurableObject<Env> {
       if (
         !Array.isArray(argv) ||
         argv.length === 0 ||
-        argv.some((arg) => typeof arg !== 'string')
+        (argv as Array<unknown>).some((arg) => typeof arg !== 'string')
       ) {
         throw new TypeError(
           'Sandbox exec requires an executable and arguments as an array of strings.',
@@ -429,7 +428,10 @@ export class SandboxContainer<Env = unknown> extends DurableObject<Env> {
       const { options, finish } = operationOptions(value);
       try {
         await this.ensureRunning();
-        const process = await this.execProcess(argv, { cwd: '/workspace', ...options });
+        const process = await this.execProcess(argv as Array<string>, {
+          cwd: '/workspace',
+          ...options,
+        });
         void process.exitCode.then(finish, finish);
         const processContext = this.processContext(process.exitCode);
         return {

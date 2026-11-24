@@ -596,7 +596,7 @@ async function operatorResult(
   action: string,
   target: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const body = (await response.json()) as Record<string, unknown>;
+  const body = await response.json<Record<string, unknown>>();
   if (!response.ok) {
     const message =
       typeof body.error === 'string' && body.error !== ''
@@ -746,7 +746,7 @@ export async function addOperatorEmailDomain(
 export async function getOperatorEmailDomain(context: Context<ApiEnv>, rawDomain: string) {
   const { row, project } = await requireDomainRow(context.get('db'), rawDomain);
   const response = await getEmailDomainStatusForProject(context, project, row.domain);
-  const body = (await response.json()) as Record<string, unknown>;
+  const body = await response.json<Record<string, unknown>>();
   if (!response.ok) {
     throw new OperatorError(response.status, String(body.error ?? 'status failed'));
   }

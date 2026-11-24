@@ -745,11 +745,11 @@ describe('deployment asset migration', () => {
         ]),
       );
       expect(fetcher).toHaveBeenCalledTimes(1);
-      expect(String(fetcher.mock.calls[0]![0])).toBe(
+      expect(String(fetcher.mock.calls[0][0])).toBe(
         'https://one.example/operator/v1/system/asset-migrations?page=2&limit=100',
       );
-      expect(fetcher.mock.calls[0]![1]).toMatchObject({ method: 'GET' });
-      expect(fetcher.mock.calls[0]![1]!.body).toBeUndefined();
+      expect(fetcher.mock.calls[0][1]).toMatchObject({ method: 'GET' });
+      expect(fetcher.mock.calls[0][1]!.body).toBeUndefined();
       if (json) {
         expect(console.log).toHaveBeenCalledWith(JSON.stringify(inventory));
       } else {
@@ -780,10 +780,10 @@ describe('deployment asset migration', () => {
       ]),
     );
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(String(fetcher.mock.calls[0]![0])).toBe(
+    expect(String(fetcher.mock.calls[0][0])).toBe(
       'https://one.example/operator/v1/deployments/deployment%20%2F%20id/migrate-assets',
     );
-    expect(JSON.parse(String(fetcher.mock.calls[0]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body))).toEqual({
       cursor: 'resume-cursor',
       dryRun: true,
     });
@@ -831,7 +831,7 @@ describe('deployment asset migration', () => {
       ]),
     );
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       cursor: 'resume-cursor',
       expected: 'digest-1',
     });
@@ -947,10 +947,10 @@ describe('operator transport and execution', () => {
       client.request('/users', { query: { search: 'x&admin=1' } }),
     ).rejects.toMatchObject({ code: 'redirect_rejected' });
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(String(fetcher.mock.calls[0]![0])).toBe(
+    expect(String(fetcher.mock.calls[0][0])).toBe(
       'https://one.example/operator/v1/users?search=x%26admin%3D1',
     );
-    expect(fetcher.mock.calls[0]![1]).toMatchObject({
+    expect(fetcher.mock.calls[0][1]).toMatchObject({
       redirect: 'manual',
       headers: { Authorization: 'Bearer operator' },
       signal: expect.any(AbortSignal),
@@ -1034,7 +1034,7 @@ describe('operator transport and execution', () => {
 
     const mutation = client.request('/users/id/delete', { method: 'POST', body: {} });
     await vi.advanceTimersByTimeAsync(30_000);
-    expect((fetcher.mock.calls[1]![1]!.signal as AbortSignal).aborted).toBe(false);
+    expect((fetcher.mock.calls[1][1]!.signal as AbortSignal).aborted).toBe(false);
     const mutationFailure = expect(mutation).rejects.toMatchObject({
       code: 'request_timeout',
       message: expect.stringContaining('outcome may be unknown'),
@@ -1087,7 +1087,7 @@ describe('operator transport and execution', () => {
     fetcher.mockClear();
     await runOperatorCommand(parseOperatorArgs(['worker', 'rollback-all', '--yes']));
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       versions: { api: 'version-a' },
     });
   });
@@ -1105,7 +1105,7 @@ describe('operator transport and execution', () => {
     vi.stubGlobal('fetch', fetcher);
     await runOperatorCommand(parseOperatorArgs(['project', 'normalize', 'proj_1', '--yes']));
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({ expected: changes });
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({ expected: changes });
   });
   it.each(['--plan', '--yes'])(
     'reads a cleanup token once for %s without printing it',
@@ -1136,12 +1136,12 @@ describe('operator transport and execution', () => {
       );
       expect(stdin).toHaveBeenCalledTimes(1);
       expect(fetcher).toHaveBeenCalledTimes(mode === '--plan' ? 1 : 2);
-      expect(JSON.parse(String(fetcher.mock.calls[0]![1]!.body))).toEqual({
+      expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body))).toEqual({
         apiToken: 'replacement-cloudflare-token',
         dryRun: true,
       });
       if (mode === '--yes') {
-        expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+        expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
           apiToken: 'replacement-cloudflare-token',
         });
       }
@@ -1204,15 +1204,15 @@ describe('operator transport and execution', () => {
       ]),
     );
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(String(fetcher.mock.calls[0]![0])).toBe(
+    expect(String(fetcher.mock.calls[0][0])).toBe(
       'https://one.example/operator/v1/email/attempts/er_1/resolve',
     );
-    expect(JSON.parse(String(fetcher.mock.calls[0]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body))).toEqual({
       ended: true,
       reason: 'Worker execution ended',
       dryRun: true,
     });
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       ended: true,
       reason: 'Worker execution ended',
     });
@@ -1255,7 +1255,7 @@ describe('operator transport and execution', () => {
         '--yes',
       ]),
     );
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       ended: true,
       outcome: 'applied',
       reason: 'Exact provider resource verified',
@@ -1296,7 +1296,7 @@ describe('operator transport and execution', () => {
       '--yes',
     ]);
     await runOperatorCommand(args);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       ended: true,
       outcome: 'not-applied',
       reason: 'Provider audit completed',
@@ -1337,7 +1337,7 @@ describe('operator transport and execution', () => {
       .mockResolvedValueOnce(preview({ domain: 'brand.example.com', inboundMode: 'none' }))
       .mockResolvedValueOnce(Response.json({ domain: { operationStatus: 'completed' } }));
     await runOperatorCommand(args);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       domain: 'brand.example.com',
       project: 'hr-portal',
       outboundOnly: true,
@@ -1357,8 +1357,8 @@ describe('operator transport and execution', () => {
       ),
     ).rejects.toMatchObject({ code: 'invalid_response' });
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(String(fetcher.mock.calls[1]![0])).toContain('cursor=page-2');
-    expect(String(fetcher.mock.calls[1]![0])).toContain('since=1h');
+    expect(String(fetcher.mock.calls[1][0])).toContain('cursor=page-2');
+    expect(String(fetcher.mock.calls[1][0])).toContain('since=1h');
   });
   it('follows ingestion cursors with overlap dedupe and preserves identical row counts', async () => {
     const controller = new AbortController();
@@ -1405,9 +1405,9 @@ describe('operator transport and execution', () => {
     const lines = write.mock.calls.map(([line]) => String(line));
     expect(lines.filter((line) => line.includes('/same'))).toHaveLength(2);
     expect(lines.filter((line) => line.includes('/completed-late'))).toHaveLength(1);
-    expect(String(fetcher.mock.calls[0]![0])).toContain('since=1h');
-    expect(String(fetcher.mock.calls[1]![0])).toContain('after=2000');
-    expect(String(fetcher.mock.calls[1]![0])).not.toContain('since=');
+    expect(String(fetcher.mock.calls[0][0])).toContain('since=1h');
+    expect(String(fetcher.mock.calls[1][0])).toContain('after=2000');
+    expect(String(fetcher.mock.calls[1][0])).not.toContain('since=');
   });
   it('notes minimal runtime logs once while following', async () => {
     const controller = new AbortController();
@@ -1710,7 +1710,7 @@ describe('operator transport and execution', () => {
       parseOperatorArgs(['build', 'logs', 'id', '--follow', '--since', '2', '--json']),
     );
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(String(fetcher.mock.calls[0]![0])).toContain('since=2');
+    expect(String(fetcher.mock.calls[0][0])).toContain('since=2');
   });
 
   it('waits for drain completion across stable terminal pages and prints a delayed marker', async () => {

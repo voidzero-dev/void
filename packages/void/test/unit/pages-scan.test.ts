@@ -68,7 +68,7 @@ describe('scanPages', () => {
     ['const { loader, action } = handlers; export const helper = loader;', []],
   ])('detects exported page bindings in %s', async (source, methods) => {
     writeFile('index.vue', '<template><div>Home</div></template>');
-    writeFile('index.server.ts', source as string);
+    writeFile('index.server.ts', source);
     expect((await scanPages(TMP)).pages[0].methods).toEqual(methods);
   });
 
@@ -402,6 +402,7 @@ export { handler as action, type actions };`,
 
     const scan = await scanPages(TMP);
     // The server registers pages in this order, and the client matcher keeps it.
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
     const { matchRoute } = new Function(
       `${generateComponentManifest(scan, '/project/pages')}\nreturn { matchRoute };`,
     )() as { matchRoute: (path: string) => string | null };
@@ -1586,10 +1587,10 @@ describe('scanPages between saves', () => {
   it('does not expose cached markdown metadata for mutation between scans', async () => {
     writeFile('notes.md', '---\ntitle: Original\ndescription: Unchanged\n---\n# Notes');
     const first = await scanPages(TMP);
-    first.pages[0]!.metadata!.title = 'Mutated';
-    first.pages[0]!.metadata!.description = 'Also mutated';
+    first.pages[0].metadata!.title = 'Mutated';
+    first.pages[0].metadata!.description = 'Also mutated';
     const second = await scanPages(TMP);
-    expect(second.pages[0]!.metadata).toEqual({ title: 'Original', description: 'Unchanged' });
+    expect(second.pages[0].metadata).toEqual({ title: 'Original', description: 'Unchanged' });
   });
 
   it('picks up page metadata changed since the previous scan', async () => {

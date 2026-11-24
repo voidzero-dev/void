@@ -164,7 +164,7 @@ export function stubCustomerCf(
       if (failure) {
         return failure;
       }
-      const name = new URL(url).hostname.split('.')[0]!;
+      const name = new URL(url).hostname.split('.')[0];
       const secret = relaySecrets.get(name);
       if (!secret || !scriptSubdomains.get(name)) {
         return new Response(null, { status: 404 });
@@ -241,11 +241,11 @@ export function stubCustomerCf(
         return failure;
       }
       if (method === 'POST') {
-        scriptSubdomains.set(scriptSubdomainMatch[1]!, true);
+        scriptSubdomains.set(scriptSubdomainMatch[1], true);
         return cfSuccess({ enabled: true, previews_enabled: false });
       }
       return cfSuccess({
-        enabled: scriptSubdomains.get(scriptSubdomainMatch[1]!) ?? false,
+        enabled: scriptSubdomains.get(scriptSubdomainMatch[1]) ?? false,
         previews_enabled: false,
       });
     }
@@ -277,7 +277,8 @@ export function stubCustomerCf(
     }
 
     if (path.includes('/email/routing/dns') && method === 'POST') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body =
+        typeof init?.body === 'string' ? (JSON.parse(init.body) as { name?: string }) : undefined;
       await record({ tag: 'routingDns', method, url, body });
       const failure = fail('routingDns');
       if (failure) {
@@ -293,13 +294,13 @@ export function stubCustomerCf(
     }
 
     if (path.endsWith('/email/sending/subdomains/preview') && method === 'POST') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       await record({ tag: 'sendingPreview', method, url, body });
       return fail('sendingPreview') ?? cfSuccess({ errors: config.sendingPreviewErrors ?? [] });
     }
 
     if (path.includes('/email/sending/subdomains') && method === 'POST') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       await record({ tag: 'onboardSending', method, url, body });
       return fail('onboardSending') ?? cfSuccess({});
     }
@@ -321,17 +322,17 @@ export function stubCustomerCf(
       if (failure) {
         return failure;
       }
-      return cfSuccess(settingsFor(path.split('/')[2]!));
+      return cfSuccess(settingsFor(path.split('/')[2]));
     }
 
     if (/\/zones\/[^/]+\/email\/routing$/.test(path) && method === 'PATCH') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       await record({ tag: 'subaddressing', method, url, body });
       if (config.failBeforeEffect?.includes('subaddressing')) {
         return fail('subaddressing') ?? cfSuccess({});
       }
-      Object.assign(settingsFor(path.split('/')[2]!), body);
-      return fail('subaddressing') ?? cfSuccess(settingsFor(path.split('/')[2]!));
+      Object.assign(settingsFor(path.split('/')[2]), body);
+      return fail('subaddressing') ?? cfSuccess(settingsFor(path.split('/')[2]));
     }
 
     if (/\/zones\/[^/]+\/email\/routing\/rules\?/.test(path) && method === 'GET') {
@@ -342,14 +343,14 @@ export function stubCustomerCf(
       return (
         fail('routingRulesGet') ??
         cfSuccess(
-          [...rulesFor(path.split('/')[2]!).values()].slice((page - 1) * perPage, page * perPage),
+          [...rulesFor(path.split('/')[2]).values()].slice((page - 1) * perPage, page * perPage),
         )
       );
     }
 
     const literal = /^\/zones\/([^/]+)\/email\/routing\/rules(?:\/([^/?]+))?$/.exec(path);
     if (literal && literal[2] !== 'catch_all') {
-      const rules = rulesFor(literal[1]!);
+      const rules = rulesFor(literal[1]);
       if (method === 'GET' && literal[2]) {
         await record({ tag: 'literalRuleGet', method, url });
         return (
@@ -359,7 +360,8 @@ export function stubCustomerCf(
       }
       if (method === 'POST' || method === 'PUT') {
         const tag = method === 'POST' ? 'literalRuleCreate' : 'literalRuleUpdate';
-        const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+        const body =
+          typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {};
         await record({ tag, method, url, body });
         if (config.failBeforeEffect?.includes(tag)) {
           return fail(tag) ?? cfSuccess({});
@@ -385,7 +387,7 @@ export function stubCustomerCf(
       if (failure) {
         return failure;
       }
-      const state = catchAllStateFor(catchAllMatch[1]!);
+      const state = catchAllStateFor(catchAllMatch[1]);
       if (state === null) {
         return cfError('rule not found', 404);
       }
@@ -400,7 +402,7 @@ export function stubCustomerCf(
     }
 
     if (catchAllMatch && method === 'PUT') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       await record({ tag: 'catchAll', method, url, body });
       const failure = fail('catchAll');
       if (failure) {
@@ -411,7 +413,7 @@ export function stubCustomerCf(
       const actions = (body as { actions?: Array<{ type: string; value?: Array<string> }> })
         ?.actions;
       const worker = actions?.find((action) => action.type === 'worker');
-      catchAllStates.set(catchAllMatch[1]!, {
+      catchAllStates.set(catchAllMatch[1], {
         enabled: Boolean((body as { enabled?: unknown })?.enabled),
         workerName: worker?.value?.[0] ?? null,
       });
@@ -420,7 +422,8 @@ export function stubCustomerCf(
 
     const secretsMatch = /\/workers\/scripts\/([^/]+)\/secrets$/.exec(path);
     if (secretsMatch && method === 'PUT') {
-      const parsed = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+      const parsed =
+        typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {};
       const text = typeof parsed.text === 'string' ? parsed.text : '';
       await record({
         tag: 'secretPut',
@@ -439,8 +442,8 @@ export function stubCustomerCf(
       // The worker's CURRENT secret, tracked by sha256 only — the same
       // form the ROUTING mirror stores — so a test can prove worker, row
       // and mirror carry ONE secret without the value ever being recorded.
-      secretHashes.set(secretsMatch[1]!, await sha256Hex(text));
-      relaySecrets.set(secretsMatch[1]!, text);
+      secretHashes.set(secretsMatch[1], await sha256Hex(text));
+      relaySecrets.set(secretsMatch[1], text);
       return fail('secretPut') ?? cfSuccess({});
     }
 
@@ -451,7 +454,7 @@ export function stubCustomerCf(
       if (failure) {
         return failure;
       }
-      if (config.existingScripts?.includes(scriptMatch[1]!)) {
+      if (config.existingScripts?.includes(scriptMatch[1])) {
         // The raw script GET answers source bytes, not a v4 envelope.
         return new Response('export default {}', { status: 200 });
       }

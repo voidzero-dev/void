@@ -1,6 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'pathslash';
+import { Buffer } from '../cli/node-buffer.ts';
 import { hasPackageDependency, readNearestPackageJson } from '../shared/package-json.ts';
 import { collectMigrations } from './collect.ts';
 import { classifyMigration } from './plan.ts';
@@ -73,7 +74,7 @@ export async function openSqliteDatabase(
 ): Promise<SqliteDatabase> {
   try {
     const Database = (await import('better-sqlite3')).default;
-    return new Database(dbPath, options) as SqliteDatabase;
+    return new Database(dbPath, options);
   } catch (error) {
     throw toBetterSqlite3Error(error);
   }

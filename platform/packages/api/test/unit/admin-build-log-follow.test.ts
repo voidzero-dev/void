@@ -19,6 +19,7 @@ vi.mock('react', async (importOriginal) => ({
     return [
       initial,
       (update: unknown) => {
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Run the updater passed to the test implementation of useState.
         state.value = typeof update === 'function' ? update(state.value) : update;
       },
     ];
@@ -46,7 +47,7 @@ afterEach(() => {
 
 async function mount() {
   BuildLogs({ build: { id: 'build', status: 'complete' } as Build });
-  cleanup = effects[0]!();
+  cleanup = effects[0]();
   await vi.advanceTimersByTimeAsync(0);
 }
 

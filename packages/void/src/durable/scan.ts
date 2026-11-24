@@ -25,7 +25,7 @@ export function deriveDurableResourceIdentity(name: string): {
   migrationTag: string;
 } {
   const parts = resourceNameWords(name);
-  const classBase = parts.map((part) => part[0]!.toUpperCase() + part.slice(1)).join('');
+  const classBase = parts.map((part) => part[0].toUpperCase() + part.slice(1)).join('');
   return {
     bindingName: parts.join('_').toUpperCase(),
     className: `${classBase}DurableObject`,

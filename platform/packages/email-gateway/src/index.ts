@@ -144,7 +144,7 @@ async function resolveIngress(
     void response.body?.cancel().catch(() => {});
     throw new Error('invalid email routing response');
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     throw new Error('invalid email routing response');
   }
@@ -277,7 +277,7 @@ function parseHeaders(raw: Uint8Array): Record<string, string> {
     throw new MimeHeaderError('MIME headers too large', 413);
   }
   const lines = decoder.decode(raw.subarray(0, end)).split('\r\n');
-  const headers: Record<string, string> = Object.create(null);
+  const headers = Object.create(null) as Record<string, string>;
   let current = '';
   let physicalLines = 0;
   for (const line of lines) {
@@ -391,11 +391,9 @@ async function ingress(request: Request, env: Env, ctx: ExecutionContext): Promi
     };
     let stub: Fetcher;
     try {
-      stub = (
-        route.limits
-          ? env.DISPATCH.get(route.workerName, {}, { limits: route.limits })
-          : env.DISPATCH.get(route.workerName)
-      ) as Fetcher;
+      stub = route.limits
+        ? env.DISPATCH.get(route.workerName, {}, { limits: route.limits })
+        : env.DISPATCH.get(route.workerName);
     } catch (error) {
       console.error('[email-gateway] tenant dispatch stub unavailable:', error);
       return new Response(null, { status: 503 });
@@ -486,7 +484,7 @@ async function probe(request: Request, env: Env): Promise<Response> {
   if (!authorization.startsWith('Bearer ') || authorization.length > MAX_ENVELOPE_HEADER) {
     return new Response(null, { status: 403 });
   }
-  const reader = request.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = request.body?.getReader();
   if (!reader) {
     return new Response(null, { status: 400 });
   }
@@ -614,7 +612,7 @@ async function readConfirmationResponse(
   if (Number.isFinite(declared) && declared > MAX_CONFIRMATION_RESPONSE_BYTES) {
     throw new Error('confirmation response too large');
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     return null;
   }
@@ -664,10 +662,10 @@ async function confirmDestination(request: Request, env: Env): Promise<Response>
   const entries = [...url.searchParams.entries()];
   if (
     entries.length !== 1 ||
-    entries[0]![0] !== 'token' ||
-    !entries[0]![1] ||
-    entries[0]![1].length > MAX_CONFIRMATION_TOKEN_LENGTH ||
-    !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(entries[0]![1])
+    entries[0][0] !== 'token' ||
+    !entries[0][1] ||
+    entries[0][1].length > MAX_CONFIRMATION_TOKEN_LENGTH ||
+    !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(entries[0][1])
   ) {
     return confirmationResponse(null, 400);
   }
@@ -681,7 +679,7 @@ async function confirmDestination(request: Request, env: Env): Promise<Response>
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const target = new URL(`https://api${CONFIRMATION_PATH}`);
-    target.searchParams.set('token', entries[0]![1]);
+    target.searchParams.set('token', entries[0][1]);
     // GET shows the Confirm button and its POST grants consent. Only the
     // method and the token are relayed; the request body is not.
     const serviceRequest = env.API.fetch(target.toString(), {

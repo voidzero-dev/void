@@ -213,7 +213,7 @@ async function upload(
     }
     let result: { success: boolean };
     try {
-      result = (await response.json()) as { success: boolean };
+      result = await response.json<{ success: boolean }>();
     } catch (error) {
       throw failed(error);
     }
@@ -272,7 +272,7 @@ export async function prepareManagedDurableObjects(
   deploymentId: string,
   manifest: DeployManifest,
 ): Promise<DeployManifest['durableObjects']> {
-  const namespaces: Record<string, string> = Object.create(null);
+  const namespaces = Object.create(null) as Record<string, string>;
   for (const binding of manifest.durableObjects?.bindings ?? []) {
     const worker = await durableObjectWorkerName(projectId, binding.className);
     await db.transaction(async (tx) => {

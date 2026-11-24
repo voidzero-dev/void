@@ -218,7 +218,7 @@ async function runCleanupBatch(
   await Promise.all(
     Array.from({ length: Math.min(5, jobs.length) }, async () => {
       while (next < jobs.length) {
-        const job = jobs[next++]!;
+        const job = jobs[next++];
         try {
           await executeCleanupJob(env, job);
         } catch (error) {
@@ -465,25 +465,17 @@ async function cleanupBestEffortResources(
   // (deleteAll + deleteAlarm). KV `hasCrons` is omitted when false and
   // missing on older entries; the PG manifest is the authoritative source,
   // and unconditional clear avoids a stale-KV gate.
-  cleanup.push(cleanupJob(projectId, 'cron', projectId, { projectId }));
-
-  // KV routing entry
   cleanup.push(
+    cleanupJob(projectId, 'cron', projectId, { projectId }),
+    // KV routing entry
     cleanupJob(projectId, 'routing-key', projectRouteKey(project), {
       key: projectRouteKey(project),
     }),
-  );
-  cleanup.push(
     cleanupJob(projectId, 'routing-key', `ai-block:${projectId}`, { key: `ai-block:${projectId}` }),
-  );
-
-  // Retire any account mirror left by the removed tenant-owned Sandbox proxy.
-  cleanup.push(
+    // Retire any account mirror left by the removed tenant-owned Sandbox proxy.
     cleanupJob(projectId, 'routing-key', `project:${projectId}`, { key: `project:${projectId}` }),
-  );
-  // Proxy token accept floor: closed, not deleted. A missing floor accepts
-  // the legacy token, so deleting it would revive every token ever issued.
-  cleanup.push(
+    // Proxy token accept floor: closed, not deleted. A missing floor accepts
+    // the legacy token, so deleting it would revive every token ever issued.
     cleanupJob(projectId, 'routing-put', proxyTokenStateKey(projectId), {
       key: proxyTokenStateKey(projectId),
       value: CLOSED_PROXY_TOKEN_STATE,
@@ -698,8 +690,8 @@ async function lockAndMarkDeleting(
     return {
       ownerUserId: lockedProject.user_id,
       ownerBillingCycleStart: owner.billing_cycle_start,
-      ownershipStartedAt: ownership!.starts_at,
-      ownershipEndedAt: ownership!.ends_at!,
+      ownershipStartedAt: ownership.starts_at,
+      ownershipEndedAt: ownership.ends_at!,
       cancelledBuilds: await terminateBuildsForProject(tx, projectId, {
         reason: 'project deleted',
       }),
@@ -811,7 +803,7 @@ export async function reconcileProjectCleanupJobs(db: Db, env: ApiEnv['Bindings'
   await Promise.all(
     Array.from({ length: Math.min(5, due.length) }, async () => {
       while (next < due.length) {
-        const job = due[next++]!;
+        const job = due[next++];
         // A later invocation can observe the same due snapshot. Claim without
         // holding a database transaction open across provider I/O.
         const claimed = await db

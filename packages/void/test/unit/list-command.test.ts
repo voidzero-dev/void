@@ -191,7 +191,7 @@ describe('runListCommand', () => {
     const warned = await run(['stuck \u001b[31mred']);
     expect(warned.warn).toHaveBeenCalledTimes(1);
     expect(warned.warn).toHaveBeenCalledWith('stuck  [31mred');
-    expect(warned.tableAt).toBeGreaterThan(warned.warnedAt[0]!);
+    expect(warned.tableAt).toBeGreaterThan(warned.warnedAt[0]);
 
     const quiet = await run();
     expect(quiet.warn).not.toHaveBeenCalled();

@@ -196,7 +196,7 @@ export async function prepareDeploymentInput(
     // to the isolate memory limit.
     const modules: DeploymentInput['modules'] = [];
     for (let index = 0; index < files.length; index++) {
-      const { name, content } = files[index]!;
+      const { name, content } = files[index];
       const digest = await sha256Hex(await content.arrayBuffer());
       modules.push({
         name,
@@ -219,7 +219,7 @@ export async function prepareDeploymentInput(
         while (!failed && next < files.length) {
           const index = next++;
           try {
-            await r2.put(modules[index]!.key, files[index]!.content);
+            await r2.put(modules[index].key, files[index].content);
           } catch (error) {
             failed = true;
             throw error;

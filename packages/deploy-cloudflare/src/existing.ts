@@ -196,7 +196,7 @@ export async function readCloudflareWorkerMigrationTag(
       `Could not verify Durable Object migration state for Cloudflare Worker "${options.workerName}".`,
     );
   }
-  const worker = body.result.find(
+  const worker = (body.result as Array<unknown>).find(
     (candidate) => isRecord(candidate) && candidate.id === options.workerName,
   );
   if (!isRecord(worker)) {
@@ -419,8 +419,8 @@ export function assertCloudflareBindingsPreserved(
     const matches = after.bindings.filter((binding) => binding.name === addition.binding);
     if (
       matches.length !== 1 ||
-      matches[0]!.type !== 'kv_namespace' ||
-      matches[0]!.namespace_id !== addition.id
+      matches[0].type !== 'kv_namespace' ||
+      matches[0].namespace_id !== addition.id
     ) {
       throw new Error(
         `The uploaded version did not use the approved KV namespace for ${addition.binding}. It has not been activated.`,
@@ -487,11 +487,14 @@ export function assertExistingCloudflareConfig(
     const entries = config.kv_namespaces;
     for (const addition of additions) {
       const matches = Array.isArray(entries)
-        ? entries.filter((entry) => isRecord(entry) && entry.binding === addition.binding)
+        ? (entries as Array<unknown>).filter(
+            (entry): entry is Record<string, unknown> =>
+              isRecord(entry) && entry.binding === addition.binding,
+          )
         : [];
       if (
         (built || matches.length > 0) &&
-        (matches.length !== 1 || matches[0]!.id !== addition.id)
+        (matches.length !== 1 || matches[0].id !== addition.id)
       ) {
         throw new Error(
           `Binding ${addition.binding} must reference its approved KV namespace when linking.`,
@@ -563,7 +566,7 @@ export function assertExistingCloudflareConfig(
   const metadata = isRecord(config.version_metadata) ? config.version_metadata : undefined;
   if (
     metadataBindings.length > 1 ||
-    (metadataBindings.length === 1 && metadata?.binding !== metadataBindings[0]!.name) ||
+    (metadataBindings.length === 1 && metadata?.binding !== metadataBindings[0].name) ||
     (metadataBindings.length === 0 && config.version_metadata !== undefined)
   ) {
     throw new Error(
@@ -622,7 +625,9 @@ export function assertExistingCloudflareConfig(
     const [field, localId, remoteId] = mapping;
     const entries = config[field];
     const matches = Array.isArray(entries)
-      ? entries.filter((entry) => isRecord(entry) && entry.binding === binding.name)
+      ? (entries as Array<unknown>).filter(
+          (entry) => isRecord(entry) && entry.binding === binding.name,
+        )
       : [];
     const entry = matches[0];
     if (
@@ -670,8 +675,8 @@ function newApprovedKvBindings(
     if (previous.length > 0) {
       if (
         previous.length !== 1 ||
-        previous[0]!.type !== 'kv_namespace' ||
-        previous[0]!.namespace_id !== binding.id
+        previous[0].type !== 'kv_namespace' ||
+        previous[0].namespace_id !== binding.id
       ) {
         throw new Error(
           `The approved KV binding ${binding.binding} cannot replace an existing binding.`,

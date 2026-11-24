@@ -1049,7 +1049,9 @@ export function voidPlugin(options?: {
         // the client instance that recorded this build's immutable asset files.
         const clientRoutes = environment?.config.plugins.find(
           (plugin) => plugin.name === routes.name,
-        ) as typeof routes | undefined;
+        ) as
+          | { api: { finalizeCloudflareAssets(clientDir: string, assetsDir: string): void } }
+          | undefined;
         clientRoutes?.api.finalizeCloudflareAssets(clientDir, environment!.config.build.assetsDir);
       },
     }),

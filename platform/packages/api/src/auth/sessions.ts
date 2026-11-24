@@ -101,7 +101,7 @@ export async function createHumanSession(
       signingSecret,
       { ttlSeconds: settings.session_seconds },
     );
-    return { token, session: session! };
+    return { token, session };
   });
 }
 

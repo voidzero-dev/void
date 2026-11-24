@@ -131,7 +131,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return providerError('application not found', 404);
@@ -240,7 +240,9 @@ describe('Zero Trust operation completion', () => {
     interleave = true;
     await reconcilePlatformZeroTrust(platform, env.db);
     const updated = (await readZeroTrustConfigurationStrict(env.db))!;
-    const routing = JSON.parse((await env.ROUTING.get(project.slug))!);
+    const routing = JSON.parse((await env.ROUTING.get(project.slug))!) as {
+      zeroTrust: { audiences: Array<{ hostname: string; audience: string }> };
+    };
     expect(zeroTrustConfigurationStatus(updated)).toBe('ready');
     expect(updated.wildcardApplication!.audience).not.toBe(
       oldConfiguration.wildcardApplication!.audience,
@@ -252,7 +254,7 @@ describe('Zero Trust operation completion', () => {
     expect(
       routing.zeroTrust.audiences.find(
         (entry: { hostname: string }) => entry.hostname === '*.apps.example.com',
-      ).audience,
+      )!.audience,
     ).toBe(updated.wildcardApplication!.audience);
   });
 

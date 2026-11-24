@@ -30,20 +30,17 @@ export function mergeCloudflareConfig(patch: object, fallback: object): Record<s
     if (value === undefined) {
       continue;
     }
-    const previous = (result as Record<string, unknown>)[key];
+    const previous = result[key];
     result[key] =
       Array.isArray(value) && Array.isArray(previous)
-        ? [...value, ...previous]
+        ? [...(value as Array<unknown>), ...(previous as Array<unknown>)]
         : value &&
             previous &&
             typeof value === 'object' &&
             typeof previous === 'object' &&
             !Array.isArray(value) &&
             !Array.isArray(previous)
-          ? mergeCloudflareConfig(
-              value as Record<string, unknown>,
-              previous as Record<string, unknown>,
-            )
+          ? mergeCloudflareConfig(value as Record<string, unknown>, previous)
           : value;
   }
   return result;
@@ -53,7 +50,7 @@ export function mergeCloudflareConfig(patch: object, fallback: object): Record<s
 export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): CloudflareConfig {
   const packagePath = join(root, 'package.json');
   const packageName = existsSync(packagePath)
-    ? JSON.parse(readFileSync(packagePath, 'utf8')).name
+    ? (JSON.parse(readFileSync(packagePath, 'utf8')) as { name?: unknown }).name
     : undefined;
   const name =
     String(packageName ?? basename(root))
@@ -153,7 +150,7 @@ export function nativeAuxiliaryWorkers(
         mergeCloudflareConfig(patch ?? {}, base),
         path ? dirname(path) : root,
       );
-      return native.worker!;
+      return native.worker;
     },
   }));
 }

@@ -32,14 +32,14 @@ export function parseBuildArgs(args: Array<string>): BuildArgs {
   let projectName: string | undefined;
 
   for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i]!;
+    const arg = rest[i];
     if (arg === '-f' || arg === '--follow') {
       follow = true;
     } else if (arg === '-o' || arg === '--output') {
       if (i + 1 >= rest.length) {
         throw new Error('build: --output requires a value.');
       }
-      const value = rest[++i]!;
+      const value = rest[++i];
       if (value.trim() === '') {
         throw new Error('build: --output requires a value.');
       }
@@ -48,7 +48,7 @@ export function parseBuildArgs(args: Array<string>): BuildArgs {
       if (i + 1 >= rest.length) {
         throw new Error('build: --project requires a value.');
       }
-      const value = rest[++i]!;
+      const value = rest[++i];
       if (value.trim() === '') {
         throw new Error('build: --project requires a value.');
       }

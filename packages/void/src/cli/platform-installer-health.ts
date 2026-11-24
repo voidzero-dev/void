@@ -116,11 +116,11 @@ export async function verifyPlatformHealth(
       context,
     );
   }
-  const body = (await discovery.json()) as {
+  const body = await discovery.json<{
     installationId?: unknown;
     platformVersion?: unknown;
     usageProtocolVersion?: unknown;
-  };
+  }>();
   if (body.installationId !== installationId) {
     throw new Error('platform: Deployed API discovery identity does not match this installation.');
   }
@@ -152,11 +152,11 @@ export async function verifyPlatformHealth(
         context,
       );
     }
-    const identity = (await emailGateway.json()) as {
+    const identity = await emailGateway.json<{
       installationId?: unknown;
       platformVersion?: unknown;
       emailProtocolVersion?: unknown;
-    } | null;
+    } | null>();
     if (
       identity?.installationId !== installationId ||
       identity.platformVersion !== platformVersion ||

@@ -327,7 +327,7 @@ async function issued(projectId: string): Promise<number> {
     .select({ gen: projects.proxy_token_gen })
     .from(projects)
     .where(eq(projects.id, projectId));
-  return row!.gen;
+  return row.gen;
 }
 
 /** Generation recorded on the deployment row for the token its Worker holds. */
@@ -336,7 +336,7 @@ async function held(deploymentId: string): Promise<number> {
     .select({ gen: deployments.proxy_token_gen })
     .from(deployments)
     .where(eq(deployments.id, deploymentId));
-  return row!.gen;
+  return row.gen;
 }
 
 /** The generation the proxy would send: what resolve-worker reports. */
@@ -355,7 +355,7 @@ async function resolvedGen(projectId: string): Promise<unknown> {
     testEnv,
   );
   expect(response.status).toBe(200);
-  return ((await response.json()) as { proxyTokenGen?: unknown }).proxyTokenGen;
+  return (await response.json<{ proxyTokenGen?: unknown }>()).proxyTokenGen;
 }
 
 /** Stops a run right after START, before the first Cloudflare call. */
@@ -384,7 +384,7 @@ async function dueNow(projectId: string): Promise<boolean> {
         WHERE target = ${proxyTokenRotationTarget(projectId)}`,
     )
   ).rows;
-  return row!.due;
+  return row.due;
 }
 
 async function kick(projectId: string): Promise<void> {
@@ -531,7 +531,7 @@ describe('proxy token rotation', () => {
     const workers = [...fx.retained.slice(0, 2), fx.active].map(fx.worker);
     expect(patchedScripts()).toEqual(workers);
     // The static row has no script: one GET, no PATCH.
-    expect(events).toContain(`GET ${fx.worker(fx.retained[2]!)}`);
+    expect(events).toContain(`GET ${fx.worker(fx.retained[2])}`);
     for (const patch of patches) {
       expect(patch.bindings).toEqual([
         { type: 'inherit', name: 'DB' },
@@ -612,9 +612,9 @@ describe('proxy token rotation', () => {
     await advance(fx.projectId, { waitMs: 60_000 });
     // A member loses access after START: one more generation follows.
     await request(fx.projectId, 'member');
-    expect((await job(fx.projectId))!.payload.again).toBe('1');
+    expect((await job(fx.projectId)).payload.again).toBe('1');
     await step(fx.projectId);
-    expect((await job(fx.projectId))!.payload.phase).toBe('settle');
+    expect((await job(fx.projectId)).payload.phase).toBe('settle');
     expect(await floor(fx.projectId)).toEqual({ gen: 1 });
 
     expect(await statuses(legacy)).toEqual([401, 401, 401]);
@@ -746,7 +746,7 @@ describe('proxy token rotation', () => {
     });
     expect(cron.states.get(fx.projectId)).toMatchObject({ proxyToken: token });
     // The PATCH from the failed attempt still drains before the floor rises.
-    expect((await job(fx.projectId))!.payload.lastPatchAt).toBeDefined();
+    expect((await job(fx.projectId)).payload.lastPatchAt).toBeDefined();
 
     await step(fx.projectId);
     expect(await floor(fx.projectId)).toEqual({ gen: 1 });
@@ -766,10 +766,10 @@ describe('proxy token rotation', () => {
     const run = () =>
       reconcileProxyTokenRotations(env.db, testEnv, { maxCfCalls: 100, maxMs: 25_000, waitMs: 0 });
     expect(await run()).toMatchObject({ done: 0, pending: 0, failed: 1 });
-    expect((await job(fx.projectId))!.attempts).toBe(1);
+    expect((await job(fx.projectId)).attempts).toBe(1);
     expect(await run()).toMatchObject({ done: 0, pending: 0, failed: 1 });
 
-    expect((await job(fx.projectId))!.attempts).toBe(2);
+    expect((await job(fx.projectId)).attempts).toBe(2);
     expect(await dueNow(fx.projectId)).toBe(true);
   });
 
@@ -777,7 +777,7 @@ describe('proxy token rotation', () => {
     const cf = cfApi();
     const fx = await setupProject(cf);
     const token = await tok(fx.projectId, 1);
-    const retained = fx.worker(fx.retained[0]!);
+    const retained = fx.worker(fx.retained[0]);
     vi.spyOn(console, 'error').mockImplementation(() => {});
     // A rollback to this deployment before the retry would make it active.
     hooks.fetch = (method, script) => {
@@ -796,7 +796,7 @@ describe('proxy token rotation', () => {
       workerName: retained,
     });
     expect(scriptToken(cf, retained)).toBe(token);
-    expect(await held(fx.retained[0]!)).toBe(0);
+    expect(await held(fx.retained[0])).toBe(0);
     expect(await dueNow(fx.projectId)).toBe(true);
   });
 
@@ -823,7 +823,7 @@ describe('proxy token rotation', () => {
     for (const [index, at] of patchAt.entries()) {
       expect(genWrites[index]).toBeGreaterThanOrEqual(at);
     }
-    expect(await held(fx.retained[0]!)).toBe(1);
+    expect(await held(fx.retained[0])).toBe(1);
     expect(await held(fx.active)).toBe(1);
   });
 
@@ -850,7 +850,7 @@ describe('proxy token rotation', () => {
     expect(events).toEqual([]);
     expect(cf.mock.calls).toHaveLength(0);
     expect(cron.calls.length).toBe(cronCalls);
-    expect((await job(fx.projectId))!.attempts).toBe(1);
+    expect((await job(fx.projectId)).attempts).toBe(1);
   });
 
   it('starts the wait after the floor write, not at the start of the step', async () => {
@@ -872,10 +872,10 @@ describe('proxy token rotation', () => {
     await request(fx.projectId);
     await advance(fx.projectId, { waitMs: PROXY_TOKEN_ROTATION_WAIT_MS });
     await run();
-    const payload = (await job(fx.projectId))!.payload;
+    const payload = (await job(fx.projectId)).payload;
     expect(payload.phase).toBe('settle');
     expect(putDoneAt).toBeGreaterThan(0);
-    expect(Date.parse(payload.waitUntil!)).toBeGreaterThanOrEqual(
+    expect(Date.parse(payload.waitUntil)).toBeGreaterThanOrEqual(
       putDoneAt + PROXY_TOKEN_ROTATION_WAIT_MS,
     );
   });
@@ -885,7 +885,7 @@ describe('proxy token rotation', () => {
     const fx = await setupProject(cf);
     await request(fx.projectId);
     await advance(fx.projectId, { waitMs: 60_000 });
-    expect((await job(fx.projectId))!.payload.phase).toBe('revoke');
+    expect((await job(fx.projectId)).payload.phase).toBe('revoke');
 
     // A deploy admitted after START bakes tok(1) and becomes active.
     const deployed = await addDeployment(fx.projectId, { active: true, proxyTokenGen: 1 });
@@ -932,7 +932,7 @@ describe('proxy token rotation', () => {
       phase: 'revoke',
       reason: 'waiting',
     });
-    expect((await job(fx.projectId))!.payload.lastPatchAt).toBeDefined();
+    expect((await job(fx.projectId)).payload.lastPatchAt).toBeDefined();
     expect(await floor(fx.projectId)).toBeNull();
     expect(patchedScripts()).toEqual([fx.worker(fx.active)]);
 
@@ -946,7 +946,7 @@ describe('proxy token rotation', () => {
     const token = await tok(fx.projectId, 1);
     await request(fx.projectId);
     await advance(fx.projectId, { waitMs: 60_000 });
-    expect((await job(fx.projectId))!.payload.phase).toBe('revoke');
+    expect((await job(fx.projectId)).payload.phase).toBe('revoke');
 
     // The active Worker already holds the new token; only the later row does not.
     const later = await addDeployment(fx.projectId);
@@ -977,9 +977,9 @@ describe('proxy token rotation', () => {
     expect(await advance(fx.projectId)).toMatchObject({
       status: 'failed',
       phase: 'patch',
-      workerName: fx.worker(fx.retained[1]!),
+      workerName: fx.worker(fx.retained[1]),
     });
-    const failed = (await job(fx.projectId))!;
+    const failed = await job(fx.projectId);
     expect(failed.attempts).toBe(1);
     expect(failed.last_error).toContain('internal error');
     expect(await floor(fx.projectId)).toBeNull();
@@ -992,8 +992,8 @@ describe('proxy token rotation', () => {
       proxyToken: fx.legacy,
     });
     expect(cron.states.get(fx.projectId)).toMatchObject({ proxyToken: fx.legacy });
-    expect(await held(fx.retained[0]!)).toBe(1);
-    expect(await held(fx.retained[1]!)).toBe(0);
+    expect(await held(fx.retained[0])).toBe(1);
+    expect(await held(fx.retained[1])).toBe(0);
 
     const log = errors.mock.calls
       .map((call) => call.join(' '))
@@ -1006,7 +1006,7 @@ describe('proxy token rotation', () => {
     events.length = 0;
     await kick(fx.projectId);
     expect(await advance(fx.projectId)).toEqual({ status: 'done', gen: 1 });
-    expect(patchedScripts()).toEqual([fx.worker(fx.retained[1]!), fx.worker(fx.active)]);
+    expect(patchedScripts()).toEqual([fx.worker(fx.retained[1]), fx.worker(fx.active)]);
     expect((await job(fx.projectId)) ?? null).toBeNull();
   });
 
@@ -1042,7 +1042,7 @@ describe('proxy token rotation', () => {
     });
     expect(await issued(fx.projectId)).toBe(1);
 
-    const target = fx.retained[0]!;
+    const target = fx.retained[0];
     const response = await app.fetch(
       new Request(`http://localhost/projects/${fx.projectId}/rollback`, {
         method: 'POST',
@@ -1093,7 +1093,7 @@ describe('proxy token rotation', () => {
     expect(await advance(fx.projectId)).toEqual({ status: 'done', gen: 1 });
     // PATCH, REVOKE (old token reported), re-walk GET, REVOKE again.
     expect(activeGets).toBe(4);
-    expect(events.filter((event) => event === `GET ${fx.worker(fx.retained[0]!)}`)).toHaveLength(2);
+    expect(events.filter((event) => event === `GET ${fx.worker(fx.retained[0])}`)).toHaveLength(2);
   });
 
   it('walks the Workers again while a row does not record the new generation', async () => {
@@ -1101,11 +1101,11 @@ describe('proxy token rotation', () => {
     const fx = await setupProject(cf);
     await request(fx.projectId);
     await advance(fx.projectId, { waitMs: 60_000 });
-    expect((await job(fx.projectId))!.payload.phase).toBe('revoke');
+    expect((await job(fx.projectId)).payload.phase).toBe('revoke');
     await env.db
       .update(deployments)
       .set({ proxy_token_gen: 0 })
-      .where(eq(deployments.id, fx.retained[1]!));
+      .where(eq(deployments.id, fx.retained[1]));
     vi.spyOn(console, 'log').mockImplementation(() => {});
     events.length = 0;
 
@@ -1119,7 +1119,7 @@ describe('proxy token rotation', () => {
       [...fx.retained, fx.active].map((id) => `GET ${fx.worker(id)}`),
     );
     expect(patchedScripts()).toEqual([]);
-    expect(await held(fx.retained[1]!)).toBe(1);
+    expect(await held(fx.retained[1])).toBe(1);
 
     await step(fx.projectId);
     expect(await floor(fx.projectId)).toEqual({ gen: 1 });
@@ -1139,7 +1139,7 @@ describe('proxy token rotation', () => {
     expect(events).toEqual([]);
     expect(cf.mock.calls).toHaveLength(0);
     expect(await issued(fx.projectId)).toBe(0);
-    expect((await job(fx.projectId))!.attempts).toBe(0);
+    expect((await job(fx.projectId)).attempts).toBe(0);
   });
 
   it('fails until a project with an unrecorded active deployment is normalized', async () => {
@@ -1162,27 +1162,27 @@ describe('proxy token rotation', () => {
     it('skips a retained Worker without a proxy token binding', async () => {
       const cf = cfApi();
       const fx = await setupProject(cf);
-      cf.state.hostScripts.get(fx.worker(fx.retained[0]!))!.bindings = [
+      cf.state.hostScripts.get(fx.worker(fx.retained[0]))!.bindings = [
         { type: 'd1', name: 'DB', id: 'd1-database-id' },
       ];
       const log = vi.spyOn(console, 'log').mockImplementation(() => {});
       await request(fx.projectId);
       await advance(fx.projectId, { waitMs: 60_000 });
-      expect((await job(fx.projectId))!.payload.phase).toBe('revoke');
+      expect((await job(fx.projectId)).payload.phase).toBe('revoke');
       const [project] = await env.db.select().from(projects).where(eq(projects.id, fx.projectId));
-      expect(
-        (await listProxyTokenInventory(env.db, project!)).map((row) => row.workerName),
-      ).toEqual([fx.retained[1]!, fx.active].map(fx.worker));
+      expect((await listProxyTokenInventory(env.db, project)).map((row) => row.workerName)).toEqual(
+        [fx.retained[1], fx.active].map(fx.worker),
+      );
 
       expect(await step(fx.projectId)).toMatchObject({ status: 'pending', phase: 'settle' });
       expect(await step(fx.projectId)).toEqual({ status: 'done', gen: 1 });
-      expect(patchedScripts()).toEqual([fx.worker(fx.retained[1]!), fx.worker(fx.active)]);
+      expect(patchedScripts()).toEqual([fx.worker(fx.retained[1]), fx.worker(fx.active)]);
       expect(log).toHaveBeenCalledWith(
-        `[proxy-token-rotation] skipped ${fx.projectId} worker=${fx.worker(fx.retained[0]!)} has no __VOID_PROXY_TOKEN binding; redeploy the project to give it one`,
+        `[proxy-token-rotation] skipped ${fx.projectId} worker=${fx.worker(fx.retained[0])} has no __VOID_PROXY_TOKEN binding; redeploy the project to give it one`,
       );
       // Its row still names the token it holds; the floor rises past it.
-      expect(await held(fx.retained[0]!)).toBe(0);
-      expect(await held(fx.retained[1]!)).toBe(1);
+      expect(await held(fx.retained[0])).toBe(0);
+      expect(await held(fx.retained[1])).toBe(1);
       expect(await held(fx.active)).toBe(1);
       expect(await floor(fx.projectId)).toEqual({ gen: 1 });
     });
@@ -1227,7 +1227,7 @@ describe('proxy token rotation', () => {
     it('fails on a proxy token binding that is not plain text', async () => {
       const cf = cfApi();
       const fx = await setupProject(cf);
-      cf.state.hostScripts.get(fx.worker(fx.retained[0]!))!.bindings = [
+      cf.state.hostScripts.get(fx.worker(fx.retained[0]))!.bindings = [
         { type: 'secret_text', name: '__VOID_PROXY_TOKEN' },
       ];
       await request(fx.projectId);
@@ -1248,8 +1248,8 @@ describe('proxy token rotation', () => {
         workerName: fx.worker(fx.active),
       });
       expect(events).toEqual([`GET ${fx.worker(fx.active)}`]);
-      expect((await job(fx.projectId))!.attempts).toBe(1);
-      expect((await job(fx.projectId))!.payload.phase).toBe('revoke');
+      expect((await job(fx.projectId)).attempts).toBe(1);
+      expect((await job(fx.projectId)).payload.phase).toBe('revoke');
       expect(await floor(fx.projectId)).toBeNull();
     });
 
@@ -1275,7 +1275,7 @@ describe('proxy token rotation', () => {
       const fx = await setupProject(cf, { retained: 1, manifest: null });
       await request(fx.projectId);
       expect(await advance(fx.projectId)).toEqual({ status: 'done', gen: 1 });
-      expect(patchedScripts()).toEqual([fx.worker(fx.retained[0]!), fx.worker(fx.active)]);
+      expect(patchedScripts()).toEqual([fx.worker(fx.retained[0]), fx.worker(fx.active)]);
       expect(events.filter((event) => event === `GET ${fx.worker(fx.active)}`)).toHaveLength(2);
     });
   });
@@ -1320,7 +1320,7 @@ describe('proxy token rotation', () => {
     expect(log).toHaveBeenCalledWith(
       `[proxy-token-rotation] RATE-LIMITED ${fx.projectId} phase=patch retryAfter=120s`,
     );
-    const limited = (await job(fx.projectId))!;
+    const limited = await job(fx.projectId);
     expect(limited.attempts).toBe(0);
     expect(limited.payload.cursor).toBe('');
     const [due] = await env.db
@@ -1329,12 +1329,12 @@ describe('proxy token rotation', () => {
         FROM project_cleanup_jobs WHERE target = ${proxyTokenRotationTarget(fx.projectId)}`,
       )
       .then((result) => result.rows);
-    expect(due!.inWindow).toBe(true);
+    expect(due.inWindow).toBe(true);
     // The step's transaction rolled back: the project row is free.
     await env.db.transaction(async (tx) => {
       await tx.execute(sql`SELECT id FROM projects WHERE id = ${fx.projectId} FOR UPDATE NOWAIT`);
     });
-    expect((await job(other.projectId))!.payload.phase).toBe('requested');
+    expect((await job(other.projectId)).payload.phase).toBe('requested');
   });
 
   it('cuts a run at the Cloudflare call budget without counting a failure', async () => {
@@ -1363,7 +1363,7 @@ describe('proxy token rotation', () => {
             WHERE target = ${proxyTokenRotationTarget(fx.projectId)}`,
         )
       ).rows;
-      expect(due!.due).toBe(true);
+      expect(due.due).toBe(true);
     }
     expect(patchedScripts()).toHaveLength(13);
     expect(await floor(fx.projectId)).toEqual({ gen: 1 });
@@ -1374,14 +1374,14 @@ describe('proxy token rotation', () => {
     const fx = await setupProject(cf);
     await request(fx.projectId, 'member');
     await request(fx.projectId, 'member');
-    expect((await job(fx.projectId))!.payload).toEqual({
+    expect((await job(fx.projectId)).payload).toEqual({
       phase: 'requested',
       reason: 'member-removed',
     });
 
     await advance(fx.projectId, { waitMs: 60_000 });
     await request(fx.projectId, 'member', 'member-role-changed');
-    expect((await job(fx.projectId))!.payload.again).toBe('1');
+    expect((await job(fx.projectId)).payload.again).toBe('1');
     await shiftBack(fx.projectId);
     expect(await advance(fx.projectId)).toEqual({ status: 'done', gen: 2 });
     const token = await tok(fx.projectId, 2);
@@ -1424,15 +1424,15 @@ describe('proxy token rotation', () => {
     await advance(started.id, { waitMs: 60_000 });
 
     expect(await requestBulkProxyTokenRotations(env.db)).toBe(2);
-    expect((await job(started.id))!.payload.again).toBe('1');
-    expect((await job(idle.id))!.payload).toEqual({
+    expect((await job(started.id)).payload.again).toBe('1');
+    expect((await job(idle.id)).payload).toEqual({
       phase: 'requested',
       reason: 'operator-bulk',
     });
     expect(await job(deleting.id)).toBeUndefined();
 
     expect(await requestBulkProxyTokenRotations(env.db)).toBe(1);
-    expect((await job(idle.id))!.payload.again).toBeUndefined();
+    expect((await job(idle.id)).payload.again).toBeUndefined();
   });
 
   it('is never claimed by the generic cleanup runner', async () => {
@@ -1663,11 +1663,11 @@ describe('rotation after code from a user who lost deploy access is replaced', (
     const team = await setupTeam();
     const untrusted = await deploy(team.projectId, team.collaborator.jwt);
     await removeCollaborator(team);
-    expect((await job(team.projectId))!.payload.reason).toBe('member-removed');
+    expect((await job(team.projectId)).payload.reason).toBe('member-removed');
     expect(await finish(team.projectId)).toEqual({ status: 'done', gen: 2 });
 
     const trusted = await deploy(team.projectId, team.owner.jwt);
-    expect((await job(team.projectId))!.payload).toEqual({
+    expect((await job(team.projectId)).payload).toEqual({
       phase: 'requested',
       reason: 'untrusted-deploy-replaced',
     });
@@ -1704,7 +1704,7 @@ describe('rotation after code from a user who lost deploy access is replaced', (
     await expectWorkersOn(cf, team, [untrusted], 3);
     // Active again, it gets the token; replacing it rotates once more.
     await rollback(team.projectId, team.owner.jwt, trusted);
-    expect((await job(team.projectId))!.payload.reason).toBe('untrusted-deploy-replaced');
+    expect((await job(team.projectId)).payload.reason).toBe('untrusted-deploy-replaced');
     expect(await finish(team.projectId)).toEqual({ status: 'done', gen: 4 });
     await expectWorkersOn(cf, team, [untrusted], 3);
     await expectWorkersOn(cf, team, [trusted], 4);
@@ -1728,10 +1728,10 @@ describe('rotation after code from a user who lost deploy access is replaced', (
     const untrusted = await deploy(team.projectId, team.collaborator.jwt);
     await removeCollaborator(team);
     await advance(team.projectId, { budget: noCfCalls() });
-    expect((await job(team.projectId))!.payload.phase).toBe('patch');
+    expect((await job(team.projectId)).payload.phase).toBe('patch');
 
     const trusted = await deploy(team.projectId, team.owner.jwt);
-    expect((await job(team.projectId))!.payload.again).toBe('1');
+    expect((await job(team.projectId)).payload.again).toBe('1');
     expect(await finish(team.projectId)).toEqual({ status: 'done', gen: 3 });
     await expectWorkersOn(cf, team, [trusted], 3);
     // Already retained when the walk reached it, so it never got generation 2.
@@ -1745,7 +1745,7 @@ describe('rotation after code from a user who lost deploy access is replaced', (
     await removeCollaborator(team);
 
     const trusted = await deploy(team.projectId, team.owner.jwt);
-    expect((await job(team.projectId))!.payload).toEqual({
+    expect((await job(team.projectId)).payload).toEqual({
       phase: 'requested',
       reason: 'member-removed',
     });
@@ -1783,8 +1783,8 @@ describe('rotation after code from a user who lost deploy access is replaced', (
       .select({ status: deployments.status })
       .from(deployments)
       .where(eq(deployments.id, interrupted.id));
-    expect(recovered!.status).toBe('live');
-    expect((await job(team.projectId))!.payload).toEqual({
+    expect(recovered.status).toBe('live');
+    expect((await job(team.projectId)).payload).toEqual({
       phase: 'requested',
       reason: 'untrusted-deploy-replaced',
     });
@@ -1799,7 +1799,7 @@ describe('rotation after code from a user who lost deploy access is replaced', (
     await finish(team.projectId);
 
     await rollback(team.projectId, team.owner.jwt, trusted);
-    expect((await job(team.projectId))!.payload).toEqual({
+    expect((await job(team.projectId)).payload).toEqual({
       phase: 'requested',
       reason: 'untrusted-deploy-replaced',
     });
@@ -1825,7 +1825,7 @@ describe('rotation after code from a user who lost deploy access is replaced', (
     await finish(team.projectId);
 
     await deploy(team.projectId, team.owner.jwt);
-    expect((await job(team.projectId))!.payload.reason).toBe('untrusted-deploy-replaced');
+    expect((await job(team.projectId)).payload.reason).toBe('untrusted-deploy-replaced');
   });
 
   it("rotates when the code's author account was deleted", async () => {
@@ -1833,11 +1833,11 @@ describe('rotation after code from a user who lost deploy access is replaced', (
     const team = await setupTeam();
     await deploy(team.projectId, team.collaborator.jwt);
     await deleteUser(env.db, team.collaborator.id);
-    expect((await job(team.projectId))!.payload.reason).toBe('user-deleted');
+    expect((await job(team.projectId)).payload.reason).toBe('user-deleted');
     await finish(team.projectId);
 
     await deploy(team.projectId, team.owner.jwt);
-    expect((await job(team.projectId))!.payload.reason).toBe('untrusted-deploy-replaced');
+    expect((await job(team.projectId)).payload.reason).toBe('untrusted-deploy-replaced');
   });
 
   // Deployments made before project teams have no recorded author. Only the
@@ -1875,7 +1875,7 @@ describe('rotation after code from a user who lost deploy access is replaced', (
     await expectWorkersOn(cf, team, [retained], 1);
 
     await deploy(team.projectId, team.owner.jwt);
-    expect((await job(team.projectId))!.payload.reason).toBe('untrusted-deploy-replaced');
+    expect((await job(team.projectId)).payload.reason).toBe('untrusted-deploy-replaced');
   });
 
   it('does not treat a suspended owner as lost deploy access', async () => {
@@ -1918,7 +1918,7 @@ describe('rotation after code from a user who lost deploy access is replaced', (
       .set({ suspended_reason: 'admin_suspended' })
       .where(eq(users.id, team.collaborator.id));
     expect(await replace()).toBe(true);
-    expect((await job(team.projectId))!.payload.reason).toBe('untrusted-deploy-replaced');
+    expect((await job(team.projectId)).payload.reason).toBe('untrusted-deploy-replaced');
   });
 
   it('does not rotate when a failed deploy leaves the code in place', async () => {
@@ -1953,7 +1953,7 @@ describe('rotation after code from a user who lost deploy access is replaced', (
       .select({ active: projects.active_deployment_id })
       .from(projects)
       .where(eq(projects.id, team.projectId));
-    expect(project!.active).toBe(untrusted);
+    expect(project.active).toBe(untrusted);
     expect(await job(team.projectId)).toBeUndefined();
   });
 });
@@ -2009,7 +2009,7 @@ describe('owner warning for a stuck rotation', () => {
       await kick(fx.projectId);
       expect(await advance(fx.projectId)).toMatchObject({ status: 'failed', phase: 'patch' });
     }
-    expect((await job(fx.projectId))!.attempts).toBe(PROXY_TOKEN_ROTATION_STUCK_ATTEMPTS);
+    expect((await job(fx.projectId)).attempts).toBe(PROXY_TOKEN_ROTATION_STUCK_ATTEMPTS);
     expect(await warnings(fx.projectId)).toEqual([proxyTokenRotationStuckWarning(fx.projectId)]);
 
     hooks.fetch = undefined;
@@ -2019,7 +2019,7 @@ describe('owner warning for a stuck rotation', () => {
       phase: 'revoke',
       reason: 'waiting',
     });
-    expect((await job(fx.projectId))!.attempts).toBe(0);
+    expect((await job(fx.projectId)).attempts).toBe(0);
     expect(await warnings(fx.projectId)).toEqual([]);
   });
 });

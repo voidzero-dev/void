@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { readKeyringPassword, writeKeyringPassword } from './keyring.ts';
+import { Buffer } from './node-buffer.ts';
 import { normalizePlatformApiUrl, platformCredentialAccount } from './platform-registry.ts';
 
 const ACCESS_KEYRING_SERVICE = 'dev.void.cli.access';
@@ -8,7 +9,7 @@ const keyringTokens = new Map<string, string | null>();
 
 function usableToken(token: string): boolean {
   try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')) as {
       exp?: unknown;
     };
     return typeof payload.exp === 'number' && payload.exp > Date.now() / 1000 + 60;

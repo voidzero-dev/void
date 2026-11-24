@@ -2083,7 +2083,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
     }
     await this.finalizeCheckRun(
       config,
-      conclusion as CheckRunConclusion,
+      conclusion,
       {
         detailsUrl: this.projectUrl(config),
         title: `Void build ${conclusion === 'success' ? 'succeeded' : conclusion}`,
@@ -3425,11 +3425,11 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
         if (!res.ok) {
           return false;
         }
-        const body = (await res.json()) as {
+        const body = await res.json<{
           lines: Array<BuildLogLine & { seq: number }>;
           lastSeq: number;
           hasMore?: boolean;
-        };
+        }>();
         if (body.lines.length > 0) {
           // Charge the page BEFORE ingesting it: the accounting must reflect the
           // work this callback is about to do, and the fan-out width must be the
@@ -3485,7 +3485,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
   }
 
   private async handleStatus(request: Request): Promise<Response> {
-    const body = (await request.json()) as { status?: StoredBuildStatus };
+    const body = await request.json<{ status?: StoredBuildStatus }>();
     const config = await this.getConfig();
     if (!body.status || !config) {
       return Response.json({ ok: false }, { status: 400 });

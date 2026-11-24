@@ -50,7 +50,7 @@ function errorReplacer(): (key: string, value: unknown) => unknown {
 
 function format(message: string, boundFields: ReadonlyArray<Fields> = [], fields?: Fields): string {
   try {
-    const payload: Record<string, unknown> = Object.create(null);
+    const payload = Object.create(null) as Record<string, unknown>;
     payload.msg = message;
 
     for (const source of [...boundFields, fields]) {

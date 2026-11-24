@@ -181,7 +181,7 @@ export interface DerivedEmailAddresses {
  */
 export function emailFromDomain(from: string): string | null {
   const bracketed = /<([^<>]*)>\s*$/.exec(from.trim());
-  const address = bracketed ? (bracketed[1] as string) : from;
+  const address = bracketed ? bracketed[1] : from;
   const at = address.lastIndexOf('@');
   if (at <= 0 || at === address.length - 1) {
     return null;
@@ -1326,7 +1326,7 @@ export async function fetchWithSessionBearer(
     errors?: Array<{ code?: number; message?: string }>;
   };
   try {
-    payload = (await response.json()) as typeof payload;
+    payload = await response.json<typeof payload>();
   } catch {
     payload = {};
   }
@@ -1487,8 +1487,8 @@ export async function applyEmailSetup(
       // enable the zone itself and lock MX over the apex's live mail, so no call is made.
       lines.push(
         `  ✘ routing   ${pre.domain}: Email Routing is not enabled on ${apex} — a subdomain can only be added to a zone that already routes; Void never enables routing on the apex from the subdomain path`,
+        `    ${subdomainDashboardFallback(apex, pre.domain)}`,
       );
-      lines.push(`    ${subdomainDashboardFallback(apex, pre.domain)}`);
     } else {
       // Per the OpenAPI spec, POST …/email/routing/dns { name } enables routing on a
       // subdomain; the `email.routing.enable` operation is apex-only.
@@ -1499,8 +1499,10 @@ export async function applyEmailSetup(
         result.routingReady = true;
         lines.push(`  ✔ routing   ${pre.domain} enabled`);
       } else {
-        lines.push(`  ✘ routing   ${pre.domain}: ${describeFailure(response)}`);
-        lines.push(`    ${subdomainDashboardFallback(apex, pre.domain)}`);
+        lines.push(
+          `  ✘ routing   ${pre.domain}: ${describeFailure(response)}`,
+          `    ${subdomainDashboardFallback(apex, pre.domain)}`,
+        );
       }
     }
   }
@@ -1514,8 +1516,8 @@ export async function applyEmailSetup(
       result.subaddressingReady = true;
       lines.push(`  ✔ routing   subaddressing on for ${apex}`);
     } else {
-      lines.push(`  ✘ routing   subaddressing on ${apex}: ${describeFailure(response)}`);
       lines.push(
+        `  ✘ routing   subaddressing on ${apex}: ${describeFailure(response)}`,
         `    turn it on in the Cloudflare dashboard → ${apex} → Email → Settings → Subaddressing`,
       );
     }

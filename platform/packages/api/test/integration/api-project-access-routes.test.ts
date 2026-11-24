@@ -195,7 +195,7 @@ describe('project route membership capabilities', () => {
     );
 
     expect(response.status).toBe(403);
-    const body = (await response.json()) as { error: string; message: string };
+    const body = await response.json<{ error: string; message: string }>();
     expect(body).toEqual({ error: 'forbidden', message: expect.stringContaining(guidance) });
     expect(body.message).toMatch(/Ask (a project admin or owner|the owner)/);
     for (const privateValue of [owner.id, owner.login, project.id, project.slug]) {
@@ -585,7 +585,7 @@ describe('project route membership capabilities', () => {
       env,
     );
     expect(tokenResponse.status).toBe(200);
-    const { token } = (await tokenResponse.json()) as { token: string };
+    const { token } = await tokenResponse.json<{ token: string }>();
     const payload = await verifyPrerenderToken(token, JWT_SECRET);
     expect(payload).toMatchObject({
       sub: collaborator.id,

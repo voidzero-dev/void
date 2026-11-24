@@ -1,5 +1,6 @@
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import { createCodeChallenge } from '../../src/cli/auth.ts';
 import { PlatformApiError } from '../../src/cli/client.ts';
 import type { GithubInstallation, PlatformClient } from '../../src/cli/client.ts';
@@ -114,11 +115,11 @@ function driveConnect(opts: {
   };
 }
 
-let exitSpy: ReturnType<typeof vi.spyOn>;
-let successSpy: ReturnType<typeof vi.spyOn>;
-let errorSpy: ReturnType<typeof vi.spyOn>;
-let messageSpy: ReturnType<typeof vi.spyOn>;
-let infoSpy: ReturnType<typeof vi.spyOn>;
+let exitSpy: MockInstance;
+let successSpy: MockInstance;
+let errorSpy: MockInstance;
+let messageSpy: MockInstance;
+let infoSpy: MockInstance;
 const originalIsTTY = process.stdin.isTTY;
 
 beforeEach(() => {
@@ -179,11 +180,11 @@ describe('runConnect — non-owner member connect-authorization round-trip', () 
     // Two connect attempts: bare first, grant-carrying retry.
     expect(connectGithub).toHaveBeenCalledTimes(2);
 
-    const firstBody = connectGithub.mock.calls[0]![1] as Record<string, unknown>;
+    const firstBody = connectGithub.mock.calls[0][1] as Record<string, unknown>;
     expect(firstBody.connectGrant).toBeUndefined();
     expect(firstBody.codeVerifier).toBeUndefined();
 
-    const retryBody = connectGithub.mock.calls[1]![1] as Record<string, unknown>;
+    const retryBody = connectGithub.mock.calls[1][1] as Record<string, unknown>;
     expect(retryBody).toMatchObject({
       installationId,
       repoFullName,
@@ -213,7 +214,7 @@ describe('runConnect — non-owner member connect-authorization round-trip', () 
     await promise;
 
     expect(connectGithub).toHaveBeenCalledTimes(1);
-    const body = connectGithub.mock.calls[0]![1] as Record<string, unknown>;
+    const body = connectGithub.mock.calls[0][1] as Record<string, unknown>;
     expect(body.connectGrant).toBeUndefined();
     expect(getGithubConnectAuthorizeUrl).not.toHaveBeenCalled();
     expect(successSpy).toHaveBeenCalledWith(
@@ -513,7 +514,7 @@ describe('runConnect — member repo prompt (redacted repository list)', () => {
       expect.objectContaining({ message: 'Repository (owner/repo):' }),
     );
     // The prompt's validate callback rejects anything that isn't owner/repo.
-    const textOptions = mockText.mock.calls[0]![0] as {
+    const textOptions = mockText.mock.calls[0][0] as {
       validate: (value?: string) => string | undefined;
     };
     expect(textOptions.validate('not-a-repo')).toBe('Enter the repository as owner/repo.');
@@ -522,7 +523,7 @@ describe('runConnect — member repo prompt (redacted repository list)', () => {
     expect(textOptions.validate(' octocat/hello-world ')).toBeUndefined();
     expect(connectGithub).toHaveBeenCalledTimes(1);
     // client.connectGithub(projectId, body) — body.repoFullName carries the typed repo
-    const body = connectGithub.mock.calls[0]![1] as { repoFullName: string };
+    const body = connectGithub.mock.calls[0][1] as { repoFullName: string };
     expect(body.repoFullName).toBe(repoFullName);
   });
 
@@ -548,20 +549,23 @@ describe('runConnect — member repo prompt (redacted repository list)', () => {
       });
       await promise;
 
-      const repoPrompt = mockText.mock.calls[0]![0];
+      const repoPrompt = mockText.mock.calls[0][0];
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(repoPrompt.validate('')).toBeUndefined();
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(repoPrompt.validate(' ')).toBe('Enter the repository as owner/repo.');
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(repoPrompt.validate('another/project')).toBeUndefined();
       for (const [index, suggestion] of [
         [0, repoFullName],
         [1, 'release'],
         [2, '.github/workflows/void-deploy.yml'],
       ] as const) {
-        expect(mockText.mock.calls[index]![0]).toMatchObject({
+        expect(mockText.mock.calls[index][0]).toMatchObject({
           placeholder: suggestion,
           defaultValue: suggestion,
         });
-        expect(mockText.mock.calls[index]![0]).not.toHaveProperty('initialValue');
+        expect(mockText.mock.calls[index][0]).not.toHaveProperty('initialValue');
       }
       expect(connectGithub).toHaveBeenCalledWith(
         projectId,

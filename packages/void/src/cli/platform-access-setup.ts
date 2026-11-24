@@ -349,9 +349,7 @@ export function parsePlatformAccessSetupSpec(input: unknown): PlatformAccessSetu
       !fields.id ||
       fields.id.length > 256 ||
       ['clientIdEnv', 'clientSecretEnv'].some(
-        (key) =>
-          typeof fields[key] !== 'string' ||
-          !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fields[key] as string),
+        (key) => typeof fields[key] !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fields[key]),
       )
     ) {
       throw new Error('platform: Invalid Access service token environment references.');
@@ -364,7 +362,7 @@ function secretReference(name: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !process.env[name]) {
     throw new Error('platform: Supply the referenced Access credential in the environment.');
   }
-  return process.env[name]!;
+  return process.env[name];
 }
 
 /** Only scoped credentials for the reviewed platform origins enter the process environment. */
@@ -380,7 +378,7 @@ export function activatePlatformAccessCredentials(
     throw new Error('platform: Invalid saved Access credentials.');
   }
   const allowed = new Set(origins.map((origin) => new URL(origin).origin));
-  for (const [origin, value] of Object.entries(entries)) {
+  for (const [origin, value] of Object.entries(entries as Record<string, unknown>)) {
     if (!allowed.has(origin) || !value || typeof value !== 'object' || Array.isArray(value)) {
       throw new Error(
         'platform: Access credentials must be scoped to this platform’s API or proxy.',
@@ -603,7 +601,9 @@ export async function preparePlatformAccessSetup(input: {
     : undefined;
   if (!serviceToken && spec.mode === 'existing' && input.protection) {
     if (input.checkpoint.accessExistingServiceTokenJson) {
-      serviceToken = JSON.parse(input.checkpoint.accessExistingServiceTokenJson);
+      serviceToken = JSON.parse(input.checkpoint.accessExistingServiceTokenJson) as NonNullable<
+        typeof serviceToken
+      >;
     } else if (process.stdin.isTTY) {
       log.info(
         'This lets the installer reach the protected platform during setup. Use a service token allowed by the existing Access application.',

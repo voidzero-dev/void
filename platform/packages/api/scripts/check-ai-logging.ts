@@ -8,7 +8,7 @@ const client = new pg.Client({
 await client.connect();
 try {
   await client.query('BEGIN READ ONLY');
-  const { rows } = await client.query('SELECT count(*) FROM project_ai_logging');
+  const { rows } = await client.query<{ count: string }>('SELECT count(*) FROM project_ai_logging');
   console.log(`Saved project AI logging settings: ${rows[0].count}`);
   if (rows[0].count !== '0') {
     const settings = await client.query(
@@ -37,7 +37,8 @@ if (accountId && token) {
       `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai-gateway/gateways/void`,
       { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
     );
-    const gateway = (await response.json()) as { result?: { collect_logs?: boolean } };
+    const payload: unknown = await response.json();
+    const gateway = payload as { result?: { collect_logs?: boolean } };
     if (!response.ok || typeof gateway.result?.collect_logs !== 'boolean') {
       throw new Error(`HTTP ${response.status}`);
     }

@@ -56,7 +56,7 @@ function build<T>(parse: Parser<T>, state: BuilderState<T>): EnvSchema<T> {
       },
     },
     optional() {
-      return build<T | undefined>(parse as Parser<T | undefined>, {
+      return build<T | undefined>(parse, {
         optional: true,
         defaultValue: state.defaultValue,
       });
@@ -135,7 +135,7 @@ export function oneOf<const Values extends Array<string>>(
 ): EnvSchema<Values[number]> {
   return build<Values[number]>((raw) => {
     if ((values as Array<string>).includes(raw)) {
-      return { ok: true, value: raw as Values[number] };
+      return { ok: true, value: raw };
     }
     return {
       ok: false,

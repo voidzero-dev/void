@@ -106,7 +106,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     get data() {
       return data as T;
     },
-    setData: setData as IslandFormReturn<T>['setData'],
+    setData,
     get errors() {
       return errors();
     },

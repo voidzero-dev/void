@@ -347,7 +347,7 @@ function RouteResource({
     }
   }, [onCommit, resource, result]);
 
-  const pageData = result?.pageData as ReactPageData | undefined;
+  const pageData = result?.pageData;
   const pageDataUrl = pageData?.url ?? '';
   const routeParams = pageData?.params ?? EMPTY_PARAMS;
   const routeRouter = useMemo(() => {
@@ -464,7 +464,7 @@ function App({
   viewTransitions: boolean;
   navigationFallback?: ComponentType<{ initialPageData: PageObject }>;
 }): React.ReactNode {
-  const initialPageData = engine.initialPageData as ReactPageData;
+  const initialPageData = engine.initialPageData;
   const [hydrated, setHydrated] = useState(prerenderedUrl === null);
   const initialResource = useMemo<ReactPageResource>(
     () => ({
@@ -861,7 +861,7 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
 
   const isSsr = appEl.getAttribute('data-void-ssr') !== 'false';
   if (isSsr) {
-    prerenderedUrl = prerenderedRouteUrl(engine.initialPageData as ReactPageData);
+    prerenderedUrl = prerenderedRouteUrl(engine.initialPageData);
   }
   const appRoot = React.createElement(App, {
     config,

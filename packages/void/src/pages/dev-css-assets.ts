@@ -1,5 +1,6 @@
 import { normalizePath, parseSync } from 'vite';
 import type { EnvironmentModuleNode, Plugin, ViteDevServer } from 'vite';
+import { Buffer } from '../cli/node-buffer.ts';
 import { staticModuleReferences } from '../shared/module-references.ts';
 import type { DevCssAsset } from './types.ts';
 
@@ -345,7 +346,7 @@ class DevCssProvider {
 
     this.cache.set(cacheKey, assets);
     if (this.cache.size > 100) {
-      const oldest = this.cache.keys().next().value as string | undefined;
+      const oldest = this.cache.keys().next().value;
       if (oldest) {
         this.cache.delete(oldest);
       }

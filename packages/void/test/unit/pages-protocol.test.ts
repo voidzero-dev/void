@@ -59,7 +59,7 @@ function createTestContext(
   });
 
   app.all(options.routePattern ?? '*', (c) => {
-    resolveContext!(c as unknown as CloudContext);
+    resolveContext(c);
     return c.text('ok');
   });
 

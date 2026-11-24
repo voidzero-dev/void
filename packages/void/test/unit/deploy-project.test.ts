@@ -589,6 +589,6 @@ describe('toManifestSchedulesAndQueues', () => {
       },
       { name: 'jobs', bindingName: 'QUEUE_JOBS' },
     ]);
-    expect(Object.keys(queues[1]!)).toEqual(['name', 'bindingName']);
+    expect(Object.keys(queues[1])).toEqual(['name', 'bindingName']);
   });
 });

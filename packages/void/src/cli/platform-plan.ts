@@ -607,7 +607,7 @@ export async function createPlatformInstallPlan(
         expectedPatterns.has(route.pattern) && (route.script !== expectedWorker || !ownedWorker),
     );
     if (conflicts.length > 0) {
-      const conflict = conflicts[0]!;
+      const conflict = conflicts[0];
       throw new Error(
         `platform: Application route ${JSON.stringify(conflict.pattern)} is already assigned to ${JSON.stringify(conflict.script ?? 'no Worker')}. Choose another application domain.`,
       );
@@ -1070,7 +1070,7 @@ function resolveAccount(
         : 'platform: Select a Cloudflare account with --account <id>.',
     );
   }
-  return matches[0]!;
+  return matches[0];
 }
 
 type NamedPlanContext = Readonly<{

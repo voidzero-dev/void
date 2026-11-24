@@ -32,7 +32,7 @@ export function getPublicApiUrl(context: Context): string {
 function getApiFetch(context: Context): typeof fetch {
   const binding = (context.env as { API?: Fetcher }).API;
   if (binding && !isLocalDashboardHost(context.req.header('host') ?? '')) {
-    return ((input: RequestInfo | URL, init?: RequestInit) => {
+    return (input: RequestInfo | URL, init?: RequestInit) => {
       // The service binding is internal. Preserve the browser's actual protected origin so
       // the API verifies the dashboard application's audience, not the API application's.
       // No forwarded-host header participates in this choice.
@@ -43,7 +43,7 @@ function getApiFetch(context: Context): typeof fetch {
         url.protocol = source.protocol;
       }
       return binding.fetch(input instanceof Request ? new Request(url, input) : url, init);
-    }) as typeof fetch;
+    };
   }
   return globalThis.fetch;
 }
@@ -68,8 +68,8 @@ function withTimeout(init: RequestInit | undefined, timeoutMs: number): RequestI
 function getTimedApiFetch(context: Context): typeof fetch {
   const apiFetch = getApiFetch(context);
   const timeoutMs = getApiTimeoutMs(context);
-  return ((input: RequestInfo | URL, init?: RequestInit) =>
-    apiFetch(input, withTimeout({ ...init, redirect: 'manual' }, timeoutMs))) as typeof fetch;
+  return (input: RequestInfo | URL, init?: RequestInit) =>
+    apiFetch(input, withTimeout({ ...init, redirect: 'manual' }, timeoutMs));
 }
 
 function getCfAccessHeaders(context: Context): Record<string, string> {

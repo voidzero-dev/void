@@ -11,6 +11,7 @@ import {
 import type { SpinnerOptions, SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
 import pc from 'picocolors';
 import terminalLink from 'terminal-link';
+import { Buffer } from './node-buffer.ts';
 
 export { pc };
 

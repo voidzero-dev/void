@@ -1312,7 +1312,7 @@ export function extractTarball(body, options = {}) {
       // Cancel raced the spawn — terminate immediately.
       stopTar();
     }
-    pipeStream(/** @type {NodeJS.ReadableStream} */ (tar.stderr), 'stderr');
+    pipeStream(tar.stderr, 'stderr');
     tar.on('error', (err) => {
       if (tar.pid === undefined) {
         // The child never spawned, so 'close' is not guaranteed to arrive. This is
@@ -1477,9 +1477,7 @@ export async function downloadSource(options = {}) {
       });
       return;
     } catch (err) {
-      lastError = /** @type {Error & { retryable?: boolean, retryAfterMs?: number | null }} */ (
-        err instanceof Error ? err : new Error(String(err))
-      );
+      lastError = err instanceof Error ? err : new Error(String(err));
       // A cancel is not a download failure and must never be retried.
       if (isCancelled()) {
         // oxlint-disable-next-line preserve-caught-error -- An explicit cancellation replaces the aborted transfer error.
@@ -2306,7 +2304,7 @@ export async function runBuild(deps = {}) {
                 url !== undefined && url !== ''
                   ? [
                       [
-                        new URL(/** @type {string} */ (url)).origin,
+                        new URL(url).origin,
                         {
                           CF_ACCESS_CLIENT_ID: cfAccessClientId,
                           CF_ACCESS_CLIENT_SECRET: cfAccessClientSecret,

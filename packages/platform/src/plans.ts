@@ -216,7 +216,7 @@ export function parsePlanLimitsPatch(value: unknown): PlanLimitsPatch {
       'buildTimeoutMinutes must be between 0 and 60; builds have a 60-minute platform maximum.',
     );
   }
-  return input as PlanLimitsPatch;
+  return input;
 }
 
 export function validatePlanLimits(limits: PlanLimits): void {
@@ -285,7 +285,7 @@ export function parsePlatformPlanCatalog(value: unknown): PlatformPlanCatalog {
       archived: plan.archived,
       limits: limits as PlanLimits,
       buildInstanceType: parseBuildInstanceType(plan.buildInstanceType),
-      allowShortSlugs: plan.allowShortSlugs as boolean,
+      allowShortSlugs: plan.allowShortSlugs,
     };
   });
   const defaultPlanId = parsePlatformPlanId(input.defaultPlanId);
@@ -323,7 +323,7 @@ export function parsePlatformPlanCatalog(value: unknown): PlatformPlanCatalog {
     reconciliation = {
       revision: operation.revision as number,
       complete: operation.complete,
-      cursor: operation.cursor as string | null,
+      cursor: operation.cursor,
       planIds,
       ...(error ? { error } : {}),
     };

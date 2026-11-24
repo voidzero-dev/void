@@ -69,7 +69,7 @@ export async function initializeInstalledPlatformAuthentication(
       `platform: Authentication setup failed (HTTP ${response.status}). Its outcome may be unknown; preserve the encrypted setup checkpoint and resume installation.`,
     );
   }
-  const result = (await response.json()) as { setupPending?: unknown; expiresAt?: unknown };
+  const result = await response.json<{ setupPending?: unknown; expiresAt?: unknown }>();
   if (
     typeof result.setupPending !== 'boolean' ||
     (result.setupPending &&

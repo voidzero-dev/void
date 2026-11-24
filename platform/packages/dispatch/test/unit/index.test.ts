@@ -1,5 +1,6 @@
 import { isrEdgeCacheUrl } from '@void/isr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { Mock } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../../../packages/edge/src/pages-protocol.ts';
 import type { Env } from '../../src/env.ts';
 import app, { rebuildRequest } from '../../src/index.ts';
@@ -120,7 +121,7 @@ function createEnv(options: {
   workerFetchImpl?: () => Promise<Response>;
 }): {
   env: Env;
-  workerFetch: ReturnType<typeof vi.fn>;
+  workerFetch: Mock<(request: Request) => Promise<Response>>;
   dispatchGet: ReturnType<typeof vi.fn>;
   kvStore: Map<
     string,
@@ -132,7 +133,7 @@ function createEnv(options: {
   analyticsWrites: Array<unknown>;
   logWrites: Array<unknown>;
 } {
-  const workerFetch = vi.fn(
+  const workerFetch = vi.fn<(request: Request) => Promise<Response>>(
     async () => options.workerFetchImpl?.() ?? options.workerResponse ?? new Response('worker'),
   );
   const kvStore = new Map<
@@ -322,7 +323,7 @@ describe('dispatch fetch handler', () => {
 
     expect(workerFetch).toHaveBeenCalledOnce();
     // The forwarded request should have no body and no stale body-size headers
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.method).toBe('POST');
     expect(forwarded.bodyUsed).toBe(false);
     expect(forwarded.headers.has('content-length')).toBe(false);
@@ -1599,7 +1600,7 @@ describe('ISR (stale-while-revalidate)', () => {
       await settle(ctx);
 
       expect(workerFetch).toHaveBeenCalledOnce();
-      const refresh = workerFetch.mock.calls[0]![0] as Request;
+      const refresh = workerFetch.mock.calls[0][0];
       expect(refresh.url).toBe(`https://my-app.void.app/blog/post${search}`);
       expect(refresh.headers.get('X-Test-Marker')).toBe('keep');
       expect(refresh.headers.get('X-Void-Original-URL')).toBe(
@@ -1731,7 +1732,7 @@ describe('ISR (stale-while-revalidate)', () => {
     const keys = [...kvStore.keys()].sort();
     expect(keys).toHaveLength(2);
     expect(keys[0]).toBe('proj_1/isr/v3/legacy/my-app.void.app/en/docs');
-    expect(keys[1]!.startsWith('proj_1/isr/v3/legacy/my-app.void.app/en/docs#rw=')).toBe(true);
+    expect(keys[1].startsWith('proj_1/isr/v3/legacy/my-app.void.app/en/docs#rw=')).toBe(true);
   });
 
   // Fallback-write ISR hole: on an ISR miss a fallback rule can rewrite a page
@@ -3578,7 +3579,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
 
     // Verify the revalidation request does NOT have X-VoidPages
-    const revalRequest = workerFetch.mock.calls[0][0] as Request;
+    const revalRequest = workerFetch.mock.calls[0][0];
     expect(revalRequest.headers.has('X-VoidPages')).toBe(false);
   });
 
@@ -4824,7 +4825,7 @@ describe('queue relay', () => {
     await app.queue(batch, env);
 
     expect(workerFetch).toHaveBeenCalledOnce();
-    const req = workerFetch.mock.calls[0][0] as Request;
+    const req = workerFetch.mock.calls[0][0];
     expect(req.headers.get('x-void-internal')).toBe('super-secret-token');
   });
 
@@ -4842,7 +4843,7 @@ describe('queue relay', () => {
 
     await app.queue(batch, env);
 
-    const req = workerFetch.mock.calls[0][0] as Request;
+    const req = workerFetch.mock.calls[0][0];
     expect(req.headers.get('x-void-internal')).toBeNull();
   });
 
@@ -5144,7 +5145,7 @@ describe('rewrite rules', () => {
     expect(response.headers.has('Location')).toBe(false);
     expect(workerFetch).toHaveBeenCalledOnce();
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/docs');
   });
 
@@ -5167,7 +5168,7 @@ describe('rewrite rules', () => {
     expect(response.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledOnce();
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/docs/getting-started');
   });
 
@@ -5190,7 +5191,7 @@ describe('rewrite rules', () => {
     );
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/posts/jane/first-post');
   });
 
@@ -5207,7 +5208,7 @@ describe('rewrite rules', () => {
     const response = await app.fetch(new Request('https://test.void.app/docs'), env, createCtx());
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe('https://test.void.app/docs');
   });
 
@@ -5228,7 +5229,7 @@ describe('rewrite rules', () => {
     );
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     const forwardedUrl = new URL(forwarded.url);
     expect(forwardedUrl.pathname).toBe('/en/docs');
     expect(forwardedUrl.search).toBe('?lang=en');
@@ -5249,7 +5250,7 @@ describe('rewrite rules', () => {
     expect(response.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledOnce();
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/other');
     expect(forwarded.headers.has('X-Void-Original-URL')).toBe(false);
   });
@@ -5326,7 +5327,7 @@ describe('rewrite rules', () => {
     expect(response.headers.has('Location')).toBe(false);
     expect(workerFetch).toHaveBeenCalledOnce();
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/page');
   });
 
@@ -5350,7 +5351,7 @@ describe('rewrite rules', () => {
 
     expect(response.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledOnce();
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/docs');
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe('https://my-app.void.app/docs');
   });
@@ -5377,7 +5378,7 @@ describe('rewrite rules', () => {
 
     expect(response.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledOnce();
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.headers.has('X-Void-Original-URL')).toBe(false);
   });
 
@@ -5402,7 +5403,7 @@ describe('rewrite rules', () => {
     );
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe('https://test.void.app/docs');
   });
 
@@ -5422,7 +5423,7 @@ describe('rewrite rules', () => {
     const response = await app.fetch(new Request(originalUrl), env, createCtx());
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/new');
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe(originalUrl);
   });
@@ -5450,7 +5451,7 @@ describe('rewrite rules', () => {
     const response = await app.fetch(inbound, env, createCtx());
     expect(response.status).toBe(200);
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.method).toBe('POST');
     expect(forwarded.body).toBeNull();
     expect(forwarded.headers.has('content-length')).toBe(false);
@@ -5499,7 +5500,7 @@ describe('rewrite rules', () => {
 
     // Rewrite applied correctly; original URL handed off to the worker.
     expect(workerFetch).toHaveBeenCalledOnce();
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/docs/intro');
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe(originalUrl);
   });
@@ -5602,7 +5603,7 @@ describe('static asset caching', () => {
     const { env, workerFetch } = createEnv({
       routing,
       workerFetchImpl: async () => {
-        const request = workerFetch.mock.calls.at(-1)?.[0];
+        const request = workerFetch.mock.calls.at(-1)![0];
         return new Response(`<html>${new URL(request.url).searchParams.get('viewer')}</html>`, {
           headers: { 'Content-Type': 'text/html', ETag: '"member-page"' },
         });
@@ -5738,7 +5739,7 @@ describe('static asset caching', () => {
           expect(await response.text()).toBe('Hidden');
         }
         expect(workerFetch).toHaveBeenCalledTimes(2);
-        expect(workerFetch.mock.calls[1]![0].url).toBe(url);
+        expect(workerFetch.mock.calls[1][0].url).toBe(url);
       });
 
       it.each(
@@ -7171,7 +7172,7 @@ describe('request type metering for SSR routes with a file extension', () => {
 
     const response = await app.fetch(
       new Request('https://my-app.void.app/sponsors.svg'),
-      { ...env, DISPATCH_TIMEOUT_MS: '20' } as Env,
+      { ...env, DISPATCH_TIMEOUT_MS: '20' },
       createCtx(),
     );
 
@@ -7247,7 +7248,7 @@ describe('request type metering for SSR routes with a file extension', () => {
 
     const response = await app.fetch(
       new Request('https://my-app.void.app/sponsors.svg', { headers: { Cookie: 'a=1' } }),
-      { ...env, DISPATCH_TIMEOUT_MS: '20' } as Env,
+      { ...env, DISPATCH_TIMEOUT_MS: '20' },
       createCtx(),
     );
 
@@ -7332,7 +7333,7 @@ describe('request type metering when Cloudflare serves assets before the worker'
 
     const response = await app.fetch(
       new Request('https://my-app.void.app/og.png'),
-      { ...env, DISPATCH_TIMEOUT_MS: '20' } as Env,
+      { ...env, DISPATCH_TIMEOUT_MS: '20' },
       createCtx(),
     );
 
@@ -7438,7 +7439,7 @@ describe('request type metering when Cloudflare serves assets before the worker'
 
       const response = await app.fetch(
         new Request('https://my-app.void.app/robots.txt'),
-        { ...env, DISPATCH_TIMEOUT_MS: '20' } as Env,
+        { ...env, DISPATCH_TIMEOUT_MS: '20' },
         createCtx(),
       );
 

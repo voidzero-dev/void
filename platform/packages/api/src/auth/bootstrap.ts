@@ -177,7 +177,7 @@ export async function initializeAuthentication(
       const id = entry.configuration.id;
       const secret = await encryptPlatformCredential(
         env,
-        env.PLATFORM_INSTALLATION_ID!,
+        env.PLATFORM_INSTALLATION_ID,
         JSON.stringify([id, 1]),
         entry.clientSecret,
       );
@@ -190,7 +190,7 @@ export async function initializeAuthentication(
     }
     const expiresAt = new Date(Date.now() + SETUP_SECONDS * 1000).toISOString();
     await transaction.insert(platformAuthBootstrap).values({
-      installation_id: env.PLATFORM_INSTALLATION_ID!,
+      installation_id: env.PLATFORM_INSTALLATION_ID,
       request_hash: requestHash,
       credential_hash: setup.bootstrapCredentialHash,
       connection_id: setup.administratorConnectionId,

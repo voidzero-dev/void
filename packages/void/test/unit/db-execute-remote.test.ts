@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 const mockReadDeploymentPlatform = vi.fn(() => 'void');
 const mockExecuteD1 = vi.fn();
@@ -123,7 +124,7 @@ describe('void db execute --remote (D1)', () => {
     vi.clearAllMocks();
     mockReadDeploymentPlatform.mockReturnValue('void');
     originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    globalThis.fetch = fetchMock;
 
     mockGetToken.mockReturnValue('test-token');
     mockReadProjectConfig.mockReturnValue({ projectId: 'proj-abc', slug: 'test-proj' });
@@ -279,7 +280,7 @@ describe('void db execute --remote (D1)', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       'https://void-company-proxy.example.workers.dev/d1/query',
     );
-    const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
     expect(headers['CF-Access-Client-Id']).toBe('proxy-id');
     expect(headers['CF-Access-Client-Secret']).toBe('proxy-secret');
     expect(headers['CF-Access-Client-Id']).not.toBe('api-id');
@@ -321,11 +322,11 @@ describe('void db execute --remote (D1)', () => {
       false,
       'stale-user-token',
     );
-    const firstHeaders = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<
+    const firstHeaders = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<
       string,
       string
     >;
-    const secondHeaders = (fetchMock.mock.calls[1]![1] as RequestInit).headers as Record<
+    const secondHeaders = (fetchMock.mock.calls[1][1] as RequestInit).headers as Record<
       string,
       string
     >;
@@ -494,7 +495,7 @@ describe('void db execute --remote (D1)', () => {
     await runDbCommand(root, { action: 'execute', command: 'DELETE FROM users', remote: true });
 
     expect(mockConfirm).toHaveBeenCalledTimes(1);
-    const confirmCall = mockConfirm.mock.calls[0][0] as { message: string };
+    const confirmCall = mockConfirm.mock.calls[0][0];
     expect(confirmCall.message).toContain('deployed database');
   });
 
@@ -591,7 +592,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    globalThis.fetch = fetchMock;
 
     mockGetToken.mockReturnValue('test-token');
     mockReadProjectConfig.mockReturnValue({ projectId: 'proj-abc', slug: 'test-proj' });

@@ -243,7 +243,7 @@ export class SandboxConcurrencyCounter extends DurableObject<ApiEnv['Bindings']>
         return;
       }
       for (const id of matching) {
-        const entry = entries[id]!;
+        const entry = entries[id];
         if (entry.stoppedAt === undefined) {
           entries[id] = { ...entry, stoppedAt };
         }
@@ -257,7 +257,7 @@ export class SandboxConcurrencyCounter extends DurableObject<ApiEnv['Bindings']>
   }
 
   private async finishStopped(entries: EntriesMap, id: string): Promise<void> {
-    const entry = entries[id]!;
+    const entry = entries[id];
     await this.meterThrough(id, entry, entry.stoppedAt!);
     // Receipt precedes capacity release; any partial failure is safe to retry.
     await this.recordCompletion(id, entry.generation);

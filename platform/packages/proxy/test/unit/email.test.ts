@@ -372,7 +372,7 @@ describe('POST /email/send — sender domain', () => {
   it('rejects a production `from` when the worker is configured for staging', async () => {
     const env = createMockEnv(kv, { EMAIL_SENDER_DOMAIN: STAGING_DOMAIN });
     const res = await postSend(env, await sendBody());
-    const body = (await res.json()) as { ok: boolean; error: { code: string; message: string } };
+    const body = await res.json<{ ok: boolean; error: { code: string; message: string } }>();
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe('UPSTREAM_ERROR');
     expect((env.SEND_EMAIL as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
@@ -381,13 +381,13 @@ describe('POST /email/send — sender domain', () => {
   it('accepts a staging `from` when the worker is configured for staging', async () => {
     const env = createMockEnv(kv, { EMAIL_SENDER_DOMAIN: STAGING_DOMAIN });
     const res = await postSend(env, await sendBody({ from: `acme+noreply@${STAGING_DOMAIN}` }));
-    expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(true);
   });
 
   it('escapes the domain so a `.` cannot match an arbitrary character', async () => {
     const env = createMockEnv(kv);
     const res = await postSend(env, await sendBody({ from: 'acme+noreply@mailxvoid.cloud' }));
-    expect(((await res.json()) as { ok: boolean }).ok).toBe(false);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(false);
     expect((env.SEND_EMAIL as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
   });
 
@@ -395,7 +395,7 @@ describe('POST /email/send — sender domain', () => {
     const env = createMockEnv(kv, { EMAIL_SENDER_DOMAIN: undefined });
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(502);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('UPSTREAM_ERROR');
+    expect((await res.json<{ error: { code: string } }>()).error.code).toBe('UPSTREAM_ERROR');
     expect(kv.put).not.toHaveBeenCalled();
     expect((env.SEND_EMAIL as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
   });
@@ -445,7 +445,7 @@ describe('POST /email/send — platform capability', () => {
     const env = createMockEnv(kv, { PLATFORM_CAPABILITIES: capabilities });
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(true);
     expect((env.SEND_EMAIL as { send: ReturnType<typeof vi.fn> }).send).toHaveBeenCalledTimes(1);
   });
 });
@@ -536,7 +536,7 @@ interface SendResponseBody {
 }
 
 async function readSend(res: Response): Promise<SendResponseBody> {
-  return (await res.json()) as SendResponseBody;
+  return await res.json<SendResponseBody>();
 }
 
 describe('POST /email/send — request validation', () => {
@@ -1046,11 +1046,11 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
         const { raw, lines } = foldedToTheCap('a@b', fold);
         expect(lines).toBe(expectedLines);
         expect(raw.byteLength).toBeLessThanOrEqual(MAX_MIME_BYTES);
-        const heapBefore = process.memoryUsage().heapUsed;
+        const heapBefore = (process as NodeJS.Process).memoryUsage().heapUsed;
         const started = performance.now();
         const parsed = readMimeFromAddrSpec(raw);
         const elapsed = performance.now() - started;
-        const heapGrowth = process.memoryUsage().heapUsed - heapBefore;
+        const heapGrowth = (process as NodeJS.Process).memoryUsage().heapUsed - heapBefore;
         expect(parsed).toEqual({ ok: true, addrSpec: 'a@b' });
         expect(elapsed).toBeLessThan(2000);
         expect(heapGrowth).toBeLessThan(64 * 1024 * 1024);
@@ -1071,7 +1071,7 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
       const started = performance.now();
       const res = await postSend(
         env,
-        await sendBody({ mimeBase64: Buffer.from(raw).toString('base64') }),
+        await sendBody({ mimeBase64: (Buffer as BufferConstructor).from(raw).toString('base64') }),
       );
       expect(performance.now() - started).toBeLessThan(5000);
       const body = await readSend(res);
@@ -1320,9 +1320,9 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
       // so the whole line is the fixed fields plus at most 128 chars of id.
       const fixed = `[email-log] proj_000000000001  dev@example.com sent cf-msg-1 @${Date.now()}`
         .length;
-      expect(lines[0]!.length).toBeLessThanOrEqual(fixed + 128);
+      expect(lines[0].length).toBeLessThanOrEqual(fixed + 128);
       expect(lines[0]).not.toMatch(CONTROL);
-      expect(lines[0]!.split(' ')[1]).toBe('proj_000000000001');
+      expect(lines[0].split(' ')[1]).toBe('proj_000000000001');
       // Fastest of 3, slice-first measured 2.3-2.9x the plain id (escaped LFs cost
       // more to parse) and replace-then-slice 8.5-13.5x, idle and under load.
       expect(elapsed).toBeLessThan(baseline * 5 + 10);
@@ -1337,7 +1337,7 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
       expect(lines2).toHaveLength(1);
       expect(lines2[0]).not.toMatch(CONTROL);
       expect(lines2[0]).not.toContain('\n[email-log]');
-      expect(lines2[0]!.split(' ')[1]).toBe('proj_000000000001');
+      expect(lines2[0].split(' ')[1]).toBe('proj_000000000001');
     } finally {
       logSpy.mockRestore();
     }
@@ -1357,7 +1357,7 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
         .map((call) => String(call[0]))
         .filter((line) => line.startsWith('[email-log] '));
       expect(lines).toHaveLength(1);
-      expect(lines[0]!.split(' ')[2]).toBe('unknown');
+      expect(lines[0].split(' ')[2]).toBe('unknown');
     } finally {
       logSpy.mockRestore();
     }

@@ -32,12 +32,12 @@ function mergeStyle(style: JSX.CSSProperties | string | undefined): JSX.CSSPrope
 
 function callHandler(handler: unknown, event: Event): void {
   if (Array.isArray(handler)) {
-    const [fn, data] = handler;
+    const [fn, data] = handler as Array<unknown>;
     if (typeof fn === 'function') {
-      fn(data, event);
+      (fn as (data: unknown, event: Event) => void)(data, event);
     }
   } else if (typeof handler === 'function') {
-    handler(event);
+    (handler as (event: Event) => void)(event);
   }
 }
 
@@ -196,7 +196,7 @@ export function Link(props: LinkProps): JSX.Element {
           }}
           type="button"
           {...pendingAttributes()}
-          {...(rest as JSX.ButtonHTMLAttributes<HTMLButtonElement>)}
+          {...rest}
           style={resolvedStyle()}
           {...eventHandlers()}
         >

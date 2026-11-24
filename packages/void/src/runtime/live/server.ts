@@ -117,22 +117,22 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
         return new Response('Method Not Allowed', { status: 405 });
       }
       if (pathname === '/connect') {
-        return this.connect((await request.json()) as ConnectRequest);
+        return this.connect(await request.json<ConnectRequest>());
       }
       if (pathname === '/control') {
-        return this.control((await request.json()) as ControlRequest);
+        return this.control(await request.json<ControlRequest>());
       }
       if (pathname === '/deliver') {
-        return this.deliver((await request.json()) as DeliveryRequest);
+        return this.deliver(await request.json<DeliveryRequest>());
       }
       if (pathname === '/check') {
-        return this.check((await request.json()) as StaleCheckRequest);
+        return this.check(await request.json<StaleCheckRequest>());
       }
       if (pathname === '/register') {
-        return this.register((await request.json()) as SubscriberRow & { limits: LiveLimits });
+        return this.register(await request.json<SubscriberRow & { limits: LiveLimits }>());
       }
       if (pathname === '/unregister') {
-        return this.unregister((await request.json()) as Partial<SubscriberRow>);
+        return this.unregister(await request.json<Partial<SubscriberRow>>());
       }
       if (pathname === '/publish') {
         return this.enqueuePublish(request);
@@ -148,7 +148,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
       const run = this.publishChain
         .catch(() => {})
         .then(async () => {
-          return this.publish((await request.json()) as PublishRequest);
+          return this.publish(await request.json<PublishRequest>());
         });
       this.publishChain = run.then(
         () => {},
@@ -177,7 +177,9 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
       return eventStream(
         async (stream) => {
           const subscriptions =
-            previous?.owner === message.owner ? previous.subscriptions : new Map();
+            previous?.owner === message.owner
+              ? previous.subscriptions
+              : new Map<string, ActiveSubscription>();
           for (const subscription of subscriptions.values()) {
             subscription.active = false;
           }
@@ -459,7 +461,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
             throw outcome.reason;
           }
           const response = outcome.value;
-          const items = batch[index]![1];
+          const items = batch[index][1];
           // A missed delivery does not prove the still-open SSE connection is gone.
           if (!response) {
             continue;
@@ -511,7 +513,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
         const responses = await Promise.allSettled(
           batch.map(([connectionId, items]) =>
             fetchWithTimeout(
-              this.connectionStub(items[0]!.row.streamId, connectionId),
+              this.connectionStub(items[0].row.streamId, connectionId),
               internalUrl('/check'),
               {
                 method: 'POST',
@@ -528,7 +530,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
             throw outcome.reason;
           }
           const response = outcome.value;
-          const items = batch[index]![1];
+          const items = batch[index][1];
           if (!response) {
             continue;
           }

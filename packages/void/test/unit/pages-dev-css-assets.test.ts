@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   appendInlineQuery,
   DEV_CSS_ASSET_ENDPOINT,
@@ -266,7 +267,7 @@ export default __vite__css;`;
 
     expect(() =>
       resolveId.call(
-        { environment: { name: 'client' } } as never,
+        { environment: { name: 'client' } },
         DEV_CSS_ASSET_MODULE_ID,
         undefined,
         {} as never,

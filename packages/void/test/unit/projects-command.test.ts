@@ -78,7 +78,7 @@ describe('runProjectsCommand', () => {
     expect(fetchMock).toHaveBeenCalledWith('https://api.example.test/projects', {
       headers: {
         Authorization: 'Bearer test-token',
-        'X-Void-CLI-Version': expect.stringMatching(/^\d+\.\d+\.\d+/) as unknown as string,
+        'X-Void-CLI-Version': expect.stringMatching(/^\d+\.\d+\.\d+/),
       },
       redirect: 'manual',
     });

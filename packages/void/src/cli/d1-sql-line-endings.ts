@@ -15,7 +15,7 @@ export function normalizeD1SqlLineEndings(sql: string): string {
   let index = 0;
   const crlfAt = (at: number) => sql[at] === '\r' && sql[at + 1] === '\n';
   while (index < sql.length) {
-    const char = sql[index]!;
+    const char = sql[index];
     const next = sql[index + 1];
     if (char === "'" || char === '"' || char === '`' || char === '[') {
       // Copy the quoted text as is. A doubled quote is an escape, except in [brackets].

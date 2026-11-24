@@ -96,7 +96,7 @@ export async function getInstallationToken(
     );
   }
 
-  const data = (await res.json()) as AccessTokenResponse;
+  const data = await res.json<AccessTokenResponse>();
   // Cache only the installation-wide token — see the doc comment above.
   if (!opts) {
     tokenCache.set(installationId, {
@@ -328,7 +328,7 @@ export async function getBranchHeadComparisonStatus(
         },
       );
       if (res.ok) {
-        const data = (await res.json()) as CompareResponse;
+        const data = await res.json<CompareResponse>();
         return data.status ?? null;
       }
       // A 5xx is transient (GitHub-side hiccup) and worth retrying; a 404 or
@@ -485,7 +485,7 @@ export async function getRepoInstallation(
     return null;
   }
 
-  const data = (await res.json()) as RepoInstallationResponse;
+  const data = await res.json<RepoInstallationResponse>();
   return { installationId: String(data.id), accountId: String(data.account.id) };
 }
 
@@ -522,7 +522,7 @@ export async function getInstallationAccount(
     return null;
   }
 
-  const data = (await res.json()) as InstallationAccountResponse;
+  const data = await res.json<InstallationAccountResponse>();
   const account = data.account;
   if (!account || (typeof account.id !== 'number' && typeof account.id !== 'string')) {
     return null;

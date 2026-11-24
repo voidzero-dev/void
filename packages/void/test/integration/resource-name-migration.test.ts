@@ -141,7 +141,11 @@ export default defineRoom({
       const { scan } = await analyzeApplication(directory, { config: readConfig(directory) });
       syncWranglerDurableObjects(directory, durableObjects);
       syncWranglerWebSockets(directory, scan.websockets ?? []);
-      const cloudflare = JSON.parse(readFileSync(join(directory, '.void-wrangler.jsonc'), 'utf8'));
+      const cloudflare = JSON.parse(
+        readFileSync(join(directory, '.void-wrangler.jsonc'), 'utf8'),
+      ) as {
+        durable_objects: { bindings: Array<{ name: string; class_name: string }> };
+      };
       const identity = {
         config: readFileSync(join(directory, '.void-wrangler.jsonc'), 'utf8'),
         lock: readFileSync(join(directory, 'void.lock.json'), 'utf8'),

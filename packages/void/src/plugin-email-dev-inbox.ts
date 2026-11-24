@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 // Dev-only Vite plugin: owns the in-memory email buffer and serves
 // `/__void/inbox` routes for browsing captured messages. Activated when
 // binding inference detected `void/email` usage.
@@ -11,9 +12,8 @@
 // only rejects DNS-rebinding hostnames: any IP-literal `Host` passes, so with
 // `--host` (or a shared port) every peer on the network could otherwise read
 // raw MIME (Bcc, attachments), clear the buffer, or plant captures.
-
-import { timingSafeEqual } from 'node:crypto';
 import type { Plugin } from 'vite';
+import { Buffer } from './cli/node-buffer.ts';
 import { voidLog } from './log.ts';
 import { afterServerReady } from './plugin-dev-config.ts';
 import {

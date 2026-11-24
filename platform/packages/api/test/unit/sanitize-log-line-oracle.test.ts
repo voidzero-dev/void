@@ -357,7 +357,7 @@ describe('renderCapturedLog matches a real terminal (xterm.js oracle)', () => {
       const term = new Terminal({ cols: COLS, rows: 1, allowProposedApi: true });
       try {
         for (let index = lane; index < corpus.length; index += 8) {
-          const raw = corpus[index]!;
+          const raw = corpus[index];
           term.reset();
           const [actual] = await Promise.all([
             renderCapturedLog(raw),

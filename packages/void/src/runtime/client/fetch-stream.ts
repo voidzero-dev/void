@@ -48,7 +48,7 @@ export async function* fetchStream<
 
   const response = await ofetch
     .raw(url, {
-      method: (options?.method ?? 'POST') as string,
+      method: options?.method ?? 'POST',
       body: options?.body as never,
       query: options?.query as never,
       headers: options?.headers,
@@ -81,7 +81,7 @@ export async function* fetchStream<
     let message = 'Generation was interrupted.';
     let limit = null;
     try {
-      const body = JSON.parse(data);
+      const body = JSON.parse(data) as { message?: unknown; error?: unknown };
       if (event === 'void:limit') {
         limit = asUsageLimit(body);
       }

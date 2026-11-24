@@ -17,10 +17,10 @@ export const loader = defineHandler<Props>(async (context) => {
     if (!response.ok) {
       throw new Error('Login methods unavailable');
     }
-    const discovery = (await response.json()) as {
+    const discovery = await response.json<{
       displayName?: unknown;
       authentication?: { methods?: Props['methods'] };
-    };
+    }>();
     return {
       methods: discovery.authentication?.methods ?? [],
       platformName: discoveryDisplayName(discovery),

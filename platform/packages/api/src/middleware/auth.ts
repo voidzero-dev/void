@@ -72,7 +72,7 @@ function isDeployTokenAllowed(method: string, path: string, projectScope: string
     }
     return entry.segments.every((expected, index) =>
       expected === ':deploymentId'
-        ? /^[A-Za-z0-9_-]{1,128}$/.test(segments[index]!)
+        ? /^[A-Za-z0-9_-]{1,128}$/.test(segments[index])
         : expected === null
           ? segments[index] === projectScope
           : segments[index] === expected,

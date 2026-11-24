@@ -107,7 +107,9 @@ function removeProjectDrizzleConfigWithUrl(root: string): void {
   const configPath = join(root, '.void', 'drizzle.config.json');
   let url: unknown;
   try {
-    url = JSON.parse(readFileSync(configPath, 'utf8'))?.dbCredentials?.url;
+    url = (
+      JSON.parse(readFileSync(configPath, 'utf8')) as { dbCredentials?: { url?: string } } | null
+    )?.dbCredentials?.url;
   } catch {
     return;
   }
