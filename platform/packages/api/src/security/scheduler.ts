@@ -460,14 +460,19 @@ async function startClaimed(
         // A cancel landed after the claim: nothing reserved, nothing to start.
         return 'gone';
       }
+      // A cap with money left still refuses a scan whose worst case does not fit in it
+      // (`*_reserve`): that cap is not used up, so no 100% email (spec §16.3).
+      const usedUp = reserve.spentNano >= reserve.capNano;
       await deps.store.end(scanId, attempt, {
         status: 'skipped',
         reason: 'budget',
-        errorClass: `${reserve.cap}_cap`,
+        errorClass: `${reserve.cap}_${usedUp ? 'cap' : 'reserve'}`,
       });
-      await bestEffort('cap alert', scanId, async () =>
-        deps.onBudgetRefused?.({ projectId: candidate.projectId, cap: reserve.cap }),
-      );
+      if (usedUp) {
+        await bestEffort('cap alert', scanId, async () =>
+          deps.onBudgetRefused?.({ projectId: candidate.projectId, cap: reserve.cap }),
+        );
+      }
       return 'ended';
     }
     const result = await startSafely(deps.controller, {

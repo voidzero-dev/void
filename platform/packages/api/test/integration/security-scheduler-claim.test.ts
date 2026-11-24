@@ -382,7 +382,8 @@ describe('scheduler on real SQL', () => {
     expect(await scan('ss_budget')).toMatchObject({
       status: 'skipped',
       status_reason: 'budget',
-      error_class: 'platform_cap',
+      // Nothing is spent: one scan's worst case is above the $1 cap, which is not used up.
+      error_class: 'platform_reserve',
       reserved_nano_usd: 0,
     });
     expect(await platformReserved()).toBe(0);

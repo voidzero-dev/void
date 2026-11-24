@@ -352,6 +352,45 @@ function findingList(
     .join('')}</div>${cutNote(findings.length, total)}</div>`;
 }
 
+/**
+ * `skipped:budget` copy (spec §11.4, §16.3), by the cap that skipped the scan. A cap raised
+ * since then says the next deploy is scanned; readers get no amounts.
+ */
+function budgetSkipCopy(
+  cause: SecurityScanView['budgetCause'],
+  budget: Status['budget'],
+  model: string | null,
+): string {
+  if (!budget) {
+    return 'Not scanned: the monthly scan budget is used up.';
+  }
+  const resets = `Resets ${day(budget.resetsAt)}.`;
+  const reserve = budget.scanReserveUsd;
+  // A row with no cause (none is expected) reads as the cap its numbers point to.
+  const known =
+    cause ??
+    (budget.capUsd !== null && budget.spentUsd >= budget.capUsd ? 'project_cap' : 'platform_cap');
+  switch (known) {
+    case 'platform_cap':
+      return `Not scanned: the platform's monthly scan budget is used up. ${resets} Your platform admin can raise it.`;
+    case 'platform_reserve':
+      return `Not scanned: one scan with ${model ?? 'this model'} can cost${reserve === null ? '' : ` up to ${usd(reserve)},`} more than is left of the platform's monthly scan budget. Ask your platform admin, or pick a cheaper model.`;
+    case 'project_reserve':
+      if (budget.capUsd !== null) {
+        return `Not scanned: one scan with ${model ?? 'this model'} can cost${reserve === null ? '' : ` up to ${usd(reserve)},`} more than is left of this project's monthly scan budget (${usd(Math.max(0, budget.capUsd - budget.spentUsd))} of ${usd(budget.capUsd)}). Raise the cap or pick a cheaper model.`;
+      }
+      return 'Not scanned: one scan costs more than was left of the monthly scan budget. The cap was removed since; the next deploy is scanned.';
+    case 'project_cap':
+      if (budget.capUsd === null) {
+        return 'Not scanned: the monthly scan budget was used up. The cap was removed since; the next deploy is scanned.';
+      }
+      if (budget.spentUsd < budget.capUsd) {
+        return `Not scanned: this project's monthly scan budget was used up. It was raised since (${usd(budget.spentUsd)} of ${usd(budget.capUsd)} used); the next deploy is scanned.`;
+      }
+      return `Not scanned: this project's monthly scan budget is used up (${usd(budget.spentUsd)} of ${usd(budget.capUsd)}). ${resets}`;
+  }
+}
+
 /** Spec §11.4 status copy for the last scan; `null` when no copy applies. */
 export function scanStatusCopy(data: SecurityPageData): string | null {
   const { lastScan, lastSuccessfulScan, budget } = data.status;
@@ -388,14 +427,7 @@ export function scanStatusCopy(data: SecurityPageData): string | null {
       return `Canceled by a platform admin. ${next}`;
     case 'skipped':
       if (reason === 'budget') {
-        if (!budget) {
-          return 'Not scanned: the monthly scan budget is used up.';
-        }
-        return budget.capSource !== 'limit' && budget.capUsd !== null
-          ? `Not scanned: this project's monthly scan budget is used up (${usd(budget.spentUsd)} of ${usd(
-              budget.capUsd,
-            )}). Resets ${day(budget.resetsAt)}.`
-          : "Not scanned: the platform's monthly scan budget is used up. Your platform admin can raise it.";
+        return budgetSkipCopy(lastScan.budgetCause, budget, data.status.model.id);
       }
       if (reason === 'backlog') {
         return `Not scanned: the scan queue was full for 24 h. ${next}`;

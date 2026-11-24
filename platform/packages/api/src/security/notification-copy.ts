@@ -337,7 +337,8 @@ export function composeSecurityReopenEmail(
 
 export type SecurityCapRaise =
   | Readonly<{ kind: 'project_admin'; usdArgument: string; limitUsd: string | null }>
-  | Readonly<{ kind: 'platform_admin'; usdArgument: string }>;
+  /** `projectId`: the operator route takes the project id, not the slug. */
+  | Readonly<{ kind: 'platform_admin'; usdArgument: string; projectId: string }>;
 
 export type SecurityProjectCapEmailData = Readonly<{
   platform: string;
@@ -362,7 +363,7 @@ export function composeSecurityProjectCapEmail(
             ? `            (project admin, up to the platform limit of ${data.raise.limitUsd})`
             : '            (project admin)'
         }`
-      : `Raise it:  void platform security budget --project ${data.slug} --usd ${data.raise.usdArgument}   (platform admin, any amount)`;
+      : `Raise it:  void platform security budget --project ${data.raise.projectId} --usd ${data.raise.usdArgument}   (platform admin, any amount)`;
   return {
     subject:
       data.percent === 80

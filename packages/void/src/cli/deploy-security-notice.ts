@@ -1,8 +1,9 @@
 import { PlatformApiError, type PlatformClient } from './client.ts';
 import type { CliLogger } from './log-file.ts';
-import { cleanLine, day, usd } from './project-security.ts';
+import { budgetAhead, budgetCause, budgetSkipCopy, cleanLine } from './project-security.ts';
 import type {
   ProjectSecurityStatus,
+  SecurityBudgetCause,
   SecurityScanSummary,
   SecurityUrgentFinding,
 } from './security-api-types.ts';
@@ -48,20 +49,48 @@ function providerName(model: string): string {
   return PROVIDERS[prefix] ?? (prefix ? cleanLine(prefix) : 'a third-party provider');
 }
 
+/** `Not security-scanned: …` for a budget skip (spec §6.5, §16.3). */
+function budgetLines(
+  cause: SecurityBudgetCause,
+  status: ProjectSecurityStatus,
+  projectId: string | undefined,
+): Array<string> {
+  const copy = budgetSkipCopy(cause, status.budget, status.model.id, projectId);
+  if (copy.raised) {
+    return [`  Not security-scanned: ${copy.why}. The next deploy is scanned.`];
+  }
+  const first = `  Not security-scanned: ${copy.why}.${copy.resets ? ` ${copy.resets}` : ''}`;
+  if (copy.next === null) {
+    return [status.budget ? `${first} Ask your platform admin.` : first];
+  }
+  return [first, `    ${copy.next}`];
+}
+
 function scanLines(
   slug: string,
   deploymentId: string,
   status: ProjectSecurityStatus,
+  projectId: string | undefined,
 ): Array<string> {
   const { policy, lastScan, model, budget } = status;
-  if (!policy.applies || !lastScan || lastScan.deploymentId !== deploymentId) {
+  if (!lastScan || lastScan.deploymentId !== deploymentId) {
     return [];
   }
   const reason = lastScan.statusReason ?? '';
+  // A protected project under `public` is out of scope, and its deploy says why.
+  const protectedSkip = lastScan.status === 'skipped' && reason === 'protected';
+  if (!policy.applies && !protectedSkip) {
+    return [];
+  }
   switch (lastScan.status) {
     case 'queued':
     case 'running':
     case 'pending_input': {
+      // The cap is checked again when the scan starts; one used up now skips it then.
+      const ahead = lastScan.status === 'running' ? null : budgetAhead(budget);
+      if (ahead) {
+        return budgetLines(ahead, status, projectId);
+      }
       const lines = [
         `  Security scan queued · model ${cleanLine(model.id ?? lastScan.model ?? 'none')} · usually 5–15 min`,
       ];
@@ -86,20 +115,7 @@ function scanLines(
     }
     case 'skipped':
       if (reason === 'budget') {
-        if (budget && budget.capSource === 'own' && budget.capUsd !== null) {
-          const lines = [
-            `  Not security-scanned: this project's monthly scan budget is used up (${usd(budget.spentUsd)} of ${usd(budget.capUsd)}). Resets ${day(budget.resetsAt)}.`,
-          ];
-          if (budget.ceilingUsd !== null) {
-            lines.push(
-              `    A project admin can raise it (up to ${usd(budget.ceilingUsd)}): void project security budget --usd ${Math.floor(budget.ceilingUsd)}`,
-            );
-          }
-          return lines;
-        }
-        return [
-          `  Not security-scanned: the platform's monthly scan budget is used up. Resets ${day(budget?.resetsAt)}. Ask your platform admin.`,
-        ];
+        return budgetLines(budgetCause(lastScan, budget), status, projectId);
       }
       if (reason === 'protected') {
         return [
@@ -118,15 +134,17 @@ function scanLines(
 
 function failedScanLines(deploymentId: string, status: ProjectSecurityStatus): Array<string> {
   const { lastScan, lastSuccessfulScan, deploysSinceLastSuccess, policy } = status;
-  if (!policy.applies || !lastScan || lastScan.deploymentId === deploymentId) {
+  // The newest scan is usually this deploy's own, just queued: warn about the one before.
+  const prior = lastScan?.deploymentId === deploymentId ? (status.previousScan ?? null) : lastScan;
+  if (!policy.applies || !prior || prior.deploymentId === deploymentId) {
     return [];
   }
-  const why = failureWhy(lastScan);
+  const why = failureWhy(prior);
   if (!why) {
     return [];
   }
   const lines = [
-    `  Warning: the security scan of ${cleanLine(lastScan.deploymentId ?? 'the last deploy')} did not finish (${why}).`,
+    `  Warning: the security scan of ${cleanLine(prior.deploymentId ?? 'the last deploy')} did not finish (${why}).`,
   ];
   if (lastSuccessfulScan?.deploymentId && deploysSinceLastSuccess && deploysSinceLastSuccess >= 2) {
     lines.push(
@@ -147,6 +165,10 @@ function failureWhy(scan: SecurityScanSummary): string | null {
       return scan.failureCause === 'installation'
         ? 'a platform problem'
         : cleanLine(scan.statusReason ?? 'failed');
+    case 'incomplete':
+      return (scan.statusReason ?? '').startsWith('budget')
+        ? 'the monthly scan budget ran out'
+        : `partial: ${cleanLine(scan.statusReason ?? 'stopped early')}`;
     default:
       return null;
   }
@@ -241,7 +263,7 @@ function urgentLines(slug: string, status: ProjectSecurityStatus, counts: boolea
 
 /** Everything the notice prints for one security reply; empty when there is nothing to say. */
 export function formatDeploySecurityNotice(
-  input: { slug: string; deploymentId: string; env?: NodeJS.ProcessEnv },
+  input: { slug: string; deploymentId: string; projectId?: string; env?: NodeJS.ProcessEnv },
   status: ProjectSecurityStatus,
 ): Array<string> {
   if (status.policy.mode === 'disabled' || input.slug.startsWith('preview-')) {
@@ -249,7 +271,7 @@ export function formatDeploySecurityNotice(
   }
   const counts = status.urgent.detail === 'counts' || inCi(input.env ?? process.env);
   const groups = [
-    scanLines(input.slug, input.deploymentId, status),
+    scanLines(input.slug, input.deploymentId, status, input.projectId),
     failedScanLines(input.deploymentId, status),
     urgentLines(input.slug, status, counts),
   ].filter((group) => group.length > 0);
@@ -333,7 +355,12 @@ export async function printDeploySecurityNotice(input: DeploySecurityNoticeInput
       return;
     }
     const lines = formatDeploySecurityNotice(
-      { slug: input.slug, deploymentId: input.deploymentId, env: input.env },
+      {
+        slug: input.slug,
+        deploymentId: input.deploymentId,
+        projectId: input.projectId,
+        env: input.env,
+      },
       status,
     );
     input.cliLog?.info('security_notice', {

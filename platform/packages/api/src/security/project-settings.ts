@@ -360,11 +360,10 @@ export async function setProjectSecurityBudget(
       capCeilingCents: current?.capCeilingCents ?? null,
       planCap: readSecurityPlanCapCell(current?.planCap),
     };
-    assertSecurityProjectCapAllowed(
-      input.cents,
-      securityProjectCeiling(before, policy.budgets),
-      input.slug,
-    );
+    assertSecurityProjectCapAllowed(input.cents, securityProjectCeiling(before, policy.budgets), {
+      id: input.projectId,
+      slug: input.slug,
+    });
     if (before.monthlyCapCents !== input.cents) {
       await tx
         .update(projectSecuritySettings)

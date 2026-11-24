@@ -31,6 +31,7 @@ function budgets(overrides: Partial<SecurityPolicyBudgets> = {}): SecurityPolicy
 }
 
 const none = { monthlyCapCents: null, capCeilingCents: null, planCap: 'inherit' } as const;
+const ACME = { id: 'proj_acme', slug: 'acme-web' } as const;
 
 describe('who sets what (spec §16.2)', () => {
   // ceiling(p) = admin limit, else the default amount while project caps are on, else none;
@@ -165,12 +166,12 @@ describe('who sets what (spec §16.2)', () => {
 
   it('refuses a project cap above the ceiling with the operator command (edge #49)', () => {
     const ceiling = { cents: 10_000, source: 'default' } as const;
-    expect(() => assertSecurityProjectCapAllowed(10_000, ceiling, 'acme-web')).not.toThrow();
-    expect(() => assertSecurityProjectCapAllowed(15_000, null, 'acme-web')).not.toThrow();
-    expect(() => assertSecurityProjectCapAllowed(null, ceiling, 'acme-web')).not.toThrow();
+    expect(() => assertSecurityProjectCapAllowed(10_000, ceiling, ACME)).not.toThrow();
+    expect(() => assertSecurityProjectCapAllowed(15_000, null, ACME)).not.toThrow();
+    expect(() => assertSecurityProjectCapAllowed(null, ceiling, ACME)).not.toThrow();
     let error: unknown;
     try {
-      assertSecurityProjectCapAllowed(15_000, ceiling, 'acme-web');
+      assertSecurityProjectCapAllowed(15_000, ceiling, ACME);
     } catch (caught) {
       error = caught;
     }
@@ -179,16 +180,24 @@ describe('who sets what (spec §16.2)', () => {
       status: 422,
       code: 'security budget above platform limit',
       message:
-        'The platform limits each project to $100.00 / month. Ask your platform admin to raise it for acme-web: void platform security budget --project acme-web --usd 150',
+        'The platform limits each project to $100.00 / month. Ask your platform admin to raise it for acme-web: void platform security budget --project proj_acme --usd 150',
       details: { ceilingUsd: 100 },
     });
   });
 
+  it('says "this project" for a limit set on this project alone', () => {
+    expect(() =>
+      assertSecurityProjectCapAllowed(2_500, { cents: 1_000, source: 'project' }, ACME),
+    ).toThrow(
+      'The platform limits this project to $10.00 / month. Ask your platform admin to raise it for acme-web: void platform security budget --project proj_acme --usd 25',
+    );
+  });
+
   it('names the plan when the ceiling comes from the plan cap (M27)', () => {
     expect(() =>
-      assertSecurityProjectCapAllowed(15_000, { cents: 5000, source: 'plan' }, 'acme-web'),
+      assertSecurityProjectCapAllowed(15_000, { cents: 5000, source: 'plan' }, ACME),
     ).toThrow(
-      "This project's plan limits it to $50.00 / month. Ask your platform admin to raise it for acme-web: void platform security budget --project acme-web --usd 150",
+      "This project's plan limits it to $50.00 / month. Ask your platform admin to raise it for acme-web: void platform security budget --project proj_acme --usd 150",
     );
   });
 

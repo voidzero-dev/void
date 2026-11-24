@@ -23,6 +23,7 @@ import {
   securityEffectiveProjectCapCents,
   securityNextSpendMonth,
   securityProjectCeiling,
+  securityScanReserveNano,
   securitySpendMonth,
   type SecurityCeilingSource,
   type SecurityProjectCapSettings,
@@ -289,6 +290,11 @@ export type SecurityProjectBudgetView = Readonly<{
   spentUsd: number;
   month: string;
   resetsAt: string;
+  /**
+   * The most one scan with `model` can cost (its reserve, spec §16.1): a scan starts only
+   * when this still fits under the cap. `null` when no model was given or it has no price.
+   */
+  scanReserveUsd: number | null;
 }>;
 
 export async function securityProjectBudgetView(
@@ -297,6 +303,7 @@ export async function securityProjectBudgetView(
   policy: SecurityPolicy,
   caps: SecurityProjectCapSettings,
   now = Date.now(),
+  model: SecurityModelId | null = null,
 ): Promise<SecurityProjectBudgetView> {
   const month = securitySpendMonth(now);
   const [spend] = await db
@@ -309,6 +316,7 @@ export async function securityProjectBudgetView(
   const ceiling = limit?.cents ?? null;
   const effective = securityEffectiveProjectCapCents(caps, policy.budgets);
   const own = caps.monthlyCapCents;
+  const reserve = model === null ? null : securityScanReserveNano(model, policy.limits);
   return {
     capUsd: effective === null ? null : effective / 100,
     capSource:
@@ -322,6 +330,7 @@ export async function securityProjectBudgetView(
     spentUsd: (spend?.spent ?? 0) / NANO_USD_PER_USD,
     month,
     resetsAt: `${securityNextSpendMonth(month)}T00:00:00.000Z`,
+    scanReserveUsd: reserve === null ? null : reserve / NANO_USD_PER_USD,
   };
 }
 
@@ -334,6 +343,7 @@ export const scanColumns = {
   status: securityScans.status,
   statusReason: securityScans.status_reason,
   failureCause: securityScans.failure_cause,
+  errorClass: securityScans.error_class,
   refusalCategory: securityScans.refusal_category,
   trigger: securityScans.trigger,
   deploymentId: securityScans.deployment_id,
@@ -357,6 +367,7 @@ type ScanRow = Readonly<{
   status: SecurityScanStatus;
   statusReason: string | null;
   failureCause: 'installation' | 'project' | null;
+  errorClass: string | null;
   refusalCategory: string | null;
   trigger: string;
   deploymentId: string | null;
@@ -375,11 +386,38 @@ type ScanRow = Readonly<{
   createdAt: string;
 }>;
 
+/**
+ * Why the budget skipped a scan (spec §16.1), from the scheduler's `error_class`:
+ * `*_cap` = that cap is used up, `*_reserve` = it is not, but one scan's worst case
+ * does not fit in what is left.
+ */
+export type SecurityBudgetCause =
+  | 'project_cap'
+  | 'platform_cap'
+  | 'project_reserve'
+  | 'platform_reserve';
+
+const BUDGET_CAUSES: ReadonlyArray<SecurityBudgetCause> = [
+  'project_cap',
+  'platform_cap',
+  'project_reserve',
+  'platform_reserve',
+];
+
+function budgetCause(row: ScanRow): SecurityBudgetCause | null {
+  if (row.status !== 'skipped' || row.statusReason !== 'budget') {
+    return null;
+  }
+  return BUDGET_CAUSES.find((cause) => cause === row.errorClass) ?? null;
+}
+
 export type SecurityScanView = Readonly<{
   id: string;
   status: string;
   statusReason: string | null;
   failureCause: string | null;
+  /** Which cap skipped a `skipped:budget` scan; `null` for any other scan. */
+  budgetCause: SecurityBudgetCause | null;
   refusalCategory: string | null;
   trigger: string;
   deploymentId: string | null;
@@ -405,6 +443,7 @@ export function securityScanView(row: ScanRow, level: SecurityDetailLevel): Secu
     status: row.status,
     statusReason: row.statusReason,
     failureCause: row.failureCause,
+    budgetCause: budgetCause(row),
     refusalCategory: row.refusalCategory,
     trigger: row.trigger,
     deploymentId: row.deploymentId,
@@ -686,6 +725,24 @@ export async function projectSecurityStatus(input: SecurityStatusInput) {
       : { id: securityFindingLabel(row.number), severity: row.severity },
   );
   const lastSuccessfulScan = lastSuccess[0] ?? null;
+  // The deploy notice warns about the scan before this deploy's own (spec §6.5): the
+  // newest one of another deployment that was not replaced by a newer deploy.
+  const lastDeploymentId = lastScan[0]?.deploymentId ?? null;
+  const [previous] = lastDeploymentId
+    ? await db
+        .select(scanColumns)
+        .from(securityScans)
+        .where(
+          and(
+            eq(securityScans.project_id, project.id),
+            ne(securityScans.trigger, 'local'),
+            ne(securityScans.status, 'superseded'),
+            ne(securityScans.deployment_id, lastDeploymentId),
+          ),
+        )
+        .orderBy(desc(securityScans.created_at), desc(securityScans.id))
+        .limit(1)
+    : [];
   let deploysSinceLastSuccess: number | null = null;
   if (lastSuccessfulScan?.deploymentId) {
     const [base] = await db
@@ -711,6 +768,7 @@ export async function projectSecurityStatus(input: SecurityStatusInput) {
       deploysSinceLastSuccess = since?.total ?? 0;
     }
   }
+  const model = securityProjectModelView(policy, settings);
   return {
     policy: policyView,
     urgent: {
@@ -721,12 +779,13 @@ export async function projectSecurityStatus(input: SecurityStatusInput) {
       more: Math.max(0, counts.urgent - findings.length),
       detail: level,
     },
-    model: securityProjectModelView(policy, settings),
+    model,
     budget:
       level === 'full'
-        ? await securityProjectBudgetView(db, project.id, policy, settings.caps, now)
+        ? await securityProjectBudgetView(db, project.id, policy, settings.caps, now, model.id)
         : null,
     lastScan: lastScan[0] ? securityScanView(lastScan[0], level) : null,
+    previousScan: previous ? securityScanView(previous, level) : null,
     lastSuccessfulScan: lastSuccessfulScan ? securityScanView(lastSuccessfulScan, level) : null,
     deploysSinceLastSuccess,
     backlogFiles: lastSuccessfulScan?.backlogFiles ?? 0,

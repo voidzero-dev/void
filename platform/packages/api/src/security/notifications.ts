@@ -915,6 +915,7 @@ async function deliverProjectCap(db: Db, env: PlatformEmailEnv, row: Row): Promi
     : ({
         kind: 'platform_admin',
         usdArgument: securityUsdArgument(Math.ceil(capCents * 1.5)),
+        projectId: row.project_id,
       } as const);
   const data = {
     slug,

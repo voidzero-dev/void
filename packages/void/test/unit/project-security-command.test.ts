@@ -188,6 +188,84 @@ describe('project security command', () => {
     );
   });
 
+  it('says which cap held the request and the raise that works now, or that it was raised', async () => {
+    const skipped = {
+      ...scan,
+      id: 'ss_gate',
+      status: 'skipped',
+      statusReason: 'budget',
+      budgetCause: 'project_cap',
+    };
+    const reply = (budget: Partial<NonNullable<ProjectSecurityStatus['budget']>>) => ({
+      ...status,
+      lastScan: skipped,
+      budget: { ...status.budget, ...budget },
+      publicRequest: {
+        id: 'spr_1',
+        state: 'held_no_result',
+        heldReason: 'skipped_budget',
+        targetDeploymentId: 'dpl_9a1d',
+        gateScanId: 'ss_gate',
+        blockers: { count: 0, ids: [] },
+        requestedAt: '2026-11-17T14:02:00.000Z',
+        requestedByRole: 'admin',
+      },
+    });
+    const root = linked();
+    let current = reply({ capUsd: 0.5, spentUsd: 0.91, ceilingUsd: 100 });
+    route({ 'GET /projects/project_1/security': () => Response.json(current) });
+    const out = capture();
+    await run(root, ['security', 'status']);
+    const held = out.join('\n');
+    expect(held).toContain(
+      "Stays protected: this project's monthly scan budget is used up ($0.91 of $0.50), so the scan could not run. Resets Dec 1. A project admin can raise it (up to $100.00): void project security budget --usd 100.",
+    );
+    expect(held).not.toContain('Ask your platform admin');
+    expect(held).toContain(
+      "Not scanned: this project's monthly scan budget is used up ($0.91 of $0.50). Resets Dec 1. A project admin can raise it (up to $100.00)",
+    );
+
+    current = reply({ capUsd: 5, spentUsd: 0.38, ceilingUsd: 100 });
+    out.length = 0;
+    await run(root, ['security', 'status']);
+    const raised = out.join('\n');
+    expect(raised).not.toContain('used up (');
+    expect(raised).toContain(
+      "Not scanned: this project's monthly scan budget was used up; it was raised since ($0.38 of $5.00 used). The next deploy is scanned.",
+    );
+    expect(raised).toContain('Ask again with void project zero-trust public');
+  });
+
+  it("names the platform's per-project limit by the project id, not as the platform cap", async () => {
+    const root = linked();
+    route({
+      'GET /projects/project_1/security': () =>
+        Response.json({
+          ...status,
+          lastScan: {
+            ...scan,
+            status: 'skipped',
+            statusReason: 'budget',
+            budgetCause: 'project_cap',
+          },
+          budget: {
+            ...status.budget,
+            capUsd: 0.2,
+            capSource: 'limit',
+            ceilingUsd: 0.2,
+            spentUsd: 0.41,
+          },
+        }),
+    });
+    const out = capture();
+    await run(root, ['security', 'status']);
+    const text = out.join('\n');
+    expect(text).not.toContain("the platform's monthly scan budget");
+    expect(text).toContain(
+      'Your platform admin can raise it: void platform security budget --project project_1 --usd 1.',
+    );
+  });
+
   it('strips terminal escapes from model text', async () => {
     const root = linked();
     route({

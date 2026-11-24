@@ -917,6 +917,37 @@ describe('refusals before a call is sent', () => {
     expect(runner.outcomeStatus(outcome)).toMatchObject({ status: 'incomplete', reason: 'budget' });
   });
 
+  it('queues the 100% email when a used-up cap stops a running scan, not for a call too big for what is left', async () => {
+    const refused: Array<unknown> = [];
+    h.deps = {
+      ...h.deps,
+      notifyCapRefused: async (input) => {
+        refused.push(input);
+        throw new Error('db down');
+      },
+    };
+    // The cap was lowered to $0.05 below the $0.91 already spent.
+    h.hold.mockResolvedValueOnce({
+      ok: false,
+      reason: 'budget',
+      cap: 'project',
+      capNano: 50_000_000,
+      spentNano: 910_000_000,
+    });
+    const stopped = await call(h, '/v1/chat/completions', chatBody());
+    expect(stopped.status).toBe(429);
+    expect(refused).toEqual([{ projectId: 'proj_1', month: '2026-11-01', cap: 'project' }]);
+    h.hold.mockResolvedValueOnce({
+      ok: false,
+      reason: 'budget',
+      cap: 'platform',
+      capNano: 1_000_000_000,
+      spentNano: 900_000_000,
+    });
+    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(429);
+    expect(refused).toHaveLength(1);
+  });
+
   it('holds each call against the plan cap with project caps off, and stops at it (M27)', async () => {
     h.policy.value = onPolicy({
       budgets: { ...defaultSecurityPolicy().budgets, platformCapOn: false, projectCapsOn: false },

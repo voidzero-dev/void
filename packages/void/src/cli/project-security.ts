@@ -19,6 +19,7 @@ import { readProjectConfig } from './project.ts';
 import { getRequestedProjectSlug, requireProjectBySlug } from './resolve-project.ts';
 import type {
   ProjectSecurityStatus,
+  SecurityBudgetCause,
   SecurityFinding,
   SecurityFindingEvent,
   SecurityPublicRequest,
@@ -95,11 +96,149 @@ function duration(scan: SecurityScanSummary): string | null {
       : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
+type Budget = NonNullable<ProjectSecurityStatus['budget']>;
+
+const BUDGET_CAUSES: ReadonlyArray<SecurityBudgetCause> = [
+  'project_cap',
+  'platform_cap',
+  'project_reserve',
+  'platform_reserve',
+];
+
+/**
+ * Which cap skipped a scan. Older platforms send no cause: a project cap whose spend
+ * reached it is the project's, anything else the platform's.
+ */
+export function budgetCause(
+  scan: Pick<SecurityScanSummary, 'budgetCause'> | null | undefined,
+  budget: Budget | null | undefined,
+): SecurityBudgetCause {
+  const sent = BUDGET_CAUSES.find((cause) => cause === scan?.budgetCause);
+  if (sent) {
+    return sent;
+  }
+  return budget && budget.capUsd !== null && budget.spentUsd >= budget.capUsd
+    ? 'project_cap'
+    : 'platform_cap';
+}
+
+/** What a used-up project cap will refuse at the next scan start, if anything (spec §6.5). */
+export function budgetAhead(budget: Budget | null | undefined): SecurityBudgetCause | null {
+  if (!budget || budget.capUsd === null) {
+    return null;
+  }
+  if (budget.spentUsd >= budget.capUsd) {
+    return 'project_cap';
+  }
+  const reserve = budget.scanReserveUsd;
+  return typeof reserve === 'number' && budget.spentUsd + reserve > budget.capUsd
+    ? 'project_reserve'
+    : null;
+}
+
+/** A CLI `--usd` value: `150`, or `150.50` with cents. */
+function usdArgument(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+/** The one §16.3 raise line that works now for this project's cap. */
+function projectRaiseLine(budget: Budget, projectId: string | undefined): string {
+  const cap = budget.capUsd ?? 0;
+  const ceiling = budget.ceilingUsd;
+  if (budget.capSource === 'own' && (ceiling === null || cap < ceiling)) {
+    return ceiling === null
+      ? 'A project admin can raise it: void project security budget --usd <amount>'
+      : `A project admin can raise it (up to ${usd(ceiling)}): void project security budget --usd ${usdArgument(ceiling)}`;
+  }
+  // The operator route takes the project id, not the slug.
+  const id = projectId ? cleanLine(projectId) : '<project-id>';
+  return `Your platform admin can raise it: void platform security budget --project ${id} --usd ${usdArgument(Math.max(1, Math.ceil(cap * 1.5)))}`;
+}
+
+/** The parts of the §11.4 / §16.3 copy for a scan the budget skipped. */
+export type BudgetSkipCopy = {
+  /** What happened, with no end stop: `this project's monthly scan budget is used up ($40.00 of $40.00)`. */
+  why: string;
+  /** `Resets Dec 1.` while the cap is still used up. */
+  resets: string | null;
+  /** The one way on that works now; `null` for the platform cap and for readers. */
+  next: string | null;
+  /** The cap was raised or removed since, so the next scan can run. */
+  raised: boolean;
+};
+
+export function budgetSkipCopy(
+  cause: SecurityBudgetCause,
+  budget: Budget | null | undefined,
+  model: string | null | undefined,
+  projectId?: string,
+): BudgetSkipCopy {
+  if (!budget) {
+    // Readers see no amounts (spec §16.3).
+    return { why: 'the monthly scan budget is used up', resets: null, next: null, raised: false };
+  }
+  const resets = `Resets ${day(budget.resetsAt)}.`;
+  const reserve = typeof budget.scanReserveUsd === 'number' ? budget.scanReserveUsd : null;
+  // `one scan with <model> can cost up to $2.04, more than is left of …`
+  const oneScan = `one scan with ${cleanLine(model ?? 'this model')} can cost${reserve === null ? '' : ` up to ${usd(reserve)},`}`;
+  const cheaper = 'pick a cheaper model: void project security model';
+  if (cause === 'platform_cap') {
+    return {
+      why: "the platform's monthly scan budget is used up",
+      resets,
+      next: null,
+      raised: false,
+    };
+  }
+  if (cause === 'platform_reserve') {
+    return {
+      why: `${oneScan} more than is left of the platform's monthly scan budget`,
+      resets: null,
+      next: `Ask your platform admin, or ${cheaper}`,
+      raised: false,
+    };
+  }
+  const cap = budget.capUsd;
+  const usedUp = cause === 'project_cap' ? 'was used up' : 'had too little left for one scan';
+  if (cap === null) {
+    return {
+      why: `this project's monthly scan budget ${usedUp}; the cap was removed since`,
+      resets: null,
+      next: null,
+      raised: true,
+    };
+  }
+  const left = cap - budget.spentUsd;
+  const fits = cause === 'project_cap' ? left > 0 : reserve !== null && reserve <= left;
+  if (fits) {
+    return {
+      why: `this project's monthly scan budget ${usedUp}; it was raised since (${usd(budget.spentUsd)} of ${usd(cap)} used)`,
+      resets: null,
+      next: null,
+      raised: true,
+    };
+  }
+  if (cause === 'project_reserve') {
+    return {
+      why: `${oneScan} more than is left of this project's monthly scan budget (${usd(Math.max(0, left))} of ${usd(cap)})`,
+      resets: null,
+      next: `${projectRaiseLine(budget, projectId)}. Or ${cheaper}`,
+      raised: false,
+    };
+  }
+  return {
+    why: `this project's monthly scan budget is used up (${usd(budget.spentUsd)} of ${usd(cap)})`,
+    resets,
+    next: projectRaiseLine(budget, projectId),
+    raised: false,
+  };
+}
+
 const row = (label: string, text: string) => `  ${label.padEnd(10)} ${text}`;
 const cont = (text: string) => `  ${' '.repeat(10)} ${text}`;
 
 /** Spec §11.4 status copy for the last scan; `null` when the scan needs no explanation. */
-export function scanStatusCopy(status: ProjectSecurityStatus): string | null {
+export function scanStatusCopy(status: ProjectSecurityStatus, projectId?: string): string | null {
   const { lastScan, lastSuccessfulScan, budget } = status;
   if (!lastScan) {
     return null;
@@ -134,10 +273,16 @@ export function scanStatusCopy(status: ProjectSecurityStatus): string | null {
       return `Canceled by a platform admin. ${next}`;
     case 'skipped':
       if (reason === 'budget') {
-        if (budget && budget.capSource === 'own' && budget.capUsd !== null) {
-          return `Not scanned: this project's monthly scan budget is used up (${usd(budget.spentUsd)} of ${usd(budget.capUsd)}). Resets ${day(budget.resetsAt)}.`;
+        const cause = budgetCause(lastScan, budget);
+        const copy = budgetSkipCopy(cause, budget, status.model?.id, projectId);
+        if (copy.raised) {
+          return `Not scanned: ${copy.why}. The next deploy is scanned.`;
         }
-        return "Not scanned: the platform's monthly scan budget is used up. Your platform admin can raise it.";
+        const next =
+          cause === 'platform_cap' && budget ? 'Your platform admin can raise it.' : copy.next;
+        return [`Not scanned: ${copy.why}.`, copy.resets, next ? withStop(next) : null]
+          .filter(Boolean)
+          .join(' ');
       }
       if (reason === 'backlog') {
         return `Not scanned: the scan queue was full for 24 h. ${next}`;
@@ -154,11 +299,22 @@ export function scanStatusCopy(status: ProjectSecurityStatus): string | null {
   }
 }
 
+function withStop(text: string): string {
+  return text.endsWith('.') ? text : `${text}.`;
+}
+
+/**
+ * What the public request copy reads besides the request: the backlog, the budget, and
+ * (when known) the gate scan, the model and the project id for the raise line.
+ */
+export type RequestSecurity = Pick<ProjectSecurityStatus, 'backlogFiles' | 'budget'> &
+  Partial<Pick<ProjectSecurityStatus, 'lastScan' | 'model'>> & { projectId?: string };
+
 /** Spec §11.4 public request copy, with the command that moves it on. */
 export function publicRequestLines(
   slug: string,
   request: SecurityPublicRequest,
-  status: Pick<ProjectSecurityStatus, 'backlogFiles' | 'budget'>,
+  status: RequestSecurity,
 ): Array<string> {
   const ids = request.blockers.ids.map(cleanLine).join(', ');
   const target = cleanLine(request.targetDeploymentId);
@@ -200,10 +356,25 @@ export function publicRequestLines(
           `Stays protected: the security scan could not run (a platform problem; your platform admin can see it). A project admin or owner can bypass the scan: ${bypass}`,
         );
       } else if (reason === 'skipped_budget') {
-        const resets = status.budget ? ` Resets ${day(status.budget.resetsAt)}.` : '';
-        lines.push(
-          `Stays protected: the monthly scan budget is used up, so the scan could not run.${resets} Ask your platform admin, or bypass the scan: ${bypass}`,
-        );
+        const gate =
+          status.lastScan && status.lastScan.id === request.gateScanId ? status.lastScan : null;
+        const cause = budgetCause(gate, status.budget);
+        const copy = budgetSkipCopy(cause, status.budget, status.model?.id, status.projectId);
+        const resets = copy.resets ? ` ${copy.resets}` : '';
+        if (copy.raised) {
+          lines.push(
+            `Stays protected: ${copy.why}, so the scan could not run. Ask again with void project zero-trust public, or bypass the scan: ${bypass}`,
+          );
+        } else if (copy.next === null) {
+          lines.push(
+            `Stays protected: ${copy.why}, so the scan could not run.${resets} Ask your platform admin, or bypass the scan: ${bypass}`,
+          );
+        } else {
+          lines.push(
+            `Stays protected: ${copy.why}, so the scan could not run.${resets} ${withStop(copy.next)}`,
+            `Or bypass the scan: ${bypass}`,
+          );
+        }
       } else {
         const cause =
           reason === 'refused'
@@ -240,7 +411,11 @@ export function publicRequestLines(
   return lines;
 }
 
-export function formatStatus(slug: string, status: ProjectSecurityStatus): Array<string> {
+export function formatStatus(
+  slug: string,
+  status: ProjectSecurityStatus,
+  projectId?: string,
+): Array<string> {
   const lines = [`${slug} · security`];
   const { urgent, policy, model, budget, lastScan, lastSuccessfulScan, counts } = status;
   if (urgent.count === 0) {
@@ -332,7 +507,7 @@ export function formatStatus(slug: string, status: ProjectSecurityStatus): Array
   if (status.backlogFiles > 0) {
     lines.push(row('Backlog', `${status.backlogFiles} files not scanned yet`));
   }
-  const copy = scanStatusCopy(status);
+  const copy = scanStatusCopy(status, projectId);
   if (copy) {
     lines.push(row('Note', copy));
   }
@@ -340,7 +515,10 @@ export function formatStatus(slug: string, status: ProjectSecurityStatus): Array
     (counts.open.medium ?? 0) + (counts.open.low ?? 0) + (counts.open.informational ?? 0);
   lines.push(row('Open', `${counts.urgent} urgent · ${other} other · ${counts.leads} leads`));
   if (status.publicRequest) {
-    const [first = '', ...rest] = publicRequestLines(slug, status.publicRequest, status);
+    const [first = '', ...rest] = publicRequestLines(slug, status.publicRequest, {
+      ...status,
+      projectId,
+    });
     lines.push(row('Public', first), ...rest.map(cont));
   }
   return lines;
@@ -593,7 +771,7 @@ export async function runProjectSecurityCommand(
 
   if (args.action === 'status') {
     const status = await client.getProjectSecurity(projectId);
-    print(args, status, formatStatus(slug, status));
+    print(args, status, formatStatus(slug, status, projectId));
     return;
   }
 
@@ -692,11 +870,10 @@ export async function runProjectSecurityCommand(
       } catch {
         // The line below is extra; the edit already happened.
       }
-      const [first = '', ...rest] = publicRequestLines(
-        slug,
-        result.publicRequest,
-        status ?? { backlogFiles: 0, budget: null },
-      );
+      const [first = '', ...rest] = publicRequestLines(slug, result.publicRequest, {
+        ...(status ?? { backlogFiles: 0, budget: null }),
+        projectId,
+      });
       lines.push(`  Public request: ${first}`, ...rest.map((line) => `  ${line}`));
     }
     print(args, result, lines);

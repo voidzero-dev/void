@@ -9,10 +9,10 @@ import {
 } from './client.ts';
 import { printSuccess, note, sanitizeTerminalText } from './output.ts';
 import type { ProjectZeroTrustArgs } from './project-args.ts';
-import { cleanLine, day, publicRequestLines } from './project-security.ts';
+import { cleanLine, day, publicRequestLines, type RequestSecurity } from './project-security.ts';
 import { readProjectConfig } from './project.ts';
 import { getRequestedProjectSlug, requireProjectBySlug } from './resolve-project.ts';
-import type { ProjectSecurityStatus, SecurityPublicRequest } from './security-api-types.ts';
+import type { SecurityPublicRequest } from './security-api-types.ts';
 
 type ZeroTrustArgs = Exclude<ProjectZeroTrustArgs, { action: '' }>;
 
@@ -97,7 +97,7 @@ function lastBypassLine(bypass: NonNullable<ProjectZeroTrustResponse['lastBypass
 function requestBlock(
   slug: string,
   request: SecurityPublicRequest,
-  security: Pick<ProjectSecurityStatus, 'backlogFiles' | 'budget'>,
+  security: RequestSecurity,
 ): Array<string> {
   const [first = '', ...rest] = publicRequestLines(slug, request, security);
   return [`Public request: ${first}`, ...rest.map((line) => `  ${line}`)];
@@ -105,7 +105,7 @@ function requestBlock(
 
 function statusLines(
   result: ProjectZeroTrustResponse,
-  security: Pick<ProjectSecurityStatus, 'backlogFiles' | 'budget'>,
+  security: RequestSecurity,
   slug: string,
 ): string {
   const project = result.project;
@@ -217,24 +217,30 @@ function skipLine(request: SecurityPublicRequest): string {
   return `The scan of ${target} did not finish${why ? ` (${why})` : ''}.`;
 }
 
-const NO_SECURITY: Pick<ProjectSecurityStatus, 'backlogFiles' | 'budget'> = {
+const NO_SECURITY: RequestSecurity = {
   backlogFiles: 0,
   budget: null,
 };
 
-/** The backlog and budget the request copy names; without them it still reads right. */
+/**
+ * The backlog, budget, gate scan and model the request copy names; without them it
+ * still reads right.
+ */
 async function requestSecurity(
   client: PlatformClient,
   projectId: string,
-): Promise<Pick<ProjectSecurityStatus, 'backlogFiles' | 'budget'>> {
+): Promise<RequestSecurity> {
   try {
     const status = await client.getProjectSecurity(projectId);
     return {
       backlogFiles: typeof status.backlogFiles === 'number' ? status.backlogFiles : 0,
       budget: status.budget ?? null,
+      lastScan: status.lastScan ?? null,
+      model: status.model,
+      projectId,
     };
   } catch {
-    return NO_SECURITY;
+    return { ...NO_SECURITY, projectId };
   }
 }
 

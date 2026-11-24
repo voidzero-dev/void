@@ -139,7 +139,7 @@ export function securitySpendCaps(
 export function assertSecurityProjectCapAllowed(
   requestedCents: number | null,
   ceiling: Readonly<{ cents: number; source: SecurityCeilingSource }> | null,
-  projectSlug: string,
+  project: Readonly<{ id: string; slug: string }>,
 ): void {
   if (requestedCents === null || ceiling === null || requestedCents <= ceiling.cents) {
     return;
@@ -148,10 +148,13 @@ export function assertSecurityProjectCapAllowed(
   const limiter =
     ceiling.source === 'plan'
       ? "This project's plan limits it"
-      : 'The platform limits each project';
+      : ceiling.source === 'project'
+        ? 'The platform limits this project'
+        : 'The platform limits each project';
+  // The operator route takes the project id, not the slug.
   throw SecurityApiError.of(
     'budgetAbovePlatformLimit',
-    `${limiter} to ${formatSecurityUsd(securityCentsToNano(ceilingCents))} / month. Ask your platform admin to raise it for ${projectSlug}: void platform security budget --project ${projectSlug} --usd ${securityUsdArgument(requestedCents)}`,
+    `${limiter} to ${formatSecurityUsd(securityCentsToNano(ceilingCents))} / month. Ask your platform admin to raise it for ${project.slug}: void platform security budget --project ${project.id} --usd ${securityUsdArgument(requestedCents)}`,
     { ceilingUsd: ceilingCents / 100 },
   );
 }

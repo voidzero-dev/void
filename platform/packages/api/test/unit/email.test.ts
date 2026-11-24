@@ -452,7 +452,7 @@ describe('security emails (spec §12)', () => {
         ...base,
         percent: 100,
         spentNano: 100_000_000_000,
-        raise: { kind: 'platform_admin', usdArgument: '150' },
+        raise: { kind: 'platform_admin', usdArgument: '150', projectId: 'proj_acme' },
       },
       { kind: 'owner_admin' },
     );
@@ -465,7 +465,7 @@ describe('security emails (spec §12)', () => {
     expect(sent[1].subject).toBe(
       '[Void Cloud] acme-web: monthly security scan budget used up, new deploys are not scanned until Dec 1',
     );
-    expect(sent[1].text).toContain('void platform security budget --project acme-web --usd 150');
+    expect(sent[1].text).toContain('void platform security budget --project proj_acme --usd 150');
     expect(sent[1].text).not.toContain('void project security budget');
   });
 

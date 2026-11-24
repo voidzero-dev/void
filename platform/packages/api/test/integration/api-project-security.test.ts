@@ -311,6 +311,38 @@ describe('GET /projects/:id/security: who sees what', () => {
     const body = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
     expect(body.policy).toMatchObject({ applies: true, reason: 'not protected by Zero Trust' });
   });
+
+  it('sends the scan before the newest one, which cap skipped a scan, and one scan reserve', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    const old = await createTestDeployment(env.db, project.id);
+    const replaced = await createTestDeployment(env.db, project.id);
+    const live = await createTestDeployment(env.db, project.id);
+    await addScan(project.id, old.id, {
+      status: 'incomplete',
+      status_reason: 'turn_cap',
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+    await addScan(project.id, replaced.id, {
+      status: 'superseded',
+      created_at: '2026-01-02T00:00:00.000Z',
+    });
+    await addScan(project.id, live.id, {
+      status: 'skipped',
+      status_reason: 'budget',
+      error_class: 'project_reserve',
+      created_at: '2026-01-03T00:00:00.000Z',
+    });
+    const body = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
+    expect(body.lastScan).toMatchObject({ deploymentId: live.id, budgetCause: 'project_reserve' });
+    expect(body.previousScan).toMatchObject({
+      deploymentId: old.id,
+      status: 'incomplete',
+      budgetCause: null,
+    });
+    expect(body.budget.scanReserveUsd).toBeGreaterThan(0);
+    await env.db.delete(deployments).where(eq(deployments.project_id, project.id));
+  });
 });
 
 describe('GET /projects/:id/security: the open public request', () => {
@@ -1202,7 +1234,9 @@ describe('budget', () => {
       error: 'security budget above platform limit',
       ceilingUsd: 100,
     });
-    expect(refusal.message).toContain('void platform security budget --project acme-web --usd 150');
+    expect(refusal.message).toContain(
+      `void platform security budget --project ${project.id} --usd 150`,
+    );
     for (const bad of [{}, { monthlyUsd: -1 }, { monthlyUsd: 'ten' }, { monthlyUsd: 1.234 }]) {
       expect((await put(bad)).status).toBe(400);
     }

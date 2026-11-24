@@ -53,6 +53,7 @@ import { projects } from '../schema.ts';
 import {
   holdSecurityModelCall,
   securitySpendCaps,
+  securitySpendMonth,
   settleSecurityModelCall,
   type SecurityCallHold,
   type SecurityCallRefusal,
@@ -68,7 +69,7 @@ import {
 } from './call-ledger.ts';
 import { judgeScanFence } from './control.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
-import { enqueueSecurityCapNotifications } from './notifications.ts';
+import { enqueueSecurityCapNotifications, enqueueSecurityCapRefused } from './notifications.ts';
 import { readSecurityPlanCapCell, securityPlanCapSql } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import {
@@ -176,6 +177,13 @@ export type SecurityModelProxyDeps = Readonly<{
       settlement: SecurityCallSettlement;
     }>,
   ): Promise<void>;
+  /**
+   * A used-up cap stopped a running scan (e.g. it was lowered below the spend): queue
+   * that cap's 100% email (best effort; absent in some tests).
+   */
+  notifyCapRefused?(
+    input: Readonly<{ projectId: string; month: string; cap: 'project' | 'platform' }>,
+  ): Promise<void>;
   scanTag(scanId: string): Promise<string>;
   /**
    * The saved provider key of a third-party host (M33), or `null` for Unified Billing.
@@ -216,6 +224,11 @@ export function securityModelProxyDeps(env: ApiEnv['Bindings']): SecurityModelPr
         platformSpentNano: settlement.platformSpentNano,
       });
       if (queued) {
+        await pokeSecurityScanScheduler(env);
+      }
+    },
+    notifyCapRefused: async (input) => {
+      if (await enqueueSecurityCapRefused(db, input)) {
         await pokeSecurityScanScheduler(env);
       }
     },
@@ -1150,6 +1163,18 @@ export async function handleSecurityModelRequest(
   if (!hold.ok) {
     if (hold.reason === 'fence') {
       return refuse(409, 'scan_not_running', 'This scan attempt is not running.');
+    }
+    // Only a cap whose spend reached it is used up; a call too big for what is left is not.
+    if (hold.reason === 'budget' && hold.spentNano >= hold.capNano) {
+      await deps
+        .notifyCapRefused?.({
+          projectId: scan.projectId,
+          month: securitySpendMonth(deps.now()),
+          cap: hold.cap,
+        })
+        .catch((error: unknown) =>
+          console.error('[security-model-proxy] cap alert failed', { scanId, attempt, error }),
+        );
     }
     return failed(hold.reason, stop(hold.reason, STOP_MESSAGES[hold.reason]));
   }

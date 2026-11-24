@@ -1,10 +1,19 @@
 /** Replies of the project security routes (spec §13.5), as the CLI reads them. */
 
+/** `*_cap`: that cap is used up; `*_reserve`: one scan's worst case does not fit in what is left. */
+export type SecurityBudgetCause =
+  | 'project_cap'
+  | 'platform_cap'
+  | 'project_reserve'
+  | 'platform_reserve';
+
 export type SecurityScanSummary = {
   id: string;
   status: string;
   statusReason: string | null;
   failureCause: string | null;
+  /** Which cap skipped a `skipped:budget` scan; older platforms do not send it. */
+  budgetCause?: SecurityBudgetCause | null;
   refusalCategory: string | null;
   trigger: string;
   deploymentId: string | null;
@@ -72,8 +81,15 @@ export type ProjectSecurityStatus = {
     spentUsd: number;
     month: string;
     resetsAt: string;
+    /** The most one scan with the current model can cost; older platforms do not send it. */
+    scanReserveUsd?: number | null;
   } | null;
   lastScan: SecurityScanSummary | null;
+  /**
+   * The newest scan of another deployment than `lastScan`'s, not replaced by a newer
+   * deploy; older platforms do not send it.
+   */
+  previousScan?: SecurityScanSummary | null;
   lastSuccessfulScan: SecurityScanSummary | null;
   deploysSinceLastSuccess: number | null;
   backlogFiles: number;

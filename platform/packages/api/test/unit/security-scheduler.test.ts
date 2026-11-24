@@ -371,6 +371,24 @@ describe('runSecurityScanQueue', () => {
     ]);
   });
 
+  it('marks a reserve above what is left as *_reserve and sends no 100% email', async () => {
+    const h = harness();
+    const refused = vi.fn(async () => {});
+    // $1.50 cap, nothing spent: one scan's worst case does not fit, the cap is not used up.
+    h.reserve.mockResolvedValue({
+      ok: false,
+      cap: 'project',
+      capNano: 1_500_000_000,
+      spentNano: 0,
+    });
+    h.queue.candidates = [candidate('s1', 'alice')];
+    await runSecurityScanQueue({ ...h.deps, onBudgetRefused: refused });
+    expect(refused).not.toHaveBeenCalled();
+    expect(h.ends).toEqual([
+      ['s1', 1, { status: 'skipped', reason: 'budget', errorClass: 'project_reserve' }],
+    ]);
+  });
+
   it('retries a failed start once after a back-off, then fails it (infrastructure)', async () => {
     const h = harness();
     h.start.mockRejectedValue(new Error('gate unreachable'));

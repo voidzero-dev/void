@@ -210,6 +210,114 @@ describe('deploy security notice', () => {
     expect((await run(async () => one)).lines.join('\n')).not.toContain('deploys since');
   });
 
+  it('warns about the scan before this deploy, next to the new queued scan (spec §6.5)', async () => {
+    const reply = status({
+      lastScan: scan(),
+      previousScan: scan({
+        id: 'ss_0',
+        status: 'incomplete',
+        statusReason: 'turn_cap',
+        deploymentId: 'dpl_7c20',
+      }),
+    });
+    const text = (await run(async () => reply)).lines.join('\n');
+    expect(text).toContain('Security scan queued');
+    expect(text).toContain(
+      'Warning: the security scan of dpl_7c20 did not finish (partial: turn_cap).',
+    );
+    const failed = status({
+      previousScan: scan({ id: 'ss_0', status: 'failed', statusReason: 'bad_output' }),
+    });
+    // A previous scan of this same deployment is not "the last deploy".
+    expect((await run(async () => failed)).lines.join('\n')).not.toContain('Warning');
+  });
+
+  it('keeps the protected line when the policy does not apply to a protected project', async () => {
+    const reply = status({
+      policy: {
+        mode: 'public',
+        applies: false,
+        reason: 'this project is protected by Zero Trust',
+        publicGate: false,
+      },
+      lastScan: scan({ status: 'skipped', statusReason: 'protected' }),
+    });
+    expect((await run(async () => reply)).lines).toContain(
+      '  Not security-scanned: project is protected by Zero Trust and the platform scans public projects only.',
+    );
+  });
+
+  const budget = (overrides: Partial<NonNullable<ProjectSecurityStatus['budget']>> = {}) => ({
+    capUsd: 0.1,
+    capSource: 'own' as const,
+    ceilingUsd: null,
+    spentUsd: 0.38,
+    month: '2026-11',
+    resetsAt: '2026-12-01T00:00:00.000Z',
+    scanReserveUsd: 0.25,
+    ...overrides,
+  });
+
+  it('prints the budget lines, not "queued", when the cap is used up at deploy end', async () => {
+    const text = (await run(async () => status({ budget: budget() }))).lines.join('\n');
+    expect(text).not.toContain('Security scan queued');
+    expect(text).toContain(
+      "Not security-scanned: this project's monthly scan budget is used up ($0.38 of $0.10). Resets Dec 1.",
+    );
+    expect(text).toContain(
+      'A project admin can raise it: void project security budget --usd <amount>',
+    );
+    // One scan's worst case does not fit in what is left either.
+    const short = status({ budget: budget({ capUsd: 0.5, spentUsd: 0.3 }) });
+    expect((await run(async () => short)).lines.join('\n')).toContain(
+      "one scan with @cf/deepseek-ai/deepseek-v4.1-flash-1017 can cost up to $0.25, more than is left of this project's monthly scan budget ($0.20 of $0.50)",
+    );
+  });
+
+  it("names the per-project limit and the operator command with the project id (capSource 'limit')", async () => {
+    const reply = status({
+      lastScan: scan({ status: 'skipped', statusReason: 'budget', budgetCause: 'project_cap' }),
+      budget: budget({
+        capUsd: 0.2,
+        capSource: 'limit',
+        ceilingUsd: 0.2,
+        ceilingSource: 'project',
+        spentUsd: 0.41,
+      }),
+    });
+    const text = (await run(async () => reply)).lines.join('\n');
+    expect(text).not.toContain("the platform's monthly scan budget");
+    expect(text).toContain(
+      "this project's monthly scan budget is used up ($0.41 of $0.20). Resets Dec 1.",
+    );
+    expect(text).toContain(
+      'Your platform admin can raise it: void platform security budget --project project_1 --usd 1',
+    );
+  });
+
+  it('says the next deploy is scanned when the cap was raised since the skip', async () => {
+    const reply = status({
+      lastScan: scan({ status: 'skipped', statusReason: 'budget', budgetCause: 'project_cap' }),
+      budget: budget({ capUsd: 5 }),
+    });
+    expect((await run(async () => reply)).lines.join('\n')).toContain(
+      "Not security-scanned: this project's monthly scan budget was used up; it was raised since ($0.38 of $5.00 used). The next deploy is scanned.",
+    );
+  });
+
+  it('explains a reserve above the cap instead of "used up" (project_reserve)', async () => {
+    const reply = status({
+      lastScan: scan({ status: 'skipped', statusReason: 'budget', budgetCause: 'project_reserve' }),
+      budget: budget({ capUsd: 1.5, spentUsd: 0, scanReserveUsd: 2.04 }),
+    });
+    const text = (await run(async () => reply)).lines.join('\n');
+    expect(text).not.toContain('used up');
+    expect(text).toContain(
+      "one scan with @cf/deepseek-ai/deepseek-v4.1-flash-1017 can cost up to $2.04, more than is left of this project's monthly scan budget ($1.50 of $1.50)",
+    );
+    expect(text).toContain('pick a cheaper model: void project security model');
+  });
+
   it('lists urgent rows for a user session, critical first, with ANSI stripped', async () => {
     const reply = status({ urgent: urgent(2), lastScan: null });
     const text = (await run(async () => reply)).lines.join('\n');
