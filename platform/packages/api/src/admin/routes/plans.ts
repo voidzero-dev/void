@@ -44,9 +44,9 @@ app.onError((error, context) => {
   throw error;
 });
 
-const actions: Array<PlanCatalogAction> = ['add', 'set', 'archive', 'remove', 'default', 'reset'];
+const actions = new Set<PlanCatalogAction>(['add', 'set', 'archive', 'remove', 'default', 'reset']);
 function action(value: unknown): PlanCatalogAction {
-  if (typeof value !== 'string' || !actions.includes(value as PlanCatalogAction)) {
+  if (typeof value !== 'string' || !actions.has(value as PlanCatalogAction)) {
     throw new OperatorError(400, 'Choose a supported plan action.');
   }
   return value as PlanCatalogAction;

@@ -570,8 +570,11 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     }
     const dir = dirname(page.componentPath);
     const segments = dir === '.' ? [] : dir.split('/');
-    const ancestors = ['', ...segments.map((_, index) => segments.slice(0, index + 1).join('/'))];
-    if (layouts.some((l) => l.island && ancestors.includes(l.directory))) {
+    const ancestors = new Set([
+      '',
+      ...segments.map((_, index) => segments.slice(0, index + 1).join('/')),
+    ]);
+    if (layouts.some((l) => l.island && ancestors.has(l.directory))) {
       throw new Error(
         `pages: Regular page '${page.componentPath}' is under an island layout. Add a .island suffix.`,
       );

@@ -188,11 +188,13 @@ export async function projectDestinations(
     await resolveZeroTrustApplicationEnvironment(env, db),
   );
   const platform = [...new Set(platformProjectHostnames(project, application))];
-  const reserved = [env.AUTH_REDIRECT_URI, env.PROXY_URL, env.EMAIL_GATEWAY_ORIGIN]
-    .filter((value): value is string => !!value && URL.canParse(value))
-    .map((value) => new URL(value).hostname.toLowerCase());
+  const reserved = new Set(
+    [env.AUTH_REDIRECT_URI, env.PROXY_URL, env.EMAIL_GATEWAY_ORIGIN]
+      .filter((value): value is string => !!value && URL.canParse(value))
+      .map((value) => new URL(value).hostname.toLowerCase()),
+  );
   const checkHostnames = (values: ReadonlyArray<string>) => {
-    if (values.some((hostname) => reserved.includes(hostname.toLowerCase()))) {
+    if (values.some((hostname) => reserved.has(hostname.toLowerCase()))) {
       throw new ZeroTrustUnavailableError(
         'The project hostname overlaps a platform API, proxy, or email endpoint. Choose another hostname.',
       );

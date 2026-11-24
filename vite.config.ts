@@ -277,6 +277,11 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // These string scans test for substrings and delimiters.
+        files: ['packages/edge/src/pattern.ts', 'platform/packages/api/container/build-agent.mjs'],
+        rules: { 'unicorn/prefer-set-has': 'off' },
+      },
+      {
         // These mocked provider rejections exercise non-Error failure payloads.
         files: ['packages/void/test/unit/provision-resources.test.ts'],
         rules: { 'prefer-promise-reject-errors': 'off' },
@@ -518,7 +523,6 @@ const config = defineConfig({
       'unicorn/consistent-function-scoping': 'off',
       'unicorn/prefer-at': 'off',
       'unicorn/prefer-import-meta-properties': 'off',
-      'unicorn/prefer-set-has': 'off',
       'unicorn/prefer-single-call': 'off',
       'unicorn/prefer-structured-clone': 'off',
       'unicorn/prefer-top-level-await': 'off',
