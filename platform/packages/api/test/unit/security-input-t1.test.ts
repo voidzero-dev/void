@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { buildSecurityScanInput } from '../../src/security/input/build.ts';
+import {
+  buildSecurityScanInput,
+  securityNotesLeftFilesUnread,
+} from '../../src/security/input/build.ts';
 import type { SecurityInputPlan } from '../../src/security/input/build.ts';
 import {
   SourceTarballError,
@@ -528,6 +531,88 @@ describe('buildSecurityScanInput with a source diff', () => {
     expect(built.notes).not.toContain('input-capped 1 files');
     expect(built.coverage).toBe('partial');
     expect(built.sourceIndex.get('src/big.ts')).toBe('x');
+  });
+
+  it('notes an unchanged file over 16 MB on every diff scan until it is gone', () => {
+    const plan = inputPlan();
+    const big = { path: 'src/big.ts', bytes: 17 * 1024 * 1024, sha256: 'x' };
+    const unchanged = buildSecurityScanInput({
+      ...plan,
+      sourceDiff: { ...plan.sourceDiff!, unread: [big] },
+    });
+    expect(unchanged.notes).toContain('dropped-oversize 1 files');
+    expect(securityNotesLeftFilesUnread(unchanged.notes)).toBe(true);
+    expect(unchanged.backlog).toEqual([]);
+    expect(unchanged.coverage).toBe('partial');
+    expect(unchanged.sourceIndex.get('src/big.ts')).toBe('x');
+
+    const removed = buildSecurityScanInput({
+      ...plan,
+      sourceDiff: { ...plan.sourceDiff!, unread: [] },
+    });
+    expect(securityNotesLeftFilesUnread(removed.notes)).toBe(false);
+  });
+
+  it('notes an unchanged file the base could not send while it stays unread', () => {
+    const plan = inputPlan();
+    const sqlite = 'SQLite format 3\u0000';
+    const first = buildSecurityScanInput({
+      ...plan,
+      sourceDiff: {
+        ...plan.sourceDiff!,
+        files: [
+          ...plan.sourceDiff!.files,
+          {
+            path: 'data/app.sqlite',
+            text: sqlite,
+            sha256: 'db',
+            module: '',
+            map: null,
+            built: false,
+          },
+        ],
+        changed: new Set([...plan.sourceDiff!.changed, 'data/app.sqlite']),
+        unread: [],
+      },
+    });
+    expect(first.notes).toContain('dropped-binary 1 files');
+    expect(first.neverSent.get('data/app.sqlite')).toEqual({ sha256: 'db', kind: 'binary' });
+
+    // Next scan: unchanged, and left unread as the read budget ran out.
+    const base = { modules: new Map(), sources: first.sourceIndex, neverSent: first.neverSent };
+    const unread = (sha256: string) =>
+      buildSecurityScanInput({
+        ...plan,
+        base,
+        sourceDiff: {
+          ...plan.sourceDiff!,
+          unread: [{ path: 'data/app.sqlite', bytes: 5 * 1024 * 1024, sha256 }],
+        },
+      });
+    const second = unread('db');
+    expect(second.notes).toContain('dropped-binary 1 files');
+    expect(securityNotesLeftFilesUnread(second.notes)).toBe(true);
+    expect(second.coverage).toBe('partial');
+    expect(second.backlog).toEqual([]);
+    expect(second.neverSent.get('data/app.sqlite')).toEqual({ sha256: 'db', kind: 'binary' });
+
+    // Other bytes: not known to be binary, so not noted.
+    expect(securityNotesLeftFilesUnread(unread('other').notes)).toBe(false);
+  });
+
+  it('does not note unchanged third-party code over 16 MB as unread', () => {
+    const plan = inputPlan();
+    const vendored = { path: 'node_modules/pkg/dist/big.js', bytes: 17 * 1024 * 1024, sha256: 'v' };
+    for (const lockfile of [new Map([['pkg', 'registry' as const]]), null]) {
+      const built = buildSecurityScanInput({
+        ...plan,
+        lockfile,
+        sourceDiff: { ...plan.sourceDiff!, unread: [vendored] },
+      });
+      expect(securityNotesLeftFilesUnread(built.notes)).toBe(false);
+      expect(built.neverSent.has(vendored.path)).toBe(false);
+      expect(built.backlog).toEqual([]);
+    }
   });
 
   it('keeps an unread unchanged file in the backlog it was waiting in', () => {

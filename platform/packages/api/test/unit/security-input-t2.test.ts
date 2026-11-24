@@ -630,6 +630,66 @@ describe('buildSecurityScanInput', () => {
     expect(edited.focus).toEqual(['_worker/worker-b.js']);
   });
 
+  it('notes a built-only module it could not send again while its bytes stay the same', () => {
+    const source = 'export default { fetch: () => new Response("ok") }';
+    const sourceMap = module('index.js.map', map(['src/app.ts'], [source]));
+    const headOf = (index: string, extra: Array<SecurityModuleFile> = []) => ({
+      modules: [module('index.js', index), sourceMap, ...extra],
+      main: 'index.js',
+    });
+    const asBase = (
+      head: ReturnType<typeof headOf>,
+      built: ReturnType<typeof buildSecurityScanInput>,
+    ) => ({
+      modules: new Map(head.modules.map((m) => [m.name, m.sha256])),
+      sources: built.sourceIndex,
+      neverSent: built.neverSent,
+    });
+    const diff = (base: ReturnType<typeof asBase>, head: ReturnType<typeof headOf>) =>
+      buildSecurityScanInput(plan({ tier: { tier: 'built_diff', fullReason: null }, base, head }));
+
+    const firstHead = headOf('export default{fetch:()=>new Response("ok")}');
+    const first = buildSecurityScanInput(plan({ head: firstHead }));
+    // Deploy 2: the built code changed next to the same map, and it is not text.
+    const binaryHead = headOf('export default{fetch:()=>new Response("�")}');
+    const second = diff(asBase(firstHead, first), binaryHead);
+    expect(second.notes).toContain('dropped-binary 1 files');
+    expect(securityNotesLeftFilesUnread(second.notes)).toBe(true);
+
+    // Deploy 3: the same bytes, next to an unrelated new chunk.
+    const chunk = [
+      module('chunks/b.js', 'export const b=1;'),
+      module('chunks/b.js.map', map(['src/b.ts'], ['export const b = 1;'])),
+    ];
+    const thirdHead = headOf(binaryHead.modules[0].text, chunk);
+    const third = diff(asBase(binaryHead, second), thirdHead);
+    expect(third.notes).toContain('dropped-binary 1 files');
+    expect(securityNotesLeftFilesUnread(third.notes)).toBe(true);
+    expect(third.backlog).toEqual([]);
+    expect(third.coverage).toBe('partial');
+
+    // Deploy 3b: the same bytes under a new name are not listed either.
+    const renamedHead = {
+      modules: [
+        module('worker.js', binaryHead.modules[0].text),
+        module('worker.js.map', sourceMap.text),
+        ...chunk,
+      ],
+      main: 'worker.js',
+    };
+    const renamed = diff(asBase(binaryHead, second), renamedHead);
+    expect(renamed.notes).toContain('dropped-binary 1 files');
+    expect(securityNotesLeftFilesUnread(renamed.notes)).toBe(true);
+    expect(renamed.neverSent.get('_worker/worker.js')?.kind).toBe('binary');
+
+    // Deploy 4: the module is text again, so it is read and the note goes away.
+    const fixedHead = headOf('export default{fetch:()=>new Response("fixed")}', chunk);
+    const fourth = diff(asBase(thirdHead, third), fixedHead);
+    expect(fourth.focus).toEqual(['_worker/index.js']);
+    expect(securityNotesLeftFilesUnread(fourth.notes)).toBe(false);
+    expect(fourth.neverSent.size).toBe(0);
+  });
+
   it('marks an unchanged redeploy as no changes (edge #14), but a gate scan re-checks (edge #85)', () => {
     const base = {
       modules: new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256])),

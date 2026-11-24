@@ -127,6 +127,15 @@ export type SecuritySourceDiffInput = Readonly<{
   lockfile?: SecurityLockfileIndex | null;
 }>;
 
+/** Why a project file can never be sent: the `dropped-*` notes. */
+export type SecurityNeverSentKind = 'oversize' | 'binary' | 'bad_path';
+
+/** Project files a scan could never send, by input path, with their hash. */
+export type SecurityNeverSent = ReadonlyMap<
+  string,
+  Readonly<{ sha256: string; kind: SecurityNeverSentKind }>
+>;
+
 export type SecurityInputPlan = Readonly<{
   scan: Readonly<{
     id: string;
@@ -161,6 +170,8 @@ export type SecurityInputPlan = Readonly<{
   base: Readonly<{
     modules: ReadonlyMap<string, string>;
     sources: ReadonlyMap<string, string> | null;
+    /** The base scan's `neverSent`; `null` or missing for an older scan. */
+    neverSent?: SecurityNeverSent | null;
   }> | null;
   /** Changed text assets (all text assets for a full scan), already read. */
   assets: ReadonlyArray<SecurityInputAsset>;
@@ -216,6 +227,11 @@ export type SecurityBuiltInput = Readonly<{
    * Files this scan did not read are left out, so the next scan sees them as changed.
    */
   sourceIndex: ReadonlyMap<string, string>;
+  /**
+   * Project files this scan could never send. A built module in it that a later diff
+   * scan does not list again (same bytes) is noted again there, so the note stays.
+   */
+  neverSent: SecurityNeverSent;
   /** Asset paths (as in `plan.assets` / `unreadAssets`) this scan did not read. */
   unscannedAssets: ReadonlySet<string>;
   /**
@@ -335,17 +351,26 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   const secretFiles: Array<string> = [];
   const firstParty: Array<Candidate> = [];
   const unverified: Array<Candidate> = [];
-  const dropBadPath = (bytes: number) => {
+  const neverSent = new Map<string, { sha256: string; kind: SecurityNeverSentKind }>();
+  type DroppedFile = Readonly<{ path: string; sha256: string; bytes: number }>;
+  const keepNeverSent = (file: DroppedFile, kind: SecurityNeverSentKind) => {
+    if (file.sha256 !== '') {
+      neverSent.set(file.path, { sha256: file.sha256, kind });
+    }
+  };
+  const dropBadPath = (file: DroppedFile) => {
     badPaths++;
     droppedFiles++;
-    droppedBytes += bytes;
-    lostBytes += bytes;
+    droppedBytes += file.bytes;
+    lostBytes += file.bytes;
+    keepNeverSent(file, 'bad_path');
   };
-  const dropBinary = (bytes: number) => {
+  const dropBinary = (file: DroppedFile) => {
     binary++;
     droppedFiles++;
-    droppedBytes += bytes;
-    lostBytes += bytes;
+    droppedBytes += file.bytes;
+    lostBytes += file.bytes;
+    keepNeverSent(file, 'binary');
   };
   const dropAsset = (bytes: number) => {
     assetsDropped++;
@@ -360,11 +385,12 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     lostBytes += file.bytes;
     sourceIndex.set(file.path, file.sha256);
   };
-  const dropOversized = (file: Readonly<{ path: string; sha256: string; bytes: number }>) => {
+  const dropOversized = (file: DroppedFile) => {
     oversized++;
     droppedFiles++;
     droppedBytes += file.bytes;
     lostBytes += file.bytes;
+    keepNeverSent(file, 'oversize');
     if (file.sha256 !== '') {
       // Seen as it is: the next diff scan does not take it as changed again.
       sourceIndex.set(file.path, file.sha256);
@@ -401,17 +427,54 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     if (looksBinary(source.text)) {
       // Not text the scanner can read: counted, so the scan is not labeled complete.
       sourceIndex.set(source.path, source.sha256);
-      dropBinary(bytes);
+      dropBinary({ path: source.path, sha256: source.sha256, bytes });
       continue;
     }
     if (!usableInputPath(source.path)) {
       // It can never be sent: noted and counted as lost, not left in the backlog.
       sourceIndex.set(source.path, source.sha256);
-      dropBadPath(bytes);
+      dropBadPath({ path: source.path, sha256: source.sha256, bytes });
       continue;
     }
     const file = { ...source, bytes, unverified: party === 'unverified', asset: null };
     (file.unverified ? unverified : firstParty).push(file);
+  }
+  // A built module the base could not send and that is not listed again (its bytes did
+  // not change): noted again, so a redeploy does not clear the note (§7.4). Never
+  // backlogged. Matched by path, or by bytes alone: a module renamed with the same bytes
+  // is not listed either (`builtOnlyChanges` skips any hash the base had).
+  const baseNeverSent = plan.tier.tier === 'full' ? null : (plan.base?.neverSent ?? null);
+  if (baseNeverSent !== null && baseNeverSent.size > 0) {
+    const listed = new Set(sources.map((source) => source.path));
+    const builtKinds = new Map<string, SecurityNeverSentKind>();
+    for (const [path, kept] of baseNeverSent) {
+      if (path.startsWith(SECURITY_BUILT_PREFIX)) {
+        builtKinds.set(kept.sha256, kept.kind);
+      }
+    }
+    for (const module of plan.head.modules) {
+      const path = `${SECURITY_BUILT_PREFIX}${module.name}`;
+      if (module.sha256 === '' || listed.has(path)) {
+        continue;
+      }
+      const kept = baseNeverSent.get(path);
+      const kind = kept?.sha256 === module.sha256 ? kept.kind : builtKinds.get(module.sha256);
+      if (kind === undefined) {
+        continue;
+      }
+      const file = { path, sha256: module.sha256, bytes: utf8Length(module.text) };
+      if (kind === 'binary') {
+        dropBinary(file);
+      } else if (!usableInputPath(path)) {
+        dropBadPath(file);
+      } else if (kind === 'oversize' || file.bytes > SCAN_INPUT_LIMITS.maxFileBytes) {
+        dropOversized(file);
+      } else {
+        // Its old name was the only reason it could not be sent.
+        continue;
+      }
+      totalSourceBytes += file.bytes;
+    }
   }
   // T1: secret-like repo files were never read. Unread ones that changed (or wait in
   // the backlog) count as cut below; unchanged ones are read access only (§7.4), so
@@ -747,22 +810,35 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     emptyFocus = tier !== 'full' && focus.length === 0;
   }
   for (const file of unreadUnchanged) {
+    const oversize = file.bytes > SCAN_INPUT_LIMITS.maxFileBytes;
+    // Only the project's own files are noted as never read: registry and unverified
+    // third-party code is left out quietly.
+    const own = classifyThirdParty(file.path, plan.lockfile) === 'first_party';
+    // Same bytes as a file the base could not send (binary, bad path): noted again.
+    const kept = tier === 'full' ? undefined : baseNeverSent?.get(file.path);
+    const neverSentAgain = kept !== undefined && kept.sha256 === file.sha256;
+    if (own && (oversize || neverSentAgain)) {
+      // Never sent, so never backlogged, but noted on every scan while it stays (§7.4):
+      // a diff scan that left it out would clear the note.
+      totalSourceBytes += file.bytes;
+      if (oversize || kept?.kind === 'oversize') {
+        dropOversized(file);
+      } else if (kept?.kind === 'binary') {
+        dropBinary(file);
+      } else {
+        dropBadPath(file);
+      }
+      sourceIndex.set(file.path, file.sha256);
+      continue;
+    }
     droppedFiles++;
     droppedBytes += file.bytes;
-  }
-  if (tier === 'full') {
-    // A full scan reads everything it can, unchanged files too: as in T2, the rest is
-    // capped and waits for the next scan.
-    for (const file of unreadUnchanged) {
+    if (tier === 'full' && !oversize) {
+      // A full scan reads everything it can, unchanged files too: as in T2, the rest is
+      // capped and waits for the next scan.
       totalSourceBytes += file.bytes;
       lostBytes += file.bytes;
-      if (file.bytes > SCAN_INPUT_LIMITS.maxFileBytes) {
-        // Counted as dropped above; never sent, so never backlogged.
-        oversized++;
-        sourceIndex.set(file.path, file.sha256);
-      } else {
-        cut.push(file);
-      }
+      cut.push(file);
     }
   }
   const capped = cut.length;
@@ -949,6 +1025,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       ),
     ],
     sourceIndex,
+    neverSent,
     unscannedAssets,
     emptyFocus,
     noChanges,

@@ -632,7 +632,19 @@ function mergeUsage(a: ModelUsage | null, b: ModelUsage | null): ModelUsage | nu
 export class SseUsageReader {
   private buffer = '';
   private skipping = false;
+  // Anthropic only: `message_start` seen, final usage seen, an in-band error seen.
+  private started = false;
+  private finished = false;
+  private failed = false;
   usage: ModelUsage | null = null;
+
+  /**
+   * The usage to bill, or `null` when the stream did not finish: an Anthropic stream
+   * cut before `message_delta` only carries the input and one output token.
+   */
+  get final(): ModelUsage | null {
+    return this.started && (this.failed || !this.finished) ? null : this.usage;
+  }
 
   push(text: string): void {
     let start = 0;
@@ -670,7 +682,17 @@ export class SseUsageReader {
       return;
     }
     try {
-      this.usage = mergeUsage(this.usage, readModelUsage(JSON.parse(data)));
+      const event: unknown = JSON.parse(data);
+      const usage = readModelUsage(event);
+      const type = asObject(event)?.type;
+      if (type === 'message_start') {
+        this.started = true;
+      } else if (type === 'message_stop' || (type === 'message_delta' && usage)) {
+        this.finished = true;
+      } else if (type === 'error') {
+        this.failed = true;
+      }
+      this.usage = mergeUsage(this.usage, usage);
     } catch {
       // Not JSON: nothing to count.
     }
@@ -679,7 +701,8 @@ export class SseUsageReader {
 
 /**
  * Passes `source` through and calls `done` once: with the usage when the stream ends,
- * or with `null` when it fails or the reader cancels (the hold then stays charged).
+ * or with `null` when it fails, ends unfinished or the reader cancels (the hold then
+ * stays charged).
  */
 export function meteredStream(
   source: ReadableStream<Uint8Array>,
@@ -709,7 +732,7 @@ export function meteredStream(
       if (chunk.done) {
         sse.push(decoder.decode());
         sse.end();
-        await finish(sse.usage);
+        await finish(sse.final);
         controller.close();
         return;
       }
@@ -1162,6 +1185,7 @@ export async function handleSecurityModelRequest(
 
   // Session count and `@cf` rate token. Waiting here does not use a model call.
   const waitUntil = deps.now() + SECURITY_RATE_WAIT_LIMIT_MS;
+  let waited = false;
   for (;;) {
     const admitted = await deps.admit({
       scanId,
@@ -1180,16 +1204,23 @@ export async function handleSecurityModelRequest(
     if (left <= 0) {
       return failed('rate_wait', refuse(503, 'rate_limited', 'Waited too long for a model slot.'));
     }
+    waited = true;
     await deps.sleep(Math.min(admitted.waitMs, left));
   }
 
+  // A cap lowered during the wait applies to this call (spec §16.1, edge #50).
+  const capScan = waited ? await deps.loadScan(scanId) : scan;
+  if (!capScan || !judgeScanFence(capScan, attempt, deps.now()).ok) {
+    return refuse(409, 'scan_not_running', 'This scan attempt is not running.');
+  }
+  const capPolicy = waited ? await deps.readPolicy() : policy;
   const caps = securitySpendCaps(
     {
-      monthlyCapCents: scan.monthlyCapCents,
-      capCeilingCents: scan.capCeilingCents,
-      planCap: scan.planCap,
+      monthlyCapCents: capScan.monthlyCapCents,
+      capCeilingCents: capScan.capCeilingCents,
+      planCap: capScan.planCap,
     },
-    policy.budgets,
+    capPolicy.budgets,
   );
   const hold = await deps.hold({
     scanId,

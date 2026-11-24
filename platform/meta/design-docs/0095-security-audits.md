@@ -493,8 +493,9 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   transaction, always scan → project → platform row (also for reserve, settle,
   release, so no lock cycle). After the answer the hold is replaced by tokens × list
   price; an upstream error with an HTTP status or a Workers AI code costs 0; a paid
-  answer with no usage, a call lost with no status or code, a dropped stream or a failed settle keeps the worst case
-  (the meter errs high). The proxy clamps the
+  answer with no usage, a call lost with no status or code, a dropped stream (also an Anthropic stream that
+  ends before its `message_delta` usage or carries an `error` event) or a failed settle
+  keeps the worst case (the meter errs high). The proxy clamps the
   output limit to what the scan has left (`max_tokens` / `max_output_tokens`; 16,384
   when the caller sets none) so the worst case is bounded. Stops answer 429 (402 for
   credits) with `x-void-scan-stop`; other failures carry no header (runner retries once).
@@ -511,7 +512,8 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   Postgres stays the hard bound. M9 adds 429 back-off to the bucket and calls
   `forgetModelCalls` when an attempt ends. `GET /v1/void/last-failure` answers the last
   refused or failed call of the attempt (Engine C). Waiting for a rate token (≤ 120 s)
-  does not use a model call. `deriveSecurityScanTag` sits in `proxy-token.ts`
+  does not use a model call; after a wait the proxy reads the caps again, so a cap
+  lowered meanwhile applies to that call (#50). `deriveSecurityScanTag` sits in `proxy-token.ts`
   (`<scanId>.<22-char MAC>`, HKDF label `void-security-scan`). Extra test cases: the
   call ledger in `security-budget.test.ts`; the proxy on real SQL in
   `security-spend.test.ts`.
@@ -754,6 +756,9 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   no scan can send it, so a gate scan would be queued for it forever. A project file
   dropped as bad-path, oversize or binary holds a public request instead (`held_no_result`,
   `unread_files`, #92a; asking again queues no scan); registry files are classified first,
+  a later diff scan notes such a file again while its bytes stay the same (an unchanged
+  repo file over 16 MB in T1; a built module through `never-sent.json`, written next to
+  `sources.json`), until it changes to readable bytes or is removed;
   and client assets or unverified third-party code dropped the same ways are noted
   `assets-dropped N files` / `third-party-unverified-dropped N files` and do not hold it. Inline source maps
   are found at any length. `partial` = backlog left, a cut, bad-path or oversize file, or > 5 % of

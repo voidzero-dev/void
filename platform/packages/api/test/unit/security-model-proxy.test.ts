@@ -341,6 +341,59 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     expect(h.clock.now - NOW).toBeGreaterThanOrEqual(SECURITY_RATE_WAIT_LIMIT_MS);
   });
 
+  describe('after a rate wait', () => {
+    beforeEach(() => {
+      h.admit
+        .mockResolvedValueOnce({ ok: false, reason: 'rate', waitMs: 6000 })
+        .mockResolvedValueOnce({ ok: true, sessionCalls: null });
+      h.aiRun.mockResolvedValue({
+        response: 'ok',
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+      h.scan.value = scanRow({ monthlyCapCents: 10_000 });
+    });
+
+    it('holds against a project cap lowered while it waited', async () => {
+      h.sleep.mockImplementationOnce(async (ms: number) => {
+        h.clock.now += ms;
+        h.scan.value = scanRow({ monthlyCapCents: 0 });
+      });
+      expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
+      expect(h.holds[0].caps.projectNano).toBe(0);
+    });
+
+    it('holds against a platform cap lowered while it waited', async () => {
+      h.policy.value = onPolicy({
+        budgets: {
+          ...defaultSecurityPolicy().budgets,
+          platformCapOn: true,
+          platformMonthlyUsd: 500,
+        },
+      });
+      h.sleep.mockImplementationOnce(async (ms: number) => {
+        h.clock.now += ms;
+        h.policy.value = onPolicy({
+          budgets: {
+            ...defaultSecurityPolicy().budgets,
+            platformCapOn: true,
+            platformMonthlyUsd: 1,
+          },
+        });
+      });
+      expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
+      expect(h.holds[0].caps.platformNano).toBe(1_000_000_000);
+    });
+
+    it('stops when the scan ended while it waited', async () => {
+      h.sleep.mockImplementationOnce(async (ms: number) => {
+        h.clock.now += ms;
+        h.scan.value = scanRow({ monthlyCapCents: 10_000, status: 'failed' });
+      });
+      expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(409);
+      expect(h.holds).toHaveLength(0);
+    });
+  });
+
   it('reads a binding credits error as a credits stop', async () => {
     h.aiRun.mockRejectedValue(Object.assign(new Error('Insufficient balance'), { status: 402 }));
     const response = await call(h, '/v1/chat/completions', chatBody());
@@ -543,6 +596,56 @@ describe('third-party calls through AI Gateway REST', () => {
     await response.body!.cancel();
     expect(h.settles).toHaveLength(1);
     expect(h.settles[0].actualNano).toBe(h.holds[0].worstNano);
+  });
+
+  describe('an Anthropic stream', () => {
+    const start = {
+      type: 'message_start',
+      message: { usage: { input_tokens: 5000, output_tokens: 1 } },
+    };
+    const text = { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } };
+    const body = { model: OPUS, max_tokens: 1000, messages: [], stream: true };
+
+    async function streamed(events: ReadonlyArray<unknown>) {
+      h.fetch.mockResolvedValue(
+        new Response(sse(events), { headers: { 'content-type': 'text/event-stream' } }),
+      );
+      const response = await call(h, '/v1/messages', body);
+      await response.text();
+      expect(h.settles).toHaveLength(1);
+      return h.settles[0];
+    }
+
+    it('keeps the worst case when it closes before its final usage', async () => {
+      const settled = await streamed([start, text]);
+      expect(settled.actualNano).toBe(h.holds[0].worstNano);
+    });
+
+    it('keeps the worst case when it carries an error event', async () => {
+      const error = { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } };
+      const settled = await streamed([start, text, error]);
+      expect(settled.actualNano).toBe(h.holds[0].worstNano);
+    });
+
+    it('settles at the real cost when it finishes', async () => {
+      const settled = await streamed([
+        start,
+        text,
+        {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn' },
+          usage: { output_tokens: 450 },
+        },
+        { type: 'message_stop' },
+      ]);
+      expect(settled).toEqual(
+        expect.objectContaining({
+          inputTokens: 5000,
+          outputTokens: 450,
+          actualNano: securityModelCostNanoUsd(OPUS, 5000, 450),
+        }),
+      );
+    });
   });
 
   it('answers 402 as a credits stop and records why for the runner (Engine C)', async () => {

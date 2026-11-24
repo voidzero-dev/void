@@ -470,6 +470,61 @@ describe('scan input capture', () => {
     expect(modules.modules.every((module) => typeof module.sha256 === 'string')).toBe(true);
   });
 
+  it('notes a built module it could never send again on the next diff scan (§7.4)', async () => {
+    const { project } = await setup();
+    const succeed = (id: string) =>
+      env.db
+        .update(securityScans)
+        .set({ status: 'succeeded', finished_at: new Date().toISOString() })
+        .where(eq(securityScans.id, id));
+    const first = await deploy(project.id);
+    const base = appModules('export const v = 1;');
+    await stage(project.id, first.id, base);
+    await runningScan('scan_a', project.id, first.id, {
+      input_prefix: `deployment-inputs/${project.id}/${first.id}/`,
+    });
+    expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_a', 1)).not.toBeNull();
+    await succeed('scan_a');
+
+    // The built entry changed next to the same map, and it is not text.
+    const binary = {
+      ...base,
+      'index.js': `import"./chunks/users.js";globalThis.x="�";export default{}\n${MAP_URL}index.js.map`,
+    };
+    const second = await deploy(project.id);
+    await stage(project.id, second.id, binary);
+    await runningScan('scan_b', project.id, second.id, {
+      input_prefix: `deployment-inputs/${project.id}/${second.id}/`,
+    });
+    await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_b', 1);
+    expect((await scan('scan_b')).coverage_notes).toContain('dropped-binary 1 files');
+    const record = `${securityScanInputPrefix(project.id, second.id)}never-sent.json`;
+    expect(JSON.parse((await r2Text(record))!)).toEqual({
+      version: 1,
+      files: {
+        '_worker/index.js': {
+          sha256: sha256Hex(binary['index.js']),
+          kind: 'binary',
+        },
+      },
+    });
+    await succeed('scan_b');
+
+    // The same entry bytes, with another change: the note comes back, nothing backlogged.
+    const third = await deploy(project.id);
+    await stage(project.id, third.id, {
+      ...appModules('export const v = 3;'),
+      'index.js': binary['index.js'],
+    });
+    await runningScan('scan_c', project.id, third.id, {
+      input_prefix: `deployment-inputs/${project.id}/${third.id}/`,
+    });
+    const prepared = await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_c', 1);
+    expect(prepared?.built.focus).toEqual(['src/routes/users.ts']);
+    expect(prepared?.built.backlog).toEqual([]);
+    expect((await scan('scan_c')).coverage_notes).toContain('dropped-binary 1 files');
+  });
+
   it('runs a fallback of a rescan, a sweep or a gate scan of a scanned deployment in full (M26)', async () => {
     const { project } = await setup();
     const live = await deploy(project.id);

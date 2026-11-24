@@ -21,6 +21,8 @@
  *   modules/{i}, modules.json (`{version, modules: [{name, type, size, key, sha256}]}`)
  *   sources.json (source path → sha256) and assets.json (asset path → hash), written
  *   by the first scan that reads the snapshot, so it can be the next scan's base.
+ *   never-sent.json (`{version, files: {path: {sha256, kind}}}`): the project files
+ *   that scan could never send, so the next diff scan notes them again (§7.4).
  * Per scan, next to its raw output (`security-scans/{project}/scans/{scan}/`):
  *   backlog.json (the backlog it leaves), server-leads.json and scope.json (what it
  *   looked at, with each input file's hash), for ingest (`../ingest.ts`).
@@ -60,6 +62,8 @@ import type {
   SecurityBuiltInput,
   SecurityClientSource,
   SecurityInputAsset,
+  SecurityNeverSent,
+  SecurityNeverSentKind,
   SecuritySourceDiffInput,
 } from './build.ts';
 import { looksBinary, securityInputFilter } from './filters.ts';
@@ -187,6 +191,36 @@ function parseHashMap(text: string | null): Map<string, string> | null {
 
 function serializeHashMap(map: ReadonlyMap<string, string>): string {
   return JSON.stringify({ version: 1, hashes: Object.fromEntries(map) });
+}
+
+const NEVER_SENT_KINDS: ReadonlyArray<SecurityNeverSentKind> = ['oversize', 'binary', 'bad_path'];
+
+/** `never-sent.json`, or `null` when it is missing (an older scan) or unreadable. */
+function parseNeverSent(text: string | null): SecurityNeverSent | null {
+  if (text === null) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(text) as { version?: unknown; files?: unknown };
+    if (value.version !== 1 || typeof value.files !== 'object' || value.files === null) {
+      return null;
+    }
+    const out = new Map<string, { sha256: string; kind: SecurityNeverSentKind }>();
+    for (const [path, entry] of Object.entries(value.files as Record<string, unknown>)) {
+      const { sha256, kind } = (entry ?? {}) as { sha256?: unknown; kind?: unknown };
+      const known = NEVER_SENT_KINDS.find((item) => item === kind);
+      if (typeof sha256 === 'string' && known !== undefined) {
+        out.set(path, { sha256, kind: known });
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function serializeNeverSent(map: SecurityNeverSent): string {
+  return JSON.stringify({ version: 1, files: Object.fromEntries(map) });
 }
 
 export function parseSnapshotModules(text: string | null): Array<SnapshotModule> | null {
@@ -577,6 +611,7 @@ type BaseSnapshot = Readonly<{
   modules: Map<string, string>;
   sources: Map<string, string> | null;
   assets: Map<string, string> | null;
+  neverSent: SecurityNeverSent | null;
 }>;
 
 /** The base snapshot's hashes, or `null` when it is gone. */
@@ -601,6 +636,7 @@ async function loadBaseSnapshot(r2: R2Bucket, prefix: string): Promise<BaseSnaps
     modules,
     sources: parseHashMap(await readText(r2, `${prefix}sources.json`)),
     assets: parseHashMap(await readText(r2, `${prefix}assets.json`)),
+    neverSent: parseNeverSent(await readText(r2, `${prefix}never-sent.json`)),
   };
 }
 
@@ -1030,6 +1066,7 @@ export async function prepareSecurityScanInputFiles(
   // With every sha256 filled in (an inline copy made after the commit has none).
   await r2.put(modulesKey(headPrefix), serializeModules(head.modules));
   await r2.put(`${headPrefix}sources.json`, serializeHashMap(built.sourceIndex));
+  await r2.put(`${headPrefix}never-sent.json`, serializeNeverSent(built.neverSent));
   await r2.put(
     `${headPrefix}assets.json`,
     // Assets this scan did not read (or, too big to read, did not search) stay out,
