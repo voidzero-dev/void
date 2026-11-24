@@ -549,6 +549,7 @@ const config = defineConfig({
       'quality/no-array-filter-map': 'off',
       // SDK adapters and test doubles use staged assertions across mismatched framework and mock types. Tighten those contracts separately.
       'quality/no-chained-type-assertions': 'off',
+      // Conditional spreads are used to omit optional config and manifest keys. Preserve omission and property order in follow-up refactors.
       'quality/no-conditional-empty-object-spread': 'off',
       'quality/no-known-value-widening': 'off',
       'quality/no-unknown-returns': 'off',
