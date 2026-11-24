@@ -34,6 +34,7 @@ import type { SecurityPolicy } from '../../src/security-policy.ts';
 
 const CHECKED_AT = '2026-11-18T03:00:00.000Z';
 
+// oxlint-disable-next-line quality/no-unknown-returns -- The test feeds the parser untrusted stored JSON.
 function stored(overrides: Partial<Record<keyof SecurityPolicy, unknown>> = {}): unknown {
   // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser, which drops undefined keys.
   return JSON.parse(JSON.stringify({ ...defaultSecurityPolicy(), ...overrides }));

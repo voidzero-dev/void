@@ -682,7 +682,18 @@ export function isSecurityEntitlementFresh(
 export const PLAN_SECURITY_CAPS_SETTING = 'plans:security-caps';
 
 /** Plan ID -> monthly cap in whole cents, or `null` = no cap for that plan. Missing = policy default. */
-export type PlanSecurityCaps = Readonly<Record<string, number | null>>;
+export interface PlanSecurityCaps {
+  readonly [planId: string]: number | null;
+}
+/** A caps row being built. */
+interface PlanSecurityCapsDraft {
+  [planId: string]: number | null;
+}
+/** A read caps row and how many entries it left out. */
+export interface PlanSecurityCapsRead {
+  readonly caps: PlanSecurityCaps;
+  readonly dropped: number;
+}
 
 /**
  * One plan's cap: whole cents, `none` (no cap from the plan, even with project caps
@@ -729,16 +740,14 @@ function isPlanKey(key: string): boolean {
  * `null` is left out (that plan inherits) and counted in `dropped`, so one bad entry
  * never stops plan edits or scans. A row that is not an object reads as empty.
  */
-export function readPlanSecurityCaps(
-  value: unknown,
-): Readonly<{ caps: PlanSecurityCaps; dropped: number }> {
+export function readPlanSecurityCaps(value: unknown): PlanSecurityCapsRead {
   if (value === null || value === undefined) {
     return { caps: {}, dropped: 0 };
   }
   if (typeof value !== 'object' || Array.isArray(value)) {
     return { caps: {}, dropped: 1 };
   }
-  const caps: Record<string, number | null> = {};
+  const caps: PlanSecurityCapsDraft = {};
   let dropped = 0;
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     if (isPlanKey(key) && (entry === null || isPlanSecurityCapCents(entry))) {
@@ -789,7 +798,7 @@ export function withPlanSecurityCap(
   planId: string,
   cap: SecurityPlanCap,
 ): PlanSecurityCaps {
-  const next: Record<string, number | null> = {};
+  const next: PlanSecurityCapsDraft = {};
   for (const [key, entry] of Object.entries(caps)) {
     if (key !== planId) {
       next[key] = entry;

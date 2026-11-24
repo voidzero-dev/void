@@ -47,7 +47,10 @@ export type Props = Readonly<{
 }>;
 
 /** `?done=` keys an action redirect sets, and the line the page shows for each. */
-export const SECURITY_DONE_COPY: Readonly<Record<string, string>> = {
+interface SecurityDoneCopy {
+  readonly [done: string]: string;
+}
+export const SECURITY_DONE_COPY: SecurityDoneCopy = {
   resolved: 'Finding resolved.',
   commented: 'Comment added.',
   model: 'Scan model saved.',

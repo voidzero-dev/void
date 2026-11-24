@@ -28,7 +28,10 @@ describe('security model list', () => {
   });
 
   it('uses the AI Gateway catalog spelling for ids', () => {
-    const prefixes: Record<string, string> = {
+    interface ProviderPrefixes {
+      readonly [provider: string]: string;
+    }
+    const prefixes: ProviderPrefixes = {
       'workers-ai': '@cf/',
       openai: 'openai/',
       anthropic: 'anthropic/',

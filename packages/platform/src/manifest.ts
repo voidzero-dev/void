@@ -142,6 +142,7 @@ const OPTIONAL_CAPABILITIES: ReadonlySet<keyof PlatformCapabilities> = new Set([
 export function readPlatformCapability(
   record: Readonly<Record<string, unknown>>,
   name: keyof PlatformCapabilities,
+  // oxlint-disable-next-line quality/no-unknown-returns -- The raw value stays unvalidated for the caller's own capability checks.
 ): unknown {
   const value = record[name];
   return value === undefined && OPTIONAL_CAPABILITIES.has(name) ? false : value;

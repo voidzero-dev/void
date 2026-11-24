@@ -37,7 +37,10 @@ function day(iso: string | null): string {
       });
 }
 
-const REQUEST_STATES: Readonly<Record<string, string>> = {
+interface RequestStateCopy {
+  readonly [state: string]: string;
+}
+const REQUEST_STATES: RequestStateCopy = {
   waiting_scan: 'waiting for a security scan of the live deployment',
   held_findings: 'held: urgent findings must be resolved first',
   held_no_result: 'held: the security scan did not finish',

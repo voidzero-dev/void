@@ -136,11 +136,12 @@ export function securityInputFilter(path: string): SecurityInputFilter | null {
  * What one local check may send. The CLI checks them before it uploads; the API
  * checks the declared sizes when it signs the upload, and the real ones while it reads.
  */
-export const SECURITY_LOCAL_CHECK_LIMITS: Readonly<{
-  maxFiles: number;
-  maxBytes: number;
-  maxArchiveBytes: number;
-}> = {
+export interface SecurityLocalCheckLimits {
+  readonly maxFiles: number;
+  readonly maxBytes: number;
+  readonly maxArchiveBytes: number;
+}
+export const SECURITY_LOCAL_CHECK_LIMITS: SecurityLocalCheckLimits = {
   /** Files in the tree. */
   maxFiles: 10_000,
   /** Their bytes, uncompressed (what one scan input can hold). */
