@@ -277,6 +277,11 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // Hosted admin views synchronize streamed logs and externally loaded data in effects.
+        files: ['platform/packages/api/src/admin/react/views/**/*'],
+        rules: { 'react/set-state-in-effect': 'off' },
+      },
+      {
         // These adapters and test helpers accept opaque objects for identity and weak keys.
         files: [
           '**/test/**/*',
@@ -524,7 +529,6 @@ const config = defineConfig({
       'quality/no-known-value-widening': 'off',
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
-      'react/set-state-in-effect': 'off',
       'typescript/no-misused-spread': 'off',
       'typescript/no-non-null-assertion': 'off',
       'typescript/no-unnecessary-type-assertion': 'off',
