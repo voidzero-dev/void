@@ -277,6 +277,11 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // Solid JSX uses native DOM attribute names, including label for.
+        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
+        rules: { 'react/no-unknown-property': 'off' },
+      },
+      {
         // Solid uses mutable refs across reactive updates.
         files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
         rules: { 'react/immutability': 'off' },
@@ -435,7 +440,6 @@ const config = defineConfig({
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
       'quality/no-widen-then-assert': 'off',
-      'react/no-unknown-property': 'off',
       'react/purity': 'off',
       'react/rules-of-hooks': 'off',
       'react/set-state-in-effect': 'off',
