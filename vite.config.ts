@@ -567,6 +567,7 @@ const config = defineConfig({
       'typescript/no-unsafe-argument': 'off',
       // Several SDK and tool APIs expose any, including response JSON and mixed Node and Worker globals. Narrow at each owning boundary.
       'typescript/no-unsafe-assignment': 'off',
+      // Runtime adapter calls and mixed Node and Worker declarations need typed entry points before broad enforcement.
       'typescript/no-unsafe-call': 'off',
       'typescript/no-unsafe-member-access': 'off',
       'typescript/no-unsafe-return': 'off',
