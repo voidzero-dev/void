@@ -364,7 +364,7 @@ function toRegExp(tokens: ReadonlyArray<Token>): RegExp {
   let body = '';
   for (const token of tokens) {
     if (token.kind === 'text') {
-      body += token.text.replace(/[.+?^${}()|[\]\\:]/g, '\\$&');
+      body += token.text.replaceAll(/[.+?^${}()|[\]\\:]/g, '\\$&');
     } else if (token.kind === 'seg') {
       body += `(?<${token.name}>[^/]+)`;
     } else {
@@ -516,7 +516,7 @@ export function matchSegmentPattern(pattern: string, pathname: string): boolean 
  * because `compilePattern` captures anonymous `*` as `splat`.
  */
 export function substituteParams(destination: string, params: Record<string, string>): string {
-  const result = destination.replace(/:([A-Za-z0-9_]+)\*?/g, (whole, name: string) => {
+  const result = destination.replaceAll(/:([A-Za-z0-9_]+)\*?/g, (whole, name: string) => {
     return params[name] ?? whole;
   });
   // A capture can start with '/', so a path destination must stay on this site.

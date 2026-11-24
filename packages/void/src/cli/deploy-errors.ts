@@ -10,7 +10,7 @@ import { platformErrorMessage } from './platform-errors.ts';
 const BODY_SNIPPET_MAX = 200;
 
 function trimSnippet(body: string): string {
-  const collapsed = body.replace(/\s+/g, ' ').trim();
+  const collapsed = body.replaceAll(/\s+/g, ' ').trim();
   if (collapsed.length <= BODY_SNIPPET_MAX) {
     return collapsed;
   }

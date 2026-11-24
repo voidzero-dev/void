@@ -70,11 +70,11 @@ function runCloudflared(args, options = {}) {
 }
 
 function removeDevVar(contents, key) {
-  return contents.replace(new RegExp(`^[\\t ]*${key}[\\t ]*=.*(?:\\r?\\n|$)`, 'gm'), '');
+  return contents.replaceAll(new RegExp(`^[\\t ]*${key}[\\t ]*=.*(?:\\r?\\n|$)`, 'gm'), '');
 }
 
 function setDevVar(contents, key, value) {
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\\"');
+  const escaped = value.replaceAll('\\', '\\\\').replaceAll('"', '\\\"');
   const line = `${key}="${escaped}"`;
   return `${removeDevVar(contents, key).replace(/\s*$/, '')}\n${line}\n`;
 }

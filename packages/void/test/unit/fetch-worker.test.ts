@@ -265,7 +265,7 @@ function evaluateClient(
   FetchError: typeof RuntimeFetchError;
 } {
   const code = compile('/auth.mjs')
-    .replace(/^(import .*|export \{.*)\n/gm, '')
+    .replaceAll(/^(import .*|export \{.*)\n/gm, '')
     .replaceAll('export ', '');
   return new Function(
     'app',

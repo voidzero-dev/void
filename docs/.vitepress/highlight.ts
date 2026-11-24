@@ -60,7 +60,7 @@ const NOTATIONS: Record<string, Readonly<{ line: ReadonlyArray<string>; pre: str
 
 const NOTATION_RE = new RegExp(
   `\\s*\\[!code (${Object.keys(NOTATIONS)
-    .map((name) => name.replace(/\+/g, '\\+'))
+    .map((name) => name.replaceAll('+', '\\+'))
     .join('|')})(?::(\\d+))?\\]`,
   'g',
 );
@@ -68,11 +68,11 @@ const NOTATION_RE = new RegExp(
 const EMPTY_COMMENT_RE = /^\s*(?:\/\/|\/\*|\*\/|<!--|-->|--|[#;%"'*]|\s)*\s*$/;
 
 function escapeHtml(text: string): string {
-  return /[&<]/.test(text) ? text.replace(/&/g, '&#x26;').replace(/</g, '&#x3C;') : text;
+  return /[&<]/.test(text) ? text.replaceAll('&', '&#x26;').replaceAll('<', '&#x3C;') : text;
 }
 
 function escapeAttribute(text: string): string {
-  return escapeHtml(text).replace(/"/g, '&#x22;');
+  return escapeHtml(text).replaceAll('"', '&#x22;');
 }
 
 type LineRange = Readonly<{ from: number; to: number }>;
@@ -112,7 +112,7 @@ function takeNotations(
       kept.push(token);
       continue;
     }
-    const content = token.content.replace(
+    const content = token.content.replaceAll(
       NOTATION_RE,
       (_match, name: string, count: string | undefined) => {
         notations.push({ ...NOTATIONS[name], count: count ? Math.max(1, parseInt(count, 10)) : 1 });
@@ -263,7 +263,7 @@ export function createCodeHighlighter(): CodeHighlighter {
     // an interpolation across spans in the compiled template.
     const mustaches = new Map<string, string>();
     const input = vueInterpolation
-      ? code.replace(/\{\{.*?\}\}/g, (match) => {
+      ? code.replaceAll(/\{\{.*?\}\}/g, (match) => {
           let marker = mustaches.get(match);
           if (!marker) {
             marker = `vpvue${randomUUID().replaceAll('-', '')}`;

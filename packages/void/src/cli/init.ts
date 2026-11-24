@@ -508,7 +508,7 @@ function createVoidTsconfigPatch(root: string, outputBaseDir: string): TsconfigI
 }
 
 function hasTopLevelYamlKey(yaml: string, key: string): boolean {
-  const keyPattern = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`);
+  const keyPattern = new RegExp(`^${key.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`);
   return yaml.split(/\r?\n/).some((rawLine) => {
     const line = stripYamlLineComment(rawLine);
     return keyPattern.test(line);
@@ -971,11 +971,11 @@ function matchesWorkspacePattern(relPath: string, pattern: string): boolean {
 function matchesSingleWorkspacePattern(relPath: string, pattern: string): boolean {
   const normalizedPattern = pattern.replace(/^\.\/+/, '');
   const pathSegs = relPath
-    .replace(/^\/+|\/+$/g, '')
+    .replaceAll(/^\/+|\/+$/g, '')
     .split('/')
     .filter(Boolean);
   const patSegs = normalizedPattern
-    .replace(/^\/+|\/+$/g, '')
+    .replaceAll(/^\/+|\/+$/g, '')
     .split('/')
     .filter(Boolean);
   const compiled = patSegs.map(compilePatternSegment);
@@ -999,7 +999,7 @@ function compilePatternSegment(seg: string): CompiledSegment {
     '^' +
       seg
         .split('*')
-        .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, '\\$&'))
         .join('[^/]*') +
       '$',
   );
@@ -1198,7 +1198,7 @@ function defaultPackageName(root: string): string {
   return (
     basename(root)
       .toLowerCase()
-      .replace(/[^a-z0-9-]/g, '-') || 'my-app'
+      .replaceAll(/[^a-z0-9-]/g, '-') || 'my-app'
   );
 }
 
@@ -2076,7 +2076,7 @@ function insertPnpmAllowBuilds(yaml: string, allowBuilds: string): string {
     insertIndex += 1;
   }
   lines.splice(insertIndex, 0, '', ...allowBuilds.split('\n'), '');
-  return `${lines.join('\n').replace(/\n{3,}/g, '\n\n')}\n`;
+  return `${lines.join('\n').replaceAll(/\n{3,}/g, '\n\n')}\n`;
 }
 
 function resolvePnpmConfigRoot(root: string, pkg: JsonObject): string {

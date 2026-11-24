@@ -394,7 +394,7 @@ describe('resolveProjectCommand shell safety (project root with spaces)', () => 
       expect(cmd).toBe(`"${toSlash(binPath)}" build`);
     } else {
       // POSIX single-quote wrap, embedded `'` escaped as '\''.
-      expect(cmd).toBe(`'${binPath.replace(/'/g, "'\\''")}' build`);
+      expect(cmd).toBe(`'${binPath.replaceAll("'", "'\\''")}' build`);
     }
   });
 
@@ -419,7 +419,7 @@ describe('resolveProjectCommand shell safety (project root with spaces)', () => 
         JSON.stringify({ devDependencies: { 'vite-plus': '^1.0.0' } }),
       );
       const cmd = resolveProjectCommand(SPACED_TMP, 'vite build');
-      expect(cmd).toBe(`'${binPath.replace(/'/g, "'\\''")}' build`);
+      expect(cmd).toBe(`'${binPath.replaceAll("'", "'\\''")}' build`);
       const out = execSync(cmd, { encoding: 'utf8' });
       expect(out).toContain('VOID_BIN_OK');
       expect(out).toContain('args=build');

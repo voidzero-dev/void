@@ -36,7 +36,7 @@ export async function assertMigrationsProduceAuthSchema(
   required: Array<RequiredAuthTable>,
 ): Promise<void> {
   const db = await openMigrationValidationDatabase(migrations);
-  const quote = (identifier: string): string => `"${identifier.replace(/"/g, '""')}"`;
+  const quote = (identifier: string): string => `"${identifier.replaceAll('"', '""')}"`;
   // SQLite matches identifiers case-insensitively, but PRAGMAs echo the declared casing.
   const foldIdentifier = (identifier: string): string => identifier.toLowerCase();
   const sameIdentifier = (a: string, b: string): boolean => foldIdentifier(a) === foldIdentifier(b);
@@ -455,7 +455,7 @@ export function resolveWranglerMigrationPattern(
   migrationsDirRaw: string,
 ): { ok: true; pattern: string } | { ok: false; reason: string } {
   const field = readBindingFieldPresence(config, 'd1_databases', binding, 'migrations_pattern');
-  const migrationsDir = normalize(migrationsDirRaw.replace(/\\/g, '/')).replace(/\/$/, '');
+  const migrationsDir = normalize(migrationsDirRaw.replaceAll('\\', '/')).replace(/\/$/, '');
   if (!field.present) {
     return { ok: true, pattern: '*.sql' };
   }
@@ -479,7 +479,7 @@ export function resolveWranglerMigrationPattern(
       reason: `deploy: migrations_pattern for D1 binding ${binding} must be a non-empty string.`,
     };
   }
-  const normalized = normalize(field.value.replace(/\\/g, '/')).replace(/\/$/, '');
+  const normalized = normalize(field.value.replaceAll('\\', '/')).replace(/\/$/, '');
   const prefix = migrationsDir === '.' ? '' : `${migrationsDir}/`;
   if (prefix && !normalized.startsWith(prefix)) {
     return {
@@ -551,7 +551,7 @@ export async function checkWranglerMigrationApplySet(
   const wranglerContent = new Map(
     wranglerNames.map((name) => [name, readFileSync(join(absDir, name), 'utf8')]),
   );
-  const gatedNames = gated.map((m) => m.name.replace(/\\/g, '/'));
+  const gatedNames = gated.map((m) => m.name.replaceAll('\\', '/'));
   const gatedContent = new Map(gatedNames.map((name, i) => [name, gated[i]!.sql]));
 
   const wranglerSet = new Set(wranglerNames);

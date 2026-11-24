@@ -123,7 +123,7 @@ function envFileIdsFor(envFile: string | null): Set<string> {
 
 /** A hook filter pattern that matches exactly `id`. */
 function exactId(id: string): RegExp {
-  return new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+  return new RegExp(`^${id.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
 }
 
 /** Patterns Vite's `define` typically uses for env-shaped constants. */

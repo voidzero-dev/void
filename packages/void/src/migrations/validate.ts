@@ -82,7 +82,7 @@ function hasUnboundedWrite(statement: string): boolean {
  * Check if a SQL migration contains destructive operations.
  */
 export function isDestructive(sql: string): boolean {
-  const executable = getExecutableSql(sql.replace(/\r\n?/g, '\n'));
+  const executable = getExecutableSql(sql.replaceAll(/\r\n?/g, '\n'));
   return splitExecutableStatements(executable).some((statement) => {
     return (
       DESTRUCTIVE_PATTERNS.some((pattern) => pattern.test(statement)) ||

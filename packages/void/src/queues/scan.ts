@@ -29,7 +29,7 @@ function extractName(filePath: string): string {
 }
 
 function deriveQueueBindingName(name: string): string {
-  return 'QUEUE_' + name.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  return 'QUEUE_' + name.toUpperCase().replaceAll(/[^A-Z0-9]/g, '_');
 }
 
 const OPTION_NAMES = [

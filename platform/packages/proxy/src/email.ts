@@ -124,7 +124,7 @@ export function readSenderDomain(env: Pick<Env, 'EMAIL_SENDER_DOMAIN'>): string 
 const RE_METACHARS_RE = /[.*+?^${}()|[\]\\]/g;
 
 function escapeRegExp(value: string): string {
-  return value.replace(RE_METACHARS_RE, '\\$&');
+  return value.replaceAll(RE_METACHARS_RE, '\\$&');
 }
 
 /**
@@ -180,7 +180,7 @@ function strictFromRe(domain: string): RegExp {
 // oxlint-disable-next-line no-control-regex
 const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001f\\u007f]+', 'g');
 export function sanitizeForLog(value: string, maxLen = 200): string {
-  return value.slice(0, maxLen).replace(CONTROL_CHARS_RE, ' ');
+  return value.slice(0, maxLen).replaceAll(CONTROL_CHARS_RE, ' ');
 }
 
 /**

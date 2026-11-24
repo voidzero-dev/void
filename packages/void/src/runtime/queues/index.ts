@@ -7,7 +7,7 @@ import { requireRuntimeBinding } from '../env/runtime.ts';
 export const queues: QueueMap = new Proxy({} as QueueMap, {
   get(_, name: string) {
     const bindingName =
-      `QUEUE_${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}` as `QUEUE_${string}`;
+      `QUEUE_${name.toUpperCase().replaceAll(/[^A-Z0-9]/g, '_')}` as `QUEUE_${string}`;
     return requireRuntimeBinding(bindingName);
   },
 });

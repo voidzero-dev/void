@@ -114,7 +114,7 @@ function wildcardDestinationMatches(pattern: string, hostname: string): boolean 
   const expression = pattern
     .toLowerCase()
     .split('*')
-    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+    .map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, '\\$&'))
     .join('.+');
   return new RegExp(`^${expression}$`).test(hostname);
 }

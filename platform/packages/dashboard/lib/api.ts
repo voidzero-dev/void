@@ -198,7 +198,7 @@ export async function readApiJson<T>(res: ApiResponse): Promise<T | null> {
   const contentType = res.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
     const body = await res.text();
-    const preview = body.trim().replace(/\s+/g, ' ').slice(0, 160);
+    const preview = body.trim().replaceAll(/\s+/g, ' ').slice(0, 160);
     console.warn(
       `[dashboard] expected JSON from API, got ${contentType || 'unknown content type'}${preview ? `: ${preview}` : ''}`,
     );

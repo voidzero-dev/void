@@ -847,7 +847,7 @@ export function buildFrameworkManifest(opts: {
  * Skips build metadata and files with extensions CF Workers can't handle as modules.
  */
 function isWorkerModule(relativePath: string): boolean {
-  const norm = relativePath.replace(/\\/g, '/');
+  const norm = relativePath.replaceAll('\\', '/');
   // Skip build metadata at any depth
   if (norm.includes('/.vite/') || norm.startsWith('.vite/')) {
     return false;

@@ -23,7 +23,7 @@ function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefini
   const filePath = relativePath;
 
   // Normalize path separators
-  let path = relativePath.replace(/\\/g, '/');
+  let path = relativePath.replaceAll('\\', '/');
 
   // 1. Strip extension
   for (const ext of ROUTE_EXTENSIONS) {

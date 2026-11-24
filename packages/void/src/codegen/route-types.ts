@@ -26,7 +26,7 @@ function legacyRouteAlias(lines: Array<string>, map: string, pattern: string): v
   const publicPattern = publicRoutePattern(pattern);
   if (publicPattern !== pattern) {
     // Escape comment delimiters in static segments before writing JSDoc.
-    const label = JSON.stringify(publicPattern).replace(/\*\//g, '*\\/');
+    const label = JSON.stringify(publicPattern).replaceAll('*/', '*\\/');
     lines.push(`    /** @deprecated Use ${label} instead. */`);
     lines.push(`    ${JSON.stringify(pattern)}: ${map}[${JSON.stringify(publicPattern)}];`);
   }

@@ -135,7 +135,7 @@ function runCf(
   ]
     .filter(Boolean)
     .join('\n')
-    .replace(/\[(\d{4,})\]/g, '[code: $1]');
+    .replaceAll(/\[(\d{4,})\]/g, '[code: $1]');
   if (child.signal || child.error || child.status === null) {
     return {
       status: 1,

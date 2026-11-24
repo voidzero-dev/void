@@ -43,7 +43,7 @@ export function collectRevalidate(
       if (page.revalidate != null) {
         // Catch-alls become '*' (a splat across '/'); `:slug` stays one segment.
         // Only scanned page patterns are rewritten; config keys pass through.
-        const key = page.pattern.replace(/:[A-Za-z0-9_]+\{[^}]*\}/g, '*');
+        const key = page.pattern.replaceAll(/:[A-Za-z0-9_]+\{[^}]*\}/g, '*');
         perPageRules[key] = page.revalidate;
       }
     }

@@ -54,8 +54,8 @@ function compilePage(source: string): Vue.Component & Record<string, unknown> {
   const compiled = compileScript(descriptor, { id: 'test-page', inlineTemplate: true });
   // Evaluate the real SFC compiler output using the same Vue instance as the renderer.
   const code = stripTypeScriptTypes(compiled.content)
-    .replace(/import \{([^}]+)\} from ['"]vue['"]/g, (_, names: string) => {
-      return `const {${names.replace(/\s+as\s+/g, ':')}} = Vue;`;
+    .replaceAll(/import \{([^}]+)\} from ['"]vue['"]/g, (_, names: string) => {
+      return `const {${names.replaceAll(/\s+as\s+/g, ':')}} = Vue;`;
     })
     .replace('export default', 'return');
   return new Function('Vue', code)(Vue) as Vue.Component & Record<string, unknown>;

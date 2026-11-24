@@ -277,7 +277,7 @@ function buildEmailDispatcher(
   const body = code
     .slice(start, fnEnd + 3)
     .replace('export async function __emailHandler', 'async function __emailHandler')
-    .replace(/\(\) => import\((".*?")\)/g, '() => __modules[$1]');
+    .replaceAll(/\(\) => import\((".*?")\)/g, '() => __modules[$1]');
 
   // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
   return new Function('__modules', `${body}\nreturn __emailHandler;`)(modules) as never;
@@ -1505,7 +1505,7 @@ describe('reply threading survives a hostile inbound header', () => {
 
   /** The `References` value of a rendered reply, unfolded; `undefined` when absent. */
   function referencesOf(text: string): string | undefined {
-    const headers = text.split('\r\n\r\n')[0].replace(/\r\n(?=[ \t])/g, '');
+    const headers = text.split('\r\n\r\n')[0].replaceAll(/\r\n(?=[ \t])/g, '');
     return headers
       .split('\r\n')
       .find((line) => line.startsWith('References: '))

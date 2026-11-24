@@ -156,7 +156,7 @@ function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): st
       const start = offset + parameters.start;
       const end = offset + parameters.end;
       const close = offset + call.end - 1;
-      const newlines = code.slice(start, end).replace(/[^\n]/g, '');
+      const newlines = code.slice(start, end).replaceAll(/[^\n]/g, '');
       // Neutral declarations preserve optional keys without introducing coercion.
       const declaration = literal && call.arguments.length === 0 ? JSON.stringify(names) : '';
       return (

@@ -64,5 +64,5 @@ export function inferDefaultSlug(root: string): string {
   const pkgPath = join(root, 'package.json');
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
   const name: string = pkg.name ?? 'my-app';
-  return name.replace(/^@[^/]+\//, '').replace(/[^a-z0-9-]/g, '-');
+  return name.replace(/^@[^/]+\//, '').replaceAll(/[^a-z0-9-]/g, '-');
 }

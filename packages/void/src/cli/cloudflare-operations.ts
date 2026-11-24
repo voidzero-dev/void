@@ -280,7 +280,7 @@ export async function executeCloudflareD1Sql(
 export async function readCloudflareD1Migrations(
   context: CloudflareD1Context,
 ): Promise<Array<string>> {
-  const table = context.migrationsTable.replace(/"/g, '""');
+  const table = context.migrationsTable.replaceAll('"', '""');
   try {
     const rows = await executeCloudflareD1Sql(context, `SELECT name FROM "${table}" ORDER BY name`);
     return rows

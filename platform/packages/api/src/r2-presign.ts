@@ -93,7 +93,7 @@ function hexToBase64(hex: string): string {
  * separators stripped).
  */
 function formatAmzDate(d: Date): string {
-  return d.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  return d.toISOString().replaceAll(/[:-]|\.\d{3}/g, '');
 }
 
 /**

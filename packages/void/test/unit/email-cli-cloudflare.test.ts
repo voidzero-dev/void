@@ -269,7 +269,7 @@ function readJsonc(path: string): Record<string, unknown> {
     .split('\n')
     .filter((line) => !line.trim().startsWith('//'))
     .join('\n')
-    .replace(/,(\s*[}\]])/g, '$1');
+    .replaceAll(/,(\s*[}\]])/g, '$1');
   return JSON.parse(text) as Record<string, unknown>;
 }
 

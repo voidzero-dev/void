@@ -166,7 +166,7 @@ function platformHealthExceptionPath(request: Request, url: URL): boolean {
       // Malformed escapes are matched as sent.
     }
     return decoded
-      .replace(/[\\/]+/g, '/')
+      .replaceAll(/[\\/]+/g, '/')
       .toLowerCase()
       .startsWith('/health');
   });

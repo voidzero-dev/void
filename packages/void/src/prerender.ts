@@ -42,7 +42,7 @@ export type PrerenderRunResult = PrerenderResult & {
 };
 
 function normalizeWorkerModulePath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\.\//, '');
+  return path.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
 function resolveWorkerModuleType(relativePath: string): PrerenderWorkerModuleType | null {

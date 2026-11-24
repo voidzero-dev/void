@@ -330,7 +330,7 @@ function generatedLiveNamePattern(base: string): RegExp {
 }
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function findGeneratedLiveBinding(
@@ -2581,6 +2581,6 @@ function migrationsPatternMatchesDir(pattern: string, dir: string): boolean {
 
 /** Wrangler's `normalizeRelativePath`: forward slashes, normalized, no trailing slash. */
 function normalizeMigrationsPath(p: string): string {
-  const normalized = normalize(p.replace(/\\/g, '/'));
+  const normalized = normalize(p.replaceAll('\\', '/'));
   return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
 }

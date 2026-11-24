@@ -447,7 +447,7 @@ function ingressName(installationId: string, zoneId: string): string {
   const suffix = [installationId, zoneId]
     .join('-')
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
+    .replaceAll(/[^a-z0-9-]/g, '-')
     .slice(-48);
   return `void-email-${suffix}`;
 }

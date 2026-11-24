@@ -6,9 +6,9 @@ function readableMessage(value: unknown): string | undefined {
   }
   /* eslint-disable no-control-regex -- Strip ANSI sequences before removing remaining control characters. */
   const text = value
-    .replace(/(?:\u001b\]|\u009d)[\s\S]*?(?:\u0007|\u001b\\|\u009c|$)/g, '')
-    .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replaceAll(/(?:\u001b\]|\u009d)[\s\S]*?(?:\u0007|\u001b\\|\u009c|$)/g, '')
+    .replaceAll(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, '')
+    .replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
     .trim();
   /* eslint-enable no-control-regex */
   if (!text || /^[{[]/.test(text) || /<\/?[a-z!][^>]*>/i.test(text)) {

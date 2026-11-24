@@ -33,7 +33,7 @@ function compileSegment(part: string): Segment | null {
 
 function escapeLiteral(value: string): string {
   // Of the allowed literal chars `[a-z0-9._-]`, only `.` is regex-meaningful.
-  return value.replace(/\./g, '\\.');
+  return value.replaceAll('.', '\\.');
 }
 
 function segmentRegex(s: Segment): string {

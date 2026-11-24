@@ -698,7 +698,7 @@ function frontmatterField(yaml: string, key: string): string | undefined {
   return yaml
     .match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]
     ?.trim()
-    .replace(/^["']|["']$/g, '');
+    .replaceAll(/^["']|["']$/g, '');
 }
 
 /** Extract title and description from YAML frontmatter in markdown source. */

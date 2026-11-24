@@ -571,8 +571,8 @@ function aiUsageGraphqlErrors(errors: ReadonlyArray<unknown>, apiToken: string):
       }
       return (
         message
-          .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
-          .replace(/\s+/g, ' ')
+          .replaceAll(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+          .replaceAll(/\s+/g, ' ')
           .replace(/\{.*$/, '[query omitted]')
           .trim()
           .slice(0, 200) || 'Unknown GraphQL error'

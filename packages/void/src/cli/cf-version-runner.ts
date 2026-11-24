@@ -373,7 +373,7 @@ export function createCfCommand(options: {
           args[1] === 'versions' &&
           args[2] === 'create' &&
           (output + '\n' + diagnostic)
-            .replace(/\s+/g, ' ')
+            .replaceAll(/\s+/g, ' ')
             .includes('You cannot upload a new version of a Worker that does not yet exist.');
         resolve({
           status: typeof status === 'number' ? status : 1,

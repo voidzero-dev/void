@@ -105,7 +105,7 @@ window.$RefreshReg$ = () => {};
 window.$RefreshSig$ = () => (type) => type;
 window.__vite_plugin_react_preamble_installed__ = true;
 </script>`;
-const escapeAttribute = (value: string): string => String(value).replace(/"/g, '&quot;');
+const escapeAttribute = (value: string): string => String(value).replaceAll('"', '&quot;');
 const script = (url: string): string =>
   `<script type="module" src="${escapeAttribute(url)}"></script>`;
 function collectManifestFiles(

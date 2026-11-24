@@ -148,7 +148,7 @@ function resolveIdStrategy(options: BetterAuthOptions): AuthIdStrategy {
 }
 
 function sanitizeIdentifier(name: string): string {
-  const value = name.replace(/[^A-Za-z0-9_$]/g, '_');
+  const value = name.replaceAll(/[^A-Za-z0-9_$]/g, '_');
   return /^[A-Za-z_$]/.test(value) ? value : `_${value}`;
 }
 

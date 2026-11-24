@@ -2409,7 +2409,7 @@ function createSecretRedactor(connectionString?: string): (text: string) => stri
     if (typeof connectionString === 'string' && connectionString.length > 0) {
       out = out.split(connectionString).join('[REDACTED]');
     }
-    out = out.replace(/(\w[\w+.-]*:\/\/[^\s/@:]+:)[^\s@/]+(@)/g, '$1[REDACTED]$2');
+    out = out.replaceAll(/(\w[\w+.-]*:\/\/[^\s/@:]+:)[^\s@/]+(@)/g, '$1[REDACTED]$2');
     return out;
   };
 }

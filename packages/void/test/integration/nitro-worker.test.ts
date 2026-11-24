@@ -91,7 +91,7 @@ function createBuildTrace(root: string) {
     ] as const) {
       text = text.replaceAll(prefix, name).replaceAll(prefix.replaceAll('\\', '/'), name);
     }
-    text = text.replace(/\.pnpm([\\/])[^\\/]+[\\/]node_modules[\\/]/g, '.pnpm$1…$1');
+    text = text.replaceAll(/\.pnpm([\\/])[^\\/]+[\\/]node_modules[\\/]/g, '.pnpm$1…$1');
     return text.length > 240 ? `${text.slice(0, 240)}…` : text;
   };
   const record = (list: Array<string>, text: string) => {

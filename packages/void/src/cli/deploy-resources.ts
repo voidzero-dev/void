@@ -81,11 +81,11 @@ const MAX_WORKER_NAME_LENGTH = 63;
 function toValidWorkerName(raw: string): string {
   const name = raw
     .toLowerCase()
-    .replace(/_/g, '-')
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replaceAll('_', '-')
+    .replaceAll(/[^a-z0-9-]/g, '-')
+    .replaceAll(/^-+|-+$/g, '')
     .slice(0, MAX_WORKER_NAME_LENGTH)
-    .replace(/-+$/g, '');
+    .replaceAll(/-+$/g, '');
   return name.length > 0 ? name : 'my-worker';
 }
 
@@ -100,7 +100,7 @@ function suffixedResourceName(workerName: string, suffix: string): string {
   }
   const base = toValidWorkerName(workerName)
     .slice(0, MAX_WORKER_NAME_LENGTH - suffix.length - 1)
-    .replace(/-+$/g, '');
+    .replaceAll(/-+$/g, '');
   return toValidWorkerName(`${base}-${suffix}`);
 }
 

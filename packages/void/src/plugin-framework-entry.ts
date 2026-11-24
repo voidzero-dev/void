@@ -186,7 +186,7 @@ export function generateClassATriggerWrapper(
   const fetchMethod = scoped
     ? `  fetch(request, env, ctx) {
     return withRuntimeEnv(env, async () => {
-${fetchBody.replace(/^/gm, '  ')}
+${fetchBody.replaceAll(/^/gm, '  ')}
     });
   },`
     : `  async fetch(request, env, ctx) {

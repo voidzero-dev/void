@@ -183,7 +183,7 @@ function clientOptimizeEntries(
     }
   }
   // Entries are glob patterns, so route names such as [id] must be literal.
-  return [...browserFiles].map((file) => relative(root, file).replace(/[()[\]{}*?!|]/g, '\\$&'));
+  return [...browserFiles].map((file) => relative(root, file).replaceAll(/[()[\]{}*?!|]/g, '\\$&'));
 }
 
 function generateRendererModule(scan: PageScanResult, pagesDir: string, isDev: boolean): string {

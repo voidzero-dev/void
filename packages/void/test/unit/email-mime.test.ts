@@ -249,7 +249,7 @@ describe('normalizeEmail', () => {
     // leave the parameter unterminated and this would not match.
     const m = text.match(/Content-Disposition: attachment; filename="((?:[^"\\]|\\.)*)"/);
     expect(m, `no terminated filename parameter in:\n${text.slice(0, 400)}`).not.toBeNull();
-    expect(m![1].replace(/\\(.)/g, '$1')).toBe(filename);
+    expect(m![1].replaceAll(/\\(.)/g, '$1')).toBe(filename);
   });
 
   it('rejects CRLF in subject', async () => {
@@ -1557,7 +1557,7 @@ describe('buildMime', () => {
       // Read the quoted-string back the way a receiver does.
       const m = unfoldHeader(viaString.text, 'From').match(/^"((?:[^"\\]|\\.)*)" </);
       if (m) {
-        expect(m[1].replace(/\\(.)/g, '$1')).toBe(name);
+        expect(m[1].replaceAll(/\\(.)/g, '$1')).toBe(name);
       }
     }
     // A non-ASCII name becomes encoded-words rather than a quoted-string;

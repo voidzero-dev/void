@@ -354,7 +354,7 @@ function buildTestExecutionPlan(input: {
     dialect: 'sqlite',
     kind: input.kind,
     name: input.name,
-    sqlHash: sha256Hex(input.sql.replace(/\r\n?/g, '\n')),
+    sqlHash: sha256Hex(input.sql.replaceAll(/\r\n?/g, '\n')),
     stability: input.stability,
   };
   if (input.kind === 'breakpoint-framed') {

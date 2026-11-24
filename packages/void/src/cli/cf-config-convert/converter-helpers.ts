@@ -79,7 +79,7 @@ export function objectFromRecord(
 }
 
 function snakeToCamel(value: string): string {
-  return value.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+  return value.replaceAll(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
 }
 
 function toCamelOutputValue(value: unknown): OutputValue | undefined {

@@ -39,17 +39,17 @@ type WebSocketSourceInfo = {
 };
 
 function isWebSocketRouteFile(filePath: string): boolean {
-  return WEBSOCKET_ROUTE_RE.test(filePath.replace(/\\/g, '/'));
+  return WEBSOCKET_ROUTE_RE.test(filePath.replaceAll('\\', '/'));
 }
 
 function identifierWords(segment: string): Array<string> {
   const normalized = segment
-    .replace(/^\(\s*|\s*\)$/g, '')
+    .replaceAll(/^\(\s*|\s*\)$/g, '')
     .replace(/^\[\.\.\.(.+)\]$/, '$1')
     .replace(/^\[(.+)\]$/, '$1')
     .replace(/\.ws$/, '')
     .replace(/\.(dev|prod)$/, '')
-    .replace(/[^a-zA-Z0-9]+/g, ' ');
+    .replaceAll(/[^a-zA-Z0-9]+/g, ' ');
 
   return normalized.split(' ').filter(Boolean);
 }
@@ -63,7 +63,7 @@ export function deriveWebSocketClassNameFromName(name: string): string {
 }
 
 export function inferWebSocketResourceName(filePath: string): string {
-  let normalized = filePath.replace(/\\/g, '/');
+  let normalized = filePath.replaceAll('\\', '/');
   const extension = ROUTE_EXTENSIONS.find((ext) => normalized.endsWith(`.${ext}`));
   if (extension) {
     normalized = normalized.slice(0, -(extension.length + 1));

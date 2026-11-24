@@ -310,8 +310,8 @@ describe('vue-pages client (dev)', () => {
               return '';
             }
             return (
-              overlay.shadowRoot?.textContent?.replace(/\s+/g, ' ').trim() ??
-              overlay.textContent?.replace(/\s+/g, ' ').trim() ??
+              overlay.shadowRoot?.textContent?.replaceAll(/\s+/g, ' ').trim() ??
+              overlay.textContent?.replaceAll(/\s+/g, ' ').trim() ??
               ''
             );
           }),

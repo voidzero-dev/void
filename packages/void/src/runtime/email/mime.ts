@@ -891,7 +891,7 @@ function findOverlongLine(text: string): { index: number; octets: number } | und
 
 /** Escape `\` and `"` as quoted-pairs (RFC 5322 §3.2.4), backslash first. */
 function quoteParam(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
 }
 
 /** `<prefix>_<base36 time><16 random hex>`. */
@@ -1119,7 +1119,7 @@ function makeBoundary(prefix: string): string {
   // 16 random bytes → 24-char base64. Workers + browsers expose crypto.
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return `=_void_${prefix}_${bytesToBase64(bytes).replace(/[+/=]/g, '')}`;
+  return `=_void_${prefix}_${bytesToBase64(bytes).replaceAll(/[+/=]/g, '')}`;
 }
 
 function wrapMultipart(
@@ -1290,7 +1290,7 @@ function generateMessageId(fromEmail: string): string {
   const domain = fromEmail.split('@')[1] ?? 'localhost';
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
-  const id = bytesToBase64(bytes).replace(/[+/=]/g, '');
+  const id = bytesToBase64(bytes).replaceAll(/[+/=]/g, '');
   return `<${id}@${domain}>`;
 }
 

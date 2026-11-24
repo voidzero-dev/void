@@ -2485,8 +2485,8 @@ describe('GET /admin/projects', () => {
     expect(projectLink).toContain('target="_blank"');
     expect(projectLink).toContain('rel="noopener noreferrer"');
     expect(projectLink).toContain('<svg');
-    expect(projectLink?.replace(/<[^>]+>/g, '')).toContain('my-proj.void.app');
-    expect(projectLink?.replace(/<[^>]+>/g, '')).not.toContain('https://');
+    expect(projectLink?.replaceAll(/<[^>]+>/g, '')).toContain('my-proj.void.app');
+    expect(projectLink?.replaceAll(/<[^>]+>/g, '')).not.toContain('https://');
   });
 
   test('paginates projects', async () => {

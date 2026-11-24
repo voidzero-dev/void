@@ -205,7 +205,7 @@ export function tablePrefix(): string {
 /** Strip terminal control characters from text received from a platform. */
 export function sanitizeTerminalText(value: string): string {
   // eslint-disable-next-line no-control-regex
-  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+  return value.replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
 }
 
 export function helpLine(command: string, description: string): string {

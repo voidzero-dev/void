@@ -60,11 +60,11 @@ async function loadTheme(name: string): Promise<Theme | ThemeFamily> {
 }
 
 function escapeHtml(text: string): string {
-  return /[&<]/.test(text) ? text.replace(/&/g, '&#x26;').replace(/</g, '&#x3C;') : text;
+  return /[&<]/.test(text) ? text.replaceAll('&', '&#x26;').replaceAll('<', '&#x3C;') : text;
 }
 
 function escapeAttribute(text: string): string {
-  return escapeHtml(text).replace(/"/g, '&#x22;');
+  return escapeHtml(text).replaceAll('"', '&#x22;');
 }
 
 type LineRange = Readonly<{ from: number; to: number }>;
@@ -142,7 +142,7 @@ function takeNotations(
       kept.push(token);
       continue;
     }
-    const content = token.content.replace(
+    const content = token.content.replaceAll(
       NOTATION_RE,
       (_match, name: string, count: string | undefined) => {
         notations.push({

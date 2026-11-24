@@ -55,7 +55,7 @@ type LogRecord = {
 };
 
 function redact(text: string): string {
-  return text.replace(SIGNED_QUERY_RE, '$1[redacted]').replace(BEARER_RE, '$1[redacted]');
+  return text.replaceAll(SIGNED_QUERY_RE, '$1[redacted]').replaceAll(BEARER_RE, '$1[redacted]');
 }
 
 function truncate(text: string, max: number): string {
@@ -64,7 +64,7 @@ function truncate(text: string, max: number): string {
 
 /** Collapse every run of whitespace so one record always renders as one line. */
 function oneLine(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+  return text.replaceAll(/\s+/g, ' ').trim();
 }
 
 function stringifyValue(value: unknown): string {

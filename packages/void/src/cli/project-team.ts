@@ -17,7 +17,7 @@ type ProjectTeamArgs = Exclude<Extract<ProjectArgs, { subcommand: 'team' }>, { a
 function clean(value: string | null | undefined): string {
   // Tenant text must not execute terminal control sequences.
   // eslint-disable-next-line no-control-regex
-  return (value ?? '—').replace(/[\u0000-\u001f\u007f]/g, ' ');
+  return (value ?? '—').replaceAll(/[\u0000-\u001f\u007f]/g, ' ');
 }
 
 function memberLines(members: Array<ProjectMemberResponse>): string {

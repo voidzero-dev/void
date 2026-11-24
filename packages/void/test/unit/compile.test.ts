@@ -247,11 +247,11 @@ function evalCompiledApp(code: string): Hono {
   // Drop imports, the node-target `withRuntimeEnv` const and `export` keywords so
   // the module body runs inside `new Function`; a noop `withRuntimeEnv` replaces both forms.
   const stripped = code
-    .replace(/^import\s+\{[^}]*\}\s+from\s+["'][^"']+["'];?\s*$/gm, '')
-    .replace(/^const\s+withRuntimeEnv\s+=.*$/gm, '')
-    .replace(/^export\s+default\s+app;?\s*$/gm, '')
-    .replace(/^export\s+(const|async\s+function|function)\s+/gm, '$1 ')
-    .replace(/^export\s+\{[^}]*\};?\s*$/gm, '');
+    .replaceAll(/^import\s+\{[^}]*\}\s+from\s+["'][^"']+["'];?\s*$/gm, '')
+    .replaceAll(/^const\s+withRuntimeEnv\s+=.*$/gm, '')
+    .replaceAll(/^export\s+default\s+app;?\s*$/gm, '')
+    .replaceAll(/^export\s+(const|async\s+function|function)\s+/gm, '$1 ')
+    .replaceAll(/^export\s+\{[^}]*\};?\s*$/gm, '');
 
   const factory = new Function(
     'Hono',
@@ -1115,7 +1115,7 @@ describe('compileNodeApp', () => {
       }>();
       innerApp.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
       const code = compileNodeApp(target)
-        .replace(/^import .*;$/gm, '')
+        .replaceAll(/^import .*;$/gm, '')
         .replace('import.meta.voidClientDirectory', '"client"')
         .replace('export default app;', 'return app;');
       const app: Hono = new Function('Hono', 'innerApp', 'fileURLToPath', 'serveStatic', code)(

@@ -26,7 +26,7 @@ export async function applicationName(env: ApiEnv['Bindings'], suffix: string): 
   const installation = installationId(env);
   const identity = installation
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
+    .replaceAll(/[^a-z0-9-]/g, '-')
     .slice(0, 32);
   const digest = new Uint8Array(
     await crypto.subtle.digest('SHA-256', new TextEncoder().encode(installation)),
