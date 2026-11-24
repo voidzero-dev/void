@@ -139,9 +139,9 @@ export type PageNavigationEngine = {
   flush(url: string, method?: string): void;
   flushAll(): void;
   setPopStateHandler(handler: (url: string, options: VisitOptions) => void): void;
-  start(): void;
+  start(this: void): void;
   /** Called after the adapter commits the initial page DOM. */
-  commitInitialRender(): void;
+  commitInitialRender(this: void): void;
 };
 
 const PAGE_DATA_SCRIPT_ID = '__VOID_PAGE_DATA__';

@@ -183,7 +183,10 @@ async function readWorkerdNodeBuiltins(compat: WranglerCompat): Promise<Set<stri
   const { getCloudflarePreset } = (await import(
     pathToFileURL(join(dirname(manifestPath), manifest.exports['.'].import)).href
   )) as {
-    getCloudflarePreset(compat: { compatibilityDate: string; compatibilityFlags: Array<string> }): {
+    getCloudflarePreset(
+      this: void,
+      compat: { compatibilityDate: string; compatibilityFlags: Array<string> },
+    ): {
       external: Array<string>;
     };
   };

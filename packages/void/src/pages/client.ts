@@ -335,8 +335,9 @@ type ActionOptions<U extends string> = {
 } & (HasParams<U> extends true ? { params: ResolveActionParams<U> } : { params?: never });
 
 export type ActionClient = {
-  setActionRouter(router: VoidRouter): void;
+  setActionRouter(this: void, router: VoidRouter): void;
   action<U extends ActionUrl & string>(
+    this: void,
     url: U,
     ...args: HasParams<U> extends true ? [options: ActionOptions<U>] : [options?: ActionOptions<U>]
   ): Promise<ActionResult>;

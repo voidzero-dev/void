@@ -335,9 +335,9 @@ function RouteResource({
   onFailure,
 }: {
   resource: ReactPageResource;
-  onCommit(resource: ReactPageResource, result: PageNavigationResult): void;
+  onCommit: (resource: ReactPageResource, result: PageNavigationResult) => void;
   config: ReactPagesConfig;
-  onFailure(url: string): void;
+  onFailure: (url: string) => void;
 }): React.ReactNode {
   const result = use(resource.shell);
   const outerRouter = React.useContext(RouterContext);
@@ -510,7 +510,7 @@ function App({
     const listeners = new Set<() => void>();
     return {
       getSnapshot: () => snapshot,
-      subscribe(listener: () => void) {
+      subscribe: (listener: () => void) => {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },

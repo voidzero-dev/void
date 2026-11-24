@@ -105,6 +105,7 @@ export function createRoutingRuntime(
     // Middleware such as Hono's compress() replaces the body with a transform
     // of this stream. That still carries a miss; an unrelated replacement does not.
     if (Object.isExtensible(body)) {
+      // oxlint-disable-next-line typescript/unbound-method -- The wrapper calls the original with its own receiver.
       const pipeThrough = body.pipeThrough;
       Object.defineProperty(body, 'pipeThrough', {
         configurable: true,
@@ -130,6 +131,7 @@ export function createRoutingRuntime(
     trackResponseCopies(c);
     // Fetch's clone tees the body, so neither clone shares its former stream.
     if (Object.isExtensible(response)) {
+      // oxlint-disable-next-line typescript/unbound-method -- The wrapper calls the original with its own receiver.
       const clone = response.clone;
       Object.defineProperty(response, 'clone', {
         configurable: true,
@@ -160,6 +162,7 @@ export function createRoutingRuntime(
     // Carry provenance to the response Hono exposes after assignment or a header edit.
     const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(c), 'res');
     if (descriptor?.get && descriptor.set) {
+      // oxlint-disable-next-line typescript/unbound-method -- The original setter is called with the Hono context below.
       const set = descriptor.set;
       Object.defineProperty(c, 'res', {
         ...descriptor,

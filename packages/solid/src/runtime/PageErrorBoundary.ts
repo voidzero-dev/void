@@ -9,7 +9,7 @@ type Props = {
   url?: string;
   server?: boolean;
   generation: number;
-  onFailure(): void;
+  onFailure: () => void;
   dev?: boolean;
   children?: JSX.Element;
 };

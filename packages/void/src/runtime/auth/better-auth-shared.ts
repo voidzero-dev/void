@@ -46,35 +46,41 @@ type VoidAuthPasswordOptions = PasswordOptions & {
 
 export type VoidAuthRuntimeApi = {
   resolveVoidAuthOptions(
+    this: void,
     request: Request,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<BetterAuthOptions>;
   createVoidAuth(
+    this: void,
     request: Request,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<ReturnType<typeof betterAuth>>;
   resolveVoidAuthState(
+    this: void,
     request: Request,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<AuthState | null>;
   runVoidAuthMiddleware(
+    this: void,
     c: Context,
     next: () => Promise<void>,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<void>;
   handleVoidAuthRequest(
+    this: void,
     c: Context,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<Response>;
   runVoidAuthMigrations(
+    this: void,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     migrationSchema: VoidAuthMigrationSchema,

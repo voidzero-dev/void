@@ -42,7 +42,7 @@ export interface CfBuildOutput {
     versionId: string;
     bindings: ReadonlyArray<{ name: string; type: 'secret_text' | 'secret_key' }>;
   };
-  dispose(): Promise<void>;
+  dispose(this: void): Promise<void>;
 }
 
 // Match the additional modules emitted by the Cloudflare Vite plugin. A complete

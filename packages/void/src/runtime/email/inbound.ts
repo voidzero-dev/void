@@ -186,7 +186,7 @@ export type EmailAction = EmailWireAction;
 
 export interface MessageProxy {
   message: ForwardableEmailMessage;
-  getActions(): Array<EmailAction>;
+  getActions(this: void): Array<EmailAction>;
 }
 
 export interface CreateMessageProxyOptions {
