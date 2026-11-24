@@ -8,13 +8,13 @@ import {
   emailReceipts,
   emailUnresolvedAttempts,
 } from '../../src/email/admission-schema.ts';
+import type { EmailAdmissionError } from '../../src/email/admission.ts';
 import {
   admitEmailAction,
   claimRelayedEmailReceipt,
   completeRelayedEmailReceipt,
   recordEmailReceipt,
   drainProjectEmailAdmissions,
-  EmailAdmissionError,
   getProjectEmailLogs,
   getProjectEmailUsage,
   lockEmailPolicy,

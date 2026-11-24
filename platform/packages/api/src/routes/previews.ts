@@ -14,7 +14,8 @@ import {
   publishProjectAiLogging,
 } from '../ai-logging.ts';
 import { signJwt, verifyJwt } from '../auth/jwt.ts';
-import { activeOAuthClient, activeOAuthGrant, oauthBearer, OAuthError } from '../auth/oauth.ts';
+import type { activeOAuthClient } from '../auth/oauth.ts';
+import { activeOAuthGrant, oauthBearer, OAuthError } from '../auth/oauth.ts';
 import { hashLoginProof, randomLoginProof } from '../auth/proofs.ts';
 import { createProject, getProject } from '../db.ts';
 import type { ApiEnv } from '../env.ts';

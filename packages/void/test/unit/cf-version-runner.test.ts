@@ -1,4 +1,5 @@
-import childProcess, { execFile } from 'node:child_process';
+import type { execFile } from 'node:child_process';
+import childProcess from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { syncBuiltinESMExports } from 'node:module';

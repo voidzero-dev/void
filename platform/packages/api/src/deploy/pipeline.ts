@@ -18,7 +18,6 @@ import {
   getProject,
   getUser,
   getDeployment,
-  createDeployment,
   updateDeploymentManifest,
   updateDeploymentStatus,
   updateProjectWebSocketVersion,
@@ -27,7 +26,7 @@ import {
   getActiveDeployment,
   getInFlightDeploymentsExcluding,
 } from '../db.ts';
-import type { Db } from '../db.ts';
+import type { Db, createDeployment } from '../db.ts';
 import {
   appendDeploymentEvent,
   assertDeploymentExecutionAuthority,

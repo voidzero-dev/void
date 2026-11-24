@@ -5,17 +5,18 @@ import { dirname } from 'pathslash';
 import { defaultServerConditions, normalizePath } from 'vite';
 import type { Plugin } from 'vite';
 import type { ApplicationAnalysis } from './application-analysis.ts';
+import type { resolveLiveBindingConfig } from './cli/wrangler.ts';
 import {
   ensureWranglerCompat,
   ensureWranglerCompatibilityDate,
   ensureWranglerNodejsAlsFlag,
   readWranglerCompat,
-  resolveLiveBindingConfig,
   syncWranglerBindings,
 } from './cli/wrangler.ts';
-import { getDatabaseCasing, readConfig } from './config.ts';
+import type { readConfig } from './config.ts';
+import { getDatabaseCasing } from './config.ts';
 import { findDependencyClosure, findVoidDependentPackages } from './installed-packages.ts';
-import { resolveLocalD1Target } from './local-d1.ts';
+import type { resolveLocalD1Target } from './local-d1.ts';
 import { voidLog } from './log.ts';
 import { bindingRuntimePlugin } from './plugin-binding-runtime.ts';
 import { devTriggerSecretGuardPlugin } from './plugin-dev-config.ts';

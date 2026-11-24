@@ -62,10 +62,10 @@ import type {
   InstallerClient,
   PlatformHealthCheckContext,
 } from './platform-installer-types.ts';
+import type { runPlatformWrangler } from './platform-installer-workers.ts';
 import {
   recordWorkerCutoverResolution,
   recordWorkerTrafficState,
-  runPlatformWrangler,
   runPlatformWranglerAtApiBase,
   stablePublicEndpointState,
   interruptedWorkerCutover,

@@ -4,7 +4,7 @@ import type { NotFoundHandling, RoutingConfig } from '../config.ts';
 import { collectPages } from '../isr-config.ts';
 import type { PageScanResult } from '../pages/types.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
-import { PlatformClient } from './client.ts';
+import type { PlatformClient } from './client.ts';
 import { log } from './deploy-helpers.ts';
 import {
   mergeAndLintRoutingRules,

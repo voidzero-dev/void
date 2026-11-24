@@ -23,8 +23,8 @@ import {
   skippedOperationKey,
   skippedProjectIds,
 } from './candidates.ts';
+import type { ZeroTrustCloudflareClient } from './cloudflare.ts';
 import {
-  ZeroTrustCloudflareClient,
   ZeroTrustCloudflareError,
   reusablePolicyReferences,
   publicAppManagementApplication,

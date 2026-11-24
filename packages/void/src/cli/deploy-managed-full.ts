@@ -24,7 +24,7 @@ import { resolveRemoteMode } from '../shared/env.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
 import { validateSsrEntry } from '../ssr/entry.ts';
 import { resolveDistDir, resolveWorkerDirName } from './build-output-dir.ts';
-import { PlatformClient } from './client.ts';
+import type { PlatformClient } from './client.ts';
 import { assertDeploySchemaDriftFree } from './deploy-drift.ts';
 import {
   resolveFullDeployBuildCommand,

@@ -453,6 +453,8 @@ const config = defineConfig({
         'error',
         { checksVoidReturn: { arguments: false, attributes: false } },
       ],
+      // Keep type queries for ambient declarations and inferred mock module types.
+      'typescript/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
       // Temporarily disabled during the shared preset migration.
       '@nkzw/no-instanceof': 'off',
       'import/no-namespace': 'off',
@@ -473,7 +475,6 @@ const config = defineConfig({
       'quality/no-widen-then-assert': 'off',
       'react/set-state-in-effect': 'off',
       'typescript/await-thenable': 'off',
-      'typescript/consistent-type-imports': 'off',
       'typescript/no-empty-object-type': 'off',
       'typescript/no-misused-spread': 'off',
       'typescript/no-non-null-assertion': 'off',

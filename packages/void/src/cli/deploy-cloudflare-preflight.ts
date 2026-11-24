@@ -17,7 +17,7 @@ import type { ApplicationAnalysis } from '../application-analysis.ts';
 import { MATERIALIZED_CLOUDFLARE_FILE } from '../cloudflare-config.ts';
 import { resolveBindingNames } from '../config.ts';
 import type { VoidConfig } from '../config.ts';
-import { detectFramework } from '../plugin-inference.ts';
+import type { detectFramework } from '../plugin-inference.ts';
 import { cloudflareQueueName } from '../queues/cloudflare-names.ts';
 import { assertSandboxNamespaceConfig, resolveSandboxConfig } from '../sandbox/config.ts';
 import type { CloudflareChildReporter } from './cloudflare-child-report.ts';

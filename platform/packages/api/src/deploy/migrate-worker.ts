@@ -6,7 +6,7 @@ import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import type { DeployLogger } from '../observability/logger.ts';
-import { provisionBindings } from '../provisioning/provision.ts';
+import type { provisionBindings } from '../provisioning/provision.ts';
 import type { DeployManifest, DeployEvent, Deployment, DeploymentStatus } from '../types.ts';
 import { assertDeploymentCanProceed } from './guards.ts';
 import {

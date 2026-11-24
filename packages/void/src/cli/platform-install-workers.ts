@@ -1,4 +1,4 @@
-import { createPlatformWorkerConfigs } from '@void/platform';
+import type { createPlatformWorkerConfigs } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
 import { writePlatformTiming } from './platform-installer-process.ts';
 import {
@@ -17,8 +17,8 @@ import type {
   PlatformInstallRunState,
   PlatformWorkerKey,
 } from './platform-installer-types.ts';
+import type { runPlatformWrangler } from './platform-installer-workers.ts';
 import {
-  runPlatformWrangler,
   deployPlatformWorker,
   platformWorkerResourceKey,
   platformWorkerTrafficCallbacks,
@@ -27,7 +27,8 @@ import {
 } from './platform-installer-workers.ts';
 import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
 import { writeInstallationManifest } from './platform-registry.ts';
-import { platformManagedWorkerTraffic, recordPlatformWorkerTraffic } from './platform-traffic.ts';
+import type { platformManagedWorkerTraffic } from './platform-traffic.ts';
+import { recordPlatformWorkerTraffic } from './platform-traffic.ts';
 
 export function platformWorkerAction(
   workerActions: ReadonlyArray<PlatformInstallPlanAction>,

@@ -1,7 +1,7 @@
 import type { Plugin, UserConfig } from 'vite';
 import { describe, expectTypeOf, it } from 'vite-plus/test';
 import type { voidPlugin } from 'void';
-import { voidVue } from '../../src/plugin.ts';
+import type { voidVue } from '../../src/plugin.ts';
 
 type VitePlugins = NonNullable<UserConfig['plugins']>;
 

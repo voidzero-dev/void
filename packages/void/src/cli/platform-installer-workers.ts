@@ -15,20 +15,16 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
   encodeCloudflareVersionMessage,
-  readCloudflareTriggerConfig,
   stabilizeCloudflareVersionTriggers,
 } from '@void/deploy-cloudflare';
 import type {
   CloudflareCommandResult,
   CloudflareOperation,
   CloudflareTriggerConfig,
+  readCloudflareTriggerConfig,
 } from '@void/deploy-cloudflare';
-import {
-  createPlatformWorkerConfigs,
-  PLATFORM_DISABLED_KEY,
-  PLATFORM_DISABLED_VALUE,
-} from '@void/platform';
-import type { PlatformInstallationManifest } from '@void/platform';
+import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from '@void/platform';
+import type { PlatformInstallationManifest, createPlatformWorkerConfigs } from '@void/platform';
 import { dirname, join, resolve } from 'pathslash';
 import { getErrorMessage } from './output.ts';
 import {
@@ -60,8 +56,8 @@ import {
   PlatformWorkerOwnershipError,
   samePlatformWorkerTraffic,
 } from './platform-installer-inspection.ts';
+import type { runPlatformWrangler } from './platform-installer-process.ts';
 import {
-  runPlatformWrangler,
   platformWorkerCommandRunner,
   runPlatformWranglerForConditionalCreate,
 } from './platform-installer-process.ts';

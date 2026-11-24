@@ -1,6 +1,5 @@
 import { getContext, untrack } from 'svelte';
 import {
-  VoidActionError,
   cloneFormValue,
   getValidationErrors,
   interpolateRouteParams,
@@ -10,7 +9,13 @@ import {
   parseFormResetArgs,
   submitAction,
 } from 'void/pages-client';
-import type { FormResetOptions, FormState, FormSubmitOptions, VoidRouter } from 'void/pages-client';
+import type {
+  FormResetOptions,
+  FormState,
+  FormSubmitOptions,
+  VoidRouter,
+  VoidActionError,
+} from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 
 type FormReturn<TData> = FormState<TData, 'in-place'> &

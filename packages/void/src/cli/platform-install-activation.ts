@@ -1,9 +1,9 @@
-import {
+import { PLATFORM_DISABLED_KEY, transitionInstallation } from '@void/platform';
+import type {
+  PlatformInstallationManifest,
+  PlatformLifecycleOperation,
   createPlatformWorkerConfigs,
-  PLATFORM_DISABLED_KEY,
-  transitionInstallation,
 } from '@void/platform';
-import type { PlatformInstallationManifest, PlatformLifecycleOperation } from '@void/platform';
 import type { PlatformRuntimeManifest } from '@void/platform/installer';
 import { platformWorkerAction, platformWorkerDeployCallbacks } from './platform-install-workers.ts';
 import { verifyPlatformHealth, bootstrapPlatformSharedEmail } from './platform-installer-health.ts';
@@ -26,10 +26,10 @@ import type {
   PlatformWorkerKey,
   PlatformHealthCheckContext,
 } from './platform-installer-types.ts';
+import type { runPlatformWrangler } from './platform-installer-workers.ts';
 import {
   recordWorkerCutoverResolution,
   recordWorkerTrafficState,
-  runPlatformWrangler,
   nextWorkerCutoverGeneration,
   recordWorkerSecretUpdateState,
   deployPlatformWorker,
@@ -38,7 +38,7 @@ import {
 import { platformWorkersDevUrl } from './platform-plan.ts';
 import type { PlatformInstallPlanAction } from './platform-plan.ts';
 import { writeInstallationManifest, writePendingInstallationSecrets } from './platform-registry.ts';
-import { platformManagedWorkerTraffic } from './platform-traffic.ts';
+import type { platformManagedWorkerTraffic } from './platform-traffic.ts';
 
 export async function enableInstallationServices(input: {
   readonly state: PlatformInstallRunState;

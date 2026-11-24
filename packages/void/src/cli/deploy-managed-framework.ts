@@ -6,7 +6,7 @@ import type { VoidConfig } from '../config.ts';
 import { collectRevalidate } from '../isr-config.ts';
 import type { DetectedFramework } from '../plugin-inference.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
-import { PlatformClient } from './client.ts';
+import type { PlatformClient } from './client.ts';
 import { assertDeploySchemaDriftFree } from './deploy-drift.ts';
 import {
   log,

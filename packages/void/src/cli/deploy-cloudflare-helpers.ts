@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs';
 import {
-  activateCloudflareVersion,
   assertCloudflareBindingsPreserved,
   parseRootWranglerConfig,
   readExistingCloudflareWorker,
@@ -10,6 +9,7 @@ import type {
   ApprovedCloudflareKvBinding,
   CloudflareCommandRunner,
   ExistingCloudflareWorker,
+  activateCloudflareVersion,
 } from '@void/deploy-cloudflare';
 import { join } from 'pathslash';
 import { materializeCloudflareConfig } from '../cloudflare-config.ts';

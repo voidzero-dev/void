@@ -4,7 +4,7 @@ import {
   parseRootWranglerConfig,
   readCloudflareTriggerConfig,
 } from '@void/deploy-cloudflare';
-import { detectFramework } from '../plugin-inference.ts';
+import type { detectFramework } from '../plugin-inference.ts';
 import { readVersionMetadataBinding } from '../shared/version-metadata.ts';
 import { createActiveSecretPinner } from './cf-version-runner.ts';
 import { clearCloudflareCandidate } from './cloudflare-candidate.ts';

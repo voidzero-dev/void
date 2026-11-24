@@ -1,6 +1,6 @@
 import type { ApiRoutes } from '@voidcloud/api/api';
 import type { Context } from 'hono';
-import { hc } from 'hono/client';
+import type { hc } from 'hono/client';
 import type { InferResponseType } from 'hono/client';
 import { getCookie } from 'hono/cookie';
 import { dashboardRequestOrigin, isLocalDashboardHost } from './origin.ts';

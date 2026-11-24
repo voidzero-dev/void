@@ -31,13 +31,8 @@ import type {
 } from '../types.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import { assertDeploymentCanProceed } from './guards.ts';
-import {
-  commitCutoverLive,
-  requireActiveDeployAccess,
-  cutoverIntentKey,
-  cutoverReadyKey,
-} from './recovery.ts';
-import type { CutoverMarker } from './recovery.ts';
+import { commitCutoverLive, cutoverIntentKey, cutoverReadyKey } from './recovery.ts';
+import type { CutoverMarker, requireActiveDeployAccess } from './recovery.ts';
 import { attachServingStoreMetadata } from './serving-assets.ts';
 import { projectPublicUrls } from './shared.ts';
 

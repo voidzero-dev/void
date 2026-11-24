@@ -1,15 +1,15 @@
 import { appendSqliteClassMigration } from '@void/deploy-core';
 import type { ApplicationAnalysis } from './application-analysis.ts';
 import { SEND_EMAIL_BINDING } from './cli/email-cloudflare.ts';
+import type { resolveLiveBindingConfig } from './cli/wrangler.ts';
 import {
   findBindingNameOwner,
   hasDurableObjectSqliteMigration,
   LIVE_MIGRATION_TAG,
   nextDurableObjectMigrationTag,
-  resolveLiveBindingConfig,
 } from './cli/wrangler.ts';
 import { finalizeDurableObjectPatch } from './cloudflare-durable-patch.ts';
-import { readConfig } from './config.ts';
+import type { readConfig } from './config.ts';
 import {
   resolveWorkersAiBindingName,
   shouldBindWorkersAi,
@@ -22,10 +22,10 @@ import { cloudflareQueueName, readDeployBuildQueueNames } from './queues/cloudfl
 import { isRouteEnabledForEnvironment } from './router/parse-filename.ts';
 import type { RouteEnvironment } from './router/parse-filename.ts';
 import { DEV_INBOX_ENV_VAR, DEV_INBOX_TOKEN_ENV_VAR } from './runtime/email/dev-inbox.ts';
+import type { resolveSandboxConfig } from './sandbox/config.ts';
 import {
   SANDBOX_MIGRATION_TAG,
   hasSandboxSqliteMigration,
-  resolveSandboxConfig,
   sandboxContainerConfig,
   assertSandboxNamespaceConfig,
 } from './sandbox/config.ts';
