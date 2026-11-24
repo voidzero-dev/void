@@ -419,6 +419,8 @@ const config = defineConfig({
           'no-const-assign': 'off',
           'no-dupe-class-members': 'off',
           'no-dupe-keys': 'off',
+          // Continue checking explicit any in TypeScript tests.
+          'typescript/no-explicit-any': 'error',
           'no-func-assign': 'off',
           'no-import-assign': 'off',
           'no-new-native-nonconstructor': 'off',
