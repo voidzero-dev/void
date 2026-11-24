@@ -277,6 +277,11 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // Solid uses mutable refs across reactive updates.
+        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
+        rules: { 'react/immutability': 'off' },
+      },
+      {
         // Workers types overload DOM append in these shared browser modules.
         files: [
           'packages/void/src/pages/boundary-client.ts',
@@ -430,7 +435,6 @@ const config = defineConfig({
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
       'quality/no-widen-then-assert': 'off',
-      'react/immutability': 'off',
       'react/no-unknown-property': 'off',
       'react/purity': 'off',
       'react/rules-of-hooks': 'off',
