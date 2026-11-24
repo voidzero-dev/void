@@ -5104,7 +5104,7 @@ describe('BuildManager.ingestLines (the pull-loop sink)', () => {
   it('upgrades a legacy log table once without fabricating a final delimiter', async () => {
     const ctx = makeStubCtx({
       legacyLogSchema: true,
-      initialLogs: [{ seq: 1, line: '\x1b[?1049hERR', stream: 'stdout', ts: 1 }],
+      initialLogs: [{ seq: 1, line: '\u001b[?1049hERR', stream: 'stdout', ts: 1 }],
     });
     const m = makeManager(ctx, makeEnv());
     const readTail = () =>
@@ -5340,7 +5340,7 @@ describe('formatLogTailMarkdown (pure check-run output.text renderer)', () => {
 // line — the agent splits on CR/LF and a clack spinner separates frames with
 // `ESC[1G ESC[J` and no newline.
 describe('renderCapturedLog (terminal-visible text for the check run)', () => {
-  const ESC = '\x1b';
+  const ESC = '\u001b';
 
   it('leaves a plain line untouched', async () => {
     expect(await renderCapturedLog('[build-agent] source extracted')).toBe(
@@ -5383,7 +5383,7 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
   });
 
   it('strips OSC sequences (window title / hyperlink) under both BEL and ST terminators', async () => {
-    expect(await renderCapturedLog(`${ESC}]0;building\x07done`)).toBe('done');
+    expect(await renderCapturedLog(`${ESC}]0;building\u0007done`)).toBe('done');
     expect(await renderCapturedLog(`${ESC}]8;;https://void.app${ESC}\\link`)).toBe('link');
   });
 
@@ -5420,14 +5420,14 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
     // state, so the payload after an embedded BEL is still invisible. BEL is also
     // an ordinary data byte inside sixel, so this is reachable from real payloads.
     for (const intro of ['P', 'X', '^', '_']) {
-      expect(await renderCapturedLog(`before${ESC}${intro}hidden\x07still${ESC}\\after`)).toBe(
+      expect(await renderCapturedLog(`before${ESC}${intro}hidden\u0007still${ESC}\\after`)).toBe(
         'beforeafter',
       );
     }
     // ...and with no ST at all, the string still runs to end of line.
-    expect(await renderCapturedLog(`${ESC}Pabc\x07def`)).toBe('');
+    expect(await renderCapturedLog(`${ESC}Pabc\u0007def`)).toBe('');
     // OSC keeps BEL as a terminator (the legacy xterm convention).
-    expect(await renderCapturedLog(`${ESC}]0;title\x07visible`)).toBe('visible');
+    expect(await renderCapturedLog(`${ESC}]0;title\u0007visible`)).toBe('visible');
   });
 
   it('aborts a string control on an embedded ESC, as a VT parser does', async () => {
@@ -5715,7 +5715,7 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
 });
 
 describe('formatLogTailMarkdown sanitizes before measuring', () => {
-  const ESC = '\x1b';
+  const ESC = '\u001b';
 
   it('renders the visible frame, not the erased ones', async () => {
     const spinner = `◒  Uploading${ESC}[1G${ESC}[J◐  Uploading (59/59)${ESC}[1G${ESC}[J◆  Deployed!`;
@@ -7894,10 +7894,10 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
         '+ vue 3.5.44',
         '+ void 1.1.11',
         '[build-agent] $ void deploy --project example',
-        '\x1b[32m✓ built in 119ms\x1b[0m',
+        '\u001b[32m✓ built in 119ms\u001b[0m',
         'dist/client/index.html  0.57 kB',
         '  at build (build.ts:10:2)',
-        'Uploading 1/2\r\x1b[2K✓ Uploaded 2/2',
+        'Uploading 1/2\r\u001b[2K✓ Uploaded 2/2',
         '╭─ https://example.void.app ─╮',
         '│  2 static assets          │',
         '╰───────────────────────────╯',
@@ -7920,7 +7920,7 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
         ...lines.slice(8),
       ]);
       expect(rows[0].lineEnding).toBe(ending === '\n' ? 'lf' : 'crlf');
-      expect(rows.some((row) => row.line.includes('\x1b[32m'))).toBe(true);
+      expect(rows.some((row) => row.line.includes('\u001b[32m'))).toBe(true);
     },
   );
 

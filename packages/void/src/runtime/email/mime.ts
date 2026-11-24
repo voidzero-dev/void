@@ -44,7 +44,7 @@ const MAX_CUSTOM_HEADER_BYTES: number = 16 * 1024;
 export const MAX_ADDRESS_LENGTH: number = 320;
 
 const CRLF = '\r\n';
-const ASCII_PRINTABLE = /^[\x20-\x7e]*$/;
+const ASCII_PRINTABLE = /^[\u0020-\u007e]*$/;
 const HEADER_NAME = /^[!-9;-~]+$/;
 
 function rejectCRLF(field: string, value: string): void {

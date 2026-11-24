@@ -471,7 +471,7 @@ function singleMailboxAddrSpec(value: string): string | null {
   // One printable-ASCII token. Rules out an empty `<>`, WSP inside the
   // brackets, and a code point that only LOOKS like the sender before the
   // caller lower-cases it for the compare.
-  return /^[\x21-\x7e]+$/.test(addrSpec) ? addrSpec : null;
+  return /^[\u0021-\u007e]+$/.test(addrSpec) ? addrSpec : null;
 }
 
 /**
@@ -506,7 +506,7 @@ app.post('/send', async (context) => {
   const callerKey = asString(body.idempotencyKey);
   if (
     callerKey !== null &&
-    (callerKey.length === 0 || callerKey.length > 128 || !/^[\x20-\x7e]+$/.test(callerKey))
+    (callerKey.length === 0 || callerKey.length > 128 || !/^[\u0020-\u007e]+$/.test(callerKey))
   ) {
     return context.json(
       { ok: false, error: { code: 'INVALID_TO', message: 'invalid idempotency key' } },
@@ -515,7 +515,7 @@ app.post('/send', async (context) => {
   }
   const operationKey =
     callerKey ??
-    (requestIdRaw && requestIdRaw.length <= 128 && /^[\x20-\x7e]+$/.test(requestIdRaw)
+    (requestIdRaw && requestIdRaw.length <= 128 && /^[\u0020-\u007e]+$/.test(requestIdRaw)
       ? requestIdRaw
       : crypto.randomUUID());
   const recipientsRaw = Array.isArray(body.recipients) ? body.recipients : null;
@@ -706,7 +706,7 @@ app.post('/send', async (context) => {
   // cannot change under case folding. U+212A KELVIN SIGN lowercases to 'k' and
   // U+0130 to 'i', so a non-ASCII `from` can satisfy a lowercased regex and
   // still reach the shared envelope sender intact. Refuse it before that.
-  if (!/^[\x21-\x7e]+$/.test(from)) {
+  if (!/^[\u0021-\u007e]+$/.test(from)) {
     return context.json(
       {
         ok: false,
@@ -1135,7 +1135,7 @@ async function sendViaCustomDomain(
   // The envelope is forwarded verbatim to the customer's account, so the
   // printable-ASCII guard runs here for the same reason as on the shared
   // path (case folding must not change the bytes downstream sees).
-  if (!/^[\x21-\x7e]+$/.test(from)) {
+  if (!/^[\u0021-\u007e]+$/.test(from)) {
     return context.json(
       {
         ok: false,

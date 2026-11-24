@@ -1254,7 +1254,7 @@ describe('POST /email/send — the envelope handed to CF', () => {
     ['ASCII upper case', `ACME@${PROD_DOMAIN}`, 'acme'],
     ['a code point that case-folds into the slug', `acmeK@${PROD_DOMAIN}`, 'acmek'],
     ['a carriage return', `acme\r\nX-Bcc: attacker@evil.com@${PROD_DOMAIN}`, 'acme'],
-    ['a null byte', `acme\x00@${PROD_DOMAIN}`, 'acme'],
+    ['a null byte', `acme\u0000@${PROD_DOMAIN}`, 'acme'],
   ])('never hands a control character to the send binding (%s)', async (_label, from, slug) => {
     const kv = happyPathKv({ 'email-slug:proj_000000000001': slug });
     const sender = createSender();

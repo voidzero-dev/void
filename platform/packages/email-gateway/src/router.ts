@@ -219,7 +219,7 @@ interface ReplySenderPin {
 
 /** Check the envelope shape before authoritative admission checks sender ownership. */
 function isPermittedReplySender(from: string, pin: ReplySenderPin): boolean {
-  if (!/^[\x21-\x7e]+$/.test(from)) {
+  if (!/^[\u0021-\u007e]+$/.test(from)) {
     return false;
   }
   const lower = from.toLowerCase();

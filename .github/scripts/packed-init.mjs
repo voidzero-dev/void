@@ -156,19 +156,19 @@ export async function initializePackedProject(
       { text: 'Initialize a git repository?', response: '\r' },
       {
         text: 'Choose a Pages scaffold toolchain:',
-        response: toolchain === 'vite-plus' ? '\r' : '\x1b[B\r',
+        response: toolchain === 'vite-plus' ? '\r' : '\u001b[B\r',
       },
       {
         text: 'Choose a Pages framework to scaffold:',
-        response: '\x1b[B'.repeat(frameworks.indexOf(framework)) + '\r',
+        response: '\u001b[B'.repeat(frameworks.indexOf(framework)) + '\r',
       },
       { text: 'Choose a Pages starter:', response: '\r' },
       {
         text: 'Could not detect your coding agent. Which one are you using?',
-        response: '\x1b[B'.repeat(4) + '\r',
+        response: '\u001b[B'.repeat(4) + '\r',
         required: false,
       },
-      { text: 'Where should this project deploy?', response: '\x1b[B\x1b[B\r' },
+      { text: 'Where should this project deploy?', response: '\u001b[B\u001b[B\r' },
     ],
   });
 }

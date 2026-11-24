@@ -1621,14 +1621,14 @@ describe('reply threading survives a hostile inbound header', () => {
     // `\x01` or DEL pass a WHATWG `Headers`, but an RFC 5322 §3.6.4 `msg-id`
     // admits no control: such an id is dropped on its own, never a throw.
     // eslint-disable-next-line no-control-regex -- C0 controls and DEL are the point
-    const rawControl = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;
+    const rawControl = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
     function headersOf(text: string): string {
       return text.slice(0, text.indexOf('\r\n\r\n'));
     }
 
     it('drops a parent Message-ID carrying one: no In-Reply-To, absent from References, reply still sent', async () => {
-      const parent = '<abc\x01def@remote.dev>';
+      const parent = '<abc\u0001def@remote.dev>';
       const text = await replyText('<r1@remote.dev>', parent);
       expect(text).toContain('Subject: Re: hi');
       expect(text).not.toContain('In-Reply-To:');
@@ -1643,7 +1643,9 @@ describe('reply threading survives a hostile inbound header', () => {
 
     it('drops only the id carrying DEL from a References chain; the rest and the parent stay in order', async () => {
       for (const separator of [' ', '\t']) {
-        const chain = ['<r1@remote.dev>', '<r\x7f2@remote.dev>', '<r3@remote.dev>'].join(separator);
+        const chain = ['<r1@remote.dev>', '<r\u007f2@remote.dev>', '<r3@remote.dev>'].join(
+          separator,
+        );
         const text = await replyText(chain);
         expect(text).toContain(`In-Reply-To: ${MESSAGE_ID}\r\n`);
         expect(referencesOf(text)).toBe(`<r1@remote.dev> <r3@remote.dev> ${MESSAGE_ID}`);
@@ -1793,7 +1795,7 @@ describe('reply subject survives a hostile inbound header', () => {
   // over falls back. `\x01` rather than a tab, because `Headers` strips
   // leading and trailing HTTP whitespace and the count must be exact.
   it('repairs a subject exactly at the bound and falls back one character over', async () => {
-    const atBound = 'a\x01'.repeat(2048); // 4096 code units
+    const atBound = 'a\u0001'.repeat(2048); // 4096 code units
     const kept = await buildReplyMessage(inbound(atBound), { text: 'thanks', from: FROM });
     expect(kept.subject).toBe(`Re: ${'a '.repeat(2048).trim()}`);
     expect(maxLine(kept)).toBeLessThanOrEqual(998);
@@ -2725,7 +2727,7 @@ describe('end-to-end: envelope → handler → action queue', () => {
     // A reason built from the inbound message can be as large as the message
     // and carry a remote sender's CRLF.
     const { message, getActions } = createMessageProxy(makeEnvelope());
-    message.setReject(`${'x'.repeat(5 * 1024 * 1024)}\r\n\x00`);
+    message.setReject(`${'x'.repeat(5 * 1024 * 1024)}\r\n\u0000`);
     const [action] = getActions();
     expect(action).toEqual({ type: 'reject', reason: 'x'.repeat(1000) });
   });

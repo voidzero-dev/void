@@ -938,7 +938,7 @@ const example = 'export const layout = "home"';
       ['a core tag that does not fit the value', 'layout: !!int missing'],
       ['a merge key that is not a mapping', '<<: value\nlayout: missing'],
       ['an empty key', ': value\nlayout: missing'],
-      ['a control character', 'layout: mis\x01sing'],
+      ['a control character', 'layout: mis\u0001sing'],
     ])('reads no layout from frontmatter with %s', async (_name, frontmatter) => {
       writeFile('post.md', `---\n${frontmatter}\n---\n# Hi`);
       const result = await scanPages(TMP);

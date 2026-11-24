@@ -1693,8 +1693,8 @@ it('renders binary and text frames from a real Node WebSocket in order and remov
   expect(output.stderr).not.toContain('malformed tail');
   expect(output.stdout).toContain('POST https://isolated.invalid/runtime - ok');
   expect(output.stdout).toContain('  (log) binary marker');
-  expect(output.stdout).not.toContain('\x1b]');
-  expect(output.stdout).not.toContain('\x07');
+  expect(output.stdout).not.toContain('\u001b]');
+  expect(output.stdout).not.toContain('\u0007');
   expect(output.stdout).toContain('  (error) error marker');
   expect(output.stdout).toContain('Queue owned-queue - ok');
   expect(output.stdout.indexOf('binary marker')).toBeLessThan(output.stdout.indexOf('text marker'));

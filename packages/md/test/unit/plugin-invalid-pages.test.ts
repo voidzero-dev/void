@@ -244,7 +244,7 @@ describe('the page scan and voidMarkdown', () => {
     ['a merge tag', 'other: !!merge value\nlayout: missing'],
     ['a merge key that is not a mapping', '<<: value\nlayout: missing'],
     ['an empty key', ': value\nlayout: missing'],
-    ['a control character', 'layout: mis\x01sing'],
+    ['a control character', 'layout: mis\u0001sing'],
   ])('read the same layout from frontmatter with %s', async (_name, frontmatter) => {
     const source = `---\n${frontmatter}\n---\n\n# Hello\n`;
     const { root, pagesDir } = createApp({ 'page.md': source });

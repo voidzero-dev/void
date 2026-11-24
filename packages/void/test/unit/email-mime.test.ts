@@ -730,7 +730,7 @@ describe('normalizeEmail', () => {
     });
     expect(named.to[0].email).toBe(deliverable);
     // The bound answers before the address is scanned.
-    expect(() => parseAddress(`a\x01${'b'.repeat(320)}@x.dev`, 'to')).toThrow(
+    expect(() => parseAddress(`a\u0001${'b'.repeat(320)}@x.dev`, 'to')).toThrow(
       /over the 320-character limit/,
     );
   });
@@ -793,10 +793,10 @@ describe('normalizeEmail', () => {
       ['a quoted local part', '"a b"@example.com'],
       ['a quoted @', '"a@b"@example.com'],
       ['a quoted word', '"weird"@x.dev'],
-      ['SOH', 'a\x01b@example.com'],
-      ['ESC', 'a\x1bb@example.com'],
-      ['US', 'a\x1fb@example.com'],
-      ['DEL', 'a\x7fb@example.com'],
+      ['SOH', 'a\u0001b@example.com'],
+      ['ESC', 'a\u001bb@example.com'],
+      ['US', 'a\u001fb@example.com'],
+      ['DEL', 'a\u007fb@example.com'],
       ['TAB', 'a\tb@example.com'],
       // `:` is an RFC 5322 §3.2.3 special, not atext.
       ['a colon in the local part', 'a:b@example.com'],
@@ -865,8 +865,8 @@ describe('normalizeEmail', () => {
       // A name is not an address: `formatAddress` RFC 2047-encodes a
       // non-printable name, so the byte reaches the wire only inside base64.
       // eslint-disable-next-line no-control-regex -- C0 controls and DEL are the point
-      const rawControl = /[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/;
-      for (const ch of ['\x01', '\x1b', '\x1f', '\x7f', '\t']) {
+      const rawControl = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/;
+      for (const ch of ['\u0001', '\u001b', '\u001f', '\u007f', '\t']) {
         const { text } = await build({
           from: 'a@x.dev',
           to: { name: `Bo${ch}b`, email: 'b@y.dev' },
@@ -886,10 +886,10 @@ describe('normalizeEmail', () => {
     // `obs-qtext` (RFC 5322 §3.2.4), which §4 says MUST NOT be generated.
     const base = { from: 'a@x.dev', to: 'b@y.dev', subject: 's', text: 't' };
     const controls = [
-      ['SOH', '\x01', 'U+0001'],
-      ['ESC', '\x1b', 'U+001B'],
-      ['US', '\x1f', 'U+001F'],
-      ['DEL', '\x7f', 'U+007F'],
+      ['SOH', '\u0001', 'U+0001'],
+      ['ESC', '\u001b', 'U+001B'],
+      ['US', '\u001f', 'U+001F'],
+      ['DEL', '\u007f', 'U+007F'],
     ] as const;
 
     it('refuses one, naming its code point rather than echoing it', async () => {
@@ -945,7 +945,7 @@ describe('normalizeEmail', () => {
     it('keeps the length bound in front of the scan', async () => {
       // "Bound before you scan": an over-long filename is refused by the
       // `QUOTED_FILENAME_LINE_OVERHEAD` guard before its characters are read.
-      const filename = `a\x01${'b'.repeat(2000)}.pdf`;
+      const filename = `a\u0001${'b'.repeat(2000)}.pdf`;
       await expect(
         normalizeEmail({ ...base, attachments: [{ filename, content: 'x' }] }),
       ).rejects.toThrow(
@@ -961,7 +961,7 @@ describe('normalizeEmail', () => {
       await expect(
         normalizeEmail({
           ...base,
-          attachments: [{ filename: 'a.pdf', content: 'x', contentType: 'application/pdf\x01' }],
+          attachments: [{ filename: 'a.pdf', content: 'x', contentType: 'application/pdf\u0001' }],
         }),
       ).rejects.toThrow('attachment contentType contains a control character (U+0001).');
     });
@@ -972,7 +972,7 @@ describe('normalizeEmail', () => {
       await expect(
         normalizeEmail({
           ...base,
-          attachments: [{ filename: 'a.png', content: 'x', contentId: 'lo\x7fgo' }],
+          attachments: [{ filename: 'a.png', content: 'x', contentId: 'lo\u007fgo' }],
         }),
       ).rejects.toThrow('attachment contentId contains a control character (U+007F).');
     });
@@ -1412,7 +1412,7 @@ describe('buildMime', () => {
   it.each<[string, string, string, string]>([
     ['a bare CR', 'a\rb', 'quoted-printable', 'a\r\nb'],
     ['a tab', 'a\tb', 'quoted-printable', 'a\tb'],
-    ['DEL', 'a\x7fb', 'quoted-printable', 'a=7Fb'],
+    ['DEL', 'a\u007fb', 'quoted-printable', 'a=7Fb'],
     ['a 990-character line', 'a'.repeat(990), '7bit', 'a'.repeat(990)],
     [
       'a 991-character line',

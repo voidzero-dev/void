@@ -227,7 +227,7 @@ describe('dev inbox capture cap (sized for the serialized capture)', () => {
   // A control byte is `=01` in the quoted-printable MIME but `\u0001` in the
   // JSON text, so this legal message serializes past three MIME budgets.
   it('captures a legal message whose serialized capture exceeds three MIME budgets', async () => {
-    const text = '\x01'.repeat(Math.floor(MAX_MESSAGE_BYTES / 3.15));
+    const text = '\u0001'.repeat(Math.floor(MAX_MESSAGE_BYTES / 3.15));
     const server = createFakeViteServer();
     const assets = fakeAssetsBinding(server);
     const result = await withRuntimeEnv(devEnv(assets), () =>
@@ -252,7 +252,7 @@ describe('dev inbox capture cap (sized for the serialized capture)', () => {
     expect(DEV_INBOX_MAX_CAPTURE_BYTES).toBeGreaterThan(bound);
 
     const base = { from: 'a@x.dev', to: 'b@y.dev', subject: 's' };
-    const control = '\x01'.repeat(30_000);
+    const control = '\u0001'.repeat(30_000);
     const shapes: Array<[string, Parameters<typeof normalizeEmail>[0]]> = [
       // encoded-word header: base64 plus framing (1.6) in the MIME, 6 in JSON — 3.75x
       ['control subject', { ...base, subject: control, text: 't' }],

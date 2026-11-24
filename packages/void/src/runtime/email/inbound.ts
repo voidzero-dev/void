@@ -304,7 +304,7 @@ function normalizeRejectReason(reason: string): string {
     raw
       .slice(0, MAX_REJECT_REASON_LENGTH)
       // eslint-disable-next-line no-control-regex -- C0 controls and DEL are the point
-      .replaceAll(/[\x00-\x1f\x7f]+/g, ' ')
+      .replaceAll(/[\u0000-\u001f\u007f]+/g, ' ')
   );
 }
 
@@ -710,7 +710,7 @@ function prefixReplySubject(original: string): string {
   }
   const cleaned = decoded
     // eslint-disable-next-line no-control-regex -- C0 controls and DEL are the point
-    .replaceAll(/[\x00-\x1f\x7f]+/g, ' ')
+    .replaceAll(/[\u0000-\u001f\u007f]+/g, ' ')
     .replaceAll(/ {2,}/g, ' ')
     .trim();
   if (!cleaned) {
@@ -718,7 +718,7 @@ function prefixReplySubject(original: string): string {
   }
   const prefixed = /^re:/i.test(cleaned) ? cleaned : `Re: ${cleaned}`;
   // Non-ASCII goes through `encodeWord`, whose words always fold.
-  if (/^[\x20-\x7e]*$/.test(prefixed) && !fitsHeaderLine('Subject', prefixed)) {
+  if (/^[\u0020-\u007e]*$/.test(prefixed) && !fitsHeaderLine('Subject', prefixed)) {
     return 'Re:';
   }
   return prefixed;

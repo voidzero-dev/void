@@ -706,7 +706,8 @@ function capturedResult(normalized: NormalizedEmail, captureId: string): SendEma
 export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
   if (
     opts.idempotencyKey !== undefined &&
-    (typeof opts.idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(opts.idempotencyKey))
+    (typeof opts.idempotencyKey !== 'string' ||
+      !/^[\u0021-\u007e]{1,128}$/.test(opts.idempotencyKey))
   ) {
     return err(
       'MIME_ERROR',

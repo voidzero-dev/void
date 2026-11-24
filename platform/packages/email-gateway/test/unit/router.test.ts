@@ -833,7 +833,7 @@ describe('routeInbound — action enaction', () => {
     const { env, apiFetch } = makeEnv({
       emailReturn: [
         { type: 'forward', to: 'not-an-email' },
-        { type: 'forward', to: 'has\x00control@example.com' },
+        { type: 'forward', to: 'has\u0000control@example.com' },
         { type: 'forward', to: 'no-at-sign-here' },
         { type: 'forward', to: 'admin@example.com' },
       ],
@@ -875,7 +875,7 @@ describe('routeInbound — action enaction', () => {
       emailReturn: [
         {
           type: 'reject',
-          reason: 'spam\r\nX-Inject: foo\nbar\x00null',
+          reason: 'spam\r\nX-Inject: foo\nbar\u0000null',
         },
       ],
     });

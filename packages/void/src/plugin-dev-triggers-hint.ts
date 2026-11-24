@@ -48,13 +48,13 @@ export function devTriggersHintPlugin(root: string, devTriggerToken: string): Pl
         if (jobs.length > 0) {
           const sample = jobs[0].crons[0];
           console.log(
-            `         \x1b[2mcurl -X POST ${baseUrl}/__void/scheduled \\\n           -H "${authHeader}" \\\n           -d '{"cron":"${sample}","scheduledTime":'"$(date +%s000)"'}'\x1b[22m`,
+            `         \u001b[2mcurl -X POST ${baseUrl}/__void/scheduled \\\n           -H "${authHeader}" \\\n           -d '{"cron":"${sample}","scheduledTime":'"$(date +%s000)"'}'\u001b[22m`,
           );
         }
         if (queues.length > 0) {
           const sample = queues[0].name;
           console.log(
-            `         \x1b[2mcurl -X POST ${baseUrl}/__void/queue \\\n           -H "${authHeader}" \\\n           -d '{"queue":"${sample}","messages":[{"id":"1","timestamp":'"$(date +%s000)"',"body":{},"attempts":1}]}'\x1b[22m`,
+            `         \u001b[2mcurl -X POST ${baseUrl}/__void/queue \\\n           -H "${authHeader}" \\\n           -d '{"queue":"${sample}","messages":[{"id":"1","timestamp":'"$(date +%s000)"',"body":{},"attempts":1}]}'\u001b[22m`,
           );
         }
       });
