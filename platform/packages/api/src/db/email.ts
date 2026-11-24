@@ -30,7 +30,7 @@ async function requireEmailDestinationSettingsAccess(
   actorUserId: string | undefined,
 ): Promise<void> {
   if (actorUserId) {
-    await requireProjectCapability(db as Db, projectId, actorUserId, 'settings');
+    await requireProjectCapability(db, projectId, actorUserId, 'settings');
   }
 }
 

@@ -65,7 +65,7 @@ describe('createRotationCloudflareClient', () => {
     const fetchMock = vi.fn<typeof fetch>(async () => cfSuccess(BINDINGS));
     await expect(client(fetchMock).getScriptBindings(SCRIPT)).resolves.toStrictEqual(BINDINGS);
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0]!;
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${SCRIPT_URL}/bindings`);
     expect(init?.method).toBe('GET');
     expect(init?.headers).toStrictEqual({ Authorization: `Bearer ${API_TOKEN}` });
@@ -83,7 +83,7 @@ describe('createRotationCloudflareClient', () => {
       patched,
     );
 
-    const [url, init] = fetchMock.mock.calls[0]!;
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${SCRIPT_URL}/settings`);
     expect(init?.method).toBe('PATCH');
     expect(init?.headers).toStrictEqual({ Authorization: `Bearer ${API_TOKEN}` });

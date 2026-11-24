@@ -83,7 +83,7 @@ describe('InitReport', () => {
       ['Git (optional): git add -A && git commit -m "chore: initial commit"'],
     ]);
     expect(vi.mocked(printDone).mock.invocationCallOrder.at(-1)).toBeLessThan(
-      vi.mocked(printNextStep).mock.invocationCallOrder[0]!,
+      vi.mocked(printNextStep).mock.invocationCallOrder[0],
     );
   });
 
@@ -177,7 +177,7 @@ describe('an init run that stops early', () => {
     // process.exit() runs the exit listeners. Call the one this run added.
     const added = process.listeners('exit').filter((listener) => !listeners.includes(listener));
     expect(added).toHaveLength(1);
-    added[0]!(0);
+    added[0](0);
 
     expect(vi.mocked(log.warn).mock.calls).toEqual([['Setup did not finish. Done so far:']]);
     expect(vi.mocked(printDone).mock.calls).toEqual([

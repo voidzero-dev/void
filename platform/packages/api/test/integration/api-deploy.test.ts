@@ -127,7 +127,7 @@ function injectLostGoLiveCommitAcknowledgement(projectId: string): {
     get(target, prop, receiver) {
       if (prop === 'transaction') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (async (fn: any) => {
+        return async (fn: any) => {
           const result = await realTransaction(fn);
           if (!injected) {
             const [project] = await realDb
@@ -144,7 +144,7 @@ function injectLostGoLiveCommitAcknowledgement(projectId: string): {
             }
           }
           return result;
-        }) as unknown as typeof realDb.transaction;
+        };
       }
       return Reflect.get(target, prop, receiver);
     },
@@ -219,10 +219,7 @@ async function buildDeployRequest(
       const md5 = blake3;
       assetManifest['/' + path] = { blake3, md5, size: bytes.length };
       // Pre-upload to R2 under the content-addressed key the handler checks.
-      await env.STATIC_ASSETS_R2.put(
-        `assets/${projectId}/${blake3}`,
-        bytes as unknown as ArrayBuffer,
-      );
+      await env.STATIC_ASSETS_R2.put(`assets/${projectId}/${blake3}`, bytes);
     }
   }
 
@@ -496,7 +493,7 @@ describe('POST /projects/:id/deploy', () => {
     mockCfApi();
     const originalDispatch = env.DISPATCH;
     const dispatch = vi.fn();
-    env.DISPATCH = { get: dispatch } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatch };
     try {
       const response = await app.fetch(
         await buildDeployRequest(env, project.id, user.jwt, {
@@ -554,7 +551,7 @@ describe('POST /projects/:id/deploy', () => {
       const ingress = vi.spyOn(projectIngress, 'ensureProjectIngress');
       const originalDispatch = env.DISPATCH;
       const dispatch = vi.fn();
-      env.DISPATCH = { get: dispatch } as unknown as DispatchNamespace;
+      env.DISPATCH = { get: dispatch };
       try {
         const response = await app.fetch(
           await buildDeployRequest(env, project.id, user.jwt, {
@@ -1091,7 +1088,7 @@ describe('POST /projects/:id/deploy', () => {
           if (new URL(request.url).pathname === '/snapshot') {
             return Response.json({ state: previousCronState });
           }
-          const state = (await request.json()) as typeof previousCronState;
+          const state = await request.json<typeof previousCronState>();
           syncedStates.push(state);
           if (state.workerName !== previousCronState.workerName) {
             return new Response('unavailable', { status: 503 });
@@ -1416,8 +1413,8 @@ describe('POST /projects/:id/deploy', () => {
       .from(resources)
       .where(eq(resources.project_id, project.id));
     expect(resource).toBeDefined();
-    expect(resource!.cf_id).toBe('d1-test-uuid');
-    expect(resource!.binding_name).toBe('DB');
+    expect(resource.cf_id).toBe('d1-test-uuid');
+    expect(resource.binding_name).toBe('DB');
   });
 
   it('skips provisioning when resource already exists', async () => {
@@ -1759,7 +1756,7 @@ describe('POST /projects/:id/deploy', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { event: string; message: string };
+    const body = await res.json<{ event: string; message: string }>();
     expect(body.event).toBe('error');
     expect(body.message).toBe('limits.cpuMs 60000 exceeds your plan maximum of 30000');
 
@@ -2025,8 +2022,8 @@ describe('POST /projects/:id/deploy', () => {
         .from(resources)
         .where(eq(resources.project_id, project.id));
       expect(resource).toBeDefined();
-      expect(resource!.cf_id).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
-      expect(resource!.binding_name).toBe('emails');
+      expect(resource.cf_id).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+      expect(resource.binding_name).toBe('emails');
 
       // Verify addQueueConsumer was called with queue_id (UUID), not queue_name
       const consumerCall = fetchMock.mock.calls.find((call: Array<unknown>) => {
@@ -2113,12 +2110,12 @@ describe('POST /projects/:id/deploy', () => {
     // proxyToken must be present so void-dispatch can authenticate the relay
     // against the user worker's framework-generated /__void/queue endpoint.
     const expectedQueueName = `${project.id}-emails`.toLowerCase().replaceAll('_', '-');
-    const queueRouting = (await env.ROUTING.get(`queue:${expectedQueueName}`, 'json')) as {
+    const queueRouting = await env.ROUTING.get<{
       workerName: string;
       projectId: string;
       queueName: string;
       proxyToken: string;
-    } | null;
+    } | null>(`queue:${expectedQueueName}`, 'json');
     expect(queueRouting).toEqual({
       workerName: expect.stringMatching(/^user-queue-kv-app-dpl_/),
       projectId: project.id,
@@ -2163,16 +2160,16 @@ describe('POST /projects/:id/deploy', () => {
     });
 
     const expectedQueueName = `${project.id}-emails`.toLowerCase().replaceAll('_', '-');
-    const queueRouting = (await env.ROUTING.get(`queue:${expectedQueueName}`, 'json')) as {
+    const queueRouting = await env.ROUTING.get<{
       proxyToken: string;
-    } | null;
+    } | null>(`queue:${expectedQueueName}`, 'json');
     expect(queueRouting?.proxyToken).toBe(expected);
 
     const [row] = await env.db
       .select({ gen: projects.proxy_token_gen })
       .from(projects)
       .where(eq(projects.id, project.id));
-    expect(row!.gen).toBe(1);
+    expect(row.gen).toBe(1);
     // The deployment records the generation its Worker was uploaded with.
     expect(
       await env.db
@@ -2210,7 +2207,7 @@ describe('POST /projects/:id/deploy', () => {
       .select({ gen: projects.proxy_token_gen })
       .from(projects)
       .where(eq(projects.id, project.id));
-    expect(row!.gen).toBe(1);
+    expect(row.gen).toBe(1);
     expect(
       await env.db
         .select()
@@ -3803,7 +3800,7 @@ describe('POST /projects/:id/deploy', () => {
           .orderBy(desc(deployments.created_at))
           .limit(1);
         expect(failedDeployment?.status).toBe('failed');
-        expect(JSON.parse(failedDeployment!.appliedMigrations!)).toEqual(['001_create_table.sql']);
+        expect(JSON.parse(failedDeployment.appliedMigrations!)).toEqual(['001_create_table.sql']);
       } finally {
         env.DISPATCH = originalDispatch;
       }
@@ -4389,7 +4386,7 @@ describe('Deploy serialization (concurrent deploy guard)', () => {
 
     const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: string; deployment: string };
+    const body = await res.json<{ error: string; deployment: string }>();
     expect(body.error).toBe('deploy in progress');
     expect(body.deployment).toBe('dpl_active');
   });
@@ -4589,7 +4586,7 @@ describe('Deploy serialization (concurrent deploy guard)', () => {
     const project = await createTestProject(env.db, user.id, 'wfp-final-asset-fence');
     const content = '<html>worker fallback must survive</html>';
     const bytes = new TextEncoder().encode(content);
-    const hash = computeAssetHash(bytes.buffer as ArrayBuffer, '/index.html');
+    const hash = computeAssetHash(bytes.buffer, '/index.html');
     mockCfApi();
 
     const response = await app.fetch(
@@ -4709,7 +4706,7 @@ describe('POST /projects/:id/deploy (static)', () => {
     const source = await createTestDeployment(env.db, project.id, 'live');
     const content = '<html>same asset, new backend</html>';
     const bytes = new TextEncoder().encode(content);
-    const hash = computeAssetHash(bytes.buffer as ArrayBuffer, '/index.html');
+    const hash = computeAssetHash(bytes.buffer, '/index.html');
     await env.db
       .update(deployments)
       .set({
@@ -4834,7 +4831,7 @@ describe('POST /projects/:id/deploy (static)', () => {
     const project = await createTestProject(env.db, user.id, 'static-final-asset-fence');
     const content = '<html>must survive until commit</html>';
     const bytes = new TextEncoder().encode(content);
-    const hash = computeAssetHash(bytes.buffer as ArrayBuffer, '/index.html');
+    const hash = computeAssetHash(bytes.buffer, '/index.html');
     mockCfApi();
 
     const response = await app.fetch(
@@ -4981,10 +4978,7 @@ describe('POST /projects/:id/deploy (static)', () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'static-retention-rollback-race');
     const rollbackAssetBody = new TextEncoder().encode('live rollback asset');
-    const rollbackAssetHash = computeAssetHash(
-      rollbackAssetBody.buffer as ArrayBuffer,
-      '/rollback.txt',
-    );
+    const rollbackAssetHash = computeAssetHash(rollbackAssetBody.buffer, '/rollback.txt');
     const retainedRows = Array.from({ length: 100 }, (_, index) => {
       const timestamp = new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString();
       return {
@@ -5006,10 +5000,7 @@ describe('POST /projects/:id/deploy (static)', () => {
     });
     const rollbackTarget = retainedRows[0];
     await env.db.insert(deployments).values(retainedRows);
-    await env.STATIC_ASSETS_R2.put(
-      `assets/${project.id}/${rollbackAssetHash}`,
-      rollbackAssetBody as unknown as ArrayBuffer,
-    );
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${rollbackAssetHash}`, rollbackAssetBody);
     await env.db
       .update(projects)
       .set({ active_deployment_id: rollbackTarget.id, type: 'void' })
@@ -5436,7 +5427,7 @@ describe('ambiguous go-live commit outcomes', () => {
       get(target, prop, receiver) {
         if (prop === 'transaction') {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return (async (fn: any) =>
+          return async (fn: any) =>
             realTransaction(async (tx) => {
               // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the transaction callback provided to this partial database mock.
               const result = await fn(tx);
@@ -5449,7 +5440,7 @@ describe('ambiguous go-live commit outcomes', () => {
                 throw new Error('injected final commit rejection');
               }
               return result;
-            })) as unknown as typeof realDb.transaction;
+            });
         }
         return Reflect.get(target, prop, receiver);
       },
@@ -5474,7 +5465,7 @@ describe('ambiguous go-live commit outcomes', () => {
         .from(deployments)
         .where(eq(deployments.status, 'cutover'));
       expect(cutover).toBeDefined();
-      cutoverDeploymentId = cutover!.id;
+      cutoverDeploymentId = cutover.id;
       expect(await env.ROUTING.get(project.slug)).toContain(cutoverDeploymentId);
     } finally {
       setTestDb(realDb);
@@ -5639,7 +5630,7 @@ describe('failed deploy compensation provenance', () => {
       value: string | ArrayBuffer | ArrayBufferView | ReadableStream,
       options?: KVNamespacePutOptions,
     ) => {
-      const result = await originalPut(key, value as never, options as never);
+      const result = await originalPut(key, value as never, options);
       if (key === project.slug && !overtakePromise) {
         // Queue a newer cutover behind the failed deploy's project lock.
         // Once the lock releases, it becomes authoritative before the catch
@@ -5722,7 +5713,7 @@ describe('failed deploy compensation provenance', () => {
         });
         throw new Error('injected failure after late domain activation');
       }
-      return originalPut(key, value as never, options as never);
+      return originalPut(key, value as never, options);
     }) as typeof env.ROUTING.put);
 
     try {
@@ -5847,7 +5838,7 @@ describe('Deploy with prerendering', () => {
           }),
       ),
     });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -5878,7 +5869,7 @@ describe('Deploy with prerendering', () => {
       s: number;
       c: number;
       t: number;
-    }>(`${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/__index__`, 'arrayBuffer');
+    }>(`${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/__index__`, 'arrayBuffer');
     expect(homeValue).not.toBeNull();
     // Unpack: [4-byte header len][headers JSON][body]
     const homeView = new DataView(homeValue!);
@@ -5889,7 +5880,7 @@ describe('Deploy with prerendering', () => {
     expect(homeMeta?.t).toBe(3600);
 
     const { value: aboutValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/about`,
       'arrayBuffer',
     );
     expect(aboutValue).not.toBeNull();
@@ -5904,7 +5895,7 @@ describe('Deploy with prerendering', () => {
       get: vi
         .fn()
         .mockReturnValue({ fetch: vi.fn().mockResolvedValue(Response.json({ data: true })) }),
-    } as unknown as DispatchNamespace;
+    };
     mockCfApi();
 
     const response = await app.fetch(
@@ -5928,7 +5919,7 @@ describe('Deploy with prerendering', () => {
       .from(deployments)
       .where(eq(deployments.project_id, project.id));
     const { value } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/data`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/data`,
       'arrayBuffer',
     );
     expect(value).toBeNull();
@@ -5949,7 +5940,7 @@ describe('Deploy with prerendering', () => {
           }),
       ),
     });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -5979,7 +5970,7 @@ describe('Deploy with prerendering', () => {
     expect(
       (
         await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-          `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
+          `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/about`,
         )
       ).value,
     ).not.toBeNull();
@@ -5997,7 +5988,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6026,14 +6017,14 @@ describe('Deploy with prerendering', () => {
 
     // /about should have ISR entry
     const { value: aboutValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/about`,
       'arrayBuffer',
     );
     expect(aboutValue).not.toBeNull();
 
     // /private should NOT have ISR entry
     const { value: privateValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/private`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/private`,
       'arrayBuffer',
     );
     expect(privateValue).toBeNull();
@@ -6076,7 +6067,7 @@ describe('Deploy with prerendering', () => {
       });
     });
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6102,7 +6093,7 @@ describe('Deploy with prerendering', () => {
       .from(deployments)
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
-    const base = `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app`;
+    const base = `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app`;
 
     // The normal 200 render is warmed.
     const { value: warmValue, metadata: warmMetadata } = await createIsrStore(
@@ -6149,7 +6140,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6178,7 +6169,7 @@ describe('Deploy with prerendering', () => {
       .from(deployments)
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
-    const base = `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app`;
+    const base = `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app`;
 
     const { value: otherValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/blog/other`,
@@ -6209,7 +6200,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6239,14 +6230,14 @@ describe('Deploy with prerendering', () => {
 
     // /blog/hello should have an ISR entry.
     const { value: helloValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/blog/hello`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/blog/hello`,
       'arrayBuffer',
     );
     expect(helloValue).not.toBeNull();
 
     // /blog/a/b must NOT have an ISR entry (single-segment anchor).
     const { value: nestedValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/blog/a/b`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/blog/a/b`,
       'arrayBuffer',
     );
     expect(nestedValue).toBeNull();
@@ -6270,7 +6261,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6309,7 +6300,7 @@ describe('Deploy with prerendering', () => {
       s: number;
       c: number;
       t: number;
-    }>(`${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/docs/intro`, 'arrayBuffer');
+    }>(`${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/docs/intro`, 'arrayBuffer');
     expect(introValue).not.toBeNull();
     expect(introMeta).toMatchObject({ s: 200, t: 3600 });
     expect(typeof introMeta?.c).toBe('number');
@@ -6319,7 +6310,7 @@ describe('Deploy with prerendering', () => {
     const { value: nestedCatchAllValue, metadata: nestedMeta } = await createIsrStore(
       env.STATIC_ASSETS_R2,
     ).getWithMetadata<{ s: number; c: number; t: number }>(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/docs/guide/setup`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/docs/guide/setup`,
       'arrayBuffer',
     );
     expect(nestedCatchAllValue).not.toBeNull();
@@ -6334,7 +6325,7 @@ describe('Deploy with prerendering', () => {
     const dispatchGet = vi.fn().mockReturnValue({
       fetch: vi.fn().mockRejectedValue(new Error('Worker crashed')),
     });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6375,7 +6366,7 @@ describe('Deploy with prerendering', () => {
         return new Response('<html>ok</html>', { status: 200 });
       }),
     });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6410,7 +6401,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6444,7 +6435,7 @@ describe('Deploy with prerendering', () => {
       s: number;
       c: number;
       t: number;
-    }>(`${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/p`, 'arrayBuffer');
+    }>(`${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/p`, 'arrayBuffer');
     expect(pValue).not.toBeNull();
     expect(pMeta).toMatchObject({ s: 200, t: 60 });
     expect(typeof pMeta?.c).toBe('number');
@@ -6468,7 +6459,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6500,7 +6491,7 @@ describe('Deploy with prerendering', () => {
     expect(deployment).toBeDefined();
 
     const { value: specificValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/specific`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/specific`,
       'arrayBuffer',
     );
     expect(specificValue).toBeNull();
@@ -6511,7 +6502,7 @@ describe('Deploy with prerendering', () => {
       s: number;
       c: number;
       t: number;
-    }>(`${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/other`, 'arrayBuffer');
+    }>(`${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/other`, 'arrayBuffer');
     expect(otherValue).not.toBeNull();
     expect(otherMeta).toMatchObject({ s: 200, t: 3600 });
   });
@@ -6540,7 +6531,7 @@ describe('asset_hashes storage', () => {
       .where(eq(deployments.id, data.deployment));
 
     expect(row?.asset_hashes).toBeTruthy();
-    const hashes = JSON.parse(row!.asset_hashes!);
+    const hashes = JSON.parse(row.asset_hashes!);
     expect(hashes['/index.html']).toBeDefined();
     expect(hashes['/index.html'].hash).toHaveLength(32);
     expect(hashes['/index.html'].size).toBeGreaterThan(0);
@@ -6618,7 +6609,7 @@ describe('asset_hashes storage', () => {
       // corroborate against it.
       expect(dpl?.retained).toBe(false);
       expect(dpl?.asset_hashes).toBeTruthy();
-      const persisted = JSON.parse(dpl!.asset_hashes!);
+      const persisted = JSON.parse(dpl.asset_hashes!);
       expect(persisted['/index.html']).toBeDefined();
     } finally {
       env.DISPATCH = originalDispatch;
@@ -6635,21 +6626,15 @@ describe('asset_hashes storage', () => {
     mockCfApi();
 
     const carriedBytes = new TextEncoder().encode('<h1>carried</h1>');
-    const carriedHash = computeAssetHash(carriedBytes.buffer as ArrayBuffer, '/index.html');
+    const carriedHash = computeAssetHash(carriedBytes.buffer, '/index.html');
     const newBytes = new TextEncoder().encode('body { color: blue }');
-    const newHash = computeAssetHash(newBytes.buffer as ArrayBuffer, '/style.css');
+    const newHash = computeAssetHash(newBytes.buffer, '/style.css');
 
     // Pre-upload BOTH paths to R2 — the carry-forward (preflight-skipped)
     // path's bytes are already present from a hypothetical earlier deploy,
     // and the new path's bytes were just uploaded direct-to-R2 by the CLI.
-    await env.STATIC_ASSETS_R2.put(
-      `assets/${project.id}/${carriedHash}`,
-      carriedBytes as unknown as ArrayBuffer,
-    );
-    await env.STATIC_ASSETS_R2.put(
-      `assets/${project.id}/${newHash}`,
-      newBytes as unknown as ArrayBuffer,
-    );
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${carriedHash}`, carriedBytes);
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${newHash}`, newBytes);
 
     const res = await app.fetch(
       await buildDeployRequest(env, project.id, user.jwt, {
@@ -6681,7 +6666,7 @@ describe('asset_hashes storage', () => {
       .where(eq(deployments.id, done.deployment));
 
     expect(row?.asset_hashes).toBeTruthy();
-    const persisted = JSON.parse(row!.asset_hashes!);
+    const persisted = JSON.parse(row.asset_hashes!);
     expect(persisted['/index.html']).toBeDefined();
     expect(persisted['/index.html'].hash).toBe(carriedHash);
     expect(persisted['/style.css']).toBeDefined();
@@ -6724,7 +6709,7 @@ describe('POST /projects/:id/deploy/preflight', () => {
     );
 
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { needed: Array<string>; total: number; skipped: number };
+    const data = await res.json<{ needed: Array<string>; total: number; skipped: number }>();
     expect(data.needed.sort()).toEqual(['/app.js', '/index.html']);
     expect(data.total).toBe(2);
     expect(data.skipped).toBe(0);
@@ -6783,7 +6768,7 @@ describe('POST /projects/:id/deploy/preflight', () => {
     );
 
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { needed: Array<string>; total: number; skipped: number };
+    const data = await res.json<{ needed: Array<string>; total: number; skipped: number }>();
     expect(data.needed.sort()).toEqual(['/app.js', '/new.js']);
     expect(data.total).toBe(3);
     expect(data.skipped).toBe(1);
@@ -7155,7 +7140,7 @@ describe('POST /projects/:id/deploy/preflight', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { needed: Array<string>; total: number; skipped: number };
+      const data = await res.json<{ needed: Array<string>; total: number; skipped: number }>();
       // Every asset is absent from the scoped R2 store.
       expect(data.needed.sort()).toEqual(['/app.js', '/index.html', '/style.css']);
       expect(data.total).toBe(3);
@@ -7210,7 +7195,7 @@ describe('POST /projects/:id/deploy/preflight', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { needed: Array<string>; total: number; skipped: number };
+      const data = await res.json<{ needed: Array<string>; total: number; skipped: number }>();
       // static→static should still dedup
       expect(data.needed.sort()).toEqual(['/app.js']);
       expect(data.total).toBe(2);
@@ -7264,11 +7249,11 @@ describe('POST /projects/:id/deploy/preflight', () => {
         env,
       );
       expect(preflightRes.status).toBe(200);
-      const pfData = (await preflightRes.json()) as {
+      const pfData = await preflightRes.json<{
         needed: Array<string>;
         total: number;
         skipped: number;
-      };
+      }>();
       expect(pfData.skipped).toBe(2);
       expect(pfData.needed).toEqual([]);
 

@@ -84,7 +84,7 @@ export async function putProjectState(
       set: { ...values, updated_at: sql`now()` },
     })
     .returning();
-  return row!;
+  return row;
 }
 
 export async function getProjectZeroTrustState(

@@ -168,15 +168,15 @@ export async function runPlatformAuthRecovery(args: PlatformConfigArgs): Promise
             const secret =
               suppliedSecret ??
               recoverAuthenticationCredential(
-                secrets.projectSecretKeysJson!,
+                secrets.projectSecretKeysJson,
                 manifest.id,
                 existing!.id,
                 existing!.revision,
                 existing!.secret,
               );
             const encrypted = encryptCredential(
-              secrets.projectSecretKeysJson!,
-              secrets.projectSecretActiveKeyVersion!,
+              secrets.projectSecretKeysJson,
+              secrets.projectSecretActiveKeyVersion,
               manifest.id,
               args.target,
               revision,
@@ -211,7 +211,7 @@ export async function runPlatformAuthRecovery(args: PlatformConfigArgs): Promise
           };
           const recovery = {
             ...unsigned,
-            signature: createHmac('sha256', secrets.jwtSecret!)
+            signature: createHmac('sha256', secrets.jwtSecret)
               .update(platformAuthenticationRecoveryMessage(unsigned))
               .digest('base64url'),
           };

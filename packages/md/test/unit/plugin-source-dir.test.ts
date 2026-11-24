@@ -49,9 +49,9 @@ describe('voidMarkdown sourceDir support', () => {
     );
 
     const plugin = createPlugin();
-    const configResolved = getHookHandler(plugin.configResolved) as (
-      config: import('vite').ResolvedConfig,
-    ) => void;
+    const configResolved = getHookHandler<(config: import('vite').ResolvedConfig) => void>(
+      plugin.configResolved,
+    );
     const buildStart = getHookHandler(plugin.buildStart) as () => Promise<void>;
     const load = getHookHandler(plugin.load) as (id: string) => string | undefined;
 
@@ -71,9 +71,9 @@ describe('voidMarkdown sourceDir support', () => {
       config: { root: string },
       env: { command: 'serve' | 'build'; isPreview?: boolean },
     ) => unknown;
-    const configResolved = getHookHandler(plugin.configResolved) as (
-      config: import('vite').ResolvedConfig,
-    ) => void;
+    const configResolved = getHookHandler<(config: import('vite').ResolvedConfig) => void>(
+      plugin.configResolved,
+    );
     const buildStart = getHookHandler(plugin.buildStart) as () => Promise<void>;
     const load = getHookHandler(plugin.load) as (id: string) => string | undefined;
 

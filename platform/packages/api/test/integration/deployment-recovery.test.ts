@@ -418,7 +418,7 @@ test.each([
           }
           return new Response('{}', { status: 200 });
         },
-      } as unknown as DurableObjectStub;
+      };
     });
 
     const lockedProject = (await getProject(env.db, project.id))!;
@@ -440,7 +440,7 @@ test.each([
       proxyToken: heldToken,
     });
     expect(syncBodies).toHaveLength(1);
-    const sync = JSON.parse(syncBodies[0]!) as Record<string, unknown>;
+    const sync = JSON.parse(syncBodies[0]) as Record<string, unknown>;
     // Exactly one token: the one the Worker holds.
     expect(Object.keys(sync).filter((key) => key.startsWith('proxyToken'))).toEqual(['proxyToken']);
     expect(sync.proxyToken).toBe(heldToken);

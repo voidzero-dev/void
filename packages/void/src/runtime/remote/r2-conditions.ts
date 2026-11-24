@@ -105,5 +105,5 @@ export function parseR2HttpMetadata(value: unknown): R2HTTPMetadata | Headers {
       result[key] = entry;
     }
   }
-  return result as R2HTTPMetadata;
+  return result;
 }

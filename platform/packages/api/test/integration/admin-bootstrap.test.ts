@@ -62,7 +62,7 @@ async function startLogin(): Promise<Request> {
   expect(start.status).toBe(302);
   const authorization = new URL(start.headers.get('Location')!);
   const state = authorization.searchParams.get('state')!;
-  const cookie = start.headers.get('Set-Cookie')!.split(';', 1)[0]!;
+  const cookie = start.headers.get('Set-Cookie')!.split(';', 1)[0];
   return new Request(
     `https://platform.example/auth/callback?code=synthetic-code&state=${encodeURIComponent(state)}`,
     {
@@ -91,7 +91,7 @@ describe('first administrator dashboard login', () => {
       plan: 'custom',
     });
     expect(await env.db.select().from(oauthAccounts)).toEqual([
-      expect.objectContaining({ user_id: owner!.id, provider: 'github', provider_id: '4242' }),
+      expect.objectContaining({ user_id: owner.id, provider: 'github', provider_id: '4242' }),
     ]);
     expect(await env.db.select().from(projects)).toHaveLength(0);
     const cookie = response.headers
@@ -100,15 +100,15 @@ describe('first administrator dashboard login', () => {
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('Secure');
     expect(cookie).toContain('SameSite=Lax');
-    const token = cookie.split(';', 1)[0]!.slice('admin_token='.length);
+    const token = cookie.split(';', 1)[0].slice('admin_token='.length);
     expect(await verifyJwt(token, env.JWT_SECRET, 'admin')).toMatchObject({
-      sub: owner!.id,
+      sub: owner.id,
       aud: 'admin',
     });
     expect(await verifyJwt(token, env.JWT_SECRET, 'api')).toBeNull();
     const dashboard = await app.fetch(
       new Request('https://platform.example/admin/', {
-        headers: { Cookie: cookie.split(';', 1)[0]! },
+        headers: { Cookie: cookie.split(';', 1)[0] },
       }),
       env,
     );

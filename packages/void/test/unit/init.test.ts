@@ -304,7 +304,7 @@ describe('init question order', () => {
       expect(infoIndex).not.toBe(-1);
       expect(gitIndex).not.toBe(-1);
       expect(mockLogInfo.mock.invocationCallOrder[infoIndex]).toBeLessThan(
-        mockConfirm.mock.invocationCallOrder[gitIndex]!,
+        mockConfirm.mock.invocationCallOrder[gitIndex],
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -349,10 +349,8 @@ describe('init summary', () => {
       ]);
       // The summary comes last, right before the success line.
       const [lastSummary] = mockLogMessage.mock.invocationCallOrder.slice(-1);
-      expect(lastSummary).toBeLessThan(mockOutro.mock.invocationCallOrder[0]!);
-      expect(mockLogStep.mock.invocationCallOrder.every((order) => order < lastSummary!)).toBe(
-        true,
-      );
+      expect(lastSummary).toBeLessThan(mockOutro.mock.invocationCallOrder[0]);
+      expect(mockLogStep.mock.invocationCallOrder.every((order) => order < lastSummary)).toBe(true);
     } finally {
       cwd.mockRestore();
       rmSync(root, { recursive: true, force: true });
@@ -435,10 +433,10 @@ describe('init summary', () => {
         expect(mockLogWarn.mock.calls).toEqual([['Setup did not finish. Done so far:']]);
         // The failed step, its output, then what init had done.
         expect(mockLogError.mock.invocationCallOrder[0]).toBeLessThan(
-          write.mock.invocationCallOrder[0]!,
+          write.mock.invocationCallOrder[0],
         );
         expect(write.mock.invocationCallOrder[0]).toBeLessThan(
-          mockLogWarn.mock.invocationCallOrder[0]!,
+          mockLogWarn.mock.invocationCallOrder[0],
         );
         expect(summaryMessages('✓')).toEqual([created]);
         expect(summaryMessages('→')).toEqual([nextStep]);
@@ -515,7 +513,7 @@ describe('init summary', () => {
       expect(mockLogError.mock.calls).toEqual([['Installing dependencies with npm']]);
       expect(mockLogWarn.mock.calls).toEqual([['Setup did not finish. Done so far:']]);
       expect(mockLogError.mock.invocationCallOrder[0]).toBeLessThan(
-        mockLogWarn.mock.invocationCallOrder[0]!,
+        mockLogWarn.mock.invocationCallOrder[0],
       );
       // The installer runs in its own process group, which init stops as a whole.
       if (process.platform === 'win32') {
@@ -2727,7 +2725,7 @@ describe('isScaffoldableEmptyProject', () => {
           defaultValue: 'my-void-app',
         }),
       );
-      const folderPrompt = mockText.mock.calls[0]![0];
+      const folderPrompt = mockText.mock.calls[0][0];
       expect(folderPrompt).not.toHaveProperty('initialValue');
       // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(folderPrompt.validate('')).toBeUndefined();

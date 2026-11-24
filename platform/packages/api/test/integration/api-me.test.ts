@@ -128,7 +128,7 @@ describe('GET /me', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as MeResponse;
+    const body = await res.json<MeResponse>();
     expect(body.login).toBe('usage-limited');
   });
 
@@ -142,7 +142,7 @@ describe('GET /me', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as MeResponse;
+    const body = await res.json<MeResponse>();
     expect(body.login).toBe('alice');
     expect(body.plan).toBe('free');
     expect(body.provider).toBe('github');

@@ -140,7 +140,7 @@ describe('live platform protection', () => {
   it('cannot reuse authority for another actor, revision, origin, configuration, or expired verification', async () => {
     const fields = {
       installationId: 'team',
-      origin: origins[0]!,
+      origin: origins[0],
       userId: actor.userId,
       sessionId: actor.sessionId,
       revision: 1,
@@ -155,7 +155,7 @@ describe('live platform protection', () => {
     for (const change of [
       { revision: 2 },
       { lifecycleVersion: 'installation-generation-2' },
-      { origin: origins[1]! },
+      { origin: origins[1] },
       { protection: null },
       { actor: { ...actor, sessionId: 'another-session' } },
       { actor: { ...actor, userId: 'another-user' } },
@@ -175,7 +175,7 @@ describe('live platform protection', () => {
     const input = {
       revision: 1,
       installationId: 'team',
-      lifecycleVersion: before.rows[0]!.version,
+      lifecycleVersion: before.rows[0].version,
       protection,
       origins,
       verifiedIdentity: identity,

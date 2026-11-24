@@ -70,7 +70,7 @@ describe('watchPagesForRescan', () => {
     const { emitAdd } = setup(onRescan);
 
     await emitAdd(writePage('x.prod.island.tsx', 'export default () => null;'));
-    const scan = onRescan.mock.calls[0]![0] as PageScanResult;
+    const scan = onRescan.mock.calls[0][0] as PageScanResult;
     expect(scan.pages.map((page) => page.componentPath)).toEqual(['x.dev.island.tsx']);
   });
 });

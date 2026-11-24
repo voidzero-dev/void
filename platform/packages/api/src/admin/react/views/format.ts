@@ -124,7 +124,7 @@ export function formatAiLoggingStatus(status: AiLoggingStatusDisplay | null): st
         ? `from ${plan}`
         : `AI Gateway setting; ${planDefault}`;
   const state = Object.hasOwn(aiLoggingStates, status.state)
-    ? aiLoggingStates[status.state]!(status)
+    ? aiLoggingStates[status.state](status)
     : status.state;
   return `${status.effective} (${source}) — ${state}`;
 }

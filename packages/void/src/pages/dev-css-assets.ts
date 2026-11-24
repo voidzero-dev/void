@@ -346,7 +346,7 @@ class DevCssProvider {
 
     this.cache.set(cacheKey, assets);
     if (this.cache.size > 100) {
-      const oldest = this.cache.keys().next().value as string | undefined;
+      const oldest = this.cache.keys().next().value;
       if (oldest) {
         this.cache.delete(oldest);
       }

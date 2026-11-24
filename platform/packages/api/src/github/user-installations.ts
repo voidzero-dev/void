@@ -4,28 +4,14 @@ const GITHUB_API_BASE = 'https://api.github.com';
 const GITHUB_API_VERSION = '2026-03-10';
 
 /**
- * The GitHub App's OAuth (user-to-server) credentials. These are DISTINCT from
- * both the App's `GITHUB_APP_ID`/`GITHUB_APP_PRIVATE_KEY` (used to mint the App
- * JWT) and the standalone OAuth-login `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`.
- * A GitHub App has its own `client_id`/`client_secret` shown on its settings
- * page; they are what the user-to-server token exchange requires.
- *
- * Declared here (not in env.ts) as optional reads so the feature degrades to
- * the personal account-id fallback when the App is not configured for
- * "Request user authorization (OAuth) during installation".
- */
-type AppOAuthEnv = ApiEnv['Bindings'] & {
-  GITHUB_APP_CLIENT_ID?: string;
-  GITHUB_APP_CLIENT_SECRET?: string;
-};
-
-/**
- * True only when the GitHub App's user-to-server OAuth credentials are present.
+ * True only when the GitHub App's user-to-server OAuth credentials are present. These
+ * are the App's client ID and secret, distinct from its JWT signing key and the
+ * standalone OAuth login credentials.
  * When false, the callback cannot exchange an install `code` and must fall back
  * to the personal account-id match.
  */
 export function isAppUserOAuthConfigured(env: ApiEnv['Bindings']): boolean {
-  const e = env as AppOAuthEnv;
+  const e = env;
   return (
     typeof e.GITHUB_APP_CLIENT_ID === 'string' &&
     e.GITHUB_APP_CLIENT_ID !== '' &&
@@ -47,7 +33,7 @@ async function exchangeInstallCodeForUserToken(
   code: string,
   redirectUri?: string,
 ): Promise<string | null> {
-  const e = env as AppOAuthEnv;
+  const e = env;
   const res = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: {
@@ -67,7 +53,7 @@ async function exchangeInstallCodeForUserToken(
     return null;
   }
 
-  const data = (await res.json()) as { access_token?: string; error?: string };
+  const data = await res.json<{ access_token?: string; error?: string }>();
   if (data.error || typeof data.access_token !== 'string' || data.access_token === '') {
     return null;
   }
@@ -101,7 +87,7 @@ async function fetchUserAccountId(userToken: string): Promise<string | null> {
   if (!res.ok) {
     return null;
   }
-  const data = (await res.json()) as AuthenticatedUserResponse;
+  const data = await res.json<AuthenticatedUserResponse>();
   return typeof data.id === 'number' ? String(data.id) : null;
 }
 
@@ -165,7 +151,7 @@ async function listUserInstallationIds(userToken: string): Promise<Set<string>> 
         `Failed to list user installations: ${res.status} ${body.trim() || '<empty>'}`,
       );
     }
-    const data = (await res.json()) as UserInstallationsResponse;
+    const data = await res.json<UserInstallationsResponse>();
     const installations = data.installations ?? [];
     for (const installation of installations) {
       if (typeof installation.id === 'number') {
@@ -326,7 +312,7 @@ export async function verifyUserRepoAccess(
         `Failed to list installation repositories: ${res.status} ${body.trim() || '<empty>'}`,
       );
     }
-    const data = (await res.json()) as InstallationRepositoriesResponse;
+    const data = await res.json<InstallationRepositoriesResponse>();
     const repositories = data.repositories ?? [];
     for (const repo of repositories) {
       if (repo.full_name === repoFullName && typeof repo.id === 'number') {

@@ -125,10 +125,7 @@ describe('D1 cross-request bookmark reproduction (#783)', () => {
             .run();
           await database.prepare("INSERT INTO profile VALUES (1, 'Old name')").run();
         }
-        const { binding, withSession } = laggingBinding(
-          primary as unknown as D1Database,
-          replica as unknown as D1Database,
-        );
+        const { binding, withSession } = laggingBinding(primary, replica);
         const { db, createDb, setSession, getBookmark } =
           testCase.module === 'runtime' ? runtimeDb : await loadGeneratedDb(testCase.bindingName);
         const env = { [testCase.bindingName]: binding };
@@ -368,7 +365,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
       expect(getBookmark()).toBe(BEFORE_SAVE);
       expect(getBookmark(db)).toBe(BEFORE_SAVE);
       // oxlint-disable-next-line typescript/no-unsafe-call -- Set the return value on the session mock supplied by the fixture.
-      withSession.mock.results[0]!.value.getBookmark.mockReturnValue(AFTER_SAVE);
+      withSession.mock.results[0].value.getBookmark.mockReturnValue(AFTER_SAVE);
       expect(() => setSession({ bookmark: 'test-bookmark-003-newer' })).toThrow('createDb');
       expect(() => setSession('first-primary')).toThrow('createDb');
       expect(getBookmark()).toBe(AFTER_SAVE);
@@ -386,7 +383,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
         void db.select();
         setSession(start === BEFORE_SAVE ? { bookmark: start } : start);
         setSession('first-unconstrained');
-        const session = withSession.mock.results[0]!.value;
+        const session = withSession.mock.results[0].value;
         // D1 advances the bookmark as queries complete. Compare against that
         // progress, not just the session's original starting value.
         // oxlint-disable-next-line typescript/no-unsafe-call -- Set the return value on the session mock supplied by the fixture.

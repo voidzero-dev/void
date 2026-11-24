@@ -1180,7 +1180,7 @@ export async function uploadPinnedCloudflareVersion(options: {
     throw new Error('The explicit Cloudflare secrets file was not readable.');
   }
   const bindings = bindingsFromOutput(
-    (config.env ?? {}) as Json,
+    config.env ?? {},
     options.workerName,
     activeSecrets,
     explicitSecrets,
@@ -1202,7 +1202,7 @@ export async function uploadPinnedCloudflareVersion(options: {
   }
   const activeBindingNames = new Set<string>();
   const candidateNames = new Set(bindings.map((binding) => String(binding.name)));
-  const keptTypes = new Set((metadata?.keep_bindings as Array<string> | undefined) ?? []);
+  const keptTypes = new Set(metadata?.keep_bindings ?? []);
   for (const entry of active.bindings) {
     const binding = object(entry);
     if (!binding || typeof binding.name !== 'string' || typeof binding.type !== 'string') {

@@ -706,7 +706,7 @@ createDb(binding, { session: { bookmark: null } });
     const code = load.call({}, '\0virtual:void-db');
     const specifiers = Array.from(
       code.matchAll(/\b(?:from|import)\s*\(?\s*("[^"]+")/g),
-      (match) => JSON.parse(match[1]!) as string,
+      (match) => JSON.parse(match[1]) as string,
     );
 
     // The worker optimizer serves drizzle's bare driver import from a prebundle. A bare import

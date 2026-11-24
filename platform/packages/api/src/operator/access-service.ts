@@ -172,7 +172,7 @@ export async function allowOperatorSignup(
       ? entryTarget(unique[0])
       : unique.every((entry) => entry.type === unique[0]?.type && entry.type !== 'identity')
         ? {
-            type: unique[0]!.type,
+            type: unique[0].type,
             patterns: unique.map((entry) => (entry.type === 'identity' ? '' : entry.pattern)),
           }
         : { entries: unique.map(entryTarget) };
@@ -338,7 +338,7 @@ export async function sendOperatorInvitations(
       }
     }
     try {
-      created[index] = await setInvitationEmailDeliveryStatus(db, created[index]!.id, status);
+      created[index] = await setInvitationEmailDeliveryStatus(db, created[index].id, status);
     } catch (error) {
       console.error('[admin] invitation email status could not be saved', { email, status, error });
       throw new OperatorError(

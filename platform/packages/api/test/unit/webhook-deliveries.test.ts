@@ -38,7 +38,7 @@ function headersOf(input: string | URL | Request, init?: RequestInit): Headers {
   if (input instanceof Request) {
     return input.headers;
   }
-  return new Headers(init?.headers as HeadersInit | undefined);
+  return new Headers(init?.headers);
 }
 
 // A GitHub delivery-log item (only the fields we map).

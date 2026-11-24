@@ -37,7 +37,7 @@ function createApp(sessionResult: { response: AuthState | null; headers: Headers
 
   const app = new Hono();
   app.use(async (c, next) => {
-    await runtime.runVoidAuthMiddleware(c, next, authRuntimeOptions, {} as never);
+    await runtime.runVoidAuthMiddleware(c, next, authRuntimeOptions, {});
   });
   return app;
 }
@@ -278,14 +278,14 @@ describe('runVoidAuthMiddleware Better Auth plugins', () => {
   const env = { BETTER_AUTH_SECRET: 'test-secret' };
   type PluginList = Array<{ id: string }>;
   const pluginsOf = (call: number): PluginList =>
-    (mocks.betterAuth.mock.calls[call]![0] as { plugins?: PluginList }).plugins ?? [];
+    (mocks.betterAuth.mock.calls[call][0] as { plugins?: PluginList }).plugins ?? [];
 
   function pluginApp(userConfig?: VoidAuthRuntimeOptions['userConfig']): Hono {
     mocks.getSession.mockResolvedValue({ response: null, headers: new Headers() });
     mocks.betterAuth.mockReturnValue({ api: { getSession: mocks.getSession }, options: {} });
     const app = new Hono();
     app.use((c, next) =>
-      runtime.runVoidAuthMiddleware(c, next, { ...authRuntimeOptions, userConfig }, {} as never),
+      runtime.runVoidAuthMiddleware(c, next, { ...authRuntimeOptions, userConfig }, {}),
     );
     app.get('/', (c) => c.text('ok'));
     return app;
@@ -300,7 +300,7 @@ describe('runVoidAuthMiddleware Better Auth plugins', () => {
     ],
   ] as const)('keeps user plugins first with a %s config', async (_form, config) => {
     const plugins = [{ id: 'first' }, { id: 'second' }];
-    const app = pluginApp(config(plugins) as VoidAuthRuntimeOptions['userConfig']);
+    const app = pluginApp(config(plugins));
 
     expect((await app.request('/', undefined, env)).status).toBe(200);
 
@@ -326,7 +326,7 @@ describe('runVoidAuthMiddleware Better Auth plugins', () => {
       new Request('http://localhost/'),
       env,
       { ...authRuntimeOptions, userConfig: { plugins: [{ id: 'only' }] } },
-      {} as never,
+      {},
     );
     expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['only']);
   });
@@ -389,15 +389,15 @@ describe('cross-origin cookie sessions', () => {
   }
 
   async function sessionCookieFor(request: Request): Promise<string | null> {
-    await runtime.resolveVoidAuthState(request, env, authRuntimeOptions, {} as never);
+    await runtime.resolveVoidAuthState(request, env, authRuntimeOptions, {});
     expect(mocks.getSession).toHaveBeenCalledOnce();
-    return (mocks.getSession.mock.calls[0]![0] as { headers: Headers }).headers.get('cookie');
+    return (mocks.getSession.mock.calls[0][0] as { headers: Headers }).headers.get('cookie');
   }
 
   function routeApp() {
     const app = new Hono<{ Variables: { user: AuthUser | null } }>();
     app.use(async (c, next) => {
-      await runtime.runVoidAuthMiddleware(c, next, authRuntimeOptions, {} as never);
+      await runtime.runVoidAuthMiddleware(c, next, authRuntimeOptions, {});
     });
     return app;
   }
@@ -520,8 +520,8 @@ describe('cross-origin cookie sessions', () => {
     const whoami = await app.request('https://app.void.app/api/whoami', init, env);
     await expect(whoami.json()).resolves.toEqual({ user: null, cookie: 'session=victim' });
     expect(warn).toHaveBeenCalledTimes(2);
-    expect(String(warn.mock.calls[0]![0])).toContain('https://evil.void.app');
-    expect(String(warn.mock.calls[0]![0])).toContain('trustedOrigins');
+    expect(String(warn.mock.calls[0][0])).toContain('https://evil.void.app');
+    expect(String(warn.mock.calls[0][0])).toContain('trustedOrigins');
   });
 
   it.each([

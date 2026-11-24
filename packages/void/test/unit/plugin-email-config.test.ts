@@ -84,10 +84,9 @@ async function resolveCloudflareConfig(
   const plugins = voidPlugin();
 
   const envPlugin = plugins.find((plugin) => plugin.name === 'void:env');
-  const config = getHookHandler(envPlugin?.config) as (
-    config: import('vite').UserConfig,
-    env: import('vite').ConfigEnv,
-  ) => void;
+  const config = getHookHandler<
+    (config: import('vite').UserConfig, env: import('vite').ConfigEnv) => void
+  >(envPlugin?.config);
   config({}, configEnv);
 
   const cloudflarePlugin = plugins.find(

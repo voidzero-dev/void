@@ -125,7 +125,7 @@ describe.each(['hashed', 'isr'] as const)('Access assertion isolation for %s res
       }
       routing.zeroTrust = protection;
       const signingKeys = vi.fn(async () => Response.json({ keys: [jwk] }));
-      const verifier = new ProjectAccessVerifier(signingKeys as typeof fetch);
+      const verifier = new ProjectAccessVerifier(signingKeys);
       const verify = vi
         .spyOn(projectAccessVerifier, 'verify')
         .mockImplementation(verifier.verify.bind(verifier));

@@ -100,6 +100,6 @@ export class ProxyKVNamespace {
       limit: options?.limit,
       cursor: options?.cursor,
     });
-    return (await res.json()) as KVNamespaceListResult<M, string>;
+    return await res.json<KVNamespaceListResult<M, string>>();
   }
 }

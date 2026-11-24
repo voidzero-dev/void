@@ -494,7 +494,7 @@ function createVoidTsconfigPatch(root: string, outputBaseDir: string): TsconfigI
   const hasSchema = hasDrizzleSchema(root);
   const voidConfig = createProjectTsconfig(root, undefined, hasSchema, hasSchema);
   return collectTsconfigPatchFromConfig(
-    voidConfig as JsonObject,
+    voidConfig,
     join(root, '.void', 'tsconfig.json'),
     root,
     outputBaseDir,
@@ -1547,7 +1547,7 @@ async function promptStarterMode(starter?: ScaffoldStarterMode): Promise<Scaffol
     process.exit(0);
   }
 
-  return choice as ScaffoldStarterMode;
+  return choice;
 }
 
 async function promptScaffoldToolchain(toolchain?: ScaffoldToolchain): Promise<ScaffoldToolchain> {
@@ -1590,7 +1590,7 @@ async function promptScaffoldFramework(framework?: ScaffoldFramework): Promise<S
     process.exit(0);
   }
 
-  return choice as ScaffoldFramework;
+  return choice;
 }
 
 async function promptDatabaseSetup(root: string): Promise<DatabaseSetupChoice> {
@@ -1629,7 +1629,7 @@ async function promptDatabaseSetup(root: string): Promise<DatabaseSetupChoice> {
     process.exit(0);
   }
 
-  return choice as DatabaseSetupChoice;
+  return choice;
 }
 
 /** Ask where the project deploys, unless `deploy` answers it. The caller saves the answer. */
@@ -1669,7 +1669,7 @@ async function askDeploymentPlatform(
     process.exit(0);
   }
 
-  return choice as DeploymentPlatform;
+  return choice;
 }
 
 export async function ensureVoidPlatformConnection(

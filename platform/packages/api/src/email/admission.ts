@@ -200,7 +200,7 @@ async function ensureControls(tx: Tx, projectId: string) {
     .from(emailProjectControls)
     .where(eq(emailProjectControls.project_id, projectId))
     .for('update');
-  return row!;
+  return row;
 }
 
 export async function setProjectEmailLimits(
@@ -234,7 +234,7 @@ export async function setProjectEmailLimits(
       .set(update)
       .where(eq(emailProjectControls.project_id, projectId))
       .returning();
-    return row!;
+    return row;
   });
 }
 
@@ -249,7 +249,7 @@ export async function setProjectEmailSuspended(db: Db, projectId: string, suspen
       })
       .where(eq(emailProjectControls.project_id, projectId))
       .returning();
-    return row!;
+    return row;
   });
 }
 
@@ -361,7 +361,7 @@ export async function admitEmailAction(
       .where(eq(users.id, project.user_id))
       .limit(1);
     const policy = await getEmailRecipientPolicy(tx);
-    const senderDomain = input.from.toLowerCase().split('@')[1]!;
+    const senderDomain = input.from.toLowerCase().split('@')[1];
     const shared = senderDomain === input.sharedSenderDomain.toLowerCase();
     if (shared && !/^[a-z0-9._-]+(?:\+[a-z0-9._=/-]+)*@[a-z0-9.-]+$/i.test(input.from)) {
       throw new EmailAdmissionError('INVALID_REQUEST', 'invalid shared sender');
@@ -387,7 +387,7 @@ export async function admitEmailAction(
     let senderAllowed: boolean;
     let verifiedOnlyTransport = input.transport === 'native_forward';
     if (shared) {
-      const name = input.from.toLowerCase().split('@')[0]!.split('+')[0]!;
+      const name = input.from.toLowerCase().split('@')[0].split('+')[0];
       senderAllowed =
         !isReservedEmailSlug(project.slug) &&
         projectMailboxNames(project).some((candidate) => candidate.toLowerCase() === name);
@@ -474,12 +474,12 @@ export async function admitEmailAction(
       transport: input.transport,
       policy_version: controls.version,
     });
-    const recipientDomains = [...new Set(recipients.map((recipient) => recipient.split('@')[1]!))];
+    const recipientDomains = [...new Set(recipients.map((recipient) => recipient.split('@')[1]))];
     const destinationRoutes = await resolveEmailDomains(tx, recipientDomains);
     let admittedCount = 0;
     const recipientRows: Array<typeof emailActionRecipients.$inferInsert> = [];
     for (const recipient of recipients) {
-      const domain = recipient.split('@')[1]!;
+      const domain = recipient.split('@')[1];
       const consent = verified.has(recipient);
       const allowedByMode =
         policy.mode === 'any' || (policy.mode === 'domains' && policy.domains.includes(domain));
@@ -536,7 +536,7 @@ export async function admitEmailAction(
       replay: false,
       recipients: await currentRecipients(tx, actionId),
       ...(!shared && senderAllowed
-        ? { accountId: (await resolveEmailDomain(tx, senderDomain))!.connection.account_id }
+        ? { accountId: (await resolveEmailDomain(tx, senderDomain)).connection.account_id }
         : {}),
     };
   });
@@ -948,7 +948,7 @@ export async function recordEmailReceipt(
         .insert(emailReceipts)
         .values({ id: input.receiptId, project_id: input.projectId, status: input.status })
         .returning({ createdAt: emailReceipts.created_at });
-      await incrementInboundReceiptUsage(tx, input.projectId, inserted!.createdAt);
+      await incrementInboundReceiptUsage(tx, input.projectId, inserted.createdAt);
     }
   });
 }
@@ -1015,7 +1015,7 @@ export async function claimRelayedEmailReceipt(
       .onConflictDoNothing()
       .returning({ id: emailReceipts.id, createdAt: emailReceipts.created_at });
     if (inserted.length) {
-      await incrementInboundReceiptUsage(tx, input.projectId, inserted[0]!.createdAt);
+      await incrementInboundReceiptUsage(tx, input.projectId, inserted[0].createdAt);
       return { state: 'claimed' };
     }
     const [concurrent] = await tx

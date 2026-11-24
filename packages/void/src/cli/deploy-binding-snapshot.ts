@@ -489,7 +489,7 @@ export function isEmptyPassthroughValue(value: unknown): boolean {
     return value.length === 0;
   }
   if (typeof value === 'object') {
-    const keys = Object.keys(value as Record<string, unknown>);
+    const keys = Object.keys(value);
     if (keys.length === 0) {
       return true;
     }

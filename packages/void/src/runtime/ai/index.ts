@@ -98,7 +98,7 @@ function copyBinaryView(value: ArrayBufferView): ArrayBuffer {
   const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
-  return copy.buffer as ArrayBuffer;
+  return copy.buffer;
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {

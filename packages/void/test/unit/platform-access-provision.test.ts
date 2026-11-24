@@ -129,7 +129,7 @@ describe('Cloudflare Access provisioning', () => {
       base.proxyUrl,
     ]);
     expect(Object.keys(result.credentials!)).toEqual([base.apiUrl, base.proxyUrl]);
-    const app = [...env.apps.values()][0]!;
+    const app = [...env.apps.values()][0];
     expect(app.policies).toEqual([
       { id: 'employees', precedence: 1 },
       {

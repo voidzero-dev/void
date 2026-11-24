@@ -359,7 +359,7 @@ export async function uploadInstallationWorkers(input: {
     const tasks: Array<Promise<void>> = [];
     for (const [index, key] of workerKeys.entries()) {
       const priorWorker = tasks.at(-1);
-      const ready = workerReady[index]!;
+      const ready = workerReady[index];
       const task = deployOneWorker(key, priorWorker ? () => priorWorker : undefined, async () => {
         ready.resolve();
         const batch = await uploadBatch;

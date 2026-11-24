@@ -336,21 +336,21 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
       return { type: 'secret.list', ...target };
     }
     if (args[1] === 'put') {
-      return { type: 'secret.put', name: args[2]!, ...target };
+      return { type: 'secret.put', name: args[2], ...target };
     }
   }
   if (args[0] === 'd1' && args[1] === 'migrations') {
     return {
       type: args[2] === 'apply' ? 'd1.migrations.apply' : 'd1.migrations.list',
-      database: args[3]!,
+      database: args[3],
       configPath: value('-c')!,
     };
   }
   if (args[0] === 'd1' && args[1] === 'time-travel') {
-    return { type: 'd1.time-travel.bookmark', database: args[3]!, configPath: value('-c')! };
+    return { type: 'd1.time-travel.bookmark', database: args[3], configPath: value('-c')! };
   }
   if (args[0] === 'queues' && args[1] === 'info') {
-    return { type: 'queues.info', name: args[2]!, configPath: value('-c') };
+    return { type: 'queues.info', name: args[2], configPath: value('-c') };
   }
   if (args[0] === 'containers') {
     return { type: 'containers.list', configPath: value('-c') };
@@ -363,7 +363,7 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
       return { type: 'versions.list', ...target };
     }
     if (args[1] === 'view') {
-      return { type: 'versions.view', versionId: args[2]!, ...target };
+      return { type: 'versions.view', versionId: args[2], ...target };
     }
     if (args[1] === 'upload') {
       return {
@@ -385,7 +385,7 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
             return [];
           }
           const [versionId, percentage] = value.split('@');
-          return [{ versionId: versionId!, percentage: Number(percentage) }];
+          return [{ versionId, percentage: Number(percentage) }];
         }),
       };
     }
@@ -405,8 +405,8 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
   if (args[0] === 'queues' && args[1] === 'consumer') {
     return {
       type: 'queues.consumer.remove',
-      queueName: args[3]!,
-      workerName: args[4]!,
+      queueName: args[3],
+      workerName: args[4],
       configPath: value('-c'),
     };
   }

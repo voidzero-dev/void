@@ -661,7 +661,7 @@ describe('PlatformClient.removeEmailDomain', () => {
     vi.stubGlobal('fetch', withPlatformDiscovery(fetchMock));
     const client = new PlatformClient('tok', { apiUrl: 'https://api.test' });
     await client.removeEmailDomain('prj_1', 'acme.com');
-    const [url, init] = fetchMock.mock.calls[0]!;
+    const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe('https://api.test/projects/prj_1/email/domains/acme.com');
     expect(init?.method).toBe('DELETE');
   });
@@ -735,7 +735,7 @@ describe('PlatformClient.rotateEmailDomainSecret', () => {
     vi.stubGlobal('fetch', withPlatformDiscovery(fetchMock));
     const client = new PlatformClient('tok', { apiUrl: 'https://api.test' });
     await client.rotateEmailDomainSecret('prj_1', 'acme.com', 'attempt_1');
-    const [url, init] = fetchMock.mock.calls[0]!;
+    const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe(
       'https://api.test/projects/prj_1/email/domains/acme.com/rotate-secret',
     );

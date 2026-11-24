@@ -49,10 +49,10 @@ async function startPlugin(root: string, command: 'serve' | 'build') {
     config: { root: string },
     env: { command: 'serve' | 'build' },
   ) => unknown;
-  const configResolved = getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void;
+  const configResolved = getHookHandler<(config: ResolvedConfig) => void>(plugin.configResolved);
   const buildStart = getHookHandler(plugin.buildStart) as () => Promise<void>;
   const load = getHookHandler(plugin.load) as (id: string) => string | undefined;
-  const configureServer = getHookHandler(plugin.configureServer) as (server: ViteDevServer) => void;
+  const configureServer = getHookHandler<(server: ViteDevServer) => void>(plugin.configureServer);
   const transform = getHookHandler(plugin.transform) as (
     code: string,
     id: string,

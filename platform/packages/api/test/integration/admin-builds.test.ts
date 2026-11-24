@@ -116,7 +116,7 @@ describe('GET /admin/builds/:id/logs', () => {
       env,
     );
     expect(response.status).toBe(200);
-    const result = (await response.json()) as {
+    const result = await response.json<{
       results: Array<{
         ok: boolean;
         data?: {
@@ -126,7 +126,7 @@ describe('GET /admin/builds/:id/logs', () => {
           logsComplete?: boolean | null;
         };
       }>;
-    };
+    }>();
     expect(result.results[0]?.ok).toBe(true);
     expect(result.results[0]?.data?.lines?.[0]?.line).toBe('ready');
     expect(result.results[0]?.data?.lastSeq).toBe(1);
@@ -157,7 +157,7 @@ describe('GET /admin/builds/:id/logs', () => {
 
     const res = await req(`/admin/builds/${build.id}/logs?since=0`, cookie);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { lines: Array<unknown>; lastSeq: number };
+    const body = await res.json<{ lines: Array<unknown>; lastSeq: number }>();
     expect(body.lastSeq).toBe(1);
     expect(body.lines).toHaveLength(1);
 
@@ -187,7 +187,7 @@ describe('GET /admin/builds/:id/logs', () => {
 
     const res = await req(`/admin/builds/${build.id}/logs?since=3`, cookie);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { lines: Array<unknown>; lastSeq: number };
+    const body = await res.json<{ lines: Array<unknown>; lastSeq: number }>();
     expect(body.lastSeq).toBe(5);
 
     expect(large.calls).toHaveLength(1);
@@ -235,11 +235,11 @@ describe('GET /admin/builds/:id/logs', () => {
 
     const res = await req(`/admin/builds/${build.id}/logs`, cookie);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: Array<unknown>;
       lastSeq: number;
       external: string | null;
-    };
+    }>();
     expect(body.lines).toEqual([]);
     expect(body.lastSeq).toBe(0);
     expect(body.external).toBe(logsUrl);

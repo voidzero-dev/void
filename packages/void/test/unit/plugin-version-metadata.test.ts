@@ -44,6 +44,7 @@ async function generate(resolved: Record<string, unknown>, command: 'build' | 's
   if (!configure) {
     throw new Error('Void environment hook missing');
   }
+  // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- This synchronous fixture hook is called without a Vite plugin context.
   (configure as (config: UserConfig, environment: ConfigEnv) => void)(
     {},
     { command, mode: command === 'build' ? 'production' : 'development' },

@@ -176,7 +176,7 @@ describe('live plan transitions using the production quota counter', () => {
       expect(response.status).toBe(200);
     };
     const state = async () =>
-      (await (await counter.fetch(new Request('https://do/state'))).json()) as CounterState;
+      await (await counter.fetch(new Request('https://do/state'))).json<CounterState>();
     await record(3);
     const period = (await state()).billingPeriodStart;
     await change('/free/set', { limits: { requestsPerMonth: 2 } });

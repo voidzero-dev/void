@@ -86,7 +86,7 @@ export function browserPageIdentity(identity: {
     ]
       .map(
         ([label, value]) =>
-          '<div><dt>' + label + '</dt><dd>' + escapeBrowserHtml(value!) + '</dd></div>',
+          '<div><dt>' + label + '</dt><dd>' + escapeBrowserHtml(value) + '</dd></div>',
       )
       .join('') +
     '</dl>'

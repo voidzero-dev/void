@@ -370,10 +370,10 @@ export default async function (batch) {
     const url = await miniflare.ready;
     const response = await call(url, '/helpers', {});
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
+    const body = await response.json<{
       errors: Record<string, string>;
       stats: { messages: number; hasBinding: boolean };
-    };
+    }>();
     for (const name of [
       'context',
       'handleFetch',

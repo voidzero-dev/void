@@ -14,7 +14,7 @@ export function hasRevalidate(r: unknown): boolean {
     return r > 0;
   }
   if (typeof r === 'object') {
-    return Object.keys(r as object).length > 0;
+    return Object.keys(r).length > 0;
   }
   return false;
 }

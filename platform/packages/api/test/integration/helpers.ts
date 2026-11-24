@@ -483,7 +483,7 @@ export function createCronSchedulerMock(): {
         const path = new URL(request.url).pathname;
         calls.push({ name, path });
         if (path === '/sync') {
-          states.set(name, (await request.json()) as CronSyncState);
+          states.set(name, await request.json<CronSyncState>());
         } else if (path === '/clear') {
           states.delete(name);
         } else if (path === '/snapshot') {
@@ -1090,13 +1090,13 @@ function extractMigrationTag(metadata: Record<string, unknown>): string | undefi
 function parseScriptNameFromUrl(url: string): string | null {
   // .../workers/dispatch/namespaces/{ns}/scripts/{name}[/...]
   const m = /\/workers\/(?:dispatch\/namespaces\/[^/]+\/)?scripts\/([^/?#]+)/.exec(url);
-  return m ? decodeURIComponent(m[1]!) : null;
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 function parseAppIdFromUrl(url: string): string | null {
   // .../containers/applications/{id}[/...]
   const m = /\/containers\/applications\/([^/?#]+)/.exec(url);
-  return m ? decodeURIComponent(m[1]!) : null;
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 function parseAppNameQuery(url: string): string | null {

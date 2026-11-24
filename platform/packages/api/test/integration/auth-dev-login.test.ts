@@ -41,7 +41,7 @@ function extractRedirectTarget(body: string): string {
   if (!match) {
     throw new Error(`no location.replace() in body: ${body.slice(0, 200)}`);
   }
-  return match[1]!;
+  return match[1];
 }
 
 describe('GET /auth/dev-login', () => {

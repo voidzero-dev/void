@@ -1020,7 +1020,7 @@ describe('platform installer', () => {
     expect(deletedKeys).not.toContain(PLATFORM_DISABLED_KEY);
     expect(kvWrites).toContainEqual({ key: PLATFORM_DISABLED_KEY, value: PLATFORM_DISABLED_VALUE });
     expect(rollbacks).toEqual([]);
-    const failed = listInstallationManifests(directory)[0]!;
+    const failed = listInstallationManifests(directory)[0];
     expect(failed.status).toBe('failed');
     expect(
       failed.steps.some(
@@ -2269,7 +2269,7 @@ describe('platform installer', () => {
 
   it('preserves unmanaged Worker routes and custom domains across deploy and rollback', async () => {
     const plan = await examplePlan(null, { controlPlaneDomain: 'api.example.com' });
-    const managedDispatchPattern = createApplicationRoutes(plan.deployment.application)[0]!.pattern;
+    const managedDispatchPattern = createApplicationRoutes(plan.deployment.application)[0].pattern;
     const client = {
       listWorkerDomains: async () => [
         {
@@ -3014,7 +3014,7 @@ describe('platform installer', () => {
     );
 
     await expect(
-      verifyPlatformSandboxDrain('https://api.example.com', 'probe-token', (async () =>
+      verifyPlatformSandboxDrain('https://api.example.com', 'probe-token', async () =>
         Response.json({
           complete: true,
           generation: null,
@@ -3022,11 +3022,13 @@ describe('platform installer', () => {
           state: 'complete',
           updatedAt: null,
           version: 1,
-        })) as typeof fetch),
+        }),
+      ),
     ).rejects.toThrow('invalid DB-backed protocol v1');
     await expect(
-      verifyPlatformSandboxDrain('https://api.example.com', 'probe-token', (async () =>
-        Response.json({ error: 'invalid' }, { status: 503 })) as typeof fetch),
+      verifyPlatformSandboxDrain('https://api.example.com', 'probe-token', async () =>
+        Response.json({ error: 'invalid' }, { status: 503 }),
+      ),
     ).rejects.toThrow('Traffic remains disabled');
   });
 
@@ -3103,8 +3105,8 @@ describe('platform installer', () => {
 
   it('requires live PostgreSQL migration history to be an exact package prefix', async () => {
     const database = readPlatformRuntimeManifest().database;
-    const first = database.migrations[0]!;
-    const second = database.migrations[1]!;
+    const first = database.migrations[0];
+    const second = database.migrations[1];
     const connection = migrationConnection([
       { created_at: first.timestampMillis, hash: first.sha256, id: 1 },
       { created_at: second.timestampMillis, hash: second.sha256, id: 2 },
@@ -3116,13 +3118,13 @@ describe('platform installer', () => {
     );
     expect(state.pendingMigrations).toEqual(database.migrations.slice(2));
 
-    connection.rows[1] = { ...connection.rows[1]!, hash: '0'.repeat(64) };
+    connection.rows[1] = { ...connection.rows[1], hash: '0'.repeat(64) };
     await expect(inspectPlatformDatabaseStateConnection(connection, database)).rejects.toThrow(
       'not an exact prefix',
     );
 
     connection.rows[1] = {
-      ...connection.rows[1]!,
+      ...connection.rows[1],
       created_at: first.timestampMillis,
       hash: second.sha256,
     };
@@ -4614,7 +4616,7 @@ describe('platform installer', () => {
     });
     await expect(install()).rejects.toThrow('App access token rejected');
     expect(deployed).toEqual([]);
-    const failed = listInstallationManifests(directory)[0]!;
+    const failed = listInstallationManifests(directory)[0];
     expect(readPendingInstallationSecrets(failed)?.appAccessTokenRejected).toBe('true');
   });
 
@@ -4679,7 +4681,7 @@ describe('platform installer', () => {
 
     expect(claims).toBe(0);
     expect(locks).toBe(0);
-    const manifest = listInstallationManifests(directory)[0]!;
+    const manifest = listInstallationManifests(directory)[0];
     expect(manifest).toMatchObject({ resources: [], status: 'planned' });
     const checkpoint = readPendingInstallationSecrets(manifest);
     expect(checkpoint?.databaseClaimState).toBeUndefined();
@@ -4745,7 +4747,7 @@ describe('platform installer', () => {
       expect(claimedUrls).toEqual([]);
       expect(lockedUrls).toEqual([]);
       expect(hyperdriveRequests).toEqual([]);
-      const manifest = listInstallationManifests(directory)[0]!;
+      const manifest = listInstallationManifests(directory)[0];
       expect(manifest).toMatchObject({ resources: [], status: 'planned' });
       const checkpoint = readPendingInstallationSecrets(manifest);
       expect(checkpoint?.databaseClaimState).toBeUndefined();
@@ -4817,10 +4819,10 @@ describe('platform installer', () => {
     ).rejects.toThrow('stop after claim');
 
     expect(claimedUrls).toEqual([databaseUrl]);
-    const manifest = listInstallationManifests()[0]!;
+    const manifest = listInstallationManifests()[0];
     const checkpoint = readPendingInstallationSecrets(manifest)!;
     expect(checkpoint.databaseClaimState).toBe('failed');
-    expect(JSON.parse(checkpoint.externalHyperdriveJson!)).toEqual(plan.externalHyperdrive);
+    expect(JSON.parse(checkpoint.externalHyperdriveJson)).toEqual(plan.externalHyperdrive);
   });
 
   it('rechecks the Workers VPC service before claiming the database on apply', async () => {
@@ -4964,8 +4966,8 @@ describe('platform installer', () => {
     expect(lockedUrls).toEqual([databaseUrl]);
     expect(hyperdriveRequests).toHaveLength(1);
     expect(hyperdriveRequests[0]).toMatchObject({ mtls: { sslmode: 'require' } });
-    expect(hyperdriveRequests[0]!.mtls).not.toHaveProperty('ca_certificate_id');
-    expect(listInstallationManifests(directory)[0]!.resources).toContainEqual(
+    expect(hyperdriveRequests[0].mtls).not.toHaveProperty('ca_certificate_id');
+    expect(listInstallationManifests(directory)[0].resources).toContainEqual(
       expect.objectContaining({
         configHash: hyperdriveOriginConfigHash(hyperdriveOriginFromConnectionString(databaseUrl)),
         id: 'hyperdrive-id',
@@ -5002,7 +5004,7 @@ describe('platform installer', () => {
       }),
     ).rejects.toThrow('cutover remains unresolved');
 
-    const failed = listInstallationManifests(directory)[0]!;
+    const failed = listInstallationManifests(directory)[0];
     expect(previousRollbackRan).toBe(true);
     expect(
       failed.steps.some(
@@ -5296,7 +5298,7 @@ describe('platform installer', () => {
         revalidateBeforeWorkerDeploy: async () => {},
       }),
     ).rejects.toThrow('interrupted deployment');
-    const failedDisabledUpgrade = listInstallationManifests(directory)[0]!;
+    const failedDisabledUpgrade = listInstallationManifests(directory)[0];
     const resumedConfigs: Array<Record<string, unknown>> = [];
     const resumedDisabledUpgrade = await installPlatform(
       upgradedPlan,
@@ -5501,7 +5503,7 @@ describe('platform installer', () => {
       expect(uploaded.map((config) => config.name)).toEqual([deployment.resources.apiWorker]);
       expect(created).toHaveLength(1);
       expect(source.resources.map((resource) => resource.id)).not.toContain(created[0]);
-      expect(uploaded[0]!.kv_namespaces).toContainEqual({ binding: 'ISR_CACHE', id: created[0] });
+      expect(uploaded[0].kv_namespaces).toContainEqual({ binding: 'ISR_CACHE', id: created[0] });
     });
 
     it('uploads them also when the run does not pause traffic', async () => {
@@ -5642,7 +5644,7 @@ describe('platform installer', () => {
       `deploy:${deployment.resources.proxyWorker}`,
       'gate:closed',
     ]);
-    const interruptedManifest = listInstallationManifests(directory)[0]!;
+    const interruptedManifest = listInstallationManifests(directory)[0];
     expect(interruptedManifest).toMatchObject({
       status: 'failed',
       usageProtocolVersion: 1,
@@ -5725,12 +5727,12 @@ describe('platform installer', () => {
     ).toBe(undefined);
     for (const index of [0, 1, 2, 4]) {
       expect(
-        (emptyCoreUpgradeConfigs[index]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (emptyCoreUpgradeConfigs[index].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('staging');
     }
     for (const index of [5, 6, 7, 9]) {
       expect(
-        (emptyCoreUpgradeConfigs[index]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (emptyCoreUpgradeConfigs[index].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('enabled');
     }
     const nextRotationSecrets = createPlatformInstallationSecrets({
@@ -6155,10 +6157,10 @@ describe('platform installer', () => {
     expect(repairedWorkerConfigs).toHaveLength(10);
     for (const index of [0, 1, 2, 4]) {
       expect(
-        (repairedWorkerConfigs[index]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (repairedWorkerConfigs[index].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('staging');
       expect(
-        (repairedWorkerConfigs[index + 5]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (repairedWorkerConfigs[index + 5].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('enabled');
     }
   });
@@ -6222,7 +6224,7 @@ describe('platform installer', () => {
     expect(legacyEnableConfigs).toHaveLength(5);
     for (const index of [0, 1, 2, 4]) {
       expect(
-        (legacyEnableConfigs[index]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (legacyEnableConfigs[index].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('sandbox-drain');
     }
   });
@@ -6348,7 +6350,7 @@ describe('platform installer', () => {
       `rollback:6:${deployment.resources.apiWorker}`,
     ]);
 
-    const failedEnableManifest = listInstallationManifests(directory)[0]!;
+    const failedEnableManifest = listInstallationManifests(directory)[0];
     const retryPreviousConfigs: Array<Record<string, unknown>> = [];
     const retriedEnable = await installPlatform(upgradedPlan, secrets, failedEnableManifest, {
       acquireDatabaseLifecycleLock,

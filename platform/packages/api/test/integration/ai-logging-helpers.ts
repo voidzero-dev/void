@@ -70,7 +70,7 @@ export function putAiLoggingKey(
  * AI logging inputs must be read through write statements. Returns each statement's verb.
  */
 export function expectNoCacheableReads(queries: ReadonlyArray<string>): Array<string> {
-  const verbs = queries.map((query) => query.trim().split(' ')[0]!.toLowerCase());
+  const verbs = queries.map((query) => query.trim().split(' ')[0].toLowerCase());
   expect(verbs).not.toContain('select');
   return verbs;
 }

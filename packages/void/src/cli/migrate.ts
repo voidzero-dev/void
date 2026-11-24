@@ -22,7 +22,6 @@ import {
 import { loadTypedVoidConfigFile, TYPED_CONFIG_FILE } from '../config-loader.ts';
 import { GENERATED_MARKERS, renderVoidConfig } from '../config-write.ts';
 import { validateConfig } from '../config.ts';
-import type { VoidConfig } from '../config.ts';
 import { ensureGitignoreLines } from '../shared/gitignore.ts';
 import {
   applyFrameworkConfigMigration,
@@ -155,10 +154,7 @@ export function migrateLegacyVoidConfig(root: string): boolean {
         `migrate: ${TYPED_CONFIG_FILE} already exists. Move the legacy settings into it before deleting the old files.`,
       );
     }
-    current = validateConfig(loadTypedVoidConfigFile(typedPath), TYPED_CONFIG_FILE) as Record<
-      string,
-      unknown
-    >;
+    current = validateConfig(loadTypedVoidConfigFile(typedPath), TYPED_CONFIG_FILE);
     const currentVoid = { ...current };
     delete currentVoid.cloudflare;
     if (
@@ -188,7 +184,7 @@ export function migrateLegacyVoidConfig(root: string): boolean {
   const needsTypedWrite = !hadTyped || !isDeepStrictEqual(current, next);
   const temporaryPath = join(root, `.void.config.${randomUUID()}.ts`);
   if (needsTypedWrite) {
-    writeFileSync(temporaryPath, renderVoidConfig(next as VoidConfig), { flag: 'wx' });
+    writeFileSync(temporaryPath, renderVoidConfig(next), { flag: 'wx' });
   }
   try {
     if (needsTypedWrite) {

@@ -1012,7 +1012,7 @@ async function claimPlatformDatabaseConnection(
          LIMIT 1`,
       );
       if (contents.rows.length > 0) {
-        const table = contents.rows[0]!;
+        const table = contents.rows[0];
         throw new Error(
           `platform: Refusing to claim a non-empty PostgreSQL database (found ${table.schemaname}.${table.tablename}). Use a dedicated empty database for each installation.`,
         );
