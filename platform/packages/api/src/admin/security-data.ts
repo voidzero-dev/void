@@ -64,7 +64,11 @@ type AdminContext = Context<ApiEnv>;
 
 export const SECURITY_HOME = '/admin/security';
 
-const SECTION_BY_PATH: Readonly<Record<string, SecuritySection>> = {
+interface SecuritySectionsByPath {
+  readonly [path: string]: SecuritySection;
+}
+
+const SECTION_BY_PATH: SecuritySectionsByPath = {
   [SECURITY_HOME]: 'settings',
   [`${SECURITY_HOME}/findings`]: 'findings',
   [`${SECURITY_HOME}/scans`]: 'scans',
@@ -156,7 +160,11 @@ export type SecurityChrome = Readonly<{
   unseenBypasses: number;
 }>;
 
-const PROBE_FAILURE_COPY: Readonly<Record<string, string>> = {
+interface ProbeFailureCopy {
+  readonly [check: string]: string;
+}
+
+const PROBE_FAILURE_COPY: ProbeFailureCopy = {
   container:
     'Scans run in a Cloudflare Container. They need Workers Paid, and the runtime token needs Account → Containers → Edit and Account → Cloudchamber → Edit.',
   egress:
@@ -262,7 +270,9 @@ function paging(url: URL) {
   return { page: parsed, limit: PAGE_SIZE, offset: (parsed - 1) * PAGE_SIZE };
 }
 
-function securityLocation(path: string): { url: URL; section: SecuritySection } {
+type SecurityLocation = { url: URL; section: SecuritySection };
+
+function securityLocation(path: string): SecurityLocation {
   const url = new URL(path, 'https://admin.invalid');
   const section = SECTION_BY_PATH[url.pathname];
   if (!path.startsWith('/admin/') || url.origin !== 'https://admin.invalid' || !section) {

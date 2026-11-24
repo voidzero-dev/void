@@ -101,7 +101,7 @@ app.get('/requests', (context) => renderFateListPage(context, 'security'));
 // Policy and budgets: a preview step shows the plan, a second step applies it
 // ---------------------------------------------------------------------------
 
-function policyBody(form: Form): Record<string, unknown> {
+function policyBody(form: Form) {
   const expectedRevision = revision(form);
   return {
     ...(expectedRevision === undefined ? {} : { expectedRevision }),
@@ -199,7 +199,7 @@ app.post('/policy', async (context) => {
   });
 });
 
-function budgetBody(form: Form): Record<string, unknown> {
+function budgetBody(form: Form) {
   const expectedRevision = revision(form);
   return {
     ...(expectedRevision === undefined ? {} : { expectedRevision }),

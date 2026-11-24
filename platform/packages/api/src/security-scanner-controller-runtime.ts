@@ -644,9 +644,8 @@ export class ScannerController extends DurableObject<ControllerEnv> {
       });
       const output = await process.output();
       const text = decoder.decode(output.stdout).trim();
-      let report: unknown = null;
       try {
-        report = JSON.parse(text);
+        return { started: true, coldStartMs, report: JSON.parse(text) };
       } catch {
         return {
           started: true,
@@ -655,7 +654,6 @@ export class ScannerController extends DurableObject<ControllerEnv> {
           error: `self-test printed no report (exit ${output.exitCode})`,
         };
       }
-      return { started: true, coldStartMs, report };
     } catch (error) {
       return {
         started: coldStartMs !== null,
@@ -793,18 +791,17 @@ export class ScannerController extends DurableObject<ControllerEnv> {
         reason: 'bad_output',
         error_class: 'status_unreadable',
       };
-      let parsed: unknown = unreadable;
-      let findings: string | null = null;
+      let result: ScanResultReport = { status: unreadable, findings: null };
       if (status.kind === 'ok') {
-        try {
-          parsed = JSON.parse(status.text);
-        } catch {
-          parsed = unreadable;
-        }
         const read = await this.readFile(FINDINGS_PATH, FINDINGS_READ_LIMIT);
-        findings = read.kind === 'ok' ? read.text : null;
+        const findings = read.kind === 'ok' ? read.text : null;
+        try {
+          result = { status: JSON.parse(status.text), findings };
+        } catch {
+          result = { status: unreadable, findings };
+        }
       }
-      if (await this.report(state, { status: parsed, findings })) {
+      if (await this.report(state, result)) {
         await this.finish();
         return;
       }

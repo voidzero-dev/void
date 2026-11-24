@@ -65,7 +65,7 @@ import { dryRun, OperatorError, pagination, preview, readBody } from './common.t
 export const securityOperatorRoutes = new Hono<ApiEnv>();
 
 /** Map a refused security request to the operator error shape. */
-export function securityOperatorError(error: unknown): unknown {
+export function securityOperatorError<T>(error: T): T | OperatorError {
   if (error instanceof SecurityApiError) {
     return new OperatorError(error.status, error.message, error.code, error.details);
   }

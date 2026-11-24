@@ -116,7 +116,9 @@ function isUrgent(row: Pick<FindingRow, 'verdict' | 'state' | 'severity'>): bool
   );
 }
 
-export type SecurityFindingView = Readonly<Record<string, unknown>>;
+export interface SecurityFindingView {
+  readonly [field: string]: unknown;
+}
 
 /** One finding as the caller may see it. */
 export function securityFindingView(

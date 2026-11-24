@@ -166,9 +166,14 @@ export type SecurityInputPlan = Readonly<{
   memory: Omit<SecurityMemoryInput, 'diffPaths' | 'backlog'>;
 }>;
 
+/** The `task.json` the runner reads. */
+interface SecurityScanTask {
+  [field: string]: unknown;
+}
+
 export type SecurityBuiltInput = Readonly<{
   entries: ReadonlyArray<TarEntry>;
-  task: Readonly<Record<string, unknown>>;
+  task: Readonly<SecurityScanTask>;
   tier: SecurityScanTier;
   coverage: 'complete' | 'partial';
   notes: ReadonlyArray<string>;
@@ -826,7 +831,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     notes.push('partial-third-party-only');
   }
 
-  const task: Record<string, unknown> = {
+  const task: SecurityScanTask = {
     version: 1,
     scan_id: plan.scan.id,
     attempt: plan.scan.attempt,

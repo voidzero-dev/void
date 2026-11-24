@@ -648,7 +648,11 @@ export function composeSecurityProjectStreakEmail(
   };
 }
 
-const INSTALLATION_REASON_LABELS: Readonly<Record<string, string>> = {
+interface InstallationReasonLabels {
+  readonly [reason: string]: string;
+}
+
+const INSTALLATION_REASON_LABELS: InstallationReasonLabels = {
   credits: 'no AI credits left',
   infrastructure: 'scanner or container error',
   backlog: 'waited over 24 hours in the queue',

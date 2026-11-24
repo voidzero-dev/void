@@ -208,6 +208,7 @@ export function securityProbeHostModel(host: SecurityThirdPartyHost): SecurityMo
 }
 
 type Verdict = Readonly<{ ok: boolean; detail?: string }>;
+type SelfTestVerdict = Readonly<{ container: Verdict; egress: Verdict }>;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -216,10 +217,7 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 /** Checks 2 and 3 from the controller's self-test answer (pure). */
-export function judgeSelfTest(
-  result: SelfTestResult,
-  probeId: string,
-): Readonly<{ container: Verdict; egress: Verdict }> {
+export function judgeSelfTest(result: SelfTestResult, probeId: string): SelfTestVerdict {
   const report = record(result.report);
   if (!result.started || !report || report.selfTest !== 1) {
     const detail = result.error ?? 'the scanner self-test did not run';

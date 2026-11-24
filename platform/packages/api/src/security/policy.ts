@@ -313,12 +313,15 @@ export function parseSecurityPolicyChangeRequest(
   return request;
 }
 
+/** The sweep fields one request changes. */
+type SweepsChange = { on?: boolean; everyDays?: number };
+
 function parseSweepsRequest(value: unknown): Partial<SecuritySweeps> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw SecurityApiError.invalid('sweeps must be an object with on and everyDays.');
   }
   const input = value as Record<string, unknown>;
-  const sweeps: { on?: boolean; everyDays?: number } = {};
+  const sweeps: SweepsChange = {};
   for (const key of Object.keys(input)) {
     if (key !== 'on' && key !== 'everyDays') {
       throw SecurityApiError.invalid(`Unknown sweeps field: ${key}.`);

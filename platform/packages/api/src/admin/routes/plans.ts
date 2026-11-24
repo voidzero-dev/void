@@ -157,6 +157,7 @@ app.post('/preview', async (context) => {
         | 'buildInstanceType'
         | 'allowShortSlugs'
         | 'aiLogging'
+        | 'securityCap'
         | 'limits'
         | 'archived'
         | 'replacementPlanId'

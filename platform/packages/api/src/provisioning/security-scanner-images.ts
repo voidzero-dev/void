@@ -238,6 +238,9 @@ async function hasBlob(base: string, auth: string, digest: string, clock: Clock)
   return response.ok;
 }
 
+/** Node's fetch needs `duplex` for a stream body; the DOM `RequestInit` type lacks it. */
+type StreamingRequestInit = RequestInit & { duplex: 'half' };
+
 type FixedLengthStreamConstructor = new (length: number) => TransformStream<Uint8Array, Uint8Array>;
 
 /** Workers needs a known length to send a streamed body with Content-Length. */
@@ -273,7 +276,7 @@ async function pushBlob(
   }
   const url = new URL(location, `https://${CLOUDFLARE_REGISTRY}`);
   url.searchParams.set('digest', blob.digest);
-  const put = await fetch(url, {
+  const init: StreamingRequestInit = {
     method: 'PUT',
     headers: {
       Authorization: auth,
@@ -283,8 +286,9 @@ async function pushBlob(
     body: body instanceof Uint8Array ? body : sizedBody(body, blob.size),
     signal,
     // Node's fetch needs this for a stream body; Workers ignores it.
-    ...({ duplex: 'half' } as Record<string, string>),
-  });
+    duplex: 'half',
+  };
+  const put = await fetch(url, init);
   await put.body?.cancel();
   if (put.status !== 201) {
     throw new ImageStepError('copy', `The account registry refused a layer (HTTP ${put.status}).`);

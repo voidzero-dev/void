@@ -539,6 +539,9 @@ async function loadPackageClaims(
   return index;
 }
 
+/** The bundle sources, filled by whichever step reads them first. */
+type BundleSourcesOnce = { value?: SecurityBundleSources };
+
 type BaseScan = Readonly<{
   id: string;
   deploymentId: string;
@@ -909,7 +912,7 @@ export async function prepareSecurityScanInputFiles(
   let sourceDiff: SecuritySourceDiffInput | null = null;
   const notes: Array<string> = [];
   // The bundle's sources, read once: by T1 only when it can start, else by the build.
-  const bundle: { value?: SecurityBundleSources } = {};
+  const bundle: BundleSourcesOnce = {};
   if (tier.tier === 'built_diff' && base !== null && diffBase !== null) {
     let assetBytes = 0;
     for (const asset of assets) {

@@ -96,11 +96,13 @@ export type SecurityIngestRecord = Readonly<{
   moves?: true;
 }>;
 
+interface SecurityDetail {
+  [key: string]: unknown;
+}
+
 /** Trims the longest text fields until the detail fits its column (32 KB). */
-export function boundedDetail(
-  detail: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  const out: Record<string, unknown> = { ...detail };
+export function boundedDetail(detail: Readonly<Record<string, unknown>>): Readonly<SecurityDetail> {
+  const out: SecurityDetail = { ...detail };
   const size = () => new TextEncoder().encode(JSON.stringify(out)).length;
   // jsonb::text adds a space after each `:` and `,`; keep room for that.
   const limit = SECURITY_DETAIL_MAX_BYTES - 2048;
@@ -195,10 +197,15 @@ export function uniqueStoredRecords(
  * leads first, so a flood of model leads cannot push them out); `capped` says some
  * were dropped.
  */
+type StoredRecordSelection = Readonly<{
+  records: ReadonlyArray<SecurityIngestRecord>;
+  capped: boolean;
+}>;
+
 export function selectStoredRecords(
   records: ReadonlyArray<SecurityIngestRecord>,
   options: Readonly<{ confirmedOnly: boolean; existingKeys?: ReadonlySet<string> }>,
-): Readonly<{ records: ReadonlyArray<SecurityIngestRecord>; capped: boolean }> {
+): StoredRecordSelection {
   const unique = uniqueStoredRecords(records, options);
   const existingKeys = options.existingKeys ?? new Set<string>();
   const known = unique.filter((record) => existingKeys.has(record.key));

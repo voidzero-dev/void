@@ -153,9 +153,11 @@ function isZeroBlock(block: Uint8Array): boolean {
   return true;
 }
 
+type PaxFields = { path?: string; size?: number };
+
 /** `len key=value\n` records; only `path` and `size` are kept. */
-function paxRecords(data: Uint8Array): { path?: string; size?: number } {
-  const out: { path?: string; size?: number } = {};
+function paxRecords(data: Uint8Array): PaxFields {
+  const out: PaxFields = {};
   let at = 0;
   while (at < data.length) {
     let space = at;

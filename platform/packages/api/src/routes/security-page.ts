@@ -74,7 +74,11 @@ import { zeroTrustNotReadyMessage, ZeroTrustUnavailableError } from '../zero-tru
 const COOKIE_NAME = 'void_security_page';
 
 /** `?done=` keys a form redirect sets, and the line the page shows for each. */
-const DONE_COPY: Readonly<Record<string, string>> = {
+type DoneKey = 'resolved' | 'commented' | 'model' | 'budget' | 'bypassed';
+
+type DoneCopy = Readonly<Record<DoneKey, string> & { [key: string]: string | undefined }>;
+
+const DONE_COPY: DoneCopy = {
   resolved: 'Finding resolved.',
   commented: 'Comment added.',
   model: 'Scan model saved.',
@@ -232,7 +236,7 @@ type FormAction = (
   context: Context<ApiEnv>,
   viewer: PageViewer,
   body: Record<string, unknown>,
-) => Promise<keyof typeof DONE_COPY>;
+) => Promise<DoneKey>;
 
 /**
  * One page form: the origin check, the signed-in member, the capability the API route

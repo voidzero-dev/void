@@ -91,8 +91,12 @@ export type SecurityProxyStop = 'session_calls' | 'scan_calls' | 'tokens' | 'bud
 
 type ModelApi = 'chat' | 'messages' | 'responses';
 
+interface ModelRoutes {
+  readonly [path: string]: ModelApi;
+}
+
 /** One route per engine; each only reaches models of its host. */
-const ROUTES: Readonly<Record<string, ModelApi>> = {
+const ROUTES: ModelRoutes = {
   '/v1/chat/completions': 'chat',
   '/v1/messages': 'messages',
   '/v1/responses': 'responses',
@@ -811,12 +815,16 @@ function statusOf(error: unknown): number | null {
   return null;
 }
 
+interface WorkersAiCodeStatus {
+  readonly [code: string]: number;
+}
+
 /**
  * Workers AI internal codes the binding throws with no HTTP status, only as the
  * message prefix (`3040: Capacity temporarily exceeded, please try again.`), mapped to
  * the status the REST API gives them. Both 429s are the account-wide limit.
  */
-const WORKERS_AI_CODE_STATUS: Readonly<Record<string, number>> = {
+const WORKERS_AI_CODE_STATUS: WorkersAiCodeStatus = {
   '3036': 429, // Account limited (daily free allocation)
   '3040': 429, // Out of capacity
 };
@@ -844,7 +852,7 @@ export function workersAiErrorStatus(error: unknown): number | null {
 }
 
 /** The binding answer in chat-completions shape, which Engine B reads. */
-export function asChatCompletion(model: string, value: unknown): unknown {
+export function asChatCompletion<T>(model: string, value: T) {
   const result = asObject(value);
   if (!result || Array.isArray(result.choices)) {
     return value;

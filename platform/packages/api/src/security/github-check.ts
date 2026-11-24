@@ -132,9 +132,11 @@ function urgentSentence(slug: string, counts: SecurityUrgentCounts): string {
  * The check run's title and summary (spec §11.3). Counts and the landing link only:
  * check runs on a public repository are public.
  */
+type SecurityGitHubCheckText = Readonly<{ title: string; summary: string }>;
+
 export function securityGitHubCheckCopy(
   input: SecurityGitHubCheckCopyInput,
-): Readonly<{ title: string; summary: string }> {
+): SecurityGitHubCheckText {
   const urgent = input.counts.critical + input.counts.high;
   const why = unfinishedWhy(input.status, input.statusReason);
   const because = why ? ` (${why})` : '';

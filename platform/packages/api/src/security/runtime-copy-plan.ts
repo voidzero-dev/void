@@ -195,12 +195,16 @@ export type SecurityCopyIds = Readonly<{
   projectSlug: string;
 }>;
 
+interface SecurityCopyScriptMetadata {
+  [field: string]: unknown;
+}
+
 /** Upload metadata of the copy script. */
 export function securityRuntimeCopyMetadata(
   plan: SecurityCopyPlan,
   names: SecurityCopyNames,
   ids: SecurityCopyIds,
-): Record<string, unknown> {
+): SecurityCopyScriptMetadata {
   const bindings: Array<Record<string, unknown>> = [];
   for (const store of plan.stores) {
     const id = ids.ids.get(store.name) ?? store.name;

@@ -637,10 +637,10 @@ type LedgerStatus = 'finding' | 'scanned' | 'backlog';
 type LedgerFile = { path: string; status: LedgerStatus };
 const LEDGER_STATUSES: ReadonlyArray<LedgerStatus> = ['finding', 'scanned', 'backlog'];
 
+type LedgerFiles = Readonly<{ files: Array<LedgerFile>; omitted: number }>;
+
 /** The files of a stored ledger summary; empty when it is missing or not ours. */
-export function parseSecurityLedgerSummary(
-  value: unknown,
-): Readonly<{ files: Array<LedgerFile>; omitted: number }> {
+export function parseSecurityLedgerSummary(value: unknown): LedgerFiles {
   const empty = { files: [], omitted: 0 };
   if (typeof value !== 'object' || value === null) {
     return empty;
@@ -668,6 +668,14 @@ export function parseSecurityLedgerSummary(
   return { files, omitted };
 }
 
+/** The stored `coverage_ledger` JSON. */
+type SecurityLedgerSummary = {
+  version: 1;
+  scan_id: string;
+  files: Array<LedgerFile>;
+  omitted: number;
+};
+
 /**
  * This scan's ledger. A diff scan looked at part of the code, so the base scan's
  * ledger (`base`) carries over for the files it did not touch: this scan's status wins
@@ -683,7 +691,7 @@ export function buildSecurityLedgerSummary(
     backlog: ReadonlyArray<string>;
     base?: unknown;
   }>,
-): Record<string, unknown> {
+): SecurityLedgerSummary {
   const current: Array<LedgerFile> = [];
   const seen = new Set<string>();
   const add = (path: string, status: LedgerStatus) => {
@@ -1311,11 +1319,16 @@ function changesRevision(action: SecurityFindingEventAction): boolean {
   return action === 'reopened' || action === 'promoted' || action === 'severity_changed';
 }
 
+/** Column updates for one finding; values may be SQL expressions. */
+interface SecurityFindingColumns {
+  [column: string]: unknown;
+}
+
 function patchColumns(
   patch: SecurityFindingPatch,
   changed: boolean,
 ): Partial<typeof securityFindings.$inferInsert> & Record<string, unknown> {
-  const set: Record<string, unknown> = {
+  const set: SecurityFindingColumns = {
     last_seen_scan_id: patch.lastSeenScanId,
     sink_content_hash: patch.sinkContentHash,
     not_seen_in_latest: false,

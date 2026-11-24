@@ -368,7 +368,7 @@ function mergeImages(
 }
 
 /** The class migration: all classes on create; the engine classes on an older controller. */
-function migrationFor(settings: WorkerSettings | undefined): Record<string, unknown> {
+function migrationFor(settings: WorkerSettings | undefined) {
   const engineClasses = SECURITY_IMAGE_ENGINES.map(
     (engine) => SECURITY_SCANNER_ENGINE_CLASS[engine],
   );
