@@ -57,8 +57,8 @@ export function AuthSettingsPage({ path, platformName, username }: AdminPageProp
                 <AdminCard title="Enable Cloudflare Access" headingLevel={3}>
                   <p>
                     Create or connect an Access application and verify every platform origin. The
-                    installing CLI needs the installation's recovery credentials and Access setup
-                    permission.
+                    installing CLI needs the installation&apos;s recovery credentials and Access
+                    setup permission.
                   </p>
                   <CodeBlock
                     code="void platform config auth protection enable --installation <id>"

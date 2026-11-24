@@ -205,8 +205,8 @@ export function EmailProjectPage({ path, platformName, username }: AdminPageProp
         <p style={META}>
           Destinations are added by the project owner through{' '}
           <code>POST /projects/:id/email/destinations</code>, which emails the recipient for
-          consent. There is deliberately no operator-side "add" here: an admin cannot consent on a
-          recipient's behalf.
+          consent. There is deliberately no operator-side &quot;add&quot; here: an admin cannot
+          consent on a recipient&apos;s behalf.
         </p>
       </SectionStack>
 

@@ -425,7 +425,6 @@ const config = defineConfig({
       'quality/no-widen-then-assert': 'off',
       'react/button-has-type': 'off',
       'react/immutability': 'off',
-      'react/no-unescaped-entities': 'off',
       'react/no-unknown-property': 'off',
       'react/purity': 'off',
       'react/rules-of-hooks': 'off',
