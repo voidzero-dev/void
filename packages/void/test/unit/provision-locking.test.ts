@@ -23,10 +23,10 @@ import {
   provisionCloudflareResources,
   provisionOperationFixture,
   silentLog,
-  useProvisionTestDir,
+  setupProvisionTestDir,
 } from './provision-fixtures.ts';
 
-const { tmpDir, wranglerPath, setup, simulateUpdateConfig } = useProvisionTestDir('locking');
+const { tmpDir, wranglerPath, setup, simulateUpdateConfig } = setupProvisionTestDir('locking');
 
 describe('provisionCloudflareResources — whole-provision cross-process lock (proper-lockfile)', () => {
   // proper-lockfile uses a synthetic adjacent identity without creating that pathname;

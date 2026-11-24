@@ -174,6 +174,7 @@ export default function DbPage({ users, posts }: Props) {
 // --- Type tests (compile-time only, never executed) ---
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function _typeTests() {
+  /* oxlint-disable react/rules-of-hooks -- These calls only exercise hook type signatures. */
   const userForm = useForm('/?create-user', { name: '', email: '' });
   const postForm = useForm('/?create-post', { title: '', body: '', authorId: 0 });
 
@@ -215,6 +216,7 @@ function _typeTests() {
 
   // @ts-expect-error — wrong field type (id should be number)
   void action('/?delete-user', { data: { id: 'not-a-number' } });
+  /* oxlint-enable react/rules-of-hooks */
 }
 
 void _typeTests;

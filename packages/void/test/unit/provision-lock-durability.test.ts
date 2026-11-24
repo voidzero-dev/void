@@ -21,11 +21,11 @@ import {
   reap,
   silentLog,
   spawnHang,
-  useProvisionTestDir,
+  setupProvisionTestDir,
   waitForDead,
 } from './provision-fixtures.ts';
 
-const { tmpDir, wranglerPath, setup } = useProvisionTestDir('lock-durability');
+const { tmpDir, wranglerPath, setup } = setupProvisionTestDir('lock-durability');
 
 describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarantine', () => {
   const sidecar = `${wranglerPath}.void-provision.lock.quarantine.json`;

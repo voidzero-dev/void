@@ -56,7 +56,7 @@ export interface ProvisionTestDir {
  * A temp project for one test file. Registers hooks that pin the ambient account before each
  * test and remove the project, env stubs and global stubs after it.
  */
-export function useProvisionTestDir(name: string): ProvisionTestDir {
+export function setupProvisionTestDir(name: string): ProvisionTestDir {
   const tmpDir = packageFixturePath(import.meta.dirname, `.tmp-provision-test-${name}`);
   const wranglerPath = toSlash(join(tmpDir, 'wrangler.jsonc'));
 

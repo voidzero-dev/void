@@ -30,12 +30,12 @@ import {
   provisionOperationFixture,
   silentLog,
   stubEmptyHyperdriveList,
-  useProvisionTestDir,
+  setupProvisionTestDir,
   uuid,
 } from './provision-fixtures.ts';
 
 const { tmpDir, wranglerPath, setup, readConfig, simulateUpdateConfig } =
-  useProvisionTestDir('resources');
+  setupProvisionTestDir('resources');
 
 describe('D1 read-replication API', () => {
   it.each([true, false])(

@@ -277,6 +277,16 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // These compile-only fixtures call hooks to exercise their type signatures.
+        files: ['**/*.typecheck.ts'],
+        rules: { 'react/rules-of-hooks': 'off' },
+      },
+      {
+        // Signal and composition helpers do not follow React hook rules.
+        files: ['packages/{svelte,solid,vue}/**/*'],
+        rules: { 'react/rules-of-hooks': 'off' },
+      },
+      {
         // The resolver reports false positives in these public dependency re-exports.
         files: [
           'packages/void/src/runtime/db/schema/{d1,mysql,postgres}.ts',
@@ -447,7 +457,6 @@ const config = defineConfig({
       'quality/no-unsafe-dictionary-type': 'off',
       'quality/no-widen-then-assert': 'off',
       'react/purity': 'off',
-      'react/rules-of-hooks': 'off',
       'react/set-state-in-effect': 'off',
       'typescript/await-thenable': 'off',
       'typescript/consistent-type-imports': 'off',

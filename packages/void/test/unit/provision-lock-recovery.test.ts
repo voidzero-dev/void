@@ -13,11 +13,11 @@ import {
   passthruFs,
   reap,
   spawnHang,
-  useProvisionTestDir,
+  setupProvisionTestDir,
   waitForDead,
 } from './provision-fixtures.ts';
 
-const { tmpDir, wranglerPath, setup } = useProvisionTestDir('lock-recovery');
+const { tmpDir, wranglerPath, setup } = setupProvisionTestDir('lock-recovery');
 
 describe('acquireProvisionLock — quarantine sidecar gate', () => {
   const sidecar = `${wranglerPath}.void-provision.lock.quarantine.json`;

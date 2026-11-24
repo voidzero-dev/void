@@ -179,12 +179,12 @@ export function platformDatabaseClientUrl(databaseUrl: string): string {
 
 async function withPlatformDatabasePool<T>(
   databaseUrl: string,
-  use: (pool: Pool) => Promise<T>,
+  run: (pool: Pool) => Promise<T>,
 ): Promise<T> {
   const { Pool } = await import('pg');
   const pool = new Pool({ connectionString: platformDatabaseClientUrl(databaseUrl), max: 1 });
   try {
-    return await use(pool);
+    return await run(pool);
   } finally {
     await pool.end();
   }

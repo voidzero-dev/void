@@ -21,11 +21,11 @@ import {
   makeRunner,
   provisionCloudflareResources,
   silentLog,
-  useProvisionTestDir,
+  setupProvisionTestDir,
   waitForDead,
 } from './provision-fixtures.ts';
 
-const { tmpDir, wranglerPath, setup } = useProvisionTestDir('runner-timeouts');
+const { tmpDir, wranglerPath, setup } = setupProvisionTestDir('runner-timeouts');
 
 describe('createDefaultRunWrangler — hard timeout kills the REAL process', () => {
   const TIMEOUT_TMP = packageFixturePath(import.meta.dirname, '.tmp-timeout-kill');
