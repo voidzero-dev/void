@@ -242,7 +242,12 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   // Resolve from the immutable checkout being exercised, including when this runner is in RUNNER_TEMP.
   const { Pool } = createRequire(pathToFileURL(join(root, 'platform/packages/api/package.json')))(
     'pg',
-  );
+  ) as {
+    Pool: new (options: { connectionString: string }) => {
+      query(statement: string): Promise<unknown>;
+      end(): Promise<void>;
+    };
+  };
   const pool = new Pool({ connectionString: maintenance.href });
   try {
     const failures = await runIsolatedCompatibilityTests({

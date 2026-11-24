@@ -3211,7 +3211,8 @@ function sanitizeDeploymentManifest(raw: string | null): string | null {
 
 function tryParse(json: string): ReadonlyArray<unknown> {
   try {
-    return JSON.parse(json);
+    const entries: unknown = JSON.parse(json);
+    return Array.isArray(entries) ? (entries as Array<unknown>) : [];
   } catch {
     return [];
   }

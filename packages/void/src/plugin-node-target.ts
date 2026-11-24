@@ -269,7 +269,11 @@ export function nodeTargetPlugin(
       server.middlewares.use(
         honoMiddleware(
           async () => {
-            const mod = await server.ssrLoadModule('virtual:void-routes');
+            const mod = (await server.ssrLoadModule('virtual:void-routes')) as {
+              default: {
+                fetch(request: Request, env: { ASSETS: typeof assets }): Promise<Response>;
+              };
+            };
             return { fetch: (request: Request) => mod.default.fetch(request, { ASSETS: assets }) };
           },
           async (request) => {
@@ -295,7 +299,7 @@ export function nodeTargetPlugin(
           if (!appPromise) {
             const entryUrl = pathToFileURL(entryPath).href;
             appPromise = import(/* @vite-ignore */ entryUrl).then(
-              (m) => m.default,
+              (m: { default: { fetch: (req: Request) => Promise<Response> } }) => m.default,
               () => null,
             );
           }

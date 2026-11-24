@@ -651,7 +651,7 @@ export async function applyAndVerifyRemoteD1Migrations(
       );
       const pending = (listed.data as { pending?: unknown } | undefined)?.pending;
       if (isCleanCloudflareExit(listed) && Array.isArray(pending)) {
-        return pending;
+        return pending as Array<unknown>;
       }
       log.error(
         `deploy: could not read the pending D1 migrations for "${d1MigrateToken}" before applying them ` +

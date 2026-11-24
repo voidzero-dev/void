@@ -3,7 +3,8 @@ import { defineRender } from 'void';
 import App from './App.tsx';
 
 async function readBlogPost(slug: string): Promise<string | null> {
-  return (await import(`../blog/${slug}.md?raw`)).default;
+  const post = (await import(`../blog/${slug}.md?raw`)) as { default: string };
+  return post.default;
 }
 
 export default defineRender(async (c, assetTags) => {

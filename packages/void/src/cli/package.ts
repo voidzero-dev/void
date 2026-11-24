@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import type { StorageConfig } from '@void/deploy-core';
@@ -153,6 +154,7 @@ export function computeAssetHash(content: Buffer, filePath: string): string {
   const base64 = content.toString('base64');
   const ext = extname(filePath).slice(1);
   const input = textEncoder.encode(base64 + ext);
+  // oxlint-disable-next-line typescript/no-unsafe-return -- The lint type service loses the Node Buffer method types here.
   return Buffer.from(blake3hash(input)).toString('hex').slice(0, 32);
 }
 

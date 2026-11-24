@@ -55,7 +55,7 @@ export async function buildLogs(
     throw new OperatorError(502, `Build log service failed (${response.status}).`);
   }
   const body = (await response.json()) as {
-    lines: ReadonlyArray<{ seq: number; line: string; stream: string; ts: number }>;
+    lines: Array<{ seq: number; line: string; stream: string; ts: number }>;
     lastSeq: number;
     status?: string | null;
     terminal?: boolean;

@@ -556,7 +556,7 @@ function astroMiddlewareClaims(): Map<string, AstroMiddlewareClaim> {
   const store = globalThis as typeof globalThis & {
     [ASTRO_MIDDLEWARE_CLAIMS]?: Map<string, AstroMiddlewareClaim>;
   };
-  return (store[ASTRO_MIDDLEWARE_CLAIMS] ??= new Map());
+  return (store[ASTRO_MIDDLEWARE_CLAIMS] ??= new Map<string, AstroMiddlewareClaim>());
 }
 
 /**

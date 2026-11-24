@@ -48,8 +48,11 @@ function findBindingEntry(
     return undefined;
   }
   return list.find(
-    (entry): entry is Record<string, unknown> =>
-      entry && typeof entry === 'object' && (entry as { binding?: unknown }).binding === binding,
+    (entry: unknown): entry is Record<string, unknown> =>
+      typeof entry === 'object' &&
+      entry !== null &&
+      'binding' in entry &&
+      entry.binding === binding,
   );
 }
 

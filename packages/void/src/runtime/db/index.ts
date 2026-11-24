@@ -118,7 +118,7 @@ function d1Init() {
  * schema-aware instance via virtual module.
  */
 export const db: DrizzleD1Database = new Proxy({} as DrizzleD1Database, {
-  get(_, prop) {
+  get(_, prop): unknown {
     // Promise assimilation and inspection are not database use.
     if (
       prop === 'then' ||

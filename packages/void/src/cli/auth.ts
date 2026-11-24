@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { isRecord } from '@void/deploy-core';
 import { browserPageLead, browserPageStatus, renderBrowserPage } from '@void/platform/browser-page';
 import { join } from 'pathslash';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
@@ -38,7 +39,14 @@ type Config = {
 
 function readConfig(): Config {
   try {
-    return JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+    const parsed: unknown = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+    if (!isRecord(parsed)) {
+      return {};
+    }
+    const tokens = parsed.tokens;
+    return isRecord(tokens) && Object.values(tokens).every((token) => typeof token === 'string')
+      ? { ...parsed, tokens: tokens as Record<string, string> }
+      : {};
   } catch {
     return {};
   }

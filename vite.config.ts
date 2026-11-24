@@ -347,6 +347,16 @@ const config = defineConfig({
         rules: { 'quality/no-chained-type-assertions': 'off' },
       },
       {
+        // Test doubles and fixture shims can return partial dependency results.
+        files: [
+          '**/test/**/*',
+          '**/*.test.*',
+          '**/*.typecheck.*',
+          'platform/scripts/fixtures/**/*',
+        ],
+        rules: { 'typescript/no-unsafe-return': 'off' },
+      },
+      {
         // These string scans test for substrings and delimiters.
         files: ['packages/edge/src/pattern.ts', 'platform/packages/api/container/build-agent.mjs'],
         rules: { 'unicorn/prefer-set-has': 'off' },
@@ -579,8 +589,6 @@ const config = defineConfig({
       'typescript/no-unsafe-call': 'off',
       // Provider response schemas and dynamic module interfaces need coverage before enforcing typed member access everywhere.
       'typescript/no-unsafe-member-access': 'off',
-      // Several adapter return types inherit any from dependencies or JSON parsers. Define and validate the boundary contracts first.
-      'typescript/no-unsafe-return': 'off',
       // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.

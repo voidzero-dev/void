@@ -16,7 +16,13 @@ export function getPackageDir(): string {
 }
 
 export function getOwnVersion(): string {
-  return JSON.parse(readFileSync(join(getPackageDir(), 'package.json'), 'utf8')).version;
+  const manifest = JSON.parse(readFileSync(join(getPackageDir(), 'package.json'), 'utf8')) as {
+    version?: unknown;
+  };
+  if (typeof manifest.version !== 'string') {
+    throw new Error('The installed Void package is missing its version.');
+  }
+  return manifest.version;
 }
 
 // Agent configs: project-local skillsDir and how to detect presence in the project root.

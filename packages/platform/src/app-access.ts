@@ -32,7 +32,9 @@ export function parsePlatformAppAccessSetup(value: unknown): PlatformAppAccessSe
     if (
       !Array.isArray(entries) ||
       entries.length > 16 ||
-      entries.some((id) => typeof id !== 'string' || !id.trim() || id.length > 128) ||
+      !entries.every(
+        (id: unknown): id is string => typeof id === 'string' && !!id.trim() && id.length <= 128,
+      ) ||
       new Set(entries).size !== entries.length
     ) {
       throw new Error(`Invalid app access ${name}.`);

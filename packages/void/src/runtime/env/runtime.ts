@@ -76,7 +76,7 @@ function filterEnvProxy(env: RuntimeEnv): RuntimeEnv {
   // The proxy target IS the raw env, so each trap consults `target` for the
   // ISR-active gate — no extra `getRawRuntimeEnv()` call needed.
   return new Proxy(env, {
-    get(target, prop, receiver) {
+    get(target, prop, receiver): unknown {
       if (typeof prop === 'string' && isInternalBinding(prop, target)) {
         return undefined;
       }

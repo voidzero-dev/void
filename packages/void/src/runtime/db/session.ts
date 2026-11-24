@@ -91,7 +91,7 @@ export function createD1SessionAccess(bindingName: string): DbSessionAccess {
 
     getBookmark<TSchema extends Record<string, unknown>>(client?: DrizzleD1Database<TSchema>) {
       if (client) {
-        const session = Reflect.get(client, '$client');
+        const session = Reflect.get(client, '$client') as D1DatabaseSession | undefined;
         if (!session?.getBookmark) {
           throw new Error('db: getBookmark(client) requires a D1 session-backed client.');
         }

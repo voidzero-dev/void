@@ -594,7 +594,7 @@ export function createCfVersionRunner(options: {
             Array.isArray(body) &&
             body.length <= pageSize &&
             body.every(
-              (item) =>
+              (item: unknown): item is { id: string; number: number } =>
                 record(item) && typeof item.id === 'string' && Number.isSafeInteger(item.number),
             ) &&
             new Set(body.map((item) => item.number)).size === body.length

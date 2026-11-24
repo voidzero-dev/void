@@ -2526,12 +2526,14 @@ async function loadSeedSchema(root: string): Promise<Record<string, unknown>> {
 
   const files = collectSchemaModuleFiles(location.path);
   const parts = await Promise.all(files.map((file) => importLocalModule(file)));
-  return Object.assign(
-    {},
+  const schema: Record<string, unknown> = {};
+  Object.assign(
+    schema,
     ...parts.map((mod) =>
       Object.fromEntries(Object.entries(mod).filter(([name]) => name !== 'default')),
     ),
   );
+  return schema;
 }
 
 function collectSchemaModuleFiles(dir: string): Array<string> {

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, randomUUID } from 'node:crypto';
 import {
   parsePlatformAccessProtection,
@@ -74,6 +75,7 @@ function credentialKey(keysJson: string, version: string): Buffer {
   if (!raw || raw.length !== 32) {
     throw new Error('platform: Restore the original platform encryption keyring before recovery.');
   }
+  // oxlint-disable-next-line typescript/no-unsafe-return -- The lint type service loses the Node Buffer method types here.
   return Buffer.from(
     hkdfSync('sha256', raw, 'void-platform-auth-v1', 'login-client-credentials', 32),
   );
@@ -96,6 +98,7 @@ export function recoverAuthenticationCredential(
       Buffer.from(JSON.stringify([installationId, JSON.stringify([connectionId, revision])])),
     );
     decipher.setAuthTag(encrypted.subarray(-16));
+    // oxlint-disable-next-line typescript/no-unsafe-return -- The lint type service loses the Node Buffer method types here.
     return Buffer.concat([decipher.update(encrypted.subarray(0, -16)), decipher.final()]).toString(
       'utf8',
     );

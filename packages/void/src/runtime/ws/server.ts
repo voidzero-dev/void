@@ -168,7 +168,10 @@ const WEB_SOCKET_ROUTES_SYMBOL: unique symbol = Symbol.for('void.webSocketRoutes
 const sharedWebSocketRoutes = globalThis as {
   [WEB_SOCKET_ROUTES_SYMBOL]?: Map<string, WebSocketRouteMeta>;
 };
-const webSocketRoutes = (sharedWebSocketRoutes[WEB_SOCKET_ROUTES_SYMBOL] ??= new Map());
+const webSocketRoutes = (sharedWebSocketRoutes[WEB_SOCKET_ROUTES_SYMBOL] ??= new Map<
+  string,
+  WebSocketRouteMeta
+>());
 
 /** @internal Called by the generated route table. */
 export function __registerWebSocketRoutes(routes: Array<WebSocketRouteMeta>): void {
@@ -211,7 +214,7 @@ function withAuthState<T>(state: AuthState | null, fn: () => Promise<T> | T): Pr
 
 function getStoredConnection(webSocket: WebSocket): StoredConnection {
   const stored = (
-    webSocket as WebSocket & {
+    webSocket as {
       deserializeAttachment?: () => StoredConnection | undefined;
     }
   ).deserializeAttachment?.();

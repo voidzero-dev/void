@@ -1819,8 +1819,8 @@ function detectFormattingOptions(text: string): FormattingOptions {
 function parseJsonc(text: string): Record<string, unknown> {
   const errors: Array<ParseError> = [];
   const source = text.startsWith(UTF8_BOM) ? text.slice(UTF8_BOM.length) : text;
-  const result = parse(source, errors, { allowTrailingComma: true });
-  if (errors.length > 0) {
+  const result: unknown = parse(source, errors, { allowTrailingComma: true });
+  if (errors.length > 0 || !isRecord(result)) {
     throw new SyntaxError('Failed to parse JSONC');
   }
   return result;

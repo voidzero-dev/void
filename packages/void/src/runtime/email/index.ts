@@ -604,7 +604,7 @@ const DEV_INBOX_ERROR_EXCERPT_TIMEOUT_MS = 1000;
 async function readErrorExcerpt(res: Response): Promise<string> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const reader = res.body?.getReader();
+    const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = res.body?.getReader();
     if (!reader) {
       return '';
     }

@@ -37,7 +37,7 @@ import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 type Json = Record<string, unknown>;
 
 const cf = join(dirname(fileURLToPath(import.meta.resolve('cf/package.json'))), 'bin', 'cf');
-const operation = (() => {
+const operation = ((): unknown => {
   try {
     return JSON.parse(process.argv[2] ?? 'null');
   } catch {

@@ -220,7 +220,7 @@ export async function publishWorkerDeployment(input: {
     );
     const consumerErrors = settledConsumerOutcomes
       .filter((outcome) => outcome.status === 'rejected')
-      .map((outcome) => outcome.reason);
+      .map((outcome): unknown => outcome.reason);
     if (consumerErrors.length > 0) {
       throw new AggregateError(consumerErrors, 'one or more queue consumers failed to sync');
     }

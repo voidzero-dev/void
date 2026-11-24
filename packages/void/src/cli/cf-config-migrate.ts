@@ -33,7 +33,7 @@ function normalizeQueueConcurrency(raw: JsonObject): JsonObject {
     ...raw,
     queues: {
       ...queues,
-      consumers: queues.consumers.map((value) => {
+      consumers: queues.consumers.map((value: unknown) => {
         const consumer = record(value);
         // Wrangler's null and cf's omitted limit both mean automatic concurrency.
         if (consumer?.max_concurrency !== null) {
