@@ -76,7 +76,7 @@ export function BuildLogs({ build }: { build: Build }) {
       }
     };
 
-    const timer = setInterval(() => void poll(), 2_000);
+    const timer = setInterval(() => void poll(), 2000);
     void poll();
     return () => {
       active = false;

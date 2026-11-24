@@ -3,7 +3,7 @@ import { UsageLimit } from 'void/limits';
 import { getSandbox, type SandboxClient } from 'void/sandbox';
 import { sampleRequests } from '../../lib/sandbox-demo.ts';
 
-const MAX_CODE_LENGTH = 8_000;
+const MAX_CODE_LENGTH = 8000;
 const WORKDIR = '/workspace/void-kitchen-sink-code-lab';
 
 const RUNNER = `import { readFile, writeFile } from "node:fs/promises";
@@ -64,7 +64,7 @@ export const POST = defineHandler(async (c) => {
     const started = performance.now();
     const result = await sandbox.run(['node', 'run.mjs'], {
       cwd: WORKDIR,
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(5000),
       env: {
         NODE_OPTIONS: '--disable-proto=throw',
       },

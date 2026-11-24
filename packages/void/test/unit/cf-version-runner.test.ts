@@ -1203,7 +1203,7 @@ it.each(['missing', 'owned', 'foreign', 'malformed', 'unrelated 404'] as const)(
       response.end(
         JSON.stringify({
           success: !missing,
-          errors: missing ? [{ code: mode === 'missing' ? 10200 : 10000 }] : [],
+          errors: missing ? [{ code: mode === 'missing' ? 10_200 : 10_000 }] : [],
           result: path.endsWith('/workflows/jobs')
             ? {
                 name: mode === 'malformed' ? 'another-workflow' : 'jobs',
@@ -1586,7 +1586,7 @@ async function containerApi(mode: ContainerMode) {
     } else if (row.url.endsWith(`/scripts/void-test/versions/${uploadedPinnedVersion}`)) {
       if (mode === 'pending' && ++counts.versionVisibleAttempts === 1) {
         status = 404;
-        code = 100146;
+        code = 100_146;
       } else {
         result = {
           id: uploadedPinnedVersion,
@@ -1743,7 +1743,7 @@ serialIt.each([
   const polling =
     mode === 'pending'
       ? vi.spyOn(timers, 'setTimeout').mockImplementation((ms, value, options) => {
-          expect(ms).toBe(2_000);
+          expect(ms).toBe(2000);
           return delay(0, value, options);
         })
       : undefined;
@@ -3125,15 +3125,15 @@ describe('session credential failures', () => {
         stdout: '',
         stderr: 'helper failed',
         failure: 'not-found' as const,
-        errorCode: 10007,
-        errors: [{ code: 10007, message: 'The given script does not exist.' }],
+        errorCode: 10_007,
+        errors: [{ code: 10_007, message: 'The given script does not exist.' }],
       },
     }));
     const missing = {
       status: 1,
       stdout: '',
       stderr: 'The given script does not exist. [code: 10007]',
-      errorCode: 10007,
+      errorCode: 10_007,
       failure: 'not-found' as const,
     };
     try {

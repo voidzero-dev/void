@@ -110,7 +110,7 @@ describe('createRotationCloudflareClient', () => {
         Response.json(
           {
             success: false,
-            errors: [{ code: 10007, message: 'workers.api.error.script_not_found' }],
+            errors: [{ code: 10_007, message: 'workers.api.error.script_not_found' }],
           },
           { status: 400 },
         ),
@@ -123,7 +123,7 @@ describe('createRotationCloudflareClient', () => {
   it('throws other Cloudflare errors with their status and codes', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json(
-        { success: false, errors: [{ code: 10000, message: 'boom' }] },
+        { success: false, errors: [{ code: 10_000, message: 'boom' }] },
         { status: 500 },
       ),
     );
@@ -131,7 +131,7 @@ describe('createRotationCloudflareClient', () => {
       .getScriptBindings(SCRIPT)
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(CloudflareApiError);
-    expect(error).toMatchObject({ status: 500, codes: [10000], message: /boom/ });
+    expect(error).toMatchObject({ status: 500, codes: [10_000], message: /boom/ });
   });
 
   it('throws a rate limit with the Retry-After seconds and makes one call', async () => {
@@ -178,7 +178,7 @@ describe('createRotationCloudflareClient', () => {
 
   it('stops before fetch when less than five seconds are left', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => cfSuccess(BINDINGS));
-    const runBudget = { cfCallsRemaining: 5, deadline: Date.now() + 4_000 };
+    const runBudget = { cfCallsRemaining: 5, deadline: Date.now() + 4000 };
     await expect(client(fetchMock, runBudget).getScriptBindings(SCRIPT)).rejects.toBeInstanceOf(
       RotationBudgetExhaustedError,
     );

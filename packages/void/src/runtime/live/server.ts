@@ -482,7 +482,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
     private async pruneAllSubscribers(): Promise<void> {
       const rows = await this.state.storage.list<SubscriberRow>({ prefix: 'sub:' });
       const staleKeys = await this.findStaleSubscriberKeys([...rows], {
-        deliveryAttemptTimeoutMs: 1_500,
+        deliveryAttemptTimeoutMs: 1500,
       });
       if (staleKeys.length > 0) {
         await this.state.storage.delete(staleKeys);

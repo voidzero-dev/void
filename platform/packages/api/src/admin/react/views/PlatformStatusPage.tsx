@@ -58,7 +58,7 @@ export function PlatformStatusPage({
           cache: 'no-store',
           credentials: 'same-origin',
           headers: { Accept: 'application/json' },
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
         });
         if (stopped) {
           return;

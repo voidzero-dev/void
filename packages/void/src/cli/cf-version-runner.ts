@@ -561,7 +561,7 @@ export function createCfVersionRunner(options: {
       const body = result.data;
       const deployments = record(body) ? body.deployments : undefined;
       if (Array.isArray(deployments) && deployments.length === 0) {
-        return { ...failed('The Cloudflare Worker has no deployments.'), errorCode: 10007 };
+        return { ...failed('The Cloudflare Worker has no deployments.'), errorCode: 10_007 };
       }
       if (!Array.isArray(deployments) || !record(deployments[0])) {
         return failed('The Cloudflare Worker deployment was not readable.');

@@ -38,7 +38,7 @@ import { readConfig } from '../../src/config.ts';
 const mockSpawnSync = vi.fn();
 /** Ends each mocked `spawn` whose result sets `hang`. */
 const hangingCommands: Array<() => void> = [];
-const HANGING_COMMAND_PID = 0x7fffffff;
+const HANGING_COMMAND_PID = 0x7f_ff_ff_ff;
 const mockSelect = vi.fn();
 const mockConfirm = vi.fn();
 const mockText = vi.fn();

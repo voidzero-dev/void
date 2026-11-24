@@ -2223,7 +2223,7 @@ describe('buildMime header size projection', () => {
     // The bound is exact for a part with no content: these project under the
     // cap and render over it, so the post-render check refuses them.
     await expect(
-      build({ from: 'a@x.dev', to: 'b@y.dev', subject: 's', text: 't', attachments: parts(2_506) }),
+      build({ from: 'a@x.dev', to: 'b@y.dev', subject: 's', text: 't', attachments: parts(2506) }),
     ).rejects.toThrow(/message size \d+ bytes exceeds Cloudflare limit/);
     // And a few parts fewer build.
     const { raw } = await build({
@@ -2231,7 +2231,7 @@ describe('buildMime header size projection', () => {
       to: 'b@y.dev',
       subject: 's',
       text: 't',
-      attachments: parts(2_450),
+      attachments: parts(2450),
     });
     expect(raw.byteLength).toBeLessThanOrEqual(MAX_MESSAGE_BYTES);
   });

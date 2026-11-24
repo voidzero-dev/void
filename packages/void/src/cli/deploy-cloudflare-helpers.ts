@@ -637,10 +637,10 @@ function formatCloudflareActivationFailure(
       ].join('\n');
     case 'readiness-staging-failed': {
       const hint =
-        result.cloudflareErrorCode === 10210 &&
+        result.cloudflareErrorCode === 10_210 &&
         (result.diagnostic ?? '').toLowerCase().includes('durable object migration')
           ? '\n\nReview the Durable Object migration, then run `void deploy --platform cloudflare --atomic`. For future deploys, set deploy.cloudflare.mode to "atomic" in void.config.ts.'
-          : result.cloudflareErrorCode === 100405
+          : result.cloudflareErrorCode === 100_405
             ? '\n\nThe new version declares different exports from the live version (for example a Durable Object or Workflow class), so Cloudflare cannot split traffic between them. Run `void deploy --platform cloudflare --atomic` once to publish it at 100% directly; it receives traffic before readiness is checked.'
             : '';
       return `deploy: Cloudflare could not stage the uploaded Worker Version at zero-percent traffic${status}; production traffic is unchanged.${cloudflareCode}${diagnostic}${hint}`;

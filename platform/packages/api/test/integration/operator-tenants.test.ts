@@ -259,8 +259,8 @@ describe('operator tenant reads', () => {
     // both ownership intervals fall inside the current billing period.
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-07-15T12:00:00.000Z'));
-    const ownedFrom = new Date(Date.now() - 5 * 24 * 60 * 60 * 1_000);
-    const transferredAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000);
+    const ownedFrom = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const transferredAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
     transferredAt.setMilliseconds(500);
     await env.db
       .update(users)

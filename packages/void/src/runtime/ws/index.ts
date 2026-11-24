@@ -304,7 +304,7 @@ export class VoidSocket<P extends keyof WebSocketRouteMap & string> {
         }
 
         this.reconnectAttempts += 1;
-        const delay = this.options.reconnectDelayMs ?? 1_000;
+        const delay = this.options.reconnectDelayMs ?? 1000;
         this.reconnectTimer = setTimeout(() => this.connect(), delay);
       },
     );

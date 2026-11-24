@@ -89,7 +89,7 @@ export function runPty(
     for (const stream of [child.stdout, child.stderr]) {
       stream.on('data', (data) => {
         onOutput(data);
-        buffer = (buffer + data.toString()).slice(-131072);
+        buffer = (buffer + data.toString()).slice(-131_072);
         const plain = stripVTControlCharacters(buffer);
         for (const prompt of prompts) {
           if (!seen.has(prompt.text) && plain.includes(prompt.text)) {

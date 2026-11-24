@@ -17,7 +17,7 @@ it('closes a stalled network connection so the denial probe exits without being 
       throw new Error('Probe server did not bind a port.');
     }
     const args = [...internetAccessProbe.slice(1, -2), `https://127.0.0.1:${address.port}/`, '50'];
-    const result = await promisify(execFile)(process.execPath, args, { timeout: 2_000 });
+    const result = await promisify(execFile)(process.execPath, args, { timeout: 2000 });
     expect(result.stdout).toBe('');
     expect(result.stderr).toBe('');
   } finally {

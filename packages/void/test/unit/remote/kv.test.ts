@@ -122,11 +122,11 @@ describe('ProxyKVNamespace', () => {
       mockFetch({ success: true });
 
       const kv = new ProxyKVNamespace(createClient(), 'KV');
-      await kv.put('key', 'val', { expiration: 1700000000, expirationTtl: 3600 });
+      await kv.put('key', 'val', { expiration: 1_700_000_000, expirationTtl: 3600 });
 
       const call = vi.mocked(globalThis.fetch).mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(String(call[1].body));
-      expect(body.expiration).toBe(1700000000);
+      expect(body.expiration).toBe(1_700_000_000);
       expect(body.expiration_ttl).toBe(3600);
     });
   });

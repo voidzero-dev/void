@@ -52,7 +52,7 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 2_000) {
+async function waitFor(predicate: () => boolean, timeoutMs = 2000) {
   const started = Date.now();
   while (!predicate()) {
     if (Date.now() - started > timeoutMs) {

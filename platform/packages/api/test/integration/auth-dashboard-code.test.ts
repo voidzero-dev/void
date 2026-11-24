@@ -79,7 +79,7 @@ function mockGitHubApi() {
     }
 
     if (url === 'https://api.github.com/user') {
-      return Response.json({ id: 12345, login: 'dashboard-user', email: null });
+      return Response.json({ id: 12_345, login: 'dashboard-user', email: null });
     }
 
     if (url === 'https://api.github.com/user/emails') {

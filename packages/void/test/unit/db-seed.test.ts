@@ -77,7 +77,13 @@ function createProjectRoot(options: {
         version: '7',
         dialect: 'sqlite',
         entries: [
-          { idx: 0, version: '7', when: 1730000000000, tag: '0000_messages', breakpoints: true },
+          {
+            idx: 0,
+            version: '7',
+            when: 1_730_000_000_000,
+            tag: '0000_messages',
+            breakpoints: true,
+          },
         ],
       },
       null,

@@ -94,7 +94,7 @@ beforeEach(async () => {
         return cfSuccess([]);
       }
       return Response.json(
-        { success: false, errors: [{ code: 10007, message: 'script not found' }] },
+        { success: false, errors: [{ code: 10_007, message: 'script not found' }] },
         { status: 404 },
       );
     }

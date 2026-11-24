@@ -410,7 +410,7 @@ async function preflightWorkflowExports(options: {
         options.verifyUploader,
       );
     } catch (cause) {
-      if (cause instanceof CloudflareApiError && cause.status === 404 && cause.code === 10200) {
+      if (cause instanceof CloudflareApiError && cause.status === 404 && cause.code === 10_200) {
         continue;
       }
       throw cause;
@@ -868,7 +868,7 @@ async function prepareContainerMetadata(options: {
               'Cloudflare Container image preparation failed or returned an unsupported state.',
             );
           }
-          await delay(Math.min(2_000, remaining()));
+          await delay(Math.min(2000, remaining()));
         }
         prepared.set(reference, image);
       }
@@ -911,12 +911,12 @@ async function ensureContainerApplications(options: {
     } catch (cause) {
       if (
         !(cause instanceof CloudflareApiError) ||
-        cause.code !== 100146 ||
+        cause.code !== 100_146 ||
         Date.now() >= deadline
       ) {
         throw cause;
       }
-      await delay(Math.min(2_000, deadline - Date.now()));
+      await delay(Math.min(2000, deadline - Date.now()));
     }
   }
   const versionBindings = object(version.resources)?.bindings;

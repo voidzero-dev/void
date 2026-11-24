@@ -199,7 +199,7 @@ function client(
       if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
         return (await call('fetch', [port, request])) as Response;
       }
-      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      if (!Number.isInteger(port) || port < 1 || port > 65_535) {
         throw new TypeError('Invalid Sandbox TCP port.');
       }
       if (!nativeFetch) {

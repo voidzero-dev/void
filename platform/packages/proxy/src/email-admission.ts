@@ -23,7 +23,7 @@ export type Admission = {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const EMAIL_DEFAULT_DEADLINE_MS = 5_000;
+const EMAIL_DEFAULT_DEADLINE_MS = 5000;
 const EMAIL_ACTION_DEADLINE_MS = 15_000;
 const EMAIL_ADMISSION_DEADLINE_MS = 15_000;
 const MAX_ADMISSION_RESPONSE_BYTES = 65_536;

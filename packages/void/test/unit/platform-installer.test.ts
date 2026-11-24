@@ -2565,7 +2565,7 @@ describe('platform installer', () => {
         fetcher,
       );
 
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2000);
 
       expect(await result).toBe('eop-resume');
       expect(fetcher).toHaveBeenCalledTimes(3);
@@ -2590,7 +2590,7 @@ describe('platform installer', () => {
         fetcher,
       ).catch((error: unknown) => error);
 
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2000);
 
       const error = String(await result);
       expect(error).toContain('Shared email bootstrap did not finish within five minutes');
@@ -2653,7 +2653,7 @@ describe('platform installer', () => {
         fetcher,
       ).catch((error: unknown) => error);
 
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(1000);
 
       expect(String(await result)).toContain('operation identity changed');
       expect(fetcher).toHaveBeenCalledTimes(2);
@@ -3726,7 +3726,7 @@ describe('platform installer', () => {
     await expect(
       resolveBootstrapGitHubId('Octocat', async (input) => {
         requests.push(String(input));
-        return Response.json({ id: 583231 });
+        return Response.json({ id: 583_231 });
       }),
     ).resolves.toBe('583231');
     expect(requests).toEqual(['https://api.github.com/users/Octocat']);

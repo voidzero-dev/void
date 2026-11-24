@@ -23,8 +23,8 @@ import {
   VOID_SECRET_DRAFT_SOURCE,
 } from './secret-draft.ts';
 
-const DURABLE_MIGRATION_VERSION_ERROR = 10211;
-const CLOUDFLARE_SECRET_CHANGED_ERROR = 10220;
+const DURABLE_MIGRATION_VERSION_ERROR = 10_211;
+const CLOUDFLARE_SECRET_CHANGED_ERROR = 10_220;
 
 export type CloudflareVersionMetadata =
   | Readonly<{
@@ -1277,7 +1277,7 @@ async function activateCloudflareVersionWithSecretsFile(
       (upload.failure === 'durable-migration' ||
         upload.failure === 'not-found' ||
         cloudflareErrorCode === DURABLE_MIGRATION_VERSION_ERROR ||
-        cloudflareErrorCode === 10007);
+        cloudflareErrorCode === 10_007);
     if (
       !options.preserveTriggers &&
       isBootstrapError &&
@@ -2794,7 +2794,7 @@ async function probeReadiness(
       }
     }
     if (attempt + 1 < attempts) {
-      const waitMs = Math.min(250 * 2 ** attempt, 2_000, deadline - Date.now());
+      const waitMs = Math.min(250 * 2 ** attempt, 2000, deadline - Date.now());
       if (waitMs > 0) {
         await sleep(waitMs);
       }

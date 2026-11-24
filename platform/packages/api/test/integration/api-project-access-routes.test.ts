@@ -668,9 +668,9 @@ describe('ownership-period account usage', () => {
     const currentOwner = await createTestUser(env.db, 'current-owner');
     const project = await createTestProject(env.db, currentOwner.id, 'transferred-app');
     const now = Date.now();
-    const billingStart = new Date(now - 10 * 24 * 60 * 60 * 1_000);
-    const ownedFrom = new Date(now - 8 * 24 * 60 * 60 * 1_000);
-    const transferredAt = new Date(now - 2 * 24 * 60 * 60 * 1_000);
+    const billingStart = new Date(now - 10 * 24 * 60 * 60 * 1000);
+    const ownedFrom = new Date(now - 8 * 24 * 60 * 60 * 1000);
+    const transferredAt = new Date(now - 2 * 24 * 60 * 60 * 1000);
     await env.db
       .update(users)
       .set({ billing_cycle_start: billingStart.toISOString() })

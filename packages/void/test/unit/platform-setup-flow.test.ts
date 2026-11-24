@@ -474,7 +474,7 @@ describe('platform credential onboarding', () => {
       vi.fn<typeof fetch>(async (_input, init) =>
         new Headers(init?.headers).get('Authorization') === 'Bearer missing-access'
           ? Response.json(
-              { success: false, errors: [{ message: 'Access denied', code: 10000 }] },
+              { success: false, errors: [{ message: 'Access denied', code: 10_000 }] },
               { status: 403 },
             )
           : Response.json({ success: true, result: [] }),
@@ -504,7 +504,7 @@ describe('platform credential onboarding', () => {
       'fetch',
       vi.fn<typeof fetch>(async () =>
         Response.json(
-          { success: false, errors: [{ message: 'Access unavailable', code: 10000 }] },
+          { success: false, errors: [{ message: 'Access unavailable', code: 10_000 }] },
           { status: 503 },
         ),
       ),
@@ -541,7 +541,7 @@ describe('platform credential onboarding', () => {
       'fetch',
       vi.fn<typeof fetch>(async () =>
         Response.json(
-          { success: false, errors: [{ message: 'Access denied', code: 10000 }] },
+          { success: false, errors: [{ message: 'Access denied', code: 10_000 }] },
           { status: 403 },
         ),
       ),
@@ -982,7 +982,7 @@ describe('platform credential onboarding', () => {
         Response.json(
           {
             success: false,
-            errors: [{ code: 10000, message: 'Access denied for rejected-secret' }],
+            errors: [{ code: 10_000, message: 'Access denied for rejected-secret' }],
           },
           { status: 403 },
         ),

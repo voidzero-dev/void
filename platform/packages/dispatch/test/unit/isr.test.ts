@@ -140,36 +140,36 @@ describe('isStale', () => {
   });
 
   it('returns false when entry is fresh', () => {
-    vi.setSystemTime(1000000);
+    vi.setSystemTime(1_000_000);
     const entry: IsrCacheEntry = {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: 1000000,
+      createdAt: 1_000_000,
       ttl: 60,
     };
     expect(isStale(entry)).toBe(false);
   });
 
   it('returns true when entry is expired', () => {
-    vi.setSystemTime(1000000 + 61 * 1000);
+    vi.setSystemTime(1_000_000 + 61 * 1000);
     const entry: IsrCacheEntry = {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: 1000000,
+      createdAt: 1_000_000,
       ttl: 60,
     };
     expect(isStale(entry)).toBe(true);
   });
 
   it('returns false at exact TTL boundary', () => {
-    vi.setSystemTime(1000000 + 60 * 1000);
+    vi.setSystemTime(1_000_000 + 60 * 1000);
     const entry: IsrCacheEntry = {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: 1000000,
+      createdAt: 1_000_000,
       ttl: 60,
     };
     expect(isStale(entry)).toBe(false);
@@ -574,7 +574,7 @@ describe('isrCacheResponse', () => {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: Date.now() - 120000,
+      createdAt: Date.now() - 120_000,
       ttl: 60,
     };
     const response = isrCacheResponse(entry, true);
@@ -589,7 +589,7 @@ describe('isrCacheResponse', () => {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: Date.now() - 10000,
+      createdAt: Date.now() - 10_000,
       ttl: 5,
     };
     const response = isrCacheResponse(entry, true);

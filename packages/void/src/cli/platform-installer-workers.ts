@@ -844,7 +844,7 @@ export async function deployPlatformWorker(
       const head = deploymentsAfterActivation[0];
       return head === undefined || knownDeploymentIds.has(head.id);
     };
-    for (const wait of [250, 500, 1_000]) {
+    for (const wait of [250, 500, 1000]) {
       if (!headIsStale()) {
         break;
       }

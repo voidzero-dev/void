@@ -9,7 +9,7 @@ const LIMITS: LiveLimits = {
   maxOperationsPerControlRequest: 100,
   maxQueuedEventsPerConnection: 100,
   maxEncodedEventSize: 64 * 1024,
-  deliveryAttemptTimeoutMs: 1_500,
+  deliveryAttemptTimeoutMs: 1500,
 };
 
 describe('live Durable Object runtime', () => {
@@ -136,7 +136,7 @@ describe('live Durable Object runtime', () => {
     );
 
     expect(response.ok).toBe(true);
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
   });
 
   it.each([
@@ -180,7 +180,7 @@ describe('live Durable Object runtime', () => {
                 limits: LIMITS,
               }),
             );
-      await vi.advanceTimersByTimeAsync(1_501);
+      await vi.advanceTimersByTimeAsync(1501);
       await operation;
       vi.useRealTimers();
       expect(await harness.subscriberCount(topicName)).toBe(1);

@@ -264,7 +264,7 @@ describe('playground/kitchen-sink', () => {
       const start = Date.now();
       let found = false;
       while (Date.now() - start < 15_000) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         await page.goto(`${BASE}/queues`);
         await waitForHydration(page);
         const text = await page.textContent('body');

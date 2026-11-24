@@ -259,7 +259,7 @@ describe('dev inbox capture cap (sized for the serialized capture)', () => {
       ['control display name', { ...base, to: [{ email: 'b@y.dev', name: control }], text: 't' }],
       [
         'control custom header value',
-        { ...base, headers: { 'X-Note': control.slice(0, 8_192) }, text: 't' },
+        { ...base, headers: { 'X-Note': control.slice(0, 8192) }, text: 't' },
       ],
       // body: `=01` (3) in the MIME, `\u0001` (6) in JSON — 2x
       ['control text', { ...base, text: control }],

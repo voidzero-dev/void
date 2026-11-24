@@ -31,10 +31,10 @@ export function formatDateTime(iso: string, tz?: string) {
     ago = `${seconds}s ago`;
   } else if (seconds < 3600) {
     ago = `${Math.floor(seconds / 60)}m ago`;
-  } else if (seconds < 86400) {
+  } else if (seconds < 86_400) {
     ago = `${Math.floor(seconds / 3600)}h ago`;
   } else {
-    ago = `${Math.floor(seconds / 86400)}d ago`;
+    ago = `${Math.floor(seconds / 86_400)}d ago`;
   }
   // The relative age may tick between SSR and hydration. Preserve the server
   // text until the next React render without treating that tick as a mismatch.

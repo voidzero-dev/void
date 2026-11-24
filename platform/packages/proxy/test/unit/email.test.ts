@@ -625,7 +625,7 @@ describe('POST /email/send — request validation', () => {
       await firstSubmitted;
       await vi.advanceTimersByTimeAsync(30_000);
       await secondSubmitted;
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       const body = await readSend(await pending);
 
       expect(send).toHaveBeenCalledTimes(2);
@@ -1118,7 +1118,7 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
       // keep accepting what the framework's own preflight accepts: the fix
       // for the per-line cost was to stop retaining lines, not to cap the
       // value, and a cap would be a contract change owned by the framework.
-      const name = '東京都千代田区'.repeat(15000).slice(0, 100_000);
+      const name = '東京都千代田区'.repeat(15_000).slice(0, 100_000);
       const email = await normalizeEmail({
         from: { email: DEFAULT_FROM, name },
         to: 'dev@example.com',

@@ -230,7 +230,7 @@ const VALID_DATABASE_VALUES = new Set(['pg', 'mysql']);
 const VALID_DATABASE_DIALECTS = new Set(['sqlite', 'pg', 'mysql']);
 const VALID_DATABASE_CASINGS = new Set(['snake_case', 'camelCase']);
 /** Cloudflare's hard maximum for Workers CPU time per request (5 minutes). */
-const MAX_WORKER_CPU_MS = 300000;
+const MAX_WORKER_CPU_MS = 300_000;
 const VALID_SANDBOX_INSTANCE_TYPES = new Set<SandboxInstanceType>([
   'lite',
   'basic',

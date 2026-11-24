@@ -716,13 +716,13 @@ describe('voidPlugin dev asset routing', () => {
     writeFileSync(
       join(root, 'void.json'),
       JSON.stringify({
-        worker: { compatibility_date: '2026-02-24', limits: { cpu_ms: 120000 } },
+        worker: { compatibility_date: '2026-02-24', limits: { cpu_ms: 120_000 } },
       }),
     );
 
     const config = await resolveCloudflareConfig(root);
 
-    expect(config.limits).toEqual({ cpu_ms: 120000 });
+    expect(config.limits).toEqual({ cpu_ms: 120_000 });
   });
 
   it('emits no limits key when worker.limits is not configured', async () => {

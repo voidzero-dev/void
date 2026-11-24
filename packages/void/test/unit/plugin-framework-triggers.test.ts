@@ -753,7 +753,7 @@ describe('analogDevTriggerInjectPlugin', () => {
     const { fetchSpy, res, next } = await proxyTrigger({
       address: '::',
       family: 'IPv6',
-      port: 51234,
+      port: 51_234,
     });
     expect(next).not.toHaveBeenCalled();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -767,7 +767,7 @@ describe('analogDevTriggerInjectPlugin', () => {
     ['127.0.0.1', 'IPv4', 'http://127.0.0.1:51234/api/__void/cron-trigger'],
     ['::1', 'IPv6', 'http://[::1]:51234/api/__void/cron-trigger'],
   ])('proxies to the dev server bound to %s', async (bound, family, expected) => {
-    const { fetchSpy } = await proxyTrigger({ address: bound, family, port: 51234 });
+    const { fetchSpy } = await proxyTrigger({ address: bound, family, port: 51_234 });
     expect(fetchSpy.mock.calls[0]![0]).toBe(expected);
   });
 

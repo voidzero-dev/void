@@ -334,7 +334,7 @@ const sendingRefused: EmailWranglerRunResult = {
   stdout: '',
   data: '',
   stderr: `${BETA_WARNING}✘ [ERROR] A request to the Cloudflare API (/zones/${ZONE_ID}/email/sending/subdomains) failed.\n\n  something went wrong [code: 10105]\n`,
-  errorCode: 10105,
+  errorCode: 10_105,
 };
 const sendingOnboarded: EmailWranglerRunResult = {
   status: 0,
@@ -352,7 +352,7 @@ const subdomainsListed = (names: Array<string>) => () =>
 const sendingRefusedByApi = () =>
   jsonResponse(403, {
     success: false,
-    errors: [{ code: 10105, message: 'email.sending.error.authentication.not_entitled' }],
+    errors: [{ code: 10_105, message: 'email.sending.error.authentication.not_entitled' }],
     result: null,
   });
 
@@ -653,7 +653,7 @@ describe('void email setup --platform cloudflare', () => {
         [`PATCH /zones/${ZONE_ID}/email/routing`]: () =>
           jsonResponse(403, {
             success: false,
-            errors: [{ code: 10000, message: 'Authentication error' }],
+            errors: [{ code: 10_000, message: 'Authentication error' }],
           }),
       },
       mx: {},
@@ -706,7 +706,7 @@ describe('void email setup --platform cloudflare', () => {
           stdout: '',
           data: '',
           stderr: `${BETA_WARNING}✘ [ERROR] A request to the Cloudflare API (/zones/${ZONE_ID}/email/sending/subdomains) failed.\n\n  something went wrong [code: 10105]\n`,
-          errorCode: 10105,
+          errorCode: 10_105,
         },
       },
       fetchTable: {

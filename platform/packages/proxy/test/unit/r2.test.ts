@@ -469,7 +469,7 @@ describe('R2 proxy endpoints', () => {
         contentType: string;
       };
       expect(data.key).toBe('avatar.png');
-      expect(data.size).toBe(12345);
+      expect(data.size).toBe(12_345);
       expect(data.etag).toBe('"abc"');
       expect(data.contentType).toBe('image/png');
     });

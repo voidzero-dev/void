@@ -65,9 +65,9 @@ describe('AI logging policy', () => {
   });
 
   it('reads key metadata and treats anything malformed as missing', () => {
-    expect(parseAiLoggingKeyMetadata({ mode: 'off', at: 1700000000000 })).toEqual({
+    expect(parseAiLoggingKeyMetadata({ mode: 'off', at: 1_700_000_000_000 })).toEqual({
       mode: 'off',
-      at: 1700000000000,
+      at: 1_700_000_000_000,
     });
     for (const value of [
       null,

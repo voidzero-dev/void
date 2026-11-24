@@ -322,7 +322,7 @@ describe('provisionCloudflareResources — whole-provision cross-process lock (p
     const result = await prov;
     expect(result.resources[0]).toMatchObject({ kind: 'kv', action: 'adopted', id: hex32('kv') });
     expect(existsSync(lockMutex)).toBe(false);
-  }, 15000);
+  }, 15_000);
 
   it('a genuine unlock failure REJECTS the provision (leaked mutex surfaced, not swallowed)', async () => {
     setup(JSON.stringify({ account_id: 'acct' }));
@@ -392,7 +392,7 @@ describe('provisionCloudflareResources — quarantine retains the whole-provisio
     // A runner whose child could not be confirmed dead — the default runner rejects
     // with a quarantine error in that state; injecting the same rejection exercises the
     // provision-level contract: NO release, mutex retained, error surfaced verbatim.
-    const quarantineError = new WranglerQuarantineError(43210, 'test: child unconfirmed');
+    const quarantineError = new WranglerQuarantineError(43_210, 'test: child unconfirmed');
     const run: RunWrangler = provisionOperationFixture(() => Promise.reject(quarantineError));
     let thrown: unknown;
     try {
@@ -414,7 +414,7 @@ describe('provisionCloudflareResources — quarantine retains the whole-provisio
     const sidecar = `${wranglerPath}.void-provision.lock.quarantine.json`;
     expect(existsSync(sidecar)).toBe(true);
     const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
-    expect(recorded.pid).toBe(43210);
+    expect(recorded.pid).toBe(43_210);
     expect(String(recorded.reason)).toMatch(/pid 43210/);
     // quarantine() detached the lock from proper-lockfile, so removing it fires no callback.
     rmSync(lockMutex, { recursive: true, force: true });

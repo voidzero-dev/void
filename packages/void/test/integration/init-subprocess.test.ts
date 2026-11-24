@@ -121,14 +121,14 @@ it('finishes the spinner while a background process still has the output open', 
     return result;
   });
   try {
-    await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 5_000 });
-    await vi.waitFor(() => expect(finished).toBe(true), { timeout: 1_000 });
+    await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 5000 });
+    await vi.waitFor(() => expect(finished).toBe(true), { timeout: 1000 });
     expect((await result).status).toBe(0);
   } finally {
     writeFileSync(release, '');
     await result;
     if (existsSync(ready)) {
-      await vi.waitFor(() => expect(existsSync(done)).toBe(true), { timeout: 3_000 });
+      await vi.waitFor(() => expect(existsSync(done)).toBe(true), { timeout: 3000 });
     }
   }
 });
@@ -167,7 +167,7 @@ it.skipIf(process.platform === 'win32')('stops the command and rolls back on SIG
         pgid = Number(readFileSync(ready, 'utf8'));
         expect(pgid).toBeGreaterThan(0);
       },
-      { timeout: 4_000 },
+      { timeout: 4000 },
     );
     init.kill('SIGHUP');
     await ended;
@@ -195,7 +195,7 @@ describe.skipIf(process.platform === 'win32')('stopCommand (real processes)', ()
 
     expect(await beatsGoOn()).toBe(false);
     // It returned when the processes ended, not when the time to end ran out.
-    expect(elapsed).toBeLessThan(2_000);
+    expect(elapsed).toBeLessThan(2000);
   });
 
   it('kills what goes on after SIGTERM when the time to end is over', async () => {
@@ -239,7 +239,7 @@ describe.skipIf(process.platform === 'win32')('isProcessGroupRunning (real proce
       });
       started.push(child);
       // Wait without the event loop, as an `exit` listener does.
-      for (let waited = 0; !existsSync(done) && waited < 5_000; waited += 10) {
+      for (let waited = 0; !existsSync(done) && waited < 5000; waited += 10) {
         sleepSync(10);
       }
       sleepSync(100);

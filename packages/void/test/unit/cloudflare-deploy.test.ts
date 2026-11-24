@@ -324,7 +324,7 @@ describe('Cloudflare activation diagnostics', () => {
           ok: false,
           reason: 'upload-failed',
           status: 1,
-          cloudflareErrorCode: 10021,
+          cloudflareErrorCode: 10_021,
           diagnostic,
         }),
         exit: (code) => {
@@ -345,7 +345,7 @@ describe('Cloudflare activation diagnostics', () => {
           expect.objectContaining({
             reason: 'upload-failed',
             status: 1,
-            cloudflareErrorCode: 10021,
+            cloudflareErrorCode: 10_021,
           }),
         );
         expect(error).toHaveBeenLastCalledWith('deploy_end', undefined, {
@@ -467,7 +467,7 @@ describe('Cloudflare activation diagnostics', () => {
         ok: false,
         reason,
         status: 1,
-        cloudflareErrorCode: 10021,
+        cloudflareErrorCode: 10_021,
         diagnostic: 'Uncaught TypeError: Cannot read properties of undefined\n  at index.js:42:1',
       });
       expect(message).toContain('Cloudflare error code: 10021');
@@ -656,7 +656,7 @@ describe('Cloudflare activation diagnostics', () => {
       ok: false,
       reason: 'readiness-staging-failed',
       status: 1,
-      cloudflareErrorCode: 10210,
+      cloudflareErrorCode: 10_210,
       diagnostic: 'The version depends on Durable Object migration fate-live-v1.',
     });
     expect(message).toContain('void deploy --platform cloudflare --atomic');
@@ -668,7 +668,7 @@ describe('Cloudflare activation diagnostics', () => {
       ok: false,
       reason: 'readiness-staging-failed',
       status: 1,
-      cloudflareErrorCode: 100405,
+      cloudflareErrorCode: 100_405,
       diagnostic:
         '[100405] All versions in a multi-version deployment must declare identical `exports`.',
     });
@@ -3846,7 +3846,7 @@ describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
         }
         if (operation.type === 'versions.upload') {
           if (scenario === 'first deployment') {
-            return { ...cleanExit, status: 1, failure: 'not-found', errorCode: 10007 };
+            return { ...cleanExit, status: 1, failure: 'not-found', errorCode: 10_007 };
           }
           history.push({ id: next, number: 2 });
           return {
@@ -4580,7 +4580,7 @@ describe('runCloudflareDeploy — secrets gate', () => {
           ...cleanExit,
           status: 1,
           failure: 'durable-migration',
-          errorCode: 10211,
+          errorCode: 10_211,
           stderr: 'Durable Object migrations require deploy. [code: 10211]',
         };
       }
@@ -11291,7 +11291,9 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
                 new Response(
                   JSON.stringify({
                     success: false,
-                    errors: [{ code: 10105, message: 'Email Sending is unavailable on this plan' }],
+                    errors: [
+                      { code: 10_105, message: 'Email Sending is unavailable on this plan' },
+                    ],
                   }),
                   { status: 403 },
                 ),
@@ -12559,7 +12561,7 @@ describe('readWranglerAuthToken — keeps the helper child failure', () => {
       status: 1,
       stderr:
         "SyntaxError: The requested module 'node:http' does not provide an export named 'setGlobalProxyFromEnv'\n\nNode.js v22.23.4",
-      errorCode: 10007,
+      errorCode: 10_007,
       failure: 'not-found',
     });
     expect(crashed).toEqual({

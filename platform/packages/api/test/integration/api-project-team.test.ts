@@ -890,7 +890,7 @@ describe('project team API', () => {
     const expired = await invite(project.id, owner.jwt, 'target@example.com', 'reader');
     await env.db
       .update(projectInvitations)
-      .set({ expires_at: new Date(Date.now() - 1_000).toISOString() })
+      .set({ expires_at: new Date(Date.now() - 1000).toISOString() })
       .where(eq(projectInvitations.id, expired.id));
 
     const pending = await app.fetch(request('/me/project-invitations', target.jwt), env);
@@ -933,7 +933,7 @@ describe('project team API', () => {
     const expiredPending = await invite(project.id, owner.jwt, 'target@example.com', 'reader');
     await env.db
       .update(projectInvitations)
-      .set({ expires_at: new Date(Date.now() - 1_000).toISOString() })
+      .set({ expires_at: new Date(Date.now() - 1000).toISOString() })
       .where(eq(projectInvitations.id, expiredPending.id));
 
     const refreshed = await invite(project.id, owner.jwt, 'target@example.com', 'admin');

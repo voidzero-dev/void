@@ -645,15 +645,15 @@ describe('detectFramework', () => {
       const config = {
         build: { ssr: true },
         server: {
-          hmr: { port: 24678, server: sharedServer },
-          ws: { port: 24678, server: sharedServer },
+          hmr: { port: 24_678, server: sharedServer },
+          ws: { port: 24_678, server: sharedServer },
         },
       } as unknown as import('vite').ResolvedConfig;
 
       configResolved(config);
 
-      expect(config.server.hmr).toMatchObject({ port: 24678, server: undefined });
-      expect(config.server.ws).toMatchObject({ port: 24678, server: undefined });
+      expect(config.server.hmr).toMatchObject({ port: 24_678, server: undefined });
+      expect(config.server.ws).toMatchObject({ port: 24_678, server: undefined });
     } finally {
       cwd.mockRestore();
     }

@@ -621,7 +621,7 @@ describe('existing Worker preservation', () => {
               status: 1,
               stdout: '',
               stderr: '',
-              errorCode: 10007,
+              errorCode: 10_007,
               failure: 'not-found',
               ...provenance,
             }),

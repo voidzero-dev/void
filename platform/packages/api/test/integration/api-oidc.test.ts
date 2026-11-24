@@ -325,7 +325,7 @@ beforeEach(async () => {
         // The first call returns 999001 (=== CHECK_RUN_ID) so single-exchange
         // tests keep asserting that value.
         checkRunCreateCount += 1;
-        return Response.json({ id: 999000 + checkRunCreateCount });
+        return Response.json({ id: 999_000 + checkRunCreateCount });
       }
       if (url.includes('/compare/')) {
         // Fire the one-shot revocation side effect: the compare call is

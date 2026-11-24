@@ -532,11 +532,11 @@ const COMMAND_TIMEOUT_MS = 120_000;
  * After a SIGKILL, how long to wait for both `close` and the whole process group to be gone.
  * If that cannot be confirmed, the runner rejects with {@link WranglerQuarantineError}.
  */
-const CONFIRM_KILL_GRACE_MS = 5_000;
+const CONFIRM_KILL_GRACE_MS = 5000;
 /** The pid-poll interval while confirming post-SIGKILL termination. */
 const CONFIRM_KILL_POLL_MS = 20;
 /** Extra time a signal teardown allows beyond a runner's confirmation window. */
-const SIGNAL_TEARDOWN_DEADLINE_MARGIN_MS = 5_000;
+const SIGNAL_TEARDOWN_DEADLINE_MARGIN_MS = 5000;
 
 /** ESRCH means the group already exited; any other kill error is a real failure. */
 export function isAlreadyGoneKillError(error: unknown): boolean {
@@ -872,7 +872,7 @@ function finishCoordinatorTeardown(teardown: CoordinatorTeardown): void {
   reRaisedOnce = true;
   process.kill(process.pid, teardown.signal);
   // Signals arrive asynchronously; keep the loop alive so the process cannot exit 0 first.
-  setTimeout(() => {}, 2_000);
+  setTimeout(() => {}, 2000);
 }
 
 // Retention watchdog for a quarantine that could not be persisted. The lock stays tracked,
@@ -880,7 +880,7 @@ function finishCoordinatorTeardown(teardown: CoordinatorTeardown): void {
 // alive. Each tick releases normally if the group is gone, else retries persisting the sidecar.
 
 const RETENTION_RETRY_MIN_MS = 250;
-const RETENTION_RETRY_MAX_MS = 5_000;
+const RETENTION_RETRY_MAX_MS = 5000;
 
 interface RetentionWatchdogState {
   lock: ProvisionLock;
@@ -1879,10 +1879,10 @@ const LOCK_STALE_MS = 120_000;
 /** Refresh interval keeping a live owner's lock fresh (must be < {@link LOCK_STALE_MS}). */
 const LOCK_UPDATE_MS = 20_000;
 /** Backoff while waiting for a held lock (about a minute). */
-const LOCK_RETRIES = { retries: 100, factor: 1.5, minTimeout: 200, maxTimeout: 2_000 } as const;
+const LOCK_RETRIES = { retries: 100, factor: 1.5, minTimeout: 200, maxTimeout: 2000 } as const;
 
 /** Stale window of the short-lived recovery mutex. */
-const RECOVERY_LOCK_STALE_MS = 6_000;
+const RECOVERY_LOCK_STALE_MS = 6000;
 
 /** Backoff schedule for our own retry loop (proper-lockfile runs with `retries: 0`). */
 function normalizeLockRetries(retries: ProvisionLockOptions['retries']): {
@@ -2252,7 +2252,7 @@ function isAlreadyExistsError(result: RunWranglerResult): boolean {
 function isConfirmedAbsent(result: RunWranglerResult, kind: 'r2' | 'queue'): boolean {
   return (
     isCleanFailure(result) &&
-    (kind === 'r2' ? result.errorCode === 10006 : result.failure === 'not-found')
+    (kind === 'r2' ? result.errorCode === 10_006 : result.failure === 'not-found')
   );
 }
 

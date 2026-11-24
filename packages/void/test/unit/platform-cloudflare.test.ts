@@ -65,14 +65,14 @@ describe('platform Cloudflare client', () => {
 
   it.each([
     {
-      code: 10042,
+      code: 10_042,
       path: '/accounts/account/r2/buckets',
       message: 'Please enable R2 through the Cloudflare Dashboard.',
       guidance: 'Cloudflare R2 is not enabled for this account (code 10042).',
       dashboard: 'https://dash.cloudflare.com/account/r2/overview',
     },
     {
-      code: 10121,
+      code: 10_121,
       path: '/accounts/account/workers/dispatch/namespaces',
       message:
         'You do not have access to dispatch namespaces. Purchase at https://dash.cloudflare.com?to=/:account/workers-for-platforms',
@@ -108,15 +108,15 @@ describe('platform Cloudflare client', () => {
     expect(error.message).not.toContain('--resume');
     expect(error.message).not.toContain('query-value');
     expect(error.message).not.toContain('secret-token');
-    if (test.code === 10121) {
+    if (test.code === 10_121) {
       expect(error.message).toContain('Enterprise customers');
     }
   });
 
   it.each([
-    { status: 401, code: 10000, path: '/accounts/account/r2/buckets' },
-    { status: 403, code: 10000, path: '/accounts/account/r2/buckets' },
-    { status: 403, code: 10042, path: '/accounts/account/ai-gateway/gateways' },
+    { status: 401, code: 10_000, path: '/accounts/account/r2/buckets' },
+    { status: 403, code: 10_000, path: '/accounts/account/r2/buckets' },
+    { status: 403, code: 10_042, path: '/accounts/account/ai-gateway/gateways' },
     { status: 500, code: 7000, path: '/accounts/account/ai-gateway/gateways' },
   ])('keeps unrelated provider errors unchanged: $status/$code', async ({ status, code, path }) => {
     const client = new PlatformCloudflareClient('token', {
@@ -771,7 +771,7 @@ describe('platform Cloudflare client', () => {
                 errors: [
                   pathname === '/client/v4/zones/mail-zone'
                     ? { code: 9109, message: 'Invalid access token synthetic-runtime-secret' }
-                    : { code: 10000, message: 'Authentication error synthetic-runtime-secret' },
+                    : { code: 10_000, message: 'Authentication error synthetic-runtime-secret' },
                 ],
               },
               { status: pathname === '/client/v4/zones/mail-zone' ? 403 : 401 },
@@ -1191,7 +1191,7 @@ describe('platform Cloudflare client', () => {
         requests.push(`${method} ${url.pathname}${url.search}`);
         if (url.pathname.endsWith('/gone')) {
           return Response.json(
-            { success: false, errors: [{ code: 10007, message: 'not found' }] },
+            { success: false, errors: [{ code: 10_007, message: 'not found' }] },
             { status: 404 },
           );
         }
@@ -1428,7 +1428,7 @@ describe('platform Cloudflare client', () => {
             success: false,
             errors: [
               {
-                code: 100109,
+                code: 100_109,
                 message:
                   'Cannot delete this Worker as it is a Tail Worker consumer for other Workers.',
               },
@@ -1924,7 +1924,7 @@ describe('naming the Cloudflare credential in errors', () => {
       credential: { role: 'management', source: 'saved' },
       fetcher: async () =>
         Response.json(
-          { success: false, errors: [{ code: 10042, message: 'Please enable R2' }] },
+          { success: false, errors: [{ code: 10_042, message: 'Please enable R2' }] },
           { status: 403 },
         ),
     });

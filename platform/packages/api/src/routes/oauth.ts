@@ -255,7 +255,7 @@ app.use('*', (context, next) =>
           context.req.path,
         )
           ? 48 * 1024 * 1024
-          : 32768,
+          : 32_768,
       })(context, next),
 );
 app.onError((error, context) =>

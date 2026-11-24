@@ -237,7 +237,7 @@ export function DeploymentLogs({
       }
     };
     void poll();
-    const timer = setInterval(() => void poll(), 3_000);
+    const timer = setInterval(() => void poll(), 3000);
     return () => {
       active = false;
       clearInterval(timer);

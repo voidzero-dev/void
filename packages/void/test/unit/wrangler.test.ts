@@ -1012,7 +1012,7 @@ describe('writeProvisionedWranglerConfig', () => {
     expect(result.d1MigrationsDirSkipped).toBe(false);
 
     const raw = readRaw('wrangler.jsonc');
-    expect(raw.charCodeAt(0)).toBe(0xfeff);
+    expect(raw.charCodeAt(0)).toBe(0xfe_ff);
     expect(raw).toContain('// BOM-prefixed config');
 
     const parsed = parseJsoncRaw(raw.replace(/^﻿/, '')) as Record<string, unknown>;

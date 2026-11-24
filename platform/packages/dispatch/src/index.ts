@@ -409,7 +409,7 @@ async function fetchAssetManifest(
   const hedgeDelayMs = staticAssetHedgeDelayMs(timeoutMs);
   try {
     const raw = await withDelayedHedge(
-      () => env.ROUTING.get(`manifest:${deploymentId}`, { cacheTtl: 86400 }),
+      () => env.ROUTING.get(`manifest:${deploymentId}`, { cacheTtl: 86_400 }),
       {
         delayMs: hedgeDelayMs,
         timeoutMs,
@@ -465,7 +465,7 @@ async function serveWfpAssetFallback(
   env: Env,
   routing: RoutingEntry,
   pathname: string,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
   fallbackPathname?: string,
 ): Promise<{ response: Response; pathname: string } | null> {
   if (!routing.assetManifestId) {
@@ -551,7 +551,7 @@ async function maybeServeWfpAssetFallback(opts: {
   fallbackPathname?: string;
 }): Promise<{ response: Response; failureKind?: FailureKind; pathname: string }> {
   const startedAt = opts.deadline?.startedAt ?? Date.now();
-  const timeoutMs = opts.deadline?.timeoutMs ?? opts.timeoutMs ?? 10000;
+  const timeoutMs = opts.deadline?.timeoutMs ?? opts.timeoutMs ?? 10_000;
   if (isEventStreamResponse(opts.response)) {
     return { response: opts.response, pathname: opts.pathname };
   }
@@ -2213,7 +2213,7 @@ async function fetchStaticAsset(
   path: string,
   projectId?: string,
   deploymentId?: string,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
 ): Promise<Response | null> {
   const hedgeDelayMs = staticAssetHedgeDelayMs(timeoutMs);
   const startedAt = Date.now();
@@ -2320,7 +2320,7 @@ async function fetchStaticAssetOnce(
   const readKvAsset = async (key: string): Promise<Response | null> => {
     const { value, metadata } = await env.STATIC_ASSETS.getWithMetadata<{ ct: string }>(key, {
       type: 'arrayBuffer',
-      cacheTtl: 86400,
+      cacheTtl: 86_400,
     });
     if (!value) {
       return null;
@@ -2364,7 +2364,7 @@ async function revalidateInBackground(
   jsonCacheKey: Request,
   staleSinceMs: number,
   originalUrl?: string | null,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
 ): Promise<boolean> {
   try {
     const worker = getWorker(env, routing);

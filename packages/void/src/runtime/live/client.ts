@@ -81,7 +81,7 @@ export function connectLiveStream(
   let pendingFlush: Promise<void> | null = null;
   let flushChain: Promise<void> = Promise.resolve();
   let nextSubscriptionVersion = 0;
-  const retryDelay = options.retryDelay ?? 1_000;
+  const retryDelay = options.retryDelay ?? 1000;
   if (!Number.isFinite(retryDelay) || retryDelay < 0) {
     throw new Error('live: retryDelay must be a non-negative finite number.');
   }

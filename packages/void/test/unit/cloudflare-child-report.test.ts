@@ -37,13 +37,13 @@ describe('createCredentialRedactor', () => {
         stdout: `stdout ${TOKEN}`,
         stderr: `boom raw ${TOKEN}`,
         error: `spawn failed ${TOKEN}`,
-        errors: [{ code: 10000, message: `provider ${TOKEN}` }],
+        errors: [{ code: 10_000, message: `provider ${TOKEN}` }],
       },
       redactor,
     );
     expect(JSON.stringify(scrubbed)).not.toContain(TOKEN);
     expect(scrubbed.stderr).toBe('boom raw <redacted>');
-    expect(scrubbed.errors).toEqual([{ code: 10000, message: 'provider <redacted>' }]);
+    expect(scrubbed.errors).toEqual([{ code: 10_000, message: 'provider <redacted>' }]);
 
     const error = new Error(`thrown ${TOKEN}`);
     const reporter = { ...createCloudflareChildReporter(recordingLog().log), redactor };

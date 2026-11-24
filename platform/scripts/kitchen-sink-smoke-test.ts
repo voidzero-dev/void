@@ -101,7 +101,7 @@ async function pollForText(page: Page, path: string, text: string, timeoutMs = 3
     if (body?.includes(text)) {
       return;
     }
-    await page.waitForTimeout(2_000);
+    await page.waitForTimeout(2000);
   }
   throw new Error(`Timed out after ${timeoutMs}ms waiting for "${text}" on ${path}`);
 }

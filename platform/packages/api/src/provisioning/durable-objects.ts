@@ -365,7 +365,7 @@ export async function verifyManagedDurableObjectApplicationBindings(
   manifest: DeployManifest,
   {
     deadline,
-    delaysMs = [250, 500, 1_000],
+    delaysMs = [250, 500, 1000],
   }: { deadline?: number; delaysMs?: ReadonlyArray<number> } = {},
 ): Promise<void> {
   const expectedBindings = managedDurableObjectBindings(manifest);

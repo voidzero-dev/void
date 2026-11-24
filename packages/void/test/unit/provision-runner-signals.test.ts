@@ -209,7 +209,7 @@ describe('createDefaultRunWrangler — signal-path kill failure quarantines the 
       expect(() => process.kill(childPid!, 0)).not.toThrow();
       const old = new Date(Date.now() - 3_600_000);
       utimesSync(lockMutex, old, old);
-      await expect(acquireProvisionLock(cfgReal, { stale: 2_000, retries: 0 })).rejects.toThrow(
+      await expect(acquireProvisionLock(cfgReal, { stale: 2000, retries: 0 })).rejects.toThrow(
         /QUARANTINED/,
       );
       // Kill the recorded group; the next acquisition clears the quarantine + proceeds.
@@ -218,8 +218,8 @@ describe('createDefaultRunWrangler — signal-path kill failure quarantines the 
       } catch {
         process.kill(childPid!, 'SIGKILL');
       }
-      expect(await waitForDead(childPid!, 5_000)).toBe(true);
-      const lock = await acquireProvisionLock(cfgReal, { stale: 2_000, retries: 5 });
+      expect(await waitForDead(childPid!, 5000)).toBe(true);
+      const lock = await acquireProvisionLock(cfgReal, { stale: 2000, retries: 5 });
       expect(existsSync(sidecar)).toBe(false);
       await lock.release();
       expect(existsSync(lockMutex)).toBe(false);
@@ -629,7 +629,7 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     // A fixed delay can fire before Node loads the child script on a busy runner.
     // Wait until the child has written its PID so this is truly a post-spawn error.
     void (async () => {
-      const deadline = Date.now() + 5_000;
+      const deadline = Date.now() + 5000;
       while (!existsSync(pidFile) && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
@@ -906,6 +906,6 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     // The child is still alive; reap it and confirm it is gone.
     const pid = reapPidFile(pidFile);
     expect(pid).toBeDefined();
-    expect(await waitForDead(pid!, 5_000)).toBe(true);
+    expect(await waitForDead(pid!, 5000)).toBe(true);
   }, 15_000);
 });

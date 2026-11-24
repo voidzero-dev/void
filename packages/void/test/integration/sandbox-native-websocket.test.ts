@@ -87,4 +87,4 @@ export default { fetch(request, env) { return envContext.run(env, async () => {
     await runtime?.dispose();
     rmSync(directory, { recursive: true, force: true });
   }
-}, 30000);
+}, 30_000);

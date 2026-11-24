@@ -59,6 +59,6 @@ export function isCleanCommandExit(result: CloudflareCommandResult): boolean {
 /** Cloudflare reported that the Worker or its deployment does not exist (code 10007). */
 export function isWorkerNotFound(result: CloudflareCommandResult): boolean {
   return (
-    isCompletedCommand(result) && (result.failure === 'not-found' || result.errorCode === 10007)
+    isCompletedCommand(result) && (result.failure === 'not-found' || result.errorCode === 10_007)
   );
 }

@@ -614,7 +614,7 @@ export function PlanProgressPage({
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ expectedRevision: initial.revision }),
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(300000)]),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(300_000)]),
           redirect: 'error',
         });
         if (!response.ok) {

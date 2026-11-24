@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 const PROJECT_MODE_MIGRATION = {
   hash: '8f4452ea39f4fb6504fd6384cdc73634b1f38b4abfde604a366f83a38163d252',
-  timestamp: 1790841384175,
+  timestamp: 1_790_841_384_175,
 };
 
 function isProjectModeMigrationApplied(rows) {

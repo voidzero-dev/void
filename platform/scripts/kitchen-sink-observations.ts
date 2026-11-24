@@ -71,7 +71,7 @@ async function pollObservation(
         `${description} after ${options.timeoutMs}ms (last value: ${JSON.stringify(latest)}).`,
       );
     }
-    await wait(Math.min(options.intervalMs ?? 3_000, remaining));
+    await wait(Math.min(options.intervalMs ?? 3000, remaining));
   }
 }
 
@@ -87,7 +87,7 @@ export function waitForFreshHeartbeat(
       return (
         Number.isFinite(timestamp) &&
         timestamp >= (options.notBefore ?? -Infinity) &&
-        age >= -1_000 &&
+        age >= -1000 &&
         age < 5 * 60_000
       );
     },

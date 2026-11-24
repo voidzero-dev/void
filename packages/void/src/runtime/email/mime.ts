@@ -872,11 +872,11 @@ function findOverlongLine(text: string): { index: number; octets: number } | und
       i++;
     } else if (c < 0x80) {
       octets += 1;
-    } else if (c < 0x800) {
+    } else if (c < 0x8_00) {
       octets += 2;
-    } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+    } else if (c >= 0xd8_00 && c <= 0xdb_ff && i + 1 < text.length) {
       const d = text.charCodeAt(i + 1);
-      if (d >= 0xdc00 && d <= 0xdfff) {
+      if (d >= 0xdc_00 && d <= 0xdf_ff) {
         octets += 4; // the pair is one code point
         i++;
       } else {
@@ -985,7 +985,7 @@ function quotedPrintable(text: string): string {
 /** One character per code unit, in 32K chunks to stay under the call-argument limit. */
 function codeUnitsToString(units: Uint8Array | Uint16Array): string {
   let s = '';
-  const chunk = 0x8000;
+  const chunk = 0x80_00;
   for (let i = 0; i < units.length; i += chunk) {
     s += String.fromCharCode(...units.subarray(i, i + chunk));
   }
@@ -1059,11 +1059,11 @@ function minBodyOctets(text: string): number {
     const c = text.charCodeAt(i);
     if (c < 0x80) {
       octets += 1;
-    } else if (c < 0x800) {
+    } else if (c < 0x8_00) {
       octets += 6; // 2 UTF-8 bytes, each `=XX`
-    } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+    } else if (c >= 0xd8_00 && c <= 0xdb_ff && i + 1 < text.length) {
       const d = text.charCodeAt(i + 1);
-      if (d >= 0xdc00 && d <= 0xdfff) {
+      if (d >= 0xdc_00 && d <= 0xdf_ff) {
         octets += 12; // 4 UTF-8 bytes for the pair
         i++;
         continue;
@@ -1178,11 +1178,11 @@ function minHeaderValueOctets(value: string): number {
       visible += 1;
     } else {
       encoded = true;
-      if (c < 0x800) {
+      if (c < 0x8_00) {
         utf8 += 2;
-      } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < value.length) {
+      } else if (c >= 0xd8_00 && c <= 0xdb_ff && i + 1 < value.length) {
         const d = value.charCodeAt(i + 1);
-        if (d >= 0xdc00 && d <= 0xdfff) {
+        if (d >= 0xdc_00 && d <= 0xdf_ff) {
           utf8 += 4; // the pair is one code point
           i++;
           continue;

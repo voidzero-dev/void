@@ -20,6 +20,6 @@ export default defineConfig({
       '@iconify/vue': docsRequire.resolve('@iconify/vue'),
     },
   },
-  server: { host: '127.0.0.1', port: 41742, strictPort: true },
+  server: { host: '127.0.0.1', port: 41_742, strictPort: true },
   build: { outDir: '../../playground-local/terminal-demos-build', emptyOutDir: true },
 });

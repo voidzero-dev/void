@@ -41,7 +41,7 @@ describe('playground/tanstack-start dev', () => {
 
   it('applies env.ts to server routes', async () => {
     const response = await fetch(`${DEV_BASE}/api/env`);
-    expect(await response.json()).toEqual({ SCHEMA_DEFAULT: 48213 });
+    expect(await response.json()).toEqual({ SCHEMA_DEFAULT: 48_213 });
   });
 
   it('renders home page with SSR', async () => {

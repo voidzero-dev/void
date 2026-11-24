@@ -142,7 +142,7 @@ function cfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle {
       const script = handle.state.hostScripts.get(scriptNameOf(url));
       return script
         ? cfSuccess(script.bindings)
-        : cfError('workers.api.error.script_not_found', 404, 10007);
+        : cfError('workers.api.error.script_not_found', 404, 10_007);
     },
     ...overrides,
   });

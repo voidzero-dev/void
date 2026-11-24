@@ -225,9 +225,9 @@ describe('manifest limits (worker.limits.cpu_ms)', () => {
       frameworkName: 'astro',
       workerMain: 'index.mjs',
       bindings: makeBindings(),
-      packageOptions: { cpuMs: 30000 },
+      packageOptions: { cpuMs: 30_000 },
     });
-    expect(manifest.limits).toEqual({ cpuMs: 30000 });
+    expect(manifest.limits).toEqual({ cpuMs: 30_000 });
   });
 
   it('omits the limits key entirely when packageOptions.cpuMs is unset (framework manifest)', () => {

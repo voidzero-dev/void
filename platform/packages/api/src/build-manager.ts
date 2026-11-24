@@ -51,7 +51,7 @@ const STORAGE_KEY_LOG_DRAIN = 'logDrainState';
 // replay on connect. `ingestLines` evicts the oldest rows past this cap, keeping
 // the most-recent window (a tail is what a live log view wants). Mirrors the
 // container agent's in-memory ring bound (build-agent.mjs MAX_BUFFERED_LOG_LINES).
-export const MAX_STORED_LOG_LINES = 10000;
+export const MAX_STORED_LOG_LINES = 10_000;
 
 // Bounds for the log tail embedded in the completed check-run's `output.text`.
 // Both caps are UTF-8 BYTE caps, because that is what GitHub validates (its
@@ -62,7 +62,7 @@ export const MAX_STORED_LOG_LINES = 10000;
 // sized past the content's backtick runs (see below), so the hard cap is
 // enforced on the whole rendered string too.
 export const CHECK_RUN_LOG_TAIL_LINES = 100;
-export const CHECK_RUN_LOG_TAIL_MAX_BYTES = 60000;
+export const CHECK_RUN_LOG_TAIL_MAX_BYTES = 60_000;
 
 // GitHub's hard cap on a check run's output.text: 65535 UTF-8 BYTES (GitHub
 // validates bytesize, not character count). A longer string makes GitHub
@@ -71,7 +71,7 @@ export const CHECK_RUN_LOG_TAIL_MAX_BYTES = 60000;
 // honor it, not just the content: the fence delimiters grow past the longest
 // backtick run in the content, so a pathological all-backtick line can blow
 // far past the fixed small overhead the 60000 content cap budgeted for.
-export const CHECK_RUN_OUTPUT_TEXT_MAX_BYTES = 65535;
+export const CHECK_RUN_OUTPUT_TEXT_MAX_BYTES = 65_535;
 
 // Cadence of the DO→container log pull-loop. The agent buffers stdout/stderr and
 // serves `GET /logs?since=N`; the DO polls on this interval, ingesting any new
@@ -300,7 +300,7 @@ function utf8Length(text: string): number {
  */
 function sliceTailAtUnit(line: string, cut: number): string {
   const code = line.charCodeAt(cut);
-  return line.slice(code >= 0xdc00 && code <= 0xdfff ? cut + 1 : cut);
+  return line.slice(code >= 0xdc_00 && code <= 0xdf_ff ? cut + 1 : cut);
 }
 
 /** Longest run of consecutive backticks in `text` (0 when there are none). */

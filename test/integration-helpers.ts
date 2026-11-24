@@ -222,7 +222,7 @@ export async function startServer(
     } catch (error) {
       if (exited()) {
         // The last output can arrive after the exit.
-        await Promise.race([closed, delay(1_000)]);
+        await Promise.race([closed, delay(1000)]);
       }
       // Vite with `--strictPort`, Node, Bun and Deno exit with one of these messages.
       const portTaken = moved() || (exited() && /already in use|EADDRINUSE/.test(output()));
@@ -280,7 +280,7 @@ export async function waitForServer(
     try {
       const remainingMs = effectiveTimeout - (Date.now() - start);
       const response = await fetch(url, {
-        signal: AbortSignal.timeout(Math.min(options?.requestTimeoutMs ?? 5_000, remainingMs)),
+        signal: AbortSignal.timeout(Math.min(options?.requestTimeoutMs ?? 5000, remainingMs)),
       });
       const statusMatches =
         options?.expectStatus === undefined
@@ -313,10 +313,10 @@ export function collectServerOutput(child: ReturnType<typeof spawn>): () => stri
   let stdout = '';
   let stderr = '';
   child.stdout?.on('data', (chunk) => {
-    stdout = (stdout + String(chunk)).slice(-16000);
+    stdout = (stdout + String(chunk)).slice(-16_000);
   });
   child.stderr?.on('data', (chunk) => {
-    stderr = (stderr + String(chunk)).slice(-16000);
+    stderr = (stderr + String(chunk)).slice(-16_000);
   });
   return () => `Server stdout:\n${stdout}\nServer stderr:\n${stderr}`;
 }
@@ -346,7 +346,7 @@ export async function killChild(child: ReturnType<typeof spawn>): Promise<void> 
       await Promise.race([
         once(child, 'exit'),
         new Promise((resolve) => {
-          deadline = setTimeout(resolve, 5_000);
+          deadline = setTimeout(resolve, 5000);
         }),
       ]);
     } finally {
@@ -361,7 +361,7 @@ export async function killChild(child: ReturnType<typeof spawn>): Promise<void> 
     }
     // A descendant can outlive the process that started it and keep writing into the fixture
     // while it shuts down. Wait for all of them, so the caller can remove the directory.
-    const patience = Date.now() + 5_000;
+    const patience = Date.now() + 5000;
     while (descendants.some(isAlive) && Date.now() < patience) {
       await delay(25);
     }

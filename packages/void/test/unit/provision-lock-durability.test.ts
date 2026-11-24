@@ -79,7 +79,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
 
   it('a sidecar-write failure keeps the lock TRACKED (heartbeat running, NOT stealable) and throws a hard error', async () => {
     setup(JSON.stringify({ name: 'app' }));
-    const lock = await acquireProvisionLock(wranglerPath, { stale: 2_000 });
+    const lock = await acquireProvisionLock(wranglerPath, { stale: 2000 });
     try {
       mkdirSync(tmpBlocker);
       expect(() => lock.quarantine({ pid: 99_999, reason: 'sidecar blocked' })).toThrow(
@@ -88,10 +88,10 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       expect(existsSync(sidecar)).toBe(false);
       // The lock stays tracked, so its heartbeat keeps it fresh past proper-lockfile's
       // 2000ms stale floor.
-      await new Promise((r) => setTimeout(r, 2_300));
-      await expect(
-        acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0 }),
-      ).rejects.toThrow(/already being held/);
+      await new Promise((r) => setTimeout(r, 2300));
+      await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
+        /already being held/,
+      );
     } finally {
       rmSync(tmpBlocker, { recursive: true, force: true });
       // Still tracked → release works normally and frees the mutex.
@@ -119,7 +119,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
           runWrangler: run,
           log: silentLog,
           lockOptions: {
-            stale: 2_000,
+            stale: 2000,
             // Every persistence attempt fails, so only the death probe can resolve it.
             dirDurability: {
               fsyncSync: () => {
@@ -175,7 +175,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
             runWrangler: run,
             log: silentLog,
             lockOptions: {
-              stale: 2_000,
+              stale: 2000,
               dirDurability: {
                 fsyncSync: () => {
                   if (failPersistence) {
@@ -207,9 +207,9 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       // live recorded group even with the mutex aged stale.
       const old = new Date(Date.now() - 3_600_000);
       utimesSync(lockMutex, old, old);
-      await expect(
-        acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0 }),
-      ).rejects.toThrow(/QUARANTINED/);
+      await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
+        /QUARANTINED/,
+      );
     } finally {
       reap(live);
       rmSync(lockMutex, { recursive: true, force: true });
@@ -308,7 +308,7 @@ describe('acquireProvisionLock — sidecar DIRECTORY durability failures propaga
     // platform-unsupported codes may be ignored.
     setup(JSON.stringify({ name: 'app' }));
     const lock = await acquireProvisionLock(wranglerPath, {
-      stale: 2_000,
+      stale: 2000,
       dirDurability: {
         fsyncSync: () => {
           throw Object.assign(new Error('ENOSPC: no space left on device, fsync'), {
@@ -324,10 +324,10 @@ describe('acquireProvisionLock — sidecar DIRECTORY durability failures propaga
       // The non-durable sidecar was rolled back.
       expect(existsSync(sidecar)).toBe(false);
       // The lock stays tracked, so its heartbeat keeps it fresh past the 2000ms stale floor.
-      await new Promise((r) => setTimeout(r, 2_300));
-      await expect(
-        acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0 }),
-      ).rejects.toThrow(/already being held/);
+      await new Promise((r) => setTimeout(r, 2300));
+      await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
+        /already being held/,
+      );
     } finally {
       // Still tracked → release works normally and frees the mutex.
       await lock.release();
@@ -338,7 +338,7 @@ describe('acquireProvisionLock — sidecar DIRECTORY durability failures propaga
   it('a platform-unsupported code (EINVAL) is ignored — the quarantine still detaches behind the verified sidecar', async () => {
     setup(JSON.stringify({ name: 'app' }));
     const lock = await acquireProvisionLock(wranglerPath, {
-      stale: 2_000,
+      stale: 2000,
       dirDurability: {
         fsyncSync: () => {
           throw Object.assign(new Error('EINVAL: invalid argument, fsync'), { code: 'EINVAL' });

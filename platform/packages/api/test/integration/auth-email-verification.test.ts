@@ -117,7 +117,7 @@ describe('email verification gating on account linking', () => {
         JSON.stringify(allowed ? [{ type: 'github', pattern: 'invited-user' }] : []),
       );
       const fetchMock = mockGitHubApi({
-        id: 44444,
+        id: 44_444,
         login: 'invited-user',
         email: 'invited@example.com',
         emailVerified: true,
@@ -157,7 +157,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 99999,
+        id: 99_999,
         login: 'new-gh-user',
         email: 'shared@example.com',
         emailVerified: false,
@@ -194,7 +194,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 77777,
+        id: 77_777,
         login: 'public-email-gh-user',
         email: 'public@example.com',
         emailVerified: true,
@@ -232,7 +232,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 88888,
+        id: 88_888,
         login: 'verified-gh-user',
         email: 'verified@example.com',
         emailVerified: true,
@@ -275,7 +275,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 424242,
+        id: 424_242,
         login: 'invited-existing',
         email: 'invited-existing@example.com',
         emailVerified: true,
@@ -303,7 +303,7 @@ describe('email verification gating on account linking', () => {
   it('does not grant source repository access after an unrestricted signup', async () => {
     Object.assign(env, { GITHUB_PREVIEW_REPO_PAT: 'test-legacy-pat' });
     const fetchMock = mockGitHubApi({
-      id: 55555,
+      id: 55_555,
       login: 'new-user',
       email: 'new@example.com',
       emailVerified: true,
@@ -331,7 +331,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 55556,
+        id: 55_556,
         login: 'new-member',
         email: 'member@example.com',
         emailVerified: true,
@@ -393,7 +393,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 222222, // Y != X
+        id: 222_222, // Y != X
         login: 'another-gh-account',
         email: 'one-github@example.com',
         emailVerified: true,
@@ -447,7 +447,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 333333,
+        id: 333_333,
         login: 'bob-gh',
         email: 'no-github@example.com',
         emailVerified: true,
@@ -520,7 +520,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 717171,
+        id: 717_171,
         login: 'rotating-user',
         email: 'new-owner@example.com',
         emailVerified: true,
@@ -589,7 +589,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 818181,
+        id: 818_181,
         login: 'stable-user',
         // Same address, different case — a case flip is not a reassignment.
         email: 'Stable-Owner@Example.com',
@@ -823,7 +823,7 @@ describe('email verification gating on account linking', () => {
       // The provider now reports the NEW address; every login below rotates
       // (or confirms) it.
       const github = mockGitHubApi({
-        id: 939393,
+        id: 939_393,
         login: 'racing-user',
         email: 'new-owner@example.com',
         emailVerified: true,
@@ -835,7 +835,7 @@ describe('email verification gating on account linking', () => {
           return Response.json(
             {
               success: false,
-              errors: [{ code: 10037, message: 'destination address already exists' }],
+              errors: [{ code: 10_037, message: 'destination address already exists' }],
               messages: [],
               result: null,
             },
@@ -917,7 +917,7 @@ describe('email verification gating on account linking', () => {
       const project = await createTestProject(env.db, existing.id, 'owner-email-racing-manual');
 
       const github = mockGitHubApi({
-        id: 949494,
+        id: 949_494,
         login: 'racing-manual',
         email: 'new-owner@example.com',
         emailVerified: true,
@@ -949,7 +949,7 @@ describe('email verification gating on account linking', () => {
           return Response.json(
             {
               success: false,
-              errors: [{ code: 10037, message: 'destination address already exists' }],
+              errors: [{ code: 10_037, message: 'destination address already exists' }],
               messages: [],
               result: null,
             },
@@ -1050,7 +1050,7 @@ describe('email verification gating on account linking', () => {
       });
 
       const github = mockGitHubApi({
-        id: 959595,
+        id: 959_595,
         login: 'racing-listing',
         email: 'new-owner@example.com',
         emailVerified: true,
@@ -1141,7 +1141,7 @@ describe('email match never reaches an administrator account', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 444001,
+        id: 444_001,
         login: 'lookalike',
         email: 'admin@example.com',
         emailVerified: true,

@@ -92,7 +92,7 @@ describe('evaluateAiLimit (real implementation)', () => {
   }
 
   it('returns false when under the AI limit', () => {
-    const state = makeState({ totalNeurons: 1_000 });
+    const state = makeState({ totalNeurons: 1000 });
     expect(evaluateAiLimit(state)).toBe(false);
   });
 

@@ -195,7 +195,7 @@ function runFile(root: string, file: string, databaseUrl: string): Promise<numbe
     const timeout = setTimeout(() => {
       expired = true;
       kill('SIGTERM');
-      force = setTimeout(() => kill('SIGKILL'), 5_000);
+      force = setTimeout(() => kill('SIGKILL'), 5000);
     }, 180_000);
     child.on('error', (error) => {
       clearTimeout(timeout);

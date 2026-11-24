@@ -25,7 +25,7 @@ const LEASE_KEY = '__voidSandboxLease';
 const ACTIVITY_KEY = '__voidSandboxActivity';
 type Activity = { lastActivity: number; idleDeadline: number };
 const HEARTBEAT_MS = 30_000;
-const CONTROL_TIMEOUT_MS = 5_000;
+const CONTROL_TIMEOUT_MS = 5000;
 
 function denied(reason: string): Error {
   return new Error(

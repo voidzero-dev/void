@@ -14,7 +14,7 @@ export function shuffleTests<T>(tests: ReadonlyArray<T>, seed: number): Array<T>
   const shuffled = [...tests];
   let state = seed >>> 0;
   for (let index = shuffled.length - 1; index > 0; index--) {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
     const other = state % (index + 1);
     [shuffled[index], shuffled[other]] = [shuffled[other], shuffled[index]];
   }

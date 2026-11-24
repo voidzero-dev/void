@@ -215,7 +215,7 @@ describe('Worker change source', () => {
         {
           success: false,
           result: null,
-          errors: [{ code: 10090, message: 'This Worker does not exist on this account.' }],
+          errors: [{ code: 10_090, message: 'This Worker does not exist on this account.' }],
         },
         { status: 404 },
       ),
@@ -228,7 +228,7 @@ describe('Worker change source', () => {
   it('reports other failed reads', async () => {
     const reader = client(() =>
       Response.json(
-        { success: false, errors: [{ code: 10000, message: 'Internal error' }] },
+        { success: false, errors: [{ code: 10_000, message: 'Internal error' }] },
         { status: 500 },
       ),
     );

@@ -60,7 +60,7 @@ function runCloudflared(args, options = {}) {
   const result = spawnSync('cloudflared', args, {
     encoding: 'utf8',
     stdio: options.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
-    timeout: options.timeoutMs ?? 5_000,
+    timeout: options.timeoutMs ?? 5000,
   });
   if (result.error || result.status !== 0) {
     return null;

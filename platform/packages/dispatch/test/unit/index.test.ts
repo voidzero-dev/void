@@ -6868,7 +6868,7 @@ describe('foreground worker duration', () => {
         });
       await vi.advanceTimersByTimeAsync(11_000);
       expect(get).toHaveBeenCalledOnce();
-      await vi.advanceTimersByTimeAsync(9_999);
+      await vi.advanceTimersByTimeAsync(9999);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
 

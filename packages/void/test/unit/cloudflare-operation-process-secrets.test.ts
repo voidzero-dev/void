@@ -116,7 +116,7 @@ const undeployed: CfReply = { status: 1, stderr: '[code: 10013] An unknown error
 const success: ApiReply = { status: 200, body: { success: true, result: { id: 'v1' } } };
 const exists: ApiReply = {
   status: 409,
-  body: { success: false, errors: [{ code: 10040, message: 'This Worker name is in use.' }] },
+  body: { success: false, errors: [{ code: 10_040, message: 'This Worker name is in use.' }] },
 };
 
 /** Workers API replies keyed by request: create and version upload. */
@@ -252,7 +252,7 @@ it.each([
     {
       create: {
         status: 403,
-        body: { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
+        body: { success: false, errors: [{ code: 10_000, message: 'Authentication error' }] },
       },
     },
   ],
@@ -287,7 +287,7 @@ it('returns a non-zero status when the placeholder deploy fails after Worker 100
         status: 400,
         body: {
           success: false,
-          errors: [{ code: 10021, message: 'Invalid compatibility_date "2025-13-01".' }],
+          errors: [{ code: 10_021, message: 'Invalid compatibility_date "2025-13-01".' }],
         },
       },
     }),

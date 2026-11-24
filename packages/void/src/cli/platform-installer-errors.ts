@@ -8,7 +8,7 @@ import { formatUrl } from './output.ts';
 
 // Cloudflare refuses a Worker with an Analytics Engine binding (code 10089)
 // until Analytics Engine is enabled for the account, including on Workers Free.
-const ANALYTICS_ENGINE_NOT_ENABLED = 10089;
+const ANALYTICS_ENGINE_NOT_ENABLED = 10_089;
 
 // Without a terminal, the Cloudflare CLI stops an upload when it must ask
 // about a conflict. Its advice to remove `--strict` does not apply: the CLI

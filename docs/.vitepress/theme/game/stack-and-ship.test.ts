@@ -90,7 +90,7 @@ void test('a new entry direction can change both axis and sign after a drop', ()
 
 void test('each shuffled set includes all nine frameworks before any repeat', () => {
   let seed = 42;
-  const random = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+  const random = () => (seed = (seed * 1_664_525 + 1_013_904_223) >>> 0) / 2 ** 32;
   let game = createStackGame(random);
   let previous = -1;
   const sets: Array<Array<number>> = [];

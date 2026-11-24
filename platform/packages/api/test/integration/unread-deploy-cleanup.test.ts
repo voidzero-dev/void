@@ -104,7 +104,7 @@ describe('fixture cleanup after an unread deploy stream', () => {
     await locked;
     // Let the deploy continue once the next cleanup waits on its lock, or after
     // a short bound when the harness finishes the deploy before cleanup.
-    void lockWaitOrTimeout(1_000).then(release);
+    void lockWaitOrTimeout(1000).then(release);
     // Return without reading `res`, as a status-only test does.
   });
 

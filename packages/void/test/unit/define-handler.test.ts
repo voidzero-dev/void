@@ -518,7 +518,7 @@ describe('defineHandler.withValidator', () => {
         }
       } else {
         // Append syntax must share the same allocation budget across arrays.
-        for (let i = 0; i < 6_000; i++) {
+        for (let i = 0; i < 6000; i++) {
           form.append('first[]', 'value');
           form.append('second[]', 'value');
         }

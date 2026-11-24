@@ -374,7 +374,7 @@ it.each([
   );
   expect(run.calls.filter((call) => call === 'versions.deploy')).toHaveLength(1);
   expect(run.postActivationReads).toBe(4);
-  expect(wait.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([250, 500, 1_000]);
+  expect(wait.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([250, 500, 1000]);
   expect(run.onTrafficPublished).not.toHaveBeenCalled();
 });
 

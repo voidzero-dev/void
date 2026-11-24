@@ -9,32 +9,32 @@ import {
 } from '../../docs/.vitepress/theme/terminal/timeline.ts';
 
 void test('pause and speed changes preserve playback position without counting paused time', () => {
-  const clock = new PlaybackClock(20000);
+  const clock = new PlaybackClock(20_000);
   clock.play(1000);
   assert.equal(clock.read(1500), 500);
   clock.pause(1500);
-  assert.equal(clock.read(10000), 500);
-  clock.play(10000);
-  clock.setSpeed(2, 11000);
-  assert.equal(clock.read(11500), 2500);
-  clock.seek(10000, 11500);
-  assert.equal(clock.read(12000), 11000);
-  clock.pause(12000);
-  assert.equal(clock.read(13000), 11000);
-  clock.setSpeed(Number.NaN, 13000);
+  assert.equal(clock.read(10_000), 500);
+  clock.play(10_000);
+  clock.setSpeed(2, 11_000);
+  assert.equal(clock.read(11_500), 2500);
+  clock.seek(10_000, 11_500);
+  assert.equal(clock.read(12_000), 11_000);
+  clock.pause(12_000);
+  assert.equal(clock.read(13_000), 11_000);
+  clock.setSpeed(Number.NaN, 13_000);
   assert.equal(clock.speed, 2);
 });
 
 void test('endpoints clamp and replay starts at the beginning', () => {
   const clock = new PlaybackClock(5000);
   clock.play(0);
-  assert.equal(clock.read(10000), 5000);
-  clock.pause(10000);
-  clock.seek(-100, 10000);
-  clock.play(10000);
-  assert.equal(clock.read(10100), 100);
-  clock.seek(9000, 10100);
-  assert.equal(clock.read(10100), 5000);
+  assert.equal(clock.read(10_000), 5000);
+  clock.pause(10_000);
+  clock.seek(-100, 10_000);
+  clock.play(10_000);
+  assert.equal(clock.read(10_100), 100);
+  clock.seek(9000, 10_100);
+  assert.equal(clock.read(10_100), 5000);
 });
 
 void test('seeking backwards restores transient prompt options and spinner states', () => {
@@ -92,7 +92,7 @@ void test('all demo timelines finish, stay ordered, and render complete aligned 
 void test('every demo finishes within ten seconds at every available playback speed', () => {
   for (const demo of terminalDemos) {
     for (const speed of playbackSpeeds) {
-      assert.ok(demo.duration / speed <= 10000, `${demo.id} at ${speed}×`);
+      assert.ok(demo.duration / speed <= 10_000, `${demo.id} at ${speed}×`);
     }
     for (const event of demo.events) {
       if (event.type === 'type') {

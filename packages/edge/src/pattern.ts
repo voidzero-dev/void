@@ -78,7 +78,7 @@ function accepts(kind: Token['kind'], code: number): boolean {
   if (kind === 'seg') {
     return code !== 47; // '/'
   }
-  return code !== 10 && code !== 13 && code !== 0x2028 && code !== 0x2029;
+  return code !== 10 && code !== 13 && code !== 0x20_28 && code !== 0x20_29;
 }
 
 function pushText(tokens: Array<Token>, text: string): void {

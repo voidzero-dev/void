@@ -390,7 +390,7 @@ describe('provisionCloudflareResources — config discovery (fail closed, single
     expect(calls.some((c) => c[0] === 'd1')).toBe(false);
     expect(result.resources[0]).toMatchObject({ kind: 'd1', action: 'reused', id: uuid('db1') });
     // BOM survives the writer's migrations_dir fill.
-    expect(readFileSync(wranglerPath, 'utf-8').charCodeAt(0)).toBe(0xfeff);
+    expect(readFileSync(wranglerPath, 'utf-8').charCodeAt(0)).toBe(0xfe_ff);
   });
 
   it('fails closed on a malformed root config — throws, no wrangler calls, no write', async () => {
@@ -960,7 +960,7 @@ describe('provisionCloudflareResources — R2', () => {
       if (operation.type === 'r2.bucket.info') {
         return Promise.resolve({
           ...fail('', 'The specified bucket does not exist'),
-          errorCode: 10006,
+          errorCode: 10_006,
         });
       }
       simulateUpdateConfig('r2_buckets', { binding: 'STORAGE', bucket_name: 'myapp-uploads' });
@@ -3462,7 +3462,7 @@ describe('provisionCloudflareResources — Hyperdrive password never reaches wra
     const sidecar = `${wranglerPath}.void-provision.lock.quarantine.json`;
     const conn = 'postgres://dbuser:sup3r-secret@db.example.com:5432/app';
     const quarantineError = new WranglerQuarantineError(
-      54321,
+      54_321,
       `kill failed while running hyperdrive create --connection-string=${conn}`,
     );
     const run: RunWrangler = provisionOperationFixture(() => Promise.reject(quarantineError));
@@ -3482,7 +3482,7 @@ describe('provisionCloudflareResources — Hyperdrive password never reaches wra
     }
     // The same object propagates, so the provision still recognizes it and retains the lock.
     expect(thrown).toBe(quarantineError);
-    expect((thrown as WranglerQuarantineError).pid).toBe(54321);
+    expect((thrown as WranglerQuarantineError).pid).toBe(54_321);
     expect((thrown as Error).message).not.toContain('sup3r-secret');
     expect((thrown as Error).message).toContain('[REDACTED]');
     expect(existsSync(lockMutex)).toBe(true);

@@ -65,7 +65,7 @@ function launch(command, args, cwd, env = environment) {
   for (const stream of [child.stdout, child.stderr]) {
     stream.on('data', (chunk) => {
       log.write(chunk);
-      tail = (tail + chunk.toString()).slice(-16000);
+      tail = (tail + chunk.toString()).slice(-16_000);
     });
   }
   const completion = new Promise((resolve, reject) => {

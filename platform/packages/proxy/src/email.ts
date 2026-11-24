@@ -21,7 +21,7 @@ const app = new Hono<ProxyEnv>();
 // The SDK aborts at 60s. Body/auth can precede this handler, and final ledger
 // writes need time after provider work stops.
 const EMAIL_SEND_DEADLINE_MS = 50_000;
-const EMAIL_SEND_FINALIZATION_MARGIN_MS = 5_000;
+const EMAIL_SEND_FINALIZATION_MARGIN_MS = 5000;
 
 /**
  * Cap inbound MIME bytes well below CF's ~10 MB base64-inflated ceiling. The

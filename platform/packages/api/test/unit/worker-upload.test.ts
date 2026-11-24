@@ -580,7 +580,7 @@ describe('uploadWatchdog', () => {
       await vi.advanceTimersByTimeAsync(10_000);
       progress = progressAt(Date.now());
     }
-    await vi.advanceTimersByTimeAsync(9_999);
+    await vi.advanceTimersByTimeAsync(9999);
     expect(watchdog.signal.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(watchdog.fired()).toBe('deadline');
@@ -598,25 +598,25 @@ describe('uploadWatchdog', () => {
 
 describe('workerUploadDeadline', () => {
   it('gives the full budget outside a deployment run', () => {
-    vi.useFakeTimers({ now: 1_000 });
-    expect(workerUploadDeadline(undefined)).toBe(1_000 + WORKER_UPLOAD_BUDGET_MS);
+    vi.useFakeTimers({ now: 1000 });
+    expect(workerUploadDeadline(undefined)).toBe(1000 + WORKER_UPLOAD_BUDGET_MS);
   });
 
   it('ends at the run deadline when that comes first', () => {
-    vi.useFakeTimers({ now: 1_000 });
-    expect(workerUploadDeadline(1_000 + 90_000)).toBe(1_000 + 90_000);
-    expect(workerUploadDeadline(1_000 + WORKER_UPLOAD_BUDGET_MS + 1)).toBe(
-      1_000 + WORKER_UPLOAD_BUDGET_MS,
+    vi.useFakeTimers({ now: 1000 });
+    expect(workerUploadDeadline(1000 + 90_000)).toBe(1000 + 90_000);
+    expect(workerUploadDeadline(1000 + WORKER_UPLOAD_BUDGET_MS + 1)).toBe(
+      1000 + WORKER_UPLOAD_BUDGET_MS,
     );
   });
 
   it('refuses to start with less than one attempt left in the run', () => {
-    vi.useFakeTimers({ now: 1_000 });
-    expect(() => workerUploadDeadline(1_000 + WORKER_UPLOAD_MIN_ATTEMPT_MS - 1)).toThrow(
+    vi.useFakeTimers({ now: 1000 });
+    expect(() => workerUploadDeadline(1000 + WORKER_UPLOAD_MIN_ATTEMPT_MS - 1)).toThrow(
       WORKER_UPLOAD_OUT_OF_TIME,
     );
-    expect(workerUploadDeadline(1_000 + WORKER_UPLOAD_MIN_ATTEMPT_MS)).toBe(
-      1_000 + WORKER_UPLOAD_MIN_ATTEMPT_MS,
+    expect(workerUploadDeadline(1000 + WORKER_UPLOAD_MIN_ATTEMPT_MS)).toBe(
+      1000 + WORKER_UPLOAD_MIN_ATTEMPT_MS,
     );
   });
 });

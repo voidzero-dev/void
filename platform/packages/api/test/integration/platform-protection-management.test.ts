@@ -59,7 +59,7 @@ describe('live platform protection', () => {
     await expect(
       updatePlatformProtection(env.db, actor, {
         ...input,
-        proofExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+        proofExpiresAt: new Date(Date.now() - 1000).toISOString(),
       }),
     ).rejects.toMatchObject({ code: 'protection_verification_required' });
     await expect(
@@ -158,7 +158,7 @@ describe('live platform protection', () => {
       { protection: null },
       { actor: { ...actor, sessionId: 'another-session' } },
       { actor: { ...actor, userId: 'another-user' } },
-      { expiresAt: new Date(Date.now() - 1_000).toISOString() },
+      { expiresAt: new Date(Date.now() - 1000).toISOString() },
       { secret: 'wrong-secret' },
     ]) {
       await expect(verifyProtectionAuthority({ ...input, ...change })).rejects.toMatchObject({

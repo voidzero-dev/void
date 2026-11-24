@@ -25,7 +25,7 @@ import { isAdminSuspended } from './suspension.ts';
 const POKE_DELAY_MS = 50;
 
 /** While the queue still has work the alarm reschedules this far ahead. */
-const RESCAN_DELAY_MS = 2_000;
+const RESCAN_DELAY_MS = 2000;
 
 /** When the container fleet is at capacity, back off this long (jittered) before
  *  re-scanning instead of the normal 2s cadence — avoids burning GitHub/token calls

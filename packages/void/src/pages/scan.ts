@@ -47,7 +47,7 @@ import type {
 
 const COMPONENT_EXTENSIONS = ['vue', 'tsx', 'jsx', 'svelte', 'md'];
 const PAGE_METHODS = new Set(['loader', 'action', 'actions']);
-export const MAX_REVALIDATE = 31536000; // 1 year in seconds
+export const MAX_REVALIDATE = 31_536_000; // 1 year in seconds
 
 /** Layout paths already reported; a dev server rescans pages on every file change. */
 const warnedLayoutPaths = new Set<string>();

@@ -128,7 +128,7 @@ function savedUploadReplayCode(body: string): number | undefined {
   for (const error of errors) {
     const code = (error as { code?: unknown } | null)?.code;
     // 100312: the assets completion token was used. 10079: the migration tag moved.
-    if (code === 100312 || code === 10079) {
+    if (code === 100_312 || code === 10_079) {
       return code;
     }
   }

@@ -157,7 +157,7 @@ const DEFAULT_LIMITS: LiveLimits = {
   maxOperationsPerControlRequest: 100,
   maxQueuedEventsPerConnection: 100,
   maxEncodedEventSize: 64 * 1024,
-  deliveryAttemptTimeoutMs: 1_500,
+  deliveryAttemptTimeoutMs: 1500,
 };
 const MAX_SUBSCRIPTIONS_PER_TOPIC = 256;
 

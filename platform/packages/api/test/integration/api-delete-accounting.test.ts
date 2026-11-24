@@ -90,9 +90,9 @@ it.each(['fresh', 'initialized'] as const)(
   'deletes through the real %s counter during an analytics outage and reconciles after restart',
   async (counterMode) => {
     const owner = await createTestUser(env.db, `delete-accounting-${counterMode}`);
-    const cycleStart = new Date(Date.now() - 86400000).toISOString();
+    const cycleStart = new Date(Date.now() - 86_400_000).toISOString();
     const billingPeriodStart = getCurrentBillingPeriodStart(cycleStart).toISOString();
-    const ownershipStartedAt = new Date(Date.now() - 3600000).toISOString();
+    const ownershipStartedAt = new Date(Date.now() - 3_600_000).toISOString();
     await env.db
       .update(users)
       .set({ billing_cycle_start: cycleStart })

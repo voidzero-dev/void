@@ -579,7 +579,7 @@ export type ManifestOnlyDeployPayload = DeployUploadPayload;
 // HTTP response is final. Every attempt sends the same idempotency key, so the
 // platform answers a replay with the earlier deployment's receipt or a 409.
 const DEPLOY_POST_MAX_RETRIES = 3;
-const DEPLOY_POST_BACKOFF_MS = [1000, 5000, 10000];
+const DEPLOY_POST_BACKOFF_MS = [1000, 5000, 10_000];
 /**
  * Every transport failure is retried, so a `TypeError` thrown by the deploy
  * POST always comes after this many attempts.

@@ -924,7 +924,7 @@ describe('build-agent source download, real stream + tar', () => {
 
     await agent.downloadSource({
       stallTimeoutMs: 400,
-      phaseBudgetMs: 20000,
+      phaseBudgetMs: 20_000,
       maxAttempts: 2,
       backoffMs: [0],
       progressIntervalMs: 50,
@@ -946,7 +946,7 @@ describe('build-agent source download, real stream + tar', () => {
       expect.stringContaining('source download attempt 1 failed (source download aborted: no data'),
     );
     expect(lines).toContainEqual(expect.stringContaining('[build-agent] source extracted ('));
-  }, 30000);
+  }, 30_000);
 
   it("reaps the failed attempt's tar before resetting, leaving no mixed tree", async () => {
     // A mid-body reset makes `pipeline` reject while `tar` is STILL RUNNING and
@@ -961,8 +961,8 @@ describe('build-agent source download, real stream + tar', () => {
     agent.clearBufferedLogLines();
 
     await agent.downloadSource({
-      stallTimeoutMs: 10000,
-      phaseBudgetMs: 20000,
+      stallTimeoutMs: 10_000,
+      phaseBudgetMs: 20_000,
       maxAttempts: 2,
       backoffMs: [0],
       progressIntervalMs: 50,
@@ -979,7 +979,7 @@ describe('build-agent source download, real stream + tar', () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(readdirSync(WORK_DIR).sort()).toEqual(before);
     expect(readFileSync(join(WORK_DIR, 'big.bin'))).toHaveLength(2 * 1024 * 1024);
-  }, 30000);
+  }, 30_000);
 });
 
 // The child's LIFECYCLE, which the harness test above cannot pin. A real `tar`

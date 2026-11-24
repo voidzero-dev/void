@@ -327,9 +327,9 @@ describe('renderCapturedLog matches a real terminal (xterm.js oracle)', () => {
     // Preserve every input from the original regression corpus. Its floating
     // point LCG produced 691 distinct strings from 900 iterations, almost all
     // with lengths 1, 5 or 9. Rechecking duplicates adds no independent coverage.
-    let legacySeed = 0x2f6e2b1;
+    let legacySeed = 0x2_f6_e2_b1;
     const legacyRand = (n: number): number => {
-      legacySeed = (legacySeed * 1103515245 + 12345) & 0x7fffffff;
+      legacySeed = (legacySeed * 1_103_515_245 + 12_345) & 0x7f_ff_ff_ff;
       return legacySeed % n;
     };
     for (let i = 0; i < 900; i++) {
@@ -339,7 +339,7 @@ describe('renderCapturedLog matches a real terminal (xterm.js oracle)', () => {
 
     // Replace the 209 duplicate inputs with deterministic xorshift32 cases.
     // Cycle lengths explicitly so all lengths 1..12 are exercised.
-    let seed = 0x2f6e2b1;
+    let seed = 0x2_f6_e2_b1;
     const rand = (n: number): number => {
       seed ^= seed << 13;
       seed ^= seed >>> 17;

@@ -2902,9 +2902,9 @@ describe('POST /projects/:id/deploy', () => {
       }).migration_tag;
     }
 
-    const tokenConsumed = () => cfError('Completion token has already been consumed', 400, 100312);
+    const tokenConsumed = () => cfError('Completion token has already been consumed', 400, 100_312);
     const tagMoved = () =>
-      cfError("Actor migration tag precondition failed, got tag ''", 412, 10079);
+      cfError("Actor migration tag precondition failed, got tag ''", 412, 10_079);
 
     const websocketManifest = {
       version: 3,
@@ -2960,7 +2960,7 @@ describe('POST /projects/:id/deploy', () => {
           maxAttempts: 4,
           latencyMs: expect.any(Number),
           status: 400,
-          cfCode: 100312,
+          cfCode: 100_312,
           bodyPreview: expect.stringContaining('100312'),
         }),
       ]);
@@ -3337,7 +3337,7 @@ describe('POST /projects/:id/deploy', () => {
           uploadCalls++;
           return uploadCalls === 1
             ? new Response('service unavailable', { status: 503 })
-            : cfError('Uncaught SyntaxError', 400, 10021);
+            : cfError('Uncaught SyntaxError', 400, 10_021);
         },
       });
 

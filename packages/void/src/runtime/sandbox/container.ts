@@ -179,7 +179,7 @@ export class SandboxContainer<Env = unknown> extends DurableObject<Env> {
       return new Response('Invalid Sandbox TCP port.', { status: 400 });
     }
     const port = Number(value);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
       return new Response('Invalid Sandbox TCP port.', { status: 400 });
     }
     const headers = new Headers(request.headers);
@@ -445,7 +445,7 @@ export class SandboxContainer<Env = unknown> extends DurableObject<Env> {
     }
     if (operation === 'fetch') {
       const [port, request] = args;
-      if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535) {
+      if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65_535) {
         throw new TypeError('Invalid Sandbox TCP port.');
       }
       await this.ensureRunning();

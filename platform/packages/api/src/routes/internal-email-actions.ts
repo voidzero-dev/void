@@ -29,7 +29,7 @@ app.use('*', async (context, next) => {
   }
   const chunks: Array<Uint8Array> = [];
   let size = 0;
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 5000;
   try {
     for (;;) {
       const remaining = deadline - Date.now();

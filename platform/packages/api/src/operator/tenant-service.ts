@@ -92,7 +92,7 @@ function assertOwnershipTransferRolloutComplete(env: ApiEnv['Bindings']): void {
       503,
       'Project ownership transfers are temporarily unavailable while the usage consumer rollout completes.',
       'ownership_transfer_rollout_pending',
-      remainingMs > 0 ? { retryAfterSeconds: Math.ceil(remainingMs / 1_000) } : undefined,
+      remainingMs > 0 ? { retryAfterSeconds: Math.ceil(remainingMs / 1000) } : undefined,
     );
   }
 }

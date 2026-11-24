@@ -482,7 +482,7 @@ describe('PlatformClient.finalizeDeploy', () => {
       expect(DEPLOY_POST_ATTEMPTS).toBe(4);
       expect(new Set(idempotencyKeys()).size).toBe(1);
       const retries = cliLog.warn.mock.calls.filter(([msg]) => msg === 'deploy_fetch_retry');
-      expect(retries.map(([, fields]) => fields?.delayMs)).toEqual([1000, 5000, 10000]);
+      expect(retries.map(([, fields]) => fields?.delayMs)).toEqual([1000, 5000, 10_000]);
       expect(cliLog.error).toHaveBeenCalledWith(
         'deploy_fetch_rejected',
         expect.any(TypeError),

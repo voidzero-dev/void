@@ -21,7 +21,7 @@ const { Connection, ConnectionConfig } = mysql as unknown as {
 
 const CHARSET = mysql.Charsets.UTF8_GENERAL_CI;
 // Every basic capability except CLIENT_SSL (0x0800), so clients never ask for TLS.
-const CAPABILITY_FLAGS = 0xffff & ~0x0800;
+const CAPABILITY_FLAGS = 0xff_ff & ~0x08_00;
 
 export type FakeMySqlRow = Record<string, number | string | null>;
 

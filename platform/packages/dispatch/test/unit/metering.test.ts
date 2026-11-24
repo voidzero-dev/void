@@ -82,7 +82,7 @@ describe('recordRequest', () => {
       method: 'GET',
       status: 503,
       responseBytes: 0,
-      durationMs: 10000,
+      durationMs: 10_000,
       slug: 'docs',
       failureKind: 'platform-static-asset-timeout',
     });

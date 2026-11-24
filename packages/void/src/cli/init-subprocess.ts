@@ -26,9 +26,9 @@ const STOP_SIGNALS: Array<NodeJS.Signals> =
   process.platform === 'win32' ? ['SIGINT', 'SIGTERM'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 /** How long a command that init stops has to end by itself before init kills it. */
-const STOP_GRACE_MS = 5_000;
+const STOP_GRACE_MS = 5000;
 /** How long init waits for the killed processes to go. */
-const KILL_WAIT_MS = 1_000;
+const KILL_WAIT_MS = 1000;
 /** How often init checks whether a stopped command has ended. */
 const STOP_POLL_MS = 25;
 

@@ -92,7 +92,7 @@ app.post('/previews', async (context) => {
       }
       const [renewed] = await tx
         .update(projects)
-        .set({ preview_expires_at: expiry(7 * 86400) })
+        .set({ preview_expires_at: expiry(7 * 86_400) })
         .where(eq(projects.id, existing.id))
         .returning();
       return renewed!;
@@ -118,7 +118,7 @@ app.post('/previews', async (context) => {
       .set({
         preview_client_id: grant.client_id,
         preview_workspace_id: body.workspace,
-        preview_expires_at: expiry(7 * 86400),
+        preview_expires_at: expiry(7 * 86_400),
       })
       .where(eq(projects.id, created.id))
       .returning();
@@ -235,7 +235,7 @@ app.post('/preview-deployment-requests', async (context) => {
       approved_at: new Date().toISOString(),
       consumed_at: new Date().toISOString(),
       expires_at: new Date(
-        Math.min(Date.now() + 900000, Date.parse(grant.expires_at)),
+        Math.min(Date.now() + 900_000, Date.parse(grant.expires_at)),
       ).toISOString(),
     });
   });

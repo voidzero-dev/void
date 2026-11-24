@@ -1089,7 +1089,7 @@ it.each([401, 403, 404, 503])(
         requests.push(`${request.method} ${request.url}`);
         response.statusCode = status;
         response.setHeader('Content-Type', 'application/json');
-        response.end(JSON.stringify({ success: false, errors: [{ code: 10006 }] }));
+        response.end(JSON.stringify({ success: false, errors: [{ code: 10_006 }] }));
       }),
     );
     const configPath = join(directory, 'wrangler.json');
@@ -1515,9 +1515,9 @@ syncBuiltinESMExports();`,
 });
 
 it.each([
-  { label: 'signal', code: 10006, signal: 'SIGTERM', spawnError: false },
-  { label: 'spawn error', code: 10007, signal: null, spawnError: true },
-  { label: 'missing exit status', code: 10006, signal: null, spawnError: false },
+  { label: 'signal', code: 10_006, signal: 'SIGTERM', spawnError: false },
+  { label: 'spawn error', code: 10_007, signal: null, spawnError: true },
+  { label: 'missing exit status', code: 10_006, signal: null, spawnError: false },
 ])('preserves an inner provider $label without authorizing resource absence', async (example) => {
   const directory = temporaryDirectory('void-operation-provider-failure-');
   const preload = join(directory, 'failed-provider.mjs');
@@ -1535,7 +1535,7 @@ child.spawnSync = () => ({
 syncBuiltinESMExports();`,
   );
   const operation =
-    example.code === 10007
+    example.code === 10_007
       ? { type: 'secret.list' as const, workerName: 'test-worker' }
       : { type: 'r2.bucket.info' as const, name: 'test-bucket' };
   const output = await runOperation(directory, operation, tokenEnv(), preload);
@@ -1643,7 +1643,7 @@ it('renders binary and text frames from a real Node WebSocket in order and remov
           frame(
             {
               event: { request: { method: 'POST', url: 'https://isolated.invalid/runtime' } },
-              eventTimestamp: 1790000000000,
+              eventTimestamp: 1_790_000_000_000,
               outcome: 'ok',
               logs: [
                 { level: 'log', message: ['binary marker \u001b]52;c;ZXZpbA==\u0007'] },
@@ -1655,7 +1655,7 @@ it('renders binary and text frames from a real Node WebSocket in order and remov
           frame(
             {
               event: { queue: 'owned-queue' },
-              eventTimestamp: 1790000000001,
+              eventTimestamp: 1_790_000_000_001,
               outcome: 'ok',
               logs: [{ level: 'log', message: ['text marker'] }],
             },

@@ -78,7 +78,7 @@ describe('live plan transitions using the production quota counter', () => {
           billingPeriodStart: priorPeriod,
           billingPeriodInitialized: true,
           totalRequests: 9000,
-          totalNeurons: 120000,
+          totalNeurons: 120_000,
           totalSandboxSeconds: 100,
           requestsSuspended: true,
           aiSuspended: true,

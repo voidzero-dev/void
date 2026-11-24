@@ -59,18 +59,18 @@ describe('typed Cloudflare process protocol', () => {
     const value = decodeCloudflareOperationResult({
       ...processResult({
         operationResult: 1,
-        errorCode: 10007,
+        errorCode: 10_007,
         failure: 'not-found',
-        errors: [{ code: 10007, message: 'Worker is absent.' }],
+        errors: [{ code: 10_007, message: 'Worker is absent.' }],
       }),
       status: 1,
     });
     expect(value).toMatchObject({
       status: 1,
       stdout: '',
-      errorCode: 10007,
+      errorCode: 10_007,
       failure: 'not-found',
-      errors: [{ code: 10007, message: 'Worker is absent.' }],
+      errors: [{ code: 10_007, message: 'Worker is absent.' }],
     });
   });
 
@@ -108,7 +108,7 @@ describe('typed Cloudflare process protocol', () => {
     'never trusts buffered data after a process failure',
     (provenance) => {
       const result = {
-        ...processResult({ operationResult: 1, data: [], errorCode: 10007, failure: 'not-found' }),
+        ...processResult({ operationResult: 1, data: [], errorCode: 10_007, failure: 'not-found' }),
         ...provenance,
       };
       expect(decodeCloudflareOperationResult(result)).toEqual(result);
@@ -129,7 +129,7 @@ it.each([{ signal: 'SIGTERM' }, { error: 'Provider spawn failed.' }])(
       processResult({
         operationResult: 1,
         data: [],
-        errorCode: 10007,
+        errorCode: 10_007,
         failure: 'not-found',
         ...provenance,
       }),

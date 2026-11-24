@@ -502,7 +502,7 @@ describe('dischargeSelfHostEnvContext — ground-truth secret gate', () => {
       expect(error.message).toContain('reason: nonzero-exit');
     });
 
-    it.each([{ errorCode: 10007 }, { errorCode: 10090 }, { failure: 'not-found' as const }])(
+    it.each([{ errorCode: 10_007 }, { errorCode: 10_090 }, { failure: 'not-found' as const }])(
       'classifies structured missing-Worker results: %j',
       async (result) => {
         const root = createTempProject({ withEnvTs: false });
@@ -527,7 +527,7 @@ describe('dischargeSelfHostEnvContext — ground-truth secret gate', () => {
           stdout: '',
           stderr: '',
           status: status as number,
-          errorCode: 10007,
+          errorCode: 10_007,
         });
         const error = await dischargeSelfHostEnvContext(ctx, {
           root,
@@ -576,7 +576,7 @@ describe('dischargeSelfHostEnvContext — ground-truth secret gate', () => {
         stderr: '',
         status: 0,
         signal: 'SIGKILL',
-        errorCode: 10007,
+        errorCode: 10_007,
         failure: 'not-found',
       });
       expect(error.message).toContain('reason: signal');
@@ -589,7 +589,7 @@ describe('dischargeSelfHostEnvContext — ground-truth secret gate', () => {
         stderr: '',
         status: 0,
         error: 'spawn ENOENT',
-        errorCode: 10007,
+        errorCode: 10_007,
         failure: 'not-found',
       });
       expect(error.message).toContain('reason: spawn-error');
@@ -727,7 +727,7 @@ describe('dischargeSelfHostEnvContext — ground-truth secret gate', () => {
           'If this is a new Worker, run `wrangler deploy` first to create it.\n' +
           "Otherwise, check that the Worker name is correct and you're logged into the right account.",
         status: 1,
-        errorCode: 10007,
+        errorCode: 10_007,
       });
 
       const error = (await dischargeSelfHostEnvContext(ctx, {
@@ -813,7 +813,7 @@ describe('createDefaultSecretListRunner — async spawn with fail-closed provena
     const root = createTempProject({ withEnvTs: false });
     const run = createDefaultSecretListRunner(root, {
       launcher: [join(root, 'does-not-exist-binary')],
-      timeoutMs: 5_000,
+      timeoutMs: 5000,
     });
 
     const result = await run({ type: 'secret.list' });

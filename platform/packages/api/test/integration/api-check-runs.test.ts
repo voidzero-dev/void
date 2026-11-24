@@ -314,7 +314,7 @@ type FetchCall = {
   body: Record<string, unknown> | undefined;
 };
 
-const CHECK_RUN_ID = 99001;
+const CHECK_RUN_ID = 99_001;
 
 type FetchMatchers = {
   // Override the create response status (default 201) / body. Used for the 4xx +
@@ -355,7 +355,7 @@ function installFetch(matchers: FetchMatchers = {}): {
       if (url.includes('/access_tokens') && method === 'POST') {
         return Response.json({
           token: 'tok',
-          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          expires_at: new Date(Date.now() + 3_600_000).toISOString(),
         });
       }
 

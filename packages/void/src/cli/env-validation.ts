@@ -638,7 +638,7 @@ async function fetchSelfHostSecretNames(
     if (
       Number.isSafeInteger(result.status) &&
       result.status! > 0 &&
-      ([10007, 10090].includes(result.errorCode ?? 0) || result.failure === 'not-found')
+      ([10_007, 10_090].includes(result.errorCode ?? 0) || result.failure === 'not-found')
     ) {
       throw new SelfHostFirstDeployError(firstDeployMessage(missingKeys));
     }
@@ -751,7 +751,7 @@ export function createDefaultSecretListRunner(
             signal: 'SIGKILL',
             error: 'timed out and termination could not be confirmed',
           });
-        }, 5_000);
+        }, 5000);
       }, timeoutMs);
       child.on('error', (error: Error) => {
         settle({ stdout, stderr, status: -1, signal: null, error: error.message });

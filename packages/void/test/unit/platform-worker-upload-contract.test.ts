@@ -78,7 +78,7 @@ it.each(['none', 'batch', 'single-file'] as const)(
           response.end(
             JSON.stringify({
               success: false,
-              errors: [{ code: 10007, message: 'Worker not found.' }],
+              errors: [{ code: 10_007, message: 'Worker not found.' }],
             }),
           );
         }

@@ -461,7 +461,6 @@ const config = defineConfig({
       'unicorn/consistent-function-scoping': 'off',
       'unicorn/no-array-fill-with-reference-type': 'off',
       'unicorn/no-hex-escape': 'off',
-      'unicorn/numeric-separators-style': 'off',
       'unicorn/prefer-at': 'off',
       'unicorn/prefer-dom-node-append': 'off',
       'unicorn/prefer-import-meta-properties': 'off',

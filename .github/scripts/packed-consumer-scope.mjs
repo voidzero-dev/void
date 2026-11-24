@@ -109,7 +109,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           Accept: 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28',
         },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(15_000),
       });
       if (!response.ok) {
         throw new Error('Could not read changed files');

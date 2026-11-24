@@ -78,7 +78,7 @@ export class EmailAdmissionError extends Error {
 }
 
 /** Operator recovery is never based on elapsed time alone. This excludes recent calls. */
-export const EMAIL_ATTEMPT_RECOVERY_MIN_AGE_MS = 24 * 60 * 60 * 1_000;
+export const EMAIL_ATTEMPT_RECOVERY_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
 export async function resolveEmailUnresolvedAttempt(
   db: Db,

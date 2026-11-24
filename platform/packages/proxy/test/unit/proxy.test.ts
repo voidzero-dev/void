@@ -360,7 +360,7 @@ describe('proxy worker', () => {
       });
 
       try {
-        await vi.advanceTimersByTimeAsync(5_000);
+        await vi.advanceTimersByTimeAsync(5000);
         expect(status).toBe(408);
       } finally {
         if (!cancelled) {
@@ -403,7 +403,7 @@ describe('proxy worker', () => {
         (error: unknown) => error,
       );
 
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       expect(await outcome).toBeInstanceOf(Error);
       expect(String(await outcome)).toContain('timeout');
@@ -424,7 +424,7 @@ describe('proxy worker', () => {
       } as RequestInit);
       const response = worker.fetch(request, createEnv());
 
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       expect((await response).status).toBe(400);
     });
@@ -507,7 +507,7 @@ describe('proxy worker', () => {
       const response = Promise.resolve(worker.fetch(request, createEnv())).then((value) => {
         status = value.status;
       });
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       expect(status).toBe(400);
       expect(cancel).toHaveBeenCalledOnce();
       await response;

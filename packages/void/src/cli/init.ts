@@ -2192,7 +2192,7 @@ export function resolveProjectInstall(
     cwd: root,
     stdio: 'ignore',
     shell: process.platform === 'win32',
-    timeout: 5_000,
+    timeout: 5000,
   });
   if (probe.status === 0) {
     return install;

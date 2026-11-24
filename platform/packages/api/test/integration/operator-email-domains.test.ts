@@ -338,9 +338,7 @@ describe('operator email domain management', () => {
     await env.db
       .update(emailOperationSteps)
       .set({
-        started_at: new Date(
-          Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1_000,
-        ).toISOString(),
+        started_at: new Date(Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1000).toISOString(),
       })
       .where(eq(emailOperationSteps.operation_id, operation!.id));
     const preview = await request(`/email/operations/${operation!.id}/resolve`, {

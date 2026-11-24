@@ -6,7 +6,7 @@ export function isLocalDashboardHost(host: string): boolean {
   }
   try {
     const port = new URL(`http://${host}`).port;
-    return !port || Number(port) <= 65535;
+    return !port || Number(port) <= 65_535;
   } catch {
     return false;
   }

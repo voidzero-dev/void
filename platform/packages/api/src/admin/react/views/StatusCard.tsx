@@ -17,7 +17,7 @@ export function LastCheckedTime({
       return;
     }
     setNow(Date.now());
-    const interval = setInterval(() => setNow(Date.now()), 5_000);
+    const interval = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(interval);
   }, [checkedAt]);
   const seconds = checkedAt === undefined ? 0 : Math.max(0, Math.floor((now - checkedAt) / 1000));

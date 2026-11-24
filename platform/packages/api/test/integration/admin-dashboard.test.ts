@@ -782,7 +782,7 @@ function zeroTrustSetting(overrides: Record<string, unknown> = {}) {
     key: 'zeroTrust.configuration',
     value: {
       version: 1,
-      revision: 918273645,
+      revision: 918_273_645,
       enabled: true,
       protectNewProjects: true,
       accountId: 'zero-trust-account',

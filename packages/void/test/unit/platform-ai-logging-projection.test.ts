@@ -150,7 +150,7 @@ describe('installer AI logging projection', () => {
       'ai-logging:p-gone-bare': { value: 'off' },
       'ai-logging:p-just-created': {
         value: 'off',
-        metadata: { mode: 'off', at: NOW - AI_LOGGING_ORPHAN_GRACE_MS + 1_000 },
+        metadata: { mode: 'off', at: NOW - AI_LOGGING_ORPHAN_GRACE_MS + 1000 },
       },
       'ai-block:p-plan': { value: '1' },
     });
@@ -172,7 +172,7 @@ describe('installer AI logging projection', () => {
       // Too young to call an orphan: its create transaction may still commit.
       'ai-logging:p-just-created': {
         value: 'off',
-        metadata: { mode: 'off', at: NOW - AI_LOGGING_ORPHAN_GRACE_MS + 1_000 },
+        metadata: { mode: 'off', at: NOW - AI_LOGGING_ORPHAN_GRACE_MS + 1000 },
       },
       'ai-block:p-plan': { value: '1' },
       // A project that now inherits leaves a short-lived marker so readback says pending.

@@ -63,8 +63,8 @@ export function cronMatchesMinute(cronExpr: string, now: number): boolean {
       tz: 'UTC',
     });
     const prev = interval.prev().toDate().getTime();
-    const nowMinute = Math.floor(now / 60000) * 60000;
-    return prev >= nowMinute && prev < nowMinute + 60000;
+    const nowMinute = Math.floor(now / 60_000) * 60_000;
+    return prev >= nowMinute && prev < nowMinute + 60_000;
   } catch {
     return false;
   }

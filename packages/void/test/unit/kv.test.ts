@@ -89,8 +89,8 @@ describe('createKV', () => {
     });
 
     it('passes expiration option', async () => {
-      await kv.put('key', 'val', { expiration: 1700000000 });
-      expect(mockNS.put).toHaveBeenCalledWith('key', '"val"', { expiration: 1700000000 });
+      await kv.put('key', 'val', { expiration: 1_700_000_000 });
+      expect(mockNS.put).toHaveBeenCalledWith('key', '"val"', { expiration: 1_700_000_000 });
     });
   });
 

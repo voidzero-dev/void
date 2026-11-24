@@ -442,7 +442,7 @@ export async function followOperatorLogs(
   client: OperatorClient,
   args: OperatorArgs,
   signal?: AbortSignal,
-  pollIntervalMs = 2_000,
+  pollIntervalMs = 2000,
 ): Promise<void> {
   const controller = new AbortController();
   const stop = () => controller.abort();

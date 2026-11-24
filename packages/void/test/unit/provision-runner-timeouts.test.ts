@@ -98,7 +98,7 @@ describe('createDefaultRunWrangler — hard timeout kills the REAL process', () 
     const run = createDefaultRunWrangler(TIMEOUT_TMP, {
       launcher: [process.execPath, wrapper],
       // Long enough for the wrapper and grandchild to start under load.
-      timeoutMs: 1_500,
+      timeoutMs: 1500,
     });
     const start = Date.now();
     const result = await run({ type: 'd1.list' }, { accountId: 'acct' });
@@ -412,7 +412,7 @@ describe('createDefaultRunWrangler — confirmed child termination + kill classi
     ).rejects.toThrow(/d1 list.*(failed|timeout)/s);
     const pid = spawnedPid!;
     expect(pid).toBeTypeOf('number');
-    expect(await waitForDead(pid, 5_000)).toBe(true);
+    expect(await waitForDead(pid, 5000)).toBe(true);
     expect(existsSync(lockMutex)).toBe(false);
   }, 15_000);
 });

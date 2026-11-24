@@ -105,7 +105,7 @@ function result(status: number, stdout = '', stderr = '', data?: unknown): Resul
     stderr,
     ...(data !== undefined ? { data } : {}),
     ...(errorCode ? { errorCode } : {}),
-    ...([10006, 10007, 10090].includes(errorCode ?? 0) ? { failure: 'not-found' as const } : {}),
+    ...([10_006, 10_007, 10_090].includes(errorCode ?? 0) ? { failure: 'not-found' as const } : {}),
   };
 }
 
@@ -1046,7 +1046,7 @@ async function setSecretsOnWorkerWithoutCode(
   if (created.status === 409) {
     const retried = retry();
     // 10007 or 10013: the Worker still has no deployment.
-    if (retried.status === 0 || (retried.errorCode !== 10007 && retried.errorCode !== 10013)) {
+    if (retried.status === 0 || (retried.errorCode !== 10_007 && retried.errorCode !== 10_013)) {
       return retried;
     }
     return result(1, '', workerWithoutDeploymentMessage(worker));
@@ -1079,7 +1079,7 @@ async function secrets(): Promise<Result> {
   const worker = workerName();
   const apply = async (values: Record<string, string>, action: () => Result): Promise<Result> => {
     const first = action();
-    if (first.status === 0 || first.errorCode !== 10007) {
+    if (first.status === 0 || first.errorCode !== 10_007) {
       return first;
     }
     return setSecretsOnWorkerWithoutCode(worker, values, action);
@@ -1486,7 +1486,7 @@ async function tail(): Promise<Result> {
       await fetch(`${endpoint}/${encodeURIComponent(record.id)}`, {
         method: 'DELETE',
         headers,
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(5000),
       }).catch(() => {});
     }
     // Node's WebSocket can remain in CLOSING after the remote tail is deleted.

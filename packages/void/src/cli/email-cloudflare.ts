@@ -26,7 +26,7 @@ const CF_EMAIL_ERROR_CODES: Readonly<Record<number, string>> = {
   2062: 'Email Routing is not enabled on this zone',
   2040: 'already onboarded for Email Sending',
   2036: 'account is not entitled to Email Sending',
-  10105: 'account is not entitled to Email Sending',
+  10_105: 'account is not entitled to Email Sending',
 };
 
 /** The one-time dashboard step printed when the subdomain routing call cannot be made. */

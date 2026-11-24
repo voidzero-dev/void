@@ -16,7 +16,7 @@ export type MigrationPlanHashInput = SqlMigrationClassification & {
 };
 
 export function canonicalSql(sql: string): string {
-  const withoutBom = sql.charCodeAt(0) === 0xfeff ? sql.slice(1) : sql;
+  const withoutBom = sql.charCodeAt(0) === 0xfe_ff ? sql.slice(1) : sql;
   return withoutBom.replace(/\r\n?/g, '\n');
 }
 
