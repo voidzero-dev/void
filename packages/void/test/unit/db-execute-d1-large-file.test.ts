@@ -84,7 +84,9 @@ async function startFakeD1Api(directory: string) {
   // The last report can still be in the pipe when the CLI returns.
   const settled = async (count: number) => {
     for (let attempt = 0; entries.length < count && attempt < 100; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
     }
     return entries;
   };

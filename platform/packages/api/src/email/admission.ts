@@ -78,7 +78,7 @@ export class EmailAdmissionError extends Error {
 }
 
 /** Operator recovery is never based on elapsed time alone. This excludes recent calls. */
-export const EMAIL_ATTEMPT_RECOVERY_MIN_AGE_MS = 24 * 60 * 60 * 1_000;
+export const EMAIL_ATTEMPT_RECOVERY_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
 export async function resolveEmailUnresolvedAttempt(
   db: Db,
@@ -384,7 +384,7 @@ export async function admitEmailAction(
     if (input.transport !== expectedTransport && !nativeCustomTransport && !sharedBindingReply) {
       throw new EmailAdmissionError('INVALID_REQUEST', 'invalid email transport');
     }
-    let senderAllowed = false;
+    let senderAllowed: boolean;
     let verifiedOnlyTransport = input.transport === 'native_forward';
     if (shared) {
       const name = input.from.toLowerCase().split('@')[0]!.split('+')[0]!;

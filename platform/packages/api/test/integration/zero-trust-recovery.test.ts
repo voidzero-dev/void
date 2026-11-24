@@ -16,8 +16,10 @@ import { domains, projectZeroTrust } from '../../src/schema.ts';
 import {
   ZERO_TRUST_CREDENTIAL_ID,
   readZeroTrustConfigurationStrict,
-  type ZeroTrustConfigureInput,
-  type ZeroTrustOperation,
+} from '../../src/zero-trust/configuration.ts';
+import type {
+  ZeroTrustConfigureInput,
+  ZeroTrustOperation,
 } from '../../src/zero-trust/configuration.ts';
 import {
   configurePlatformZeroTrust,
@@ -38,8 +40,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

@@ -8,8 +8,8 @@ import {
   observeLinkVisible,
   prefetchLink,
   resolveLink,
-  type BaseLinkProps,
 } from 'void/pages-client';
+import type { BaseLinkProps } from 'void/pages-client';
 import { NavigationContext, RouterContext } from './context.ts';
 
 type CommonProps = BaseLinkProps & {

@@ -16,10 +16,10 @@ const REQUEST_TIMEOUT_MS = 60_000;
  * A call needs at least this much of the run's time left. Starting one closer
  * to the deadline would cut a settings PATCH off with its outcome unknown.
  */
-const MIN_REQUEST_MS = 5_000;
+const MIN_REQUEST_MS = 5000;
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 /** Cloudflare's "script not found" error code. */
-const SCRIPT_NOT_FOUND_CODE = 10007;
+const SCRIPT_NOT_FOUND_CODE = 10_007;
 
 export class CloudflareRateLimitError extends Error {
   readonly retryAfterSeconds: number;

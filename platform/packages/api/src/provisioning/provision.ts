@@ -1,5 +1,7 @@
-import { createDeployIntent, isR2LocationHint, type R2LocationHint } from '@void/deploy-core';
-import { getProjectResources, createResource, type Db } from '../db.ts';
+import { createDeployIntent, isR2LocationHint } from '@void/deploy-core';
+import type { R2LocationHint } from '@void/deploy-core';
+import { getProjectResources, createResource } from '../db.ts';
+import type { Db } from '../db.ts';
 import { getProjectQueueName } from '../naming.ts';
 import type { DeployManifest, Resource } from '../types.ts';
 import {

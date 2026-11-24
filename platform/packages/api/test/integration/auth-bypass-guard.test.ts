@@ -9,7 +9,8 @@ import {
   vi,
 } from 'vite-plus/test';
 import app from '../../src/index.ts';
-import { setupEnv, teardownEnv, clearTables, createTestUser, type TestEnv } from './helpers.ts';
+import { setupEnv, teardownEnv, clearTables, createTestUser } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

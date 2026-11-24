@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import { convertV4MiniflareOptions, Miniflare } from 'miniflare';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as runtimeDb from '../../src/runtime/db/index.ts';
 import { envContext } from '../../src/runtime/env/raw.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';

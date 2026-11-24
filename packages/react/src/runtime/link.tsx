@@ -1,4 +1,5 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, type JSX } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import type { JSX } from 'react';
 import type {
   MouseEvent,
   TouchEvent,
@@ -16,8 +17,8 @@ import {
   observeLinkVisible,
   prefetchLink,
   resolveLink,
-  type BaseLinkProps,
 } from 'void/pages-client';
+import type { BaseLinkProps } from 'void/pages-client';
 import { NavigationContext, RouterContext } from './context.ts';
 
 export type LinkProps = BaseLinkProps &

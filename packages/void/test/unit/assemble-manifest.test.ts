@@ -17,7 +17,7 @@ const MINIMAL_BINDINGS: InferredBindings = {
 
 it('disables managed ISR policies and edge prerendering with routing.isr false', () => {
   const manifest = assembleVoidManifest(
-    makeScan([makePage('/', 31536000)]),
+    makeScan([makePage('/', 31_536_000)]),
     false,
     {
       bindings: MINIMAL_BINDINGS,

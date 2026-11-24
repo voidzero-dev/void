@@ -3,8 +3,8 @@ import {
   createPlatformInstallationManifest,
   recordInstallationStep,
   transitionInstallation,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import type { PlatformInstallPlan } from './platform-plan.ts';
 import { writeInstallationManifest, writePendingInstallationSecrets } from './platform-registry.ts';
 

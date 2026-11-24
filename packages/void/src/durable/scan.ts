@@ -14,7 +14,7 @@ export type DurableObjectModule = {
 const MODULE_PATTERN = /\.(?:[cm]?[jt]s)$/;
 
 export function inferDurableResourceName(filePath: string): string {
-  return filePath.replace(/\\/g, '/').split('/').pop()!.replace(MODULE_PATTERN, '');
+  return filePath.replaceAll('\\', '/').split('/').pop()!.replace(MODULE_PATTERN, '');
 }
 
 const DURABLE_HELPERS = new Set(['defineDurableState', 'defineDurableObject']);
@@ -48,7 +48,7 @@ export function scanDurableObjectModules(root: string): Array<DurableObjectModul
       const filePath = join(directory, entry.name);
       const definition = readResourceDefinition(
         filePath,
-        readFileSync(filePath, 'utf-8'),
+        readFileSync(filePath, 'utf8'),
         DURABLE_HELPERS,
       );
       const name = definition?.name;

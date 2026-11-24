@@ -29,8 +29,8 @@ import {
   listDevMessages,
   parseCapturedMessage,
   pushToDevBuffer,
-  type CapturedMessage,
 } from './runtime/email/dev-inbox.ts';
+import type { CapturedMessage } from './runtime/email/dev-inbox.ts';
 
 const SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
@@ -68,7 +68,7 @@ export function emailDevInboxPlugin(options: EmailDevInboxPluginOptions): Plugin
       const printInboxUrl = () => {
         const address = server.httpServer?.address();
         const port = typeof address === 'object' && address ? address.port : null;
-        if (port == null) {
+        if (port === null || port === undefined) {
           return;
         }
         voidLog(`Email inbox: http://localhost:${port}${inboxHref('')}`);
@@ -126,7 +126,7 @@ export function emailDevInboxPlugin(options: EmailDevInboxPluginOptions): Plugin
         if (wantsRaw) {
           // The id arrives in the capture payload; strip quotes and line
           // breaks before it goes into a header value.
-          const safeId = id.replace(/["\r\n]/g, '');
+          const safeId = id.replaceAll(/["\r\n]/g, '');
           res.writeHead(200, {
             ...SECURITY_HEADERS,
             'Content-Type': 'message/rfc822',
@@ -228,11 +228,11 @@ async function handleCapture(req: CaptureRequest, res: CaptureResponse): Promise
 
 function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function formatAddress(a: { email: string; name?: string }): string {

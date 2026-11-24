@@ -1,18 +1,18 @@
 import { eq } from 'drizzle-orm';
-import { type Context } from 'hono';
+import type { Context } from 'hono';
 import {
   createAssetUploadSession,
   normalizeForCfAssetSession,
   uploadAssetBuckets,
   buildAssetMetadata,
   resolveAssetContentTypes,
-  type AssetManifestEntry,
 } from '../assets.ts';
+import type { AssetManifestEntry } from '../assets.ts';
 import { retryWithBackoff } from '../cf-api.ts';
 import { uploadPool } from '../concurrency.ts';
 import { getProjectSecrets, upsertProjectSecret } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
-import { type DeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import {
   BETTER_AUTH_SECRET_NAME,
   decryptProjectSecret,
@@ -33,7 +33,7 @@ import {
 import { issueProjectProxyToken } from '../proxy-token-rotation.ts';
 import { RESERVED_BINDING_NAMES } from '../reserved-bindings.ts';
 import { deployments } from '../schema.ts';
-import { type DeployManifest, type DeployEvent, type Deployment, type Project } from '../types.ts';
+import type { DeployManifest, DeployEvent, Deployment, Project } from '../types.ts';
 import {
   WORKER_UPLOAD_BUDGET_MS,
   WORKER_UPLOAD_IDLE_MS,
@@ -44,10 +44,12 @@ import {
   withKnownLength,
   workerUploadBody,
   workerUploadDeadline,
-  type TrackedStream,
-  type UploadTimeout,
-  type UploadWatchdog,
-  type WorkerModule,
+} from '../worker-upload.ts';
+import type {
+  TrackedStream,
+  UploadTimeout,
+  UploadWatchdog,
+  WorkerModule,
 } from '../worker-upload.ts';
 import {
   buildWebSocketUploadBindings,
@@ -128,7 +130,7 @@ function savedUploadReplayCode(body: string): number | undefined {
   for (const error of errors) {
     const code = (error as { code?: unknown } | null)?.code;
     // 100312: the assets completion token was used. 10079: the migration tag moved.
-    if (code === 100312 || code === 10079) {
+    if (code === 100_312 || code === 10_079) {
       return code;
     }
   }
@@ -443,7 +445,7 @@ export async function uploadDeploymentWorker(input: {
       apiToken: context.env.CF_API_TOKEN,
       apiService: context.env.SANDBOX_CONTROL_SERVICE ?? 'void-api',
       identity: {
-        projectId: projectId,
+        projectId,
         deploymentId: deployment.id,
         userId: owner.id,
         slug: project.slug,

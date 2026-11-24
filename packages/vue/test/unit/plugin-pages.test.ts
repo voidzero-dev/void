@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as Vue from 'vue';
 import { compileScript, parse } from 'vue/compiler-sfc';
 import { renderToString } from 'vue/server-renderer';
@@ -54,8 +55,8 @@ function compilePage(source: string): Vue.Component & Record<string, unknown> {
   const compiled = compileScript(descriptor, { id: 'test-page', inlineTemplate: true });
   // Evaluate the real SFC compiler output using the same Vue instance as the renderer.
   const code = stripTypeScriptTypes(compiled.content)
-    .replace(/import \{([^}]+)\} from ['"]vue['"]/g, (_, names: string) => {
-      return `const {${names.replace(/\s+as\s+/g, ':')}} = Vue;`;
+    .replaceAll(/import \{([^}]+)\} from ['"]vue['"]/g, (_, names: string) => {
+      return `const {${names.replaceAll(/\s+as\s+/g, ':')}} = Vue;`;
     })
     .replace('export default', 'return');
   return new Function('Vue', code)(Vue) as Vue.Component & Record<string, unknown>;

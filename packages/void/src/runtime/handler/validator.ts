@@ -108,6 +108,13 @@ function isContainerRecord(value: unknown): value is Record<string, unknown> {
   );
 }
 
+const read = (parent: Record<string, unknown> | Array<unknown>, segment: string): unknown => {
+  if (Array.isArray(parent)) {
+    return segment === '' ? undefined : parent[Number(segment)];
+  }
+  return Object.hasOwn(parent, segment) ? parent[segment] : undefined;
+};
+
 /**
  * Rebuild the object `objectToFormData` flattened. Numeric segments and `[]`
  * become arrays. Scalars are left as the client encoded them.
@@ -128,13 +135,6 @@ function formRecordToObject(
   const createContainer = (asArray: boolean): Record<string, unknown> | Array<unknown> => {
     reserveNodes(1);
     return asArray ? [] : {};
-  };
-
-  const read = (parent: Record<string, unknown> | Array<unknown>, segment: string): unknown => {
-    if (Array.isArray(parent)) {
-      return segment === '' ? undefined : parent[Number(segment)];
-    }
-    return Object.hasOwn(parent, segment) ? parent[segment] : undefined;
   };
 
   const write = (
@@ -177,7 +177,7 @@ function formRecordToObject(
       }
       parent = container;
     }
-    write(parent, segments[segments.length - 1] as string, value);
+    write(parent, segments.at(-1) as string, value);
   };
 
   for (const [key, raw] of Object.entries(record)) {

@@ -67,7 +67,7 @@ describe('validateProjectName', () => {
     '项目',
     'my😀app',
     'nested/my-app',
-    'nested\\my-app',
+    String.raw`nested\my-app`,
     '@scope/my-app',
     '.',
     '..',

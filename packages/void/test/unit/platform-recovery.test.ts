@@ -9,9 +9,8 @@ import {
   recordInstallationStep,
   setInstallationEndpoints,
   transitionInstallation,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { InstallationResourceKind, PlatformInstallationManifest } from '@void/platform';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { hyperdriveOriginConfigHash } from '../../src/cli/platform-cloudflare.ts';
 import { REMOTE_INSTALLATION_MANIFEST_KEY } from '../../src/cli/platform-installer.ts';

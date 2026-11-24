@@ -1,6 +1,8 @@
 import { writeFileSync } from 'node:fs';
-import { chromium, type Page } from 'playwright';
-import { createServer, type PluginOption } from 'vite';
+import { chromium } from 'playwright';
+import type { Page } from 'playwright';
+import { createServer } from 'vite';
+import type { PluginOption } from 'vite';
 import { collectBrowserDiagnostics } from './browser-helpers.ts';
 
 type IslandRenderer = {

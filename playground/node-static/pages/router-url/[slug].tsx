@@ -9,7 +9,9 @@ function Note() {
 // Loads late in the browser, so its boundary is still dehydrated after the page hydrates.
 const LazyNote = lazy(async () => {
   if (typeof window !== 'undefined') {
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500);
+    });
   }
   return { default: Note };
 });

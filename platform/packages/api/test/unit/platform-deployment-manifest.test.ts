@@ -71,6 +71,7 @@ describe('platform deployment manifest', () => {
       displayName: 'My Platform',
       installationSlug: 'my-platform',
     });
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     expect(parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(manifest)))).toEqual(manifest);
   });
 
@@ -82,6 +83,7 @@ describe('platform deployment manifest', () => {
     };
     const manifest = createPlatformDeploymentManifest({ ...input, runtimeLogs: 'minimal' });
     expect(manifest).toMatchObject({ runtimeLogs: 'minimal', schemaVersion: 5 });
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     expect(parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(manifest)))).toEqual(manifest);
     const full = createPlatformDeploymentManifest(input);
     expect(full.schemaVersion).toBe(1);

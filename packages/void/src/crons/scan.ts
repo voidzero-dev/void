@@ -52,7 +52,7 @@ export function scanJobsSync(cronsDir: string): Array<JobDefinition> {
   return listConventionFiles(cronsDir)
     .sort((leftFilePath, rightFilePath) => leftFilePath.localeCompare(rightFilePath))
     .map((filePath) => {
-      const source = readFileSync(join(cronsDir, filePath), 'utf-8');
+      const source = readFileSync(join(cronsDir, filePath), 'utf8');
       return {
         filePath,
         name: extractJobName(filePath),

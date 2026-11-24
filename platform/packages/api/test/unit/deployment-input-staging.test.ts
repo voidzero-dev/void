@@ -32,11 +32,15 @@ class GatedR2 {
 
   async list({ prefix }: { prefix: string }) {
     return {
-      objects: [...this.objects.keys()]
-        .filter((key) => key.startsWith(prefix))
-        .map((key) => ({
-          key,
-        })),
+      objects: [...this.objects.keys()].flatMap((key) =>
+        key.startsWith(prefix)
+          ? [
+              {
+                key,
+              },
+            ]
+          : [],
+      ),
       truncated: false,
     };
   }
@@ -53,7 +57,9 @@ class GatedR2 {
   /** Release the oldest pending put once one is waiting. */
   async releaseNext(error?: Error): Promise<string> {
     while (this.pending.length === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     const put = this.pending.shift()!;
     put.release(error);
@@ -66,7 +72,9 @@ async function waitFor(condition: () => boolean): Promise<void> {
     if (attempt > 1000) {
       throw new Error('condition was not reached');
     }
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
   }
 }
 
@@ -191,7 +199,9 @@ describe('prepareDeploymentInput', () => {
     // Settle the puts that were already running when the failure happened.
     while (r2.pending.length > 0) {
       r2.pending.shift()!.release();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
 
     const error = await outcome;

@@ -1,4 +1,5 @@
-import { isR2LocationHint, R2_LOCATION_HINTS, type R2LocationHint } from '@void/deploy-core';
+import { isR2LocationHint, R2_LOCATION_HINTS } from '@void/deploy-core';
+import type { R2LocationHint } from '@void/deploy-core';
 import type { PlatformDeploymentManifest } from '@void/platform';
 
 export type PlatformStorageLocation = R2LocationHint | 'automatic';

@@ -1,5 +1,6 @@
 import { defineHandler } from 'void';
-import { sendEmail, type SendEmailOptions } from 'void/email';
+import { sendEmail } from 'void/email';
+import type { SendEmailOptions } from 'void/email';
 import { env } from 'void/env';
 import { kv } from 'void/kv';
 

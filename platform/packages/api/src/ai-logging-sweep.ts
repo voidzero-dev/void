@@ -1,5 +1,6 @@
 import type { BuiltinPlanId, PlatformPlanCatalog } from '@void/platform/plans';
-import { and, eq, inArray, isNotNull, notInArray, or, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, notInArray, or } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import {
   PLAN_AI_LOGGING_PAGE_SIZE,
   readPlanAiLoggingSettings,
@@ -12,9 +13,11 @@ import {
   parseAiLoggingKeyMetadata,
   planAiLogging,
   resolveAiLogging,
-  type AiLoggingKeyMetadata,
-  type PlanAiLoggingSettings,
-  type PublishedAiLoggingMode,
+} from './ai-logging-policy.ts';
+import type {
+  AiLoggingKeyMetadata,
+  PlanAiLoggingSettings,
+  PublishedAiLoggingMode,
 } from './ai-logging-policy.ts';
 import { publishProjectAiLogging } from './ai-logging.ts';
 import type { Db, DbOrTx } from './db.ts';

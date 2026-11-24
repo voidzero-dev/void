@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { assert, describe, expect, it } from 'vite-plus/test';
 import { formatCloudflareUserMessage } from '../../src/cli/cloudflare-user-output.ts';
 import {
   hyperdriveOriginConfigHash,
@@ -18,6 +18,35 @@ const expectedRejection = (): never => {
 };
 
 describe('platform Cloudflare client', () => {
+  it.each([
+    {
+      format: 'Headers',
+      headers: new Headers({ 'Content-Type': 'text/plain', 'X-Request-Id': 'test-request' }),
+    },
+    {
+      format: 'header tuples',
+      headers: [
+        ['Content-Type', 'text/plain'],
+        ['X-Request-Id', 'test-request'],
+      ] as Array<[string, string]>,
+    },
+  ])('preserves caller headers and fills in API defaults for $format', async ({ headers }) => {
+    const client = new PlatformCloudflareClient('operator-token', {
+      fetcher: async (_input, init) => {
+        const actual = new Headers(init?.headers);
+        expect(actual.get('Content-Type')).toBe('text/plain');
+        expect(actual.get('X-Request-Id')).toBe('test-request');
+        expect(actual.get('Authorization')).toBe('Bearer operator-token');
+        expect(actual.get('Accept')).toBe('application/json');
+        return Response.json({ success: true, result: 'ok' });
+      },
+    });
+
+    await expect(client.request('/test', { method: 'POST', body: 'test', headers })).resolves.toBe(
+      'ok',
+    );
+  });
+
   it('uses the runtime credential only for AI Gateway operations while keeping the API origin pinned', async () => {
     const requests: Array<{ path: string; authorization: string | null }> = [];
     const client = new PlatformCloudflareClient('operator-token', {
@@ -55,7 +84,7 @@ describe('platform Cloudflare client', () => {
     });
     const error = await client
       .request('/accounts/account/ai-gateway/gateways?secret=query-value')
-      .catch((error) => error as Error);
+      .catch((error: unknown) => error as Error);
     expect((error as Error).message).toContain(
       'HTTP 403; GET /accounts/account/ai-gateway/gateways',
     );
@@ -65,14 +94,14 @@ describe('platform Cloudflare client', () => {
 
   it.each([
     {
-      code: 10042,
+      code: 10_042,
       path: '/accounts/account/r2/buckets',
       message: 'Please enable R2 through the Cloudflare Dashboard.',
       guidance: 'Cloudflare R2 is not enabled for this account (code 10042).',
       dashboard: 'https://dash.cloudflare.com/account/r2/overview',
     },
     {
-      code: 10121,
+      code: 10_121,
       path: '/accounts/account/workers/dispatch/namespaces',
       message:
         'You do not have access to dispatch namespaces. Purchase at https://dash.cloudflare.com?to=/:account/workers-for-platforms',
@@ -88,7 +117,9 @@ describe('platform Cloudflare client', () => {
           { status: 403 },
         ),
     });
-    const error = await client.request(`${test.path}?secret=query-value`).catch((error) => error);
+    const error = await client
+      .request(`${test.path}?secret=query-value`)
+      .catch((error: unknown) => error);
     if (!(error instanceof PlatformCloudflareApiError)) {
       throw new Error('Expected a Cloudflare API error', { cause: error });
     }
@@ -108,15 +139,15 @@ describe('platform Cloudflare client', () => {
     expect(error.message).not.toContain('--resume');
     expect(error.message).not.toContain('query-value');
     expect(error.message).not.toContain('secret-token');
-    if (test.code === 10121) {
+    if (test.code === 10_121) {
       expect(error.message).toContain('Enterprise customers');
     }
   });
 
   it.each([
-    { status: 401, code: 10000, path: '/accounts/account/r2/buckets' },
-    { status: 403, code: 10000, path: '/accounts/account/r2/buckets' },
-    { status: 403, code: 10042, path: '/accounts/account/ai-gateway/gateways' },
+    { status: 401, code: 10_000, path: '/accounts/account/r2/buckets' },
+    { status: 403, code: 10_000, path: '/accounts/account/r2/buckets' },
+    { status: 403, code: 10_042, path: '/accounts/account/ai-gateway/gateways' },
     { status: 500, code: 7000, path: '/accounts/account/ai-gateway/gateways' },
   ])('keeps unrelated provider errors unchanged: $status/$code', async ({ status, code, path }) => {
     const client = new PlatformCloudflareClient('token', {
@@ -140,7 +171,9 @@ describe('platform Cloudflare client', () => {
         fetcher: async () =>
           Response.json({ success: false, errors: [{ message: 'provider failure' }] }, { status }),
       });
-      const error = await client.getWorkersSubdomain('account').catch((error) => error as Error);
+      const error = await client
+        .getWorkersSubdomain('account')
+        .catch((error: unknown) => error as Error);
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toContain(`HTTP ${status}`);
       expect((error as Error).message).not.toContain('finish Workers onboarding');
@@ -638,7 +671,7 @@ describe('platform Cloudflare client', () => {
         applicationDomain: '',
         customDomains: false,
         zoneId: null,
-      }).catch((error: Error) => error);
+      }).catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(Error);
       const message = String(failure);
       expect(message).toContain(`HTTP ${status}`);
@@ -740,7 +773,7 @@ describe('platform Cloudflare client', () => {
           : Response.json({ success: true, result: [] }),
       );
 
-      const failure = await verifyEmail(client).catch((error: Error) => error);
+      const failure = await verifyEmail(client).catch((error: unknown) => error);
 
       expect(failure).toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
       expect((failure as PlatformRuntimeTokenEmailPermissionError).tokenNotValid).toBe(false);
@@ -771,14 +804,14 @@ describe('platform Cloudflare client', () => {
                 errors: [
                   pathname === '/client/v4/zones/mail-zone'
                     ? { code: 9109, message: 'Invalid access token synthetic-runtime-secret' }
-                    : { code: 10000, message: 'Authentication error synthetic-runtime-secret' },
+                    : { code: 10_000, message: 'Authentication error synthetic-runtime-secret' },
                 ],
               },
               { status: pathname === '/client/v4/zones/mail-zone' ? 403 : 401 },
             ),
       );
 
-      const failure = await verifyEmail(client).catch((error: Error) => error);
+      const failure = await verifyEmail(client).catch((error: unknown) => error);
 
       expect(failure).toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
       expect((failure as PlatformRuntimeTokenEmailPermissionError).tokenNotValid).toBe(true);
@@ -800,7 +833,7 @@ describe('platform Cloudflare client', () => {
           accountId: 'account',
           zoneId: 'mail-zone',
           ...(savedToken === undefined ? {} : { savedToken }),
-        }).catch((error: Error) => error.message);
+        }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
 
       await expect(check(true)).resolves.toBe(
         'platform: The runtime token saved on this machine cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.',
@@ -1191,7 +1224,7 @@ describe('platform Cloudflare client', () => {
         requests.push(`${method} ${url.pathname}${url.search}`);
         if (url.pathname.endsWith('/gone')) {
           return Response.json(
-            { success: false, errors: [{ code: 10007, message: 'not found' }] },
+            { success: false, errors: [{ code: 10_007, message: 'not found' }] },
             { status: 404 },
           );
         }
@@ -1428,7 +1461,7 @@ describe('platform Cloudflare client', () => {
             success: false,
             errors: [
               {
-                code: 100109,
+                code: 100_109,
                 message:
                   'Cannot delete this Worker as it is a Tail Worker consumer for other Workers.',
               },
@@ -1924,7 +1957,7 @@ describe('naming the Cloudflare credential in errors', () => {
       credential: { role: 'management', source: 'saved' },
       fetcher: async () =>
         Response.json(
-          { success: false, errors: [{ code: 10042, message: 'Please enable R2' }] },
+          { success: false, errors: [{ code: 10_042, message: 'Please enable R2' }] },
           { status: 403 },
         ),
     });
@@ -1994,13 +2027,14 @@ describe('naming the Cloudflare credential in errors', () => {
       credential: { role: 'runtime', source: 'environment' },
       customDomains: true,
       zoneId: 'zone',
-    }).then(expectedRejection, (error: Error) => error);
+    }).then(expectedRejection, (error: unknown) => error);
     expect(paths).toEqual([
       'GET /client/v4/accounts/account/hyperdrive/configs',
       'POST /client/v4/zones/zone/purge_cache',
       'GET /client/v4/zones/zone/custom_hostnames',
     ]);
     expect(error).not.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+    assert.instanceOf(error, Error);
     expect(error.message).toBe(
       [
         'platform: Cloudflare denied the runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN:',
@@ -2020,7 +2054,8 @@ describe('naming the Cloudflare credential in errors', () => {
       credential: { role: 'runtime', source: 'saved' },
       customDomains: false,
       zoneId: null,
-    }).then(expectedRejection, (error: Error) => error);
+    }).then(expectedRejection, (error: unknown) => error);
+    assert.instanceOf(error, Error);
     expect(error.message).toContain('Cloudflare denied the runtime token saved on this machine:');
     expect(error.message).toContain(
       'Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token, then retry.',
@@ -2051,10 +2086,11 @@ describe('naming the Cloudflare credential in errors', () => {
     });
     const error = await verifyPlatformRuntimeTokenPermissions(mixed, input).then(
       expectedRejection,
-      (error: Error) => error,
+      (error: unknown) => error,
     );
     // Install drops a saved token that lacks more than email access.
     expect(error).not.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+    assert.instanceOf(error, Error);
     expect(error.message).toContain('- Account → Hyperdrive → Write (HTTP 403)');
     expect(error.message).toContain('- Zone → Email Routing Rules → Edit (HTTP 403)');
     expect(error.message).toContain('- Account → Email Routing Addresses → Edit (HTTP 403)');
@@ -2073,8 +2109,9 @@ describe('naming the Cloudflare credential in errors', () => {
       credential: { role: 'runtime', source: 'saved' },
       customDomains: true,
       zoneId: 'zone',
-    }).then(expectedRejection, (error: Error) => error);
+    }).then(expectedRejection, (error: unknown) => error);
     expect(error).not.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+    assert.instanceOf(error, Error);
     expect(error.message).toContain('Cloudflare denied the runtime token saved on this machine:');
     expect(error.message).toContain('- Account → Hyperdrive → Write (HTTP 403)');
     expect(error.message).not.toContain('429');
@@ -2157,7 +2194,8 @@ describe('naming the Cloudflare credential in errors', () => {
       credential: { role: 'runtime', source: 'environment' },
       customDomains: false,
       zoneId: null,
-    }).then(expectedRejection, (error: Error) => error);
+    }).then(expectedRejection, (error: unknown) => error);
+    assert.instanceOf(error, Error);
     expect(error.message).toBe(
       'platform: Cloudflare rate-limited the check of the runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN for Account → Hyperdrive → Write (HTTP 429). Retry shortly; this does not mean the token is missing a permission.',
     );

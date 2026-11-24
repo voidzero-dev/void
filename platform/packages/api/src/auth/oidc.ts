@@ -1,5 +1,22 @@
-import { type PlatformLoginConfiguration, parsePlatformIdentityUrl } from '@void/platform';
-import * as oauth from 'oauth4webapi';
+import { parsePlatformIdentityUrl } from '@void/platform';
+import type { PlatformLoginConfiguration } from '@void/platform';
+import {
+  AuthorizationResponseError,
+  ClientSecretBasic,
+  ClientSecretPost,
+  authorizationCodeGrantRequest,
+  calculatePKCECodeChallenge,
+  customFetch,
+  discoveryRequest,
+  generateRandomCodeVerifier,
+  generateRandomNonce,
+  getValidatedIdTokenClaims,
+  processAuthorizationCodeResponse,
+  processDiscoveryResponse,
+  validateApplicationLevelSignature,
+  validateAuthResponse,
+} from 'oauth4webapi';
+import type { AuthorizationServer, Client, IDToken } from 'oauth4webapi';
 import { assertPublicIdentityUrl, boundedIdentityResponse } from './identity-network.ts';
 import { LoginFailure } from './login-failure.ts';
 export { assertPublicIdentityUrl } from './identity-network.ts';
@@ -16,7 +33,7 @@ const GOOGLE_ENDPOINTS = new Set([
 
 /** One instance per configured issuer/revision; metadata and JWK caches never cross issuers. */
 export class PlatformOidcProvider {
-  private metadata?: { server: oauth.AuthorizationServer; expiresAt: number };
+  private metadata?: { server: AuthorizationServer; expiresAt: number };
   private readonly issuer: URL;
 
   constructor(
@@ -54,14 +71,14 @@ export class PlatformOidcProvider {
     return boundedIdentityResponse(response);
   };
 
-  async discover(): Promise<oauth.AuthorizationServer> {
+  async discover(): Promise<AuthorizationServer> {
     if (this.metadata && this.metadata.expiresAt > Date.now()) {
       return this.metadata.server;
     }
-    const response = await oauth.discoveryRequest(this.issuer, {
-      [oauth.customFetch]: this.network,
+    const response = await discoveryRequest(this.issuer, {
+      [customFetch]: this.network,
     });
-    const server = await oauth.processDiscoveryResponse(this.issuer, response);
+    const server = await processDiscoveryResponse(this.issuer, response);
     if (server.issuer !== this.configuration.issuer) {
       throw new Error('The discovered issuer must exactly match the configured issuer.');
     }
@@ -86,7 +103,7 @@ export class PlatformOidcProvider {
   }
 
   /** Discovery for a login flow, where any failure means the issuer setting is wrong or unreachable. */
-  private async discoverForLogin(): Promise<oauth.AuthorizationServer> {
+  private async discoverForLogin(): Promise<AuthorizationServer> {
     try {
       return await this.discover();
     } catch (error) {
@@ -97,7 +114,7 @@ export class PlatformOidcProvider {
     }
   }
 
-  private client(server: oauth.AuthorizationServer): oauth.Client {
+  private client(server: AuthorizationServer): Client {
     const supported = server.id_token_signing_alg_values_supported ?? ['RS256'];
     const algorithm = ['RS256', 'ES256', 'PS256', 'EdDSA'].find((value) =>
       supported.includes(value),
@@ -113,8 +130,8 @@ export class PlatformOidcProvider {
     state: string,
   ): Promise<{ url: string; verifier: string; nonce: string }> {
     const server = await this.discoverForLogin();
-    const verifier = oauth.generateRandomCodeVerifier();
-    const nonce = oauth.generateRandomNonce();
+    const verifier = generateRandomCodeVerifier();
+    const nonce = generateRandomNonce();
     const url = new URL(server.authorization_endpoint!);
     url.searchParams.set('client_id', this.configuration.clientId);
     url.searchParams.set('redirect_uri', redirectUri);
@@ -127,7 +144,7 @@ export class PlatformOidcProvider {
     );
     url.searchParams.set('state', state);
     url.searchParams.set('nonce', nonce);
-    url.searchParams.set('code_challenge', await oauth.calculatePKCECodeChallenge(verifier));
+    url.searchParams.set('code_challenge', await calculatePKCECodeChallenge(verifier));
     url.searchParams.set('code_challenge_method', 'S256');
     if (this.configuration.kind === 'google' && this.configuration.allowedDomains.length === 1) {
       url.searchParams.set('hd', this.configuration.allowedDomains[0]!);
@@ -145,37 +162,37 @@ export class PlatformOidcProvider {
   }): Promise<PlatformOidcIdentity> {
     const server = await this.discoverForLogin();
     const client = this.client(server);
-    let claims: oauth.IDToken;
+    let claims: IDToken;
     try {
-      const params = oauth.validateAuthResponse(server, client, input.callback, input.state);
+      const params = validateAuthResponse(server, client, input.callback, input.state);
       const methods = server.token_endpoint_auth_methods_supported ?? ['client_secret_basic'];
       // Prefer the form body: Basic credentials are form-encoded first (RFC 6749 §2.3.1), which
       // escapes `-`, `.` and `_`, and providers such as Google compare them without decoding.
       const auth = methods.includes('client_secret_post')
-        ? oauth.ClientSecretPost(input.clientSecret)
+        ? ClientSecretPost(input.clientSecret)
         : methods.includes('client_secret_basic')
-          ? oauth.ClientSecretBasic(input.clientSecret)
+          ? ClientSecretBasic(input.clientSecret)
           : null;
       if (!auth) {
         throw new Error('The identity provider must support client-secret authentication.');
       }
-      const response = await oauth.authorizationCodeGrantRequest(
+      const response = await authorizationCodeGrantRequest(
         server,
         client,
         auth,
         params,
         input.redirectUri,
         input.verifier,
-        { [oauth.customFetch]: this.network },
+        { [customFetch]: this.network },
       );
-      const tokens = await oauth.processAuthorizationCodeResponse(server, client, response, {
+      const tokens = await processAuthorizationCodeResponse(server, client, response, {
         expectedNonce: input.nonce,
         requireIdToken: true,
       });
-      await oauth.validateApplicationLevelSignature(server, response, {
-        [oauth.customFetch]: this.network,
+      await validateApplicationLevelSignature(server, response, {
+        [customFetch]: this.network,
       });
-      claims = oauth.getValidatedIdTokenClaims(tokens)!;
+      claims = getValidatedIdTokenClaims(tokens)!;
       if (typeof claims.sub !== 'string' || claims.sub.length === 0 || claims.sub.length > 255) {
         throw new Error(
           'The identity provider must return a nonempty subject of at most 255 characters.',
@@ -183,7 +200,7 @@ export class PlatformOidcProvider {
       }
     } catch (error) {
       // One code for the whole token step: the provider's error body is never read.
-      throw error instanceof oauth.AuthorizationResponseError && error.error === 'access_denied'
+      throw error instanceof AuthorizationResponseError && error.error === 'access_denied'
         ? new LoginFailure('login_denied', error.message)
         : new LoginFailure('oidc_token_failed', error instanceof Error ? error.message : undefined);
     }

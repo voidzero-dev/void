@@ -10,8 +10,8 @@ import {
   killChild,
   spawnFixtureServer,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { decodePageData } from '../../src/pages/serialize.ts';
 
@@ -41,10 +41,7 @@ describe('playground/pg-test', () => {
     await pglite.waitReady;
 
     // Run migrations
-    const migrationSql = readFileSync(
-      join(fixture.root, 'db/migrations/0000_initial.sql'),
-      'utf-8',
-    );
+    const migrationSql = readFileSync(join(fixture.root, 'db/migrations/0000_initial.sql'), 'utf8');
     await pglite.exec(migrationSql);
 
     pgServer = createServer(pglite);

@@ -9,9 +9,10 @@ import {
   getCliVersionDeploymentStats,
   getProjectsWithOwnerByIds,
   getSystemStats,
-  type Db,
 } from '../db.ts';
-import { type ApiEnv, isDevBypass } from '../env.ts';
+import type { Db } from '../db.ts';
+import { isDevBypass } from '../env.ts';
+import type { ApiEnv } from '../env.ts';
 import { getRequestsDataset, queryTopProjectTraffic } from '../routes/usage.ts';
 
 /** Derive the base cloud domain from the API request hostname.

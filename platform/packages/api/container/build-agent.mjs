@@ -68,7 +68,7 @@ const LOG_FLUSH_MS = 500;
 // stall the single-flight log flush forever (logging would silently stop for the
 // rest of the build); with it the flush retries on the next tick. Also bounds how
 // long the final drain at exit can block before the container terminates.
-const DO_POST_TIMEOUT_MS = 10000;
+const DO_POST_TIMEOUT_MS = 10_000;
 // BuildManager injects VOID_CLI_VERSION. If absent, use the release manifest
 // copied into this image, never a mutable npm dist-tag or the untrusted app's manifest.
 export const DEFAULT_VOID_CLI_VERSION = voidPackageJson.version;
@@ -91,13 +91,13 @@ export const DEFAULT_VOID_CLI_VERSION = voidPackageJson.version;
  * No bytes received for this long aborts the in-flight attempt. Reset by every
  * chunk, so it measures a dead stream, not a slow one.
  */
-export const SOURCE_STALL_TIMEOUT_MS = 20000;
+export const SOURCE_STALL_TIMEOUT_MS = 20_000;
 /**
  * Hard ceiling on the whole download phase, across ALL attempts. Sized to sit
  * well inside the smallest plan budget (free tier = 10 minutes) so a pathological
  * but never-quite-stalled trickle still leaves most of the budget for the build.
  */
-export const SOURCE_PHASE_BUDGET_MS = 240000;
+export const SOURCE_PHASE_BUDGET_MS = 240_000;
 /** Attempts per build, including the first. */
 export const SOURCE_DOWNLOAD_MAX_ATTEMPTS = 3;
 /** Backoff before attempt 2 and attempt 3. */
@@ -107,7 +107,7 @@ export const SOURCE_RETRY_BACKOFF_MS = [2000, 5000];
  * live tail and the check-run tail. The check run keeps the last 100 lines and the phase is capped at 4 minutes, so this can add at most
  * ~16 lines.
  */
-export const SOURCE_PROGRESS_INTERVAL_MS = 15000;
+export const SOURCE_PROGRESS_INTERVAL_MS = 15_000;
 /**
  * How long a killed `tar` gets between SIGTERM and SIGKILL. A child that ignores
  * SIGTERM must not be able to hold the retry loop — and therefore the phase
@@ -236,7 +236,7 @@ let bufferedBytes = 0;
  * tail, so a far-behind puller simply misses the very start; `seq` stays
  * monotonic, so `since` queries over RETAINED lines are still exact.
  */
-export const MAX_BUFFERED_LOG_LINES = 10000;
+export const MAX_BUFFERED_LOG_LINES = 10_000;
 
 /**
  * Companion BYTE cap on the same ring. The line cap alone bounds the COUNT, not
@@ -269,7 +269,7 @@ export const MAX_BUFFERED_LOG_BYTES = 16 * 1024 * 1024;
  * is preserved, and the retained PULL history (`logBuffer`) is independently
  * bounded, so a far-behind reader simply misses the flood's start.
  */
-export const MAX_PENDING_LOG_LINES = 10000;
+export const MAX_PENDING_LOG_LINES = 10_000;
 
 /**
  * Per-response bounds on `GET /logs?since=N`.
@@ -795,7 +795,7 @@ export function startControlServer(port = PORT) {
         lines.push(entry);
         responseBytes += entryBytes;
       }
-      const servedSeq = lines.length > 0 ? lines[lines.length - 1].seq : lastSeq;
+      const servedSeq = lines.at(-1)?.seq ?? lastSeq;
       // Explicit, because the puller cannot infer it: it does not know our caps,
       // and a page that happens to land exactly on one is indistinguishable from
       // the last page. Without it the puller waits a full tick per page, and the
@@ -859,12 +859,14 @@ export function startControlServer(port = PORT) {
  * failing, which is the right side of the trade against losing its logs.
  */
 export const LOG_DRAIN_IDLE_TIMEOUT_MS = 8000;
-export const LOG_DRAIN_ABSOLUTE_TIMEOUT_MS = 120000;
+export const LOG_DRAIN_ABSOLUTE_TIMEOUT_MS = 120_000;
 export const LOG_DRAIN_POLL_MS = 100;
 
 /** @param {number} ms */
 function sleepMs(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /**
@@ -1036,7 +1038,7 @@ export const SECONDARY_RATE_LIMIT_PATTERN = /secondary rate limit|abuse detectio
 export const ERROR_BODY_SNIFF_BYTES = 2048;
 
 /** Fallback wait for a rate limit that names no delay (GitHub advises >= 60s). */
-export const SECONDARY_RATE_LIMIT_DELAY_MS = 60000;
+export const SECONDARY_RATE_LIMIT_DELAY_MS = 60_000;
 
 /**
  * How long the server asked us to wait, in ms, or null. Handles `retry-after` in
@@ -1480,6 +1482,7 @@ export async function downloadSource(options = {}) {
       );
       // A cancel is not a download failure and must never be retried.
       if (isCancelled()) {
+        // oxlint-disable-next-line preserve-caught-error -- An explicit cancellation replaces the aborted transfer error.
         throw new Error('build cancelled');
       }
       if (lastError.retryable !== true || attempt >= maxAttempts) {
@@ -1490,7 +1493,7 @@ export async function downloadSource(options = {}) {
       const backoff =
         typeof lastError.retryAfterMs === 'number' && lastError.retryAfterMs >= 0
           ? lastError.retryAfterMs
-          : (backoffMs[attempt - 1] ?? backoffMs[backoffMs.length - 1] ?? 0);
+          : (backoffMs[attempt - 1] ?? backoffMs.at(-1) ?? 0);
       // Don't sleep into the deadline just to be refused at the top of the loop.
       // This is also what keeps a long `retry-after` from parking the whole build:
       // a delay that does not fit the phase budget ends the download now.
@@ -2060,6 +2063,18 @@ export function resolveSourceVoidCli(root = WORK_DIR) {
   return cli;
 }
 
+// Whether the repo DECLARES `void` as a dependency — the accurate "is void
+// locally resolvable" signal under PnP, where `node_modules/.bin/void` never
+// exists. Falls back to `false` on any read/parse error (→ fetch the CLI).
+const repoDeclaresVoid = () => {
+  try {
+    const pkg = JSON.parse(readFileSync(`${WORK_DIR}/package.json`, 'utf8'));
+    return Boolean(pkg.dependencies?.void || pkg.devDependencies?.void);
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Run the build pipeline and resolve to the process exit code (0 = success,
  * non-zero = failure). This function NEVER calls `process.exit` and NEVER
@@ -2105,17 +2120,6 @@ export async function runBuild(deps = {}) {
   // `hasLocalVoid` and the runner selection both read it lazily (after install),
   // so a reassignable `let` is correct.
   let pnpPresent = false;
-  // Whether the repo DECLARES `void` as a dependency — the accurate "is void
-  // locally resolvable" signal under PnP, where `node_modules/.bin/void` never
-  // exists. Falls back to `false` on any read/parse error (→ fetch the CLI).
-  const repoDeclaresVoid = () => {
-    try {
-      const pkg = JSON.parse(readFileSync(`${WORK_DIR}/package.json`, 'utf8'));
-      return Boolean(pkg.dependencies?.void || pkg.devDependencies?.void);
-    } catch {
-      return false;
-    }
-  };
   const hasLocalVoid =
     deps.hasLocalVoid ??
     (() => existsSync(`${WORK_DIR}/node_modules/.bin/void`) || (pnpPresent && repoDeclaresVoid()));
@@ -2298,15 +2302,19 @@ export async function runBuild(deps = {}) {
       cfAccessClientId && cfAccessClientSecret
         ? JSON.stringify(
             Object.fromEntries(
-              [apiUrl, proxyUrl]
-                .filter((url) => url !== undefined && url !== '')
-                .map((url) => [
-                  new URL(/** @type {string} */ (url)).origin,
-                  {
-                    CF_ACCESS_CLIENT_ID: cfAccessClientId,
-                    CF_ACCESS_CLIENT_SECRET: cfAccessClientSecret,
-                  },
-                ]),
+              [apiUrl, proxyUrl].flatMap((url) =>
+                url !== undefined && url !== ''
+                  ? [
+                      [
+                        new URL(/** @type {string} */ (url)).origin,
+                        {
+                          CF_ACCESS_CLIENT_ID: cfAccessClientId,
+                          CF_ACCESS_CLIENT_SECRET: cfAccessClientSecret,
+                        },
+                      ],
+                    ]
+                  : [],
+              ),
             ),
           )
         : undefined;
@@ -2407,10 +2415,12 @@ async function main() {
 // helpers without starting the control server or spawning any build steps.
 const isEntrypoint = argv[1] && import.meta.url === pathToFileURL(argv[1]).href;
 if (isEntrypoint) {
-  main().catch((err) => {
+  try {
+    await main();
+  } catch (err) {
     // Last-resort guard — main() already wraps its body, but never let an
     // unhandled rejection leave the container hanging without an exit code.
     console.error(err);
     process.exit(1);
-  });
+  }
 }

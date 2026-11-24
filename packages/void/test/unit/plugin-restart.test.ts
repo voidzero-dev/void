@@ -111,7 +111,7 @@ describe('sanitizeReturnPath', () => {
     'data:text/html,<script>alert(1)</script>',
     '//evil.com',
     '//evil.com/path',
-    '/\\evil.com',
+    String.raw`/\evil.com`,
     'https://evil.com',
     'http://localhost:5173/',
     'evil.com',

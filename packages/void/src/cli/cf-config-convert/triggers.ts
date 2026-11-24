@@ -11,8 +11,8 @@ import {
   hasOwn,
   isRecord,
   optionsFromRecord,
-  type UnknownRecord,
 } from './converter-helpers.ts';
+import type { UnknownRecord } from './converter-helpers.ts';
 import { createFollowUp } from './follow-ups.ts';
 import type { MigrationFollowUp, OutputProperty, OutputValue } from './types.ts';
 

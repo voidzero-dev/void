@@ -6,8 +6,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const repository = join(import.meta.dirname, '../../../..');
 const httpExtensions = ['tsx', 'jsx'];

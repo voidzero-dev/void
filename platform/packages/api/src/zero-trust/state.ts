@@ -10,10 +10,10 @@ import { resolveZeroTrustApplicationEnvironment } from './application.ts';
 import { ZeroTrustCloudflareClient } from './cloudflare.ts';
 import {
   ZERO_TRUST_CREDENTIAL_ID,
-  type ZeroTrustConfiguration,
   zeroTrustConfigurationStatus,
   readZeroTrustConfigurationStrict,
 } from './configuration.ts';
+import type { ZeroTrustConfiguration } from './configuration.ts';
 import { errorMessage, ZeroTrustUnavailableError } from './errors.ts';
 
 export const MAX_ZERO_TRUST_CUSTOM_DOMAINS_PER_PROJECT = 100;
@@ -26,7 +26,7 @@ export async function applicationName(env: ApiEnv['Bindings'], suffix: string): 
   const installation = installationId(env);
   const identity = installation
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
+    .replaceAll(/[^a-z0-9-]/g, '-')
     .slice(0, 32);
   const digest = new Uint8Array(
     await crypto.subtle.digest('SHA-256', new TextEncoder().encode(installation)),
@@ -188,11 +188,13 @@ export async function projectDestinations(
     await resolveZeroTrustApplicationEnvironment(env, db),
   );
   const platform = [...new Set(platformProjectHostnames(project, application))];
-  const reserved = [env.AUTH_REDIRECT_URI, env.PROXY_URL, env.EMAIL_GATEWAY_ORIGIN]
-    .filter((value): value is string => !!value && URL.canParse(value))
-    .map((value) => new URL(value).hostname.toLowerCase());
+  const reserved = new Set(
+    [env.AUTH_REDIRECT_URI, env.PROXY_URL, env.EMAIL_GATEWAY_ORIGIN].flatMap((value) =>
+      !!value && URL.canParse(value) ? [new URL(value).hostname.toLowerCase()] : [],
+    ),
+  );
   const checkHostnames = (values: ReadonlyArray<string>) => {
-    if (values.some((hostname) => reserved.includes(hostname.toLowerCase()))) {
+    if (values.some((hostname) => reserved.has(hostname.toLowerCase()))) {
       throw new ZeroTrustUnavailableError(
         'The project hostname overlaps a platform API, proxy, or email endpoint. Choose another hostname.',
       );

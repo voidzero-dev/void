@@ -1,4 +1,5 @@
-import { readPlatformApplication, type PlatformApplication } from '@void/platform';
+import { readPlatformApplication } from '@void/platform';
+import type { PlatformApplication } from '@void/platform';
 import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getPlatformSetting } from '../platform-settings.ts';
@@ -6,8 +7,8 @@ import {
   parseZeroTrustApplicationTarget,
   readZeroTrustConfigurationStrict,
   ZeroTrustConfigurationError,
-  type ZeroTrustConfiguration,
 } from './configuration.ts';
+import type { ZeroTrustConfiguration } from './configuration.ts';
 
 export const PLATFORM_APPLICATION_SETTING = 'platform.application';
 

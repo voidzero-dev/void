@@ -351,7 +351,7 @@ export function resolvePathTtl(
   revalidate: number | Record<string, number> | undefined,
   pathname: string,
 ): number {
-  if (revalidate == null) {
+  if (revalidate === null || revalidate === undefined) {
     return 0;
   }
   if (typeof revalidate === 'number') {

@@ -1,4 +1,5 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
 import { describe, expect, it, vi } from 'vite-plus/test';
@@ -11,8 +12,8 @@ import {
   createPageErrorHandler,
   createPageGetHandler,
   createPageMutationHandler,
-  type PageRouteOptions,
 } from '../../src/runtime/routing/pages.ts';
+import type { PageRouteOptions } from '../../src/runtime/routing/pages.ts';
 
 const pagesHeaders = { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION };
 const origins = ['loader', 'handler middleware', 'application middleware'] as const;

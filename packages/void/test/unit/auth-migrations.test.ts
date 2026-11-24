@@ -569,7 +569,7 @@ describe('auth migration runner', () => {
           runner,
           resolveWithUserFields('postgresql', {
             plan: { type: 'string', defaultValue: "it's free" },
-            motto: { type: 'string', defaultValue: "it's a\\b" },
+            motto: { type: 'string', defaultValue: String.raw`it's a\b` },
             folder: { type: 'string', defaultValue: 'end\\' },
             banned: { type: 'boolean', defaultValue: true },
           }),
@@ -578,7 +578,9 @@ describe('auth migration runner', () => {
         expect(
           (await pg.query('SELECT plan, motto, folder, banned FROM "user"')).rows,
           `standard_conforming_strings = ${mode}`,
-        ).toEqual([{ plan: "it's free", motto: "it's a\\b", folder: 'end\\', banned: true }]);
+        ).toEqual([
+          { plan: "it's free", motto: String.raw`it's a\b`, folder: 'end\\', banned: true },
+        ]);
       } finally {
         await pg.exec('RESET standard_conforming_strings');
       }
@@ -682,7 +684,7 @@ describe('auth migration runner', () => {
     const statements: Array<string> = [];
     const resolved = resolveWithUserFields('mysql', {
       plan: { type: 'string', defaultValue: 'free' },
-      motto: { type: 'string', defaultValue: "it's a\\b" },
+      motto: { type: 'string', defaultValue: String.raw`it's a\b` },
       nickname: { type: 'string' },
     });
     const user = resolved.tables.find((table) => table.name === 'user')!;

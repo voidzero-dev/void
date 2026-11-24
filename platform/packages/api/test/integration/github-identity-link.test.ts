@@ -7,7 +7,8 @@ import {
 } from '../../src/db.ts';
 import type { Db } from '../../src/db.ts';
 import { oauthAccounts } from '../../src/schema.ts';
-import { clearTables, createTestUser, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { clearTables, createTestUser, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

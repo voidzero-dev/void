@@ -26,7 +26,7 @@ export async function readBoundedInternalJson(
   const deadline = setTimeout(() => {
     timedOut = true;
     void reader.cancel().catch(() => {});
-  }, 5_000);
+  }, 5000);
   try {
     for (;;) {
       const { done, value } = await reader.read();

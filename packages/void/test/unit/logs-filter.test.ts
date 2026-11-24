@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { PlatformClient, type LogEntry } from '../../src/cli/client.ts';
+import { PlatformClient } from '../../src/cli/client.ts';
+import type { LogEntry } from '../../src/cli/client.ts';
 import { filterLogEntries } from '../../src/cli/logs.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 

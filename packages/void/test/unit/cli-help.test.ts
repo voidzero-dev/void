@@ -121,7 +121,7 @@ describe('rendered help advertises the flags the parser honours', () => {
     printHelpPage(path);
     const lines = vi.mocked(note).mock.calls.map((call) => String(call[0]));
     // eslint-disable-next-line no-control-regex
-    return lines.join('\n').replace(/\u001b\[[0-9;]*m/g, '');
+    return lines.join('\n').replaceAll(/\u001b\[[0-9;]*m/g, '');
   }
 
   it('shows --runtime-logs only on platform install and upgrade', () => {

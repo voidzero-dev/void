@@ -1,14 +1,15 @@
 import type { Context, Env, MiddlewareHandler, Next, TypedResponse } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
 import type { RewriteDestination, RouteDestination, RouteUrl, RouteUrlInput } from 'void/routes';
-import type { HeadConfig, HeadDescriptor } from '../../pages/head.ts';
+import type { HeadConfig } from '../../pages/head.ts';
 import { base64ToBytes } from '../../shared/base64.ts';
 import type { AuthSession, AuthUser } from '../auth/index.ts';
 import type { TypedRoutes } from '../routing/route-url.ts';
 import type { AssetBinding } from '../routing/worker.ts';
 import { executeComposedHandler, setHandlerComposition } from './composition.ts';
 import { convertReturnValue } from './response.ts';
-import { runValidation, type ValidatorSlots, type HandlerInput } from './validator.ts';
+import { runValidation } from './validator.ts';
+import type { ValidatorSlots, HandlerInput } from './validator.ts';
 
 /**
  * Thrown when `c.rewrite()` is called with a destination whose final path
@@ -321,7 +322,7 @@ export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHa
     return args[0] as TypedHandler;
   }
   const middlewares = args.slice(0, -1) as Array<MiddlewareFn>;
-  const handler = args[args.length - 1] as HandlerFn;
+  const handler = args.at(-1) as HandlerFn;
   // Pages read the recorded composition to render inside the same chain.
   const composed = setHandlerComposition(
     async (c: CloudContext) =>
@@ -329,7 +330,7 @@ export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHa
     middlewares,
     handler,
   );
-  return composed as unknown as TypedHandler;
+  return composed as TypedHandler;
 }
 
 /**
@@ -422,7 +423,7 @@ function isVoidInternalPath(pathname: string) {
 }
 
 function basicAuthChallenge(realm: string, message: string) {
-  const escapedRealm = realm.replace(/["\\]/g, '\\$&');
+  const escapedRealm = realm.replaceAll(/["\\]/g, String.raw`\$&`);
 
   return new Response(message, {
     status: 401,
@@ -498,8 +499,8 @@ export function defineRender(handler: RenderFn): RenderFn {
  * At runtime it simply returns the function passed to it.
  */
 export function defineHead<P = Record<string, unknown>>(
-  handler: (c: CloudContext, props: P) => HeadDescriptor | undefined,
-): (c: CloudContext, props: P) => HeadDescriptor | undefined {
+  handler: (c: CloudContext, props: P) => HeadConfig | undefined,
+): (c: CloudContext, props: P) => HeadConfig | undefined {
   return handler;
 }
 

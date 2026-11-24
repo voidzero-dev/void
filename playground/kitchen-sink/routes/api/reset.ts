@@ -23,8 +23,8 @@ export const POST = defineHandler(async (c) => {
       ).all()
     ).results ?? [];
   const existingTables = new Set(existingTableRows.map((row) => String(row.name)));
-  const deleteStatements = D1_TABLES_TO_CLEAR.filter((name) => existingTables.has(name)).map(
-    (name) => c.env.DB.prepare(`DELETE FROM "${name}"`),
+  const deleteStatements = D1_TABLES_TO_CLEAR.flatMap((name) =>
+    existingTables.has(name) ? [c.env.DB.prepare(`DELETE FROM "${name}"`)] : [],
   );
   if (deleteStatements.length > 0) {
     await c.env.DB.batch(deleteStatements);

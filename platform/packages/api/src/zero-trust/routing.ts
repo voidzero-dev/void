@@ -15,12 +15,8 @@ import { projectRouteKey } from '../routing.ts';
 import { domains } from '../schema.ts';
 import { routingSuspensionReason } from '../suspension.ts';
 import type { DeployManifest, Project, ProjectZeroTrust } from '../types.ts';
-import {
-  type ManagedAccessApplication,
-  type ZeroTrustConfiguration,
-  ZeroTrustConfigurationError,
-  readZeroTrustConfigurationStrict,
-} from './configuration.ts';
+import { ZeroTrustConfigurationError, readZeroTrustConfigurationStrict } from './configuration.ts';
+import type { ManagedAccessApplication, ZeroTrustConfiguration } from './configuration.ts';
 import { ZeroTrustUnavailableError } from './errors.ts';
 import { lockZeroTrustConfiguration } from './lock.ts';
 import {

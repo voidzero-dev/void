@@ -254,7 +254,7 @@ describe('guided installation app access', () => {
     const { input, fetcher } = fixture('public');
     fetcher.mockResolvedValueOnce(
       Response.json(
-        { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
+        { success: false, errors: [{ code: 10_000, message: 'Authentication error' }] },
         { status: 403 },
       ),
     );

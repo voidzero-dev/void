@@ -1,11 +1,7 @@
 import type { VoidAuthMigrationSchema } from '../../auth/drizzle.ts';
 import { disablePgPassFallback } from '../db/pgpass.ts';
-import {
-  createVoidAuthRuntime,
-  resolveConnectionString,
-  type VoidAuthEnv,
-  type VoidAuthRuntimeApi,
-} from './better-auth-shared.ts';
+import { createVoidAuthRuntime, resolveConnectionString } from './better-auth-shared.ts';
+import type { VoidAuthEnv, VoidAuthRuntimeApi } from './better-auth-shared.ts';
 import { applyPgAuthMigrations, pgMigrationRunner } from './migrations.ts';
 
 async function applyMigrations(

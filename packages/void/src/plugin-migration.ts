@@ -20,6 +20,12 @@ function readAuthDatabaseUrl(root: string): string | undefined {
   return process.env.DATABASE_URL || readDatabaseUrl(root) || undefined;
 }
 
+const logApplied = (applied: Array<string>) => {
+  if (applied.length > 0) {
+    voidLog(`Applied ${applied.length} migration(s): ${applied.join(', ')}`);
+  }
+};
+
 /**
  * Vite plugin that runs local migrations on dev server startup.
  * For SQLite/D1: applies migrations to the local miniflare database.
@@ -60,11 +66,6 @@ export function migrationPlugin(
       };
       // MySQL runs Better Auth's migrations under the migration lock of the database they change.
       const mysqlAuth = dialect === 'mysql' && auth?.enabled === true;
-      const logApplied = (applied: Array<string>) => {
-        if (applied.length > 0) {
-          voidLog(`Applied ${applied.length} migration(s): ${applied.join(', ')}`);
-        }
-      };
       // A pending migration that fails validation stops every migration for this start, as
       // `void db migrate` does, so files never apply out of order. The dev server still starts.
       const refuse = (err: unknown) => {

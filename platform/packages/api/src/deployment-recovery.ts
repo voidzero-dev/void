@@ -7,8 +7,8 @@ import {
   getDomainsByProjectId,
   getProject,
   updateDeploymentStatus,
-  type Db,
 } from './db.ts';
+import type { Db } from './db.ts';
 import { projectPublicUrls } from './deploy/shared.ts';
 import type { ApiEnv } from './env.ts';
 import { deleteSandboxController } from './provisioning/sandbox-controller.ts';

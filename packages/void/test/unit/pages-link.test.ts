@@ -3,9 +3,8 @@ import {
   createRouterFacade,
   createSsrRouter,
   idleNavigationState,
-  type NavigationMethod,
-  type VoidRouter,
 } from '../../src/pages/client.ts';
+import type { NavigationMethod, VoidRouter } from '../../src/pages/client.ts';
 import {
   handleLinkClick,
   LINK_VISIBLE_PREFETCH_DELAY,
@@ -15,9 +14,8 @@ import {
   observeLinkVisible,
   prefetchLink,
   resolveLink,
-  type BaseLinkProps,
-  type LinkActiveMatch,
 } from '../../src/pages/link.ts';
+import type { BaseLinkProps, LinkActiveMatch } from '../../src/pages/link.ts';
 
 function createRouter() {
   return {

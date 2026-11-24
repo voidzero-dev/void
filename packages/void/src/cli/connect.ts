@@ -66,6 +66,7 @@ export async function authenticateConnection(
         throw error;
       }
       if (matchingEnv) {
+        // oxlint-disable-next-line preserve-caught-error -- Credential errors are translated without including provider details.
         throw new Error('connect: VOID_TOKEN is invalid or expired. Replace it before connecting.');
       }
     }

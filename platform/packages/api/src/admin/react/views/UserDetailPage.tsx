@@ -12,7 +12,7 @@ import {
 import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import { UserDetailView, userDetailRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import {
   formatLimit,
   formatNumber,

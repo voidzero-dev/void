@@ -57,6 +57,19 @@ function importFailureDetail(state: Json): string {
   return lines.length > 0 ? sanitizeTerminalLogText(lines.join('\n')) : 'Unknown import error.';
 }
 
+function unknownOutcome(error: unknown, bookmark: string | undefined): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = message.endsWith('.') ? message : `${message}.`;
+  return new Error(
+    sanitizeTerminalLogText(
+      `D1 did not report whether the import finished: ${cause} ` +
+        `The import may still be running on Cloudflare${bookmark ? ` (bookmark ${bookmark})` : ''}. ` +
+        'Check the database before running the file again.',
+    ),
+    { cause: error },
+  );
+}
+
 /** Upload SQL separately from process arguments and wait for D1 to finish ingesting it. */
 export async function importD1SqlFile({
   endpoint,
@@ -109,19 +122,6 @@ export async function importD1SqlFile({
       throw new D1ImportStatusError(`D1 import failed: ${importFailureDetail(state)}`);
     }
     return state;
-  }
-
-  function unknownOutcome(error: unknown, bookmark: string | undefined): Error {
-    const message = error instanceof Error ? error.message : String(error);
-    const cause = message.endsWith('.') ? message : `${message}.`;
-    return new Error(
-      sanitizeTerminalLogText(
-        `D1 did not report whether the import finished: ${cause} ` +
-          `The import may still be running on Cloudflare${bookmark ? ` (bookmark ${bookmark})` : ''}. ` +
-          'Check the database before running the file again.',
-      ),
-      { cause: error },
-    );
   }
 
   // When D1 already has a file with this etag, init itself starts the import, so only an

@@ -2,7 +2,8 @@
 
 import { Button } from '@astryxdesign/core/Button';
 import { useState } from 'react';
-import { AdminUserTypeahead, type AdminUserSuggestion } from './AdminUserTypeahead.tsx';
+import { AdminUserTypeahead } from './AdminUserTypeahead.tsx';
+import type { AdminUserSuggestion } from './AdminUserTypeahead.tsx';
 import { SectionStack } from './SectionStack.tsx';
 
 export function ProjectOwnerTransferSection({ projectId }: { projectId: string }) {

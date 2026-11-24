@@ -230,8 +230,8 @@ describe('normalizeEmail', () => {
   // (RFC 5322 §3.2.4 — qtext excludes both).
   it.each([
     ['a trailing backslash', 'bad\\'],
-    ['an embedded backslash', 'a\\b'],
-    ['a Windows path', 'C:\\Users\\bob\\report.pdf'],
+    ['an embedded backslash', String.raw`a\b`],
+    ['a Windows path', String.raw`C:\Users\bob\report.pdf`],
     ['an embedded quote', 'he said "hi".pdf'],
     ['a plain name', 'normal.pdf'],
   ])('round-trips %s in the attachment filename', async (_what, filename) => {
@@ -249,7 +249,7 @@ describe('normalizeEmail', () => {
     // leave the parameter unterminated and this would not match.
     const m = text.match(/Content-Disposition: attachment; filename="((?:[^"\\]|\\.)*)"/);
     expect(m, `no terminated filename parameter in:\n${text.slice(0, 400)}`).not.toBeNull();
-    expect(m![1].replace(/\\(.)/g, '$1')).toBe(filename);
+    expect(m![1].replaceAll(/\\(.)/g, '$1')).toBe(filename);
   });
 
   it('rejects CRLF in subject', async () => {
@@ -730,7 +730,7 @@ describe('normalizeEmail', () => {
     });
     expect(named.to[0].email).toBe(deliverable);
     // The bound answers before the address is scanned.
-    expect(() => parseAddress(`a\x01${'b'.repeat(320)}@x.dev`, 'to')).toThrow(
+    expect(() => parseAddress(`a\u0001${'b'.repeat(320)}@x.dev`, 'to')).toThrow(
       /over the 320-character limit/,
     );
   });
@@ -793,10 +793,10 @@ describe('normalizeEmail', () => {
       ['a quoted local part', '"a b"@example.com'],
       ['a quoted @', '"a@b"@example.com'],
       ['a quoted word', '"weird"@x.dev'],
-      ['SOH', 'a\x01b@example.com'],
-      ['ESC', 'a\x1bb@example.com'],
-      ['US', 'a\x1fb@example.com'],
-      ['DEL', 'a\x7fb@example.com'],
+      ['SOH', 'a\u0001b@example.com'],
+      ['ESC', 'a\u001bb@example.com'],
+      ['US', 'a\u001fb@example.com'],
+      ['DEL', 'a\u007fb@example.com'],
       ['TAB', 'a\tb@example.com'],
       // `:` is an RFC 5322 §3.2.3 special, not atext.
       ['a colon in the local part', 'a:b@example.com'],
@@ -865,8 +865,8 @@ describe('normalizeEmail', () => {
       // A name is not an address: `formatAddress` RFC 2047-encodes a
       // non-printable name, so the byte reaches the wire only inside base64.
       // eslint-disable-next-line no-control-regex -- C0 controls and DEL are the point
-      const rawControl = /[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/;
-      for (const ch of ['\x01', '\x1b', '\x1f', '\x7f', '\t']) {
+      const rawControl = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/;
+      for (const ch of ['\u0001', '\u001b', '\u001f', '\u007f', '\t']) {
         const { text } = await build({
           from: 'a@x.dev',
           to: { name: `Bo${ch}b`, email: 'b@y.dev' },
@@ -886,10 +886,10 @@ describe('normalizeEmail', () => {
     // `obs-qtext` (RFC 5322 §3.2.4), which §4 says MUST NOT be generated.
     const base = { from: 'a@x.dev', to: 'b@y.dev', subject: 's', text: 't' };
     const controls = [
-      ['SOH', '\x01', 'U+0001'],
-      ['ESC', '\x1b', 'U+001B'],
-      ['US', '\x1f', 'U+001F'],
-      ['DEL', '\x7f', 'U+007F'],
+      ['SOH', '\u0001', 'U+0001'],
+      ['ESC', '\u001b', 'U+001B'],
+      ['US', '\u001f', 'U+001F'],
+      ['DEL', '\u007f', 'U+007F'],
     ] as const;
 
     it('refuses one, naming its code point rather than echoing it', async () => {
@@ -945,7 +945,7 @@ describe('normalizeEmail', () => {
     it('keeps the length bound in front of the scan', async () => {
       // "Bound before you scan": an over-long filename is refused by the
       // `QUOTED_FILENAME_LINE_OVERHEAD` guard before its characters are read.
-      const filename = `a\x01${'b'.repeat(2000)}.pdf`;
+      const filename = `a\u0001${'b'.repeat(2000)}.pdf`;
       await expect(
         normalizeEmail({ ...base, attachments: [{ filename, content: 'x' }] }),
       ).rejects.toThrow(
@@ -961,7 +961,7 @@ describe('normalizeEmail', () => {
       await expect(
         normalizeEmail({
           ...base,
-          attachments: [{ filename: 'a.pdf', content: 'x', contentType: 'application/pdf\x01' }],
+          attachments: [{ filename: 'a.pdf', content: 'x', contentType: 'application/pdf\u0001' }],
         }),
       ).rejects.toThrow('attachment contentType contains a control character (U+0001).');
     });
@@ -972,7 +972,7 @@ describe('normalizeEmail', () => {
       await expect(
         normalizeEmail({
           ...base,
-          attachments: [{ filename: 'a.png', content: 'x', contentId: 'lo\x7fgo' }],
+          attachments: [{ filename: 'a.png', content: 'x', contentId: 'lo\u007fgo' }],
         }),
       ).rejects.toThrow('attachment contentId contains a control character (U+007F).');
     });
@@ -1003,7 +1003,7 @@ describe('normalizeEmail', () => {
     it('refuses one that does not parse, naming the rule rather than echoing it', async () => {
       const invalid = [
         'text/plain; x="', // unterminated quoted-string
-        'text/plain; x="a\\"', // the `\` escapes the closing quote
+        String.raw`text/plain; x="a\"`, // the `\` escapes the closing quote
         'text/plain; charset', // attribute without `=` value
         'text/plain; charset=', // empty token value (`""` is the empty value)
         'text/plain; x=a/b', // `/` is a tspecial; must be quoted
@@ -1046,7 +1046,7 @@ describe('normalizeEmail', () => {
         'text/plain ; charset=utf-8', // WSP before `;` (RFC 822 implicit LWSP)
         'text/plain;\tcharset=utf-8', // HTAB is WSP
         'text/plain; charset=""', // the empty quoted-string is a value
-        'text/plain; title="a \\"b\\" \\\\ c; d=e"', // quoted-pairs, and `;` inside quotes
+        String.raw`text/plain; title="a \"b\" \\ c; d=e"`, // quoted-pairs, and `;` inside quotes
         'text/plain; title="résumé"', // what `name="résumé.pdf"` already carries
         'multipart/x-thing; a=1; B=2', // distinct attributes
       ];
@@ -1180,7 +1180,7 @@ describe('normalizeEmail', () => {
         'lo,go', //
         'lo;go', //
         'lo:go', //
-        'lo\\go', //
+        String.raw`lo\go`, //
         'a@[127.0.0.1]', // `no-fold-literal` is left out
         'a..b', // `dot-atom-text` is 1*atext *("." 1*atext): no doubled dot
         '.a', // no leading dot
@@ -1306,17 +1306,26 @@ describe('normalizeEmail', () => {
     // what `formatAddress` quotes and escapes again, so it has to be the
     // raw text — what the object form carries — or the escapes render
     // twice and the recipient sees the backslashes.
-    expect(parseAddress('"Smith \\"Bob\\"" <a@x.dev>', 'to')).toEqual({
+    expect(parseAddress(String.raw`"Smith \"Bob\"" <a@x.dev>`, 'to')).toEqual({
       email: 'a@x.dev',
       name: 'Smith "Bob"',
     });
-    expect(parseAddress('"a\\\\b" <a@x.dev>', 'to')).toEqual({ email: 'a@x.dev', name: 'a\\b' });
-    expect(parseAddress('"ab\\\\" <a@x.dev>', 'to')).toEqual({ email: 'a@x.dev', name: 'ab\\' });
-    expect(parseAddress('"a\\xb" <a@x.dev>', 'to')).toEqual({ email: 'a@x.dev', name: 'axb' });
-    // UTF-16 code units, surrogate pairs included.
-    expect(parseAddress('"\\"😀 \\\\ ï" <a@x.dev>', 'to')).toEqual({
+    expect(parseAddress(String.raw`"a\\b" <a@x.dev>`, 'to')).toEqual({
       email: 'a@x.dev',
-      name: '"😀 \\ ï',
+      name: String.raw`a\b`,
+    });
+    expect(parseAddress(String.raw`"ab\\" <a@x.dev>`, 'to')).toEqual({
+      email: 'a@x.dev',
+      name: 'ab\\',
+    });
+    expect(parseAddress(String.raw`"a\xb" <a@x.dev>`, 'to')).toEqual({
+      email: 'a@x.dev',
+      name: 'axb',
+    });
+    // UTF-16 code units, surrogate pairs included.
+    expect(parseAddress(String.raw`"\"😀 \\ ï" <a@x.dev>`, 'to')).toEqual({
+      email: 'a@x.dev',
+      name: String.raw`"😀 \ ï`,
     });
     // A quoted name with no backslash is untouched, and a backslash in an
     // UNQUOTED name is a character like any other — as in the object form.
@@ -1324,15 +1333,20 @@ describe('normalizeEmail', () => {
       email: 'a@x.dev',
       name: 'Smith, John',
     });
-    expect(parseAddress('a\\b <c@d.ef>', 'to')).toEqual({ email: 'c@d.ef', name: 'a\\b' });
+    expect(parseAddress(String.raw`a\b <c@d.ef>`, 'to')).toEqual({
+      email: 'c@d.ef',
+      name: String.raw`a\b`,
+    });
     // `\@` is still an `@` in a display name, which is still refused.
-    expect(() => parseAddress('"a\\@x" <b@y.dev>', 'to')).toThrow(/must not contain '@'/);
+    expect(() => parseAddress(String.raw`"a\@x" <b@y.dev>`, 'to')).toThrow(/must not contain '@'/);
     // The quoted-string line guard sees the DECODED name, the one
     // `formatAddress` renders: 500 pairs are 1,000 raw characters (over
     // the guard) but a 500-character name (under it), and the count the
     // error reports is the decoded one.
-    expect(parseAddress(`"${'\\"'.repeat(500)}" <a@x.dev>`, 'to').name).toBe('"'.repeat(500));
-    expect(() => parseAddress(`"${'\\"'.repeat(996)}" <a@x.dev>`, 'to')).toThrow(
+    expect(parseAddress(`"${String.raw`\"`.repeat(500)}" <a@x.dev>`, 'to').name).toBe(
+      '"'.repeat(500),
+    );
+    expect(() => parseAddress(`"${String.raw`\"`.repeat(996)}" <a@x.dev>`, 'to')).toThrow(
       /display name is 996 characters and must be quoted/,
     );
   });
@@ -1341,10 +1355,10 @@ describe('normalizeEmail', () => {
     // Nothing bounds the name before the decode, and heap is not something a
     // test can pin; time is. Both shapes build the output of their path.
     const started = performance.now();
-    expect(() => parseAddress(`"${'\\"'.repeat(1_000_000)}" <a@x.dev>`, 'to')).toThrow(
+    expect(() => parseAddress(`"${String.raw`\"`.repeat(1_000_000)}" <a@x.dev>`, 'to')).toThrow(
       /cannot be folded/,
     );
-    const nonAscii = parseAddress(`"${'\\"é'.repeat(500_000)}" <a@x.dev>`, 'to');
+    const nonAscii = parseAddress(`"${String.raw`\"é`.repeat(500_000)}" <a@x.dev>`, 'to');
     expect(nonAscii.name).toHaveLength(1_000_000);
     expect(nonAscii.name!.startsWith('"é"é')).toBe(true);
     expect(performance.now() - started).toBeLessThan(1000);
@@ -1398,7 +1412,7 @@ describe('buildMime', () => {
   it.each<[string, string, string, string]>([
     ['a bare CR', 'a\rb', 'quoted-printable', 'a\r\nb'],
     ['a tab', 'a\tb', 'quoted-printable', 'a\tb'],
-    ['DEL', 'a\x7fb', 'quoted-printable', 'a=7Fb'],
+    ['DEL', 'a\u007fb', 'quoted-printable', 'a=7Fb'],
     ['a 990-character line', 'a'.repeat(990), '7bit', 'a'.repeat(990)],
     [
       'a 991-character line',
@@ -1524,7 +1538,7 @@ describe('buildMime', () => {
 
   it('escapes embedded quotes and backslashes in quoted display names', async () => {
     const { text } = await build({
-      from: { email: 'a@x.dev', name: 'Smith, "Bob" \\Bobby' },
+      from: { email: 'a@x.dev', name: String.raw`Smith, "Bob" \Bobby` },
       to: 'b@y.dev',
       subject: 's',
       text: 'hi',
@@ -1532,17 +1546,17 @@ describe('buildMime', () => {
     // Backslash is escaped first (`\` → `\\`), then quotes are escaped
     // (`"` → `\"`). Order matters; reverse order would double-escape the
     // backslash from the quote-escape into `\\\\\"`.
-    expect(text).toContain('From: "Smith, \\"Bob\\" \\\\Bobby" <a@x.dev>');
+    expect(text).toContain(String.raw`From: "Smith, \"Bob\" \\Bobby" <a@x.dev>`);
   });
 
   it('renders a quoted display name with its quoted-pairs escaped exactly once', async () => {
     // The string and object forms of the same name render the same header.
     const cases: Array<[string, string, string]> = [
-      ['"Smith \\"Bob\\"" <a@x.dev>', 'Smith "Bob"', '"Smith \\"Bob\\""'],
-      ['"a\\\\b" <a@x.dev>', 'a\\b', '"a\\\\b"'],
-      ['"ab\\\\" <a@x.dev>', 'ab\\', '"ab\\\\"'],
+      [String.raw`"Smith \"Bob\"" <a@x.dev>`, 'Smith "Bob"', String.raw`"Smith \"Bob\""`],
+      [String.raw`"a\\b" <a@x.dev>`, String.raw`a\b`, String.raw`"a\\b"`],
+      [String.raw`"ab\\" <a@x.dev>`, 'ab\\', String.raw`"ab\\"`],
       ['"Smith, John" <a@x.dev>', 'Smith, John', '"Smith, John"'],
-      ['"a\\xb" <a@x.dev>', 'axb', 'axb'],
+      [String.raw`"a\xb" <a@x.dev>`, 'axb', 'axb'],
     ];
     for (const [from, name, rendered] of cases) {
       const viaString = await build({ from, to: 'b@y.dev', subject: 's', text: 't' });
@@ -1557,18 +1571,18 @@ describe('buildMime', () => {
       // Read the quoted-string back the way a receiver does.
       const m = unfoldHeader(viaString.text, 'From').match(/^"((?:[^"\\]|\\.)*)" </);
       if (m) {
-        expect(m[1].replace(/\\(.)/g, '$1')).toBe(name);
+        expect(m[1].replaceAll(/\\(.)/g, '$1')).toBe(name);
       }
     }
     // A non-ASCII name becomes encoded-words rather than a quoted-string;
     // the decoded text is what gets encoded.
     const { text } = await build({
-      from: '"\\"😀\\\\ ï" <a@x.dev>',
+      from: String.raw`"\"😀\\ ï" <a@x.dev>`,
       to: 'b@y.dev',
       subject: 's',
       text: 't',
     });
-    expect(decodeEncodedWords(unfoldHeader(text, 'From'))).toBe('"😀\\ ï <a@x.dev>');
+    expect(decodeEncodedWords(unfoldHeader(text, 'From'))).toBe(String.raw`"😀\ ï <a@x.dev>`);
   });
 
   describe('a period in a display name', () => {
@@ -1633,14 +1647,14 @@ describe('buildMime', () => {
       // The period only selects the quoted-string path; inside it `"` and
       // `\` are quoted-pairs as before, and the period itself is `qtext`.
       const { default: PostalMime } = await import('postal-mime');
-      const name = 'Dr. "Doc" Smith \\ Jr.';
+      const name = String.raw`Dr. "Doc" Smith \ Jr.`;
       const { raw, text } = await build({
         from: { email: 'a@x.dev', name },
         to: 'b@y.dev',
         subject: 's',
         text: 'hi',
       });
-      expect(unfoldHeader(text, 'From')).toBe('"Dr. \\"Doc\\" Smith \\\\ Jr." <a@x.dev>');
+      expect(unfoldHeader(text, 'From')).toBe(String.raw`"Dr. \"Doc\" Smith \\ Jr." <a@x.dev>`);
       expect((await PostalMime.parse(raw)).from).toEqual({ address: 'a@x.dev', name });
     });
 
@@ -1845,7 +1859,7 @@ describe('buildMime', () => {
         to: 'b@y.dev',
         subject: 's',
         text: 't',
-        threading: { references: refs, inReplyTo: ids[ids.length - 1] },
+        threading: { references: refs, inReplyTo: ids.at(-1) },
       }),
     );
     const text = new TextDecoder().decode(raw);
@@ -1903,7 +1917,7 @@ describe('buildMime', () => {
     // ceiling leaves 63 base64 characters, so 45 source bytes is the
     // largest payload that fits.
     const subject = '日本語のメールを送信します。テス';
-    expect([...subject]).toHaveLength(16);
+    expect(Array.from(subject)).toHaveLength(16);
     const { text } = await build({
       from: 'a@x.dev',
       to: 'b@y.dev',
@@ -1923,7 +1937,7 @@ describe('buildMime', () => {
     // Unfolded, 246 CJK characters are one 1005-octet line, past RFC 5322
     // §2.1.1's 998-octet MUST.
     const subject = '日本語'.repeat(82);
-    expect([...subject]).toHaveLength(246);
+    expect(Array.from(subject)).toHaveLength(246);
     const { raw, text } = await build({
       from: 'a@x.dev',
       to: 'b@y.dev',
@@ -2223,7 +2237,7 @@ describe('buildMime header size projection', () => {
     // The bound is exact for a part with no content: these project under the
     // cap and render over it, so the post-render check refuses them.
     await expect(
-      build({ from: 'a@x.dev', to: 'b@y.dev', subject: 's', text: 't', attachments: parts(2_506) }),
+      build({ from: 'a@x.dev', to: 'b@y.dev', subject: 's', text: 't', attachments: parts(2506) }),
     ).rejects.toThrow(/message size \d+ bytes exceeds Cloudflare limit/);
     // And a few parts fewer build.
     const { raw } = await build({
@@ -2231,7 +2245,7 @@ describe('buildMime header size projection', () => {
       to: 'b@y.dev',
       subject: 's',
       text: 't',
-      attachments: parts(2_450),
+      attachments: parts(2450),
     });
     expect(raw.byteLength).toBeLessThanOrEqual(MAX_MESSAGE_BYTES);
   });

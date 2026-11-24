@@ -1,5 +1,6 @@
 import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from '@void/platform';
-import { type CronFireMessage, processCronFiresBatch } from './cron-fires-queue.ts';
+import { processCronFiresBatch } from './cron-fires-queue.ts';
+import type { CronFireMessage } from './cron-fires-queue.ts';
 import { processDeploymentBatch } from './deployment-execution.ts';
 import type { ApiEnv } from './env.ts';
 import { armFastMaintenance } from './fast-maintenance.ts';

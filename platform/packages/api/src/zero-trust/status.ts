@@ -6,12 +6,12 @@ import { projectZeroTrust } from '../schema.ts';
 import { resolveZeroTrustApplicationEnvironment } from './application.ts';
 import { publicAppManagementApplication, reusablePolicyReferences } from './cloudflare.ts';
 import {
-  type ZeroTrustConfiguration,
   ZeroTrustConfigurationError,
   readZeroTrustConfigurationStrict,
   redactedZeroTrustConfiguration,
   zeroTrustWildcardDestinations,
 } from './configuration.ts';
+import type { ZeroTrustConfiguration } from './configuration.ts';
 import { clientForConfiguration, projectZeroTrustState } from './state.ts';
 
 /**

@@ -1,5 +1,6 @@
 import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getPlatformCapabilities } from '../../capabilities.ts';
 import { deleteEmailDestination, getEmailDestinationsByProjectId, getProject } from '../../db.ts';
 import { emailMonthlyUsage, emailProjectControls } from '../../email/admission-schema.ts';
@@ -368,10 +369,7 @@ app.post('/:projectId/domains/:domain/revoke', async (context) => {
       const result = await removeEmailDomainForProject(context, project, domain, 'admin');
       if (!result.ok) {
         return {
-          response: await context.html(
-            '<h1>Email domain removal failed</h1>',
-            result.status as 400,
-          ),
+          response: context.html('<h1>Email domain removal failed</h1>', result.status as 400),
           succeeded: false,
         };
       }
@@ -394,10 +392,7 @@ app.post('/:projectId/domains/:domain/rotate-secret', async (context) => {
       const result = await rotateEmailIngressSecretForProject(context, project, domain, 'admin');
       if (!result.ok) {
         return {
-          response: await context.html(
-            '<h1>Email ingress rotation failed</h1>',
-            result.status as 400,
-          ),
+          response: context.html('<h1>Email ingress rotation failed</h1>', result.status as 400),
           succeeded: false,
         };
       }

@@ -1,4 +1,5 @@
-import { defineHandler, type InferProps } from 'void';
+import { defineHandler } from 'void';
+import type { InferProps } from 'void';
 import { revalidate as reval } from 'void/isr';
 import { kv } from 'void/kv';
 

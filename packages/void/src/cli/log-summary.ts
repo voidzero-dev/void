@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import pc from 'picocolors';
-import { type ErrChainNode, formatErrorNodeInline } from './log-file.ts';
+import { formatErrorNodeInline } from './log-file.ts';
+import type { ErrChainNode } from './log-file.ts';
 
 /** How many trailing records the tail block shows. */
 export const LOG_TAIL_LIMIT = 20;
@@ -55,7 +56,7 @@ type LogRecord = {
 };
 
 function redact(text: string): string {
-  return text.replace(SIGNED_QUERY_RE, '$1[redacted]').replace(BEARER_RE, '$1[redacted]');
+  return text.replaceAll(SIGNED_QUERY_RE, '$1[redacted]').replaceAll(BEARER_RE, '$1[redacted]');
 }
 
 function truncate(text: string, max: number): string {
@@ -64,7 +65,7 @@ function truncate(text: string, max: number): string {
 
 /** Collapse every run of whitespace so one record always renders as one line. */
 function oneLine(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+  return text.replaceAll(/\s+/g, ' ').trim();
 }
 
 function stringifyValue(value: unknown): string {
@@ -218,7 +219,7 @@ export function buildDeployLogSummary(path: string | null | undefined): string |
   }
   let text: string;
   try {
-    text = readFileSync(path, 'utf-8');
+    text = readFileSync(path, 'utf8');
   } catch {
     return null;
   }

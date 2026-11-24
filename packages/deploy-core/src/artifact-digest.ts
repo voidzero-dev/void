@@ -5,9 +5,11 @@ import { canonicalJson } from './canonical-json.ts';
 export async function deployArtifactDigest(artifact: DeployArtifact): Promise<string> {
   // Describe only the standard host capabilities we need, without introducing
   // DOM declarations into Node or Workers consumers of this shared package.
-  const host = globalThis as unknown as {
-    crypto: { subtle: { digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer> } };
-    TextEncoder: new () => { encode(value: string): Uint8Array };
+  const host = globalThis as typeof globalThis & {
+    crypto: {
+      subtle: { digest(algorithm: string, data: Uint8Array<ArrayBuffer>): Promise<ArrayBuffer> };
+    };
+    TextEncoder: new () => { encode(value: string): Uint8Array<ArrayBuffer> };
   };
   const data = canonicalJson({
     manifest: artifact.manifest,

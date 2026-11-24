@@ -25,7 +25,9 @@ async function callWithRetry(
   let lastErr: unknown;
   for (const delay of delaysMs) {
     if (delay > 0) {
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await new Promise((resolve) => {
+        setTimeout(resolve, delay);
+      });
     }
     try {
       const response = await fn();

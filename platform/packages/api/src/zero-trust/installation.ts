@@ -2,8 +2,8 @@ import {
   PLATFORM_APPLICATION_KEY,
   readPlatformApplication,
   platformHealthHostname,
-  type PlatformApplication,
 } from '@void/platform';
+import type { PlatformApplication } from '@void/platform';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
@@ -16,8 +16,6 @@ import {
 import { ZeroTrustCloudflareClient, publicAppManagementDestination } from './cloudflare.ts';
 import {
   ZERO_TRUST_CREDENTIAL_ID,
-  type ZeroTrustConfiguration,
-  type ZeroTrustConfigureInput,
   parseZeroTrustApplicationTarget,
   zeroTrustConfigurationStatus,
   readZeroTrustConfigurationStrict,
@@ -25,6 +23,7 @@ import {
   writeZeroTrustConfiguration,
   zeroTrustWildcardDestinations,
 } from './configuration.ts';
+import type { ZeroTrustConfiguration, ZeroTrustConfigureInput } from './configuration.ts';
 import { ZeroTrustUnavailableError } from './errors.ts';
 import { lockZeroTrustConfiguration } from './lock.ts';
 import {
@@ -114,7 +113,7 @@ function wildcardDestinationMatches(pattern: string, hostname: string): boolean 
   const expression = pattern
     .toLowerCase()
     .split('*')
-    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+    .map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`))
     .join('.+');
   return new RegExp(`^${expression}$`).test(hostname);
 }
@@ -196,6 +195,9 @@ export function assertExistingProjectsChoice(
   }
 }
 
+const sameIds = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
+  left.length === right.length && left.every((id) => right.includes(id));
+
 export async function configurePlatformZeroTrust(
   env: ApiEnv['Bindings'],
   db: Db,
@@ -258,8 +260,6 @@ export async function configurePlatformZeroTrust(
     }
     assertExistingProjectsChoice(current, input);
     if (current?.operation) {
-      const sameIds = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
-        left.length === right.length && left.every((id) => right.includes(id));
       if (
         current.accountId !== accountId ||
         !!current.publicAccess !== !!input.publicAccess ||

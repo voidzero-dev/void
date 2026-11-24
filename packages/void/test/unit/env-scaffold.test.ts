@@ -89,7 +89,7 @@ describe('maybeScaffoldEnvTs', () => {
     const result = maybeScaffoldEnvTs(root);
     expect(result.written).toBeNull();
     expect(result.skipReason).toBe('env-ts-exists');
-    expect(readFileSync(join(root, 'env.ts'), 'utf-8')).toBe('// existing');
+    expect(readFileSync(join(root, 'env.ts'), 'utf8')).toBe('// existing');
   });
 
   it('is a no-op when no dotenv files are present', () => {
@@ -125,7 +125,7 @@ describe('maybeScaffoldEnvTs', () => {
     );
     const result = maybeScaffoldEnvTs(root);
     expect(result.written).toBe(toSlash(join(root, 'env.ts')));
-    const body = readFileSync(join(root, 'env.ts'), 'utf-8');
+    const body = readFileSync(join(root, 'env.ts'), 'utf8');
     expect(body).toContain('STRIPE_KEY: string(),');
     expect(body).toContain('PORT: number(),');
     expect(body).toContain('DEBUG: boolean(),');

@@ -23,7 +23,7 @@ import { runFrameworkDeploy } from './deploy-managed-framework.ts';
 import { runFullDeploy } from './deploy-managed-full.ts';
 import { runStaticDeploy } from './deploy-managed-static.ts';
 import { printDeployContext } from './deploy-summary.ts';
-import { type RunDeployOptions, type RunDeployTargetAdapter } from './deploy-types.ts';
+import type { RunDeployOptions, RunDeployTargetAdapter } from './deploy-types.ts';
 import { collectGitDeployMetadata } from './git-metadata.ts';
 import {
   exchangeGithubOidcForDeployToken,
@@ -31,18 +31,15 @@ import {
   maskGithubActionsSecret,
 } from './github-oidc.ts';
 import { assertInstalledVoidMatchesCli } from './installed-void.ts';
-import { openDeployLog, type CliLogger } from './log-file.ts';
+import { openDeployLog } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { buildDeployLogSummary } from './log-summary.ts';
 import { promptForLoginToken } from './login.ts';
 import { migrateLegacyVoidConfig } from './migrate.ts';
 import { listPlatformConnections } from './platform-registry.ts';
 import { detectPreset, FRAMEWORK_PRESETS } from './preset.ts';
-import {
-  readDeploymentPlatform,
-  readProjectConfig,
-  type DeploymentPlatform,
-  type ProjectConfig,
-} from './project.ts';
+import { readDeploymentPlatform, readProjectConfig } from './project.ts';
+import type { DeploymentPlatform, ProjectConfig } from './project.ts';
 import { getRequestedProjectSlug } from './resolve-project.ts';
 import type { DeployTarget } from './types.ts';
 
@@ -417,11 +414,13 @@ async function runManagedDeploy(
     } catch (error) {
       if (isExpiredTokenError(error)) {
         if (getTokenSource() === 'ci') {
+          // oxlint-disable-next-line preserve-caught-error -- Credential errors are translated without including provider details.
           throw new Error(
             '`VOID_TOKEN` is invalid or expired. Generate a new token and try again.',
           );
         }
         if (!process.stdin.isTTY || reauthenticated) {
+          // oxlint-disable-next-line preserve-caught-error -- Credential errors are translated without including provider details.
           throw new Error('Auth token expired. Run `void account login` and try again.');
         }
         log.warn('Auth token expired. Re-authenticating...');

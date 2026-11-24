@@ -11,8 +11,8 @@ import React, {
   useState,
   useSyncExternalStore,
   useTransition,
-  type ComponentType,
 } from 'react';
+import type { ComponentType } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import {
   createRouterFacade,
@@ -23,13 +23,15 @@ import {
   refreshPage,
   pageBoundarySlots,
   showTerminalPageError,
-  type BoundaryManifest,
   toUrlString,
-  type PageNavigationResource,
-  type PageNavigationResult,
-  type NavigationState,
-  type VisitOptions,
-  type VoidRouter,
+} from 'void/pages-client';
+import type {
+  BoundaryManifest,
+  PageNavigationResource,
+  PageNavigationResult,
+  NavigationState,
+  VisitOptions,
+  VoidRouter,
 } from 'void/pages-client';
 import type { CacheForResult, LinkPrefetchValue } from 'void/pages-prefetch';
 import type { PageObject } from 'void/pages-protocol';
@@ -333,9 +335,9 @@ function RouteResource({
   onFailure,
 }: {
   resource: ReactPageResource;
-  onCommit(resource: ReactPageResource, result: PageNavigationResult): void;
+  onCommit: (resource: ReactPageResource, result: PageNavigationResult) => void;
   config: ReactPagesConfig;
-  onFailure(url: string): void;
+  onFailure: (url: string) => void;
 }): React.ReactNode {
   const result = use(resource.shell);
   const outerRouter = React.useContext(RouterContext);
@@ -508,7 +510,7 @@ function App({
     const listeners = new Set<() => void>();
     return {
       getSnapshot: () => snapshot,
-      subscribe(listener: () => void) {
+      subscribe: (listener: () => void) => {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
@@ -560,7 +562,7 @@ function App({
           }
           dispatch({ type: 'finish', resource, location: currentUrl() });
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           // The history write failed, so the address bar still shows the committed page.
           // End this visit and show that page again; a newer visit keeps its own state.
           const resolveViewTransition = viewTransitionWaiters.get(resource.id);
@@ -605,7 +607,7 @@ function App({
             dispatch({ type: 'finish', resource: prepared, location: currentUrl() });
             return result?.pageData;
           },
-          (error) => {
+          (error: unknown) => {
             if (activePendingNavigationId === prepared.id) {
               activePendingNavigationId = null;
             }
@@ -648,7 +650,7 @@ function App({
             }
             return result;
           },
-          (error) => {
+          (error: unknown) => {
             const resolveViewTransition = viewTransitionWaiters.get(prepared.id);
             if (resolveViewTransition) {
               viewTransitionWaiters.delete(prepared.id);
@@ -799,6 +801,22 @@ function App({
   );
 }
 
+const onRecoverableError = (error: unknown) => {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'digest' in error &&
+    error.digest === DEFERRED_SHELL_DIGEST
+  ) {
+    return;
+  }
+  if (typeof globalThis.reportError === 'function') {
+    globalThis.reportError(error);
+  } else {
+    console.error(error);
+  }
+};
+
 export async function startReactPages(config: ReactPagesConfig): Promise<ReactPagesClient> {
   terminalResource = null;
   viewTransitionWaiters.clear();
@@ -827,7 +845,7 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     cacheVisitedPageData: config.cacheVisitedPageData,
     boundaryManifest: config.boundaryManifest,
     dev: config.dev,
-  }).catch((error) => {
+  }).catch((error: unknown) => {
     if (config.boundaryManifest && Object.keys(config.boundaryManifest.plans).length) {
       showTerminalPageError();
     }
@@ -853,21 +871,6 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     navigationFallback: config.navigationFallback,
   });
   startTransition(() => {
-    const onRecoverableError = (error: unknown) => {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'digest' in error &&
-        error.digest === DEFERRED_SHELL_DIGEST
-      ) {
-        return;
-      }
-      if (typeof globalThis.reportError === 'function') {
-        globalThis.reportError(error);
-      } else {
-        console.error(error);
-      }
-    };
     const rootOptions =
       config.boundaryManifest && Object.keys(config.boundaryManifest.plans).length
         ? {

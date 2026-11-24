@@ -5,11 +5,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
-import {
-  applyPgMigrations,
-  readPgAppliedMigrations,
-  type PgClient,
-} from '../../src/migrations/runner-pg.ts';
+import { applyPgMigrations, readPgAppliedMigrations } from '../../src/migrations/runner-pg.ts';
+import type { PgClient } from '../../src/migrations/runner-pg.ts';
 
 let pglite: PGlite;
 let client: PgClient;

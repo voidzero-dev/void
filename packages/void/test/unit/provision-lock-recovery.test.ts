@@ -13,11 +13,11 @@ import {
   passthruFs,
   reap,
   spawnHang,
-  useProvisionTestDir,
+  setupProvisionTestDir,
   waitForDead,
 } from './provision-fixtures.ts';
 
-const { tmpDir, wranglerPath, setup } = useProvisionTestDir('lock-recovery');
+const { tmpDir, wranglerPath, setup } = setupProvisionTestDir('lock-recovery');
 
 describe('acquireProvisionLock — quarantine sidecar gate', () => {
   const sidecar = `${wranglerPath}.void-provision.lock.quarantine.json`;
@@ -31,7 +31,7 @@ describe('acquireProvisionLock — quarantine sidecar gate', () => {
       const lock = await acquireProvisionLock(wranglerPath);
       lock.quarantine({ pid: child.pid, reason: 'test quarantine (child unconfirmed)' });
       // The sidecar is written atomically, with no temp-file leftovers.
-      const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
+      const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
       expect(recorded).toMatchObject({
         pid: child.pid,
         // Windows has no process groups, so `writeQuarantineSidecar` records `null` there by
@@ -45,9 +45,7 @@ describe('acquireProvisionLock — quarantine sidecar gate', () => {
       // Age the retained mutex far past any stale window.
       const old = new Date(Date.now() - 3_600_000);
       utimesSync(lockMutex, old, old);
-      await expect(
-        acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0 }),
-      ).rejects.toThrow(
+      await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
         new RegExp(`QUARANTINED.*process group ${child.pid}.*test quarantine`, 's'),
       );
       // The gate did NOT clear the quarantine (the group still lives).
@@ -70,7 +68,7 @@ describe('acquireProvisionLock — quarantine sidecar gate', () => {
     // removes it by hand.
     const old = new Date(Date.now() - 3_600_000);
     utimesSync(lockMutex, old, old);
-    const second = await acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 5 });
+    const second = await acquireProvisionLock(wranglerPath, { stale: 2000, retries: 5 });
     expect(existsSync(sidecar)).toBe(false);
     await second.release();
     expect(existsSync(lockMutex)).toBe(false);
@@ -79,7 +77,7 @@ describe('acquireProvisionLock — quarantine sidecar gate', () => {
   it('an unreadable/malformed sidecar FAILS CLOSED (cannot verify the recorded owner)', async () => {
     setup(JSON.stringify({ name: 'app' }));
     writeFileSync(sidecar, '{ not json');
-    await expect(acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0 })).rejects.toThrow(
+    await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
       /QUARANTINED.*an unrecorded process/s,
     );
     expect(existsSync(sidecar)).toBe(true);
@@ -94,15 +92,17 @@ describe('acquireProvisionLock — the gate runs on EVERY attempt + post-acquire
     // A gate run only before proper-lockfile's retry loop would let this waiter
     // stale-take the quarantined mutex without seeing the sidecar.
     setup(JSON.stringify({ name: 'app' }));
-    const holder = await acquireProvisionLock(wranglerPath, { stale: 2_000 });
+    const holder = await acquireProvisionLock(wranglerPath, { stale: 2000 });
     const child = spawnHang();
     try {
       const waiter = acquireProvisionLock(wranglerPath, {
-        stale: 2_000,
+        stale: 2000,
         retries: { retries: 60, factor: 1, minTimeout: 150, maxTimeout: 150 },
       });
       // Let the waiter run a few healthy attempts first, THEN quarantine the holder.
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => {
+        setTimeout(r, 400);
+      });
       holder.quarantine({ pid: child.pid, reason: 'waiter crosses quarantine' });
       await expect(waiter).rejects.toThrow(/QUARANTINED.*waiter crosses quarantine/s);
       expect(existsSync(sidecar)).toBe(true);
@@ -110,23 +110,25 @@ describe('acquireProvisionLock — the gate runs on EVERY attempt + post-acquire
     } finally {
       reap(child);
     }
-    expect(await waitForDead(child.pid!, 5_000)).toBe(true);
+    expect(await waitForDead(child.pid!, 5000)).toBe(true);
     rmSync(lockMutex, { recursive: true, force: true });
     rmSync(sidecar, { force: true });
   }, 15_000);
 
   it('the same waiter PROCEEDS (sidecar cleared) once the recorded group is dead', async () => {
     setup(JSON.stringify({ name: 'app' }));
-    const holder = await acquireProvisionLock(wranglerPath, { stale: 2_000 });
+    const holder = await acquireProvisionLock(wranglerPath, { stale: 2000 });
     const child = spawnHang();
     const waiter = acquireProvisionLock(wranglerPath, {
-      stale: 2_000,
+      stale: 2000,
       retries: { retries: 80, factor: 1, minTimeout: 150, maxTimeout: 150 },
     });
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => {
+      setTimeout(r, 300);
+    });
     // Kill the group before quarantining, so the waiter's next gate always probes it dead.
     reap(child);
-    expect(await waitForDead(child.pid!, 5_000)).toBe(true);
+    expect(await waitForDead(child.pid!, 5000)).toBe(true);
     holder.quarantine({ pid: child.pid, reason: 'waiter proceeds once dead' });
     const lock = await waiter;
     expect(existsSync(sidecar)).toBe(false);
@@ -154,7 +156,7 @@ describe('acquireProvisionLock — the gate runs on EVERY attempt + post-acquire
         },
       };
       await expect(
-        acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0, fs: seamFs }),
+        acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0, fs: seamFs }),
       ).rejects.toThrow(/QUARANTINED.*appeared mid-acquisition/s);
       // The fresh mutex was released and the sidecar remains for the next gate.
       expect(existsSync(lockMutex)).toBe(false);
@@ -162,7 +164,7 @@ describe('acquireProvisionLock — the gate runs on EVERY attempt + post-acquire
     } finally {
       reap(child);
     }
-    expect(await waitForDead(child.pid!, 5_000)).toBe(true);
+    expect(await waitForDead(child.pid!, 5000)).toBe(true);
     rmSync(sidecar, { force: true });
   });
 });
@@ -172,7 +174,7 @@ describe('acquireProvisionLock — proper-lockfile registry key spelling', () =>
     const lockTarget = 'D:/a/void/void/wrangler.jsonc.void-provision.lock';
 
     expect(resolveProperLockfileKey(lockTarget, 'win32')).toBe(
-      'D:\\a\\void\\void\\wrangler.jsonc.void-provision.lock',
+      String.raw`D:\a\void\void\wrangler.jsonc.void-provision.lock`,
     );
     expect(resolveProperLockfileKey('/tmp/void/wrangler.jsonc.void-provision.lock', 'linux')).toBe(
       '/tmp/void/wrangler.jsonc.void-provision.lock',
@@ -189,7 +191,7 @@ describe('acquireProvisionLock — recovery decisions are serialized + generatio
     const child = spawnHang();
     const pid = child.pid!;
     reap(child);
-    expect(await waitForDead(pid, 5_000)).toBe(true);
+    expect(await waitForDead(pid, 5000)).toBe(true);
     return pid;
   }
 
@@ -204,7 +206,7 @@ describe('acquireProvisionLock — recovery decisions are serialized + generatio
     );
     const properLockfile = (await import('proper-lockfile')).default;
     const releaseRecovery = await properLockfile.lock(recoveryTarget, {
-      stale: 6_000,
+      stale: 6000,
       realpath: false,
     });
     try {
@@ -257,25 +259,25 @@ describe('acquireProvisionLock — recovery decisions are serialized + generatio
       };
       await expect(
         acquireProvisionLock(wranglerPath, {
-          stale: 2_000,
+          stale: 2000,
           retries: 0,
           onBeforeQuarantineClear: swapInNewerGeneration,
         }),
       ).rejects.toThrow(/changed while this recovery decision was being made/);
       // S1 survives the stale decision.
-      const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
+      const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
       expect(recorded.generation).toBe('gen-second');
       expect(recorded.pid).toBe(live.pid);
       // The next acquisition gates on S1's live group instead of reclaiming A's mutex.
       expect(existsSync(lockMutex)).toBe(true);
-      await expect(
-        acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0 }),
-      ).rejects.toThrow(/QUARANTINED/);
+      await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
+        /QUARANTINED/,
+      );
       expect(existsSync(lockMutex)).toBe(true);
     } finally {
       reap(live);
     }
-    expect(await waitForDead(live.pid!, 5_000)).toBe(true);
+    expect(await waitForDead(live.pid!, 5000)).toBe(true);
     rmSync(lockMutex, { recursive: true, force: true });
     rmSync(sidecar, { force: true });
   });

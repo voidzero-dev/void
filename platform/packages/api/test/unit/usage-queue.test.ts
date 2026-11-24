@@ -25,8 +25,8 @@ import {
   signUsageEvent,
   SANDBOX_USAGE_RETENTION_MS,
   USAGE_SIGNING_KEY_KV_KEY,
-  type UsageEventSource,
 } from '../../src/usage-auth.ts';
+import type { UsageEventSource } from '../../src/usage-auth.ts';
 import type { UsageEvent } from '../../src/usage-counter.ts';
 import { groupEventsByUser, processUsageEventBatch } from '../../src/usage-queue.ts';
 

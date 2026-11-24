@@ -11,8 +11,10 @@ import {
   afterEach,
   vi,
 } from 'vite-plus/test';
-import { deleteRollbackLease, type Db } from '../../src/db.ts';
+import { deleteRollbackLease } from '../../src/db.ts';
+import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
 import {
   deployments,
@@ -33,8 +35,8 @@ import {
   mockCfApi,
   cfSuccess,
   cfError,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
 
 let env: TestEnv;
@@ -328,13 +330,14 @@ async function insertHyperdriveResource(db: TestEnv['db'], projectId: string): P
 }
 
 function authedReq(path: string, jwt: string, init?: RequestInit): Request {
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${jwt}`);
+  if (init?.body) {
+    headers.set('Content-Type', 'application/json');
+  }
   return new Request(`http://localhost${path}`, {
     ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      Authorization: `Bearer ${jwt}`,
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-    },
+    headers,
   });
 }
 
@@ -354,7 +357,7 @@ function buildTestExecutionPlan(input: {
     dialect: 'sqlite',
     kind: input.kind,
     name: input.name,
-    sqlHash: sha256Hex(input.sql.replace(/\r\n?/g, '\n')),
+    sqlHash: sha256Hex(input.sql.replaceAll(/\r\n?/g, '\n')),
     stability: input.stability,
   };
   if (input.kind === 'breakpoint-framed') {
@@ -4073,7 +4076,9 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     // Give /apply a tick to enter its transaction and hit the hold.
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => {
+      setTimeout(r, 20);
+    });
     const renamePromise = app.fetch(
       authedReq(`/projects/${project.id}/migrations/rename`, user.jwt, {
         method: 'POST',
@@ -4083,7 +4088,9 @@ describe('POST /projects/:id/migrations/rename', () => {
     );
     // Give /rename a tick to issue its transaction call so it is queued
     // behind /apply's lock, then release.
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => {
+      setTimeout(r, 20);
+    });
     release();
 
     const [applyRes, renameRes] = await Promise.all([applyPromise, renamePromise]);
@@ -4390,7 +4397,9 @@ describe('POST /projects/:id/migrations/rename', () => {
     );
     // Give rollback a small head start so it reaches its locked
     // critical section before /apply tries to enter its own lock.
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => {
+      setTimeout(r, 20);
+    });
     const applyPromise = app.fetch(
       authedReq(`/projects/${project.id}/migrations/apply`, user.jwt, {
         method: 'POST',

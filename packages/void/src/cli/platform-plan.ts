@@ -12,11 +12,13 @@ import {
   parsePlatformResourceOwnershipMarker,
   PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY,
   PLATFORM_R2_OWNERSHIP_MARKER_KEY,
-  type InstallationResource,
-  type InstallationResourceKind,
-  type PlatformAppAccess,
-  type PlatformDeploymentManifest,
-  type PlatformInstallationManifest,
+} from '@void/platform';
+import type {
+  InstallationResource,
+  InstallationResourceKind,
+  PlatformAppAccess,
+  PlatformDeploymentManifest,
+  PlatformInstallationManifest,
 } from '@void/platform';
 import { pc } from './output.ts';
 import {
@@ -36,8 +38,8 @@ import type {
 import {
   cloudflarePermissionForPath,
   formatPlatformCredentialDenials,
-  type PlatformCredentialLabel,
 } from './platform-credential-label.ts';
+import type { PlatformCredentialLabel } from './platform-credential-label.ts';
 import type { PlatformStorageLocation } from './platform-storage.ts';
 
 export type PlatformInstallPlanAction = Readonly<{
@@ -411,7 +413,7 @@ export async function createPlatformInstallPlan(
     }
   }
   let needsAiGatewayCredential = false;
-  const gatewayInventory = client.listAiGateways(account.id).catch((error) => {
+  const gatewayInventory = client.listAiGateways(account.id).catch((error: unknown) => {
     if (
       options?.allowUnverifiedAiGateway &&
       error instanceof PlatformCloudflareApiError &&

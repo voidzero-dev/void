@@ -77,7 +77,7 @@ describe('ProxyClient', () => {
       [403, JSON.stringify({ error: 'Access denied' }), 'Check the selected platform and project'],
     ])('gives safe recovery guidance for status %s and body %s', async (status, body, guidance) => {
       setFetchMock(() => new Response(body, { status }));
-      const error = await request().catch((error: Error) => error);
+      const error = await request().catch((error: unknown) => error);
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toContain(guidance);
       expect((error as Error).message).not.toMatch(/private|<html>|\{"/);
@@ -158,7 +158,7 @@ describe('ProxyClient', () => {
             { status: 502 },
           ),
       );
-      const error = await request().catch((error: Error) => error);
+      const error = await request().catch((error: unknown) => error);
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message.length).toBeLessThan(600);
       expect(cancel).toHaveBeenCalledTimes(1);

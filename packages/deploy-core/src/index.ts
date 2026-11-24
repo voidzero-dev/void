@@ -176,7 +176,12 @@ export function appendSqliteClassMigration(
     return { migrations, added: false };
   }
 
-  const tags = new Set(migrations.map((migration) => migration.tag).filter(Boolean));
+  const tags = new Set(
+    migrations.flatMap((migration) => {
+      const value = migration.tag;
+      return value ? [value] : [];
+    }),
+  );
   let tag = baseTag;
   for (let suffix = 2; tags.has(tag); suffix++) {
     tag = `${baseTag}-${suffix}`;

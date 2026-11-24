@@ -10,11 +10,8 @@ import {
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
-import {
-  acquireProvisionLock,
-  WranglerQuarantineError,
-  type RunWrangler,
-} from '../../src/cli/provision.ts';
+import { acquireProvisionLock, WranglerQuarantineError } from '../../src/cli/provision.ts';
+import type { RunWrangler } from '../../src/cli/provision.ts';
 import {
   emptyDesired,
   makeRunner,
@@ -24,11 +21,11 @@ import {
   reap,
   silentLog,
   spawnHang,
-  useProvisionTestDir,
+  setupProvisionTestDir,
   waitForDead,
 } from './provision-fixtures.ts';
 
-const { tmpDir, wranglerPath, setup } = useProvisionTestDir('lock-durability');
+const { tmpDir, wranglerPath, setup } = setupProvisionTestDir('lock-durability');
 
 describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarantine', () => {
   const sidecar = `${wranglerPath}.void-provision.lock.quarantine.json`;
@@ -66,7 +63,9 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
         if (Date.now() >= deadline) {
           throw new Error('retention watchdog did not resolve within the drain window');
         }
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => {
+          setTimeout(r, 50);
+        });
       }
     } finally {
       rmSync(probeDir, { recursive: true, force: true });
@@ -79,7 +78,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
 
   it('a sidecar-write failure keeps the lock TRACKED (heartbeat running, NOT stealable) and throws a hard error', async () => {
     setup(JSON.stringify({ name: 'app' }));
-    const lock = await acquireProvisionLock(wranglerPath, { stale: 2_000 });
+    const lock = await acquireProvisionLock(wranglerPath, { stale: 2000 });
     try {
       mkdirSync(tmpBlocker);
       expect(() => lock.quarantine({ pid: 99_999, reason: 'sidecar blocked' })).toThrow(
@@ -88,10 +87,12 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       expect(existsSync(sidecar)).toBe(false);
       // The lock stays tracked, so its heartbeat keeps it fresh past proper-lockfile's
       // 2000ms stale floor.
-      await new Promise((r) => setTimeout(r, 2_300));
-      await expect(
-        acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0 }),
-      ).rejects.toThrow(/already being held/);
+      await new Promise((r) => {
+        setTimeout(r, 2300);
+      });
+      await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
+        /already being held/,
+      );
     } finally {
       rmSync(tmpBlocker, { recursive: true, force: true });
       // Still tracked → release works normally and frees the mutex.
@@ -119,7 +120,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
           runWrangler: run,
           log: silentLog,
           lockOptions: {
-            stale: 2_000,
+            stale: 2000,
             // Every persistence attempt fails, so only the death probe can resolve it.
             dirDurability: {
               fsyncSync: () => {
@@ -144,7 +145,9 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
     // generous because its tick is a real timer.
     const deadline = Date.now() + 15_000;
     while (existsSync(lockMutex) && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => {
+        setTimeout(r, 50);
+      });
     }
     expect(existsSync(lockMutex)).toBe(false);
     expect(existsSync(sidecar)).toBe(false);
@@ -175,7 +178,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
             runWrangler: run,
             log: silentLog,
             lockOptions: {
-              stale: 2_000,
+              stale: 2000,
               dirDurability: {
                 fsyncSync: () => {
                   if (failPersistence) {
@@ -197,19 +200,21 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       failPersistence = false;
       const deadline = Date.now() + 15_000;
       while (!existsSync(sidecar) && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => {
+          setTimeout(r, 50);
+        });
       }
       expect(existsSync(sidecar)).toBe(true);
-      const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
+      const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
       expect(recorded.pid).toBe(live.pid);
       expect(existsSync(lockMutex)).toBe(true); // retained, now safely detached
       // The retained mutex is guarded by the sidecar: an acquirer fails closed on the
       // live recorded group even with the mutex aged stale.
       const old = new Date(Date.now() - 3_600_000);
       utimesSync(lockMutex, old, old);
-      await expect(
-        acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0 }),
-      ).rejects.toThrow(/QUARANTINED/);
+      await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
+        /QUARANTINED/,
+      );
     } finally {
       reap(live);
       rmSync(lockMutex, { recursive: true, force: true });
@@ -263,7 +268,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stderr = '';
-    parent.stderr.setEncoding('utf-8');
+    parent.stderr.setEncoding('utf8');
     parent.stderr.on('data', (chunk: string) => {
       stderr += chunk;
     });
@@ -275,9 +280,9 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       clearTimeout(killTimer);
       expect(signal).toBeNull();
       expect(code).toBe(0);
-      expect(readFileSync(join(appRoot, 'outcome.txt'), 'utf-8')).toContain('REJECTED:');
+      expect(readFileSync(join(appRoot, 'outcome.txt'), 'utf8')).toContain('REJECTED:');
       // The watchdog held the process open past the child's 700ms lifetime.
-      const exitState = JSON.parse(readFileSync(join(appRoot, 'exit.txt'), 'utf-8')) as {
+      const exitState = JSON.parse(readFileSync(join(appRoot, 'exit.txt'), 'utf8')) as {
         elapsed: number;
         childAlive: boolean;
       };
@@ -308,7 +313,7 @@ describe('acquireProvisionLock — sidecar DIRECTORY durability failures propaga
     // platform-unsupported codes may be ignored.
     setup(JSON.stringify({ name: 'app' }));
     const lock = await acquireProvisionLock(wranglerPath, {
-      stale: 2_000,
+      stale: 2000,
       dirDurability: {
         fsyncSync: () => {
           throw Object.assign(new Error('ENOSPC: no space left on device, fsync'), {
@@ -324,10 +329,12 @@ describe('acquireProvisionLock — sidecar DIRECTORY durability failures propaga
       // The non-durable sidecar was rolled back.
       expect(existsSync(sidecar)).toBe(false);
       // The lock stays tracked, so its heartbeat keeps it fresh past the 2000ms stale floor.
-      await new Promise((r) => setTimeout(r, 2_300));
-      await expect(
-        acquireProvisionLock(wranglerPath, { stale: 2_000, retries: 0 }),
-      ).rejects.toThrow(/already being held/);
+      await new Promise((r) => {
+        setTimeout(r, 2300);
+      });
+      await expect(acquireProvisionLock(wranglerPath, { stale: 2000, retries: 0 })).rejects.toThrow(
+        /already being held/,
+      );
     } finally {
       // Still tracked → release works normally and frees the mutex.
       await lock.release();
@@ -338,7 +345,7 @@ describe('acquireProvisionLock — sidecar DIRECTORY durability failures propaga
   it('a platform-unsupported code (EINVAL) is ignored — the quarantine still detaches behind the verified sidecar', async () => {
     setup(JSON.stringify({ name: 'app' }));
     const lock = await acquireProvisionLock(wranglerPath, {
-      stale: 2_000,
+      stale: 2000,
       dirDurability: {
         fsyncSync: () => {
           throw Object.assign(new Error('EINVAL: invalid argument, fsync'), { code: 'EINVAL' });

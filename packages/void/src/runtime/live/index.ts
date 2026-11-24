@@ -1,4 +1,5 @@
-import { getUser, type AuthUser } from '../auth/index.ts';
+import { getUser } from '../auth/index.ts';
+import type { AuthUser } from '../auth/index.ts';
 import { getRawRuntimeEnv } from '../env/raw.ts';
 import type { CloudContext, CloudEnv } from '../handler/index.ts';
 import { connectionInstanceName, internalUrl, topicDigest, topicInstanceName } from './names.ts';
@@ -157,7 +158,7 @@ const DEFAULT_LIMITS: LiveLimits = {
   maxOperationsPerControlRequest: 100,
   maxQueuedEventsPerConnection: 100,
   maxEncodedEventSize: 64 * 1024,
-  deliveryAttemptTimeoutMs: 1_500,
+  deliveryAttemptTimeoutMs: 1500,
 };
 const MAX_SUBSCRIPTIONS_PER_TOPIC = 256;
 
@@ -199,7 +200,7 @@ export function defineLiveStream(options: LiveStreamOptions): LiveStream {
         ? connectOptions.owner
         : await options.identifyConnection?.(hookContext);
     const owner = identified ?? defaultOwner(resolvedUser);
-    if (owner == null && !options.allowAnonymousControl) {
+    if ((owner === null || owner === undefined) && !options.allowAnonymousControl) {
       throw liveResponseError('FORBIDDEN', 'live: anonymous control is not enabled.', 403);
     }
     assertOwner(owner);
@@ -259,7 +260,7 @@ export function defineLiveStream(options: LiveStreamOptions): LiveStream {
         }
         const binding = getLiveBinding(ctx.env);
         const id = binding.idFromName(connectionInstanceName(streamId, connectionId));
-        return binding.get(id).fetch(internalUrl('/connect'), {
+        return await binding.get(id).fetch(internalUrl('/connect'), {
           method: 'POST',
           body: JSON.stringify({ streamId, connectionId, owner, limits }),
         });
@@ -434,11 +435,11 @@ function parseOperation(value: unknown, index: number): ParsedControlOperation {
   const record = value as Record<string, unknown>;
   if (record.kind === 'subscribe') {
     const id = parseBoundedString(record.id, 1, 256);
-    if (id == null) {
+    if (id === null || id === undefined) {
       return invalidOperation(index, 'subscribe', record.id, 'INVALID_SUBSCRIPTION_ID');
     }
     const topic = parseBoundedString(record.topic, 1, 512);
-    if (topic == null) {
+    if (topic === null || topic === undefined) {
       return invalidOperation(index, 'subscribe', id, 'INVALID_TOPIC');
     }
     let lastEventId: string | undefined;
@@ -461,7 +462,7 @@ function parseOperation(value: unknown, index: number): ParsedControlOperation {
   }
   if (record.kind === 'unsubscribe') {
     const id = parseBoundedString(record.id, 1, 256);
-    if (id == null) {
+    if (id === null || id === undefined) {
       return invalidOperation(index, 'unsubscribe', record.id, 'INVALID_SUBSCRIPTION_ID');
     }
     return { ok: true, index, operation: { kind: 'unsubscribe', id } };
@@ -563,7 +564,7 @@ function resolveLiveLimits(input: Partial<LiveLimits> | undefined): LiveLimits {
 
 function assertBoundedString(name: string, value: unknown, min: number, max: number): string {
   const parsed = parseBoundedString(value, min, max);
-  if (parsed == null) {
+  if (parsed === null || parsed === undefined) {
     throw liveResponseError('BAD_REQUEST', `live: invalid ${name}.`, 400);
   }
   return parsed;
@@ -591,6 +592,7 @@ function assertJsonSerializable(value: unknown): void {
   } catch (error) {
     throw new Error(
       `live: payload must be JSON-serializable. ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }

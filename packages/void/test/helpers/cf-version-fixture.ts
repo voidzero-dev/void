@@ -45,7 +45,9 @@ afterAll(async () => {
 
 /** Serve a fake Cloudflare API until the test ends and return its base URL. */
 async function listen(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   cleanups.push(
     () =>
       new Promise<void>((resolve) => {

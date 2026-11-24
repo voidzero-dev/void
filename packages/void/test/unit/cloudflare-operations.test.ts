@@ -22,8 +22,10 @@ import {
   restoreCloudflareD1Database,
   syncCloudflareSecrets,
   tailCloudflareWorker,
-  type CloudflareOperationContext,
-  type CloudflareOperationRunner,
+} from '../../src/cli/cloudflare-operations.ts';
+import type {
+  CloudflareOperationContext,
+  CloudflareOperationRunner,
 } from '../../src/cli/cloudflare-operations.ts';
 import {
   readWranglerCustomDomains,
@@ -705,8 +707,8 @@ describe('Cloudflare custom domains', () => {
 }\n`);
     const added = updateWranglerCustomDomain(root, 'app.example.com', 'add');
     expect(added.domains.map((domain) => domain.pattern)).toEqual(['app.example.com']);
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toContain('// Keep this route.');
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toContain('api.example.com/*');
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toContain('// Keep this route.');
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toContain('api.example.com/*');
     const removed = updateWranglerCustomDomain(root, 'app.example.com', 'delete');
     expect(removed.domains).toEqual([]);
     expect(readWranglerCustomDomains(root).domains).toEqual([]);
@@ -741,7 +743,7 @@ describe('Cloudflare custom domains', () => {
 }\n`);
     let deployedConfig: Record<string, unknown> | undefined;
     const runner = vi.fn<CloudflareOperationRunner>((args) => {
-      deployedConfig = JSON.parse(readFileSync(args.configPath!, 'utf-8')) as Record<
+      deployedConfig = JSON.parse(readFileSync(args.configPath!, 'utf8')) as Record<
         string,
         unknown
       >;
@@ -768,7 +770,7 @@ describe('Cloudflare custom domains', () => {
     const root = project(
       '{"name":"my-worker","account_id":"account-1","routes":[{"pattern":"existing.example.com","custom_domain":true}]}',
     );
-    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
     const runner = vi
       .fn<CloudflareOperationRunner>()
       .mockReturnValueOnce({ status: 1, stdout: '', stderr: 'not accepted' })
@@ -776,7 +778,7 @@ describe('Cloudflare custom domains', () => {
     await expect(changeCloudflareDomain(root, 'app.example.com', 'add', runner)).rejects.toThrow(
       'local config and remote triggers were restored',
     );
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(before);
     expect(runner).toHaveBeenCalledTimes(2);
   });
 
@@ -784,7 +786,7 @@ describe('Cloudflare custom domains', () => {
     const root = project(
       '{"name":"my-worker","account_id":"account-1","routes":[{"pattern":"existing.example.com","custom_domain":true}]}',
     );
-    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
     const runner = vi.fn<CloudflareOperationRunner>().mockReturnValue({
       status: 1,
       stdout: '',
@@ -794,7 +796,7 @@ describe('Cloudflare custom domains', () => {
     await expect(changeCloudflareDomain(root, 'app.example.com', 'add', runner)).rejects.toThrow(
       'remote route state may be partially applied',
     );
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(before);
   });
 
   it('publishes an empty final domain set to the pinned Cloudflare API', async () => {
@@ -825,7 +827,7 @@ describe('Cloudflare custom domains', () => {
     const root = project(
       '{"name":"my-worker","account_id":"account-1","routes":[{"pattern":"app.example.com","custom_domain":true}]}',
     );
-    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
     const runner = vi
       .fn<CloudflareOperationRunner>()
       .mockResolvedValueOnce({
@@ -841,7 +843,7 @@ describe('Cloudflare custom domains', () => {
       'both the local config and remote triggers were restored',
     );
 
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(before);
     expect(runner).toHaveBeenCalledTimes(2);
     expect(runner.mock.calls[0]?.[0].type).toEqual('triggers.clear-domains');
     expect(runner.mock.calls[1]?.[0].type).toEqual('triggers.deploy');

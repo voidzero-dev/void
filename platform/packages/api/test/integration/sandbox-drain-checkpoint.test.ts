@@ -6,7 +6,8 @@ import {
   readSandboxDrainCheckpoint,
 } from '../../src/sandbox-drain.ts';
 import { sandboxDrainCheckpoints } from '../../src/schema.ts';
-import { clearTables, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { clearTables, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

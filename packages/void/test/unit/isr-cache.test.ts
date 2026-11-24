@@ -16,10 +16,8 @@ import {
   readIsrCache,
   SHARED_CACHE_POLICY_VERSION,
   writeIsrCache,
-  type IsrCacheEnv,
-  type IsrCacheMetadata,
-  type RenderFn,
 } from '@void/isr/runtime';
+import type { IsrCacheEnv, IsrCacheMetadata, RenderFn } from '@void/isr/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 
@@ -202,7 +200,7 @@ const corruptCases: Array<{ name: string; seed: () => KvRecord }> = [
     name: 'createdAt NaN',
     seed: () => ({
       value: packEntry({}, 'x'),
-      metadata: { s: 200, c: NaN, t: 60, p: SHARED_CACHE_POLICY_VERSION },
+      metadata: { s: 200, c: Number.NaN, t: 60, p: SHARED_CACHE_POLICY_VERSION },
     }),
   },
   {
@@ -223,7 +221,7 @@ const corruptCases: Array<{ name: string; seed: () => KvRecord }> = [
     name: 'ttl NaN',
     seed: () => ({
       value: packEntry({}, 'x'),
-      metadata: { s: 200, c: BASE, t: NaN, p: SHARED_CACHE_POLICY_VERSION },
+      metadata: { s: 200, c: BASE, t: Number.NaN, p: SHARED_CACHE_POLICY_VERSION },
     }),
   },
   {
