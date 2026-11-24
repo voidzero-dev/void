@@ -343,7 +343,7 @@ describe('guided installation app access', () => {
       Response.json({ installationId: 'team', turnedOff: true }),
     );
     await turnOffInstalledProjectZeroTrust(input, fetcher);
-    const [url, init] = fetcher.mock.calls[0]!;
+    const [url, init] = fetcher.mock.calls[0];
     expect(String(url)).toBe('https://platform.example.test/internal/platform/app-access/turn-off');
     expect(init).toMatchObject({
       method: 'POST',

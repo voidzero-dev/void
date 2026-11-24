@@ -90,7 +90,7 @@ export function createBindingHandler(env: Record<string, unknown>): Hono {
       }
       case 'raw': {
         const raw = await stmt.raw({ columnNames: true });
-        const columns = raw.length > 0 ? (raw[0] as Array<string>) : [];
+        const columns = raw.length > 0 ? raw[0] : [];
         const results = raw.slice(1) as Array<Array<unknown>>;
         return c.json({ columns, results, meta: {} });
       }

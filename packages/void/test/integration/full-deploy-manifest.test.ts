@@ -110,7 +110,7 @@ function installPlatformMocks(role: ProjectRole = 'owner'): Captured {
   const captured: Captured = { finalizeBody: null };
 
   fetchMock.mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : (input as Request).url;
+    const url = typeof input === 'string' ? input : input.url;
     const reqInit = init ?? {};
     const method = (reqInit.method ?? 'GET').toUpperCase();
 

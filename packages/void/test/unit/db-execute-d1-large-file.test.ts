@@ -73,7 +73,7 @@ async function startFakeD1Api(directory: string) {
   const entries: Array<Record<string, unknown>> = [];
   const port = await new Promise<number>((resolve, reject) => {
     child.once('exit', (code) => reject(new Error(`fake D1 API exited with ${code}`)));
-    createInterface({ input: child.stdout! }).on('line', (line) => {
+    createInterface({ input: child.stdout }).on('line', (line) => {
       const entry = JSON.parse(line) as Record<string, unknown>;
       if (typeof entry.port === 'number') {
         resolve(entry.port);

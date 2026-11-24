@@ -76,7 +76,7 @@ function table(rows: Array<unknown>, indent: string): Array<string> {
     indent +
     values
       .map((value, index) => {
-        const width = widths[index]!;
+        const width = widths[index];
         return (value.length > width ? `${value.slice(0, width - 1)}…` : value).padEnd(width);
       })
       .join('  ')
@@ -117,7 +117,7 @@ function fieldLabel(key: string): string {
     .filter(Boolean)
     .map((word) => LABEL_WORDS[word.toLowerCase()] ?? word.toLowerCase());
   if (words[0]) {
-    words[0] = words[0][0]!.toUpperCase() + words[0].slice(1);
+    words[0] = words[0][0].toUpperCase() + words[0].slice(1);
   }
   return words.join(' ');
 }

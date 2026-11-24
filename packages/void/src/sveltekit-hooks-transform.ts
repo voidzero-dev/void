@@ -73,7 +73,7 @@ function editGetHooks(
   if (hooks.length !== 1) {
     throw new Error('sveltekit: Expected one generated get_hooks function.');
   }
-  const body = hooks[0]!.body as AstNode | undefined;
+  const body = hooks[0].body as AstNode | undefined;
   const returns =
     (body?.body as Array<AstNode> | undefined)?.filter(
       (node) =>

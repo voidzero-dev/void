@@ -38,14 +38,14 @@ export function mayExportAll(source: string): boolean {
   ) {
     let cursor = index + 'export'.length;
     while (cursor < source.length) {
-      if (/\s/.test(source[cursor]!)) {
+      if (/\s/.test(source[cursor])) {
         cursor += 1;
       } else if (source.startsWith('/*', cursor)) {
         const end = source.indexOf('*/', cursor + 2);
         cursor = end === -1 ? source.length : end + 2;
       } else if (source.startsWith('//', cursor)) {
         cursor += 2;
-        while (cursor < source.length && !LINE_TERMINATORS.has(source[cursor]!)) {
+        while (cursor < source.length && !LINE_TERMINATORS.has(source[cursor])) {
           cursor += 1;
         }
       } else {

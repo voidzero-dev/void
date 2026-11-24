@@ -38,7 +38,7 @@ export async function cfCustomerFetch<T>(
     signal: init?.signal ?? AbortSignal.timeout(15_000),
     headers,
   });
-  const json = (await response.json()) as CfCustomerResult<T>;
+  const json = await response.json<CfCustomerResult<T>>();
   if (!json.success) {
     const message = json.errors.map((error) => error.message).join(', ');
     throw new CloudflareApiError(

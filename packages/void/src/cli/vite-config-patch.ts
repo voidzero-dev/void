@@ -129,7 +129,7 @@ export function patchViteConfigWithVoidPlugin(filePath: string, code: string): s
         ms.overwrite(insertAt, plugins.end - 1, `${pluginName}()`);
       }
     } else {
-      const indent = lineIndent(code, pluginProperties[0]!.start);
+      const indent = lineIndent(code, pluginProperties[0].start);
       const next = code[insertAt];
       ms.appendLeft(
         insertAt,

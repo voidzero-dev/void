@@ -422,7 +422,7 @@ async function promptRepoFullName(root: string): Promise<string> {
     cancel('Cancelled.');
     process.exit(0);
   }
-  return (input as string).trim();
+  return input.trim();
 }
 
 /**
@@ -469,7 +469,7 @@ async function resolveGithubProjectId(
     cancel('Cancelled.');
     process.exit(0);
   }
-  return picked as string;
+  return picked;
 }
 
 export async function runConnect(
@@ -583,7 +583,7 @@ export async function runConnect(
       }
       repoFullName = await promptRepoFullName(root);
     } else if (installation.repositories.length === 1) {
-      repoFullName = installation.repositories[0]!.full_name;
+      repoFullName = installation.repositories[0].full_name;
     } else if (!isTTY) {
       log.error('connect: Multiple repositories available. Pass --repo <owner/repo>.');
       process.exit(1);
@@ -596,7 +596,7 @@ export async function runConnect(
         cancel('Cancelled.');
         process.exit(0);
       }
-      repoFullName = picked as string;
+      repoFullName = picked;
     }
   } else {
     // 'all' — repos aren't enumerable. Do NOT infer the repo from git in CI:
@@ -630,7 +630,7 @@ export async function runConnect(
       cancel('Cancelled.');
       process.exit(0);
     }
-    branch = (input as string).trim() || branchDefault;
+    branch = input.trim() || branchDefault;
   }
 
   let executor: 'container' | 'github_actions';
@@ -674,7 +674,7 @@ export async function runConnect(
       cancel('Cancelled.');
       process.exit(0);
     }
-    const chosen = (input as string).trim() || DEFAULT_WORKFLOW_PATH;
+    const chosen = input.trim() || DEFAULT_WORKFLOW_PATH;
     if (chosen !== DEFAULT_WORKFLOW_PATH) {
       workflowPath = chosen;
     }
@@ -797,7 +797,7 @@ export async function runGithubUpdate(
         cancel('Cancelled.');
         process.exit(0);
       }
-      branch = (input as string).trim() || current.branch;
+      branch = input.trim() || current.branch;
     }
 
     if (args.executor !== undefined) {
@@ -815,7 +815,7 @@ export async function runGithubUpdate(
         cancel('Cancelled.');
         process.exit(0);
       }
-      executor = picked as 'container' | 'github_actions';
+      executor = picked;
     }
 
     // Container builds never read the workflow file, so there is nothing to ask.
@@ -836,7 +836,7 @@ export async function runGithubUpdate(
         cancel('Cancelled.');
         process.exit(0);
       }
-      workflowPath = (input as string).trim() || current.workflow_path;
+      workflowPath = input.trim() || current.workflow_path;
     }
   } else {
     branch = args.branch ?? current.branch;

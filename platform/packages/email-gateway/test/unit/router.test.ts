@@ -43,9 +43,9 @@ async function routeInbound(
       projectId: 'p_test',
       workerName: 'user-worker',
       deploymentId: 'v1',
-      slug: to.split('@')[0]!.split('+')[0]!,
+      slug: to.split('@')[0].split('+')[0],
       addressing: 'shared',
-      domain: to.split('@')[1]!,
+      domain: to.split('@')[1],
     },
   );
 }
@@ -1187,7 +1187,7 @@ describe('routeRelayed — unsupported forward', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const { ctx } = createCtx();
     const outcome = await routeRelayed(env, ctx, {
-      stub: env.DISPATCH.get('user-worker') as Fetcher,
+      stub: env.DISPATCH.get('user-worker'),
       projectId: 'p_test',
       domain: 'custom.example.com',
       receiptId: 'receipt_1',
@@ -1278,7 +1278,7 @@ describe('routeRelayed — reply attempt outcomes', () => {
     vi.stubGlobal('fetch', providerFetch);
     const { ctx } = createCtx();
     const outcome = await routeRelayed(env, ctx, {
-      stub: env.DISPATCH.get('user-worker') as Fetcher,
+      stub: env.DISPATCH.get('user-worker'),
       projectId: 'p_test',
       domain: 'custom.example.com',
       receiptId: 'receipt_1',

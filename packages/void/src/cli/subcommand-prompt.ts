@@ -368,7 +368,7 @@ export function promptSubcommand(
       if (phase === 'select' && selectedSub!.flags && selectedSub!.flags.length > 0) {
         phase = 'flags';
         cursor = 0;
-        flagStates = selectedSub!.flags!.map(() => ({ enabled: false, value: '' }));
+        flagStates = selectedSub!.flags.map(() => ({ enabled: false, value: '' }));
         render();
         return;
       }

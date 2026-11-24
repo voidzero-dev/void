@@ -93,7 +93,7 @@ export async function registerOAuthClient(
       secret_hash: await hashLoginProof(secret),
     })
     .returning();
-  return { client: publicOAuthClient(client!), clientSecret: secret };
+  return { client: publicOAuthClient(client), clientSecret: secret };
 }
 export function publicOAuthClient(client: typeof oauthClients.$inferSelect) {
   const { secret_hash: _secret, ...value } = client;
@@ -272,7 +272,7 @@ export async function activeOAuthGrant(
     isAdminSuspended(user.suspended_reason) ||
     grant.session.exp <= Date.now() / 1000 ||
     !(await validateHumanSession(
-      db as Db,
+      db,
       grant.session,
       companyIdentity ?? grant.session.companyIdentity,
     ))

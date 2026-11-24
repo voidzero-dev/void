@@ -92,7 +92,7 @@ async function emailOperationResult(
   label: string,
   result: Response,
 ): Promise<{ response: Response; succeeded: boolean }> {
-  const outcome = (await result.json()) as AdminEmailOperationOutcome;
+  const outcome = await result.json<AdminEmailOperationOutcome>();
   if (outcome.operationStatus !== 'completed') {
     return {
       response: await incompleteEmailOperationResponse(context, projectId, label, outcome),
@@ -279,7 +279,7 @@ app.post('/:projectId/domains/add', async (context) => {
         managedBy: 'admin',
       });
       if (!res.ok) {
-        const json = (await res.json()) as { error?: unknown };
+        const json = await res.json<{ error?: unknown }>();
         throw new OperatorError(
           res.status,
           typeof json.error === 'string' ? json.error : 'Adding the email domain failed.',

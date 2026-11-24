@@ -71,7 +71,7 @@ export async function runRollbackCommand(
       cancel('Rollback cancelled.');
       process.exit(0);
     }
-    targetId = result as string;
+    targetId = result;
   }
 
   // Compute migration diff client-side for warning

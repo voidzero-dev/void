@@ -234,7 +234,7 @@ function isPermittedReplySender(from: string, pin: ReplySenderPin): boolean {
   if (pin.customDomain) {
     return true;
   }
-  return pin.names.includes(lower.slice(0, at).split('+')[0]!);
+  return pin.names.includes(lower.slice(0, at).split('+')[0]);
 }
 
 interface OutboundGate {
@@ -295,11 +295,9 @@ export async function routeInbound(
     // `packages/dispatch`. Without them, anyone who can send mail to a
     // project's address runs that tenant's worker at the namespace default
     // instead of the CPU/sub-request ceiling the project is configured for.
-    stub = (
-      authoritative.limits
-        ? env.DISPATCH.get(workerName, {}, { limits: authoritative.limits })
-        : env.DISPATCH.get(workerName)
-    ) as Fetcher;
+    stub = authoritative.limits
+      ? env.DISPATCH.get(workerName, {}, { limits: authoritative.limits })
+      : env.DISPATCH.get(workerName);
   } catch (e) {
     console.error(`[email-router] DISPATCH.get(${sanitize(workerName, 320)}) failed:`, e);
     // oxlint-disable-next-line preserve-caught-error -- Do not attach internal delivery details to this public failure.
@@ -984,7 +982,7 @@ async function enactSanitized(
       } else {
         if (relayedReply) {
           providerReference = await providerDeadline.run(() =>
-            relayedReply!(to, providerDeadline.remainingMs()),
+            relayedReply(to, providerDeadline.remainingMs()),
           );
         } else {
           await providerDeadline.run(() =>

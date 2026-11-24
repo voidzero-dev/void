@@ -13,7 +13,7 @@ function mockFetch(response: unknown, contentType = 'application/json') {
         headers: { 'content-type': contentType },
       }),
   );
-  globalThis.fetch = fetchMock as typeof fetch;
+  globalThis.fetch = fetchMock;
   return fetchMock;
 }
 
@@ -60,7 +60,7 @@ describe('ProxyKVNamespace', () => {
             headers: { 'content-type': 'application/octet-stream' },
           }),
       );
-      globalThis.fetch = fetchMock as typeof fetch;
+      globalThis.fetch = fetchMock;
 
       const kv = new ProxyKVNamespace(createClient(), 'KV');
       const value = await kv.get('binary-key', 'arrayBuffer');

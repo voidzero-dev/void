@@ -324,7 +324,7 @@ describe('sendEmail (error mapping)', () => {
         from: 'a@x.dev',
         to: 'b@y.dev',
         subject: 's',
-      } as Parameters<typeof sendEmail>[0]);
+      });
       expect(result.ok).toBe(false);
       if (!result.ok && 'error' in result) {
         expect(result.error.code).toBe('MIME_ERROR');

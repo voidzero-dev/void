@@ -424,7 +424,7 @@ describe('email verification gating on account linking', () => {
       .from(oauthAccounts)
       .where(and(eq(oauthAccounts.user_id, existing.id), eq(oauthAccounts.provider, 'github')));
     expect(githubRows.length).toBe(1);
-    expect(githubRows[0]!.providerId).toBe('111111');
+    expect(githubRows[0].providerId).toBe('111111');
     expect(await getUserByOAuthAccount(env.db, 'github', '222222')).toBeNull();
 
     // ...and the unowned installation for the REJECTED id Y was NOT claimed.
@@ -545,7 +545,7 @@ describe('email verification gating on account linking', () => {
     expect(payload!.sub).toBe(existing.id);
 
     const [updated] = await env.db.select().from(users).where(eq(users.id, existing.id));
-    expect(updated!.email).toBe('new-owner@example.com');
+    expect(updated.email).toBe('new-owner@example.com');
 
     const rows = await env.db
       .select()
@@ -677,9 +677,9 @@ describe('email verification gating on account linking', () => {
         .from(emailDestinations)
         .where(eq(emailDestinations.id, inheritedId));
       return {
-        email: user!.email,
-        status: row!.status,
-        source: row!.verification_source,
+        email: user.email,
+        status: row.status,
+        source: row.verification_source,
       };
     }
 
@@ -872,10 +872,10 @@ describe('email verification gating on account linking', () => {
         emailEnv(),
       );
       expect(created.status).toBe(201);
-      const project = (await created.json()) as { id: string };
+      const project = await created.json<{ id: string }>();
       expect(loginDuringAdd?.status).toBe(302);
       const [user] = await env.db.select().from(users).where(eq(users.id, existing.id));
-      expect(user!.email).toBe('new-owner@example.com');
+      expect(user.email).toBe('new-owner@example.com');
 
       // The grant the login could not see must not exist: the row would say
       // the OLD identity consented to mail reaching a mailbox the owner no
@@ -1093,7 +1093,7 @@ describe('email verification gating on account linking', () => {
       );
       expect(loginDuringRefresh?.status).toBe(302);
       expect(res.status).toBe(200);
-      const listed = (await res.json()) as Array<{ id: string; status: string }>;
+      const listed = await res.json<Array<{ id: string; status: string }>>();
       expect(listed.find((r) => r.id === 'edst_racing_listing')?.status).toBe('pending');
 
       const [row] = await env.db

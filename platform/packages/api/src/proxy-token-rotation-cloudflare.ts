@@ -116,7 +116,7 @@ export function createRotationCloudflareClient(
     }
     let json: CfEnvelope<T>;
     try {
-      json = (await response.json()) as CfEnvelope<T>;
+      json = await response.json<CfEnvelope<T>>();
     } catch {
       throw new CloudflareApiError(
         `Cloudflare API error: HTTP ${response.status} ${method} ${path}`,

@@ -185,7 +185,7 @@ describe('dynamic plan enforcement', () => {
       env,
     );
     expect(response.status, await response.clone().text()).toBe(200);
-    const body = (await response.json()) as { token: string };
+    const body = await response.json<{ token: string }>();
     const parent = await verifyDeployToken(token, env.JWT_SECRET);
     const derived = await verifyPrerenderToken(body.token, env.JWT_SECRET);
     expect(derived!.exp).toBeLessThanOrEqual(parent!.exp);

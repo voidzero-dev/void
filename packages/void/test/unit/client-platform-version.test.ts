@@ -26,7 +26,7 @@ let originalFetch: typeof globalThis.fetch;
 beforeEach(() => {
   origin = `https://platform-${++sequence}.example.test`;
   originalFetch = globalThis.fetch;
-  globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  globalThis.fetch = fetchMock;
   fetchMock.mockReset();
 });
 

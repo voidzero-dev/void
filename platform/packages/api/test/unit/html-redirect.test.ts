@@ -20,7 +20,7 @@ describe('localhostRedirectResponse', () => {
 
     const match = /content="0;url=([^"]*)"/.exec(body);
     expect(match).not.toBeNull();
-    const attr = match![1]!;
+    const attr = match![1];
     // Escaped forms present, raw breakout chars absent inside the attribute.
     expect(attr).toContain('&quot;');
     expect(attr).toContain('&lt;');

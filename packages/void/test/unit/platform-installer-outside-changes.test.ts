@@ -818,15 +818,15 @@ describe('platform Workers changed outside Void', () => {
         `Uploading a new version of ${names.apiWorker} without deploying it`,
       );
       expect(uploads).toHaveLength(1);
-      expect(uploads[0]!.operation).toEqual({
+      expect(uploads[0].operation).toEqual({
         type: 'versions.upload',
         configPath: expect.any(String),
         message: 'Void: replace changes made outside Void',
         interactive: true,
       });
-      expect(runner.mock.calls[0]!.slice(1)).toEqual(['account', expect.any(String), true]);
+      expect(runner.mock.calls[0].slice(1)).toEqual(['account', expect.any(String), true]);
       const { routes: _, ...uploaded } = config;
-      expect(uploads[0]!.config).toEqual(uploaded);
+      expect(uploads[0].config).toEqual(uploaded);
     });
 
     it('stops when the Cloudflare CLI does not replace the change', async () => {

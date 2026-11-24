@@ -199,7 +199,7 @@ function parseLifecycleSelector(
   let dashboardUrl: string | undefined;
   let customDomains = false;
   for (let index = 0; index < rest.length; index++) {
-    const arg = rest[index]!;
+    const arg = rest[index];
     if (arg === '--runtime') {
       if (subcommand === 'disable') {
         throw new Error("platform: Unknown flag '--runtime'.");
@@ -291,7 +291,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     let yes = false;
     let dedicatedZone = false;
     for (let index = 1; index < rest.length; index++) {
-      const arg = rest[index]!;
+      const arg = rest[index];
       if (arg === '--installation' || arg === '--zone') {
         const [value, next] = readValue(rest, index, arg);
         index = next;
@@ -335,7 +335,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     let account = '';
     let selector = '';
     for (let index = 0; index < rest.length; index++) {
-      const arg = rest[index]!;
+      const arg = rest[index];
       if (arg === '--account' || arg === '--installation') {
         const [value, next] = readValue(rest, index, arg);
         if (arg === '--account') {
@@ -430,7 +430,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     let workersDev = false;
     let customDomains = false;
     for (let i = 0; i < rest.length; i++) {
-      const arg = rest[i]!;
+      const arg = rest[i];
       if (valueFlags.has(arg)) {
         const [value, next] = readValue(rest, i, arg);
         values.set(arg, value);

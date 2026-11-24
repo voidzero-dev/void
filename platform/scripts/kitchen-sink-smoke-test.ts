@@ -169,7 +169,7 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
       const assetMatch = html.match(/\/(assets\/[^"']+[-._][A-Za-z0-9_-]{6,}\.(js|css))/);
       assert.ok(assetMatch, 'found hashed asset URL in HTML');
 
-      const assetUrl = `${BASE}/${assetMatch![1]}?smoke=${uid}`;
+      const assetUrl = `${BASE}/${assetMatch[1]}?smoke=${uid}`;
 
       // A unique URL forces a fresh network GET without sending cache-bypass
       // directives to the origin. Omit application/Access session cookies too.
@@ -245,7 +245,7 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
       await goto(page, '/');
 
       await page.evaluate(() => {
-        const nav = document.querySelector('nav') as StampedNav | null;
+        const nav = document.querySelector<StampedNav>('nav');
         if (nav) {
           nav.__stamp = 1;
         }
@@ -258,7 +258,7 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
 
       // Nav stamp must survive (layout DOM not recreated)
       const stamp = await page.evaluate(() => {
-        const nav = document.querySelector('nav') as StampedNav | null;
+        const nav = document.querySelector<StampedNav>('nav');
         return nav?.__stamp;
       });
       assert.strictEqual(stamp, 1, 'nav stamp survived navigation');

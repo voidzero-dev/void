@@ -57,6 +57,7 @@ async function generatedBindings(
   const plugins = voidPlugin();
   const envPlugin = plugins.find((plugin) => plugin.name === 'void:env');
   const envHook = envPlugin?.config;
+  // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- This synchronous fixture hook is called without a Vite plugin context.
   const configure = (typeof envHook === 'function' ? envHook : envHook?.handler) as
     | ((config: UserConfig, environment: ConfigEnv) => void)
     | undefined;

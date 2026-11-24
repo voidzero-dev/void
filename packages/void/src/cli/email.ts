@@ -380,7 +380,7 @@ async function verifyCfApiToken(token: string): Promise<CfTokenVerification> {
     return 'unknown';
   }
   try {
-    const body = (await res.json()) as { result?: { status?: unknown } };
+    const body = await res.json<{ result?: { status?: unknown } }>();
     return body.result?.status === 'active' ? 'active' : 'inactive';
   } catch {
     return 'unknown';

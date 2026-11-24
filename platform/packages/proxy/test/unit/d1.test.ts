@@ -130,7 +130,7 @@ describe('D1 proxy endpoints', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { results: Array<unknown>; success: boolean };
+      const data = await res.json<{ results: Array<unknown>; success: boolean }>();
       expect(data.results).toEqual(rows);
       expect(data.success).toBe(true);
 
@@ -204,7 +204,7 @@ describe('D1 proxy endpoints', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { columns: Array<string>; results: Array<Array<unknown>> };
+      const data = await res.json<{ columns: Array<string>; results: Array<Array<unknown>> }>();
       expect(data.columns).toEqual(['id', 'name']);
       expect(data.results).toEqual([
         [1, 'Alice'],
@@ -230,7 +230,7 @@ describe('D1 proxy endpoints', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { success: boolean; meta: Record<string, unknown> };
+      const data = await res.json<{ success: boolean; meta: Record<string, unknown> }>();
       expect(data.success).toBe(true);
       expect(data.meta).toEqual(meta);
     });

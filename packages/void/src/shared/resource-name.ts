@@ -7,5 +7,5 @@ export function isResourceName(value: unknown): value is string {
     return false;
   }
   const words = resourceNameWords(value);
-  return words.length > 0 && /^[a-zA-Z]/.test(words[0]!);
+  return words.length > 0 && /^[a-zA-Z]/.test(words[0]);
 }

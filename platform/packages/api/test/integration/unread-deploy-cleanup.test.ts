@@ -42,7 +42,7 @@ async function lockWaitOrTimeout(limitMs: number): Promise<void> {
       sql`select count(*)::int as n from pg_stat_activity
           where datname = current_database() and wait_event_type = 'Lock'`,
     )) as unknown as { rows: Array<{ n: number }> };
-    if (rows[0]!.n > 0) {
+    if (rows[0].n > 0) {
       return;
     }
     await new Promise((resolve) => {
@@ -57,7 +57,7 @@ describe('fixture cleanup after an unread deploy stream', () => {
     const project = await createTestProject(env.db, user.id, 'unread-deploy');
     mockCfApi();
     const bytes = new TextEncoder().encode('<h1>hi</h1>');
-    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${HASH(1)}`, bytes.buffer as ArrayBuffer);
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${HASH(1)}`, bytes.buffer);
 
     let reached!: () => void;
     const locked = new Promise<void>((resolve) => {
@@ -75,7 +75,7 @@ describe('fixture cleanup after an unread deploy stream', () => {
         const { rows } = (await env.db.execute(
           sql`select count(*)::int as n from deployments where project_id = ${id}`,
         )) as unknown as { rows: Array<{ n: number }> };
-        if (rows[0]!.n > 0) {
+        if (rows[0].n > 0) {
           setGetProjectOverride(null);
           reached();
           await gate;

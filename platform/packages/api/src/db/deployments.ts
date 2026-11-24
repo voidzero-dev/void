@@ -464,8 +464,8 @@ export async function appendAppliedMigrations(
     if (rows.length === 0) {
       return;
     }
-    const existing: Array<string> = rows[0]!.applied_migrations
-      ? (JSON.parse(rows[0]!.applied_migrations) as Array<string>)
+    const existing: Array<string> = rows[0].applied_migrations
+      ? (JSON.parse(rows[0].applied_migrations) as Array<string>)
       : [];
     const existingSet = new Set(existing);
     const toAdd = newMigrations.filter((m) => !existingSet.has(m));

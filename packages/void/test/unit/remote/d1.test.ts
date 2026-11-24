@@ -15,7 +15,7 @@ function mockFetch(response: unknown, contentType = 'application/json') {
         headers: { 'content-type': contentType },
       }),
   );
-  globalThis.fetch = fetchMock as typeof fetch;
+  globalThis.fetch = fetchMock;
   return fetchMock;
 }
 

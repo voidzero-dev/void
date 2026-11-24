@@ -73,7 +73,7 @@ async function buildEntry(
   // same process, as `vite build` does with the Cloudflare plugin.
   const output = app
     ? await createBuilder({ ...inline, builder: {} }).then((builder) =>
-        builder.build(builder.environments.client!),
+        builder.build(builder.environments.client),
       )
     : await build(inline);
   return [output]

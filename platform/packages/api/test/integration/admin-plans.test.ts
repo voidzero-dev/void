@@ -96,7 +96,7 @@ async function preview(action: string, id: string, fields: Record<string, string
     { 'X-VoidPages': 'true' },
   );
   expect(response.status).toBe(200);
-  return (decodePageData(await response.json()) as { props: { preview: AdminPlanPreview } }).props
+  return decodePageData<{ props: { preview: AdminPlanPreview } }>(await response.json()).props
     .preview;
 }
 function apply(change: AdminPlanPreview) {
@@ -353,7 +353,7 @@ describe('administrator plan dashboard', () => {
     expect((await apply(await preview('archive', 'new', { archived: 'true' }))).status).toBe(303);
     expect((await apply(await preview('archive', 'new', { archived: 'false' }))).status).toBe(303);
     const account = await createTestUser(env.db, 'assigned', 'github', undefined, 'new');
-    const original = (await env.db.select().from(users).where(eq(users.id, account.id)))[0]!;
+    const original = (await env.db.select().from(users).where(eq(users.id, account.id)))[0];
     expect(
       (
         await request(`${home}/preview`, {
@@ -446,7 +446,7 @@ describe('administrator plan dashboard', () => {
         }),
         env,
       );
-      const body = (await response.json()) as { results: Array<{ ok: boolean }> };
+      const body = await response.json<{ results: Array<{ ok: boolean }> }>();
       expect(body.results[0]?.ok).toBe(
         path === home || path === `${home}/new` || path === `${home}/free/edit`,
       );
@@ -502,7 +502,7 @@ describe('administrator plan dashboard', () => {
           env,
         );
         if (url.pathname === `${home}/sync` && response.ok) {
-          syncs.push((await response.clone().json()) as AdminPlanProgress);
+          syncs.push(await response.clone().json<AdminPlanProgress>());
         }
         await route.fulfill({
           status: response.status,

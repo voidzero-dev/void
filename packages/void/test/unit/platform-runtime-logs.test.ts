@@ -66,12 +66,12 @@ describe('project Worker runtime logs', () => {
     const warning = await updateProjectWorkerRuntimeLogs(fake.client, { ...target, minimal: true });
     expect(warning).toBeUndefined();
     expect(fake.patched.map((entry) => entry.script).sort()).toEqual(scripts);
-    expect(fake.patched[0]!.settings).toEqual({ observability: { enabled: false } });
+    expect(fake.patched[0].settings).toEqual({ observability: { enabled: false } });
     expect(fake.peak()).toBeLessThanOrEqual(4);
 
     const back = fakeClient(['user-app-dpl0']);
     await updateProjectWorkerRuntimeLogs(back.client, { ...target, minimal: false });
-    expect(back.patched[0]!.settings).toEqual({
+    expect(back.patched[0].settings).toEqual({
       observability: { enabled: true, logs: { invocation_logs: true, head_sampling_rate: 1 } },
     });
   });

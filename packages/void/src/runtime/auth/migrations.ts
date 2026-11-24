@@ -329,12 +329,12 @@ async function assertRequiredColumnsCanBeAdded(
   table: VoidAuthMigrationTable,
   missing: Array<string>,
 ): Promise<void> {
-  const required = missing.filter((fieldName) => table.fields[fieldName]!.required);
-  const unique = required.filter((fieldName) => table.fields[fieldName]!.unique);
+  const required = missing.filter((fieldName) => table.fields[fieldName].required);
+  const unique = required.filter((fieldName) => table.fields[fieldName].unique);
   const noDefault =
     dialect === 'mysql'
       ? []
-      : required.filter((fieldName) => table.fields[fieldName]!.defaultValue === undefined);
+      : required.filter((fieldName) => table.fields[fieldName].defaultValue === undefined);
   if (unique.length === 0 && noDefault.length === 0) {
     return;
   }

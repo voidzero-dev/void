@@ -46,7 +46,7 @@ describe('installedDependencies', () => {
       'void/live/client': '/repo/packages/void/dist/runtime/live/client.mjs',
     };
 
-    expect(installedDependencies(Object.keys(files), (specifier) => files[specifier]!)).toEqual([
+    expect(installedDependencies(Object.keys(files), (specifier) => files[specifier])).toEqual([
       'void/pages-client',
       'void/pages-prefetch',
     ]);

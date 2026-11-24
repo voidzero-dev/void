@@ -164,9 +164,9 @@ describe('POST /projects/:id/deploy/upload-urls', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       urls: Record<string, { url: string; headers: Record<string, string> }>;
-    };
+    }>();
     expect(Object.keys(body.urls)).toEqual(expect.arrayContaining([HASH(1), HASH(3)]));
     const first = body.urls[HASH(1)];
     expect(first).toBeDefined();
@@ -200,7 +200,7 @@ describe('POST /projects/:id/deploy/upload-urls', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toMatch(/blake3.*32 lowercase hex/);
   });
 
@@ -221,7 +221,7 @@ describe('POST /projects/:id/deploy/upload-urls', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toMatch(/md5.*32 lowercase hex/);
   });
 
@@ -279,7 +279,7 @@ describe('POST /projects/:id/deploy/upload-urls', () => {
         env,
       );
       expect(res.status).toBe(410);
-      const body = (await res.json()) as { error: string; urls?: unknown };
+      const body = await res.json<{ error: string; urls?: unknown }>();
       expect(body.error).toMatch(/being deleted/);
       expect(body.urls).toBeUndefined();
       expect(calls).toBe(1);
@@ -311,7 +311,7 @@ describe('POST /projects/:id/deploy/upload-urls', () => {
       env,
     );
     expect(res.status).toBe(410);
-    const body = (await res.json()) as { error: string; urls?: unknown };
+    const body = await res.json<{ error: string; urls?: unknown }>();
     expect(body.error).toMatch(/being deleted/);
     // Bytes must NOT be presigned — the response must not carry any `urls`.
     expect(body.urls).toBeUndefined();
@@ -647,10 +647,10 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
 
     // Serving manifest: each path → `!{hash}` (direct-to-R2 always lands
     // in R2)
-    const serving = (await env.ROUTING.get(
+    const serving = await env.ROUTING.get<Record<string, string> | null>(
       `manifest:${(doneEvt as unknown as { deployment: string }).deployment}`,
       'json',
-    )) as Record<string, string> | null;
+    );
     expect(serving).toEqual({
       '/index.html': `!${indexHash}`,
       '/assets/style.css': `!${cssHash}`,
@@ -695,7 +695,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
 
     // Other-project orphan: must NOT be touched by this project's sweep.
     const otherKey = 'assets/proj_other/cccccccccccccccccccccccccccccccc';
-    await env.STATIC_ASSETS_R2.put(otherKey, new Uint8Array([9, 9, 9]).buffer as ArrayBuffer);
+    await env.STATIC_ASSETS_R2.put(otherKey, new Uint8Array([9, 9, 9]).buffer);
 
     const res = await app.fetch(
       new Request(`http://localhost/projects/${project.id}/deploy`, {
@@ -1280,7 +1280,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { event?: string; message?: string };
+    const body = await res.json<{ event?: string; message?: string }>();
     expect(body.message).toContain('assetManifestVersion: 2');
   });
 
@@ -1304,7 +1304,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { message?: string };
+    const body = await res.json<{ message?: string }>();
     expect(body.message).toMatch(/blake3 must be 32 lowercase hex/);
   });
 
@@ -1328,7 +1328,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { message?: string };
+    const body = await res.json<{ message?: string }>();
     expect(body.message).toMatch(/md5 must be 32 lowercase hex/);
   });
 
@@ -1511,7 +1511,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
     // Historical serving bytes must survive the failed and successful redeploy.
     await env.STATIC_ASSETS.put(
       `assets/${project.id}/${kvHash}`,
-      kvBytes.buffer.slice(0, kvBytes.byteLength) as ArrayBuffer,
+      kvBytes.buffer.slice(0, kvBytes.byteLength),
     );
 
     const liveId = 'dpl_live_jm_static_kv_cf';
@@ -1615,10 +1615,10 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
 
     expect(done!.deployment).not.toBe(liveId);
     // New serving placement is uniformly scoped R2; historical state stays usable.
-    const serving = (await env.ROUTING.get(`manifest:${done!.deployment}`, 'json')) as Record<
-      string,
-      string
-    > | null;
+    const serving = await env.ROUTING.get<Record<string, string> | null>(
+      `manifest:${done!.deployment}`,
+      'json',
+    );
     expect(serving).toEqual({
       '/index.html': `!${kvHash}`, // redeploy writes only scoped R2 placement
       '/style.css': `!${newR2Hash}`, // new this deploy, R2-prefixed
@@ -1626,7 +1626,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
     const fresh = (
       await env.db.select().from(deployments).where(eq(deployments.id, done!.deployment))
     )[0];
-    expect(JSON.parse(fresh!.asset_hashes!)).toEqual({
+    expect(JSON.parse(fresh.asset_hashes!)).toEqual({
       '/index.html': { hash: kvHash, size: kvBytes.byteLength, store: 'r2', scope: 'project' },
       '/style.css': { hash: newR2Hash, size: newR2Bytes.byteLength, store: 'r2', scope: 'project' },
     });
@@ -1663,7 +1663,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { message?: string };
+    const body = await res.json<{ message?: string }>();
     expect(body.message).toMatch(/worker.*not allowed.*spa or static/);
 
     // No phantom placeholder row should remain — the rejection happened
@@ -1694,7 +1694,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { message?: string };
+    const body = await res.json<{ message?: string }>();
     expect(body.message).toMatch(/worker.*not allowed.*spa or static/);
   });
 
@@ -1713,7 +1713,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
     // early-error path that fires when we report missing hashes.
     const originalHead = env.STATIC_ASSETS_R2.head.bind(env.STATIC_ASSETS_R2);
     let canceledOnce = false;
-    env.STATIC_ASSETS_R2.head = (async (key: string) => {
+    env.STATIC_ASSETS_R2.head = async (key: string) => {
       if (!canceledOnce) {
         canceledOnce = true;
         // Find the placeholder row this request just inserted.
@@ -1729,7 +1729,7 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
       // path. Without the reaper fix the canceled row would be stranded
       // at `canceling` with manifest=null.
       return null;
-    }) as typeof env.STATIC_ASSETS_R2.head;
+    };
 
     try {
       const missingHash = HASH(0x90_01);
@@ -1917,15 +1917,15 @@ describe('direct Worker module upload', () => {
     );
     const res = await requestUrls(projectId, { modules });
     expect(res.status).toBe(200);
-    const { id, urls } = (await res.json()) as {
+    const { id, urls } = await res.json<{
       id: string;
       urls: Array<{ url: string; headers: Record<string, string> }>;
-    };
+    }>();
     for (const [index, module] of modules.entries()) {
-      const key = decodeURI(new URL(urls[index]!.url).pathname).slice(
+      const key = decodeURI(new URL(urls[index].url).pathname).slice(
         `/${env.R2_STATIC_ASSETS_BUCKET}/`.length,
       );
-      await env.STATIC_ASSETS_R2.put(key, files[module.name]!);
+      await env.STATIC_ASSETS_R2.put(key, files[module.name]);
     }
     return { id, modules };
   }
@@ -1965,10 +1965,10 @@ describe('direct Worker module upload', () => {
     ];
     const res = await requestUrls(project.id, { modules });
     expect(res.status).toBe(200);
-    const { id, urls } = (await res.json()) as {
+    const { id, urls } = await res.json<{
       id: string;
       urls: Array<{ url: string; headers: Record<string, string> }>;
-    };
+    }>();
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(urls).toHaveLength(3);
     const types = ['application/javascript+module', 'application/source-map', 'application/wasm'];
@@ -1979,7 +1979,7 @@ describe('direct Worker module upload', () => {
       );
       expect(headers).toEqual({
         'Content-Type': types[index],
-        'Content-Length': String(modules[index]!.size),
+        'Content-Length': String(modules[index].size),
       });
       expect(parsed.searchParams.get('X-Amz-SignedHeaders')).toContain('content-length');
       expect(parsed.searchParams.get('X-Amz-SignedHeaders')).toContain('content-type');
@@ -2066,7 +2066,7 @@ describe('direct Worker module upload', () => {
 
     const calls = workerUploadCalls(cf, project.slug);
     expect(calls).toHaveLength(1);
-    const form = (calls[0]![1] as RequestInit).body as FormData;
+    const form = (calls[0][1] as RequestInit).body as FormData;
     const metadata = JSON.parse(await (form.get('metadata') as Blob).text()) as {
       main_module: string;
     };
@@ -2117,7 +2117,7 @@ describe('direct Worker module upload', () => {
       '"more.js" was not uploaded',
     );
     await reject(
-      { workerInput: { id, modules: [{ ...modules[0]!, size: code.byteLength + 1 }] } },
+      { workerInput: { id, modules: [{ ...modules[0], size: code.byteLength + 1 }] } },
       400,
       `has ${code.byteLength} bytes in storage instead of ${code.byteLength + 1}`,
     );
@@ -2141,7 +2141,7 @@ describe('direct Worker module upload', () => {
       {
         workerInput: {
           id,
-          modules: [{ ...modules[0]!, size: 64 * MiB + 1 }],
+          modules: [{ ...modules[0], size: 64 * MiB + 1 }],
         },
       },
       413,
@@ -2275,7 +2275,7 @@ describe('direct Worker module upload', () => {
       env,
     );
     expect(res.status).toBe(413);
-    const { error } = (await res.json()) as { error: string };
+    const { error } = await res.json<{ error: string }>();
     expect(error).toContain('source maps');
     expect(error).toContain('Upgrade the void CLI');
     expect(error).not.toContain('asset bytes');
