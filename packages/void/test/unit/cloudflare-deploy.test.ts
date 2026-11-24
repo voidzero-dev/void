@@ -941,6 +941,17 @@ describe('Cloudflare activation diagnostics', () => {
     expect(published).toContain('Inspect `void project status` before retrying');
     expect(published).not.toContain('no version was uploaded');
     expect(
+      formatCloudflareActivationError({
+        ok: false,
+        reason: 'status-failed',
+        versionId: '22222222-2222-4222-8222-222222222222',
+        status: 1,
+        rollback: 'not-needed',
+      }),
+    ).toContain(
+      'was uploaded, but Cloudflare deployment status could not be verified before activation',
+    );
+    expect(
       formatCloudflareActivationError({ ok: false, reason: 'status-failed', status: 1 }),
     ).toContain('no version was uploaded');
   });

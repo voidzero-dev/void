@@ -983,7 +983,7 @@ async function activateCloudflareVersionWithSecretsFile(
     const delays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
     // A rollback can make a version older than the listed ones active. The list will never show
     // that version, so only an active version that is not older than the list is waited for.
-    let activeNumber: number | null | undefined;
+    let activeNumber: number | null = null;
     const listIsBehind = async (versions: ReadonlyArray<RecentCloudflareVersion>) => {
       if (
         previous.versionId === null ||
@@ -994,23 +994,17 @@ async function activateCloudflareVersionWithSecretsFile(
       if (versions.length === 0) {
         return true;
       }
-      if (activeNumber === undefined) {
-        activeNumber = await readCloudflareVersionNumber(options, previous.versionId);
-      }
-      // A number that cannot be read keeps the wait: a version the list trails may not be
-      // readable yet either, and a list that never shows it still fails the checks below.
+      // Retry an unavailable number along with the list. A brief detail read failure
+      // should not keep a rollback to an older version waiting for the full schedule.
+      activeNumber ??= await readCloudflareVersionNumber(options, previous.versionId);
       return (
         activeNumber === null ||
         activeNumber >= Math.min(...versions.map((version) => version.number))
       );
     };
+    let listBehind = read.versions !== null && (await listIsBehind(read.versions));
     let waited = false;
-    for (
-      let attempt = 0;
-      (read.changing || (read.versions !== null && (await listIsBehind(read.versions)))) &&
-      attempt < delays.length;
-      attempt++
-    ) {
+    for (let attempt = 0; (read.changing || listBehind) && attempt < delays.length; attempt++) {
       if (attempt === 0) {
         options.onProgress?.("Waiting for Cloudflare's Worker version list to catch up...");
       }
@@ -1020,6 +1014,7 @@ async function activateCloudflareVersionWithSecretsFile(
         return { ok: false, reason: 'uploader-changed' };
       }
       read = await readRecentCloudflareVersionHistory(options);
+      listBehind = read.versions !== null && (await listIsBehind(read.versions));
     }
     if (waited) {
       // A rollback or another deploy during the wait must not be built on, or recorded as the
@@ -1042,7 +1037,7 @@ async function activateCloudflareVersionWithSecretsFile(
       }
     }
     const recent = read.versions;
-    if (recent === null) {
+    if (recent === null || listBehind) {
       return { ok: false, reason: 'inheritance-source-unavailable' };
     }
     const latestVersionId = recent.at(-1)?.id ?? null;
@@ -1456,42 +1451,50 @@ async function activateCloudflareVersionWithSecretsFile(
     }
   }
   await options.validateUploadedVersion?.(versionId);
-  if (waitedAfterUpload) {
+  const ownerAfterWait = waitedAfterUpload
+    ? await readCurrentProductionVersion(options)
+    : undefined;
+  if (ownerAfterWait && ownerAfterWait.kind !== 'failed') {
     // The receipt names the live version as the candidate's parent. A rollback during the wait
     // above would make that parent wrong and break the next deploy, so stop before saving it.
-    const owner = await readCurrentProductionVersion(options);
-    if (owner.kind === 'failed') {
-      return {
-        ok: false,
-        reason: 'status-failed',
-        status: owner.status,
-        versionId,
-        previousVersionId: previous.versionId,
-      };
-    }
     if (
-      owner.kind !== 'ok' ||
-      owner.versionId !== previous.versionId ||
-      !productionVersionPercentagesEqual(owner.versions, previous.versions)
+      ownerAfterWait.kind !== 'ok' ||
+      ownerAfterWait.versionId !== previous.versionId ||
+      !productionVersionPercentagesEqual(ownerAfterWait.versions, previous.versions)
     ) {
       return {
         ok: false,
         reason: 'deployment-changed',
         versionId,
         previousVersionId: previous.versionId,
-        activeVersionId: owner.kind === 'ok' ? owner.versionId : null,
+        activeVersionId: ownerAfterWait.kind === 'ok' ? ownerAfterWait.versionId : null,
         rollback: 'not-needed',
         triggerRepair: 'succeeded',
       };
     }
   }
-  if (options.recordVerifiedCandidate) {
+  // A handoff can reuse verified uploads after a status failure because it inspects
+  // production again and accepts the receipt only if the original parent still owns traffic.
+  if (
+    options.recordVerifiedCandidate &&
+    (ownerAfterWait?.kind !== 'failed' || options.expectedPreviousVersionId !== undefined)
+  ) {
     if (!options.validateUploadedVersion && !inheritanceBaseline) {
       throw new Error(
         'A Worker candidate cannot be recorded without validating its upload and version sequence.',
       );
     }
     await options.recordVerifiedCandidate(versionId, previous.versionId);
+  }
+  if (ownerAfterWait?.kind === 'failed') {
+    return {
+      ok: false,
+      reason: 'status-failed',
+      status: ownerAfterWait.status,
+      versionId,
+      previousVersionId: previous.versionId,
+      rollback: 'not-needed',
+    };
   }
   const reportedPreviewUrl =
     desiredTriggerConfig.preview_urls ||

@@ -583,6 +583,9 @@ function formatCloudflareActivationFailure(
       return 'deploy: the verified Wrangler uploader changed before version activation.';
     case 'status-failed':
       if (result.versionId) {
+        if (result.rollback === 'not-needed') {
+          return `deploy: Worker version ${result.versionId} was uploaded, but Cloudflare deployment status could not be verified before activation${status}. Inspect \`void project status\` before retrying.`;
+        }
         return `deploy: Worker version ${result.versionId} was published, but current deployment status could not be verified${status}. Inspect \`void project status\` before retrying.`;
       }
       return `deploy: could not snapshot the current Cloudflare deployment${status}; no version was uploaded.`;

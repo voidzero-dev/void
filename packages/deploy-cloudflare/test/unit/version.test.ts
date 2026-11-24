@@ -1382,7 +1382,8 @@ describe('Cloudflare version activation', () => {
           ? { ok: true, versionId: NEXT }
           : {
               ok: false,
-              reason: outcome === 'exhausted' ? 'inheritance-source-changed' : 'uploader-changed',
+              reason:
+                outcome === 'exhausted' ? 'inheritance-source-unavailable' : 'uploader-changed',
             },
       );
       expect(sleep.mock.calls).toEqual(
@@ -1473,13 +1474,13 @@ describe('Cloudflare version activation', () => {
     },
   );
 
-  it('waits on the default schedule of about five minutes for a version list that never catches up', async () => {
+  it('does not upload on a direct deploy if the version list never catches up', async () => {
     const base = runner();
     const runWrangler = operationFixture((args: Array<string>) =>
       args[0] === 'versions' && args[1] === 'list'
         ? ok(JSON.stringify([{ id: CONCURRENT, number: 0 }]))
-        : args[0] === 'versions' && args[1] === 'view' && args[2] === CURRENT
-          ? ok(JSON.stringify({ id: CURRENT, number: 1 }))
+        : args[0] === 'versions' && args[1] === 'view'
+          ? ok(JSON.stringify({ id: args[2], number: 1, resources: { bindings: [] } }))
           : base(args),
     );
     const sleep = vi.fn(async (_milliseconds: number) => {});
@@ -1488,12 +1489,13 @@ describe('Cloudflare version activation', () => {
       runWrangler,
       workerName: 'my-worker',
       verifyUploader: () => true,
-      expectedPreviousVersionId: CURRENT,
+      verifyInheritedSecrets: true,
       message: encodeCloudflareVersionMessage([], triggersWith()),
       sleep,
       onProgress,
     });
-    expect(result).toMatchObject({ ok: false, reason: 'inheritance-source-changed' });
+    expect(runWrangler.mock.calls.some(([args]) => args[1] === 'upload')).toBe(false);
+    expect(result).toMatchObject({ ok: false, reason: 'inheritance-source-unavailable' });
     expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([...STALE_VERSION_HISTORY_DELAYS_MS]);
     const totalMs = STALE_VERSION_HISTORY_DELAYS_MS.reduce((sum, ms) => sum + ms, 0);
     expect(totalMs).toBeGreaterThanOrEqual(5 * 60_000);
@@ -1501,6 +1503,73 @@ describe('Cloudflare version activation', () => {
     expect(onProgress).toHaveBeenCalledWith(
       "Waiting for Cloudflare's Worker version list to catch up...",
     );
+  });
+
+  it('retains a verified handoff upload when status fails after waiting for the list', async () => {
+    const base = runner();
+    let uploads = 0;
+    let staleList = false;
+    let failStatus = false;
+    const history = [{ id: CURRENT, number: 1 }];
+    const runWrangler = operationFixture((args: Array<string>) => {
+      if (args[0] === 'deployments' && failStatus) {
+        failStatus = false;
+        return { status: 1, stdout: '', stderr: 'Cloudflare status is temporarily unavailable' };
+      }
+      if (args[0] === 'versions' && args[1] === 'list') {
+        if (staleList) {
+          staleList = false;
+          failStatus = true;
+          return ok(JSON.stringify(history.slice(0, -1)));
+        }
+        return ok(JSON.stringify(history));
+      }
+      if (args[0] === 'versions' && args[1] === 'upload') {
+        const versionId = uploads++ === 0 ? NEXT : CONCURRENT;
+        history.push({ id: versionId, number: history.length + 1 });
+        staleList = uploads === 1;
+        return ok(
+          `Worker Version ID: ${versionId}\nVersion Preview URL: https://${versionId.slice(0, 8)}-my-worker.example.workers.dev`,
+        );
+      }
+      return base(args);
+    });
+    const candidateIds: Array<string> = [];
+    const options = {
+      runWrangler,
+      workerName: 'my-worker',
+      message: preservedTriggerMessage(),
+      verifyUploader: () => true,
+      verifyInheritedSecrets: true,
+      expectedPreviousVersionId: CURRENT,
+      preserveTriggers: true,
+      validateUploadedVersion: async (versionId: string) => {
+        expect(versionId).toBe(history.at(-1)?.id);
+      },
+      recordVerifiedCandidate: (versionId: string, parentVersionId: string | null) => {
+        expect(parentVersionId).toBe(CURRENT);
+        candidateIds.push(versionId);
+      },
+      fetch: async () => Response.json({ ready: true }),
+      sleep: async () => {},
+    };
+
+    expect(await activateCloudflareVersion(options)).toMatchObject({
+      ok: false,
+      reason: 'status-failed',
+      versionId: NEXT,
+      rollback: 'not-needed',
+    });
+    expect(candidateIds).toEqual([NEXT]);
+    expect(runWrangler.mock.calls.some(([args]) => args[1] === 'deploy')).toBe(false);
+
+    expect(
+      await activateCloudflareVersion({
+        ...options,
+        trustedInheritanceVersionIds: [...candidateIds],
+      }),
+    ).toMatchObject({ ok: true, versionId: CONCURRENT });
+    expect(candidateIds).toEqual([NEXT, CONCURRENT]);
   });
 
   it.each([{ phase: 'before' }, { phase: 'after' }] as const)(
@@ -1624,8 +1693,8 @@ describe('Cloudflare version activation', () => {
       });
       expect(result).toMatchObject({ ok: true, versionId: NEXT });
       // A version older than the list can never appear in it, so waiting only delays the deploy.
-      // A number that cannot be read keeps the wait, since a lagging version may not be readable.
-      expect(sleep.mock.calls.map(([ms]) => ms)).toEqual(waits ? delays : []);
+      // A transient failure waits until the next read confirms the active version is older.
+      expect(sleep.mock.calls.map(([ms]) => ms)).toEqual(waits ? delays.slice(0, 1) : []);
     },
   );
 
