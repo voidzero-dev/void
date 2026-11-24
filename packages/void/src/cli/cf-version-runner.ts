@@ -25,6 +25,7 @@ import type { CfCommand } from './cf-version-api.ts';
 import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import type { WranglerAuthTokenResult } from './deploy-cloudflare-auth.ts';
+import { Buffer } from './node-buffer.ts';
 
 function failed(message: string): CloudflareCommandResult {
   return { status: 1, stdout: '', stderr: message };

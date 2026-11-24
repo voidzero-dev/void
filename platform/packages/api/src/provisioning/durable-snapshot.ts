@@ -76,7 +76,7 @@ async function putVerifiedSnapshotObject(
     // write before accepting it; the condition also fences any late PUT.
     const stored = await bucket.get(key);
     if (stored) {
-      if ((await streamSha256(stored.body)) === expected) {
+      if ((await streamSha256(stored.body as ReadableStream<Uint8Array>)) === expected) {
         return;
       }
       throw new Error(`Custom Durable Object release snapshot changed: ${key}`);

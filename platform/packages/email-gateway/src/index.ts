@@ -144,7 +144,7 @@ async function resolveIngress(
     void response.body?.cancel().catch(() => {});
     throw new Error('invalid email routing response');
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     throw new Error('invalid email routing response');
   }
@@ -486,7 +486,7 @@ async function probe(request: Request, env: Env): Promise<Response> {
   if (!authorization.startsWith('Bearer ') || authorization.length > MAX_ENVELOPE_HEADER) {
     return new Response(null, { status: 403 });
   }
-  const reader = request.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = request.body?.getReader();
   if (!reader) {
     return new Response(null, { status: 400 });
   }
@@ -614,7 +614,7 @@ async function readConfirmationResponse(
   if (Number.isFinite(declared) && declared > MAX_CONFIRMATION_RESPONSE_BYTES) {
     throw new Error('confirmation response too large');
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     return null;
   }

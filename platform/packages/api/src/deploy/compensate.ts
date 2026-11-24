@@ -351,7 +351,9 @@ export async function recoverFailedDeployment(input: {
             tx,
             projectId,
             committedActive?.id ?? null,
-            committedActive?.manifest ? JSON.parse(committedActive.manifest) : null,
+            committedActive?.manifest
+              ? (JSON.parse(committedActive.manifest) as DeployManifest)
+              : null,
           );
           if (!routingSwitched) {
             return;

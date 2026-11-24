@@ -581,8 +581,6 @@ const config = defineConfig({
       'typescript/no-non-null-assertion': 'off',
       // Hundreds of remaining findings require changing inferred generic arguments. Review inference and declaration output in a separate type-focused pass.
       'typescript/no-unnecessary-type-assertion': 'off',
-      // Type producer boundaries for fetch, provider SDKs, and process tooling before checking arguments across the workspace.
-      'typescript/no-unsafe-argument': 'off',
       // Several SDK and tool APIs expose any, including response JSON and mixed Node and Worker globals. Narrow at each owning boundary.
       'typescript/no-unsafe-assignment': 'off',
       // Runtime adapter calls and mixed Node and Worker declarations need typed entry points before broad enforcement.

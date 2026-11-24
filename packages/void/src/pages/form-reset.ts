@@ -14,7 +14,7 @@ function clone(value: unknown, seen: WeakMap<object, unknown>): unknown {
   if (value === null || typeof value !== 'object') {
     return value;
   }
-  const prototype = Object.getPrototypeOf(value);
+  const prototype = Object.getPrototypeOf(value) as object | null;
   if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
     return value;
   }

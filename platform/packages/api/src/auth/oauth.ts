@@ -69,7 +69,11 @@ export async function registerOAuthClient(
     new Set(redirectUris).size !== redirectUris.length ||
     !Array.isArray(scopes) ||
     !scopes.includes('profile') ||
-    scopes.some((value) => !['profile', 'deploy:approve', 'preview:deploy'].includes(value)) ||
+    scopes.some(
+      (value: unknown) =>
+        typeof value !== 'string' ||
+        !['profile', 'deploy:approve', 'preview:deploy'].includes(value),
+    ) ||
     new Set(scopes).size !== scopes.length
   ) {
     throw new OAuthError(

@@ -137,7 +137,7 @@ export async function prepareExistingCloudflareDeploy(options: {
     return null;
   }
   const text = readFileSync(options.configPath, 'utf8');
-  const config = parse(text);
+  const config = parse(text) as Record<string, unknown> | null | undefined;
   if (
     typeof config?.name !== 'string' ||
     !config.name ||

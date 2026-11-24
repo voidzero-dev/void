@@ -240,7 +240,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
       const structured: unknown = error.stack;
       if (Array.isArray(structured)) {
         const frames = [];
-        for (const callSite of structured) {
+        for (const callSite of structured as Array<NodeJS.CallSite>) {
           try {
             const fileName = callSite.getFileName?.() || callSite.getScriptNameOrSourceURL?.();
             const line = callSite.getLineNumber?.();

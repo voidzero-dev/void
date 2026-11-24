@@ -11,6 +11,7 @@ import {
   isVoidSocialAuthProvider,
 } from '../../auth/providers.ts';
 import type { VoidAuthProvider, VoidSocialAuthProvider } from '../../auth/providers.ts';
+import { Buffer } from '../../cli/node-buffer.ts';
 import { isUnchangedStaticAsset } from '../routing/static-asset-marker.ts';
 import { authContext } from './index.ts';
 import type { AuthState, VoidAuthConfig } from './index.ts';

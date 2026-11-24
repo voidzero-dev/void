@@ -850,7 +850,7 @@ export async function createPageNavigationEngine(
       if (pageData !== undefined) {
         // Static page-data fallback already loaded the page object.
       } else if (contentType.includes('application/x-ndjson')) {
-        const reader = response!.body!.getReader();
+        const reader: ReadableStreamDefaultReader<Uint8Array> = response!.body!.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
         let firstLine = true;

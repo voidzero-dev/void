@@ -277,7 +277,8 @@ export function stubCustomerCf(
     }
 
     if (path.includes('/email/routing/dns') && method === 'POST') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body =
+        typeof init?.body === 'string' ? (JSON.parse(init.body) as { name?: string }) : undefined;
       await record({ tag: 'routingDns', method, url, body });
       const failure = fail('routingDns');
       if (failure) {
@@ -359,7 +360,8 @@ export function stubCustomerCf(
       }
       if (method === 'POST' || method === 'PUT') {
         const tag = method === 'POST' ? 'literalRuleCreate' : 'literalRuleUpdate';
-        const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+        const body =
+          typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {};
         await record({ tag, method, url, body });
         if (config.failBeforeEffect?.includes(tag)) {
           return fail(tag) ?? cfSuccess({});
@@ -420,7 +422,8 @@ export function stubCustomerCf(
 
     const secretsMatch = /\/workers\/scripts\/([^/]+)\/secrets$/.exec(path);
     if (secretsMatch && method === 'PUT') {
-      const parsed = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+      const parsed =
+        typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {};
       const text = typeof parsed.text === 'string' ? parsed.text : '';
       await record({
         tag: 'secretPut',

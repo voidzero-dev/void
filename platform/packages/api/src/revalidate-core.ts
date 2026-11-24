@@ -29,7 +29,7 @@ type RevalidateProject = Readonly<{
 }>;
 
 type RevalidateRequestBody = Readonly<{
-  paths?: ReadonlyArray<string>;
+  paths?: Array<string>;
   all?: boolean;
 }>;
 

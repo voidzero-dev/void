@@ -25,7 +25,7 @@ function isGenericPermissionMessage(message: string): boolean {
 
 async function proxyError(response: Response): Promise<Error> {
   // Error pages are untrusted and can be large. Read only enough for a diagnostic.
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   const decoder = new TextDecoder();
   let text = '';
   let remaining = 16_384;

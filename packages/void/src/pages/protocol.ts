@@ -705,7 +705,7 @@ function streamDeferredResponse(
   assetTags?: AssetTags,
 ): Response {
   const encoder = new TextEncoder();
-  const { readable, writable } = new TransformStream();
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
 
   const entries = Object.entries(deferredMap);

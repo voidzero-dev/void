@@ -5,6 +5,7 @@ import { getPackageDir } from './agents.ts';
 import { getApiUrl } from './auth.ts';
 import { ensurePlatformAccessToken, isCloudflareAccessChallenge } from './cf-access.ts';
 import type { CliLogger } from './log-file.ts';
+import { Buffer } from './node-buffer.ts';
 import { readPlatformDiscoveryResponse } from './platform-discovery.ts';
 import {
   formatPlatformApiError,
@@ -1356,7 +1357,7 @@ export class PlatformClient {
       yield* this.followDeploymentEvents(projectId, receipt, cursor, observationDeadline);
       return;
     }
-    const reader = res.body.getReader();
+    const reader: ReadableStreamDefaultReader<Uint8Array> = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let bytesRead = 0;

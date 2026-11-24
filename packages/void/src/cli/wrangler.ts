@@ -27,6 +27,7 @@ import type { VoidConfig } from '../config.ts';
 import type { DurableObjectModule } from '../durable/scan.ts';
 import type { InferredBindings } from '../inference/walk.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
+import { Buffer } from './node-buffer.ts';
 
 const COMPAT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** UTF-8 byte-order mark. Node's utf-8 read preserves a leading one. */
@@ -433,7 +434,7 @@ function readWranglerCompatFields(
   if (buildOutputDir) {
     try {
       const buildRaw = readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf8');
-      const buildParsed = JSON.parse(buildRaw);
+      const buildParsed = JSON.parse(buildRaw) as Record<string, unknown>;
       if (typeof buildParsed.compatibility_date === 'string') {
         validateCompatDate(buildParsed.compatibility_date, 'build output wrangler.json');
         buildDate = buildParsed.compatibility_date;

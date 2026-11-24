@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, expect, vi } from 'vite-plus/test';
 import { prepareCfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { createCfCommand } from '../../src/cli/cf-version-runner.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 // Vitest's per-file module isolation gives each suite its own roots and hooks.
 const roots: Array<string> = [];

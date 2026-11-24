@@ -645,6 +645,7 @@ export async function clearTables(db: Db): Promise<void> {
 export function skipOrphanSweepDelay(): void {
   const schedule = globalThis.setTimeout;
   vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) =>
+    // oxlint-disable-next-line typescript/no-unsafe-argument -- Preserve the timer callback's variadic arguments.
     schedule(callback, delay === 2000 ? 0 : delay, ...args),
   );
 }

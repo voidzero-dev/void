@@ -91,7 +91,10 @@ export async function dispatchBoundedEmailToTenant(
     if (responseDeadline <= 0) {
       throw new Error('email tenant request timeout');
     }
-    const actions = await readEmailActions(response.body, responseDeadline);
+    const actions = await readEmailActions(
+      response.body as ReadableStream<Uint8Array>,
+      responseDeadline,
+    );
     return { actions, receiptId };
   } finally {
     controller.abort();

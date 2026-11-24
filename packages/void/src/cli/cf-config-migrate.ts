@@ -410,7 +410,8 @@ export function translateWranglerConfig(
   // Settings are JSON: a key without a value is absent. The copy also keeps the converter from
   // sharing objects with the caller.
   // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the value to the JSON configuration written to disk.
-  const converted = convertWranglerConfig(JSON.parse(JSON.stringify(raw)), 'vite', []);
+  const serialized = JSON.parse(JSON.stringify(raw)) as JsonObject;
+  const converted = convertWranglerConfig(serialized, 'vite', []);
   const branch = converted.environments.get(mode) ?? converted.base;
   const input = record(outputValue(branch.config));
   const worker = record(input?.worker);

@@ -47,7 +47,7 @@ export default function Home() { return <Frame><Counter /></Frame>; }`,
     try {
       const manifest = JSON.parse(
         readFileSync(join(build.root, 'dist/client/.vite/manifest.json'), 'utf8'),
-      );
+      ) as Record<string, unknown>;
       expect(Object.values(manifest)).not.toContainEqual(
         expect.objectContaining({ name: 'pages-client', isEntry: true }),
       );

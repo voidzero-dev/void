@@ -1915,7 +1915,7 @@ const app = new Hono<ApiEnv>()
     }
 
     const body = await context.req.json<{
-      migrations: ReadonlyArray<{ name: string; sql: string }>;
+      migrations: Array<{ name: string; sql: string }>;
       migrationProtocolVersion?: number;
       executionPlans?: ReadonlyArray<Record<string, unknown>>;
     }>();
@@ -2099,7 +2099,7 @@ const app = new Hono<ApiEnv>()
       return access;
     }
 
-    const body = await context.req.json<{ renames: ReadonlyArray<{ from: string; to: string }> }>();
+    const body = await context.req.json<{ renames: Array<{ from: string; to: string }> }>();
     if (!body.renames || !Array.isArray(body.renames) || body.renames.length === 0) {
       return context.json({ error: 'renames array required' }, 400);
     }

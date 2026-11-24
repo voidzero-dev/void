@@ -85,7 +85,7 @@ export async function readBoundedGitHubWebhookBody(request: Request): Promise<Ui
   }
 
   const chunks: Array<Uint8Array> = [];
-  const reader = request.body.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> = request.body.getReader();
   let total = 0;
   while (true) {
     const { done, value } = await reader.read();

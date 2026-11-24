@@ -168,7 +168,14 @@ async function createCloudflarePrerenderRunner(options: {
   if (!existsSync(wranglerPath)) {
     throw new Error(`prerender: wrangler.json not found in '${workerDir}'.`);
   }
-  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf8'));
+  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf8')) as {
+    main?: string;
+    vars?: Record<string, unknown>;
+    assets?: { binding?: string };
+    d1_databases?: Array<{ binding: string; database_id: string }>;
+    kv_namespaces?: Array<{ binding: string; id: string }>;
+    r2_buckets?: Array<{ binding: string; bucket_name: string }>;
+  };
   const wranglerCompat = ensureWranglerCompat(root, readConfig(root), workerDir);
   const workerMain = wranglerConfig.main ?? 'index.js';
 
@@ -460,7 +467,8 @@ if (mode === "collect") {
             return;
           }
           try {
-            resolve(JSON.parse(stdout));
+            // The generated child writes the result for this runner operation.
+            resolve(JSON.parse(stdout) as T);
           } catch {
             reject(new Error(`Failed to parse prerender output: ${stdout}`));
           }

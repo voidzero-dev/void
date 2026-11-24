@@ -8,6 +8,7 @@ import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import { recordInstallationStep } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
 import { join } from 'pathslash';
+import { Buffer } from './node-buffer.ts';
 import {
   readActivePlatformWorkerSnapshot,
   readPlatformWorkerOwnershipMarker,

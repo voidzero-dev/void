@@ -31,6 +31,7 @@ import {
   printCloudflareLoginPrompt,
 } from './cloudflare-login-output.ts';
 import { normalizeD1SqlLineEndings } from './d1-sql-line-endings.ts';
+import { Buffer } from './node-buffer.ts';
 import { platformWorkerUploadAttribution } from './platform-worker-user-agent.ts';
 import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 
@@ -633,7 +634,7 @@ function listAllResourcePages(command: Array<string>, extraFlags: Array<string> 
     if (!Array.isArray(items) || items.length > pageSize) {
       throw new Error(`Cloudflare returned an invalid ${command.join(' ')} page.`);
     }
-    entries.push(...items);
+    entries.push(...(items as Array<unknown>));
     if (items.length < pageSize) {
       return result(0, `${JSON.stringify(entries)}\n`);
     }

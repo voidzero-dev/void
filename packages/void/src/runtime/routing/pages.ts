@@ -20,6 +20,7 @@ import type { ErrorRenderer } from './errors.ts';
 import type { RoutingRule, RoutingRuntime } from './index.ts';
 import { markStaticAsset } from './static-asset-marker.ts';
 import { createAssetCachePolicy } from './worker.ts';
+import type { RuntimeEnvironment } from './worker.ts';
 
 type PageGetArguments = Parameters<typeof handlePageGet>;
 type PageModule = {
@@ -316,7 +317,10 @@ export function createPagesFallback(options: {
       return Response.redirect(url.href, 301);
     }
     if (assetResponse.status !== 404) {
-      return markStaticAsset(c, await cachePolicy(c.req.raw, c.env, assetResponse));
+      return markStaticAsset(
+        c,
+        await cachePolicy(c.req.raw, c.env as RuntimeEnvironment, assetResponse),
+      );
     }
     const fallback = options.fallbackRules
       ? await options.routing.applyFallback(c, options.fallbackRules)
@@ -368,7 +372,7 @@ export function createSsrFallback(options: {
     const response: Response = await binding.fetch(c.req.raw);
     return response.status === 404
       ? options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }))
-      : markStaticAsset(c, await cachePolicy(c.req.raw, c.env, response));
+      : markStaticAsset(c, await cachePolicy(c.req.raw, c.env as RuntimeEnvironment, response));
   };
   return async (c) => {
     if (options.nodeTarget && options.fallbackRules) {
@@ -417,7 +421,10 @@ export function createAssetNotFound(options: {
       if (assets && typeof assets.fetch === 'function') {
         const response: Response = await assets.fetch(c.req.raw);
         if (response.status !== 404) {
-          return markStaticAsset(c, await cachePolicy(c.req.raw, c.env, response));
+          return markStaticAsset(
+            c,
+            await cachePolicy(c.req.raw, c.env as RuntimeEnvironment, response),
+          );
         }
       }
     }
