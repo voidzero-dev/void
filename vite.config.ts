@@ -545,6 +545,7 @@ const config = defineConfig({
       'no-useless-assignment': 'off',
       // Operator-facing errors often map provider failures to sanitized messages. Review nested causes for safe logging before attaching them.
       'preserve-caught-error': 'off',
+      // Keep eager callbacks and array index semantics in existing filters and maps. Iterator rewrites need their own compatibility and behavior review.
       'quality/no-array-filter-map': 'off',
       'quality/no-chained-type-assertions': 'off',
       'quality/no-conditional-empty-object-spread': 'off',
