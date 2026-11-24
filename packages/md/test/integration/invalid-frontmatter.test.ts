@@ -12,7 +12,7 @@ import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const INVALID = '---\ntitle\ndescription: Missing colon above\n---\n\n# Invalid\n';
 // The page scan reads the layout on its own, so these have to get past that too.
-const INVALID_LAYOUTS: Record<string, string> = {
+const INVALID_LAYOUTS = {
   'mixed-test': '---\ntitle: Invalid layout\nlayout: [unclosed\n---\n\n# Invalid\n',
   'client-script-test': '---\ntitle: Invalid layout\nlayout: !unknown missing\n---\n\n# Invalid\n',
 };

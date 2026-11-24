@@ -396,9 +396,13 @@ export function resolvePageTtl(
   return resolvePathTtl(revalidate, pathname);
 }
 
+interface SerializedHeaders {
+  [name: string]: string;
+}
+
 /** Extract response headers while removing ISR-managed and private headers. */
-export function serializeHeaders(response: Response): Record<string, string> {
-  const result: Record<string, string> = {};
+export function serializeHeaders(response: Response): SerializedHeaders {
+  const result: SerializedHeaders = {};
   response.headers.forEach((value, key) => {
     if (!SKIP_HEADERS.has(key.toLowerCase())) {
       result[key] = value;

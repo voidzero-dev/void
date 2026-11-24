@@ -15,6 +15,10 @@ import { CODE_COPY_SCRIPT, preWrapperPlugin } from './plugins/pre-wrapper.ts';
 import { taskListPlugin } from './plugins/task-lists.ts';
 import { tocPlugin } from './plugins/toc.ts';
 
+interface MarkdownRenderEnvironment {
+  codeCopy?: boolean;
+}
+
 export type Heading = Readonly<{
   depth: number;
   slug: string;
@@ -111,7 +115,7 @@ export async function compile(source: string, options?: CompileOptions): Promise
   const { frontmatter, content } = parseFrontmatter(source);
   const compiler = await getCompiler(options);
 
-  const env: { codeCopy?: boolean } = {};
+  const env: MarkdownRenderEnvironment = {};
   const tokens = compiler.parse(content, env);
   const headings = extractHeadings(tokens);
   let html = await compiler.renderer.renderAsync(tokens, compiler.options, env);

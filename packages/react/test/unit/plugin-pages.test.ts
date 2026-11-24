@@ -39,6 +39,7 @@ function writePage(relativePath: string, source: string): void {
 
 describe('installedDependencies', () => {
   it('keeps entries installed in node_modules and drops linked workspace entries', () => {
+    // oxlint-disable-next-line quality/no-known-value-widening -- The resolver fixture accepts any specifier.
     const files: Record<string, string> = {
       'void/pages-client':
         '/app/node_modules/.pnpm/void@1.6.2/node_modules/void/dist/pages/client.mjs',

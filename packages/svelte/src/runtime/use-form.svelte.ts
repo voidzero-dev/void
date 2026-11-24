@@ -115,6 +115,7 @@ export function useForm(
 
   function setError(field: string, message: string) {
     snapshotField(field);
+    // oxlint-disable-next-line quality/no-known-value-widening -- Field names come from dynamic form data.
     errors = { ...errors, [field]: message };
   }
 

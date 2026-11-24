@@ -145,13 +145,18 @@ export function planWebSocketMigrations(input: {
   };
 }
 
+type SqliteClassMigrationResult = {
+  migrations: ReadonlyArray<DurableObjectMigrationStep>;
+  added: boolean;
+};
+
 /** Append one SQLite class step without reclassifying an existing namespace. */
 export function appendSqliteClassMigration(
   migrations: ReadonlyArray<DurableObjectMigrationStep>,
   classes: ReadonlyArray<string>,
   baseTag: string,
   knownExistingClasses: ReadonlyArray<string> = [],
-): { migrations: ReadonlyArray<DurableObjectMigrationStep>; added: boolean } {
+): SqliteClassMigrationResult {
   const existingClasses = new Set<string>(knownExistingClasses);
   for (const migration of migrations) {
     for (const name of migration.new_classes ?? []) {

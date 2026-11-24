@@ -44,7 +44,7 @@ function writePage(relativePath: string, source: string): void {
   writeFileSync(full, source);
 }
 
-type PatchProps = (comp: Record<string, unknown>, props: Record<string, unknown>) => void;
+type PatchProps = (comp: object, props: Record<string, unknown>) => void;
 
 function compilePage(source: string): Vue.Component & Record<string, unknown> {
   const transform = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages-transform') as
@@ -136,7 +136,11 @@ describe('pagesPlugin generated patchProps', () => {
       title: { type: String, default: 'DEFAULT' },
       count: { type: Number, required: true },
     };
-    const comp: Record<string, unknown> = { props: { ...declared } };
+    interface ComponentFixture {
+      props: typeof declared;
+      __voidPatched?: boolean;
+    }
+    const comp: ComponentFixture = { props: { ...declared } };
 
     rendererPatchProps(comp, { count: -1 });
     expect(comp.props).toEqual(declared);

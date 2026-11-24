@@ -103,7 +103,7 @@ export function createPlatformWorkerConfigs(input: {
       new URL(url).hostname.endsWith('.workers.dev'),
     );
 
-  const api: Record<string, unknown> = {
+  const api: PlatformWorkerConfigSet['api'] = {
     ...common,
     ...((input.privatePreviews || input.proxyHealthBinding) &&
     publicEndpoints &&
@@ -229,7 +229,7 @@ export function createPlatformWorkerConfigs(input: {
     api.routes = [{ pattern: deployment.controlPlane.apiHostname, custom_domain: true }];
   }
 
-  const proxy: Record<string, unknown> = {
+  const proxy: PlatformWorkerConfigSet['proxy'] = {
     ...common,
     workers_dev:
       publicEndpoints &&

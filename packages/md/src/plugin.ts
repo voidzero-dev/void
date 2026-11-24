@@ -17,7 +17,11 @@ const MD_CLIENT_ENTRY_ID = 'virtual:void-md-client';
 
 type FrameworkAdapter = 'vue' | 'react' | 'svelte' | 'solid';
 
-const ADAPTER_PLUGIN_NAMES: Record<string, FrameworkAdapter> = {
+interface FrameworkAdaptersByPluginName {
+  readonly [pluginName: string]: FrameworkAdapter | undefined;
+}
+
+const ADAPTER_PLUGIN_NAMES: FrameworkAdaptersByPluginName = {
   'void-vue:pages': 'vue',
   'void-react:pages': 'react',
   'void-svelte:pages': 'svelte',

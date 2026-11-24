@@ -211,7 +211,7 @@ function ok(stdout = ''): CloudflareCommandResult {
   return { stdout, stderr: '', status: 0 };
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((accept) => {
     resolve = accept;
@@ -325,7 +325,7 @@ const TRIGGER_FAILURE: CloudflareCommandResult = {
 };
 
 /** Placeholder Void's secret transport deploys before a Worker exists: no bindings yet. */
-function voidZeroBindingPlaceholder(): Record<string, unknown> {
+function voidZeroBindingPlaceholder() {
   return {
     ...voidSecretDraftVersion(),
     number: 1,
@@ -658,7 +658,10 @@ describe('Cloudflare version activation', () => {
   ])(
     'does not treat an API-deployed version with %s as the placeholder',
     async (_label, change) => {
-      const draft: Record<string, unknown> = { ...apiSecretDraftVersion(), ...change };
+      const draft: ReturnType<typeof apiSecretDraftVersion> & { source?: string } = {
+        ...apiSecretDraftVersion(),
+        ...change,
+      };
       const fixture = sdkDraftActivation(draft, {
         source: draft.source,
         annotations: draft.annotations,

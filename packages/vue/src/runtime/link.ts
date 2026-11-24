@@ -32,6 +32,11 @@ type LinkProps = BaseLinkProps &
   Omit<AnchorHTMLAttributes, keyof BaseLinkProps> &
   Omit<ButtonHTMLAttributes, keyof BaseLinkProps>;
 
+type LinkEventHandlers = Pick<
+  AnchorHTMLAttributes,
+  'onClick' | 'onMouseenter' | 'onMouseleave' | 'onFocus' | 'onTouchstart' | 'onMousedown'
+>;
+
 const linkPropOptions = {
   href: { type: String as PropType<Href>, required: true },
   method: { type: String as PropType<LinkMethod>, default: 'GET' },
@@ -168,7 +173,7 @@ const LinkComponent = defineComponent({
       const { href, isGet } = link.value;
       const tag = isGet ? 'a' : 'button';
 
-      const eventHandlers: Record<string, unknown> = { onClick };
+      const eventHandlers: LinkEventHandlers = { onClick };
 
       if (strategies.value.includes('hover')) {
         eventHandlers.onMouseenter = onMouseEnter;

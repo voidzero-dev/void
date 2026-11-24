@@ -146,9 +146,14 @@ export function classifySqlMigration(sql: string): SqlMigrationClassification {
   };
 }
 
+type MigrationPlanHashPreimage = Pick<
+  MigrationPlanHashInput,
+  'classifierVersion' | 'dialect' | 'kind' | 'name' | 'sqlHash' | 'stability'
+> & { statements?: Array<string> };
+
 /** Preserve the classifier-v1 hash preimage; policy markers and warnings are not hashed. */
-export function getMigrationPlanHashInput(plan: MigrationPlanHashInput): unknown {
-  const base: Record<string, unknown> = {
+export function getMigrationPlanHashInput(plan: MigrationPlanHashInput): MigrationPlanHashPreimage {
+  const base: MigrationPlanHashPreimage = {
     classifierVersion: plan.classifierVersion,
     dialect: plan.dialect,
     kind: plan.kind,

@@ -592,7 +592,14 @@ export function assertExistingCloudflareConfig(
       );
     }
   }
-  const supported: Record<string, [string, string, string]> = {
+  interface BindingConfigFields {
+    readonly [type: string]: readonly [
+      configField: string,
+      localIdField: string,
+      remoteIdField: string,
+    ];
+  }
+  const supported: BindingConfigFields = {
     d1: ['d1_databases', 'database_id', 'id'],
     kv_namespace: ['kv_namespaces', 'id', 'namespace_id'],
     r2_bucket: ['r2_buckets', 'bucket_name', 'bucket_name'],
