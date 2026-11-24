@@ -192,7 +192,7 @@ Site-wide HTML `<head>` defaults for pages mode. Sets a title template, default 
 | Field           | Type                     | Description                                                      |
 | --------------- | ------------------------ | ---------------------------------------------------------------- |
 | `title`         | `string`                 | Default page title (overridden by page `head()`)                 |
-| `titleTemplate` | `string`                 | Wraps the resolved title. `%s` is replaced with the page title.  |
+| `titleTemplate` | `string`                 | Wraps the title at `%s`. Page or middleware templates replace it |
 | `meta`          | `Array<object>`          | Default `<meta>` tags (deduped by `name`/`property`, page wins)  |
 | `link`          | `Array<object>`          | Default `<link>` tags (concatenated: config, middleware, page)   |
 | `script`        | `Array<object>`          | Default `<script>` tags (concatenated: config, middleware, page) |
