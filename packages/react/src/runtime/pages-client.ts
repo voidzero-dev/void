@@ -129,6 +129,7 @@ let scheduleVisit:
   | ((url: string, options?: VisitOptions) => Promise<ReactPageData | undefined>)
   | null = null;
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Route-specific deferred payloads travel through the engine without a shared value type.
 function createDeferredResource(): DeferredResource {
   let resolve!: (value: unknown) => void;
   let reject!: (error: unknown) => void;
@@ -141,7 +142,7 @@ function createDeferredResource(): DeferredResource {
   return promise;
 }
 
-function resolveDeferredResource(ref: unknown, value: unknown): unknown {
+function resolveDeferredResource<T>(ref: T, value: unknown): T {
   const state = deferredState.get(ref as DeferredResource);
   if (state?.status === 'pending') {
     state.resolve(value);
@@ -150,7 +151,7 @@ function resolveDeferredResource(ref: unknown, value: unknown): unknown {
   return ref;
 }
 
-function rejectDeferredResource(ref: unknown, error: string): unknown {
+function rejectDeferredResource<T>(ref: T, error: string): T {
   const state = deferredState.get(ref as DeferredResource);
   if (state?.status === 'pending') {
     state.reject(new Error(error));

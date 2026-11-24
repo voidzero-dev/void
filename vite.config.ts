@@ -567,7 +567,19 @@ const config = defineConfig({
           'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,md,platform,react,solid,svelte,vue}/**/*',
           'platform/packages/{dashboard,email-gateway,tail}/**/*',
         ],
-        rules: { 'quality/no-known-value-widening': 'error' },
+        rules: {
+          'quality/no-known-value-widening': 'error',
+          'quality/no-unknown-returns': 'error',
+        },
+      },
+      {
+        // Routing codegen, Vite hooks, and the dispatch Worker expose typed results.
+        files: [
+          'packages/void/src/{codegen,router}/**/*',
+          'packages/void/src/plugin-*.ts',
+          'platform/packages/dispatch/**/*',
+        ],
+        rules: { 'quality/no-unknown-returns': 'error' },
       },
       {
         files: ['playground/vinext-app/.next/**/*.ts'],

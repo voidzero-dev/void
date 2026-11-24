@@ -469,6 +469,7 @@ function isAssetsOnlyWorker(worker: ExistingCloudflareWorker): boolean {
   );
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- The provider payload remains unvalidated for the caller's handler checks.
 function existingWorkerHandlers(worker: ExistingCloudflareWorker): unknown {
   // Cloudflare represents the absence of a script on assets-only Workers as null.
   // Missing or malformed handler metadata on other Workers must still fail closed.

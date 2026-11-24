@@ -7,6 +7,7 @@ import type { MockInstance } from 'vite-plus/test';
 // fixtures that the production decoder now rejects before the router.
 vi.mock('../../src/tenant-dispatch.ts', () => ({
   dispatchBoundedEmailToTenant: async (
+    // oxlint-disable-next-line quality/no-unknown-returns -- The fake tenant deliberately returns malformed action payloads.
     stub: { email: (envelope: unknown) => Promise<unknown> },
     _env: unknown,
     input: { envelope: unknown; receiptId: string },

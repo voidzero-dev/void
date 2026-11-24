@@ -248,7 +248,10 @@ describe('islandsPlugin — island style loader', () => {
     const plugins = islandsPlugin(PAGES_DIR, { root: TMP });
     const stylePlugin = plugins.find((plugin) => plugin.name === 'void-svelte:islands-style')!;
     const load = stylePlugin.load as HookWithHandler<
-      (this: Rolldown.PluginContext, id: string) => unknown
+      (
+        this: Rolldown.PluginContext,
+        id: string,
+      ) => Rolldown.LoadResult | Promise<Rolldown.LoadResult>
     >;
     const handler = load.handler;
     load.handler = function (id) {

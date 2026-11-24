@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { glob } from 'tinyglobby';
-import type { ResolvedConfig, ViteDevServer } from 'vite';
+import type { ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { scanPages } from 'void/pages';
 import { extractMetadata } from '../../src/metadata.ts';
@@ -48,7 +48,7 @@ async function startPlugin(root: string, command: 'serve' | 'build') {
   const config = getHookHandler(plugin.config) as (
     config: { root: string },
     env: { command: 'serve' | 'build' },
-  ) => unknown;
+  ) => Promise<UserConfig | undefined>;
   const configResolved = getHookHandler<(config: ResolvedConfig) => void>(plugin.configResolved);
   const buildStart = getHookHandler(plugin.buildStart) as () => Promise<void>;
   const load = getHookHandler(plugin.load) as (id: string) => string | undefined;

@@ -167,8 +167,8 @@ interface CaptureRequest extends AsyncIterable<Uint8Array | string> {
   headers: Record<string, string | Array<string> | undefined>;
 }
 interface CaptureResponse {
-  writeHead(status: number, headers?: Record<string, string>): unknown;
-  end(chunk?: string | Buffer): unknown;
+  writeHead(status: number, headers?: Record<string, string>): void;
+  end(chunk?: string | Buffer): void;
 }
 
 /**
