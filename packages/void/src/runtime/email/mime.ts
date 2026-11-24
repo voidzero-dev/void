@@ -70,7 +70,7 @@ function rejectControls(field: string, value: string): void {
 }
 
 /** RFC 2045 §5.1 `tspecials`: what a `token` may not contain besides SPACE and CTLs. */
-const TSPECIALS = '()<>@,;:\\"/[]?=';
+const TSPECIALS = String.raw`()<>@,;:\"/[]?=`;
 
 /** RFC 2045 §5.1 `token` character: printable US-ASCII less SPACE and `tspecials`. */
 function isTokenChar(c: number): boolean {
@@ -891,7 +891,7 @@ function findOverlongLine(text: string): { index: number; octets: number } | und
 
 /** Escape `\` and `"` as quoted-pairs (RFC 5322 §3.2.4), backslash first. */
 function quoteParam(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+  return value.replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`);
 }
 
 /** `<prefix>_<base36 time><16 random hex>`. */

@@ -176,7 +176,7 @@ export async function runProjectTeamCommand(root: string, args: ProjectTeamArgs)
     const action = result.refreshed ? 'Updated invitation for' : 'Invited';
     if (result.delivery.status !== 'sent') {
       note(
-        `Invitation: ${clean(result.invitation.id)}\nShare these steps with the invited user:\n\nvoid connect '${client.apiUrl.replaceAll("'", "'\\''")}'\nvoid project team pending\nvoid project team accept ${clean(result.invitation.id)}`,
+        `Invitation: ${clean(result.invitation.id)}\nShare these steps with the invited user:\n\nvoid connect '${client.apiUrl.replaceAll("'", String.raw`'\''`)}'\nvoid project team pending\nvoid project team accept ${clean(result.invitation.id)}`,
         'Invitation saved; email was not sent',
       );
     }

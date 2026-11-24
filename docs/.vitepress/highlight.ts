@@ -60,7 +60,7 @@ const NOTATIONS: Record<string, Readonly<{ line: ReadonlyArray<string>; pre: str
 
 const NOTATION_RE = new RegExp(
   `\\s*\\[!code (${Object.keys(NOTATIONS)
-    .map((name) => name.replaceAll('+', '\\+'))
+    .map((name) => name.replaceAll('+', String.raw`\+`))
     .join('|')})(?::(\\d+))?\\]`,
   'g',
 );

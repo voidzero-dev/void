@@ -127,7 +127,7 @@ describe('basicAuth', () => {
     const res = await app.request('http://localhost/');
 
     expect(res.headers.get('WWW-Authenticate')).toBe(
-      'Basic realm="staging \\"preview\\"", charset="UTF-8"',
+      String.raw`Basic realm="staging \"preview\"", charset="UTF-8"`,
     );
   });
 

@@ -417,7 +417,7 @@ describe('handlePageGet', () => {
     const html = await response.text();
     expect(html).toContain('data-vite-dev-id="/pages/styled.tsx?x=1"');
     expect(html).toContain('nonce="');
-    expect(html).toContain('<\\/style>');
+    expect(html).toContain(String.raw`<\/style>`);
     expect(html).not.toContain('</STYLE>');
   });
 

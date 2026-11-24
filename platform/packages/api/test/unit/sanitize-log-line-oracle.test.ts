@@ -92,7 +92,7 @@ const CASES: Record<string, string> = {
   'ESC aborts ESC and starts a new escape': 'SECRET\x1b\r\x1bcvisible',
   'unterminated CSI': 'text\x1b[',
   'lone ESC at end': 'text\x1b',
-  'literal text that looks like an escape': 'cost [32m] and \\x1b are literal',
+  'literal text that looks like an escape': String.raw`cost [32m] and \x1b are literal`,
   'CUP row;col': 'Downloading\x1b[1;5H done',
   'CNL resets the cursor column': 'SECRET\x1b[E\x1b[KERR',
   'CPL resets the cursor column': 'SECRET\x1b[F\x1b[KERR',

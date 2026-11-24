@@ -129,7 +129,7 @@ function parseSince(since: string): number {
 }
 
 function sqlString(value: string) {
-  return "'" + value.replaceAll('\\', '\\\\').replaceAll("'", "''") + "'";
+  return "'" + value.replaceAll('\\', String.raw`\\`).replaceAll("'", "''") + "'";
 }
 function tryParse(value: string): ReadonlyArray<unknown> {
   try {

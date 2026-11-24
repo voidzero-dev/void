@@ -278,7 +278,7 @@ function platformAccessOverlapsOrigin(destination: string, origin: string): bool
     '^' +
     host
       .split('*')
-      .map((part) => part.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .map((part) => part.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
       .join('.*') +
     '$';
   return new RegExp(pattern, 'i').test(new URL(origin).hostname);

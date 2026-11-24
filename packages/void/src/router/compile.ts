@@ -758,7 +758,7 @@ export function compileRouteTable(
       // Reject unmatched mail so the sender gets a bounce instead of silent loss.
       lines.push('  if (typeof message.setReject === "function") {');
       lines.push(
-        '    message.setReject("no handler matched recipient \\"" + __to + "\\" — add email/_default.ts to handle unmatched mail");',
+        String.raw`    message.setReject("no handler matched recipient \"" + __to + "\" — add email/_default.ts to handle unmatched mail");`,
       );
       lines.push('  }');
     }

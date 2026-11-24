@@ -33,7 +33,7 @@ function compileSegment(part: string): Segment | null {
 
 function escapeLiteral(value: string): string {
   // Of the allowed literal chars `[a-z0-9._-]`, only `.` is regex-meaningful.
-  return value.replaceAll('.', '\\.');
+  return value.replaceAll('.', String.raw`\.`);
 }
 
 function segmentRegex(s: Segment): string {
@@ -89,7 +89,7 @@ export function compileEmailPattern(basename: string): CompiledEmailPattern | nu
 
   const segments: Array<string> = [segmentRegex(prefix)];
   if (tag) {
-    segments.push('\\+', segmentRegex(tag));
+    segments.push(String.raw`\+`, segmentRegex(tag));
   }
   return {
     kind: patternKind(prefix, tag),

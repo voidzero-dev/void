@@ -4708,7 +4708,7 @@ describe('runCloudflareDeploy — D1 migrations_dir gate', () => {
     ['db/migrations', undefined],
     ['db/migrations/', undefined],
     ['./db/migrations/', undefined],
-    ['db\\migrations', undefined],
+    [String.raw`db\migrations`, undefined],
     ['<root>/db/migrations', undefined],
     ['src/db/migrations', 'src'],
   ])('accepts migrations_dir %s naming the same folder without provisioning', async (dir, src) => {
@@ -7719,7 +7719,7 @@ describe('runCloudflareDeploy — env-schema probe loads lazily', () => {
     );
     // env-validation is loaded dynamically only — its static import is TYPE-only.
     const staticEnvValidation = new RegExp(
-      "^import\\s+(?!type\\b)[^;]*?\\s+from\\s+'\\./env-validation\\.ts';",
+      String.raw`^import\s+(?!type\b)[^;]*?\s+from\s+'\./env-validation\.ts';`,
       'gm',
     );
     expect(probeSource).not.toMatch(staticEnvValidation);

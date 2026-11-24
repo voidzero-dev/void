@@ -297,7 +297,7 @@ async function getAccountUsageProjectWindows(
 }
 
 function analyticsStringLiteral(value: string): string {
-  return `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
+  return `'${value.replaceAll('\\', String.raw`\\`).replaceAll("'", String.raw`\'`)}'`;
 }
 
 async function queryBatchProjectUsageWindows(

@@ -330,7 +330,7 @@ function generatedLiveNamePattern(base: string): RegExp {
 }
 
 function escapeRegExp(value: string): string {
-  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 function findGeneratedLiveBinding(

@@ -508,7 +508,7 @@ function createVoidTsconfigPatch(root: string, outputBaseDir: string): TsconfigI
 }
 
 function hasTopLevelYamlKey(yaml: string, key: string): boolean {
-  const keyPattern = new RegExp(`^${key.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`);
+  const keyPattern = new RegExp(`^${key.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}\\s*:`);
   return yaml.split(/\r?\n/).some((rawLine) => {
     const line = stripYamlLineComment(rawLine);
     return keyPattern.test(line);
@@ -999,7 +999,7 @@ function compilePatternSegment(seg: string): CompiledSegment {
     '^' +
       seg
         .split('*')
-        .map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`))
         .join('[^/]*') +
       '$',
   );
@@ -3151,7 +3151,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     state.packageManager === 'pnpm' &&
     projectInstaller(readPackageJson(root), state.packageManager) === 'vp'
       ? process.platform === 'win32'
-        ? '.\\node_modules\\.bin\\void.cmd'
+        ? String.raw`.\node_modules\.bin\void.cmd`
         : './node_modules/.bin/void'
       : projectVoidRunner[state.packageManager];
   const manualMigration = `${voidRunner} db generate`;

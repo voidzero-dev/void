@@ -2490,7 +2490,7 @@ describe('proxy worker', () => {
         '//api.openai.com/v1/chat/completions',
         '/../chat/completions',
         '/%2e%2e/chat/completions',
-        '/v1\\chat\\completions',
+        String.raw`/v1\chat\completions`,
         '/%E0%A4%A',
       ]) {
         const res = await worker.fetch(

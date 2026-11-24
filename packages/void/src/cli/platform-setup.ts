@@ -376,7 +376,7 @@ export function formatPlatformInstallCommand(options: PlatformInstallCommandOpti
       }
       return process.platform === 'win32'
         ? `'${value.replaceAll("'", "''")}'`
-        : `'${value.replaceAll("'", "'\\''")}'`;
+        : `'${value.replaceAll("'", String.raw`'\''`)}'`;
     })
     .join(' ');
 }

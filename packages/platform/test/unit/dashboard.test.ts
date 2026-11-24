@@ -38,7 +38,7 @@ describe('optional platform dashboard origin', () => {
     'https://dash.example.com?',
     'https://dash.example.com#fragment',
     'https://dash.example.com#',
-    'https:\\dash.example.com',
+    String.raw`https:\dash.example.com`,
     'https://dash.\nexample.com',
   ])('rejects an unsafe or non-origin configuration: %j', (url) => {
     expect(() => normalizePlatformDashboardUrl(url)).toThrow();

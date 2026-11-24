@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 
 function quote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
+  return `'${String(value).replaceAll("'", String.raw`'\''`)}'`;
 }
 
 /** Drive a real terminal using the OS PTY utility, without a native npm dependency. */

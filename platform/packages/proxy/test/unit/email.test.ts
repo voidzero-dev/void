@@ -963,7 +963,7 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
       ['a quoted display name', { email: DEFAULT_FROM, name: 'Smith, John' }],
       [
         'a display name with quotes and backslashes',
-        { email: DEFAULT_FROM, name: 'Acme "Co" \\ Ltd <x>' },
+        { email: DEFAULT_FROM, name: String.raw`Acme "Co" \ Ltd <x>` },
       ],
       ['a short non-ASCII display name', { email: DEFAULT_FROM, name: 'Jürgen Müller' }],
       ['a 200-character CJK display name (folded)', { email: DEFAULT_FROM, name: longName }],
@@ -1262,7 +1262,7 @@ describe('POST /email/send — the envelope handed to CF', () => {
     await postSend(env, await sendBody({ from }));
     for (const call of sender.calls) {
       // oxlint-disable-next-line no-control-regex
-      expect(new RegExp('[\\u0000-\\u001f\\u007f]').test(call.from)).toBe(false);
+      expect(new RegExp(String.raw`[\u0000-\u001f\u007f]`).test(call.from)).toBe(false);
     }
   });
 });
@@ -1278,7 +1278,7 @@ describe('POST /email/send — the envelope handed to CF', () => {
 
 describe('POST /email/send — requestId is bounded and sanitized at intake', () => {
   // oxlint-disable-next-line no-control-regex
-  const CONTROL = new RegExp('[\\u0000-\\u001f\\u007f]');
+  const CONTROL = new RegExp(String.raw`[\u0000-\u001f\u007f]`);
 
   it('a 5 MB control-heavy requestId still sends, and logs a short clean id', async () => {
     // Alternating LF / letter: one regex match per LF, the shape that made

@@ -5444,8 +5444,8 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
   });
 
   it('does not mistake ordinary text for an escape sequence', async () => {
-    expect(await renderCapturedLog('cost [32m] and \\x1b are literal')).toBe(
-      'cost [32m] and \\x1b are literal',
+    expect(await renderCapturedLog(String.raw`cost [32m] and \x1b are literal`)).toBe(
+      String.raw`cost [32m] and \x1b are literal`,
     );
   });
 

@@ -18,7 +18,10 @@ export default defineRender(async (c, assetTags) => {
   const appHtml = renderToString(
     <App url={url.pathname} visitCount={nextCount} blogContent={blogContent} />,
   );
-  const stateJson = JSON.stringify({ visits: nextCount, blogContent }).replaceAll('<', '\\u003c');
+  const stateJson = JSON.stringify({ visits: nextCount, blogContent }).replaceAll(
+    '<',
+    String.raw`\u003c`,
+  );
   const html = `<!doctype html>
 <html lang="en">
   <head>

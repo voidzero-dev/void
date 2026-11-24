@@ -74,7 +74,7 @@ function removeDevVar(contents, key) {
 }
 
 function setDevVar(contents, key, value) {
-  const escaped = value.replaceAll('\\', '\\\\').replaceAll('"', '\\\"');
+  const escaped = value.replaceAll('\\', String.raw`\\`).replaceAll('"', '\\\"');
   const line = `${key}="${escaped}"`;
   return `${removeDevVar(contents, key).replace(/\s*$/, '')}\n${line}\n`;
 }

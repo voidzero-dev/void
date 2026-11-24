@@ -422,7 +422,7 @@ function isVoidInternalPath(pathname: string) {
 }
 
 function basicAuthChallenge(realm: string, message: string) {
-  const escapedRealm = realm.replaceAll(/["\\]/g, '\\$&');
+  const escapedRealm = realm.replaceAll(/["\\]/g, String.raw`\$&`);
 
   return new Response(message, {
     status: 401,

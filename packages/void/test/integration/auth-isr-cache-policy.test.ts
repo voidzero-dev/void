@@ -365,7 +365,7 @@ describe('real authenticated Better Auth session cache policy', () => {
     'private, no-cache="set-cookie"',
     'no-cache="x,private,y", public, max-age=600',
     'no-cache="x,no-store,y", public, max-age=600',
-    'no-cache="a\\",no-store,b", public, max-age=600',
+    String.raw`no-cache="a\",no-store,b", public, max-age=600`,
   ])('applies the session lookup no-store to a route policy of %s', async (policy) => {
     const { app, cookie } = await signedInApp(policy ? { 'cache-control': policy } : {});
     const response = await app.request('https://app.test/api/report', { headers: { cookie } }, env);

@@ -33,11 +33,11 @@ describe('inferBindingsFromSource', () => {
   it.each([
     'import { auth as account } from "void/client";',
     'import { "auth" as account } from "void/client";',
-    'import { \\u0061uth as account } from "void/client";',
+    String.raw`import { \u0061uth as account } from "void/client";`,
     'import * as client from "void/client"; client.auth.signOut();',
     'import * as client from "void/client/react"; client["auth"].useSession();',
-    'import * as client from "void/client"; client["\\x61uth"].signOut();',
-    'import * as client from "void/client"; client["aut\\h"].signOut();',
+    String.raw`import * as client from "void/client"; client["\x61uth"].signOut();`,
+    String.raw`import * as client from "void/client"; client["aut\h"].signOut();`,
     'import * as client from "void/client"; client["au\\\nth"].signOut();',
     'import * as client from "void/client"; const { auth: account } = client;',
     'import * as client from "void/client"; const alias = client; alias.auth.signOut();',
@@ -45,9 +45,9 @@ describe('inferBindingsFromSource', () => {
     'const { auth } = await import("void/client");',
     'const client = await import("void/client"); client.auth.signOut();',
     'const value = (await import("void/client"))["auth"];',
-    'async function run() { const client = await import("void/client"); client["\\141uth"].signOut(); }',
+    String.raw`async function run() { const client = await import("void/client"); client["\141uth"].signOut(); }`,
     'export { auth as account } from "void/client";',
-    'export { "\\x61uth" as account } from "void/client";',
+    String.raw`export { "\x61uth" as account } from "void/client";`,
     'export * from "void/client";',
     'export * as client from "void/client";',
   ])('infers auth from the imported runtime value: %s', (code) => {
@@ -60,7 +60,7 @@ describe('inferBindingsFromSource', () => {
     'import { type auth, fetch } from "void/client";',
     'import type * as client from "void/client"; type T = typeof client.auth;',
     'import * as client from "void/client"; client.fetch("/api");',
-    'import * as client from "void/client"; const parts = text.split(/\\s+/); client.fetch("/api");',
+    String.raw`import * as client from "void/client"; const parts = text.split(/\s+/); client.fetch("/api");`,
     'import * as client from "void/client"; function local(client) { return client.auth; }',
     'import * as client from "void/client"; function local() { client.auth(); var client; }',
     'import * as client from "void/client"; class Local { constructor(private client: any) { client.auth(); } }',
@@ -100,11 +100,11 @@ describe('inferBindingsFromSource', () => {
     'const value = [c.env["DB"], env[`KV`]];',
     'const value = [c["env"].DB, c.env?.KV];',
     'const value = [c.env /* keep */ .DB, env // keep\n .KV];',
-    'const value = [env.D\\u0042, e\\u006ev.KV];',
-    'const value = [c["e\\x6ev"].DB, c["e\\x6ev"].KV];',
-    'const value = [c.env["\\x44B"], c.env["\\x4bV"]];',
-    'const value = [c.env["D\\B"], c.env["K\\V"]];',
-    'const value = [c["\\145nv"]["\\104B"], c["\\145nv"]["\\113V"]];',
+    String.raw`const value = [env.D\u0042, e\u006ev.KV];`,
+    String.raw`const value = [c["e\x6ev"].DB, c["e\x6ev"].KV];`,
+    String.raw`const value = [c.env["\x44B"], c.env["\x4bV"]];`,
+    String.raw`const value = [c.env["D\B"], c.env["K\V"]];`,
+    String.raw`const value = [c["\145nv"]["\104B"], c["\145nv"]["\113V"]];`,
     'const value = [c["en\\\nv"]["D\\\nB"], c["en\\\nv"]["K\\\nV"]];',
   ])('infers resources across static env access forms: %s', (code) => {
     expect(inferBindingsFromSource(code, 'test.ts')).toEqual({
@@ -145,7 +145,7 @@ describe('inferBindingsFromSource', () => {
   it.each([
     "const load = () => import('void/ai');",
     'const load = () => import(`void/ai`);',
-    "const load = () => import('void/\\u0061i');",
+    String.raw`const load = () => import('void/\u0061i');`,
     "const load = () => import(('void/ai'));",
   ])('detects literal dynamic imports in TSX: %s', (statement) => {
     expect(inferBindingsFromSource(`${statement}\nconst view = <div />;`, 'view.tsx').needsAI).toBe(

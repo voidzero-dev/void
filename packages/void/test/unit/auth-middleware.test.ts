@@ -754,7 +754,7 @@ describe('privateCachePolicy', () => {
     ['', 'private, no-store'],
     [null, 'private, no-store'],
     ['no-cache="a,private", public, max-age=60', 'private, no-cache="a,private", max-age=60'],
-    ['no-cache="a\\",no-store", public', 'private, no-cache="a\\",no-store"'],
+    [String.raw`no-cache="a\",no-store", public`, String.raw`private, no-cache="a\",no-store"`],
   ])('%j -> %j', (policy, expected) => {
     expect(privateCachePolicy(policy)).toBe(expected);
   });

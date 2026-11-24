@@ -157,7 +157,7 @@ async function startConditionalWorkerCreateProxy(
       const isTopLevelWorkerUpload =
         incoming.method === 'PUT' &&
         new RegExp(
-          `^${basePath.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}/accounts/[^/]+/workers/scripts/[^/]+$`,
+          `^${basePath.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}/accounts/[^/]+/workers/scripts/[^/]+$`,
         ).test(incomingUrl.pathname);
       const isReadOnly =
         incoming.method === 'GET' || incoming.method === 'HEAD' || incoming.method === 'OPTIONS';

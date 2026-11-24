@@ -84,7 +84,7 @@ function createBuildTrace(root: string) {
   let driverDir: string | undefined;
 
   const show = (path: string) => {
-    let text = path.replaceAll('\0', '\\0');
+    let text = path.replaceAll('\0', String.raw`\0`);
     for (const [prefix, name] of [
       [root, '<app>'],
       [REPO_ROOT, '<repo>'],

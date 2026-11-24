@@ -20,7 +20,7 @@ export const CF_ONLY_IMPORTS: Array<string> = [
 ];
 
 const CF_ONLY_REGEX = new RegExp(
-  `^(${CF_ONLY_IMPORTS.map((s) => s.replace('/', '\\/')).join('|')})$`,
+  `^(${CF_ONLY_IMPORTS.map((s) => s.replace('/', String.raw`\/`)).join('|')})$`,
 );
 
 type NodeTarget = 'node' | 'bun' | 'deno';

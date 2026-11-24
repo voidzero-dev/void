@@ -243,7 +243,9 @@ export function selectAuthoritativePlatformManifest(
 }
 
 function commandArgument(value: string): string {
-  return /^[a-zA-Z0-9_./:@-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+  return /^[a-zA-Z0-9_./:@-]+$/.test(value)
+    ? value
+    : `'${value.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 export function platformLifecycleResumeCommand(

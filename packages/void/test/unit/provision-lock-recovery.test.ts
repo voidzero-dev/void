@@ -170,7 +170,7 @@ describe('acquireProvisionLock — proper-lockfile registry key spelling', () =>
     const lockTarget = 'D:/a/void/void/wrangler.jsonc.void-provision.lock';
 
     expect(resolveProperLockfileKey(lockTarget, 'win32')).toBe(
-      'D:\\a\\void\\void\\wrangler.jsonc.void-provision.lock',
+      String.raw`D:\a\void\void\wrangler.jsonc.void-provision.lock`,
     );
     expect(resolveProperLockfileKey('/tmp/void/wrangler.jsonc.void-provision.lock', 'linux')).toBe(
       '/tmp/void/wrangler.jsonc.void-provision.lock',

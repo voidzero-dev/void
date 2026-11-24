@@ -152,7 +152,7 @@ describe('initial commit hint', () => {
     vi.spyOn(process, 'cwd').mockReturnValue(root);
     const name = "app's $name `value`";
     const argument =
-      process.platform === 'win32' ? `"${name}"` : `'${name.replaceAll("'", "'\\''")}'`;
+      process.platform === 'win32' ? `"${name}"` : `'${name.replaceAll("'", String.raw`'\''`)}'`;
     const git = `git -C ${argument}`;
     expect(initialCommitCommand(join(root, name))).toBe(
       `${git} add -A && ${git} commit -m "chore: initial commit"`,

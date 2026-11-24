@@ -887,7 +887,7 @@ describe('routeInbound — action enaction', () => {
     // oxlint's no-control-regex rule (mirrors the production-side
     // dodge in src/email-router.ts).
     // oxlint-disable-next-line no-control-regex
-    expect(rejectCalls[0]).not.toMatch(new RegExp('[\\r\\n\\u0000]'));
+    expect(rejectCalls[0]).not.toMatch(new RegExp(String.raw`[\r\n\u0000]`));
   });
 
   it('a throwing forward is logged and does not abort the list', async () => {

@@ -1102,10 +1102,10 @@ describe('compileNodeApp', () => {
     'distinguishes files from directory indexes on Windows for %s',
     async (target) => {
       const files = new Map([
-        ['C:\\client\\index.html', 'home'],
-        ['C:\\client\\about\\index.html', 'about'],
-        ['C:\\client\\terms.html', 'terms'],
-        ['C:\\client\\LICENSE', 'license'],
+        [String.raw`C:\client\index.html`, 'home'],
+        [String.raw`C:\client\about\index.html`, 'about'],
+        [String.raw`C:\client\terms.html`, 'terms'],
+        [String.raw`C:\client\LICENSE`, 'license'],
       ]);
       // Windows accepts a trailing separator in a file lookup. Exercise the
       // generated asset handler with those semantics on every test host.
@@ -1121,7 +1121,7 @@ describe('compileNodeApp', () => {
       const app: Hono = new Function('Hono', 'innerApp', 'fileURLToPath', 'serveStatic', code)(
         Hono,
         innerApp,
-        () => 'C:\\client',
+        () => String.raw`C:\client`,
         (options: Parameters<typeof serveStatic>[0]) =>
           serveStatic({
             ...options,

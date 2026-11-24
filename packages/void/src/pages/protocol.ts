@@ -155,7 +155,7 @@ function escapeHtmlAttr(value: string): string {
 }
 
 function serializeStyleCss(css: string): string {
-  return css.replaceAll(/<\/style/gi, '<\\/style');
+  return css.replaceAll(/<\/style/gi, String.raw`<\/style`);
 }
 
 function serializeDevCssAssets(assets: Array<DevCssAsset>, nonce: string): string {

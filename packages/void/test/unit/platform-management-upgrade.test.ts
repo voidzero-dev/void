@@ -356,7 +356,7 @@ describe('installed platform upgrade', () => {
         'installation',
       ),
     ).toBe(
-      "void platform rollback installation --runtime '/tmp/earlier runtime' --from-runtime '/tmp/current'\\''s runtime' --yes",
+      String.raw`void platform rollback installation --runtime '/tmp/earlier runtime' --from-runtime '/tmp/current'\''s runtime' --yes`,
     );
   });
   it('replays --runtime-logs in the upgrade resume command', () => {

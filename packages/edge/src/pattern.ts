@@ -364,7 +364,7 @@ function toRegExp(tokens: ReadonlyArray<Token>): RegExp {
   let body = '';
   for (const token of tokens) {
     if (token.kind === 'text') {
-      body += token.text.replaceAll(/[.+?^${}()|[\]\\:]/g, '\\$&');
+      body += token.text.replaceAll(/[.+?^${}()|[\]\\:]/g, String.raw`\$&`);
     } else if (token.kind === 'seg') {
       body += `(?<${token.name}>[^/]+)`;
     } else {

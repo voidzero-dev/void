@@ -296,7 +296,7 @@ describe('generated __emailHandler dispatch (behavioural)', () => {
         filePath: 'support+[ticket].ts',
         pattern: {
           kind: 'dynamic-tag',
-          regexSource: '^support\\+([^+@]+)$',
+          regexSource: String.raw`^support\+([^+@]+)$`,
           paramNames: ['ticket'],
         },
       },
