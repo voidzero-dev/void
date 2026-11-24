@@ -460,7 +460,6 @@ const config = defineConfig({
       'unicorn/prefer-import-meta-properties': 'off',
       'unicorn/prefer-set-has': 'off',
       'unicorn/prefer-single-call': 'off',
-      'unicorn/prefer-string-slice': 'off',
       'unicorn/prefer-structured-clone': 'off',
       'unicorn/prefer-top-level-await': 'off',
       '@typescript-eslint/array-type': [

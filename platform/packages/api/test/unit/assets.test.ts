@@ -22,7 +22,7 @@ describe('asset hash compatibility', () => {
     (size) => {
       const bytes = Uint8Array.from({ length: size }, (_, index) => index % 251);
       for (const path of ['/asset.js', '/nested/file.css', '/extensionless']) {
-        const input = Buffer.from(bytes).toString('base64') + extname(path).substring(1);
+        const input = Buffer.from(bytes).toString('base64') + extname(path).slice(1);
         const expected = Buffer.from(blake3hash(enc.encode(input)))
           .subarray(0, 16)
           .toString('hex');

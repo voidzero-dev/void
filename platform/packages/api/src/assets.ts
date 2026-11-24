@@ -497,7 +497,7 @@ export function computeAssetHash(content: ArrayBuffer, filePath: string): string
   for (const chunk of base64Chunks(bytes)) {
     hasher.update(chunk);
   }
-  hasher.update(textEncoder.encode(extname(filePath).substring(1)));
+  hasher.update(textEncoder.encode(extname(filePath).slice(1)));
   return digestToAssetHash(hasher.finalize());
 }
 
@@ -508,7 +508,7 @@ export async function computeAssetStreamHashes(
   maxBytes: number,
 ): Promise<{ size: number; hashes: ReadonlyArray<string> }> {
   const hashers = new Map(
-    [...new Set(paths.map((path) => extname(path).substring(1)))].map((extension) => [
+    [...new Set(paths.map((path) => extname(path).slice(1)))].map((extension) => [
       extension,
       createHasher(),
     ]),

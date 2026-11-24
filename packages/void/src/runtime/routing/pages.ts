@@ -277,7 +277,7 @@ export function createPagesFallback(options: {
       : assets && typeof assets.fetch === 'function'
         ? await assets.fetch(c.req.raw)
         : options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }));
-    const filePath = path.includes('/.') || path.substring(path.lastIndexOf('/') + 1).includes('.');
+    const filePath = path.includes('/.') || path.slice(path.lastIndexOf('/') + 1).includes('.');
     // Directory indexes may be served without a redirect by the asset binding.
     // Dynamic page patterns also match real files, which must keep their URLs.
     const pageNeedsSlash =

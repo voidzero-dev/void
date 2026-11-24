@@ -153,7 +153,7 @@ async function tickProgress(
  */
 export function computeAssetHash(content: Buffer, filePath: string): string {
   const base64 = content.toString('base64');
-  const ext = extname(filePath).substring(1);
+  const ext = extname(filePath).slice(1);
   const input = textEncoder.encode(base64 + ext);
   return Buffer.from(blake3hash(input)).toString('hex').slice(0, 32);
 }
