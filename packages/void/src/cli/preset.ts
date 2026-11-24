@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve } from 'pathslash';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
@@ -8,6 +8,7 @@ import {
   readPackageJson,
 } from '../shared/package-json.ts';
 import { getSsrServerEntryPath, hasSsrEntry } from '../ssr/entry.ts';
+import { viteConfigImportsVoidPlugin } from './vite-config-patch.ts';
 
 /** Build output conventions for a known SSG (static site generator). */
 export type SsgPreset = {
@@ -279,7 +280,7 @@ export function detectPreset(
     const buildCommand = resolveProjectScriptCommand(root, 'build');
     return {
       buildCommand: buildCommand ?? resolveProjectCommand(root, 'vite build'),
-      outputDir: resolve(root, viteSpaOutputDir(pkg)),
+      outputDir: resolve(root, viteSpaOutputDir(root, pkg)),
       appType: 'spa',
     };
   }
@@ -379,16 +380,31 @@ function hasViteLike(pkg: Record<string, unknown>): boolean {
   return hasPackageDependency(pkg, 'vite') || hasPackageDependency(pkg, 'vite-plus');
 }
 
+const VITE_CONFIG_FILES = [
+  'vite.config.ts',
+  'vite.config.mts',
+  'vite.config.js',
+  'vite.config.mjs',
+  'vite.config.cts',
+  'vite.config.cjs',
+];
+
 /**
- * Where a Vite SPA build puts its browser files. A project that depends on
- * `void` builds with `voidPlugin()` (`void init` adds it), which splits the
- * output into `dist/client` (browser files) and `dist/ssr` (the server
- * bundle, its source map and `wrangler.json`). Only `dist/client` may be
- * uploaded: uploading `dist` publishes the server files and leaves `/`
- * without an `index.html`.
+ * Where a Vite SPA build puts its browser files. A Vite config that uses
+ * `voidPlugin()` (`void init` adds it) splits the output into `dist/client`
+ * (browser files) and `dist/ssr` (the server bundle, its source map and
+ * `wrangler.json`). Only `dist/client` may be uploaded: uploading `dist`
+ * publishes the server files and leaves `/` without an `index.html`. A
+ * project that installs `void` only for its CLI keeps Vite's plain `dist`.
  */
-function viteSpaOutputDir(pkg: Record<string, unknown>): string {
-  return hasPackageDependency(pkg, 'void') ? 'dist/client' : 'dist';
+function viteSpaOutputDir(root: string, pkg: Record<string, unknown>): string {
+  if (!hasPackageDependency(pkg, 'void')) {
+    return 'dist';
+  }
+  const config = VITE_CONFIG_FILES.map((name) => join(root, name)).find((path) => existsSync(path));
+  return config && viteConfigImportsVoidPlugin(config, readFileSync(config, 'utf8'))
+    ? 'dist/client'
+    : 'dist';
 }
 
 function detectViteBinary(root: string): 'vite' | 'vp' {

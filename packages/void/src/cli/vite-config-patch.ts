@@ -77,6 +77,29 @@ function lineIndent(code: string, index: number): string {
 }
 
 /** Add the plugin only when the exported Vite configuration has an editable object and array. */
+/**
+ * Whether a Vite config imports `voidPlugin` from `void`. Only then does the
+ * build split into `dist/client` and `dist/ssr`; a project can install `void`
+ * for its CLI alone and keep Vite's plain `dist` output.
+ */
+export function viteConfigImportsVoidPlugin(filePath: string, code: string): boolean {
+  let program: Node;
+  try {
+    program = parseSync(filePath, code).program as unknown as Node;
+  } catch {
+    return false;
+  }
+  return (program.body ?? []).some(
+    (node) =>
+      node.type === 'ImportDeclaration' &&
+      node.source?.value === 'void' &&
+      (node.specifiers ?? []).some(
+        (specifier) =>
+          specifier.type === 'ImportSpecifier' && specifier.imported?.name === 'voidPlugin',
+      ),
+  );
+}
+
 export function patchViteConfigWithVoidPlugin(filePath: string, code: string): string | undefined {
   if (filePath.endsWith('.cjs') || filePath.endsWith('.cts')) {
     return undefined;

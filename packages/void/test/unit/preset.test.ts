@@ -159,7 +159,12 @@ describe('detectPreset', () => {
   it('uploads only dist/client for a Vite app built with void and no backend', () => {
     const root = setupProject({
       pkg: { devDependencies: { 'vite-plus': '^1.0.0', void: '^0.5.0' } },
-      files: { 'index.html': '<html></html>', 'main.js': '' },
+      files: {
+        'index.html': '<html></html>',
+        'main.js': '',
+        'vite.config.ts':
+          "import { defineConfig } from 'vite-plus';\nimport { voidPlugin } from 'void';\nexport default defineConfig({ plugins: [voidPlugin()] });\n",
+      },
     });
     expect(detectPreset(root)).toEqual({
       buildCommand: 'vp build',
@@ -168,9 +173,27 @@ describe('detectPreset', () => {
     });
   });
 
+  // `void` installed only for its CLI: the build is plain Vite and writes dist.
+  it('keeps dist for a Vite app that installs void without voidPlugin()', () => {
+    for (const config of [
+      null,
+      "import { defineConfig } from 'vite';\nexport default defineConfig({});\n",
+    ]) {
+      const root = setupProject({
+        pkg: { devDependencies: { vite: '^6.0.0', void: '^0.5.0' } },
+        files: { 'index.html': '<html></html>', ...(config ? { 'vite.config.ts': config } : {}) },
+      });
+      expect(detectPreset(root)?.outputDir).toBe(toSlash(resolve(root, 'dist')));
+    }
+  });
+
   it('uses dist/client for a configured static app built with void', () => {
     const root = setupProject({
       pkg: { dependencies: { vite: '^6.0.0', void: '^0.5.0' } },
+      files: {
+        'vite.config.ts':
+          "import { voidPlugin } from 'void';\nexport default { plugins: [voidPlugin()] };\n",
+      },
     });
     const config = { inference: { appType: 'spa' } } as VoidConfig;
     expect(resolveCloudflareStaticPreset(root, config, {})?.outputDir).toBe(
