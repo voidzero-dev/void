@@ -72,7 +72,17 @@ function getTimedApiFetch(context: Context): typeof fetch {
     apiFetch(input, withTimeout({ ...init, redirect: 'manual' }, timeoutMs));
 }
 
-function getCfAccessHeaders(context: Context): Record<string, string> {
+type AccessHeaders = Partial<
+  Record<
+    | 'Cf-Access-Jwt-Assertion'
+    | 'cf-access-token'
+    | 'CF-Access-Client-Id'
+    | 'CF-Access-Client-Secret',
+    string
+  >
+>;
+
+function getCfAccessHeaders(context: Context): AccessHeaders {
   const env = context.env as Record<string, string | undefined>;
   // The API independently checks the application audience and bound company subject.
   // Prefer this browser's proof; a dashboard service token cannot represent a human.

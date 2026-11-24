@@ -165,15 +165,17 @@ export function hashOriginalUrl(originalUrl: string): string {
   return h.toString(16).padStart(16, '0');
 }
 
+type IsrCacheKeyParts = {
+  normalizedPath: string;
+  variantToken: string | null;
+};
+
 /**
  * Split an ISR KV key into its normalized path and its `#rw=` variant token
  * (`null` for a direct hit). Pass the token to `isrEdgeCacheUrlForToken` to
  * rebuild the matching edge-cache URL.
  */
-export function splitIsrCacheKey(fullKey: string): {
-  normalizedPath: string;
-  variantToken: string | null;
-} {
+export function splitIsrCacheKey(fullKey: string): IsrCacheKeyParts {
   const sepIdx = fullKey.indexOf(ISR_VARIANT_SEPARATOR);
   if (sepIdx === -1) {
     return { normalizedPath: fullKey, variantToken: null };

@@ -121,7 +121,7 @@ async function runSubcommandGroup<T>(
       const platformMessage = message.replace(/^platform:/, pc.bold(pc.red('platform:')));
       console.error(
         err instanceof OperatorClientError && err.details !== undefined
-          ? `${platformMessage}\nPartial result:\n${JSON.stringify(err.details, null, 2)}`
+          ? `${platformMessage}\n${isPartialResult(err) ? 'Partial result' : 'Details'}:\n${JSON.stringify(err.details, null, 2)}`
           : platformMessage,
       );
     } else {
@@ -129,6 +129,17 @@ async function runSubcommandGroup<T>(
     }
     process.exit(1);
   }
+}
+
+// A refusal can carry details (blockers, a revision, a capability). Only a
+// request that did part of its work returns a partial result.
+function isPartialResult(err: OperatorClientError): boolean {
+  return (
+    err.code === 'partial_failure' ||
+    (typeof err.details === 'object' &&
+      err.details !== null &&
+      (err.details as { partial?: unknown }).partial === true)
+  );
 }
 
 const args = process.argv.slice(2);

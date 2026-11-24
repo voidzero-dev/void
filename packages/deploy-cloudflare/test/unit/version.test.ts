@@ -211,7 +211,7 @@ function ok(stdout = ''): CloudflareCommandResult {
   return { stdout, stderr: '', status: 0 };
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((accept) => {
     resolve = accept;
@@ -233,9 +233,7 @@ function runner(overrides?: {
   let triggerCalls = 0;
   let statusCalls = 0;
   let activeVersionId: string | null = CURRENT;
-  let deploymentVersions: Array<{ version_id: string; percentage: number }> = [
-    { version_id: CURRENT, percentage: 100 },
-  ];
+  let deploymentVersions: Array<VersionTraffic> = [{ version_id: CURRENT, percentage: 100 }];
   let uploaded = false;
   return operationFixture((args: Array<string>) => {
     if (args[0] === 'deployments') {
@@ -325,7 +323,7 @@ const TRIGGER_FAILURE: CloudflareCommandResult = {
 };
 
 /** Placeholder Void's secret transport deploys before a Worker exists: no bindings yet. */
-function voidZeroBindingPlaceholder(): Record<string, unknown> {
+function voidZeroBindingPlaceholder() {
   return {
     ...voidSecretDraftVersion(),
     number: 1,
@@ -349,9 +347,7 @@ function recoveryActivation(setup: {
   verifyUploaderAfterRestore?: boolean;
   atomic?: boolean;
 }) {
-  let traffic: Array<{ version_id: string; percentage: number }> = [
-    { version_id: CURRENT, percentage: 100 },
-  ];
+  let traffic: Array<VersionTraffic> = [{ version_id: CURRENT, percentage: 100 }];
   let uploaded = false;
   let statusFails = false;
   let restored = false;
@@ -461,10 +457,15 @@ function deployRequests(runWrangler: ReturnType<typeof runner>): Array<Array<str
     });
 }
 
+interface VersionTraffic {
+  version_id: string;
+  percentage: number;
+}
+
 /** Production traffic the argv runner holds after the activation finished. */
-async function productionTraffic(runWrangler: ReturnType<typeof runner>): Promise<unknown> {
+async function productionTraffic(runWrangler: ReturnType<typeof runner>) {
   const status = await runWrangler({ type: 'deployments.status', workerName: 'my-worker' });
-  return (status.data as { versions: unknown }).versions;
+  return (status.data as { versions: Array<VersionTraffic> }).versions;
 }
 
 describe('Cloudflare version activation', () => {
@@ -658,7 +659,10 @@ describe('Cloudflare version activation', () => {
   ])(
     'does not treat an API-deployed version with %s as the placeholder',
     async (_label, change) => {
-      const draft: Record<string, unknown> = { ...apiSecretDraftVersion(), ...change };
+      const draft: ReturnType<typeof apiSecretDraftVersion> & { source?: string } = {
+        ...apiSecretDraftVersion(),
+        ...change,
+      };
       const fixture = sdkDraftActivation(draft, {
         source: draft.source,
         annotations: draft.annotations,

@@ -15,7 +15,7 @@ const EMPTY_COMMENT_RE = /^\s*(?:\/\/|\/\*|\*\/|<!--|-->|--|[#;%"'*]|\s)*\s*$/;
 const TOKEN_COMMENT = 1;
 
 // The classes a notation gives its line. The block gets `has-` and the first one.
-const NOTATION_CLASSES: Record<string, ReadonlyArray<string>> = {
+const NOTATION_CLASSES = {
   '++': ['diff', 'add'],
   '--': ['diff', 'remove'],
   highlight: ['highlighted'],
@@ -121,13 +121,7 @@ const MARKDOWN_LANGS: ReadonlySet<string> = new Set(['md', 'markdown', 'mdx']);
  * Splits the `[!code ...]` notations from the comments of a line.
  * A comment that held nothing else is removed with them.
  */
-function takeNotations(
-  tokens: ReadonlyArray<ThemedToken>,
-  lang: string,
-): Readonly<{
-  tokens: ReadonlyArray<ThemedToken>;
-  notations: ReadonlyArray<Notation>;
-}> {
+function takeNotations(tokens: ReadonlyArray<ThemedToken>, lang: string) {
   const notations: Array<Notation> = [];
   const kept: Array<ThemedToken> = [];
   const htmlCommentsOnly = MARKDOWN_LANGS.has(lang);
@@ -144,7 +138,7 @@ function takeNotations(
     }
     const content = token.content.replaceAll(
       NOTATION_RE,
-      (_match, name: string, count: string | undefined) => {
+      (_match, name: keyof typeof NOTATION_CLASSES, count: string | undefined) => {
         notations.push({
           classes: NOTATION_CLASSES[name],
           count: count ? Math.max(1, Number.parseInt(count, 10)) : 1,

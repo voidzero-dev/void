@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { UserConfig } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { definePagesPluginTests } from '../../../../test/pages-plugin-contract.ts';
@@ -9,14 +10,14 @@ const TMP = packageFixturePath(import.meta.dirname, '__tmp_pages_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 
 type HookWithHandler<T> = { handler: T };
+type ConfigHook = (
+  config: Record<string, unknown>,
+  env: { command: 'serve' | 'build' },
+) => Promise<UserConfig | void>;
 type PagesPluginHooks = {
   buildStart?: (() => Promise<void>) | HookWithHandler<() => Promise<void>>;
   configureServer?: (server: unknown) => void;
-  config?:
-    | ((config: Record<string, unknown>, env: { command: 'serve' | 'build' }) => unknown)
-    | HookWithHandler<
-        (config: Record<string, unknown>, env: { command: 'serve' | 'build' }) => unknown
-      >;
+  config?: ConfigHook | HookWithHandler<ConfigHook>;
   load?:
     | ((id: string) => Promise<string | undefined> | string | undefined)
     | HookWithHandler<(id: string) => Promise<string | undefined> | string | undefined>;
@@ -39,6 +40,7 @@ function writePage(relativePath: string, source: string): void {
 
 describe('installedDependencies', () => {
   it('keeps entries installed in node_modules and drops linked workspace entries', () => {
+    // oxlint-disable-next-line quality/no-known-value-widening -- The resolver fixture accepts any specifier.
     const files: Record<string, string> = {
       'void/pages-client':
         '/app/node_modules/.pnpm/void@1.6.2/node_modules/void/dist/pages/client.mjs',

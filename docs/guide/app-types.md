@@ -116,4 +116,4 @@ To lock the app type and skip auto-detection, set `inference.appType` in [`void.
 ```
 
 - `inference.appType`: `"void"`, `"framework"`, `"spa"`, or `"static"`
-- `inference.outputDir`: output directory for static app types (relative to project root, defaults to `"dist"`)
+- `inference.outputDir`: output directory for static app types (relative to project root). Defaults to `"dist"`, or `"dist/client"` when the project depends on `void`, because `voidPlugin()` writes browser files there

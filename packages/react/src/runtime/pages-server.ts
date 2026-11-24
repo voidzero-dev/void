@@ -31,7 +31,7 @@ function createPendingDeferred(): Promise<never> {
   return new Promise(() => {});
 }
 
-function propsForReactRender(pageObj: PageObject): Record<string, unknown> {
+function propsForReactRender(pageObj: PageObject): PageObject['props'] {
   if (!pageObj.deferredKeys) {
     return pageObj.props;
   }

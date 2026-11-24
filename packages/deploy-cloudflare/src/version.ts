@@ -353,9 +353,17 @@ export async function deployCloudflareVersionTriggers(options: {
   }
 }
 
-function pickWranglerTriggerContext(source: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const key of ['account_id', 'name', 'legacy_env', 'send_metrics', 'compliance_region']) {
+function pickWranglerTriggerContext(source: Record<string, unknown>) {
+  const result: Partial<
+    Record<'account_id' | 'name' | 'legacy_env' | 'send_metrics' | 'compliance_region', unknown>
+  > = {};
+  for (const key of [
+    'account_id',
+    'name',
+    'legacy_env',
+    'send_metrics',
+    'compliance_region',
+  ] as const) {
     if (Object.hasOwn(source, key)) {
       result[key] = source[key];
     }
@@ -719,16 +727,23 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
   };
 }
 
+interface WranglerTriggerConfig extends Record<string, unknown> {
+  routes?: CloudflareTriggerConfig['routes'];
+  addresses?: CloudflareTriggerConfig['addresses'];
+  workers_dev?: boolean;
+  preview_urls?: boolean;
+}
+
 function triggerWranglerConfig(
   base: Record<string, unknown>,
   triggerConfig: CloudflareTriggerConfig,
   manageRoutes = true,
-): Record<string, unknown> {
+) {
   const triggers = isRecord(base.triggers) ? { ...base.triggers } : {};
   const queues = isRecord(base.queues) ? { ...base.queues } : {};
   triggers.crons = [...triggerConfig.crons];
   queues.consumers = [...triggerConfig.queueConsumers];
-  const config: Record<string, unknown> = {
+  const config: WranglerTriggerConfig = {
     ...base,
     ...(triggerConfig.observability === undefined
       ? {}
@@ -1638,7 +1653,7 @@ async function activateCloudflareVersionWithSecretsFile(
       ...activationUrlFields(options.workerName, desiredTriggerConfig, readinessUrl),
     };
   }
-  const knownTriggerConfigs: Record<string, CloudflareTriggerConfig> = {
+  const knownTriggerConfigs = {
     [versionId]: desiredTriggerConfig,
   };
   if (previous.versionId && previousTriggerConfig) {
@@ -2882,7 +2897,7 @@ function isTrustedReadinessOrigin(url: string, trustedOrigin: string | undefined
   }
 }
 
-function customRouteReadinessOriginField(url: string): { customRouteReadinessOrigin?: string } {
+function customRouteReadinessOriginField(url: string) {
   try {
     return { customRouteReadinessOrigin: new URL(url).origin };
   } catch {

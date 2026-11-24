@@ -333,10 +333,7 @@ export function resolvePlatformRuntime(
   };
 }
 
-function readRuntimeManifestFile(path: string): {
-  contents: Buffer;
-  manifest: PlatformRuntimeManifest;
-} {
+function readRuntimeManifestFile(path: string) {
   try {
     const contents = readFileSync(path);
     return {

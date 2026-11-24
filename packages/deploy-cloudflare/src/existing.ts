@@ -469,6 +469,7 @@ function isAssetsOnlyWorker(worker: ExistingCloudflareWorker): boolean {
   );
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- The provider payload remains unvalidated for the caller's handler checks.
 function existingWorkerHandlers(worker: ExistingCloudflareWorker): unknown {
   // Cloudflare represents the absence of a script on assets-only Workers as null.
   // Missing or malformed handler metadata on other Workers must still fail closed.
@@ -592,7 +593,14 @@ export function assertExistingCloudflareConfig(
       );
     }
   }
-  const supported: Record<string, [string, string, string]> = {
+  interface BindingConfigFields {
+    readonly [type: string]: readonly [
+      configField: string,
+      localIdField: string,
+      remoteIdField: string,
+    ];
+  }
+  const supported: BindingConfigFields = {
     d1: ['d1_databases', 'database_id', 'id'],
     kv_namespace: ['kv_namespaces', 'id', 'namespace_id'],
     r2_bucket: ['r2_buckets', 'bucket_name', 'bucket_name'],

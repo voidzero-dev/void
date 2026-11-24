@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { join } from 'node:path';
+import type { UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 // oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as Vue from 'vue';
@@ -13,16 +14,16 @@ const TMP = packageFixturePath(import.meta.dirname, '__tmp_pages_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 
 type HookWithHandler<T> = { handler: T };
+type ConfigHook = (
+  config: Record<string, unknown>,
+  env: { command: 'serve' | 'build' },
+) => UserConfig | void;
 type PagesPluginHooks = {
   transform?: HookWithHandler<(code: string, id: string) => { code: string } | undefined>;
   handleHotUpdate?: HookWithHandler<(ctx: { file: string; read: () => Promise<string> }) => void>;
   buildStart?: (() => Promise<void>) | HookWithHandler<() => Promise<void>>;
   configureServer?: (server: unknown) => void;
-  config?:
-    | ((config: Record<string, unknown>, env: { command: 'serve' | 'build' }) => unknown)
-    | HookWithHandler<
-        (config: Record<string, unknown>, env: { command: 'serve' | 'build' }) => unknown
-      >;
+  config?: ConfigHook | HookWithHandler<ConfigHook>;
   load?:
     | ((id: string) => Promise<string | undefined> | string | undefined)
     | HookWithHandler<(id: string) => Promise<string | undefined> | string | undefined>;
@@ -44,7 +45,7 @@ function writePage(relativePath: string, source: string): void {
   writeFileSync(full, source);
 }
 
-type PatchProps = (comp: Record<string, unknown>, props: Record<string, unknown>) => void;
+type PatchProps = (comp: object, props: Record<string, unknown>) => void;
 
 function compilePage(source: string): Vue.Component & Record<string, unknown> {
   const transform = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages-transform') as
@@ -136,7 +137,11 @@ describe('pagesPlugin generated patchProps', () => {
       title: { type: String, default: 'DEFAULT' },
       count: { type: Number, required: true },
     };
-    const comp: Record<string, unknown> = { props: { ...declared } };
+    interface ComponentFixture {
+      props: typeof declared;
+      __voidPatched?: boolean;
+    }
+    const comp: ComponentFixture = { props: { ...declared } };
 
     rendererPatchProps(comp, { count: -1 });
     expect(comp.props).toEqual(declared);
@@ -321,6 +326,7 @@ describe('pagesPlugin dev HMR', () => {
       throw new Error('Expected void-vue:pages plugin.');
     }
 
+    // oxlint-disable-next-line typescript/await-thenable -- Preserve the fixture's microtask boundary around the synchronous hook.
     expect(await getHookHandler(plugin.config)({}, { command: 'serve' })).toMatchObject({
       optimizeDeps: { include: ['vue'] },
       environments: {

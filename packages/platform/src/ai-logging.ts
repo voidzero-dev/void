@@ -48,14 +48,20 @@ export function parsePublishedAiLogging(value: string | null): AiLoggingMode | u
   if (value === null) {
     return 'inherit';
   }
+  // oxlint-disable-next-line quality/no-known-value-widening -- The shared predicate also validates untyped provider data.
   return isPublishedAiLoggingMode(value) ? value : undefined;
 }
+
+type EffectiveAiLogging = Readonly<{
+  mode: AiLoggingMode;
+  source: AiLoggingSource;
+}>;
 
 /** Effective mode: the project override, else the plan default, else inherit. */
 export function resolveAiLogging(
   projectMode: AiLoggingMode | null | undefined,
   planMode: AiLoggingMode | null | undefined,
-): Readonly<{ mode: AiLoggingMode; source: AiLoggingSource }> {
+): EffectiveAiLogging {
   if (projectMode && projectMode !== 'inherit') {
     return { mode: projectMode, source: 'project' };
   }
@@ -111,12 +117,14 @@ export function aiLoggingClearedKey(projectId: string): string {
 /** KV expiry of the cleared marker, in seconds (KV's minimum is 60). */
 export const AI_LOGGING_CLEARED_TTL_SECONDS: number = AI_LOGGING_SETTLE_MS / 1000;
 
-/** The KV value and options of a cleared marker written at `at` (ms). */
-export function aiLoggingClearedMarker(at: number): Readonly<{
+type AiLoggingClearedMarker = Readonly<{
   value: string;
   metadata: Readonly<{ at: number }>;
   expirationTtl: number;
-}> {
+}>;
+
+/** The KV value and options of a cleared marker written at `at` (ms). */
+export function aiLoggingClearedMarker(at: number): AiLoggingClearedMarker {
   return { value: 'inherit', metadata: { at }, expirationTtl: AI_LOGGING_CLEARED_TTL_SECONDS };
 }
 
@@ -138,6 +146,7 @@ export function parseAiLoggingKeyMetadata(value: unknown): AiLoggingKeyMetadata 
     return null;
   }
   const { mode, at } = value as Record<string, unknown>;
+  // oxlint-disable-next-line quality/no-known-value-widening -- This metadata was read from KV and still needs validation.
   if (!isPublishedAiLoggingMode(mode) || typeof at !== 'number' || !Number.isSafeInteger(at)) {
     return null;
   }

@@ -137,6 +137,12 @@ export type PlatformDatabaseLifecycleLock = (() => Promise<void>) & {
     kv: AiLoggingProjectionKv,
     onProgress?: (message: string) => void,
   ) => Promise<AiLoggingProjectionResult>;
+  /**
+   * Connections the database accepts from roles without SUPERUSER:
+   * max_connections minus the reserved slots. Missing on test locks, which then skip
+   * fitting the Hyperdrive origin connection limit to the database.
+   */
+  readConnectionSlots?: () => Promise<number>;
   /** Project slugs, which --purge-resources requires to be empty. */
   readProjects?: () => Promise<ReadonlyArray<string>>;
   /** Block Zero Trust writers in the API until the returned release runs. */
@@ -204,6 +210,7 @@ export type InstallerClient = Pick<
   | 'createHyperdrive'
   | 'getHyperdriveConfig'
   | 'disableHyperdriveCaching'
+  | 'setHyperdriveOriginConnectionLimit'
   | 'createKvNamespace'
   | 'createQueue'
   | 'createR2Bucket'

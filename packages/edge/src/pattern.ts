@@ -94,7 +94,7 @@ function pushText(tokens: Array<Token>, text: string): void {
 }
 
 /** `compilePattern` syntax, read left to right. */
-function parseCapture(source: string): { tokens: Array<Token>; paramNames: Array<string> } {
+function parseCapture(source: string) {
   const tokens: Array<Token> = [];
   const paramNames: Array<string> = [];
   let splatTaken = false;

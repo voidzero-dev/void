@@ -490,6 +490,60 @@ async function presignUnderProjectLock(
 // Deploy to a project
 app.post('/:id/deploy', handleManifestOnlyDeploy);
 
+const ADMISSION_REJECTED_MESSAGE = 'Admitted deployment is no longer authorized or valid';
+const ADMISSION_REASON_MAX_BYTES = 8192;
+const ADMISSION_REASON_MAX_CHARS = 4096;
+
+/**
+ * Read why the deploy handler refused an admitted input, for example a Zero
+ * Trust change that landed while the deploy waited. Its JSON body carries the
+ * same `message` (or bare `error`) a direct deploy would show, so the user
+ * learns whether a retry fixes it. Only a small JSON body is read.
+ */
+async function rejectedAdmissionReason(response: Response): Promise<string | null> {
+  const type = response.headers.get('content-type') ?? '';
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
+  if (!reader) {
+    return null;
+  }
+  const bytes = new Uint8Array(ADMISSION_REASON_MAX_BYTES);
+  let size = 0;
+  try {
+    if (type.split(';')[0].trim().toLowerCase() !== 'application/json') {
+      return null;
+    }
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      if (size + chunk.value.byteLength > bytes.byteLength) {
+        return null;
+      }
+      bytes.set(chunk.value, size);
+      size += chunk.value.byteLength;
+    }
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(new TextDecoder().decode(bytes.subarray(0, size)));
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== 'object') {
+    return null;
+  }
+  const { message, error } = body as { message?: unknown; error?: unknown };
+  for (const candidate of [message, error]) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim().slice(0, ADMISSION_REASON_MAX_CHARS);
+    }
+  }
+  return null;
+}
+
 export async function executeQueuedDeployment(
   env: ApiEnv['Bindings'],
   db: Db,
@@ -590,6 +644,7 @@ export async function executeQueuedDeployment(
     env,
   );
   if (response.status !== 204) {
+    const reason = (await rejectedAdmissionReason(response)) ?? ADMISSION_REJECTED_MESSAGE;
     // A rejected admitted input never entered the pipeline. No provider write
     // occurred, so its placeholder can be finalized without replaying it.
     await db.transaction(async (tx) => {
@@ -600,17 +655,11 @@ export async function executeQueuedDeployment(
       if (!candidate || candidate.manifest !== null || candidate.status !== 'pending') {
         throw new Error('Admitted deployment needs reconciliation');
       }
-      await updateDeploymentStatus(
-        tx,
-        operation.id,
-        'failed',
-        'Admitted deployment is no longer authorized or valid',
-        { force: true },
-      );
+      await updateDeploymentStatus(tx, operation.id, 'failed', reason, { force: true });
     });
     await appendDeploymentEvent(db, operation.id, operation.owner_id!, {
       event: 'error',
-      message: 'Admitted deployment is no longer authorized or valid',
+      message: reason,
       step: 'authorization',
     });
   }

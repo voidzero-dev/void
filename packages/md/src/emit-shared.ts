@@ -45,7 +45,7 @@ function findIslandTags(html: string, names: Set<string>): ReadonlyArray<IslandM
   return matches;
 }
 
-function parseAttrs(attrStr: string): Record<string, string> {
+function parseAttrs(attrStr: string) {
   const result: Record<string, string> = {};
   const attrRe = /(\w[\w-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+)))?/g;
   let match: RegExpExecArray | null;

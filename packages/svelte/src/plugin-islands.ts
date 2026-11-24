@@ -47,6 +47,7 @@ const WRAPPER_PREFIX = '/@void-island-wrap/';
 /** The shared API of vite-plugin-svelte, set on its `vite-plugin-svelte:config` plugin. */
 type SveltePluginApi = {
   options: { preprocess?: PreprocessorGroup | Array<PreprocessorGroup> };
+  // oxlint-disable-next-line quality/no-unknown-returns -- The Svelte plugin owns this request and consumes it directly in compileSvelte.
   idParser: (id: string, ssr: boolean) => unknown;
   compileSvelte: (
     request: unknown,

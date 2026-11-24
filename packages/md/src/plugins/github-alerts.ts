@@ -3,6 +3,7 @@ import type { RuleCore, Token } from 'markdown-exit';
 
 const markerRE = /^\[!(TIP|NOTE|INFO|IMPORTANT|WARNING|CAUTION|DANGER)\]([^\n\r]*)/i;
 
+// oxlint-disable-next-line quality/no-known-value-widening -- The lookup key comes from a lowercased regex capture.
 const titleMark: Record<string, string> = {
   tip: 'TIP',
   note: 'NOTE',

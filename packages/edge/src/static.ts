@@ -222,7 +222,11 @@ export function resolveStaticPath(
   return null;
 }
 
-const MIME_TYPES: Record<string, string> = {
+interface MimeTypes {
+  readonly [extension: string]: string | undefined;
+}
+
+const MIME_TYPES: MimeTypes = {
   html: 'text/html; charset=utf-8',
   htm: 'text/html; charset=utf-8',
   css: 'text/css; charset=utf-8',

@@ -3,6 +3,7 @@ import type { JSX } from 'react';
 import type {
   MouseEvent,
   MouseEventHandler,
+  HTMLAttributes,
   FocusEventHandler,
   TouchEventHandler,
   TouchEvent,
@@ -26,6 +27,11 @@ import { NavigationContext, RouterContext } from './context.ts';
 export type LinkProps = BaseLinkProps &
   Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof BaseLinkProps> &
   Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof BaseLinkProps>;
+
+type LinkEventHandlers = Pick<
+  HTMLAttributes<HTMLElement>,
+  'onClick' | 'onFocus' | 'onMouseDown' | 'onMouseEnter' | 'onMouseLeave' | 'onTouchStart'
+>;
 
 export function Link({
   href,
@@ -191,10 +197,8 @@ export function Link({
     };
   }, [doPrefetch, strategies]);
 
-  // oxlint-disable-next-line no-explicit-any -- spread props need a loose cross-element event map
-  const eventHandlers = useMemo<Record<string, any>>(() => {
-    // oxlint-disable-next-line no-explicit-any -- spread props need a loose cross-element event map
-    const handlers: Record<string, any> = {
+  const eventHandlers = useMemo(() => {
+    const handlers: LinkEventHandlers = {
       onClick,
       onFocus: onFocusProp,
       onMouseDown: onMouseDownProp,

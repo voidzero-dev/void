@@ -11,6 +11,15 @@ type Props = {
   onFailure(): void;
 };
 
+type RecoveryState = {
+  error: unknown;
+  failed: boolean;
+};
+
+type BoundaryState = RecoveryState & {
+  generation: number;
+};
+
 const fallbacks = new Map<string, React.LazyExoticComponent<React.ComponentType<ErrorPageProps>>>();
 function fallbackFor(boundary: ClientPageBoundary) {
   let fallback = fallbacks.get(boundary.id);
@@ -24,11 +33,8 @@ function fallbackFor(boundary: ClientPageBoundary) {
 }
 
 /** Native boundaries recover only descendants, so fallback failures reach the parent. */
-export class PageErrorBoundary extends Component<
-  Props,
-  { generation: number; error: unknown; failed: boolean }
-> {
-  state: { generation: number; error: unknown; failed: boolean } = {
+export class PageErrorBoundary extends Component<Props, BoundaryState> {
+  state: BoundaryState = {
     generation: this.props.generation,
     error: null,
     failed: false,
@@ -36,12 +42,12 @@ export class PageErrorBoundary extends Component<
   static getDerivedStateFromProps(
     props: Props,
     state: { generation: number },
-  ): { generation: number; error: unknown; failed: boolean } | null {
+  ): BoundaryState | null {
     return props.generation !== state.generation
       ? { generation: props.generation, error: null, failed: false }
       : null;
   }
-  static getDerivedStateFromError(error: unknown): { error: unknown; failed: boolean } {
+  static getDerivedStateFromError(error: unknown): RecoveryState {
     return { error, failed: true };
   }
   componentDidCatch(): void {

@@ -3,7 +3,7 @@ import type MarkdownExit from 'markdown-exit';
 
 const EXTERNAL_URL_RE = /^[a-z]+:/i;
 
-const EXTERNAL_ATTRS: Record<string, string> = {
+const EXTERNAL_ATTRS = {
   target: '_blank',
   rel: 'noreferrer',
 };

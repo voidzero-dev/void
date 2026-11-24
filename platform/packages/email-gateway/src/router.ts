@@ -479,10 +479,7 @@ export async function routeRelayed(
 }
 
 /** A message stand-in for relayed delivery; forwarding requires a native event. */
-function createRelayedMessage(envelope: EmailEnvelope): {
-  message: ForwardableEmailMessage;
-  rejectedReason: () => string | null;
-} {
+function createRelayedMessage(envelope: EmailEnvelope) {
   let reason: string | null = null;
 
   const message = {
