@@ -553,6 +553,7 @@ const config = defineConfig({
       'quality/no-conditional-empty-object-spread': 'off',
       // Validation helpers deliberately accept unknown, including when tests pass values whose concrete types are known.
       'quality/no-known-value-widening': 'off',
+      // Decoders and dynamic adapters expose unknown until the caller validates it against the relevant schema.
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
       'typescript/no-misused-spread': 'off',
