@@ -296,15 +296,17 @@ export class VoidSocket<P extends keyof WebSocketRouteMap & string> {
         if (this.closedByUser || this.options.reconnect === false) {
           return;
         }
+        const { maxReconnectAttempts } = this.options;
         if (
-          this.options.maxReconnectAttempts != null &&
-          this.reconnectAttempts >= this.options.maxReconnectAttempts
+          maxReconnectAttempts !== null &&
+          maxReconnectAttempts !== undefined &&
+          this.reconnectAttempts >= maxReconnectAttempts
         ) {
           return;
         }
 
         this.reconnectAttempts += 1;
-        const delay = this.options.reconnectDelayMs ?? 1_000;
+        const delay = this.options.reconnectDelayMs ?? 1000;
         this.reconnectTimer = setTimeout(() => this.connect(), delay);
       },
     );

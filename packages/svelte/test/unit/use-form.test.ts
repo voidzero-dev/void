@@ -48,7 +48,7 @@ function svelteBrowserUrl(specifier: string): string {
 function writeCompiled(file: string, code: string): void {
   writeFileSync(
     join(TMP, file),
-    code.replace(
+    code.replaceAll(
       /(from |import )['"](svelte(?:\/[^'"]*)?)['"]/g,
       (_, keyword, specifier) => `${keyword}'${svelteBrowserUrl(specifier)}'`,
     ),

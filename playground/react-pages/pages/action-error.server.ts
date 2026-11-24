@@ -1,4 +1,4 @@
-import * as v from 'valibot';
+import { email as valibotEmail, minLength, object, pipe, string } from 'valibot';
 import { defineHandler } from 'void';
 
 let successfulSubmissions = 0;
@@ -9,17 +9,19 @@ export type Props = Readonly<{
   lastMessage: string;
 }>;
 
-const messageSchema = v.object({
-  message: v.pipe(v.string(), v.minLength(1, 'Message is required')),
+const messageSchema = object({
+  message: pipe(string(), minLength(1, 'Message is required')),
 });
 
-const profileSchema = v.object({
-  name: v.pipe(v.string(), v.minLength(1, 'Name is required')),
-  email: v.pipe(v.string(), v.email('Email must be valid')),
+const profileSchema = object({
+  name: pipe(string(), minLength(1, 'Name is required')),
+  email: pipe(string(), valibotEmail('Email must be valid')),
 });
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function json(body: unknown, status: number, statusText: string): Response {

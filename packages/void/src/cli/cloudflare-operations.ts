@@ -11,8 +11,8 @@ import {
   readBindingFieldPresence,
   readWranglerTopLevelString,
   resolveD1MigrateTarget,
-  type CloudflareVersionMetadata,
 } from '@void/deploy-cloudflare';
+import type { CloudflareVersionMetadata } from '@void/deploy-cloudflare';
 import { join } from 'pathslash';
 import { materializeCloudflareConfig, persistCloudflareConfig } from '../cloudflare-config.ts';
 import { createCloudflareProcessRunner } from './cloudflare-process.ts';
@@ -30,8 +30,8 @@ import {
   readWranglerPublishedTrafficSnapshot,
   writeWranglerPublishedTrafficSnapshot,
   updateWranglerCustomDomain,
-  type WranglerCustomDomain,
 } from './wrangler.ts';
+import type { WranglerCustomDomain } from './wrangler.ts';
 
 export type CloudflareOperationRunner = (
   args: CloudflareOperation,
@@ -140,7 +140,7 @@ export async function putCloudflareSecret(
     context,
     {
       type: 'secret.put',
-      name: name,
+      name,
       configPath: context.configPath,
       workerName: context.workerName,
     },
@@ -168,7 +168,7 @@ export async function deleteCloudflareSecret(
 ): Promise<void> {
   await run(context, {
     type: 'secret.delete',
-    name: name,
+    name,
     configPath: context.configPath,
     workerName: context.workerName,
   });
@@ -280,7 +280,7 @@ export async function executeCloudflareD1Sql(
 export async function readCloudflareD1Migrations(
   context: CloudflareD1Context,
 ): Promise<Array<string>> {
-  const table = context.migrationsTable.replace(/"/g, '""');
+  const table = context.migrationsTable.replaceAll('"', '""');
   try {
     const rows = await executeCloudflareD1Sql(context, `SELECT name FROM "${table}" ORDER BY name`);
     return rows
@@ -505,7 +505,7 @@ export async function activateCloudflareExistingVersion(
       versions: [{ versionId: target.id, percentage: 100 }],
       configPath: context.configPath,
       workerName: context.workerName,
-      message: message,
+      message,
     },
     { capture: false },
   );
@@ -638,7 +638,7 @@ export async function changeCloudflareDomain(
 ): Promise<{ modified: boolean; domains: Array<WranglerCustomDomain> }> {
   const context = resolveCloudflareOperationContext(root, runner);
   const before = readWranglerCustomDomains(root);
-  const original = readFileSync(before.configPath, 'utf-8');
+  const original = readFileSync(before.configPath, 'utf8');
   const update = updateWranglerCustomDomain(root, hostname, action);
   if (!update.modified) {
     return update;
@@ -665,12 +665,14 @@ export async function changeCloudflareDomain(
     try {
       await deployRoutes();
     } catch (restoreError) {
+      // oxlint-disable-next-line preserve-caught-error -- The message retains the rollout and restoration failures without attaching provider details.
       throw new Error(
         `Cloudflare rejected the domain trigger update and also rejected the automatic remote restore. ` +
           `The local Wrangler config was restored, but remote route state may be partially applied. ` +
           `${getErrorMessage(error)} Restore failed: ${getErrorMessage(restoreError)}`,
       );
     }
+    // oxlint-disable-next-line preserve-caught-error -- The message retains the rollout and restoration failures without attaching provider details.
     throw new Error(
       `Cloudflare rejected the domain trigger update; both the local config and remote triggers were restored. ${getErrorMessage(error)}`,
     );
@@ -783,7 +785,7 @@ async function run(
   );
   if (
     result.status !== 0 ||
-    result.signal != null ||
+    (result.signal !== null && result.signal !== undefined) ||
     (result.error !== undefined && result.error !== null && result.error !== '')
   ) {
     const detail = result.stderr.trim() || result.stdout.trim() || result.error || 'unknown error';

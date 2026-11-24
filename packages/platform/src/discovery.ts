@@ -1,16 +1,14 @@
-import { parsePlatformApplication, type PlatformApplication } from './application.ts';
-import {
-  parsePlatformLoginDescriptor,
-  parsePlatformLoginId,
-  type PlatformLoginDescriptor,
-} from './authentication.ts';
+import { parsePlatformApplication } from './application.ts';
+import type { PlatformApplication } from './application.ts';
+import { parsePlatformLoginDescriptor, parsePlatformLoginId } from './authentication.ts';
+import type { PlatformLoginDescriptor } from './authentication.ts';
 import { parseUsageProtocolVersion } from './installation.ts';
 import {
   normalizeApplicationDomain,
   normalizePlatformDashboardUrl,
   readPlatformCapability,
-  type PlatformCapabilities,
 } from './manifest.ts';
+import type { PlatformCapabilities } from './manifest.ts';
 import { assertRecord, record } from './validate.ts';
 
 export const PLATFORM_DISCOVERY_SCHEMA_VERSION = 1 as const;

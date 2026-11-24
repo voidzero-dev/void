@@ -14,11 +14,8 @@ import {
   decodePageData,
   serializePageData,
 } from '../../src/pages/serialize.ts';
-import {
-  defineHandler,
-  type CloudContext,
-  type CloudEnv,
-} from '../../src/runtime/handler/index.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
+import type { CloudContext, CloudEnv } from '../../src/runtime/handler/index.ts';
 import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
 
 type RenderPage = { component: string };
@@ -417,7 +414,7 @@ describe('handlePageGet', () => {
     const html = await response.text();
     expect(html).toContain('data-vite-dev-id="/pages/styled.tsx?x=1"');
     expect(html).toContain('nonce="');
-    expect(html).toContain('<\\/style>');
+    expect(html).toContain(String.raw`<\/style>`);
     expect(html).not.toContain('</STYLE>');
   });
 
@@ -775,7 +772,7 @@ describe('handlePageMutation', () => {
     'allows same-origin browser actions and requests without browser metadata: %j',
     async (headers) => {
       const c = await createTestContext('POST', '/settings', {
-        headers: headers,
+        headers,
       });
       const action = vi.fn(() => Response.redirect('http://localhost/settings', 303));
       const response = await handlePageMutation(

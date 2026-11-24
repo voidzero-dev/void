@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, isAbsolute, join, resolve } from 'pathslash';
+import { isAbsolute, join, resolve } from 'pathslash';
 import {
   isRecord,
   isSandboxDrainProtocol,
@@ -294,7 +293,7 @@ function usageProtocolVersion(value: unknown): 0 | 1 | 2 {
 }
 
 export function getPlatformRuntimeDirectory(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), 'runtime');
+  return join(import.meta.dirname, 'runtime');
 }
 
 export function readPlatformRuntimeManifest(
@@ -322,6 +321,7 @@ export function resolvePlatformRuntime(
   } catch (error) {
     throw new Error(
       `Void Platform runtime directory is unavailable at ${requestedDirectory}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
   const { contents, manifest } = readRuntimeManifestFile(join(directory, 'manifest.json'));
@@ -346,6 +346,7 @@ function readRuntimeManifestFile(path: string): {
   } catch (error) {
     throw new Error(
       `Void Platform deployment artifacts are missing or invalid at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }

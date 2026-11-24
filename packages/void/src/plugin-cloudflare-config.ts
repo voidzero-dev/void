@@ -58,8 +58,8 @@ export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): Cloud
   const name =
     String(packageName ?? basename(root))
       .replaceAll('_', '-')
-      .replace(/[^a-z0-9- ]/g, '-')
-      .replace(/^(-+)|(-+)$/g, '')
+      .replaceAll(/[^a-z0-9- ]/g, '-')
+      .replaceAll(/^(-+)|(-+)$/g, '')
       .slice(0, 63) || 'my-worker';
   const { env, vars, ...base } = raw;
   const selected = process.env.CLOUDFLARE_ENV ? env?.[process.env.CLOUDFLARE_ENV] : undefined;

@@ -1,12 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import type { PlatformInstallationManifest } from '@void/platform';
 import type { PlatformRuntime } from '@void/platform/installer';
-import { confirm, isCancel, log, type SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
+import { confirm, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
+import type { SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
 import { note } from './output.ts';
-import {
-  PlatformCloudflareApiError,
-  type PlatformCloudflareClient,
-} from './platform-cloudflare.ts';
+import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import {
   interruptedWorkerCutover,
   workerCutoverUpdatesSecrets,
@@ -23,8 +22,8 @@ import type {
 import {
   platformWorkerResourceKey,
   uploadPlatformWorkerForReview,
-  type runPlatformWrangler,
 } from './platform-installer-workers.ts';
+import type { runPlatformWrangler } from './platform-installer-workers.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
 
 const OUTSIDE_SOURCES = {

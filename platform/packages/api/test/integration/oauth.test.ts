@@ -46,8 +46,8 @@ import {
   createMockExecutionContext,
   mockCfApi,
   readAllEvents,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv & { DEPLOYMENTS_QUEUE?: Queue };
 let user: Awaited<ReturnType<typeof createTestUser>>;
@@ -839,7 +839,7 @@ describe('registered OAuth applications', () => {
           return Response.json([{ email: 'alice@example.com', primary: true, verified: true }]);
         }
         if (url.endsWith('/user')) {
-          return Response.json({ id: 12345, login: 'alice', email: null });
+          return Response.json({ id: 12_345, login: 'alice', email: null });
         }
         throw new Error('Unexpected provider URL');
       }),

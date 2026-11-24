@@ -1,8 +1,5 @@
-import {
-  PLATFORM_LOGIN_KINDS,
-  parsePlatformLoginConfiguration,
-  type PlatformLoginConfiguration,
-} from '@void/platform';
+import { PLATFORM_LOGIN_KINDS, parsePlatformLoginConfiguration } from '@void/platform';
+import type { PlatformLoginConfiguration } from '@void/platform';
 import { and, eq, gt, inArray, ne } from 'drizzle-orm';
 import type { Context } from 'hono';
 import { getPlatformCapabilities } from '../../capabilities.ts';
@@ -80,7 +77,7 @@ export function requestTimezone(context: AdminContext): string | undefined {
 }
 
 function pageNumber(url: URL) {
-  return Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+  return Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
 }
 
 export async function loadUsersPage(context: AdminContext, path: string) {

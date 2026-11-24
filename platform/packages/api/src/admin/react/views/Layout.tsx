@@ -23,7 +23,8 @@ import {
   Terminal,
   Users,
 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { formatPlatformPageTitle } from '../../../platform-identity.ts';
 import { PageStack } from './PageStack.tsx';
 import { VoidLogo } from './VoidLogo.tsx';

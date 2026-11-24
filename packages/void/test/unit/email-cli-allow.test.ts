@@ -2,6 +2,7 @@ import { log } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { PlatformClient } from '../../src/cli/client.ts';
 import { emailAllow } from '../../src/cli/email.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as output from '../../src/cli/output.ts';
 
 /**

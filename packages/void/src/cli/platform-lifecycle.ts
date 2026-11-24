@@ -3,8 +3,8 @@ import {
   createPlatformResourceNames,
   normalizeApplicationDomain,
   normalizeInstallationSlug,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import {
   confirm,
   isCancel,
@@ -39,8 +39,8 @@ import {
   PlatformCloudflareApiError,
   PlatformRuntimeTokenEmailPermissionError,
   verifyPlatformRuntimeTokenPermissions,
-  type CloudflareAccount,
 } from './platform-cloudflare.ts';
+import type { CloudflareAccount } from './platform-cloudflare.ts';
 import { platformCredentialHelp } from './platform-credential-label.ts';
 import {
   selectInstallationAuthentication,
@@ -65,8 +65,8 @@ import {
   createPlatformInstallPlan,
   formatPlatformInstallPlan,
   revalidatePlatformInstallAction,
-  type PlatformExternalHyperdrive,
 } from './platform-plan.ts';
+import type { PlatformExternalHyperdrive } from './platform-plan.ts';
 import { createPlatformProgress, withPlatformProgress } from './platform-progress.ts';
 import {
   acquirePlatformLifecycleLock,
@@ -157,6 +157,19 @@ export function resolvePlatformInstallDatabaseUrl(
   return explicit || recorded;
 }
 
+const assertNewNameAvailable = (slug: string) => {
+  const collision = listInstallationManifests().find(
+    (manifest) =>
+      manifest.status !== 'uninstalled' && manifest.deployment.installationSlug === slug,
+  );
+  if (collision && !isPlatformInstallInProgress(collision)) {
+    throw new Error(
+      `platform: ${collision.deployment.displayName} (${slug}) already exists (${collision.status}). Run \`void platform status ${collision.id}\` to inspect it.`,
+    );
+  }
+  assertPlatformInstallationSlugAvailable(slug);
+};
+
 export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Promise<void> {
   if (commandArgs.subcommand === 'domain') {
     const { runPlatformDomainCommand } = await import('./platform-domain.ts');
@@ -224,18 +237,6 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         existing = manifest;
         selectedInstall = true;
         selectedDraft = isPlatformSetupDraft(manifest);
-      };
-      const assertNewNameAvailable = (slug: string) => {
-        const collision = listInstallationManifests().find(
-          (manifest) =>
-            manifest.status !== 'uninstalled' && manifest.deployment.installationSlug === slug,
-        );
-        if (collision && !isPlatformInstallInProgress(collision)) {
-          throw new Error(
-            `platform: ${collision.deployment.displayName} (${slug}) already exists (${collision.status}). Run \`void platform status ${collision.id}\` to inspect it.`,
-          );
-        }
-        assertPlatformInstallationSlugAvailable(slug);
       };
       if (!args.resume && process.stdin.isTTY) {
         const installs = resumableInstalls().filter(

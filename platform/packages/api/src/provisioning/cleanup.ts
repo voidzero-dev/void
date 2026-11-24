@@ -18,7 +18,6 @@ import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
 import { clearCronScheduler } from '../cron-scheduler-client.ts';
 import {
   TERMINAL_DEPLOYMENT_STATUSES,
-  type Db,
   deleteProjectCascade,
   cleanupJobsForResource,
   enqueueProjectCleanupJobs,
@@ -31,8 +30,8 @@ import {
   getProjectResources,
   getUser,
   terminateBuildsForProject,
-  type ProjectCleanupJobInput,
 } from '../db.ts';
+import type { Db, ProjectCleanupJobInput } from '../db.ts';
 import { drainProjectEmailAdmissions } from '../email/admission.ts';
 import { emailDomainRoutes, emailZoneConnections } from '../email/connection-schema.ts';
 import { requestEmailDomainRemove, runEmailOperation } from '../email/connection-service.ts';
@@ -289,7 +288,9 @@ async function cleanupCriticalResources(
     resources.filter((r) => r.type === 'container').map((r) => r.cf_id),
   );
   await sweepPerDeployContainerOrphans(context, projectId, alreadyDeletedCfIds);
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 2000);
+  });
   await sweepPerDeployContainerOrphans(context, projectId, alreadyDeletedCfIds);
 }
 
@@ -776,15 +777,17 @@ async function cleanupRaceWindowResourceOrphans(
   const jobs = orphans.flatMap((resource) => cleanupJobsForResource(projectId, resource));
   const result = await runCleanupBatch(context.env, jobs);
   const failedTargets = new Set(result.failed.map((job) => job.target));
-  const completedTargets = jobs
-    .filter((job) => !failedTargets.has(job.target))
-    .map((job) => job.target);
+  const completedTargets = jobs.flatMap((job) =>
+    !failedTargets.has(job.target) ? [job.target] : [],
+  );
   if (completedTargets.length > 0) {
     await context
       .get('db')
       .delete(projectCleanupJobs)
       .where(inArray(projectCleanupJobs.target, completedTargets))
-      .catch((error) => console.error('[project-cleanup] completed job delete failed:', error));
+      .catch((error: unknown) =>
+        console.error('[project-cleanup] completed job delete failed:', error),
+      );
   }
   // Failed jobs were committed atomically with the project cascade and remain
   // in the ledger for scheduled retries after the project row is gone.

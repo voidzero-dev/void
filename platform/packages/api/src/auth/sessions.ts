@@ -13,10 +13,11 @@ import {
   lockAuthSettings,
   readAuthSettings,
   readLoginConnection,
-  type AuthSettings,
 } from './configuration.ts';
+import type { AuthSettings } from './configuration.ts';
 import type { CompanyIdentity } from './identity-types.ts';
-import { signJwt, type JwtPayload } from './jwt.ts';
+import { signJwt } from './jwt.ts';
+import type { JwtPayload } from './jwt.ts';
 export type { CompanyIdentity } from './identity-types.ts';
 export type PlatformHumanSession = typeof platformHumanSessions.$inferSelect;
 

@@ -267,7 +267,7 @@ describe('ensurePreviouslyDeployedLiveBindingConfig', () => {
       true,
     );
 
-    const wrangler = JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8'));
+    const wrangler = JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8'));
     expect(wrangler.durable_objects.bindings).toContainEqual({
       name: 'VOID_LIVE_a1b2c3d4',
       class_name: 'VoidLiveStreamDurableObject_a1b2c3d4',
@@ -310,7 +310,7 @@ describe('resolveDeployLiveBindingConfig', () => {
       }),
     ).resolves.toBeUndefined();
 
-    const wrangler = JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8'));
+    const wrangler = JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8'));
     expect(wrangler.migrations).toBeUndefined();
   });
 
@@ -550,11 +550,11 @@ describe('generateDeployWrapperIfNeeded', () => {
     expect(wrapped).toBe(true);
     expect(existsSync(join(workerDir, '__original.js'))).toBe(true);
     expect(existsSync(join(workerDir, '__void_migration_handler.mjs'))).toBe(true);
-    const wrapper = readFileSync(join(workerDir, 'index.js'), 'utf-8');
+    const wrapper = readFileSync(join(workerDir, 'index.js'), 'utf8');
     expect(wrapper).toContain('import original from "./__original.js"');
     expect(wrapper).toContain('createMigrationHandler');
     expect(wrapper).toContain('/__void/migrate');
-    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf-8');
+    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf8');
     expect(handler).toContain('VALUES ($1, $2)');
   });
 });

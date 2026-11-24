@@ -82,7 +82,7 @@ export function advanceStackGame(game: StackGame, seconds: number): StackGame {
   if (!game.moving) {
     return game;
   }
-  const top = game.tiles[game.tiles.length - 1]!;
+  const top = game.tiles.at(-1)!;
   const speed = Math.min(320, 150 + top.level * 9);
   const travel = game.travel + Math.max(0, seconds) * speed;
   const position = travel % (RANGE * 4);
@@ -98,7 +98,7 @@ export function dropStackTile(game: StackGame, random: () => number = Math.rando
   if (!game.moving) {
     return { game, fragment: null, perfect: false };
   }
-  const top = game.tiles[game.tiles.length - 1]!;
+  const top = game.tiles.at(-1)!;
   const tile = game.moving;
   const size = game.axis === 'x' ? 'width' : 'depth';
   const delta = tile[game.axis] - top[game.axis];

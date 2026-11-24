@@ -171,7 +171,9 @@ export async function createCheckRun(
         err: errInfo(err),
       });
       if (attempt < CHECK_RUN_RETRY_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, CHECK_RUN_RETRY_DELAY_MS));
+        await new Promise((r) => {
+          setTimeout(r, CHECK_RUN_RETRY_DELAY_MS);
+        });
       }
       continue;
     }
@@ -294,7 +296,9 @@ export async function completeCheckRun(
         err: errInfo(err),
       });
       if (attempt < CHECK_RUN_RETRY_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, CHECK_RUN_RETRY_DELAY_MS));
+        await new Promise((r) => {
+          setTimeout(r, CHECK_RUN_RETRY_DELAY_MS);
+        });
       }
       continue;
     }
@@ -369,7 +373,9 @@ export async function completeCheckRun(
       });
     }
     if (attempt < CHECK_RUN_RETRY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, CHECK_RUN_RETRY_DELAY_MS));
+      await new Promise((r) => {
+        setTimeout(r, CHECK_RUN_RETRY_DELAY_MS);
+      });
     }
   }
   logFailure('check-run-complete', 'exhausted', {

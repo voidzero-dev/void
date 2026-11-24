@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { build, type Manifest } from 'vite';
+import { build } from 'vite';
+import type { Manifest } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
   renderCloudflareStaticEntry,
@@ -14,12 +15,10 @@ import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import {
   GENERATED_ASSET_HEADERS_MARKER,
   resolveAssetWorkerBypass,
-  type AssetWorkerBypassFacts,
 } from '../../src/asset-worker-bypass.ts';
-import {
-  planStaticEdgeRouting,
-  type StaticEdgeRouting,
-} from '../../src/cli/deploy-cloudflare-static.ts';
+import type { AssetWorkerBypassFacts } from '../../src/asset-worker-bypass.ts';
+import { planStaticEdgeRouting } from '../../src/cli/deploy-cloudflare-static.ts';
+import type { StaticEdgeRouting } from '../../src/cli/deploy-cloudflare-static.ts';
 import type { RoutingConfig } from '../../src/config.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
 

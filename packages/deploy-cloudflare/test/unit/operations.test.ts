@@ -60,12 +60,12 @@ function setup(
           operation.versions[0]?.versionId === current
         ) {
           if (rollback === 'error') {
-            return { ...ok(), status: 1, errorCode: 10000 };
+            return { ...ok(), status: 1, errorCode: 10_000 };
           }
           if (rollback === 'deployed-elsewhere') {
             versions = [{ version_id: other, percentage: 100 }];
           }
-          return { ...ok(), status: 1, errorCode: 10220 };
+          return { ...ok(), status: 1, errorCode: 10_220 };
         }
         if (
           failure === 'activation' &&
@@ -253,7 +253,7 @@ it.each(interrupted)(
               stdout: '',
               stderr: '',
               failure: 'not-found',
-              errorCode: 10007,
+              errorCode: 10_007,
               ...provenance,
             }
           : runWrangler(operation, options),
@@ -278,7 +278,7 @@ it.each(interrupted)(
               stdout: '',
               stderr: '',
               failure: 'not-found',
-              errorCode: 10007,
+              errorCode: 10_007,
               ...provenance,
             }
           : runWrangler(operation, options),
@@ -292,7 +292,7 @@ it.each(interrupted)(
   },
 );
 
-it.each([10007, 10211])(
+it.each([10_007, 10_211])(
   'does not bootstrap an interrupted upload despite provider code %s',
   async (errorCode) => {
     for (const provenance of interrupted) {
@@ -305,7 +305,7 @@ it.each([10007, 10211])(
                 stdout: '',
                 stderr: '',
                 errorCode,
-                failure: errorCode === 10007 ? 'not-found' : 'durable-migration',
+                failure: errorCode === 10_007 ? 'not-found' : 'durable-migration',
                 ...provenance,
               }
             : runWrangler(operation, options),

@@ -14,9 +14,11 @@ import {
   recordInstallationResource,
   recordInstallationStep,
   transitionInstallation,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
-  type ResourceOwnership,
+} from '@void/platform';
+import type {
+  InstallationResourceKind,
+  PlatformInstallationManifest,
+  ResourceOwnership,
 } from '@void/platform';
 import { log, note } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';

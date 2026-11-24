@@ -1,6 +1,14 @@
 import { useForm, action } from '@void/react';
 import type { Props } from './index.server.ts';
 
+async function deletePost(id: number) {
+  await action('/?delete-post', { data: { id } });
+}
+
+async function deleteUser(id: number) {
+  await action('/?delete-user', { data: { id } });
+}
+
 export default function DbPage({ users, posts }: Props) {
   const userForm = useForm('/?create-user', {
     name: '',
@@ -12,14 +20,6 @@ export default function DbPage({ users, posts }: Props) {
     body: '',
     authorId: 0,
   });
-
-  async function deleteUser(id: number) {
-    await action('/?delete-user', { data: { id } });
-  }
-
-  async function deletePost(id: number) {
-    await action('/?delete-post', { data: { id } });
-  }
 
   return (
     <div>
@@ -75,7 +75,9 @@ export default function DbPage({ users, posts }: Props) {
                 <td>{user.active ? 'Yes' : 'No'}</td>
                 <td>{String(user.createdAt)}</td>
                 <td>
-                  <button onClick={() => deleteUser(user.id)}>Delete</button>
+                  <button type="button" onClick={() => deleteUser(user.id)}>
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}
@@ -152,7 +154,9 @@ export default function DbPage({ users, posts }: Props) {
                 <td>{post.author}</td>
                 <td>{String(post.createdAt)}</td>
                 <td>
-                  <button onClick={() => deletePost(post.id)}>Delete</button>
+                  <button type="button" onClick={() => deletePost(post.id)}>
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}
@@ -168,8 +172,8 @@ export default function DbPage({ users, posts }: Props) {
 }
 
 // --- Type tests (compile-time only, never executed) ---
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function _typeTests() {
+  /* oxlint-disable react/rules-of-hooks -- These calls only exercise hook type signatures. */
   const userForm = useForm('/?create-user', { name: '', email: '' });
   const postForm = useForm('/?create-post', { title: '', body: '', authorId: 0 });
 
@@ -211,6 +215,7 @@ function _typeTests() {
 
   // @ts-expect-error — wrong field type (id should be number)
   void action('/?delete-user', { data: { id: 'not-a-number' } });
+  /* oxlint-enable react/rules-of-hooks */
 }
 
 void _typeTests;

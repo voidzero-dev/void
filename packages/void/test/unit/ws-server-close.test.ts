@@ -1,9 +1,6 @@
 import { expect, it, vi } from 'vite-plus/test';
-import {
-  defineRoom,
-  defineWebSocket,
-  type WebSocketBaseContext,
-} from '../../src/runtime/ws/index.ts';
+import { defineRoom, defineWebSocket } from '../../src/runtime/ws/index.ts';
+import type { WebSocketBaseContext } from '../../src/runtime/ws/index.ts';
 import {
   createWebSocketDurableObject,
   createWebSocketTombstoneDurableObject,

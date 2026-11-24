@@ -60,19 +60,22 @@ export function formatSse(message: SseMessage): string {
 export function formatSseText(message: SseTextMessage): string {
   const lines: Array<string> = [];
 
-  if (message.id != null) {
-    assertControlField('id', message.id);
-    lines.push(`id: ${message.id}`);
+  const id = message.id;
+  if (id !== null && id !== undefined) {
+    assertControlField('id', id);
+    lines.push(`id: ${id}`);
   }
 
-  if (message.event != null) {
-    assertControlField('event', message.event);
-    lines.push(`event: ${message.event}`);
+  const event = message.event;
+  if (event !== null && event !== undefined) {
+    assertControlField('event', event);
+    lines.push(`event: ${event}`);
   }
 
-  if (message.retry != null) {
-    assertRetry(message.retry);
-    lines.push(`retry: ${message.retry}`);
+  const retry = message.retry;
+  if (retry !== null && retry !== undefined) {
+    assertRetry(retry);
+    lines.push(`retry: ${retry}`);
   }
 
   if ('data' in message) {
@@ -117,7 +120,7 @@ export function eventStream(
     if (!signalController.signal.aborted) {
       signalController.abort();
     }
-    if (keepAliveTimer != null) {
+    if (keepAliveTimer !== null && keepAliveTimer !== undefined) {
       clearInterval(keepAliveTimer);
       keepAliveTimer = undefined;
     }
@@ -215,7 +218,7 @@ function normalizeKeepAlive(
   if (keepAlive === false) {
     return null;
   }
-  if (keepAlive === true || keepAlive == null) {
+  if (keepAlive === true || keepAlive === null || keepAlive === undefined) {
     return {
       intervalMs: DEFAULT_KEEP_ALIVE_INTERVAL_MS,
       comment: DEFAULT_KEEP_ALIVE_COMMENT,
@@ -271,7 +274,7 @@ function serializeData(data: unknown): string {
   if (typeof data === 'string') {
     return data;
   }
-  if (data == null) {
+  if (data === null || data === undefined) {
     return data === null ? 'null' : throwDataSerializationError(data);
   }
   if (typeof data === 'function' || typeof data === 'symbol') {
@@ -289,6 +292,7 @@ function serializeData(data: unknown): string {
   } catch (error) {
     throw new Error(
       `sse: data must be JSON-serializable. ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }

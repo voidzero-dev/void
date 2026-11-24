@@ -39,6 +39,7 @@ export async function readPlatformDatabase<T>(
       /^platform: /,
       '',
     );
+    // oxlint-disable-next-line preserve-caught-error -- Preserve the refusal message without recording provider details.
     throw new Error(refuse(reason));
   }
 }

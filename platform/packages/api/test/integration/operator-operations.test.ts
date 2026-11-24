@@ -18,8 +18,8 @@ import {
   advanceProxyTokenRotation,
   reconcileProxyTokenRotations,
   requestProxyTokenRotation,
-  type ProxyTokenRotationEnv,
 } from '../../src/proxy-token-rotation.ts';
+import type { ProxyTokenRotationEnv } from '../../src/proxy-token-rotation.ts';
 import { deriveProxyToken } from '../../src/proxy-token.ts';
 import { databaseTimestampMs } from '../../src/routes/deploy.ts';
 import { readSandboxDrainCheckpoint } from '../../src/sandbox-drain.ts';
@@ -46,9 +46,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type MockCfApiHandle,
-  type TestEnv,
 } from './helpers.ts';
+import type { MockCfApiHandle, TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let token: string;
@@ -192,7 +191,9 @@ test.runIf(Boolean(process.env.VOID_TEST_DATABASE_URL))(
       .then(() => {
         barrierArmed = true;
       });
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
     expect(barrierArmed).toBe(false);
 
     releaseLegacy();
@@ -248,7 +249,9 @@ test.runIf(Boolean(process.env.VOID_TEST_DATABASE_URL))(
       inventoryRead = true;
       return inventory;
     });
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
     expect(inventoryRead).toBe(false);
 
     releaseLegacy();
@@ -1340,7 +1343,7 @@ describe('operator installation-aware system and worker operations', () => {
       'createdAt',
     ]);
     const returnedProjection = JSON.stringify(rows);
-    expect(returnedProjection.length).toBeLessThan(2_000);
+    expect(returnedProjection.length).toBeLessThan(2000);
     expect(returnedProjection).not.toContain('manifest-payload-');
   });
   test('blocks oversized Sandbox identity metadata before any Container API call', async () => {
@@ -1512,7 +1515,7 @@ describe('proxy token rotation', () => {
         const script = cf.state.hostScripts.get(name);
         return script
           ? cfSuccess(script.bindings)
-          : cfError('workers.api.error.script_not_found', 404, 10007);
+          : cfError('workers.api.error.script_not_found', 404, 10_007);
       },
     });
     return cf;

@@ -61,7 +61,7 @@ export async function get_hooks ( ) {
     const getHooks = new Function(
       'load',
       'originalHandle',
-      `${result.code.replace(/^export /gm, '').replaceAll('import(', 'load(')}; return get_hooks;`,
+      `${result.code.replaceAll(/^export /gm, '').replaceAll('import(', 'load(')}; return get_hooks;`,
     )(load, originalHandle) as () => Promise<{
       handle: (options: {
         event: { request: Request; platform?: { env: typeof env } };
@@ -123,7 +123,7 @@ export async function get_hooks ( ) {
       const getHooks = new Function(
         'load',
         'originalHandle',
-        `${result.code.replace(/^export /gm, '').replaceAll('import(', 'load(')}; return get_hooks;`,
+        `${result.code.replaceAll(/^export /gm, '').replaceAll('import(', 'load(')}; return get_hooks;`,
       )(load, appHandle) as () => Promise<{
         handle: (options: {
           event: { request: Request; platform?: { env: typeof env } };

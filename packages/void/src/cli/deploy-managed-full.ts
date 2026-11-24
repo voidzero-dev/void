@@ -7,9 +7,10 @@ import {
   hasDocumentRoutes as routeScanHasDocumentRoutes,
   resolveAssetConfig,
 } from '../asset-routing.ts';
-import { type VoidConfig, isNodeTarget } from '../config.ts';
+import { isNodeTarget } from '../config.ts';
+import type { VoidConfig } from '../config.ts';
 import { collectRevalidate } from '../isr-config.ts';
-import { type DetectedFramework } from '../plugin-inference.ts';
+import type { DetectedFramework } from '../plugin-inference.ts';
 import { assertNoPrerenderFailures } from '../prerender-render.ts';
 import {
   collectPrerenderPaths,
@@ -23,7 +24,7 @@ import { resolveRemoteMode } from '../shared/env.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
 import { validateSsrEntry } from '../ssr/entry.ts';
 import { resolveDistDir, resolveWorkerDirName } from './build-output-dir.ts';
-import { PlatformClient } from './client.ts';
+import type { PlatformClient } from './client.ts';
 import { assertDeploySchemaDriftFree } from './deploy-drift.ts';
 import {
   resolveFullDeployBuildCommand,
@@ -50,16 +51,17 @@ import { runStaticDeploy, assembleVoidManifest } from './deploy-managed-static.t
 import { printDeploySecurityNotice } from './deploy-security-notice.ts';
 import { formatDeploySummary, printDeploySuccess } from './deploy-summary.ts';
 import { MANAGED_DEPLOY_BUILD_ENV } from './deploy-transport.ts';
-import { type GitDeployMetadata } from './git-metadata.ts';
-import { type CliLogger } from './log-file.ts';
+import type { GitDeployMetadata } from './git-metadata.ts';
+import type { CliLogger } from './log-file.ts';
 import { createSpinner, formatCount, note } from './output.ts';
 import {
   collectAndHashAssets,
   collectWorkerFiles,
   detectNonSpaFallbackWarning,
 } from './package.ts';
-import { formatProjectCommand, type FrameworkPreset } from './preset.ts';
-import { type ProjectConfig } from './project.ts';
+import { formatProjectCommand } from './preset.ts';
+import type { FrameworkPreset } from './preset.ts';
+import type { ProjectConfig } from './project.ts';
 import type { AssetConfig } from './types.ts';
 import type { WrapperFeatures } from './wrapper.ts';
 import { needsWrapper } from './wrapper.ts';
@@ -127,7 +129,7 @@ export async function runFullDeploy(
   const clientManifestPath = join(distDir, 'client', '.vite', 'manifest.json');
   if (existsSync(clientManifestPath)) {
     const manifest: Record<string, { file?: string }> = JSON.parse(
-      readFileSync(clientManifestPath, 'utf-8'),
+      readFileSync(clientManifestPath, 'utf8'),
     );
     for (const entry of Object.values(manifest)) {
       if (entry.file?.includes('/')) {
@@ -141,7 +143,7 @@ export async function runFullDeploy(
   }
 
   // Class A framework mode, detected by runDeploy.
-  const isFrameworkMode = detected != null;
+  const isFrameworkMode = detected !== null && detected !== undefined;
 
   // Managed static prerender is deliberately outside the Vite subprocess. The
   // build runs arbitrary project plugins with every platform credential
@@ -455,7 +457,10 @@ export async function runFullDeploy(
     const wrapperFeatures: WrapperFeatures = {
       crons: rawJobs,
       queues: rawQueues,
-      hasMigrations: validatedMigrations != null && validatedMigrations.length > 0,
+      hasMigrations:
+        validatedMigrations !== null &&
+        validatedMigrations !== undefined &&
+        validatedMigrations.length > 0,
       migrationDialect: dialect,
     };
     if (needsWrapper(wrapperFeatures)) {

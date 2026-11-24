@@ -24,8 +24,8 @@ import {
   mockCfApi,
   skipOrphanSweepDelay,
   readAllEvents,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Managed Sandbox deploys isolate the trusted controller in an account Worker.
@@ -634,7 +634,7 @@ describe('per-deploy sandbox integration', () => {
       errors: Array<{ code: number; message: string }>;
     };
     expect(body.success).toBe(false);
-    expect(body.errors[0]!.code).toBe(10061);
+    expect(body.errors[0]!.code).toBe(10_061);
     expect(body.errors[0]!.message).toMatch(/Cannot create binding for class in script/);
   });
 
@@ -686,7 +686,7 @@ describe('per-deploy sandbox integration', () => {
       errors: Array<{ code: number; message: string }>;
     };
     expect(body.success).toBe(false);
-    expect(body.errors[0]!.code).toBe(10061);
+    expect(body.errors[0]!.code).toBe(10_061);
     expect(body.errors[0]!.message).toMatch(/do-host-existing/);
   });
 

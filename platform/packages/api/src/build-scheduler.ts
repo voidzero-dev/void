@@ -1,7 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { BuildManager } from './build-manager.ts';
 import { buildManagerNamespace } from './build-namespace.ts';
-import { type BuildConfig, isContainerCapacityError } from './build-types.ts';
+import { isContainerCapacityError } from './build-types.ts';
+import type { BuildConfig } from './build-types.ts';
 import {
   cancelQueuedContainerBuildsForUsers,
   claimBuildForStartWithinLimit,
@@ -25,7 +26,7 @@ import { isAdminSuspended } from './suspension.ts';
 const POKE_DELAY_MS = 50;
 
 /** While the queue still has work the alarm reschedules this far ahead. */
-const RESCAN_DELAY_MS = 2_000;
+const RESCAN_DELAY_MS = 2000;
 
 /** When the container fleet is at capacity, back off this long (jittered) before
  *  re-scanning instead of the normal 2s cadence — avoids burning GitHub/token calls
@@ -248,7 +249,7 @@ export class BuildScheduler extends DurableObject<ApiEnv['Bindings']> {
 
       // `ns` (the build's target fleet) was resolved above; address the per-build
       // BuildManager on it, keyed by build id.
-      const stub = ns.get(ns.idFromName(build.id)) as unknown as DurableObjectStub<BuildManager>;
+      const stub = ns.get(ns.idFromName(build.id)) as DurableObjectStub<BuildManager>;
       try {
         await stub.startBuild(config);
       } catch (error) {

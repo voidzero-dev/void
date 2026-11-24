@@ -1045,13 +1045,13 @@ describe('operator transport and execution', () => {
     const overridden = client.request('/users/id/delete', {
       method: 'POST',
       body: {},
-      timeoutMs: 2_000,
+      timeoutMs: 2000,
     });
     const overrideFailure = expect(overridden).rejects.toMatchObject({
       code: 'request_timeout',
       message: expect.stringContaining('2-second timeout'),
     });
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(2000);
     await overrideFailure;
     vi.useRealTimers();
   });

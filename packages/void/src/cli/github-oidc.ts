@@ -50,6 +50,7 @@ async function requestGithubOidcToken(requestUrl: string, requestToken: string):
       redirect: 'manual',
     });
   } catch (err) {
+    // oxlint-disable-next-line preserve-caught-error -- The message includes the sanitized provider error text.
     throw new Error(`github-oidc: Failed to reach the GitHub OIDC token endpoint: ${errText(err)}`);
   }
 
@@ -93,6 +94,7 @@ async function exchangeOidcTokenAtApi(
       redirect: 'manual',
     });
   } catch (err) {
+    // oxlint-disable-next-line preserve-caught-error -- The message includes the sanitized provider error text.
     throw new Error(`github-oidc: Failed to reach ${url}: ${errText(err)}`);
   }
 

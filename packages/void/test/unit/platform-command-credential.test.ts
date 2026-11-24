@@ -86,7 +86,9 @@ it('keeps the operator credential through the guarded new-Worker create proxy', 
     response.setHeader('Content-Type', 'application/json');
     response.end(JSON.stringify({ success: true, result: {} }));
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   try {
     const launcher = join(directory, 'create.mjs');
     writeFileSync(

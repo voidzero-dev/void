@@ -13,7 +13,7 @@ import {
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 
 function plain(text: string | null): string {
-  return (text ?? '').replace(ANSI, '');
+  return (text ?? '').replaceAll(ANSI, '');
 }
 
 function line(record: Record<string, unknown>): string {

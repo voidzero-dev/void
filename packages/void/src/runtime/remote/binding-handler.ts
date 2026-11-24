@@ -1,4 +1,5 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { base64ToBytes } from '../../shared/base64.ts';
 import { R2_OBJECT_HEADER, parseR2Conditional, parseR2HttpMetadata } from './r2-conditions.ts';
 

@@ -1,4 +1,5 @@
-import { parsePlatformAccessProtection, type PlatformAccessProtection } from '@void/platform';
+import { parsePlatformAccessProtection } from '@void/platform';
+import type { PlatformAccessProtection } from '@void/platform';
 import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import { boundedIdentityResponse } from './identity-network.ts';
 import type { CompanyIdentity } from './sessions.ts';

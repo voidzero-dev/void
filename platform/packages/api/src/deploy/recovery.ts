@@ -17,8 +17,8 @@ import {
   setActiveDeployment,
   updateProjectType,
   TERMINAL_DEPLOYMENT_STATUSES,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getProjectQueueName } from '../naming.ts';
 import { resolvePlanLimits } from '../plans.ts';
@@ -33,8 +33,9 @@ import { reconcileManagedDurableObjects } from '../provisioning/durable-objects.
 import { requestRotationIfReplacingUntrustedCode } from '../proxy-token-rotation.ts';
 import { projectRouteKey } from '../routing.ts';
 import { buildRoutingJson, buildStaticRoutingJson, computeDispatchLimits } from '../routing.ts';
-import { enqueueSecurityScanInTx, type SecurityScanEnqueued } from '../security/enqueue.ts';
-import { type DeployManifest, type Deployment, type Project } from '../types.ts';
+import { enqueueSecurityScanInTx } from '../security/enqueue.ts';
+import type { SecurityScanEnqueued } from '../security/enqueue.ts';
+import type { DeployManifest, Deployment, Project } from '../types.ts';
 import {
   resolveProjectZeroTrustRouting,
   resolveProjectZeroTrustRoutingForPublication,
@@ -368,11 +369,18 @@ export async function replayDeploymentCutover(
       resource.cf_id,
       dispatchWorkerName,
       {
-        ...(queue.maxBatchSize != null && { batch_size: queue.maxBatchSize }),
-        ...(queue.maxBatchTimeout != null && { max_wait_time_ms: queue.maxBatchTimeout * 1000 }),
-        ...(queue.maxRetries != null && { max_retries: queue.maxRetries }),
-        ...(queue.maxConcurrency != null && { max_concurrency: queue.maxConcurrency }),
-        ...(queue.retryDelay != null && { retry_delay: queue.retryDelay }),
+        ...(queue.maxBatchSize !== null &&
+          queue.maxBatchSize !== undefined && { batch_size: queue.maxBatchSize }),
+        ...(queue.maxBatchTimeout !== null &&
+          queue.maxBatchTimeout !== undefined && {
+            max_wait_time_ms: queue.maxBatchTimeout * 1000,
+          }),
+        ...(queue.maxRetries !== null &&
+          queue.maxRetries !== undefined && { max_retries: queue.maxRetries }),
+        ...(queue.maxConcurrency !== null &&
+          queue.maxConcurrency !== undefined && { max_concurrency: queue.maxConcurrency }),
+        ...(queue.retryDelay !== null &&
+          queue.retryDelay !== undefined && { retry_delay: queue.retryDelay }),
       },
     );
     if (consumer.status === 'conflict') {

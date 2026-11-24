@@ -19,7 +19,8 @@ export const INTERNAL_BINDING_EXACT_NAMES = ['ISR_CACHE'] as const;
 
 /** Only ISR builds stamp the `__VOID_ISR_DEPLOYMENT_ID` binding onto the raw env. */
 export function isIsrActive(rawEnv: RuntimeEnv): boolean {
-  return rawEnv.__VOID_ISR_DEPLOYMENT_ID != null;
+  const deploymentId = rawEnv.__VOID_ISR_DEPLOYMENT_ID;
+  return deploymentId !== null && deploymentId !== undefined;
 }
 
 /**
@@ -46,6 +47,7 @@ const isWorkerd = typeof navigator !== 'undefined' && navigator.userAgent === 'C
 
 if (isWorkerd) {
   // Only env is consumed; avoid instantiating the Workers RPC exports as PromiseLike types.
+  // oxlint-disable-next-line unicorn/prefer-top-level-await -- Keep the shared runtime module synchronous for other targets and its importers.
   (import('cloudflare:workers') as Promise<{ env?: unknown }>)
     .then((mod) => {
       cloudflareEnv = asEnv(mod.env) ?? undefined;

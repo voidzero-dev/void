@@ -16,7 +16,7 @@ import { Heading } from '@astryxdesign/core/Text';
 import { useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import { ZeroTrustView, zeroTrustRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { AdminCard } from './AdminCard.tsx';
 import { FormCheckbox, FormTextInput } from './FormControls.tsx';
 import { Layout } from './Layout.tsx';

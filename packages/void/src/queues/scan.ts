@@ -29,7 +29,7 @@ function extractName(filePath: string): string {
 }
 
 function deriveQueueBindingName(name: string): string {
-  return 'QUEUE_' + name.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  return 'QUEUE_' + name.toUpperCase().replaceAll(/[^A-Z0-9]/g, '_');
 }
 
 const OPTION_NAMES = [
@@ -82,7 +82,7 @@ export function scanQueuesSync(queuesDir: string): Array<QueueDefinition> {
     .sort()
     .map((filePath) => {
       const absPath = join(queuesDir, filePath);
-      const source = readFileSync(absPath, 'utf-8');
+      const source = readFileSync(absPath, 'utf8');
       const name = extractName(filePath);
       const options = readOptionInitializers(absPath, filePath, source);
       const optionValue = (option: (typeof OPTION_NAMES)[number]): number | undefined => {

@@ -1,5 +1,5 @@
-import { type ApplicationAnalysis } from '../../application-analysis.ts';
-import { type VoidConfig } from '../../config.ts';
+import type { ApplicationAnalysis } from '../../application-analysis.ts';
+import type { VoidConfig } from '../../config.ts';
 import { assertNoRootSourceConventionConflicts } from '../../project-paths.ts';
 import { validateSsrEntry } from '../../ssr/entry.ts';
 import { getErrorMessage } from '../output.ts';

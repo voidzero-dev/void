@@ -133,6 +133,7 @@ export async function renderFateListPage(
     } else {
       await client.request(emailSettingsRequest(path));
     }
+    // oxlint-disable-next-line typescript/return-await -- Only classify failures from loading the Fate snapshot in this catch.
     return renderAdminPage(context, page, title, props, { fateSnapshot: client.dehydrate() });
   } catch (error) {
     if (error instanceof FateRequestError && error.status >= 400 && error.status < 500) {
@@ -218,6 +219,7 @@ export async function renderFateDetailPage(
       const { data } = await client.readView(EmailProjectView, emailProject);
       detailTitle = `Email - ${data.project.slug}`;
     }
+    // oxlint-disable-next-line typescript/return-await -- Only classify failures from loading the Fate snapshot in this catch.
     return renderAdminPage(context, page, detailTitle, props, { fateSnapshot: client.dehydrate() });
   } catch (error) {
     if (error instanceof FateRequestError && error.status >= 400 && error.status < 500) {

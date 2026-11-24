@@ -10,7 +10,8 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { build, createBuilder, resolveConfig, type InlineConfig } from 'vite';
+import { build, createBuilder, resolveConfig } from 'vite';
+import type { InlineConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { envClientFoldPlugin } from '../../src/plugin-env-client-fold.ts';
 import { envSchemaPlugin } from '../../src/plugin-env-schema.ts';
@@ -138,7 +139,7 @@ describe('envSchemaPlugin auto-discovery', () => {
     const dtsPath = join(root, '.void', 'env.d.ts');
     expect(existsSync(dtsPath)).toBe(true);
 
-    const dts = readFileSync(dtsPath, 'utf-8');
+    const dts = readFileSync(dtsPath, 'utf8');
     // `export {}` makes the file an augmentation instead of an ambient module.
     expect(dts).toContain('export {}');
     expect(dts).toContain('declare module "void/env"');
@@ -160,7 +161,7 @@ describe('envSchemaPlugin auto-discovery', () => {
     const plugin = envSchemaPlugin(root);
     await runConfig(plugin);
 
-    const dts = readFileSync(join(root, '.void', 'env.d.ts'), 'utf-8');
+    const dts = readFileSync(join(root, '.void', 'env.d.ts'), 'utf8');
     // Relative path from .void/ to src/env.ts.
     expect(dts).toContain('typeof import("../src/env.ts")');
   });

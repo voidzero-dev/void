@@ -1,12 +1,8 @@
 import { confirm, isCancel, log, outro } from '@voidzero-dev/vite-plus-prompts';
 import { isCI } from 'ci-info';
 import { getToken } from './auth.ts';
-import {
-  PlatformApiError,
-  PlatformClient,
-  type ProjectZeroTrustResponse,
-  type ProjectZeroTrustUpdateResponse,
-} from './client.ts';
+import { PlatformApiError, PlatformClient } from './client.ts';
+import type { ProjectZeroTrustResponse, ProjectZeroTrustUpdateResponse } from './client.ts';
 import { printSuccess, note, sanitizeTerminalText } from './output.ts';
 import type { ProjectZeroTrustArgs } from './project-args.ts';
 import { cleanLine, day, publicRequestLines, type RequestSecurity } from './project-security.ts';

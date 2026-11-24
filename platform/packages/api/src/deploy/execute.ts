@@ -4,8 +4,9 @@ import {
   isSandboxRegistryImage,
 } from '@void/deploy-core';
 import { and, eq, sql as drizzleSql } from 'drizzle-orm';
-import { type Context } from 'hono';
-import { paginatedR2Delete, type AssetManifestEntry } from '../assets.ts';
+import type { Context } from 'hono';
+import { paginatedR2Delete } from '../assets.ts';
+import type { AssetManifestEntry } from '../assets.ts';
 import { verifyOAuthDeployment, OAuthError } from '../auth/oauth.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import {
@@ -33,15 +34,16 @@ import {
   recordUploadedDeploymentInput,
   uploadedDeploymentInput,
   uploadedWorkerInputProblem,
-  type DeploymentInput,
 } from '../deployment-execution.ts';
+import type { DeploymentInput } from '../deployment-execution.ts';
 import {
   getSharedEmailRecipientReadiness,
   reconcileSharedEmailRecipient,
 } from '../email/shared-recipient-service.ts';
 import type { ApiEnv } from '../env.ts';
 import { checkCliVersionOrRespond } from '../middleware/cli-version.ts';
-import { createDeployLogger, type DeployLogger } from '../observability/logger.ts';
+import { createDeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import { resolvePlanLimits } from '../plans.ts';
 import { ProjectAccessDeniedError, projectAccessErrorBody } from '../project-access.ts';
 import { ProjectRequiresNormalizationError, requireNormalizedProject } from '../project-state.ts';
@@ -49,19 +51,13 @@ import { assertManagedSandboxEntitlement } from '../provisioning/sandbox-control
 import { requestRotationIfReplacingUntrustedCode } from '../proxy-token-rotation.ts';
 import { requireProjectRouteCapability } from '../routes/project-access.ts';
 import { deploymentOperations } from '../schema.ts';
-import {
-  enqueueSecurityScanInTx,
-  finishSecurityScanEnqueue,
-  type SecurityScanEnqueued,
-} from '../security/enqueue.ts';
+import { enqueueSecurityScanInTx, finishSecurityScanEnqueue } from '../security/enqueue.ts';
+import type { SecurityScanEnqueued } from '../security/enqueue.ts';
 import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
-import {
-  SUPPORTED_MANIFEST_VERSIONS,
-  type DeployManifest,
-  type Deployment,
-  type Project,
-} from '../types.ts';
-import { blobWorkerModule, type WorkerModule } from '../worker-upload.ts';
+import { SUPPORTED_MANIFEST_VERSIONS } from '../types.ts';
+import type { DeployManifest, Deployment, Project } from '../types.ts';
+import { blobWorkerModule } from '../worker-upload.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import { zeroTrustNotReadyMessage } from '../zero-trust/errors.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import {
@@ -80,10 +76,10 @@ import {
   resolvePersistedDeploymentType,
   databaseTimestampMs,
   CUTOVER_RECOVERY_STALE_MS,
-  type CutoverMarker,
   replayDeploymentCutover,
   clearProjectExternalState,
 } from './recovery.ts';
+import type { CutoverMarker } from './recovery.ts';
 import {
   assertPersistedDeploymentServingAssetsExist,
   StaticAssetDisappearedError,
@@ -97,8 +93,8 @@ import {
   moduleContentType,
   workerFilesError,
   workerInputProblem,
-  type WorkerInput,
 } from './shared.ts';
+import type { WorkerInput } from './shared.ts';
 
 const WORKER_UPLOAD_CLAIMED_MESSAGE =
   'this Worker upload belongs to another deployment; run the deploy again';
@@ -196,7 +192,6 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   const cliVersion = context.req.header('x-void-cli-version') ?? null;
 
   const actor = context.get('user');
-  let owner = access.owner;
 
   const logger: DeployLogger = createDeployLogger({
     projectId,
@@ -251,7 +246,12 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
       400,
     );
   }
-  if (parsedBody == null || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+  if (
+    parsedBody === null ||
+    parsedBody === undefined ||
+    typeof parsedBody !== 'object' ||
+    Array.isArray(parsedBody)
+  ) {
     return context.json({ error: 'request body must be a JSON object' }, 400);
   }
   const body = parsedBody as Record<string, unknown>;
@@ -260,7 +260,12 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   // truth for what's accepted; the `assetManifestVersion === 2` check below
   // requires the v2 wire shape (blake3 + md5 + size per asset) that
   // direct-to-R2 deploys depend on.
-  if (body.manifest == null || typeof body.manifest !== 'object' || Array.isArray(body.manifest)) {
+  if (
+    body.manifest === null ||
+    body.manifest === undefined ||
+    typeof body.manifest !== 'object' ||
+    Array.isArray(body.manifest)
+  ) {
     return context.json(
       { event: 'error', message: 'manifest is required and must be an object' },
       400,
@@ -447,7 +452,8 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     }
   }
   if (
-    incomingManifest.version == null ||
+    incomingManifest.version === null ||
+    incomingManifest.version === undefined ||
     !SUPPORTED_MANIFEST_VERSIONS.includes(incomingManifest.version)
   ) {
     return context.json(
@@ -474,7 +480,8 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   // BLAKE3 is the storage-key identifier and md5 is purely a write-time
   // R2 integrity primitive.
   if (
-    body.assetManifest == null ||
+    body.assetManifest === null ||
+    body.assetManifest === undefined ||
     typeof body.assetManifest !== 'object' ||
     Array.isArray(body.assetManifest)
   ) {
@@ -496,7 +503,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   }
   const incomingAssetManifest: Record<string, AssetManifestEntry> = {};
   for (const [path, raw] of assetEntries) {
-    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
       return context.json(
         { event: 'error', message: `invalid assetManifest entry for ${path}: must be an object` },
         400,
@@ -587,7 +594,8 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   }
   if (!execution && body.workerFiles !== undefined) {
     if (
-      body.workerFiles == null ||
+      body.workerFiles === null ||
+      body.workerFiles === undefined ||
       typeof body.workerFiles !== 'object' ||
       Array.isArray(body.workerFiles)
     ) {
@@ -641,7 +649,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
       // Hand the bytes directly to a `Blob` so we never name the
       // `Uint8Array` past this scope — keeps per-iteration memory residency
       // bounded by one decoded module at a time.
-      const content = new Blob([decoded as unknown as BlobPart], {
+      const content = new Blob([decoded as BlobPart], {
         type: moduleContentType(filePath),
       });
       inlineFiles.push({ name: filePath, content });
@@ -749,7 +757,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
         deployment: Awaited<ReturnType<typeof createDeployment>>;
         currentLiveDeployment: Awaited<ReturnType<typeof getDeployment>>;
         project: Project;
-        owner: typeof owner;
+        owner: typeof access.owner;
         reconciledMarkerKeys?: ReadonlyArray<string>;
       }
     | { receipt: string }
@@ -1207,12 +1215,11 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   const preDeployment = precheckResult.deployment;
   const currentLiveDeployment = precheckResult.currentLiveDeployment;
   project = precheckResult.project;
-  owner = precheckResult.owner;
   const originalActiveDeploymentId = currentLiveDeployment?.id ?? null;
 
   if (durable) {
     await dispatchDeploymentOperation(context.env, context.get('db'), preDeployment.id).catch(
-      (error) => {
+      (error: unknown) => {
         // The committed outbox will retry a missing/lost Queue acknowledgement.
         logger.warn('queue', 'dispatch_pending', { err: String(error) });
       },
@@ -1221,7 +1228,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   }
   return await runDeploymentPipeline({
     context,
-    owner,
+    owner: precheckResult.owner,
     preDeployment,
     logger,
     execution,

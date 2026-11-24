@@ -5,8 +5,8 @@ import {
   ACTIVE_BUILD_STATUSES,
   CANCELLATION_REQUESTED_DEPLOYMENT_STATUSES,
   TERMINAL_DEPLOYMENT_STATUSES,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import { builds } from '../schema.ts';
 
 export async function assertDeploymentNotCanceled(db: Db, deploymentId: string): Promise<void> {

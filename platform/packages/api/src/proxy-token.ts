@@ -180,12 +180,12 @@ function encodeBase64url(bytes: ArrayBuffer): string {
   for (const byte of new Uint8Array(bytes)) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 /** Only for values that already matched `MAC`. */
 function decodeMac(value: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(`${value.replace(/-/g, '+').replace(/_/g, '/')}=`);
+  const binary = atob(`${value.replaceAll('-', '+').replaceAll('_', '/')}=`);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 

@@ -2,13 +2,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'pathslash';
 import { glob } from 'tinyglobby';
-import {
-  normalizePath,
-  type Logger,
-  type Plugin,
-  type ResolvedConfig,
-  type ViteDevServer,
-} from 'vite';
+import { normalizePath } from 'vite';
+import type { Logger, Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { pageFileEnvironment, resolvePagesDir } from 'void/pages';
 import type { CompileOptions } from './compile.ts';
 import { emitReactComponent } from './emit-react.ts';
@@ -79,11 +74,22 @@ async function listMdFiles(pagesDir: string, environment: 'dev' | 'prod'): Promi
 /** Whether any page has client code. Without it, pages would load an empty client entry. */
 async function hasMdClientCode(pagesDir: string, environment: 'dev' | 'prod'): Promise<boolean> {
   for (const file of await listMdFiles(pagesDir, environment)) {
-    if (extractScript(readFileSync(join(pagesDir, file), 'utf-8')).clientCode) {
+    if (extractScript(readFileSync(join(pagesDir, file), 'utf8')).clientCode) {
       return true;
     }
   }
   return false;
+}
+
+function createVirtualModuleId(
+  prefix: string,
+  importerId: string,
+  source: string,
+  extension: string,
+): string {
+  const encoded = Buffer.from(importerId).toString('base64url');
+  const hash = createHash('sha1').update(source).digest('hex').slice(0, 8);
+  return `${prefix}${encoded}.${hash}.${extension}`;
 }
 
 export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
@@ -99,17 +105,6 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
   const clientScripts = new Map<string, string>();
   // The last error logged per page, so that rescans don't repeat it.
   const loggedPageErrors = new Map<string, string>();
-
-  function createVirtualModuleId(
-    prefix: string,
-    importerId: string,
-    source: string,
-    extension: string,
-  ): string {
-    const encoded = Buffer.from(importerId).toString('base64url');
-    const hash = createHash('sha1').update(source).digest('hex').slice(0, 8);
-    return `${prefix}${encoded}.${hash}.${extension}`;
-  }
 
   // The name has to be in the message: Vite's error metadata does not cross the
   // worker boundary, so the dev error page and the worker log would not show it.
@@ -129,7 +124,7 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
         const path = '/' + mdRouteName(file, pageFileEnvironment(file));
         const filePath = join(pagesDir, file);
         try {
-          const content = readFileSync(filePath, 'utf-8');
+          const content = readFileSync(filePath, 'utf8');
           const { body, clientCode } = extractScript(content);
           const result = extractMetadata(body);
 
@@ -299,7 +294,7 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
 
       load: {
         filter: {
-          // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
+          // Vite virtual module null-byte prefix
           id: /^(\0void-md|\/@void-md-(svelte|solid)\/|\0virtual:void-md-(script:|client))/,
         },
         handler(id: string) {

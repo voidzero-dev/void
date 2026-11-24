@@ -23,7 +23,7 @@ export type Admission = {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const EMAIL_DEFAULT_DEADLINE_MS = 5_000;
+const EMAIL_DEFAULT_DEADLINE_MS = 5000;
 const EMAIL_ACTION_DEADLINE_MS = 15_000;
 const EMAIL_ADMISSION_DEADLINE_MS = 15_000;
 const MAX_ADMISSION_RESPONSE_BYTES = 65_536;
@@ -206,7 +206,7 @@ export function canonicalizeVoidMime(raw: Uint8Array): Uint8Array {
           line += ` ${decoder.decode(raw.subarray(afterHeader, headerEnd)).replace(/^[ \t]+/, '')}`;
           afterHeader = headerEnd === raw.byteLength ? raw.byteLength : headerEnd + 2;
         }
-        const normalized = line.replace(
+        const normalized = line.replaceAll(
           /boundary="(=_void_(?:mixed|alternative|related)_[A-Za-z0-9_-]+)"/g,
           (_, token: string) => {
             let marker = boundaries.get(token);

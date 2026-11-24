@@ -1,5 +1,7 @@
-import { createContext, type Context } from 'react';
-import { idleNavigationState, type NavigationState, type VoidRouter } from 'void/pages-client';
+import { createContext } from 'react';
+import type { Context } from 'react';
+import { idleNavigationState } from 'void/pages-client';
+import type { NavigationState, VoidRouter } from 'void/pages-client';
 
 export const SharedContext: Context<Record<string, unknown> | null> = createContext<Record<
   string,

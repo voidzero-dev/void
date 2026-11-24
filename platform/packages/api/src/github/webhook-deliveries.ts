@@ -147,7 +147,9 @@ async function fetchDeliveriesPage(
       logFailure('webhook-deliveries-list', 'network-error', { url, attempt, err: errInfo(err) });
     }
     if (attempt < WEBHOOK_DELIVERY_RETRY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, WEBHOOK_DELIVERY_RETRY_DELAY_MS));
+      await new Promise((r) => {
+        setTimeout(r, WEBHOOK_DELIVERY_RETRY_DELAY_MS);
+      });
     }
   }
   logFailure('webhook-deliveries-list', 'exhausted', {
@@ -260,7 +262,9 @@ export async function redeliverWebhookDelivery(
       logFailure('webhook-redeliver', 'network-error', { deliveryId, attempt, err: errInfo(err) });
     }
     if (attempt < WEBHOOK_DELIVERY_RETRY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, WEBHOOK_DELIVERY_RETRY_DELAY_MS));
+      await new Promise((r) => {
+        setTimeout(r, WEBHOOK_DELIVERY_RETRY_DELAY_MS);
+      });
     }
   }
   logFailure('webhook-redeliver', 'exhausted', {

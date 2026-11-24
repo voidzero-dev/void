@@ -9,12 +9,8 @@ import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { acceptsBrowserHtml, platformBrowserError, platformBrowserPage } from '../browser-page.ts';
-import {
-  acceptInvitationByEmail,
-  linkGitHubInstallationToUser,
-  storeAuthCode,
-  type Db,
-} from '../db.ts';
+import { acceptInvitationByEmail, linkGitHubInstallationToUser, storeAuthCode } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { platformAuthAttempts, platformLoginTests } from '../schema.ts';
 import { stageBootstrapIdentity, verifyBootstrapCode } from './bootstrap.ts';
@@ -30,17 +26,16 @@ import { exchangeCodeForToken, getGitHubAuthorizeUrl, getGitHubUser } from './gi
 import { resolvePlatformLogin } from './identities.ts';
 import { verifyJwt } from './jwt.ts';
 import { LoginFailure, loginFailureHint } from './login-failure.ts';
-import {
-  linkTestedIdentity,
-  requireRecentAuthentication,
-  type AuthenticationActor,
-} from './management.ts';
-import { PlatformOidcProvider, type PlatformOidcIdentity } from './oidc.ts';
+import { linkTestedIdentity, requireRecentAuthentication } from './management.ts';
+import type { AuthenticationActor } from './management.ts';
+import { PlatformOidcProvider } from './oidc.ts';
+import type { PlatformOidcIdentity } from './oidc.ts';
 import { createCodeChallenge } from './pkce.ts';
 import { hashLoginProof, randomLoginProof } from './proofs.ts';
 import { validateRecoveryTest } from './recovery.ts';
 import { isAllowedRedirect, isLocalhostRedirect, isAuthorizationRedirect } from './redirects.ts';
-import { createHumanSession, validateHumanSession, type CompanyIdentity } from './sessions.ts';
+import { createHumanSession, validateHumanSession } from './sessions.ts';
+import type { CompanyIdentity } from './sessions.ts';
 
 const COOKIE = 'void_platform_auth';
 const FLOW_SECONDS = 600;

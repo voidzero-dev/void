@@ -8,13 +8,13 @@ import {
   emailReceipts,
   emailUnresolvedAttempts,
 } from '../../src/email/admission-schema.ts';
+import type { EmailAdmissionError } from '../../src/email/admission.ts';
 import {
   admitEmailAction,
   claimRelayedEmailReceipt,
   completeRelayedEmailReceipt,
   recordEmailReceipt,
   drainProjectEmailAdmissions,
-  EmailAdmissionError,
   getProjectEmailLogs,
   getProjectEmailUsage,
   lockEmailPolicy,
@@ -38,8 +38,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -111,7 +111,7 @@ async function fixture() {
 }
 
 async function waitForPostgresLockWaiter(): Promise<void> {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     const result = await env.db.execute(sql`
       SELECT count(*)::int AS waiters
@@ -123,7 +123,9 @@ async function waitForPostgresLockWaiter(): Promise<void> {
     if (Number((result.rows[0] as { waiters?: number } | undefined)?.waiters ?? 0) >= 1) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
   }
   throw new Error('timed out waiting for the attempt-start owner lock');
 }
@@ -1103,7 +1105,7 @@ describe('authoritative email admission', () => {
   it('keeps admission database round trips constant at the maximum recipient batch', async () => {
     const project = await fixture();
     await setEmailRecipientPolicy(env.db, env.ROUTING, { mode: 'any', domains: [] });
-    await setProjectEmailLimits(env.db, project.id, { burst: 1_000, monthly: 1_000 });
+    await setProjectEmailLimits(env.db, project.id, { burst: 1000, monthly: 1000 });
 
     const single = await captureQueries(env.db, () =>
       admitEmailAction(env.db, input(project.id, 'single-query-count', ['single@external.test'])),

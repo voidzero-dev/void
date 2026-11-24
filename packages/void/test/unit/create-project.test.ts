@@ -99,7 +99,7 @@ describe('promptAndCreateProject', () => {
 
     expect(config).toEqual({ projectId: 'proj_new', slug: 'new-app' });
     expect(mockInfo).not.toHaveBeenCalled();
-    expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf-8'))).toEqual({
+    expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf8'))).toEqual({
       platform: 'void',
       ...config,
       // The platform identity behind the client's API URL, recorded on every new link.

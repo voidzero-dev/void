@@ -8,9 +8,8 @@ import {
   setInstallationEndpoints,
   platformDashboardUrl,
   transitionInstallation,
-  type PlatformInstallationManifest,
-  type PlatformLifecycleOperation,
 } from '@void/platform';
+import type { PlatformInstallationManifest, PlatformLifecycleOperation } from '@void/platform';
 import { PLATFORM_ADMIN_ASSETS_DIRECTORY, resolvePlatformRuntime } from '@void/platform/installer';
 import { join } from 'pathslash';
 import { ensurePlatformAccessToken } from './cf-access.ts';
@@ -50,23 +49,23 @@ import {
   secretCheckpoint,
   createPlatformHealthProbeToken,
 } from './platform-installer-secrets.ts';
-import {
-  type PlatformInstallerDependencies,
-  type PlatformWorkerRollback,
-  type InstallationCheckpointWriter,
-  PlatformWorkerRecoveryIncompleteError,
-  type PlatformInstallationSecrets,
-  type PlatformInstallationResult,
-  type PlatformInstallRunState,
-  type PlatformWorkerKey,
-  type PlatformWorkerSecretUpdateIntent,
-  type InstallerClient,
-  type PlatformHealthCheckContext,
+import { PlatformWorkerRecoveryIncompleteError } from './platform-installer-types.ts';
+import type {
+  PlatformInstallerDependencies,
+  PlatformWorkerRollback,
+  InstallationCheckpointWriter,
+  PlatformInstallationSecrets,
+  PlatformInstallationResult,
+  PlatformInstallRunState,
+  PlatformWorkerKey,
+  PlatformWorkerSecretUpdateIntent,
+  InstallerClient,
+  PlatformHealthCheckContext,
 } from './platform-installer-types.ts';
+import type { runPlatformWrangler } from './platform-installer-workers.ts';
 import {
   recordWorkerCutoverResolution,
   recordWorkerTrafficState,
-  runPlatformWrangler,
   runPlatformWranglerAtApiBase,
   stablePublicEndpointState,
   interruptedWorkerCutover,
@@ -75,11 +74,8 @@ import {
   nextWorkerCutoverGeneration,
   recordWorkerSecretUpdateState,
 } from './platform-installer-workers.ts';
-import {
-  platformWorkersDevUrl,
-  type PlatformInstallPlan,
-  type PlatformInstallPlanAction,
-} from './platform-plan.ts';
+import { platformWorkersDevUrl } from './platform-plan.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
 import {
   latestPlatformWorkerCutoverGeneration,
   platformWorkerSecretUpdateIntentState,
@@ -643,9 +639,10 @@ export async function installPlatform(
     // The Cloudflare CLI asks the operator before it replaces changes made
     // outside Void. Let it ask now: the resources that these configs use
     // exist, and this run has not paused traffic or deployed a Worker.
-    const outsideChangeConfigs = workerKeys
-      .map((key) => enabledConfigs[key])
-      .filter((config) => dependencies.replaceOutsideChanges?.includes(String(config.name)));
+    const outsideChangeConfigs = workerKeys.flatMap((key) => {
+      const config = enabledConfigs[key];
+      return dependencies.replaceOutsideChanges?.includes(String(config.name)) ? [config] : [];
+    });
     if (outsideChangeConfigs.length > 0) {
       await dependencies.uploadOutsideChanges?.(outsideChangeConfigs);
     }

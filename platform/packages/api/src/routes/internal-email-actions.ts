@@ -1,14 +1,15 @@
-import { type Context, Hono } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { hmacVerifyState } from '../auth/hmac.ts';
 import {
   admitEmailAction,
   claimRelayedEmailReceipt,
   completeRelayedEmailReceipt,
-  type EmailReceiptRouteFence,
   EmailAdmissionError,
   recordEmailReceipt,
   transitionEmailRecipients,
 } from '../email/admission.ts';
+import type { EmailReceiptRouteFence } from '../email/admission.ts';
 import type { EmailAdmissionInput } from '../email/admission.ts';
 import type { ApiEnv } from '../env.ts';
 
@@ -29,7 +30,7 @@ app.use('*', async (context, next) => {
   }
   const chunks: Array<Uint8Array> = [];
   let size = 0;
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 5000;
   try {
     for (;;) {
       const remaining = deadline - Date.now();
@@ -130,7 +131,7 @@ function receiptRoute(value: unknown): EmailReceiptRouteFence | undefined {
 }
 
 app.post('/admit', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as EmailAdmissionInput;
+  const body = context.get('emailActionBody' as never) as EmailAdmissionInput;
   if (
     !body ||
     typeof body !== 'object' ||
@@ -158,7 +159,7 @@ app.post('/admit', async (context) => {
 });
 
 app.post('/receipts', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as {
+  const body = context.get('emailActionBody' as never) as {
     receiptId?: unknown;
     projectId?: unknown;
     status?: unknown;
@@ -189,7 +190,7 @@ app.post('/receipts', async (context) => {
 });
 
 app.post('/receipts/claim', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as Record<string, unknown>;
+  const body = context.get('emailActionBody' as never) as Record<string, unknown>;
   if (
     typeof body?.receiptId !== 'string' ||
     typeof body.projectId !== 'string' ||
@@ -216,7 +217,7 @@ app.post('/receipts/claim', async (context) => {
 });
 
 app.post('/receipts/complete', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as Record<string, unknown>;
+  const body = context.get('emailActionBody' as never) as Record<string, unknown>;
   if (
     typeof body?.receiptId !== 'string' ||
     typeof body.projectId !== 'string' ||
@@ -239,7 +240,7 @@ app.post('/receipts/complete', async (context) => {
 });
 
 app.post('/:id/start', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as { recipients?: unknown };
+  const body = context.get('emailActionBody' as never) as { recipients?: unknown };
   if (!Array.isArray(body?.recipients) || !body.recipients.every((r) => typeof r === 'string')) {
     return context.json({ error: 'invalid recipients' }, 400);
   }
@@ -258,7 +259,7 @@ app.post('/:id/start', async (context) => {
 });
 
 app.post('/:id/finish', async (context) => {
-  const body = context.get('emailActionBody' as never) as unknown as {
+  const body = context.get('emailActionBody' as never) as {
     recipients?: unknown;
     state?: unknown;
     providerReference?: unknown;

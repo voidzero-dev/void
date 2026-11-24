@@ -13,9 +13,9 @@ import type { ApiEnv } from '../../src/env.ts';
 import { domains, platformSettings } from '../../src/schema.ts';
 import {
   readZeroTrustConfigurationStrict,
-  type ZeroTrustConfigureInput,
   zeroTrustConfigurationStatus,
 } from '../../src/zero-trust/configuration.ts';
+import type { ZeroTrustConfigureInput } from '../../src/zero-trust/configuration.ts';
 import {
   configurePlatformZeroTrust,
   disablePlatformZeroTrust,
@@ -33,8 +33,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -430,7 +430,9 @@ describe('Zero Trust operation completion', () => {
         // This assertion also fails deterministically when provider I/O happens
         // outside the configuration transaction, before the scheduling check.
         expect(transactionDepth).toBe(1);
-        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 25);
+        });
         expect(contenderSettled).toBe(false);
       } finally {
         release.resolve();

@@ -20,7 +20,7 @@ export function isPackageJson(value: unknown): value is PackageJson {
 
 export function readPackageJson(root: string): PackageJson | null {
   try {
-    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')) as unknown;
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as unknown;
     return isPackageJson(pkg) ? pkg : null;
   } catch {
     return null;

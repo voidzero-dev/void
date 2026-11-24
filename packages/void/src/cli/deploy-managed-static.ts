@@ -1,10 +1,10 @@
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { type NotFoundHandling, type RoutingConfig } from '../config.ts';
+import type { NotFoundHandling, RoutingConfig } from '../config.ts';
 import { collectPages } from '../isr-config.ts';
 import type { PageScanResult } from '../pages/types.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
-import { PlatformClient } from './client.ts';
+import type { PlatformClient } from './client.ts';
 import { log } from './deploy-helpers.ts';
 import {
   mergeAndLintRoutingRules,
@@ -14,12 +14,12 @@ import {
 import { printDeploySecurityNotice } from './deploy-security-notice.ts';
 import { formatDeploySummary, printDeploySuccess } from './deploy-summary.ts';
 import { MANAGED_DEPLOY_BUILD_ENV } from './deploy-transport.ts';
-import { type GitDeployMetadata } from './git-metadata.ts';
-import { type CliLogger } from './log-file.ts';
+import type { GitDeployMetadata } from './git-metadata.ts';
+import type { CliLogger } from './log-file.ts';
 import { createSpinner, formatCount, note } from './output.ts';
 import { collectAndHashAssets, buildVoidManifest, buildStaticManifest } from './package.ts';
-import { type StaticPreset } from './preset.ts';
-import { type ProjectConfig } from './project.ts';
+import type { StaticPreset } from './preset.ts';
+import type { ProjectConfig } from './project.ts';
 import type { DeployManifest, DevRedirectRule, HeaderRule } from './types.ts';
 
 /**
@@ -36,7 +36,7 @@ export function assembleVoidManifest(
   pageScan: PageScanResult | null,
   isFrameworkMode: boolean,
   opts: Parameters<typeof buildVoidManifest>[0],
-  revalidateConfig?: number | Record<string, number> | undefined,
+  revalidateConfig?: number | Record<string, number>,
   isrEnabled = true,
 ): DeployManifest {
   return buildVoidManifest({
@@ -53,7 +53,8 @@ export function assembleVoidManifest(
     pathRevalidate:
       !isrEnabled ||
       isFrameworkMode ||
-      revalidateConfig == null ||
+      revalidateConfig === null ||
+      revalidateConfig === undefined ||
       typeof revalidateConfig !== 'object'
         ? undefined
         : revalidateConfig,

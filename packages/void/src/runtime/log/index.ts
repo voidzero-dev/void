@@ -38,6 +38,7 @@ function errorReplacer(): (key: string, value: unknown) => unknown {
     }
     seen.add(value);
     return {
+      // oxlint-disable-next-line typescript/no-misused-spread -- Copy enumerable custom error fields into the log record.
       ...value,
       name: value.name,
       message: value.message,

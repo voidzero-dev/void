@@ -4,8 +4,8 @@ import { basename, join } from 'pathslash';
 import {
   createBundledCloudflareAuthRunner,
   ensureCloudflareAuthentication,
-  type CloudflareAccount,
 } from './cloudflare-auth.ts';
+import type { CloudflareAccount } from './cloudflare-auth.ts';
 import {
   LATEST_KNOWN_COMPAT_DATE,
   readRootWranglerConfig,

@@ -65,7 +65,7 @@ function stored(profile = 'default') {
   auth.writeAuthCredentials({
     oauth_token: `synthetic-${profile}`,
     refresh_token: 'synthetic-refresh',
-    expiration_time: new Date(Date.now() + 3600_000).toISOString(),
+    expiration_time: new Date(Date.now() + 3_600_000).toISOString(),
     scopes: [],
   });
   const path = auth.getCredentialStore().path();
@@ -100,7 +100,7 @@ it('adopts a legacy plaintext profile through Cloudflare encrypted storage', () 
   writeAuthConfigFile({
     oauth_token: 'synthetic-legacy',
     refresh_token: 'synthetic-refresh',
-    expiration_time: new Date(Date.now() + 3600_000).toISOString(),
+    expiration_time: new Date(Date.now() + 3_600_000).toISOString(),
     scopes: [],
   });
   const auth = createCfAuth(authContext);

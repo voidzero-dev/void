@@ -4,7 +4,8 @@ import { verifyJwt } from '../auth/jwt.ts';
 import { activeOAuthApproval, OAuthError } from '../auth/oauth.ts';
 import { validateHumanSession } from '../auth/sessions.ts';
 import { ACTIVE_BUILD_STATUSES, getBuild, getUser } from '../db.ts';
-import { type ApiEnv, isDevBypass } from '../env.ts';
+import { isDevBypass } from '../env.ts';
+import type { ApiEnv } from '../env.ts';
 import { deploymentOperations, projectDeployCredentials, projects, users } from '../schema.ts';
 import { isAdminSuspended } from '../suspension.ts';
 

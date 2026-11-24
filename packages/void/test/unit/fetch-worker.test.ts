@@ -104,7 +104,7 @@ describe('worker fetch runtime behavior', () => {
       }),
     );
 
-    const err = await workerFetch('/api/hello').catch((e: Error) => e);
+    const err = await workerFetch('/api/hello').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(FetchError);
     expect((err as RuntimeFetchError).status).toBe(404);
     expect((err as RuntimeFetchError).statusText).toBe('Not Found');
@@ -265,7 +265,7 @@ function evaluateClient(
   FetchError: typeof RuntimeFetchError;
 } {
   const code = compile('/auth.mjs')
-    .replace(/^(import .*|export \{.*)\n/gm, '')
+    .replaceAll(/^(import .*|export \{.*)\n/gm, '')
     .replaceAll('export ', '');
   return new Function(
     'app',
@@ -375,7 +375,7 @@ describe.each([false, true])('server fetch documented options (nodeTarget: %s)',
       app.get('/api/unavailable', (c) => c.json({ attempts: ++count }, 503));
       const result = client
         .fetch('/api/unavailable', retry === undefined ? undefined : { retry })
-        .catch((error: RuntimeFetchError) => error);
+        .catch((error: unknown) => error);
 
       const error = (await result) as RuntimeFetchError;
 
@@ -395,7 +395,7 @@ describe.each([false, true])('server fetch documented options (nodeTarget: %s)',
 
     const error = (await client
       .fetch('/api/unavailable', { retry: 0 })
-      .catch((error: RuntimeFetchError) => error)) as RuntimeFetchError;
+      .catch((error: unknown) => error)) as RuntimeFetchError;
 
     expect(error).toBeInstanceOf(client.FetchError);
     expect(error.status).toBe(503);

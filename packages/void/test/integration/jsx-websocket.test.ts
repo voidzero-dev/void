@@ -3,10 +3,8 @@ import { join } from 'node:path';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import {
-  createIsolatedPlayground,
-  type IsolatedPlayground,
-} from '../../../../test/integration-helpers.ts';
+import { createIsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { analyzeApplication } from '../../src/application-routing.ts';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { readConfig } from '../../src/config.ts';

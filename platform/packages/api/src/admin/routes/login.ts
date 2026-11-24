@@ -1,4 +1,5 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import { pendingAuthenticationSetup } from '../../auth/bootstrap.ts';
 import { readAuthSettings, readEnabledLoginConnections } from '../../auth/configuration.ts';

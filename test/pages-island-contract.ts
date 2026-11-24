@@ -175,7 +175,7 @@ export function defineSharedIslandHmrTests({
   it('island component HMR updates without full page reload', { retry: 2 }, async () => {
     const base = getBase();
     const counterFile = getCounterFile();
-    const original = readFileSync(counterFile, 'utf-8');
+    const original = readFileSync(counterFile, 'utf8');
 
     const context = await getBrowser().newContext();
     const page = await context.newPage();
@@ -218,7 +218,7 @@ export function defineSharedIslandHmrTests({
   it('island file edit triggers reload with updated content', { retry: 2 }, async () => {
     const base = getBase();
     const islandFile = getIslandFile();
-    const original = readFileSync(islandFile, 'utf-8');
+    const original = readFileSync(islandFile, 'utf8');
 
     try {
       const initialRes = await fetch(`${base}/blog`);
@@ -231,7 +231,9 @@ export function defineSharedIslandHmrTests({
       const start = Date.now();
       let updatedHtml = '';
       while (Date.now() - start < 10_000) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => {
+          setTimeout(r, 100);
+        });
         const res = await fetch(`${base}/blog`);
         expect(res.status).toBe(200);
         updatedHtml = await res.text();

@@ -5,20 +5,14 @@ import type { ApiEnv } from '../env.ts';
 import { projects, projectZeroTrust } from '../schema.ts';
 import { candidateQuery } from './candidates.ts';
 import type { ZeroTrustCloudflareClient } from './cloudflare.ts';
-import {
-  type ZeroTrustConfiguration,
-  readZeroTrustConfigurationStrict,
-  zeroTrustConfigurationStatus,
-} from './configuration.ts';
+import { readZeroTrustConfigurationStrict, zeroTrustConfigurationStatus } from './configuration.ts';
+import type { ZeroTrustConfiguration } from './configuration.ts';
 import { ZeroTrustUnavailableError } from './errors.ts';
 import { resumePlatformZeroTrustOperation } from './installation.ts';
 import { withProjectZeroTrustLock } from './lock.ts';
 import { reconcileProjectZeroTrust } from './project.ts';
-import {
-  MAX_ROUTING_KEYS_PER_RUN,
-  publishProjectZeroTrustRoutingLocked,
-  type RoutingBudget,
-} from './routing.ts';
+import { MAX_ROUTING_KEYS_PER_RUN, publishProjectZeroTrustRoutingLocked } from './routing.ts';
+import type { RoutingBudget } from './routing.ts';
 import {
   clientForConfiguration,
   getProjectZeroTrustState,
@@ -110,7 +104,7 @@ async function retirePendingDisabledProjectZeroTrust(
       break;
     }
     await retireDisabledProjectZeroTrust(env, db, row.project.id, client, routingBudget).catch(
-      (error) =>
+      (error: unknown) =>
         console.error('[zero-trust] scheduled project cleanup failed', {
           projectId: row.project.id,
           error,
@@ -169,7 +163,7 @@ export async function reconcilePendingProjectZeroTrust(
       configuration,
       client,
       routingBudget,
-    }).catch(async (error) => {
+    }).catch(async (error: unknown) => {
       console.error('[zero-trust] scheduled project reconciliation failed', {
         projectId: row.project.id,
         error,
@@ -182,7 +176,7 @@ export async function reconcilePendingProjectZeroTrust(
         row.project.id,
         error,
         initialProjectProtection(configuration, row.project),
-      ).catch((markError) =>
+      ).catch((markError: unknown) =>
         console.error('[zero-trust] could not record scheduled reconciliation failure', {
           projectId: row.project.id,
           error: markError,

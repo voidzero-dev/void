@@ -1,8 +1,9 @@
 import type { CompileResult } from './compile.ts';
-import { buildRenderChunks, type ResolvedIsland } from './emit-shared.ts';
+import { buildRenderChunks } from './emit-shared.ts';
+import type { ResolvedIsland } from './emit-shared.ts';
 
 function toSvelteLiteral(value: unknown): string {
-  return JSON.stringify(value).replace(/<\//g, '<\\/');
+  return JSON.stringify(value).replaceAll('</', String.raw`<\/`);
 }
 
 export function emitSvelteComponent(

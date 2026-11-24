@@ -40,6 +40,7 @@ import {
 } from 'vite-plus/test';
 import { signConfirmToken } from '../../src/auth/confirm-token.ts';
 import { revokeOwnerVerifiedDestinationsForUserChange } from '../../src/db.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as dbModule from '../../src/db.ts';
 import { emailMonthlyUsage } from '../../src/email/admission-schema.ts';
 import { setProjectEmailLimits, setProjectEmailSuspended } from '../../src/email/admission.ts';
@@ -76,8 +77,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

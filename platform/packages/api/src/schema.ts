@@ -170,7 +170,7 @@ export const platformAuthSettings = pgTable(
     revision: integer('revision').notNull().default(1),
     admission: jsonb('admission').notNull().$type<PlatformAdmissionPolicy>(),
     protection: jsonb('protection').$type<PlatformAccessProtection>(),
-    session_seconds: integer('session_seconds').notNull().default(2592000),
+    session_seconds: integer('session_seconds').notNull().default(2_592_000),
     sessions_required: boolean('sessions_required').notNull().default(false),
     created_at: timestamp('created_at', { mode: 'string', withTimezone: true })
       .notNull()

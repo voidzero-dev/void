@@ -3,7 +3,7 @@ import { generateId } from '../id.ts';
 import type { DomainVerificationData } from '../schema.ts';
 import { domains } from '../schema.ts';
 import type { Domain } from '../types.ts';
-import { type Db } from './client.ts';
+import type { Db } from './client.ts';
 
 // --- Domains ---
 

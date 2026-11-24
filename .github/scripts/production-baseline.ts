@@ -44,8 +44,13 @@ async function productionBaseline(options: {
   if (!Array.isArray(deployments)) {
     throw new Error('Invalid production deployment history.');
   }
-  for (const deployment of deployments) {
+  for (const deployment of deployments as Array<unknown>) {
     if (
+      !deployment ||
+      typeof deployment !== 'object' ||
+      !('id' in deployment) ||
+      !('environment' in deployment) ||
+      !('sha' in deployment) ||
       !Number.isSafeInteger(deployment.id) ||
       deployment.environment !== environment ||
       typeof deployment.sha !== 'string' ||

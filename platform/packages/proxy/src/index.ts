@@ -357,7 +357,7 @@ async function getVerifyKey(secret: string): Promise<CryptoKey> {
 }
 
 function base64urlDecode(str: string): Uint8Array {
-  const padded = str.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = str.replaceAll('-', '+').replaceAll('_', '/');
   const binary = atob(padded);
   return Uint8Array.from(binary, (context) => context.charCodeAt(0));
 }

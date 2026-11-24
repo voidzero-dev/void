@@ -15,7 +15,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { toSlash } from 'pathslash';
-import { createServer, normalizePath, type Plugin, type ResolvedConfig } from 'vite';
+import { createServer, normalizePath } from 'vite';
+import type { Plugin, ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { bundleEntry } from '../../src/cli/wrapper.ts';
 import {
@@ -219,7 +220,7 @@ describe('Class A framework build wrapper', () => {
         build: { assetsDir: 'static' } as ResolvedConfig['build'],
       } as Partial<ResolvedConfig>);
 
-      const code = readFileSync(join(root, '.void', 'tanstack-start-trigger-wrapper.ts'), 'utf-8');
+      const code = readFileSync(join(root, '.void', 'tanstack-start-trigger-wrapper.ts'), 'utf8');
       expect(code).toContain('return serveWithAssets(request, env, await original.fetch');
       expect(code).toContain('import { createAssetFallback as __createAssetFallback }');
       expect(code).toContain(
@@ -326,12 +327,12 @@ describe('Class A framework request scope', () => {
       throw new Error('Expected Class A wrapper plugin.');
     }
     const wrapperPath = join(root, '.void', 'tanstack-start-trigger-wrapper.ts');
-    const dev = readFileSync(wrapperPath, 'utf-8');
+    const dev = readFileSync(wrapperPath, 'utf8');
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'assets' } as ResolvedConfig['build'],
     } as Partial<ResolvedConfig>);
-    const build = readFileSync(wrapperPath, 'utf-8');
+    const build = readFileSync(wrapperPath, 'utf8');
     // The asset fallback helper that ends the build wrapper is covered above.
     return { dev, build: build.slice(0, build.indexOf('import { createAssetFallback')) };
   }
@@ -524,12 +525,12 @@ export default defineEnv({
       (plugin) => plugin.name === 'void:framework-build-wrapper',
     )!;
     const wrapperPath = join(root, '.void', 'tanstack-start-trigger-wrapper.ts');
-    const dev = readFileSync(wrapperPath, 'utf-8');
+    const dev = readFileSync(wrapperPath, 'utf8');
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'assets' } as ResolvedConfig['build'],
     } as Partial<ResolvedConfig>);
-    return { root, wrapperPath, dev, build: readFileSync(wrapperPath, 'utf-8') };
+    return { root, wrapperPath, dev, build: readFileSync(wrapperPath, 'utf8') };
   }
 
   const MISSING_VALUES = [

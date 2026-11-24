@@ -179,6 +179,7 @@ export function validateManifestShape(manifest: unknown): string | null {
     }
   }
 
+  const queueBindingNames: Array<string> = [];
   if (manifest.queues !== undefined) {
     if (!Array.isArray(manifest.queues)) {
       return 'invalid manifest shape: queues must be an array';
@@ -190,6 +191,7 @@ export function validateManifestShape(manifest: unknown): string | null {
       if (typeof queue.name !== 'string' || typeof queue.bindingName !== 'string') {
         return 'invalid manifest shape: queues entries must have string name and bindingName';
       }
+      queueBindingNames.push(queue.bindingName);
       if (
         queue.maxConcurrency !== undefined &&
         (typeof queue.maxConcurrency !== 'number' ||
@@ -486,6 +488,7 @@ export function validateManifestShape(manifest: unknown): string | null {
     return fallbackRulesError;
   }
 
+  const webSocketBindingNames: Array<string> = [];
   if (manifest.websocket !== undefined) {
     if (!isRecord(manifest.websocket)) {
       return 'invalid manifest shape: websocket must be an object';
@@ -504,6 +507,7 @@ export function validateManifestShape(manifest: unknown): string | null {
       if (route.bindingName !== undefined && typeof route.bindingName !== 'string') {
         return 'invalid manifest shape: websocket.routes entry bindingName must be a string';
       }
+      webSocketBindingNames.push(route.bindingName ?? route.className);
     }
     if (
       !Array.isArray(websocket.classes) ||
@@ -600,10 +604,8 @@ export function validateManifestShape(manifest: unknown): string | null {
     const otherBindings = new Set([
       ...Object.values(bindings).filter(Array.isArray).flat(),
       ...Object.keys(isRecord(manifest.vars) ? manifest.vars : {}),
-      ...(Array.isArray(manifest.queues) ? manifest.queues.map((q) => q.bindingName) : []),
-      ...(isRecord(manifest.websocket) && Array.isArray(manifest.websocket.routes)
-        ? manifest.websocket.routes.map((r) => r.bindingName ?? r.className)
-        : []),
+      ...queueBindingNames,
+      ...webSocketBindingNames,
       ...(isRecord(manifest.live) ? [manifest.live.bindingName] : []),
     ]);
     for (const binding of durable.bindings) {

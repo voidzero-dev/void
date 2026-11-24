@@ -3,8 +3,8 @@ import {
   createApplicationRoutes,
   platformDashboardUrl,
   serializePlatformCapabilities,
-  type PlatformDeploymentManifest,
 } from './manifest.ts';
+import type { PlatformDeploymentManifest } from './manifest.ts';
 
 export type PlatformProvisionedResourceIds = Readonly<{
   hyperdrive: string;

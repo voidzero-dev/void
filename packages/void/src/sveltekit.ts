@@ -25,7 +25,7 @@ export function mergeVoidSvelteKitTsconfig(
     return config;
   }
 
-  const voidConfig = JSON.parse(readFileSync(voidTsconfigPath, 'utf-8')) as Tsconfig;
+  const voidConfig = JSON.parse(readFileSync(voidTsconfigPath, 'utf8')) as Tsconfig;
 
   const voidFiles = Array.isArray(voidConfig.files)
     ? voidConfig.files.filter((entry): entry is string => typeof entry === 'string')

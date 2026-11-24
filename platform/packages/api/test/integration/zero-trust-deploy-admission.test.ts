@@ -30,8 +30,8 @@ import {
   readAllEvents,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { askPublic, gateBindings, setupGate } from './security-gate-fixtures.ts';
 
 let env: TestEnv;

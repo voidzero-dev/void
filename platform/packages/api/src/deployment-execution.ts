@@ -2,8 +2,10 @@ import { and, eq, getTableColumns, lte, ne, notExists, or, sql } from 'drizzle-o
 import { paginatedR2Delete } from './assets.ts';
 import { activeOAuthApproval } from './auth/oauth.ts';
 import { R2_CONCURRENCY } from './concurrency.ts';
-import { createDb, type Db, type DbOrTx } from './db.ts';
-import { WORKER_UPLOAD_MAX_AGE_MS, type WorkerUploadModule } from './deploy/shared.ts';
+import { createDb } from './db.ts';
+import type { Db, DbOrTx } from './db.ts';
+import { WORKER_UPLOAD_MAX_AGE_MS } from './deploy/shared.ts';
+import type { WorkerUploadModule } from './deploy/shared.ts';
 import type { DeploymentInput, DeploymentOperation } from './deployment-operation-types.ts';
 import type { ApiEnv } from './env.ts';
 import {
@@ -16,7 +18,8 @@ import {
 import { securityScanHoldsInput, securityScanHoldsInputSql } from './security/enqueue.ts';
 import { isAdminSuspended } from './suspension.ts';
 import type { DeployEvent, DeployManifest } from './types.ts';
-import { listR2Objects, r2WorkerModule, type WorkerModule } from './worker-upload.ts';
+import { listR2Objects, r2WorkerModule } from './worker-upload.ts';
+import type { WorkerModule } from './worker-upload.ts';
 export type {
   DeploymentInput,
   DeploymentOperation,

@@ -1,9 +1,6 @@
 import type { VoidAuthMigrationSchema } from '../../auth/drizzle.ts';
-import {
-  createVoidAuthRuntime,
-  type VoidAuthEnv,
-  type VoidAuthRuntimeApi,
-} from './better-auth-shared.ts';
+import { createVoidAuthRuntime } from './better-auth-shared.ts';
+import type { VoidAuthEnv, VoidAuthRuntimeApi } from './better-auth-shared.ts';
 import { applySqliteAuthMigrations } from './migrations.ts';
 
 async function applyMigrations(

@@ -1,16 +1,18 @@
-import { execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getWorkerConfigPath } from '@cloudflare/build-output-utils';
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
 import {
   createIsolatedPlayground,
   killChild,
   spawnFixtureServer,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 declare global {
   interface Window {
@@ -264,7 +266,9 @@ describe('playground/kitchen-sink', () => {
       const start = Date.now();
       let found = false;
       while (Date.now() - start < 15_000) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 1000);
+        });
         await page.goto(`${BASE}/queues`);
         await waitForHydration(page);
         const text = await page.textContent('body');
@@ -435,7 +439,7 @@ describe('playground/kitchen-sink', () => {
 // is remote-only, so turn both off. kitchen-sink-build.test.ts covers them.
 function preparePreviewWranglerConfig(pg: string): string {
   const wranglerPath = join(pg, 'dist', 'ssr', 'wrangler.json');
-  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf-8')) as {
+  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf8')) as {
     dev?: Record<string, unknown>;
     ai?: unknown;
     d1_databases?: Array<{ binding?: unknown; database_id?: unknown }>;

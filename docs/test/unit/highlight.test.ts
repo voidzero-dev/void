@@ -9,9 +9,9 @@ function renderedLines(code: string, lang: string) {
   return body.split('\n').map((line) => ({
     classes: /^<span class="([^"]*)"/.exec(line)?.[1],
     text: line
-      .replace(/<[^>]+>/g, '')
-      .replace(/&#x3C;/g, '<')
-      .replace(/&#x26;/g, '&'),
+      .replaceAll(/<[^>]+>/g, '')
+      .replaceAll('&#x3C;', '<')
+      .replaceAll('&#x26;', '&'),
   }));
 }
 

@@ -59,7 +59,7 @@ it('upgrades the OAuth schema without elevating existing grants or changing prod
   } finally {
     await db.close();
   }
-}, 30000);
+}, 30_000);
 
 it('normalizes worker project modes without changing deployment pointers and retains rollback to 0.22.0', async () => {
   const root = resolve(import.meta.dirname, '../../drizzle');

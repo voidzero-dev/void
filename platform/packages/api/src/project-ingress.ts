@@ -4,8 +4,8 @@ import {
   platformWorkersDevAliasKey,
   readPlatformApplication,
   PLATFORM_PROJECT_INGRESS_SOURCE,
-  type PlatformApplicationProject,
 } from '@void/platform';
+import type { PlatformApplicationProject } from '@void/platform';
 import type { ApiEnv } from './env.ts';
 import { cfFetch, CF_API_BASE, CloudflareApiError } from './provisioning/cloudflare-api.ts';
 

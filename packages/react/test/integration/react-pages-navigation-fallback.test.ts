@@ -1,6 +1,7 @@
 import { join } from 'node:path';
-import { type Browser } from 'playwright';
-import { createServer, type ViteDevServer } from 'vite';
+import type { Browser } from 'playwright';
+import { createServer } from 'vite';
+import type { ViteDevServer } from 'vite';
 import { afterAll, beforeAll, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
@@ -111,9 +112,9 @@ it('restores document history scroll after the initial Suspense content commits'
     // Hold the initial render past the startup frame, then let React commit it.
     await page.evaluate(
       () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
     );
     await page.evaluate(() =>
       (window as Window & { __resolveScrollPage?: () => void }).__resolveScrollPage!(),

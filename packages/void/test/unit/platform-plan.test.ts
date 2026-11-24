@@ -7,10 +7,9 @@ import {
   recordInstallationResource,
   recordInstallationStep,
   setInstallationEndpoints,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
 } from '@void/platform';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import type { InstallationResourceKind, PlatformInstallationManifest } from '@void/platform';
+import { assert, describe, expect, it, vi } from 'vite-plus/test';
 import { pc } from '../../src/cli/output.ts';
 import {
   PlatformCloudflareApiError,
@@ -25,8 +24,8 @@ import {
   formatPlatformInstallPlan,
   platformProvisionIntentHash,
   revalidatePlatformInstallAction,
-  type PlatformInstallPlan,
 } from '../../src/cli/platform-plan.ts';
+import type { PlatformInstallPlan } from '../../src/cli/platform-plan.ts';
 import { ownershipMarker } from '../helpers/platform-installation.ts';
 
 const expectedRejection = (): never => {
@@ -805,7 +804,8 @@ describe('platform installation planning', () => {
       null,
       preview,
       false,
-    ).then(expectedRejection, (error: Error) => error);
+    ).then(expectedRejection, (error: unknown) => error);
+    assert.instanceOf(error, Error);
     expect(error.message).toBe(
       'platform: The runtime token could not verify AI Gateway access. Browser login cannot use AI Gateway, so Void used the runtime token you entered for it. Fix the runtime token (VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN), or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit. HTTP 403 means the token works but is missing Account → AI Gateway → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a runtime token that has it, then retry. No platform resources were created.',
     );
@@ -844,7 +844,7 @@ describe('platform installation planning', () => {
       fetcher: async (input, init) => {
         const path = new URL(String(input)).pathname;
         requests.push({ path, method: init?.method ?? 'GET' });
-        const code = path.endsWith('/r2/buckets') ? 10042 : 10121;
+        const code = path.endsWith('/r2/buckets') ? 10_042 : 10_121;
         return Response.json(
           { success: false, errors: [{ code, message: 'Account prerequisite missing' }] },
           { status: 403 },
@@ -858,8 +858,8 @@ describe('platform installation planning', () => {
       }),
       input,
       null,
-    ).catch((error) => error);
-    expect(error).toBeInstanceOf(AggregateError);
+    ).catch((error: unknown) => error);
+    assert.instanceOf(error, AggregateError);
     expect(error.message).toContain('Cloudflare R2 is not enabled');
     expect(error.message).toContain('Workers for Platforms requires a paid subscription');
     expect(error.message).toContain('retry the same command');
@@ -891,7 +891,7 @@ describe('platform installation planning', () => {
       const provider = new PlatformCloudflareClient('token', {
         fetcher: async () =>
           Response.json(
-            { success: false, errors: [{ code: 10042, message: 'Please enable R2' }] },
+            { success: false, errors: [{ code: 10_042, message: 'Please enable R2' }] },
             { status: 403 },
           ),
       });

@@ -1,5 +1,6 @@
 import type { PlatformDeploymentManifest } from '@void/platform';
-import { type CANCEL_SYMBOL, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
+import { isCancel, log } from '@voidzero-dev/vite-plus-prompts';
+import type { CANCEL_SYMBOL } from '@voidzero-dev/vite-plus-prompts';
 import { openBrowser } from './auth.ts';
 import { formatLink, pc } from './output.ts';
 import type { PlatformManagementAccess } from './platform-auth.ts';
@@ -26,14 +27,15 @@ export function platformSetupLink(page: Pick<PlatformSetupPage, 'title' | 'url'>
   return formatLink(pc.underline(page.title), page.url);
 }
 
+const docs = (page: string, section: string, title: string) =>
+  platformSetupLink({
+    title,
+    url: `https://void.cloud/guide/platform/installation/${page}#${section}`,
+  });
+
 export function platformSetupFieldHelp(
   key: string,
 ): Readonly<{ description: string; placeholder?: string }> | undefined {
-  const docs = (page: string, section: string, title: string) =>
-    platformSetupLink({
-      title,
-      url: `https://void.cloud/guide/platform/installation/${page}#${section}`,
-    });
   switch (key) {
     case 'databaseUrl':
       return {
@@ -388,7 +390,7 @@ export function formatPlatformInstallCommand(options: PlatformInstallCommandOpti
       }
       return process.platform === 'win32'
         ? `'${value.replaceAll("'", "''")}'`
-        : `'${value.replaceAll("'", "'\\''")}'`;
+        : `'${value.replaceAll("'", String.raw`'\''`)}'`;
     })
     .join(' ');
 }

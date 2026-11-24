@@ -715,8 +715,7 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
   if (!command) {
     throw new Error(
       `platform: Usage: void platform ${group} <${operatorCommands
-        .filter((entry) => entry.group === group)
-        .map(({ action }) => action)
+        .flatMap(({ group: entryGroup, action }) => (entryGroup === group ? [action] : []))
         .join('|')}>.`,
     );
   }
@@ -807,11 +806,11 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
       continue;
     }
     if (name === 'timeout') {
-      const maximum = OPERATOR_MAX_TIMEOUT_MS / 1_000;
+      const maximum = OPERATOR_MAX_TIMEOUT_MS / 1000;
       if (!/^[1-9]\d*$/.test(value) || Number(value) > maximum) {
         throw new Error(`platform: --timeout must be an integer from 1 to ${maximum} seconds.`);
       }
-      parsed.timeoutMs = Number(value) * 1_000;
+      parsed.timeoutMs = Number(value) * 1000;
       continue;
     }
     if (name === 'page' || name === 'limit') {

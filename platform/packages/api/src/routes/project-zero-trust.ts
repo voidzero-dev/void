@@ -1,4 +1,5 @@
-import { type Context, Hono } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { ApiEnv } from '../env.ts';
 import {

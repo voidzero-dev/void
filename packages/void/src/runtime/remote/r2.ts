@@ -4,8 +4,8 @@ import {
   R2_OBJECT_HEADER,
   serializeR2Conditional,
   serializeR2HttpMetadata,
-  type RemoteR2HttpMetadata,
 } from './r2-conditions.ts';
+import type { RemoteR2HttpMetadata } from './r2-conditions.ts';
 
 /** Object fields from the binding handler or from the proxy's REST fallback. */
 type RemoteR2Object = {
@@ -238,11 +238,12 @@ function missingMetadata(
   stored: RemoteR2Object | undefined,
 ): Array<string> {
   const meta = options?.httpMetadata;
-  const missing: Array<string> = EXTRA_HTTP_METADATA.filter(
-    ([field, header]) =>
-      (meta instanceof Headers ? meta.has(header) : meta?.[field] !== undefined) &&
-      stored?.httpMetadata?.[field] === undefined,
-  ).map(([field]) => field);
+  const missing: Array<string> = EXTRA_HTTP_METADATA.flatMap(([field, header]) =>
+    (meta instanceof Headers ? meta.has(header) : meta?.[field] !== undefined) &&
+    stored?.httpMetadata?.[field] === undefined
+      ? [field]
+      : [],
+  );
   if (
     Object.keys(options?.customMetadata ?? {}).some(
       (name) => stored?.customMetadata?.[name] === undefined,
@@ -269,7 +270,7 @@ function readHttpMetadata(data: RemoteR2Object): R2HTTPMetadata {
   return cacheExpiry ? { ...metadata, cacheExpiry: new Date(cacheExpiry) } : metadata;
 }
 
-function makeR2Object(data: RemoteR2Object): R2Object {
+function makeR2Object(data: RemoteR2Object) {
   const etag = normalizeEtag(data.etag ?? '');
   const httpMetadata = readHttpMetadata(data);
   return {
@@ -300,7 +301,7 @@ function makeR2Object(data: RemoteR2Object): R2Object {
         }
       }
     },
-  } as R2Object;
+  } satisfies R2Object;
 }
 
 function makeR2ObjectBody(key: string, res: Response): R2ObjectBody {
@@ -311,7 +312,7 @@ function makeR2ObjectBody(key: string, res: Response): R2ObjectBody {
       ? (JSON.parse(decodeURIComponent(meta)) as RemoteR2Object)
       : {
           key,
-          size: parseInt(res.headers.get('content-length') ?? '0'),
+          size: Number.parseInt(res.headers.get('content-length') ?? '0'),
           etag: res.headers.get('etag') ?? '',
           lastModified: res.headers.get('last-modified') ?? '',
           contentType: res.headers.get('content-type') ?? 'application/octet-stream',

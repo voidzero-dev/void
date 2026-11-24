@@ -78,7 +78,9 @@ for (const mode of ['dev', 'preview']) {
     } finally {
       child.kill('SIGTERM');
       await closed;
-      await new Promise((resolve) => competing.close(resolve));
+      await new Promise((resolve) => {
+        competing.close(resolve);
+      });
       rmSync(directory, { recursive: true, force: true });
     }
   });

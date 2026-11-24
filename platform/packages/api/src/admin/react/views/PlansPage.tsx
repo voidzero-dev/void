@@ -10,17 +10,10 @@ import {
   TableRow,
 } from '@astryxdesign/core/Table';
 import { useToast } from '@astryxdesign/core/Toast';
-import {
-  PLAN_EDITABLE_LIMIT_KEYS,
-  PLAN_LIMITS,
-  type EditablePlanLimit,
-  type PlatformPlanDefinition,
-} from '@void/platform/plans';
-import {
-  formatPlanSecurityCap,
-  planSecurityCap,
-  type SecurityPlanCap,
-} from '@void/platform/security-policy';
+import { PLAN_EDITABLE_LIMIT_KEYS, PLAN_LIMITS } from '@void/platform/plans';
+import type { EditablePlanLimit, PlatformPlanDefinition } from '@void/platform/plans';
+import { formatPlanSecurityCap, planSecurityCap } from '@void/platform/security-policy';
+import type { SecurityPlanCap } from '@void/platform/security-policy';
 import { Link } from '@void/react';
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
@@ -697,7 +690,7 @@ export function PlanProgressPage({
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ expectedRevision: initial.revision }),
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(300000)]),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(300_000)]),
           redirect: 'error',
         });
         if (!response.ok) {

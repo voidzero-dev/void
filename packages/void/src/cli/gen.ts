@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { log, select, isCancel, cancel } from '@voidzero-dev/vite-plus-prompts';
 import { join, dirname, relative } from 'pathslash';
-import { readConfig, getDatabaseDialect, type DatabaseDialect } from '../config.ts';
+import { readConfig, getDatabaseDialect } from '../config.ts';
+import type { DatabaseDialect } from '../config.ts';
 import { PLACEHOLDER_DB_URL, writeDrizzleConfig } from '../drizzle/config.ts';
 import { snapshotDrizzleOutputs } from '../drizzle/generate.ts';
 import { collectMigrations, readJournal } from '../migrations/collect.ts';
@@ -47,8 +48,9 @@ function writeIfNotExists(filePath: string, content: string): boolean {
   return true;
 }
 
+const pad = (n: number) => String(n).padStart(2, '0');
+
 export function formatTimestamp(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
   return (
     String(date.getUTCFullYear()) +
     pad(date.getUTCMonth() + 1) +
@@ -165,7 +167,7 @@ export function detectValidator(root: string): Validator | null {
     return null;
   }
 
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
   const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
   if ('valibot' in allDeps) {
@@ -452,7 +454,7 @@ async function runModel(root: string, name: string, columns: Array<ColumnSpec>):
   // 2. Update or create barrel export
   const exportLine = `export * from "./schema/${name}";`;
   if (existsSync(barrelPath)) {
-    const existing = readFileSync(barrelPath, 'utf-8');
+    const existing = readFileSync(barrelPath, 'utf8');
     if (!existing.includes(exportLine)) {
       writeFileSync(barrelPath, existing.trimEnd() + '\n' + exportLine + '\n');
     }
@@ -513,8 +515,8 @@ function runMigration(root: string, name: string): void {
   // snapshots the current schema, so the next `void db generate` does not
   // re-emit DDL that the custom migration already applies.
   const existingJournal = readJournal(migrationsDir, paths.sourceRelative);
-  if (existingJournal !== undefined && existingJournal.entries.length > 0) {
-    const lastEntry = existingJournal.entries[existingJournal.entries.length - 1];
+  const lastEntry = existingJournal?.entries.at(-1);
+  if (existingJournal && lastEntry) {
     const metaDir = join(migrationsDir, 'meta');
     // Use the snapshot named by the last journal tag, not the newest file in
     // meta/, which may be a stale leftover.
@@ -576,7 +578,7 @@ function runMigration(root: string, name: string): void {
       {
         cwd: root,
         stdio: 'pipe',
-        encoding: 'utf-8',
+        encoding: 'utf8',
         // Yarn PnP projects need the PnP loader to resolve `void/schema-*`.
         env: buildDrizzleKitSpawnEnv(root),
       },
@@ -717,7 +719,7 @@ function detectFramework(root: string): 'react' | 'vue' | 'svelte' | 'solid' {
     process.exit(1);
   }
 
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
   const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
   if ('react' in allDeps) {

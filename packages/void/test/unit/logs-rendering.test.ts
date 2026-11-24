@@ -87,7 +87,7 @@ async function printLogs(columns: number): Promise<Array<string>> {
   return print.mock.calls.map((args) => String(args[0] ?? ''));
 }
 
-const UNSAFE_SEQUENCES = ['\x1b]', '\x1b[2J', '\r', '\x07', '\u009b'];
+const UNSAFE_SEQUENCES = ['\u001b]', '\u001b[2J', '\r', '\u0007', '\u009b'];
 
 it.each([40, 80])('aligns wrapped log messages and exceptions at %i columns', async (columns) => {
   const messages = await printLogs(columns);
@@ -96,9 +96,9 @@ it.each([40, 80])('aligns wrapped log messages and exceptions at %i columns', as
   const warn = messages.find((line) => line.includes('[warn]'))!;
   const error = messages.find((line) => line.includes('[error]'))!;
   const exception = messages.find((line) => line.includes('[exception]'))!;
-  expect(warn).toContain('\x1b[33m[warn]');
-  expect(error).toContain('\x1b[31m[error]');
-  expect(exception).toContain('\x1b[31m[exception]');
+  expect(warn).toContain('\u001b[33m[warn]');
+  expect(error).toContain('\u001b[31m[error]');
+  expect(exception).toContain('\u001b[31m[exception]');
   expect(error).toContain('\n          Please retry');
   for (const [message, indent] of [
     [warn, 9],
@@ -116,19 +116,19 @@ it('drops terminal control sequences from app log text but keeps colors and line
     {
       timestamp: 0,
       method: 'GET',
-      url: '/search?q=\x1b]52;c;ZXZpbA==\x07',
+      url: '/search?q=\u001b]52;c;ZXZpbA==\u0007',
       status: '500',
       outcome: 'exception',
       logs: [
         {
           level: 'error',
-          message: ['a\x1b]52;c;ZXZpbA==\x07b\x1b[2J\rc\n\x1b[31mred\x1b[0m'],
+          message: ['a\u001b]52;c;ZXZpbA==\u0007b\u001b[2J\rc\n\u001b[31mred\u001b[0m'],
         },
       ],
       exceptions: [
         {
           name: 'Error',
-          message: 'see \x1b]8;;https://evil.example\x07click\x1b]8;;\x07 then \u009b2J',
+          message: 'see \u001b]8;;https://evil.example\u0007click\u001b]8;;\u0007 then \u009b2J',
         },
       ],
     },
@@ -139,7 +139,7 @@ it('drops terminal control sequences from app log text but keeps colors and line
   for (const unsafe of UNSAFE_SEQUENCES) {
     expect(printed).not.toContain(unsafe);
   }
-  expect(printed).toContain('\x1b[31mred');
+  expect(printed).toContain('\u001b[31mred');
   expect(printed).not.toContain('evil.example');
   expect(printed).toContain('Error: see click then 2J');
   const error = messages.find((line) => line.includes('[error]'))!;
@@ -151,39 +151,45 @@ it('ends app log text with a reset so its styles cannot hide the next printed li
     {
       timestamp: 0,
       method: 'GET',
-      url: '/search?q=\x1b[8m',
+      url: '/search?q=\u001b[8m',
       status: '200',
       outcome: 'ok',
-      logs: [{ level: 'log', message: ['q=\x1b[8m'] }],
-      exceptions: [{ name: 'Error', message: 'x\x1b[7;30;40m' }],
+      logs: [{ level: 'log', message: ['q=\u001b[8m'] }],
+      exceptions: [{ name: 'Error', message: 'x\u001b[7;30;40m' }],
     },
   ];
   const styled = (await printLogs(120)).filter(
-    (line) => line.includes('\x1b[8m') || line.includes('\x1b[7;30;40m'),
+    (line) => line.includes('\u001b[8m') || line.includes('\u001b[7;30;40m'),
   );
   expect(styled).toHaveLength(3);
   for (const line of styled) {
-    expect(line.lastIndexOf('\x1b[0m')).toBeGreaterThan(
-      Math.max(line.lastIndexOf('\x1b[8m'), line.lastIndexOf('\x1b[7;30;40m')),
+    expect(line.lastIndexOf('\u001b[0m')).toBeGreaterThan(
+      Math.max(line.lastIndexOf('\u001b[8m'), line.lastIndexOf('\u001b[7;30;40m')),
     );
   }
 });
 
 it('keeps color codes, newlines and tabs, and removes other escape sequences whole', () => {
-  expect(sanitizeTerminalLogText('\x1b[1;38;2;255;0;0mbold\x1b[0m\tcol\nnext')).toBe(
-    '\x1b[1;38;2;255;0;0mbold\x1b[0m\tcol\nnext\x1b[0m',
+  expect(sanitizeTerminalLogText('\u001b[1;38;2;255;0;0mbold\u001b[0m\tcol\nnext')).toBe(
+    '\u001b[1;38;2;255;0;0mbold\u001b[0m\tcol\nnext\u001b[0m',
   );
-  expect(sanitizeTerminalLogText('q=\x1b[8m hidden')).toBe('q=\x1b[8m hidden\x1b[0m');
-  expect(sanitizeTerminalLogText('\x1b[38:2::255:0:0mred')).toBe('\x1b[38:2::255:0:0mred\x1b[0m');
-  expect(sanitizeTerminalLogText('a\x1b]52;c;ZXZpbA==\x07b')).toBe('ab');
+  expect(sanitizeTerminalLogText('q=\u001b[8m hidden')).toBe('q=\u001b[8m hidden\u001b[0m');
+  expect(sanitizeTerminalLogText('\u001b[38:2::255:0:0mred')).toBe(
+    '\u001b[38:2::255:0:0mred\u001b[0m',
+  );
+  expect(sanitizeTerminalLogText('a\u001b]52;c;ZXZpbA==\u0007b')).toBe('ab');
   expect(
-    sanitizeTerminalLogText('see \x1b]8;;https://evil.example/\x1b\\docs\x1b]8;;\x1b\\ now'),
+    sanitizeTerminalLogText(
+      'see \u001b]8;;https://evil.example/\u001b\\docs\u001b]8;;\u001b\\ now',
+    ),
   ).toBe('see docs now');
-  expect(sanitizeTerminalLogText('a\x1b]52;c;ZXZpbA== b')).toBe('a]52;c;ZXZpbA== b');
-  expect(sanitizeTerminalLogText('a\x1b]0;title\nb\x1b[31mc')).toBe('a]0;title\nb\x1b[31mc\x1b[0m');
-  expect(sanitizeTerminalLogText('x\x1b[2J\x1b[?25l\x1b[1A\x1b[>4;1my')).toBe('xy');
-  expect(sanitizeTerminalLogText('a\x1b[2J\x1b[Hb')).toBe('ab');
-  expect(sanitizeTerminalLogText('progress 50%\x1b[K done')).toBe('progress 50% done');
+  expect(sanitizeTerminalLogText('a\u001b]52;c;ZXZpbA== b')).toBe('a]52;c;ZXZpbA== b');
+  expect(sanitizeTerminalLogText('a\u001b]0;title\nb\u001b[31mc')).toBe(
+    'a]0;title\nb\u001b[31mc\u001b[0m',
+  );
+  expect(sanitizeTerminalLogText('x\u001b[2J\u001b[?25l\u001b[1A\u001b[>4;1my')).toBe('xy');
+  expect(sanitizeTerminalLogText('a\u001b[2J\u001b[Hb')).toBe('ab');
+  expect(sanitizeTerminalLogText('progress 50%\u001b[K done')).toBe('progress 50% done');
   expect(sanitizeTerminalLogText('over\rwrite')).toBe('overwrite');
   expect(sanitizeTerminalLogText('\u009b2J\u0085\u007f\u0000\u0008end')).toBe('2Jend');
   expect(sanitizeTerminalLogText('plain text, ünïcode ✓')).toBe('plain text, ünïcode ✓');
@@ -264,7 +270,7 @@ it('prints stack frames under the error that logged them', async () => {
     '  [exception] Error: boom',
     '  [exception] Error: Worker exceeded CPU time limit.',
   ]);
-  expect(messages.join('\n')).toContain('\x1b[2m    at assets/resvg.js:14881:64');
+  expect(messages.join('\n')).toContain('\u001b[2m    at assets/resvg.js:14881:64');
 });
 
 it('drops terminal control sequences from stack frames', async () => {
@@ -283,7 +289,7 @@ it('drops terminal control sequences from stack frames', async () => {
             {
               name: 'Error',
               message: 'boom',
-              stack: 'Error: boom\n    at \x1b]52;c;ZXZpbA==\x07f (a.js:1:1)\x1b[2J\r',
+              stack: 'Error: boom\n    at \u001b]52;c;ZXZpbA==\u0007f (a.js:1:1)\u001b[2J\r',
             },
           ],
         },
@@ -293,7 +299,7 @@ it('drops terminal control sequences from stack frames', async () => {
           name: 'Error',
           message: 'x',
           stack:
-            'Error: x\n    at \x1b]8;;https://evil.example\x07g\x1b]8;;\x07 (b.js:2:2)\u009b2J',
+            'Error: x\n    at \u001b]8;;https://evil.example\u0007g\u001b]8;;\u0007 (b.js:2:2)\u009b2J',
         },
       ],
     },

@@ -1,5 +1,6 @@
 import { useRouter } from '@void/react';
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
+import type { FormEvent } from 'react';
 import { auth } from 'void/client/react';
 import { demoUser } from '../src/demo-user.ts';
 
@@ -37,7 +38,9 @@ export default function Login() {
         <label>
           Password <input type="password" disabled value={demoUser.password} />
         </label>
-        <button disabled={pending}>{pending ? 'Signing in…' : 'Sign in'}</button>
+        <button type="submit" disabled={pending}>
+          {pending ? 'Signing in…' : 'Sign in'}
+        </button>
         {error && <p role="alert">{error}</p>}
       </form>
     </section>

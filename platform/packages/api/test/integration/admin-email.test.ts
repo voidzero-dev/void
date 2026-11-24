@@ -26,8 +26,8 @@ import {
   clearTables,
   createTestUser,
   createTestProject,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { CF_ACCOUNT_ID } from './helpers.ts';
 
 let env: TestEnv;

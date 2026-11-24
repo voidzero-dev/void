@@ -16,8 +16,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
@@ -422,7 +422,7 @@ export const loader = defineHandler(c => {
   });
   it('renders application-defined error statuses on document loads and client visits', async () => {
     const page = await browser.newPage();
-    page.setDefaultTimeout(8_000);
+    page.setDefaultTimeout(8000);
     try {
       for (const status of [403, 503]) {
         const path = `/status/${status}`;
@@ -462,7 +462,7 @@ export const loader = defineHandler(c => {
         errors.push(m.text());
       }
     });
-    page.setDefaultTimeout(8_000);
+    page.setDefaultTimeout(8000);
     try {
       await page.goto(base);
       await page.waitForSelector('#app[data-hydrated="true"]');
@@ -502,7 +502,7 @@ export const loader = defineHandler(c => {
         errors.push(m.text());
       }
     });
-    page.setDefaultTimeout(8_000);
+    page.setDefaultTimeout(8000);
     try {
       await page.goto(base);
       await page.waitForSelector('#app[data-hydrated="true"]');
@@ -536,7 +536,7 @@ export const loader = defineHandler(c => {
 
   it('refreshes a failed client page, preserves a common nested layout, and settles terminal navigation', async () => {
     const page = await browser.newPage();
-    page.setDefaultTimeout(8_000);
+    page.setDefaultTimeout(8000);
     try {
       await page.goto(base);
       await page.waitForSelector('#app[data-hydrated="true"]');

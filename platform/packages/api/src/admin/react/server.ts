@@ -5,7 +5,8 @@ import type { ApiEnv } from '../../env.ts';
 import { formatPlatformPageTitle } from '../../platform-identity.ts';
 import type { createAdminFateClient } from '../fate/client.ts';
 import { loadSecurityChrome } from '../security-data.ts';
-import { adminComponents, adminLayoutTree, type AdminPageId } from './pages.ts';
+import { adminComponents, adminLayoutTree } from './pages.ts';
+import type { AdminPageId } from './pages.ts';
 
 export async function renderAdminPage(
   context: Context<ApiEnv>,
@@ -38,6 +39,7 @@ export async function renderAdminPage(
       title: formatPlatformPageTitle(title, platformName),
       htmlAttrs: { lang: 'en', 'data-astryx-theme': 'neutral' },
       meta: [
+        // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       ],

@@ -27,7 +27,7 @@ export function interpolateRouteParams(
   const pathname = suffixIndex === -1 ? path : path.slice(0, suffixIndex);
   const suffix = suffixIndex === -1 ? '' : path.slice(suffixIndex);
   let leadingName: string | undefined;
-  const replaced = pathname.replace(
+  const replaced = pathname.replaceAll(
     /(^|\/)(?::([^/{}]+)(\{\.\+\})?|\[(\.\.\.)?([^/[\]]*)\]|\*)(?=\/|$)/g,
     (
       token: string,

@@ -233,7 +233,9 @@ export async function uploadAssetBuckets(
 
   async function acquireSlot(): Promise<void> {
     while (activeCount >= concurrency) {
-      await new Promise<void>((resolve) => waiters.push(resolve));
+      await new Promise<void>((resolve) => {
+        waiters.push(resolve);
+      });
     }
     activeCount++;
   }
@@ -289,7 +291,9 @@ export async function uploadAssetBuckets(
         lastErr instanceof Error ? lastErr.message : lastErr,
       );
 
-      await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempts) * retryDelayMs));
+      await new Promise((resolve) => {
+        setTimeout(resolve, Math.pow(2, attempts) * retryDelayMs);
+      });
 
       if (lastErr instanceof AssetUploadError && lastErr.status === 524) {
         // Gateway error — throttle concurrency + additional backoff
@@ -298,9 +302,9 @@ export async function uploadAssetBuckets(
           waiters.shift()!();
         }
 
-        await new Promise((resolve) =>
-          setTimeout(resolve, Math.pow(2, bucketGatewayErrors) * gatewayDelayMs),
-        );
+        await new Promise((resolve) => {
+          setTimeout(resolve, Math.pow(2, bucketGatewayErrors) * gatewayDelayMs);
+        });
         bucketGatewayErrors++;
         console.warn(
           `[assets] bucket ${bucketIndex + 1} gateway error (524), ` +
@@ -386,7 +390,7 @@ async function postAssetUpload(
 function isJwtExpired(jwt: string): boolean {
   try {
     // CF JWTs use base64url encoding — normalize to standard base64 before decoding
-    const raw = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const raw = jwt.split('.')[1].replaceAll('-', '+').replaceAll('_', '/');
     const payload = JSON.parse(atob(raw));
     return typeof payload.exp === 'number' && payload.exp < Date.now() / 1000;
   } catch {
@@ -396,7 +400,7 @@ function isJwtExpired(jwt: string): boolean {
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
-  const chunkSize = 0x8000;
+  const chunkSize = 0x80_00;
   for (let i = 0; i < bytes.length; i += chunkSize) {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
@@ -497,7 +501,7 @@ export function computeAssetHash(content: ArrayBuffer, filePath: string): string
   for (const chunk of base64Chunks(bytes)) {
     hasher.update(chunk);
   }
-  hasher.update(textEncoder.encode(extname(filePath).substring(1)));
+  hasher.update(textEncoder.encode(extname(filePath).slice(1)));
   return digestToAssetHash(hasher.finalize());
 }
 
@@ -508,7 +512,7 @@ export async function computeAssetStreamHashes(
   maxBytes: number,
 ): Promise<{ size: number; hashes: ReadonlyArray<string> }> {
   const hashers = new Map(
-    [...new Set(paths.map((path) => extname(path).substring(1)))].map((extension) => [
+    [...new Set(paths.map((path) => extname(path).slice(1)))].map((extension) => [
       extension,
       createHasher(),
     ]),

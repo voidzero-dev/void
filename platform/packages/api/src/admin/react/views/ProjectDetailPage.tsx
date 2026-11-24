@@ -12,7 +12,7 @@ import {
 import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import { ProjectDetailView, projectDetailRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { BuildTable } from './BuildTable.tsx';
 import { DeploymentTable } from './DeploymentTable.tsx';
 import { formatAiLoggingStatus, formatDateTime } from './format.ts';

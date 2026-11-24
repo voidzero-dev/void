@@ -55,6 +55,16 @@ async function getCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   return compilerPromise;
 }
 
+// Save the raw fence info (e.g. `ts {1,3-5}`) before `markdown-it-attrs` strips the
+// `{…}`, so the highlighter still gets the line ranges.
+const stashFenceInfo: RuleCore = (state) => {
+  for (const token of state.tokens) {
+    if (token.type === 'fence') {
+      token.meta = { ...token.meta, rawInfo: token.info };
+    }
+  }
+};
+
 async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   const markdown = new MarkdownExit({ html: true, linkify: true });
 
@@ -79,16 +89,6 @@ async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   markdown.use(linkPlugin);
   markdown.use(lineNumberPlugin);
   markdown.use(gitHubAlertsPlugin);
-
-  // Save the raw fence info (e.g. `ts {1,3-5}`) before `markdown-it-attrs` strips the
-  // `{…}`, so the highlighter still gets the line ranges.
-  const stashFenceInfo: RuleCore = (state) => {
-    for (const token of state.tokens) {
-      if (token.type === 'fence') {
-        token.meta = { ...token.meta, rawInfo: token.info };
-      }
-    }
-  };
   markdown.core.ruler.after('block', 'stash_fence_info', stashFenceInfo);
 
   markdown.use(attrs);

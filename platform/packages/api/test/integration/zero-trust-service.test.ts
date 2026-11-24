@@ -18,10 +18,8 @@ import {
   projects as projectTable,
   projectZeroTrust,
 } from '../../src/schema.ts';
-import {
-  readZeroTrustConfigurationStrict,
-  type ZeroTrustConfigureInput,
-} from '../../src/zero-trust/configuration.ts';
+import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
+import type { ZeroTrustConfigureInput } from '../../src/zero-trust/configuration.ts';
 import {
   configurePlatformZeroTrust,
   disablePlatformZeroTrust,
@@ -41,8 +39,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

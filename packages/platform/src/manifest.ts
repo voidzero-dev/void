@@ -1,6 +1,8 @@
-import { isR2LocationHint, type R2LocationHint } from '@void/deploy-core';
+import { isR2LocationHint } from '@void/deploy-core';
+import type { R2LocationHint } from '@void/deploy-core';
 import type { PlatformApplication } from './application.ts';
-import { PLATFORM_LOGIN_KINDS, type PlatformLoginKind } from './authentication.ts';
+import { PLATFORM_LOGIN_KINDS } from './authentication.ts';
+import type { PlatformLoginKind } from './authentication.ts';
 import { assertRecord, requiredString } from './validate.ts';
 
 export const PLATFORM_DEPLOYMENT_SCHEMA_VERSION = 1 as const;

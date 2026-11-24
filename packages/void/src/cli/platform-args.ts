@@ -1,13 +1,13 @@
-import {
-  normalizePlatformDashboardUrl,
-  PLATFORM_LOGIN_KINDS,
-  type PlatformLoginKind,
-  type PlatformAppAccess,
-} from '@void/platform';
-import { operatorGroups, parseOperatorArgs, type OperatorArgs } from './operator-args.ts';
-import { parsePlatformConfigArgs, type PlatformConfigArgs } from './platform-config-args.ts';
-import { parsePlatformPlansArgs, type PlatformPlansArgs } from './platform-plans-args.ts';
-import { parsePlatformStorageLocation, type PlatformStorageLocation } from './platform-storage.ts';
+import { normalizePlatformDashboardUrl, PLATFORM_LOGIN_KINDS } from '@void/platform';
+import type { PlatformLoginKind, PlatformAppAccess } from '@void/platform';
+import { operatorGroups, parseOperatorArgs } from './operator-args.ts';
+import type { OperatorArgs } from './operator-args.ts';
+import { parsePlatformConfigArgs } from './platform-config-args.ts';
+import type { PlatformConfigArgs } from './platform-config-args.ts';
+import { parsePlatformPlansArgs } from './platform-plans-args.ts';
+import type { PlatformPlansArgs } from './platform-plans-args.ts';
+import { parsePlatformStorageLocation } from './platform-storage.ts';
+import type { PlatformStorageLocation } from './platform-storage.ts';
 import type { SubcommandDef } from './subcommand-prompt.ts';
 
 export const platformSubcommands: Array<SubcommandDef> = [

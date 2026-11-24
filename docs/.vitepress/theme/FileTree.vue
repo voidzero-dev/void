@@ -198,6 +198,17 @@ function getFileIcon(name: string, dark: boolean): string {
   return 'lucide:file';
 }
 
+const nodeStyle = (level: number, folder: boolean) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  padding: '7px 8px',
+  paddingLeft: `${level * 20 + 6}px`,
+  borderRadius: '4px',
+  cursor: folder ? 'pointer' : 'default',
+  whiteSpace: 'nowrap' as const,
+});
+
 const TreeNode = defineComponent({
   name: 'TreeNode',
   props: {
@@ -206,17 +217,6 @@ const TreeNode = defineComponent({
     dark: { type: Boolean, default: false },
   },
   setup(props) {
-    const nodeStyle = (level: number, folder: boolean) => ({
-      display: 'flex',
-      alignItems: 'center',
-      gap: '6px',
-      padding: '7px 8px',
-      paddingLeft: `${level * 20 + 6}px`,
-      borderRadius: '4px',
-      cursor: folder ? 'pointer' : 'default',
-      whiteSpace: 'nowrap' as const,
-    });
-
     const nameStyle = {
       color: 'var(--vp-c-text-1)',
       fontSize: '14px',

@@ -81,7 +81,7 @@ export function connectLiveStream(
   let pendingFlush: Promise<void> | null = null;
   let flushChain: Promise<void> = Promise.resolve();
   let nextSubscriptionVersion = 0;
-  const retryDelay = options.retryDelay ?? 1_000;
+  const retryDelay = options.retryDelay ?? 1000;
   if (!Number.isFinite(retryDelay) || retryDelay < 0) {
     throw new Error('live: retryDelay must be a non-negative finite number.');
   }
@@ -97,7 +97,7 @@ export function connectLiveStream(
       return Promise.reject(new Error('live: stream is closed.'));
     }
     const shouldResubscribe = resubscribeOnNextOpen;
-    if (reconnectTimer != null) {
+    if (reconnectTimer !== null && reconnectTimer !== undefined) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
@@ -163,7 +163,7 @@ export function connectLiveStream(
   }
 
   function scheduleReconnect(current: EventSourceLike): void {
-    if (closed || reconnectTimer != null) {
+    if (closed || (reconnectTimer !== null && reconnectTimer !== undefined)) {
       return;
     }
     current.close();
@@ -178,7 +178,11 @@ export function connectLiveStream(
   }
 
   function scheduleReconnectTimer(): void {
-    if (closed || reconnectTimer != null || (!options.keepOpen && subscriptions.size === 0)) {
+    if (
+      closed ||
+      (reconnectTimer !== null && reconnectTimer !== undefined) ||
+      (!options.keepOpen && subscriptions.size === 0)
+    ) {
       return;
     }
     resubscribeOnNextOpen = true;
@@ -188,7 +192,7 @@ export function connectLiveStream(
       if (closed || (!options.keepOpen && subscriptions.size === 0)) {
         return;
       }
-      void openSource(true).catch((error) => {
+      void openSource(true).catch((error: unknown) => {
         if (!closed) {
           reportError(error);
         }
@@ -264,9 +268,9 @@ export function connectLiveStream(
         resubscribeWithNextFlush = false;
         const pendingIds = new Set(operations.map((operation) => operation.id));
         operations = [
-          ...[...subscriptions.values()]
-            .filter((subscription) => !pendingIds.has(subscription.id))
-            .map(subscribeOperation),
+          ...[...subscriptions.values()].flatMap((subscription) =>
+            !pendingIds.has(subscription.id) ? [subscribeOperation(subscription)] : [],
+          ),
           ...operations,
         ];
       }
@@ -320,7 +324,7 @@ export function connectLiveStream(
 
   function closeIfIdle(): void {
     if (!options.keepOpen && subscriptions.size === 0) {
-      if (reconnectTimer != null) {
+      if (reconnectTimer !== null && reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
@@ -353,7 +357,7 @@ export function connectLiveStream(
         if (subscriptionVersions.get(subscription.id) === version) {
           if (previousSubscription) {
             subscriptions.set(subscription.id, previousSubscription);
-            if (previousVersion != null) {
+            if (previousVersion !== null && previousVersion !== undefined) {
               subscriptionVersions.set(subscription.id, previousVersion);
             } else {
               subscriptionVersions.delete(subscription.id);
@@ -394,7 +398,7 @@ export function connectLiveStream(
       closed = true;
       subscriptions.clear();
       subscriptionVersions.clear();
-      if (reconnectTimer != null) {
+      if (reconnectTimer !== null && reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }

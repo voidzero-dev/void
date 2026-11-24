@@ -1,4 +1,5 @@
-import { createRouteFetch, type UntypedFetchOptions } from './fetch.ts';
+import { createRouteFetch } from './fetch.ts';
+import type { UntypedFetchOptions } from './fetch.ts';
 export { FetchError } from './fetch-error.ts';
 
 /** Keep local calls in the app while using the browser client's request and error handling. */

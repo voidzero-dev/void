@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import { DeploymentsPageView, deploymentsPageRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { DeploymentTable } from './DeploymentTable.tsx';
 import { Layout } from './Layout.tsx';
 import { Pagination } from './Pagination.tsx';
@@ -36,7 +36,7 @@ export function DeploymentsListPage({ path, platformName, username }: AdminPageP
           initialSelection={selectedDeployment}
         />
         <DeploymentTable deployments={deployments} showProject tz={tz} />
-        {page != null && totalPages != null && (
+        {page !== null && page !== undefined && totalPages !== null && totalPages !== undefined && (
           <Pagination page={page} totalPages={totalPages} baseUrl="/admin/deployments" />
         )}
       </SectionStack>

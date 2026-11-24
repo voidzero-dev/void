@@ -1,10 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
-import {
-  AI_LOGGING_MODES,
-  parsePlanAiLoggingInput,
-  type AiLoggingMode,
-} from '@void/platform/ai-logging';
+import { AI_LOGGING_MODES, parsePlanAiLoggingInput } from '@void/platform/ai-logging';
+import type { AiLoggingMode } from '@void/platform/ai-logging';
 import {
   PLAN_EDITABLE_LIMIT_KEYS,
   PLAN_LIMITS,
@@ -12,25 +9,18 @@ import {
   parsePlanName,
   parseBuildInstanceType,
   parsePlatformPlanId,
-  type PlatformPlanCatalog,
-  type PlatformPlanDefinition,
 } from '@void/platform/plans';
+import type { PlatformPlanCatalog, PlatformPlanDefinition } from '@void/platform/plans';
 import {
   formatPlanSecurityCap,
   parsePlanSecurityCapInput,
   planSecurityCap,
   readPlanSecurityCaps,
   readStoredPlanSecurityCap,
-  type PlanSecurityCaps,
-  type SecurityPlanCap,
 } from '@void/platform/security-policy';
-import {
-  type CANCEL_SYMBOL,
-  confirm,
-  isCancel,
-  select,
-  text,
-} from '@voidzero-dev/vite-plus-prompts';
+import type { PlanSecurityCaps, SecurityPlanCap } from '@void/platform/security-policy';
+import { confirm, isCancel, select, text } from '@voidzero-dev/vite-plus-prompts';
+import type { CANCEL_SYMBOL } from '@voidzero-dev/vite-plus-prompts';
 import { utcTime } from './operator-ai-logging.ts';
 import { readOperatorToken, resolveOperatorOrigin } from './operator-auth.ts';
 import { OperatorClient, OperatorClientError } from './operator-client.ts';
@@ -331,7 +321,7 @@ async function changesInput(
       parsePlanAiLoggingInput(object.aiLogging);
       parsePlanSecurityCapInput(object.securityCap);
     } catch (error) {
-      throw new Error(`platform: ${(error as Error).message}`);
+      throw new Error(`platform: ${(error as Error).message}`, { cause: error });
     }
     if (object.allowShortSlugs !== undefined && typeof object.allowShortSlugs !== 'boolean') {
       throw new Error('platform: allowShortSlugs must be a boolean.');
@@ -623,7 +613,7 @@ function progressed(progress: Progress): boolean {
 export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<void> {
   const origin = resolveOperatorOrigin(args.connection);
   const client = new OperatorClient(origin, readOperatorToken(origin));
-  const listing = (await client.request('/config/plans')) as unknown as Listing;
+  const listing = (await client.request('/config/plans')) as Listing;
   const { catalog } = listing;
   if (!args.action) {
     if (!process.stdin.isTTY || args.json) {

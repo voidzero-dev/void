@@ -1,7 +1,8 @@
 import { tokenizeSql } from '@void/deploy-core';
 import type { ProjectZeroTrustRouting } from '@void/edge';
 import { sql as drizzleSql } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import {
   AiLoggingPublishError,
   lockNewProjectAiLoggingInputs,
@@ -61,7 +62,8 @@ import {
   ACTIVE_BUILD_STATUSES,
 } from '../db.ts';
 import { databaseTimestampMs } from '../deploy/recovery.ts';
-import { type ApiEnv, isDevBypass } from '../env.ts';
+import { isDevBypass } from '../env.ts';
+import type { ApiEnv } from '../env.ts';
 import { validateSubmittedExecutionPlans } from '../migrations/execution-plan.ts';
 import { ensureTrackingTable, queryD1, runRemoteMigrations } from '../migrations/remote-runner.ts';
 import { getProjectDeploymentWorkerName, getProjectQueueName } from '../naming.ts';
@@ -1473,21 +1475,26 @@ const app = new Hono<ApiEnv>()
                   resource.cf_id,
                   dispatchWorkerName,
                   {
-                    ...(targetQueue.maxBatchSize != null && {
-                      batch_size: targetQueue.maxBatchSize,
-                    }),
-                    ...(targetQueue.maxBatchTimeout != null && {
-                      max_wait_time_ms: targetQueue.maxBatchTimeout * 1000,
-                    }),
-                    ...(targetQueue.maxRetries != null && {
-                      max_retries: targetQueue.maxRetries,
-                    }),
-                    ...(targetQueue.maxConcurrency != null && {
-                      max_concurrency: targetQueue.maxConcurrency,
-                    }),
-                    ...(targetQueue.retryDelay != null && {
-                      retry_delay: targetQueue.retryDelay,
-                    }),
+                    ...(targetQueue.maxBatchSize !== null &&
+                      targetQueue.maxBatchSize !== undefined && {
+                        batch_size: targetQueue.maxBatchSize,
+                      }),
+                    ...(targetQueue.maxBatchTimeout !== null &&
+                      targetQueue.maxBatchTimeout !== undefined && {
+                        max_wait_time_ms: targetQueue.maxBatchTimeout * 1000,
+                      }),
+                    ...(targetQueue.maxRetries !== null &&
+                      targetQueue.maxRetries !== undefined && {
+                        max_retries: targetQueue.maxRetries,
+                      }),
+                    ...(targetQueue.maxConcurrency !== null &&
+                      targetQueue.maxConcurrency !== undefined && {
+                        max_concurrency: targetQueue.maxConcurrency,
+                      }),
+                    ...(targetQueue.retryDelay !== null &&
+                      targetQueue.retryDelay !== undefined && {
+                        retry_delay: targetQueue.retryDelay,
+                      }),
                   },
                 );
                 if (consumer.status === 'conflict') {
@@ -1533,6 +1540,7 @@ const app = new Hono<ApiEnv>()
               }
             }
             if (compensationErrors.length > 0) {
+              // oxlint-disable-next-line preserve-caught-error -- The original failure is already preserved in AggregateError.errors.
               throw new AggregateError(
                 [externalError, ...compensationErrors],
                 'rollback failed and external state compensation was incomplete',
@@ -1594,7 +1602,9 @@ const app = new Hono<ApiEnv>()
             // the one returned to the caller below.
           }
           if (attempt < 2) {
-            await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt));
+            await new Promise((resolve) => {
+              setTimeout(resolve, 25 * 2 ** attempt);
+            });
           }
         }
         ambiguousCommitOutcome ??= durableReadSucceeded ? 'not_committed' : 'unknown';
@@ -1690,6 +1700,7 @@ const app = new Hono<ApiEnv>()
                 // the retryable state write is unavailable.
               });
             }
+            // oxlint-disable-next-line preserve-caught-error -- The original failure is already preserved in AggregateError.errors.
             throw new AggregateError(
               [err, ...compensationErrors],
               'rollback transaction failed and external state compensation was incomplete',
@@ -1754,7 +1765,9 @@ const app = new Hono<ApiEnv>()
           } catch (error) {
             releaseError = error;
             if (attempt < 2) {
-              await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 25 * 2 ** attempt);
+              });
             }
           }
         }
@@ -3090,7 +3103,7 @@ function parseDuration(input: string): number | null {
   if (!match) {
     return null;
   }
-  const value = parseInt(match[1], 10);
+  const value = Number.parseInt(match[1], 10);
   const unit = match[2];
   const multipliers: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
   const ms = value * multipliers[unit];
@@ -3204,7 +3217,8 @@ function sanitizeDeploymentManifest(raw: string | null): string | null {
 
 function tryParse(json: string): ReadonlyArray<unknown> {
   try {
-    return JSON.parse(json);
+    const entries: unknown = JSON.parse(json);
+    return Array.isArray(entries) ? (entries as Array<unknown>) : [];
   } catch {
     return [];
   }

@@ -237,7 +237,7 @@ function utcStamp(ms: number): string {
 
 /** Insert thousands separators, e.g. 1252 -> "1,252". */
 function formatCount(n: number): string {
-  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return String(n).replaceAll(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 /**
@@ -458,9 +458,9 @@ export function sendSecurityDigestEmail(
 
 export function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
