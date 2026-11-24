@@ -277,6 +277,14 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // Workers types overload DOM append in these shared browser modules.
+        files: [
+          'packages/void/src/pages/boundary-client.ts',
+          'packages/void/src/pages/navigation-engine.ts',
+        ],
+        rules: { 'unicorn/prefer-dom-node-append': 'off' },
+      },
+      {
         // Temporarily override the preset's TypeScript-specific rule setting.
         files: ['**/*.{ts,tsx,mts,cts}'],
         rules: { 'typescript/only-throw-error': 'off' },
@@ -452,7 +460,6 @@ const config = defineConfig({
       'unicorn/consistent-function-scoping': 'off',
       'unicorn/no-hex-escape': 'off',
       'unicorn/prefer-at': 'off',
-      'unicorn/prefer-dom-node-append': 'off',
       'unicorn/prefer-import-meta-properties': 'off',
       'unicorn/prefer-set-has': 'off',
       'unicorn/prefer-single-call': 'off',

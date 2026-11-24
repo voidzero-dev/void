@@ -9,7 +9,7 @@ if (typeof document !== 'undefined') {
   preload.href = heroAnimation;
   preload.as = 'fetch';
   preload.crossOrigin = 'anonymous';
-  document.head.appendChild(preload);
+  document.head.append(preload);
 }
 
 const { frontmatter } = useData();
