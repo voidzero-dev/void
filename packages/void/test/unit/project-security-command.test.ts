@@ -937,11 +937,11 @@ describe('project security command paths', () => {
     const out = capture();
     await run(root, ['security', 'status', '--json']);
     expect(out).toHaveLength(1);
-    expect(JSON.parse(out[0]!)).toMatchObject({ policy: { mode: 'public' }, counts: { leads: 3 } });
+    expect(JSON.parse(out[0])).toMatchObject({ policy: { mode: 'public' }, counts: { leads: 3 } });
     route({ [`GET ${F}`]: () => Response.json({ findings: [finding('F-1')], nextCursor: null }) });
     out.length = 0;
     await run(root, ['security', 'list', '--json']);
-    expect(JSON.parse(out[0]!)).toMatchObject({ findings: [{ id: 'F-1' }], more: false });
+    expect(JSON.parse(out[0])).toMatchObject({ findings: [{ id: 'F-1' }], more: false });
   });
 });
 

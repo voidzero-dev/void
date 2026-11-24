@@ -137,8 +137,8 @@ describe('ensureSecurityScannerImage', () => {
       now,
     });
     expect(first).toMatchObject({ ok: false, step: 'pending' });
-    expect(registry.blobs.has(image.layers[0]!)).toBe(true);
-    expect(registry.blobs.has(image.layers[1]!)).toBe(false);
+    expect(registry.blobs.has(image.layers[0])).toBe(true);
+    expect(registry.blobs.has(image.layers[1])).toBe(false);
     expect(registry.hasManifest(`acct/${REPO}`, image.digest)).toBe(false);
 
     registry.calls.length = 0;
@@ -174,7 +174,7 @@ describe('ensureSecurityScannerImage', () => {
     });
     expect(result).toMatchObject({ ok: false, step: 'pending' });
     expect(Date.now() - started).toBeLessThan(5000);
-    expect(registry.blobs.has(image.layers[0]!)).toBe(true);
+    expect(registry.blobs.has(image.layers[0])).toBe(true);
   });
 
   it('refuses a manifest that does not match the pin, an index and a non-amd64 image', async () => {

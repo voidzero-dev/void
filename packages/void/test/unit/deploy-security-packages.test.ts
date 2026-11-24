@@ -7,6 +7,7 @@ import {
   findProjectLockfile,
   readSecurityPackageClaims,
 } from '../../src/cli/deploy-security-packages.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 const dirs: Array<string> = [];
 afterEach(() => {

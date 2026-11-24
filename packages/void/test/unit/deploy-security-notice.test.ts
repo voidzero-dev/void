@@ -60,7 +60,7 @@ function status(overrides: Partial<ProjectSecurityStatus> = {}): ProjectSecurity
     counts: { open: {}, leads: 3, resolved: 0, urgent: 0 },
     publicRequest: null,
     ...overrides,
-  } as ProjectSecurityStatus;
+  };
 }
 
 const urgent = (
@@ -199,7 +199,7 @@ describe('deploy security notice', () => {
   it('warns when the last scan did not finish', async () => {
     const reply = status({
       lastScan: scan({ id: 'ss_0', status: 'refused', deploymentId: 'dpl_7c20' }),
-      lastSuccessfulScan: scan({ status: 'succeeded', deploymentId: 'dpl_5c01' }) as never,
+      lastSuccessfulScan: scan({ status: 'succeeded', deploymentId: 'dpl_5c01' }),
       deploysSinceLastSuccess: 2,
     });
     const text = (await run(async () => reply)).lines.join('\n');

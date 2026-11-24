@@ -60,7 +60,7 @@ let keyring: TestEnv;
 
 beforeAll(async () => {
   env = await setupEnv();
-  keyring = { ...env, PLATFORM_INSTALLATION_ID: 'installation-test' } as TestEnv;
+  keyring = { ...env, PLATFORM_INSTALLATION_ID: 'installation-test' };
 });
 afterAll(teardownEnv);
 beforeEach(async () => {
@@ -183,7 +183,7 @@ describe('project failure streak email', () => {
       'proj-admin@example.com',
       'root@example.com',
     ]);
-    const message = sent[0]!;
+    const message = sent[0];
     expect(message.subject).toBe(
       '[Void Platform] acme-web: 4 security scans in a row did not finish',
     );
@@ -204,7 +204,7 @@ describe('project failure streak email', () => {
       await scan(app.id, deployment.id);
     }
     expect(await queueSecurityStreakNotifications(env.db, Date.now())).toBe(1);
-    expect((await rows())[0]!.dedupe_key).toBe(`streak_project:${app.id}:start`);
+    expect((await rows())[0].dedupe_key).toBe(`streak_project:${app.id}:start`);
     // It succeeds after that email was queued.
     const good = await scan(app.id, deployment.id, {
       status: 'succeeded',
@@ -327,12 +327,12 @@ describe('installation failure email', () => {
     const { mail, sent } = outbox();
     await runSecurityNotifications(env.db, mail);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.to).toBe('root@example.com');
-    expect(sent[0]!.subject).toBe(
+    expect(sent[0].to).toBe('root@example.com');
+    expect(sent[0].subject).toBe(
       '[Void Platform] Platform: 3 of 8 security scans failed in the last 24 hours',
     );
-    expect(sent[0]!.text).toContain('no AI credits left');
-    expect(sent[0]!.text).toContain('waited over 24 hours in the queue');
+    expect(sent[0].text).toContain('no AI credits left');
+    expect(sent[0].text).toContain('waited over 24 hours in the queue');
   });
 });
 
@@ -375,7 +375,7 @@ describe('weekly digest', () => {
     const { mail, sent } = outbox();
     await runSecurityNotifications(env.db, mail);
     expect(sent).toHaveLength(1);
-    const message = sent[0]!;
+    const message = sent[0];
     expect(message.subject).toContain('[Void Platform] Platform: weekly security summary (');
     expect(message.text).toContain('2 ended: 1 succeeded, 1 failed (project)');
     expect(message.text).toContain('1: 0 critical, 1 high');
@@ -463,7 +463,7 @@ describe('webhook', () => {
     await runSecurityNotifications(env.db, mail, now, { fetch: hook.fetch });
     expect(sent).toHaveLength(0);
     expect(hook.calls).toHaveLength(1);
-    const call = hook.calls[0]!;
+    const call = hook.calls[0];
     expect(call.url).toBe('https://hooks.example.com/void');
     expect(call.headers.get('X-Void-Event')).toBe('security.findings');
     const body = JSON.parse(call.body);
@@ -591,7 +591,7 @@ describe('webhook', () => {
     expect(down.calls).toHaveLength(1);
     const [retrying] = (await rows()).filter((row) => row.kind === 'webhook');
     expect(retrying).toMatchObject({ status: 'pending', attempts: 1 });
-    expect(JSON.parse(down.calls[0]!.body).data).toEqual({ month: '2026-11-01', percent: 80 });
+    expect(JSON.parse(down.calls[0].body).data).toEqual({ month: '2026-11-01', percent: 80 });
 
     await setSecurityWebhook(keyring, env.db, { url: null, userId: 'usr_admin', now: Date.now() });
     const up = receiver();
@@ -643,7 +643,7 @@ describe('webhook', () => {
 
     const saved = await post({ url: 'https://hooks.example.com/void?token=abc' });
     expect(saved.status).toBe(200);
-    const result = (await saved.json()) as { secret: string; webhook: { url: string } };
+    const result = await saved.json<{ secret: string; webhook: { url: string } }>();
     expect(result.secret).toMatch(/^vwhsec_/);
     expect(result.webhook.url).toBe('https://hooks.example.com/void?token=abc');
 

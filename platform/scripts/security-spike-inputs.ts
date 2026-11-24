@@ -299,7 +299,7 @@ function measureApp(app: string, lockfile: ReturnType<typeof thirdParty.parsePnp
   const party = (lock: typeof lockfile) => {
     const counts = { first_party: 0, registry: 0, unverified: 0 };
     for (const file of bundle.files) {
-      counts[thirdParty.classifyThirdParty(file.path, lock) as keyof typeof counts]++;
+      counts[thirdParty.classifyThirdParty(file.path, lock)]++;
     }
     return counts;
   };

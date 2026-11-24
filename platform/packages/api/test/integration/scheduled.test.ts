@@ -984,7 +984,7 @@ describe('scheduled() security audit maintenance', () => {
     await env.db.insert(securityScans).values([
       {
         id: 'ss_lease',
-        project_id: p1!.id,
+        project_id: p1.id,
         deployment_id: 'dpl_1',
         status: 'running',
         trigger: 'deploy',
@@ -993,7 +993,7 @@ describe('scheduled() security audit maintenance', () => {
       },
       {
         id: 'ss_backlog',
-        project_id: p2!.id,
+        project_id: p2.id,
         deployment_id: 'dpl_2',
         status: 'queued',
         trigger: 'deploy',
@@ -1001,7 +1001,7 @@ describe('scheduled() security audit maintenance', () => {
       },
       {
         id: 'ss_pending',
-        project_id: p3!.id,
+        project_id: p3.id,
         deployment_id: 'dpl_3',
         status: 'pending_input',
         trigger: 'deploy',
@@ -1010,14 +1010,14 @@ describe('scheduled() security audit maintenance', () => {
       },
       {
         id: 'ss_old',
-        project_id: p4!.id,
+        project_id: p4.id,
         deployment_id: 'dpl_4',
         status: 'failed',
         trigger: 'deploy',
         finished_at: ago(31 * DAY),
       },
     ]);
-    const raw = securityRawOutputPrefix(p4!.id, 'ss_old');
+    const raw = securityRawOutputPrefix(p4.id, 'ss_old');
     await env.STATIC_ASSETS_R2.put(`${raw}findings.json`, '[]');
     return { raw };
   }

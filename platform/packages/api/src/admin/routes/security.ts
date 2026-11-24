@@ -42,7 +42,7 @@ function text(form: Form, name: string): string {
   return typeof value === 'string' ? value : '';
 }
 
-function requireCapability(context: Context<ApiEnv>): void {
+function requireCapability(context: Pick<Context<ApiEnv>, 'env'>): void {
   if (!getPlatformCapabilities(context.env).securityAudits) {
     throw new OperatorError(
       501,

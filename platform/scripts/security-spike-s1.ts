@@ -64,7 +64,7 @@ export async function cfApi<T>(
   const text = await response.text();
   let body: { success?: boolean; result?: T; errors?: unknown };
   try {
-    body = JSON.parse(text);
+    body = JSON.parse(text) as typeof body;
   } catch {
     body = { errors: text.slice(0, 500) };
   }
@@ -402,7 +402,7 @@ function judgeProbe(run: RunResult) {
   const model = probe.modelCall;
   let modelBody: { scanId?: string } = {};
   try {
-    modelBody = JSON.parse(model?.body ?? '');
+    modelBody = JSON.parse(model?.body ?? '') as typeof modelBody;
   } catch {
     // Not JSON: the check below reports the raw item.
   }

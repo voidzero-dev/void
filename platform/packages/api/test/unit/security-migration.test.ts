@@ -276,7 +276,7 @@ describe('security audits migration on PGlite', () => {
         "SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_security_findings_urgent'",
       )
     ).rows;
-    const predicate = index!.indexdef.split(' WHERE ')[1];
+    const predicate = index.indexdef.split(' WHERE ')[1];
     expect(predicate).toBeTruthy();
     expect(
       (

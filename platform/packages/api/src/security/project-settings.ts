@@ -312,7 +312,7 @@ export function parseSecurityBudgetRequest(body: unknown): number | null {
   if (!body || typeof body !== 'object' || Array.isArray(body) || !('monthlyUsd' in body)) {
     throw SecurityApiError.invalid('Send a JSON body such as {"monthlyUsd":50}, or null to clear.');
   }
-  const usd = (body as { monthlyUsd: unknown }).monthlyUsd;
+  const usd = body.monthlyUsd;
   if (usd === null) {
     return null;
   }

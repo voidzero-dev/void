@@ -634,7 +634,7 @@ function booleanFlagsFor(args: Array<string>): Array<string> {
   // Find the command from its first two words, skipping flags and their values.
   const words: Array<string> = [];
   for (let index = 0; index < args.length && words.length < 2; index++) {
-    const arg = args[index]!;
+    const arg = args[index];
     if (!arg.startsWith('--')) {
       words.push(arg);
     } else if (

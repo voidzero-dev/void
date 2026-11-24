@@ -48,21 +48,28 @@ import {
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
+import type { TarEntry } from '../packages/security-scanner/test/helpers/tar.ts';
 import { finishSpike, REPO, relaunchWithLocalLoader } from './security-spike-local.ts';
 import type { SpikeCheck } from './security-spike-local.ts';
 
+// Workers types declare the global Buffer as any here; keep Node's signatures.
+const Buffer = globalThis.Buffer as BufferConstructor;
+
 relaunchWithLocalLoader(import.meta.url);
 
-const SCANNER = '../packages/security-scanner';
-const { runScan } = await import(`${SCANNER}/src/runner/run.ts`);
-const { createVoidLoopEngine } = await import(`${SCANNER}/src/runner/engines/void-loop.ts`);
-const { createFsTools } = await import(`${SCANNER}/src/runner/tools/fs.ts`);
-const { createMcpServer } = await import(`${SCANNER}/src/runner/mcp/server.ts`);
-const { claudeOptions, createPathHook } = await import(`${SCANNER}/src/runner/engines/claude.ts`);
-const { codexConfig, CODEX_FEATURES_OFF } = await import(`${SCANNER}/src/runner/engines/codex.ts`);
-const { validateFindingsText } = await import(`${SCANNER}/src/runner/validate-findings.ts`);
-const { buildTar, paxHeader } = await import(`${SCANNER}/test/helpers/tar.ts`);
-const findingsHelpers = await import(`${SCANNER}/test/helpers/findings.ts`);
+const { runScan } = await import('../packages/security-scanner/src/runner/run.ts');
+const { createVoidLoopEngine } =
+  await import('../packages/security-scanner/src/runner/engines/void-loop.ts');
+const { createFsTools } = await import('../packages/security-scanner/src/runner/tools/fs.ts');
+const { createMcpServer } = await import('../packages/security-scanner/src/runner/mcp/server.ts');
+const { claudeOptions, createPathHook } =
+  await import('../packages/security-scanner/src/runner/engines/claude.ts');
+const { codexConfig, CODEX_FEATURES_OFF } =
+  await import('../packages/security-scanner/src/runner/engines/codex.ts');
+const { validateFindingsText } =
+  await import('../packages/security-scanner/src/runner/validate-findings.ts');
+const { buildTar, paxHeader } = await import('../packages/security-scanner/test/helpers/tar.ts');
+const findingsHelpers = await import('../packages/security-scanner/test/helpers/findings.ts');
 const proxy = await import('../packages/api/src/security/model-proxy.ts');
 const ledger = await import('../packages/api/src/security/call-ledger.ts');
 const budget = await import('../packages/api/src/security/budget.ts');
@@ -281,10 +288,10 @@ async function toolsSection(work: string) {
   const status = await runScan({
     root,
     retryDelayMs: 0,
-    engineFactory: (task: { model: string }, context: { tools: unknown }): unknown =>
+    engineFactory: (task, context) =>
       createVoidLoopEngine({
         model: task.model,
-        tools: context.tools as never,
+        tools: context.tools,
         baseUrl: 'http://model.void.internal',
         retryDelayMs: 0,
         fetch: (async (url: string, init: RequestInit) => {
@@ -382,164 +389,163 @@ function task(extra: Record<string, unknown> = {}) {
   });
 }
 
-const TAR_CASES: Array<{ label: string; entries: Array<Record<string, unknown>>; end?: boolean }> =
-  [
-    {
-      label: 'symlink entry into /etc',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/passwd', type: '2', linkname: '/etc/passwd' },
-      ],
-    },
-    {
-      label: 'symlink then file through it',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/esc', type: '2', linkname: '../..' },
-        { name: 'input/esc/pwned.txt', data: 'x' },
-      ],
-    },
-    {
-      label: 'hard link to task.json',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/t.json', type: '1', linkname: 'task.json' },
-      ],
-    },
-    {
-      label: '.. in the name',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/../../pwned.txt', data: 'x' },
-      ],
-    },
-    {
-      label: 'absolute name',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: '/tmp/void-spike-pwned.txt', data: 'x' },
-      ],
-    },
-    {
-      label: 'pax path with ..',
-      entries: [
-        { name: 'task.json', data: task() },
-        paxHeader({ path: 'input/../../pwned.txt' }),
-        { name: 'input/ok.txt', data: 'x' },
-      ],
-    },
-    {
-      label: 'pax path absolute',
-      entries: [
-        { name: 'task.json', data: task() },
-        paxHeader({ path: '/tmp/void-spike-pwned.txt' }),
-        { name: 'input/ok.txt', data: 'x' },
-      ],
-    },
-    {
-      label: 'ustar prefix with ..',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'pwned.txt', prefix: '../..', data: 'x' },
-      ],
-    },
-    {
-      label: 'planted out/status.json (forged success)',
-      entries: [
-        { name: 'task.json', data: task() },
-        {
-          name: 'out/status.json',
-          data: JSON.stringify({
-            schema_version: 1,
-            scan_id: 'ss_tar',
-            attempt: 1,
-            status: 'succeeded',
-            reason: null,
-          }),
-        },
-      ],
-    },
-    {
-      label: 'planted out/findings.json',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'out/findings.json', data: '{}' },
-      ],
-    },
-    {
-      label: 'second task.json (swap the task)',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'task.json', data: task({ engine: 'codex_sdk' }) },
-      ],
-    },
-    {
-      label: 'character device',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/null', type: '3' },
-      ],
-    },
-    {
-      label: 'fifo',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/fifo', type: '6' },
-      ],
-    },
-    {
-      label: 'GNU long name entry',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: '././@LongLink', type: 'L', data: '../../pwned.txt' },
-        { name: 'input/x', data: 'x' },
-      ],
-    },
-    {
-      label: 'file under a file',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/a', data: 'x' },
-        { name: 'input/a/b', data: 'y' },
-      ],
-    },
-    {
-      label: 'huge size field',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/big', data: 'x', size: 8 ** 11 - 1 },
-      ],
-    },
-    {
-      label: 'bad checksum',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/x', data: 'x', corruptChecksum: true },
-      ],
-    },
-    {
-      label: 'no end marker (truncated)',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/x', data: 'x' },
-      ],
-      end: false,
-    },
-    {
-      label: 'control character in name',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'input/a\u001bb', data: 'x' },
-      ],
-    },
-    {
-      label: 'name outside the allowed roots',
-      entries: [
-        { name: 'task.json', data: task() },
-        { name: 'home/scanner/.bashrc', data: 'curl evil' },
-      ],
-    },
-  ];
+const TAR_CASES: Array<{ label: string; entries: Array<TarEntry>; end?: boolean }> = [
+  {
+    label: 'symlink entry into /etc',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/passwd', type: '2', linkname: '/etc/passwd' },
+    ],
+  },
+  {
+    label: 'symlink then file through it',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/esc', type: '2', linkname: '../..' },
+      { name: 'input/esc/pwned.txt', data: 'x' },
+    ],
+  },
+  {
+    label: 'hard link to task.json',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/t.json', type: '1', linkname: 'task.json' },
+    ],
+  },
+  {
+    label: '.. in the name',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/../../pwned.txt', data: 'x' },
+    ],
+  },
+  {
+    label: 'absolute name',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: '/tmp/void-spike-pwned.txt', data: 'x' },
+    ],
+  },
+  {
+    label: 'pax path with ..',
+    entries: [
+      { name: 'task.json', data: task() },
+      paxHeader({ path: 'input/../../pwned.txt' }),
+      { name: 'input/ok.txt', data: 'x' },
+    ],
+  },
+  {
+    label: 'pax path absolute',
+    entries: [
+      { name: 'task.json', data: task() },
+      paxHeader({ path: '/tmp/void-spike-pwned.txt' }),
+      { name: 'input/ok.txt', data: 'x' },
+    ],
+  },
+  {
+    label: 'ustar prefix with ..',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'pwned.txt', prefix: '../..', data: 'x' },
+    ],
+  },
+  {
+    label: 'planted out/status.json (forged success)',
+    entries: [
+      { name: 'task.json', data: task() },
+      {
+        name: 'out/status.json',
+        data: JSON.stringify({
+          schema_version: 1,
+          scan_id: 'ss_tar',
+          attempt: 1,
+          status: 'succeeded',
+          reason: null,
+        }),
+      },
+    ],
+  },
+  {
+    label: 'planted out/findings.json',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'out/findings.json', data: '{}' },
+    ],
+  },
+  {
+    label: 'second task.json (swap the task)',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'task.json', data: task({ engine: 'codex_sdk' }) },
+    ],
+  },
+  {
+    label: 'character device',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/null', type: '3' },
+    ],
+  },
+  {
+    label: 'fifo',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/fifo', type: '6' },
+    ],
+  },
+  {
+    label: 'GNU long name entry',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: '././@LongLink', type: 'L', data: '../../pwned.txt' },
+      { name: 'input/x', data: 'x' },
+    ],
+  },
+  {
+    label: 'file under a file',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/a', data: 'x' },
+      { name: 'input/a/b', data: 'y' },
+    ],
+  },
+  {
+    label: 'huge size field',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/big', data: 'x', size: 8 ** 11 - 1 },
+    ],
+  },
+  {
+    label: 'bad checksum',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/x', data: 'x', corruptChecksum: true },
+    ],
+  },
+  {
+    label: 'no end marker (truncated)',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/x', data: 'x' },
+    ],
+    end: false,
+  },
+  {
+    label: 'control character in name',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'input/a\u001bb', data: 'x' },
+    ],
+  },
+  {
+    label: 'name outside the allowed roots',
+    entries: [
+      { name: 'task.json', data: task() },
+      { name: 'home/scanner/.bashrc', data: 'curl evil' },
+    ],
+  },
+];
 
 function runRunner(
   root: string,
@@ -588,7 +594,7 @@ async function tarSection(work: string) {
     const base = mkdtempSync(join(work, 'tar-'));
     const root = join(base, 'scan');
     mkdirSync(root);
-    const result = await runRunner(root, buildTar(tarCase.entries as never, { end: tarCase.end }));
+    const result = await runRunner(root, buildTar(tarCase.entries, { end: tarCase.end }));
     const statusPath = join(root, 'out', 'status.json');
     const status = existsSync(statusPath)
       ? (JSON.parse(readFileSync(statusPath, 'utf8')) as Record<string, unknown>)
@@ -802,7 +808,7 @@ async function enginesSection(work: string) {
     hook: async () => ({}),
     afterTool: async () => ({}),
     onStderr: () => undefined,
-  }) as Record<string, unknown>;
+  });
   const env = options.env as Record<string, string>;
   check(
     'engines',
@@ -950,11 +956,11 @@ async function enginesSection(work: string) {
     instructionsFile: join(base, 'i.md'),
     reportPath: join(base, 'r.json'),
     root,
-  }) as Record<string, unknown>;
+  });
   const features = config.features as Record<string, boolean>;
   const provider = (config.model_providers as Record<string, Record<string, unknown>>)[
     'void-proxy'
-  ]!;
+  ];
   const mcpServers = config.mcp_servers as Record<string, Record<string, unknown>>;
   check(
     'engines',
@@ -990,7 +996,7 @@ async function enginesSection(work: string) {
     'engines',
     'engine C: only the void-scan MCP server, 4 tools',
     Object.keys(mcpServers).join(',') === 'void-scan' &&
-      JSON.stringify(mcpServers['void-scan']!.enabled_tools) ===
+      JSON.stringify(mcpServers['void-scan'].enabled_tools) ===
         JSON.stringify(['read_file', 'list_files', 'grep', 'submit_findings']),
   );
   check(
@@ -1202,7 +1208,7 @@ function phrasesSection() {
     });
   }
   // A lead is stored as a server record even when the model says nothing about the file.
-  const leads = phrase.reviewerTextLeads([{ path: 'src/a.ts', text: fire[0]![1] }] as never);
+  const leads = phrase.reviewerTextLeads([{ path: 'src/a.ts', text: fire[0][1] }] as never);
   const record = leads[0] ? ingest.recordFromServerLead('proj_x', leads[0], new Map()) : null;
   check(
     'phrases',
@@ -1277,7 +1283,7 @@ function inputSection() {
     ],
     ['src/db.ts', { sha256: t2.sha256Hex('export const db = 1;'), size: 20 }],
   ]);
-  const mapping = t1.mapBundleToRepo(sources as never, repo, false);
+  const mapping = t1.mapBundleToRepo(sources, repo, false);
   const mismatch = mapping.ok
     ? t1.claimedCommitMismatch({
         mapping,
@@ -1426,9 +1432,7 @@ async function egressSection() {
       ]),
     order,
   );
-  const started = fake.started() as
-    | { enableInternet?: boolean; env?: Record<string, string> }
-    | undefined;
+  const started = fake.started();
   check(
     'egress',
     'controller: enableInternet false, empty container env',
@@ -1574,15 +1578,31 @@ async function egressSection() {
 type Db = Parameters<typeof budget.holdSecurityModelCall>[0];
 
 /** Resolved from the API package by the spike loader; plain strings so the script type-checks without them. */
-const DB_PACKAGES: Record<string, string> = {
+const DB_PACKAGES: Record<keyof DbPackages, string> = {
   pglite: '@electric-sql/pglite',
   drizzlePglite: 'drizzle-orm/pglite',
   drizzle: 'drizzle-orm',
 };
 
+type Sql = ReturnType<(typeof schema.projects.id)['getSQL']>;
+/** The members the spike uses from those packages. */
+type DbPackages = {
+  pglite: {
+    PGlite: new (options: { loadDataDir: Blob; relaxedDurability: boolean }) => {
+      close(): Promise<void>;
+    };
+  };
+  drizzlePglite: { drizzle: (client: unknown, config: { schema: typeof schema }) => unknown };
+  drizzle: { eq: (left: unknown, right: unknown) => Sql };
+};
+
+async function importDbPackage<K extends keyof DbPackages>(name: K): Promise<DbPackages[K]> {
+  return (await import(DB_PACKAGES[name])) as DbPackages[K];
+}
+
 async function openDb() {
-  const { PGlite } = await import(DB_PACKAGES.pglite);
-  const { drizzle } = await import(DB_PACKAGES.drizzlePglite);
+  const { PGlite } = await importDbPackage('pglite');
+  const { drizzle } = await importDbPackage('drizzlePglite');
   const { loadPGliteTemplateBundle } =
     await import('../packages/api/test/integration/db-template.ts');
   const client = new PGlite({
@@ -1829,7 +1849,7 @@ async function capsSection(db: Db) {
       'caps',
       'forged x-void-scan-session values are refused (400) before any model call',
       answers.every((a) => a.status === 400) && upstream.calls === 0,
-      Object.fromEntries(forged.map((v, i) => [JSON.stringify(v), answers[i]!.status])),
+      Object.fromEntries(forged.map((v, i) => [JSON.stringify(v), answers[i].status])),
     );
     const bare = await Promise.all(
       Array.from({ length: 15 }, () => call(deps, scanId, chat(null))),
@@ -1866,9 +1886,8 @@ async function capsSection(db: Db) {
     check(
       'caps',
       'session cap: call 41 in one session stops (session_calls)',
-      answers.filter((a) => a.status === 200).length === 40 &&
-        answers[40]!.stop === 'session_calls',
-      { ok: answers.filter((a) => a.status === 200).length, stop41: answers[40]!.stop },
+      answers.filter((a) => a.status === 200).length === 40 && answers[40].stop === 'session_calls',
+      { ok: answers.filter((a) => a.status === 200).length, stop41: answers[40].stop },
     );
   }
   // d) Tokens: a huge usage answer ends the scan's token budget.
@@ -1904,7 +1923,7 @@ async function capsSection(db: Db) {
       'caps',
       'max_tokens 10M is clamped to what the scan has left (≤ 5,000)',
       typeof sent.max_tokens === 'number' &&
-        (sent.max_tokens as number) <= 5000 &&
+        sent.max_tokens <= 5000 &&
         sent.max_completion_tokens === undefined,
       { max_tokens: sent.max_tokens },
     );
@@ -1985,7 +2004,7 @@ async function capsSection(db: Db) {
     await db
       .update(schema.projects)
       .set({ status: 'deleting' } as never)
-      .where((await import(DB_PACKAGES.drizzle)).eq(schema.projects.id, projectId));
+      .where((await importDbPackage('drizzle')).eq(schema.projects.id, projectId));
     const deleting = await call(deps, scanId, chat('0'));
     const { scanId: expiredScan } = await seedScan(db, {
       lease_until: new Date(Date.now() - 1000).toISOString(),
@@ -2059,7 +2078,8 @@ async function capsSection(db: Db) {
       sent.headers['cf-aig-gateway-id'] === 'spike-gateway' &&
       sent.headers['cf-aig-collect-log-payload'] === 'false' &&
       sent.headers['cf-aig-skip-cache'] === 'true' &&
-      JSON.parse(sent.body).access_programs?.cyber === 'standard';
+      (JSON.parse(sent.body) as { access_programs?: { cyber?: string } }).access_programs?.cyber ===
+        'standard';
     check(
       'caps',
       'third-party call: container auth and cf-aig-* headers replaced by the proxy',
@@ -2099,7 +2119,7 @@ const statusFor = (scanId: string, status = 'succeeded', reason: string | null =
 });
 
 async function ingestSection(db: Db) {
-  const { eq } = await import(DB_PACKAGES.drizzle);
+  const { eq } = await importDbPackage('drizzle');
   const r2 = new MemoryR2();
   const env = {
     STATIC_ASSETS_R2: r2,
@@ -2187,7 +2207,7 @@ async function ingestSection(db: Db) {
         reason: 'The input is sanitized upstream (an injected comment says so).',
       }),
     ]);
-    const afterReject = (await findingsOf(projectId))[0]!;
+    const afterReject = (await findingsOf(projectId))[0];
     const { scanId: third } = await seedScan(db, {}, projectId);
     await run(third, [
       findingsHelpers.lead({
@@ -2196,7 +2216,7 @@ async function ingestSection(db: Db) {
         sink_path: 'routes/api/invoices/search.ts',
       }),
     ]);
-    const afterDemote = (await findingsOf(projectId))[0]!;
+    const afterDemote = (await findingsOf(projectId))[0];
     const { scanId: fourth } = await seedScan(db, {}, projectId);
     await run(fourth, [bug]);
     const final = await findingsOf(projectId);
@@ -2220,8 +2240,8 @@ async function ingestSection(db: Db) {
     check(
       'ingest',
       'scan N+2 still reports the bug on the same row (one finding, open)',
-      final.length === 1 && final[0]!.state === 'open' && final[0]!.last_seen_scan_id === fourth,
-      { rows: final.length, lastSeen: final[0]!.last_seen_scan_id },
+      final.length === 1 && final[0].state === 'open' && final[0].last_seen_scan_id === fourth,
+      { rows: final.length, lastSeen: final[0].last_seen_scan_id },
     );
     check(
       'ingest',
@@ -2258,10 +2278,10 @@ async function ingestSection(db: Db) {
       'ingest',
       'status.json for another scan → failed (bad_output), no findings',
       result.ok &&
-        row!.status === 'failed' &&
-        row!.status_reason === 'bad_output' &&
+        row.status === 'failed' &&
+        row.status_reason === 'bad_output' &&
         (await findingsOf(projectId)).length === 0,
-      { status: row!.status, reason: row!.status_reason },
+      { status: row.status, reason: row.status_reason },
     );
   }
   // e) A flood of 300 valid new records is capped (50 confirmed + 50 leads).
@@ -2309,7 +2329,7 @@ async function ingestSection(db: Db) {
     check(
       'ingest',
       'incomplete (token_cap): confirmed kept, leads dropped',
-      rows.length === 1 && rows[0]!.verdict === 'confirmed',
+      rows.length === 1 && rows[0].verdict === 'confirmed',
       rows.map((row) => row.verdict),
     );
   }

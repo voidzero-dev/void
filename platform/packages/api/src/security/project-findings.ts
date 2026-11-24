@@ -537,7 +537,7 @@ async function lockFindingForChange(tx: DbOrTx, input: ChangeInput) {
   await tx.execute(sql`SELECT id FROM projects WHERE id = ${input.projectId} FOR UPDATE`);
   const access = input.actor
     ? { role: null }
-    : await requireProjectCapability(tx as Db, input.projectId, input.userId, 'settings');
+    : await requireProjectCapability(tx, input.projectId, input.userId, 'settings');
   const parsed = parseSecurityFindingRef(input.ref);
   const [row]: ReadonlyArray<FindingRow & { sinkContentHash: string | null }> = await tx
     .select({ ...findingColumns, sinkContentHash: securityFindings.sink_content_hash })
@@ -601,7 +601,7 @@ export async function resolveSecurityFinding(
       id: securityFindingLabel(row.number),
       state: 'resolved' as const,
       resolution: input.resolution,
-      revision: updated!.revision,
+      revision: updated.revision,
     };
   });
 }
@@ -654,7 +654,7 @@ export async function reopenSecurityFinding(db: Db, input: ChangeInput) {
       id: securityFindingLabel(row.number),
       state: 'open' as const,
       resolution: null,
-      revision: updated!.revision,
+      revision: updated.revision,
     };
   });
 }
@@ -754,6 +754,6 @@ export async function editSecurityFindingSeverity(
       severity_from: before,
       severity_to: after,
     });
-    return { ...result(updated!.revision), changed: true };
+    return { ...result(updated.revision), changed: true };
   });
 }

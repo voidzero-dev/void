@@ -755,8 +755,10 @@ function modeLines(
       '  Open findings stay listed and can still be read, commented on and resolved. Only the deploy-time notice stops.',
     );
     if (current.publicGate) {
-      lines.push('  "Scan before a project goes public" turns off too.');
-      lines.push(...openRequestLines(counts));
+      lines.push(
+        '  "Scan before a project goes public" turns off too.',
+        ...openRequestLines(counts),
+      );
     }
     return lines;
   }
@@ -911,8 +913,7 @@ export function securityPolicyPreviewLines(
     );
   }
   if (changes.publicGateOff && !changes.mode) {
-    lines.push('Turn off: Scan before a project goes public');
-    lines.push(...openRequestLines(counts));
+    lines.push('Turn off: Scan before a project goes public', ...openRequestLines(counts));
   }
   if (changes.sweeps) {
     lines.push(...sweepLines(next, changes.sweeps, counts.sweepProjects ?? 0));
@@ -1393,7 +1394,7 @@ function withProbeLine(lines: ReadonlyArray<string>): Array<string> {
     return [...lines];
   }
   let end = start + 1;
-  while (end < lines.length && lines[end]!.startsWith('  ')) {
+  while (end < lines.length && lines[end].startsWith('  ')) {
     end++;
   }
   return [

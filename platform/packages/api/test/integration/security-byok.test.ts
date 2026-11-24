@@ -143,7 +143,7 @@ function get(path: string) {
 
 /** Answers read in tests. */
 async function json(response: Response) {
-  return (await response.json()) as { message: string; preview: Array<string> };
+  return await response.json<{ message: string; preview: Array<string> }>();
 }
 
 /** The bindings as the API code types them. */
@@ -449,9 +449,9 @@ describe('model proxy on a saved key', () => {
     const expected = securityModelCostNanoUsd(OPUS, 5000, 300)!;
     const [scan] = await env.db.select().from(securityScans).where(eq(securityScans.id, 'ss_byok'));
     expect(scan).toMatchObject({ model_calls: 1, tokens_in: 5000, tokens_out: 300 });
-    expect(scan!.metered_nano_usd).toBe(expected);
+    expect(scan.metered_nano_usd).toBe(expected);
     const [platform] = await env.db.select().from(securityPlatformSpend);
-    expect(platform!.spent_nano_usd).toBe(expected);
+    expect(platform.spent_nano_usd).toBe(expected);
   });
 
   test('without a key the call stays on the REST route with the Cloudflare token', async () => {
@@ -545,9 +545,11 @@ describe('model proxy on a saved key', () => {
       keyId: SECURITY_PROVIDER_KEY_MALFORMED_ID,
       unreadable: true,
     });
-    const status = (await (await get('/security/status')).json()) as {
+    const status = await (
+      await get('/security/status')
+    ).json<{
       providerKeys: Record<string, unknown>;
-    };
+    }>();
     expect(status.providerKeys.anthropic).toEqual({ setAt: null, unreadable: true });
     const preview = await post('/security/provider-keys', {
       host: 'anthropic',

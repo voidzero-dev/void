@@ -71,10 +71,10 @@ describe('security scanner provisioning', () => {
         ([url, init]) => `${(init as RequestInit | undefined)?.method ?? 'GET'} ${String(url)}`,
       ),
     ).toContainEqual(expect.stringMatching(/^POST .*\/workers\/dispatch\/namespaces$/));
-    expect(sandbox!.url).toContain(`/workers/scripts/${names.copySandbox}`);
-    expect(controller!.url).toContain(`/workers/scripts/${names.worker}`);
-    expect(controller!.headers.get('If-None-Match')).toBe('*');
-    const metadata = controller!.metadata as {
+    expect(sandbox.url).toContain(`/workers/scripts/${names.copySandbox}`);
+    expect(controller.url).toContain(`/workers/scripts/${names.worker}`);
+    expect(controller.headers.get('If-None-Match')).toBe('*');
+    const metadata = controller.metadata as {
       bindings: Array<Record<string, unknown>>;
       migrations: unknown;
       containers: unknown;
@@ -129,10 +129,10 @@ describe('security scanner provisioning', () => {
       },
     ]);
 
-    expect(gate!.url).toContain(
+    expect(gate.url).toContain(
       `/workers/dispatch/namespaces/void-users-test/scripts/${names.gate}`,
     );
-    expect((gate!.metadata as { bindings: unknown }).bindings).toContainEqual({
+    expect((gate.metadata as { bindings: unknown }).bindings).toContainEqual({
       type: 'service',
       name: 'SCANNER',
       service: names.worker,
@@ -177,7 +177,7 @@ describe('security scanner provisioning', () => {
     await expect(verifySecurityScanner(target)).rejects.toMatchObject({ kind: 'outdated' });
     const before = (await uploads(cf)).length;
     await provisionSecurityScanner(target);
-    const update = (await uploads(cf)).slice(before)[0]!;
+    const update = (await uploads(cf)).slice(before)[0];
     expect(update.url).toContain(`/workers/scripts/${names.worker}`);
     expect(update.headers.get('If-None-Match')).toBeNull();
     expect(update.metadata.migrations).toBeUndefined();
@@ -285,8 +285,8 @@ describe('security scanner provisioning', () => {
     const [update, ...rest] = (await uploads(cf)).slice(before);
     expect(rest).toEqual([]);
     // Same classes, so the tag stays.
-    expect(update!.metadata.migrations).toBeUndefined();
-    expect(update!.metadata.containers).toEqual([
+    expect(update.metadata.migrations).toBeUndefined();
+    expect(update.metadata.containers).toEqual([
       { class_name: SECURITY_SCANNER_CLASS, name: names.application, images: {} },
       {
         class_name: SECURITY_SCANNER_ENGINE_CLASS.agent_sdk,
@@ -294,7 +294,7 @@ describe('security scanner provisioning', () => {
         images: { default: ref },
       },
     ]);
-    expect(update!.metadata.bindings).toContainEqual({
+    expect(update.metadata.bindings).toContainEqual({
       type: 'plain_text',
       name: SECURITY_SCANNER_IMAGES_BINDING,
       text: JSON.stringify({ agent_sdk: ref }),
@@ -377,7 +377,7 @@ describe('security scanner provisioning', () => {
     );
     const before = (await uploads(cf)).length;
     await provisionSecurityScanner(target);
-    const update = (await uploads(cf)).slice(before)[0]!;
+    const update = (await uploads(cf)).slice(before)[0];
     expect(update.headers.get('If-None-Match')).toBeNull();
     expect(update.metadata.migrations).toEqual({
       old_tag: 'v1',

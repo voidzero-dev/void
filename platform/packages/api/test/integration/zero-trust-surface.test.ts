@@ -434,7 +434,7 @@ describe('Zero Trust surfaces with the public gate on', () => {
       platform,
     );
     expect(canceled.status).toBe(200);
-    const body = (await canceled.json()) as Record<string, unknown>;
+    const body = await canceled.json<Record<string, unknown>>();
     expect(body).toMatchObject({ ok: true, publicRequest: { state: 'canceled' } });
     expect(body.held).toBeUndefined();
   });
@@ -577,7 +577,7 @@ describe('Zero Trust surfaces with the public gate on', () => {
       requestId: second.id,
     });
     expect(notReady.status).toBe(409);
-    const refusal = (await notReady.json()) as { error: string; message: string };
+    const refusal = await notReady.json<{ error: string; message: string }>();
     expect(refusal.error).toBe('zero trust not ready');
     expect(refusal.message).toContain('Try again after it ends.');
     expect(refusal.message).not.toContain('zero-trust reconcile');

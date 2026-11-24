@@ -123,17 +123,17 @@ function accessApi() {
     const match = path.match(/^apps\/([^/]+)$/);
     if (match && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      const previous = applications.get(match[1]!);
+      const previous = applications.get(match[1]);
       const application = { ...body, id: match[1], aud: previous?.aud ?? `aud-${match[1]}` };
-      applications.set(match[1]!, application);
+      applications.set(match[1], application);
       return Response.json({ success: true, result: application });
     }
     if (match && init?.method === 'DELETE') {
-      applications.delete(match[1]!);
+      applications.delete(match[1]);
       return Response.json({ success: true, result: { id: match[1] } });
     }
     if (match) {
-      const application = applications.get(match[1]!);
+      const application = applications.get(match[1]);
       return application
         ? Response.json({ success: true, result: application })
         : Response.json({ success: false, errors: [{ message: 'not found' }] }, { status: 404 });
@@ -187,7 +187,7 @@ async function ztRow(projectId: string) {
     .select()
     .from(projectZeroTrust)
     .where(eq(projectZeroTrust.project_id, projectId));
-  return row!;
+  return row;
 }
 
 async function succeededScan(s: Setup, id = 'ss_ok') {
@@ -360,7 +360,7 @@ describe('public gate', () => {
     });
     const queued = (await gateScans(s)).filter((scan) => scan.status === 'queued');
     expect(queued).toMatchObject([{ trigger: 'gate', input_r2_key: key }]);
-    expect(again.publicRequest?.gate_scan_id).toBe(queued[0]!.id);
+    expect(again.publicRequest?.gate_scan_id).toBe(queued[0].id);
     expect((await ztRow(s.project.id)).desired_protected).toBe(true);
   });
 
@@ -426,7 +426,7 @@ describe('public gate', () => {
     await env.db
       .update(securityScans)
       .set({ status: 'canceled', status_reason: 'operator_canceled' })
-      .where(eq(securityScans.id, queued[0]!.id));
+      .where(eq(securityScans.id, queued[0].id));
     expect(await securityScanHoldsInput(env.db, prefix)).toBe(true);
     // Protect closes the request: nothing holds the input any more.
     await ask(s, true);
@@ -462,9 +462,9 @@ describe('public gate', () => {
     });
     expect(await reconcilePendingPublicRequests(s.platform, env.db)).toBe(1);
     const [held] = await env.db.select().from(securityPublicRequests);
-    expect(held!.state).toBe(before!.state);
-    expect(new Date(held!.updated_at).getTime()).toBeGreaterThan(
-      new Date(before!.updated_at).getTime(),
+    expect(held.state).toBe(before.state);
+    expect(new Date(held.updated_at).getTime()).toBeGreaterThan(
+      new Date(before.updated_at).getTime(),
     );
     // A hold needs no routing budget; a pass with no budget left stays queued for the next run.
     await succeededScan(s);

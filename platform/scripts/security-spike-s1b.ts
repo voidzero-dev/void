@@ -38,6 +38,9 @@ import {
 } from './security-spike-s1.ts';
 import type { SpikeEnv } from './security-spike-s1.ts';
 
+// Workers types declare the global Buffer as any here; keep Node's signatures.
+const Buffer = globalThis.Buffer as BufferConstructor;
+
 const SOURCE_REPO = 'library/busybox';
 const SOURCE_TAG = '1.37.0';
 const COPY_REPO = `${SPIKE_PREFIX}copy`;
@@ -166,11 +169,11 @@ export default {
 
 async function resolveSourceDigest(): Promise<string> {
   const token = (
-    (await (
+    await (
       await fetch(
         `https://auth.docker.io/token?service=registry.docker.io&scope=repository:${SOURCE_REPO}:pull`,
       )
-    ).json()) as { token: string }
+    ).json<{ token: string }>()
   ).token;
   const response = await fetch(
     `https://registry-1.docker.io/v2/${SOURCE_REPO}/manifests/${SOURCE_TAG}`,
@@ -182,12 +185,12 @@ async function resolveSourceDigest(): Promise<string> {
       },
     },
   );
-  const index = (await response.json()) as {
+  const index = await response.json<{
     manifests: Array<{
       digest: string;
       platform?: { os: string; architecture: string; variant?: string };
     }>;
-  };
+  }>();
   const pick = index.manifests.find(
     (m) => m.platform?.os === 'linux' && m.platform.architecture === 'amd64' && !m.platform.variant,
   );
@@ -221,7 +224,7 @@ async function listSpikeRepos(auth: string) {
   if (!response.ok) {
     throw new Error(`registry catalog HTTP ${response.status}`);
   }
-  const body = (await response.json()) as { repositories?: Record<string, Array<string>> };
+  const body = await response.json<{ repositories?: Record<string, Array<string>> }>();
   return Object.entries(body.repositories ?? {})
     .filter(([repo, tags]) => repo.includes(`/${SPIKE_PREFIX}`) && tags.length > 0)
     .map(([repo, tags]) => ({ repo, tags }));
@@ -289,7 +292,7 @@ async function getJson(url: string, key: string, init: RequestInit = {}) {
     }
     let body: Record<string, unknown>;
     try {
-      body = JSON.parse(text);
+      body = JSON.parse(text) as typeof body;
     } catch {
       body = { error: `HTTP ${response.status}: ${text.slice(0, 300)}` };
     }
@@ -351,7 +354,7 @@ async function main() {
       `https://api.cloudflare.com/client/v4/accounts/${env.accountId}/workers/scripts/${probeWorker}`,
       { method: 'PUT', headers: { Authorization: `Bearer ${env.token}` }, body: form },
     );
-    const uploadBody = (await upload.json()) as { success: boolean; errors?: unknown };
+    const uploadBody = await upload.json<{ success: boolean; errors?: unknown }>();
     report.A_durableObjectDockerHub = {
       imagePreparation: {
         status: prepareDockerHub.status,

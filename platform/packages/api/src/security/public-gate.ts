@@ -449,7 +449,7 @@ export async function recordProtectionChange(
 
 async function insertRequest(tx: DbOrTx, values: Insert): Promise<PublicRequestRow> {
   const [row] = await tx.insert(securityPublicRequests).values(values).returning();
-  return row!;
+  return row;
 }
 
 async function updateRequest(
@@ -1041,7 +1041,7 @@ export async function publicRequestView(
     requestedByRole = 'installation_admin';
   } else if (request.requested_by_user_id !== null) {
     requestedByRole = await projectRoleForUser(
-      db as Parameters<typeof projectRoleForUser>[0],
+      db,
       request.project_id,
       request.requested_by_user_id,
     );

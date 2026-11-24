@@ -221,7 +221,7 @@ export function mapBundleToRepo(
     const source = wanted.get(path)!;
     const same = list.filter((repoPath) => repo.get(repoPath)!.sha256 === source.sha256);
     if (same.length === 1) {
-      prefixes.add(same[0]!.slice(0, same[0]!.length - path.length));
+      prefixes.add(same[0].slice(0, same[0].length - path.length));
     }
   }
   const chain = [...prefixes].sort((left, right) => right.length - left.length);
@@ -233,12 +233,12 @@ export function mapBundleToRepo(
     if (chain.length === 0) {
       return { ok: false, note: SECURITY_T1_NOTES.commitMismatch };
     }
-    const deepest = chain[0]!;
+    const deepest = chain[0];
     if (!chain.every((folder) => isAncestorFolder(folder, deepest))) {
       return { ok: false, note: SECURITY_T1_NOTES.monorepo };
     }
   }
-  const root = managed ? '' : chain[0]!;
+  const root = managed ? '' : chain[0];
   const mapped = new Map<string, { repoPath: string; same: boolean }>();
   let verified = 0;
   for (const [path, source] of wanted) {

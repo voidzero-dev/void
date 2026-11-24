@@ -105,7 +105,7 @@ function harness(): Harness {
   );
   const fetch = vi.fn(async () => Response.json({}));
   const rateLimited = vi.fn(async () => {});
-  const aiRun = vi.fn(async () => ({}) as unknown);
+  const aiRun = vi.fn(async () => ({}));
   const sleep = vi.fn(async (ms: number) => {
     clock.now += ms;
   });
@@ -133,7 +133,7 @@ function harness(): Harness {
     accountId: 'acct_1',
     apiToken: 'cf-token',
     ai: { run: aiRun } as unknown as Ai,
-    fetch: fetch as unknown as typeof globalThis.fetch,
+    fetch,
   };
   return {
     deps,
@@ -203,7 +203,7 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     const response = await call(h, '/v1/chat/completions', chatBody());
     expect(response.status).toBe(200);
     expect(h.aiRun).toHaveBeenCalledTimes(1);
-    const [model, inputs, options] = h.aiRun.mock.calls[0]!;
+    const [model, inputs, options] = h.aiRun.mock.calls[0];
     expect(model).toBe(CF);
     expect(inputs).not.toHaveProperty('model');
     expect(inputs).toMatchObject({ max_tokens: SECURITY_DEFAULT_CALL_OUTPUT_TOKENS });
@@ -234,7 +234,7 @@ describe('Workers AI calls (@cf, Engine B)', () => {
         scanId: 'ss_1',
         projectId: 'proj_1',
         month: '2026-11-01',
-        holdNano: h.holds[0]!.worstNano,
+        holdNano: h.holds[0].worstNano,
         // $1.40 / M in, $4.40 / M out.
         actualNano: 1000 * 1400 + 200 * 4400,
         inputTokens: 1000,
@@ -392,15 +392,15 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     h.aiRun.mockResolvedValue({ response: 'ok' });
     const response = await call(h, '/v1/chat/completions', chatBody());
     expect(response.status).toBe(200);
-    const hold = h.holds[0]!;
+    const hold = h.holds[0];
     expect(h.settles[0]).toMatchObject({
       holdNano: hold.worstNano,
       actualNano: hold.worstNano,
       outputTokens: SECURITY_DEFAULT_CALL_OUTPUT_TOKENS,
     });
-    expect(h.settles[0]!.inputTokens).toBeGreaterThan(0);
+    expect(h.settles[0].inputTokens).toBeGreaterThan(0);
     expect(hold.worstNano).toBe(
-      securityModelCostNanoUsd(CF, h.settles[0]!.inputTokens, SECURITY_DEFAULT_CALL_OUTPUT_TOKENS),
+      securityModelCostNanoUsd(CF, h.settles[0].inputTokens, SECURITY_DEFAULT_CALL_OUTPUT_TOKENS),
     );
   });
 
@@ -444,7 +444,7 @@ describe('third-party calls through AI Gateway REST', () => {
       },
     );
     expect(response.status).toBe(200);
-    const [url, init] = h.fetch.mock.calls[0]! as [string, RequestInit];
+    const [url, init] = h.fetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_1/ai/v1/messages');
     const headers = Object.fromEntries(new Headers(init.headers).entries());
     expect(headers).toEqual({
@@ -476,7 +476,7 @@ describe('third-party calls through AI Gateway REST', () => {
       max_output_tokens: 50_000,
       access_programs: { cyber: 'none' },
     });
-    const [url, init] = h.fetch.mock.calls[0]! as [string, RequestInit];
+    const [url, init] = h.fetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_1/ai/v1/responses');
     expect(JSON.parse(String(init.body))).toEqual({
       model: 'gpt-6.1-terra',
@@ -519,7 +519,7 @@ describe('third-party calls through AI Gateway REST', () => {
     const response = await call(h, '/v1/responses', { model: TERRA, input: 'x', stream: true });
     await response.body!.cancel();
     expect(h.settles).toHaveLength(1);
-    expect(h.settles[0]!.actualNano).toBe(h.holds[0]!.worstNano);
+    expect(h.settles[0].actualNano).toBe(h.holds[0].worstNano);
   });
 
   it('answers 402 as a credits stop and records why for the runner (Engine C)', async () => {
@@ -528,7 +528,7 @@ describe('third-party calls through AI Gateway REST', () => {
     const response = await call(h, '/v1/responses', { model: TERRA, input: 'x' });
     expect(response.status).toBe(402);
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('credits');
-    expect(h.settles[0]!.actualNano).toBe(0);
+    expect(h.settles[0].actualNano).toBe(0);
     const why = await handleSecurityModelRequest(
       h.deps,
       'ss_1',
@@ -551,7 +551,7 @@ describe('third-party calls through AI Gateway REST', () => {
           'context-1m-2025-08-07, interleaved-thinking-2025-05-14,web-fetch-2025-09-10,claude-code-20250219',
       },
     );
-    const [, init] = h.fetch.mock.calls[0]! as [string, RequestInit];
+    const [, init] = h.fetch.mock.calls[0] as [string, RequestInit];
     expect(new Headers(init.headers).get('anthropic-beta')).toBe(
       'interleaved-thinking-2025-05-14,claude-code-20250219',
     );
@@ -562,7 +562,7 @@ describe('third-party calls through AI Gateway REST', () => {
       { model: OPUS, max_tokens: 10, messages: [] },
       { 'anthropic-beta': 'mcp-client-2025-11-20' },
     );
-    const [, second] = h.fetch.mock.calls[1]! as [string, RequestInit];
+    const [, second] = h.fetch.mock.calls[1] as [string, RequestInit];
     expect(new Headers(second.headers).has('anthropic-beta')).toBe(false);
   });
 
@@ -633,7 +633,7 @@ describe('third-party calls through AI Gateway REST', () => {
       (await call(h, '/v1/messages', { model: 'claude-opus-5.5', max_tokens: 10, messages: [] }))
         .status,
     ).toBe(200);
-    const [, init] = h.fetch.mock.calls[0]! as [string, RequestInit];
+    const [, init] = h.fetch.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body)).model).toBe('claude-opus-5.5');
     // Another model, with or without a provider, is still refused.
     const other = await call(h, '/v1/messages', {
@@ -662,7 +662,7 @@ describe('third-party calls through AI Gateway REST', () => {
     spy.mockRestore();
     expect(response.status).toBe(502);
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-    expect(h.settles[0]).toMatchObject({ actualNano: h.holds[0]!.worstNano, outputTokens: 10 });
+    expect(h.settles[0]).toMatchObject({ actualNano: h.holds[0].worstNano, outputTokens: 10 });
     expect(h.failures.at(-1)?.reason).toBe('upstream');
   });
 
@@ -701,7 +701,7 @@ describe('third-party calls through AI Gateway REST', () => {
     h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
     const thinking = { type: 'enabled', budget_tokens: 4000 };
     await call(h, '/v1/messages', { model: OPUS, max_tokens: 8000, thinking, messages: [] });
-    const [, init] = h.fetch.mock.calls[0]! as [string, RequestInit];
+    const [, init] = h.fetch.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       max_tokens: 1500,
       thinking: { type: 'enabled', budget_tokens: 1499 },
@@ -741,7 +741,7 @@ describe('third-party calls through AI Gateway REST', () => {
     const text = await response.text();
     expect(JSON.parse(text)).toMatchObject({ error: 'cyber_policy' });
     expect(h.failures.at(-1)).toMatchObject({ reason: 'refused', httpStatus: 400 });
-    expect(h.settles[0]!.actualNano).toBe(0);
+    expect(h.settles[0].actualNano).toBe(0);
 
     // Codex shows the answer as `unexpected status 400 Bad Request: <body>` (spike S3).
     const runner = (await import(/* @vite-ignore */ RUNNER_STATUS)) as {
@@ -1063,9 +1063,14 @@ describe('helpers', () => {
 
   it('keeps the highest cumulative counts across an Anthropic stream', () => {
     const reader = new SseUsageReader();
-    reader.push('event: message_start\r\ndata: {"type":"message_start","message":{"usage":');
-    reader.push('{"input_tokens":120,"output_tokens":1}}}\r\n\r\n');
-    reader.push('data: {"type":"message_delta","usage":{"output_tokens":450}}\n\ndata: [DONE]');
+    // One read per chunk: the first event is split across two reads.
+    for (const chunk of [
+      'event: message_start\r\ndata: {"type":"message_start","message":{"usage":',
+      '{"input_tokens":120,"output_tokens":1}}}\r\n\r\n',
+      'data: {"type":"message_delta","usage":{"output_tokens":450}}\n\ndata: [DONE]',
+    ]) {
+      reader.push(chunk);
+    }
     reader.end();
     expect(reader.usage).toEqual({
       input: 120,

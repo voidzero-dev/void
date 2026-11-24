@@ -173,15 +173,15 @@ function accessApi() {
     if (match && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       const application = { ...body, id: match[1], aud: `aud-${match[1]}` };
-      applications.set(match[1]!, application);
+      applications.set(match[1], application);
       return Response.json({ success: true, result: application });
     }
     if (match && init?.method === 'DELETE') {
-      applications.delete(match[1]!);
+      applications.delete(match[1]);
       return Response.json({ success: true, result: { id: match[1] } });
     }
     if (match) {
-      const application = applications.get(match[1]!);
+      const application = applications.get(match[1]);
       return application
         ? Response.json({ success: true, result: application })
         : Response.json({ success: false, errors: [{ message: 'not found' }] }, { status: 404 });
@@ -408,7 +408,7 @@ describe('admin security: findings, scans and requests', () => {
     expect(requests).toContain('launch day, scanner down');
     expect(requests).toContain('1 new');
 
-    expect((await post('/admin/security/bypasses/seen', { through: row!.created_at })).status).toBe(
+    expect((await post('/admin/security/bypasses/seen', { through: row.created_at })).status).toBe(
       302,
     );
     const after = text(await (await get('/admin/security/requests?state=all')).text());
@@ -790,13 +790,13 @@ describe('admin security: mark bypasses seen', () => {
     const { project } = await gateSetup();
     await bypassNow(project.id, 'first');
     const [first] = await env.db.select().from(securityScanBypasses);
-    const through = new Date(Date.parse(first!.created_at)).toISOString();
+    const through = new Date(Date.parse(first.created_at)).toISOString();
 
     // A second bypass lands after the page loaded, before the button is pressed.
-    const later = new Date(Date.parse(first!.created_at) + 5000).toISOString();
+    const later = new Date(Date.parse(first.created_at) + 5000).toISOString();
     await env.db.insert(securityScanBypasses).values({
-      ...first!,
-      id: `${first!.id}-later`,
+      ...first,
+      id: `${first.id}-later`,
       created_at: later,
       reason: 'second',
     });
@@ -814,7 +814,7 @@ describe('admin security: mark bypasses seen', () => {
       at: string;
     };
     const [row] = await env.db.select().from(securityScanBypasses);
-    expect(Date.parse(stored.at)).toBe(Date.parse(row!.created_at) + 1);
+    expect(Date.parse(stored.at)).toBe(Date.parse(row.created_at) + 1);
     expect(text(await (await get('/admin/security/requests?state=all')).text())).not.toContain(
       '1 new',
     );

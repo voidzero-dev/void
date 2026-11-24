@@ -401,7 +401,7 @@ export async function callWithSecurityProviderKey(
         ...call.headers,
         'cf-aig-no-wholesale': 'true',
         ...keyHeaders(call.key),
-      } as never,
+      },
       query: call.body,
     },
     call.signal ? { signal: call.signal } : undefined,

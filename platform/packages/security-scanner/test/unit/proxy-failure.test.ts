@@ -5,8 +5,10 @@ import {
   stopSince,
 } from '../../src/runner/engines/proxy-failure.ts';
 
-const answer = (body: unknown, status = 200): typeof fetch =>
-  (async () => Response.json(body, { status })) as typeof fetch;
+const answer =
+  (body: unknown, status = 200): typeof fetch =>
+  async () =>
+    Response.json(body, { status });
 
 describe('readLastFailure', () => {
   test('reads the proxy answer from the origin of the model URL', async () => {
@@ -28,9 +30,9 @@ describe('readLastFailure', () => {
     expect(await readLastFailure('http://m', answer({ failure: { reason: 1 } }))).toBeNull();
     expect(await readLastFailure('http://m', answer({}, 500))).toBeNull();
     expect(
-      await readLastFailure('http://m', (async () => {
+      await readLastFailure('http://m', async () => {
         throw new Error('down');
-      }) as typeof fetch),
+      }),
     ).toBeNull();
   });
 });

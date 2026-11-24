@@ -57,6 +57,9 @@ import {
   spikeEnv,
 } from './security-spike-s4.ts';
 
+// Workers types declare the global Buffer as any here; keep Node's signatures.
+const Buffer = globalThis.Buffer as BufferConstructor;
+
 const PREFIX = 'void-spike-sa-s13-';
 const READY_LIMIT_MS = 60_000;
 const COPY_HOST = 'copy.void.internal';
@@ -234,7 +237,7 @@ async function apiForm<T>(
   const text = await response.text();
   let body: { success?: boolean; result?: T; errors?: unknown };
   try {
-    body = JSON.parse(text);
+    body = JSON.parse(text) as typeof body;
   } catch {
     body = { errors: text.slice(0, 500) };
   }
@@ -1202,7 +1205,7 @@ async function createCopy(
     headers: { 'x-spike-key': fixtures.key },
   });
   const outboundLog = (
-    (await logResponse.json()) as Array<{ copy: string | null; detail: string }>
+    await logResponse.json<Array<{ copy: string | null; detail: string }>>()
   ).filter((entry) => entry.copy === null || entry.copy === script);
   if (app === 'api-plain') {
     const charge = outboundLog.find((entry) => entry.detail.includes('api.payments.example.com'));

@@ -104,7 +104,7 @@ async function platformSpend(month = NOV) {
 
 async function scanRow(id: string) {
   const [row] = await env.db.select().from(securityScans).where(eq(securityScans.id, id));
-  return row!;
+  return row;
 }
 
 const noCaps = { projectNano: null, platformNano: null };
@@ -142,13 +142,13 @@ describe('scan start reserve', () => {
       capNano: 10 * USD,
       spentNano: 8 * USD,
     });
-    expect((await platformSpend())!.reserved_nano_usd).toBe(1.5 * USD);
+    expect((await platformSpend()).reserved_nano_usd).toBe(1.5 * USD);
     const reserved = [await scanRow('ss_a'), await scanRow('ss_b')].map(
       (row) => row.reserved_nano_usd,
     );
     expect(reserved.sort()).toEqual([0, 1.5 * USD]);
     // The refused scan left no trace on its project row either.
-    const loser = results[0]!.ok ? b : a;
+    const loser = results[0].ok ? b : a;
     expect((await projectSpend(loser.id))?.reserved_nano_usd ?? 0).toBe(0);
     expect((await projectSpend(loser.id))?.scans ?? 0).toBe(0);
   });
@@ -398,8 +398,8 @@ describe('model proxy on real SQL', () => {
       tokens_out: 3 * 678,
       metered_nano_usd: expected,
     });
-    expect((await projectSpend(p.id))!.spent_nano_usd).toBe(expected);
-    expect((await platformSpend())!.spent_nano_usd).toBe(expected);
+    expect((await projectSpend(p.id)).spent_nano_usd).toBe(expected);
+    expect((await platformSpend()).spent_nano_usd).toBe(expected);
   });
 
   test('a project cap stops the scan at the next call that could cross it', async () => {
@@ -441,7 +441,7 @@ describe('model proxy on real SQL', () => {
     );
     expect(response.status).toBe(500);
     expect(await scanRow('ss_1')).toMatchObject({ model_calls: 1, metered_nano_usd: 0 });
-    expect((await projectSpend(p.id))!.spent_nano_usd).toBe(0);
-    expect((await platformSpend())!.spent_nano_usd).toBe(0);
+    expect((await projectSpend(p.id)).spent_nano_usd).toBe(0);
+    expect((await platformSpend()).spent_nano_usd).toBe(0);
   });
 });

@@ -220,7 +220,7 @@ function refusal(error: unknown): Readonly<{ text: string; status: ContentfulSta
     error instanceof OperatorError ||
     error instanceof PageRefusalError
   ) {
-    return { text: error.message, status: error.status as ContentfulStatusCode };
+    return { text: error.message, status: error.status };
   }
   if (error instanceof ZeroTrustUnavailableError || error instanceof ZeroTrustConfigurationError) {
     return { text: zeroTrustNotReadyMessage(error) ?? error.message, status: 409 };

@@ -253,7 +253,7 @@ export async function createSecurityRuntimeCopy(
     );
     const failed = results.find((result) => result.status === 'rejected');
     if (failed) {
-      throw (failed as PromiseRejectedResult).reason;
+      throw failed.reason;
     }
     const ids = new Map(created.map((store) => [store.name, store.id]));
 

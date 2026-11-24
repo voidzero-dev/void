@@ -157,7 +157,7 @@ async function signIn(userId: string, projectId: string, slug = 'acme-web') {
   const redeemed = await get(`/security/projects/${slug}?t=${await token(userId, projectId)}`);
   expect(redeemed.status).toBe(303);
   const setCookie = redeemed.headers.get('set-cookie')!;
-  return setCookie.split(';')[0]!;
+  return setCookie.split(';')[0];
 }
 
 async function view(cookie: string, slug = 'acme-web') {
@@ -716,7 +716,7 @@ describe('page forms', () => {
       .select()
       .from(securityFindings)
       .where(and(eq(securityFindings.project_id, projectId), eq(securityFindings.number, number)));
-    return row!;
+    return row;
   }
 
   async function comments(projectId: string) {
@@ -872,7 +872,7 @@ describe('page forms', () => {
     const link = await get(
       `/security/projects/acme-web?t=${await token(people.owner.id, project.id)}`,
     );
-    const cookie = link.headers.get('set-cookie')!.split(';')[0]!;
+    const cookie = link.headers.get('set-cookie')!.split(';')[0];
     const responses = [
       ['link', link],
       ['page', await get('/security/projects/acme-web', { cookie })],
@@ -1148,7 +1148,7 @@ describe('page forms', () => {
       actor_role: 'owner',
     });
     const [request] = await env.db.select().from(securityPublicRequests);
-    expect(request!.state).toBe('bypassed');
+    expect(request.state).toBe('bypassed');
 
     // The request is closed: a second post is refused with the flow's reason.
     const again = await post(
@@ -1180,6 +1180,6 @@ describe('page forms', () => {
     expect(html).toContain('void project zero-trust reconcile');
     expect(html).not.toContain('Access API down');
     const [request] = await env.db.select().from(securityPublicRequests);
-    expect(request!.state).toBe('bypassed');
+    expect(request.state).toBe('bypassed');
   });
 });

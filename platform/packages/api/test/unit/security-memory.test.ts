@@ -185,15 +185,15 @@ describe('buildSecurityMemory', () => {
       }),
     );
     const files = buildSecurityMemory(input({ findings: [target], events }));
-    const record = index(files).records[0]!;
+    const record = index(files).records[0];
     expect(record.comments).toEqual([
       { author_role: 'owner', untrusted_text: `${'x'.repeat(1000)}…` },
       { author_role: 'collaborator', untrusted_text: 'comment 3' },
       { author_role: 'collaborator', untrusted_text: 'comment 2' },
     ]);
-    const history = JSON.parse(files.history[0]!.text) as { events: Array<{ comment: unknown }> };
+    const history = JSON.parse(files.history[0].text) as { events: Array<{ comment: unknown }> };
     expect(history.events).toHaveLength(4);
-    expect(history.events[3]!.comment).toEqual({
+    expect(history.events[3].comment).toEqual({
       author_role: 'owner',
       untrusted_text: 'x'.repeat(1500),
     });
@@ -237,7 +237,7 @@ describe('buildSecurityMemory', () => {
     expect(parsed.backlog_total).toBe(5000);
     expect(parsed.ledger_summary).toBeNull();
     expect(files.indexTrimmed).toBe(260 - parsed.records.length);
-    expect(parsed.records[0]!.id).toBe('F-100');
+    expect(parsed.records[0].id).toBe('F-100');
     expect(files.history).toHaveLength(260);
   });
 
@@ -279,8 +279,8 @@ describe('buildSecurityMemory', () => {
       sinkPath,
     });
     const files = buildSecurityMemory(input({ findings: [stored] }));
-    const record = index(files).records[0]!;
-    const history = JSON.parse(files.history[0]!.text) as { fingerprint: string };
+    const record = index(files).records[0];
+    const history = JSON.parse(files.history[0].text) as { fingerprint: string };
     expect(record.fingerprint).toBe('sqli-invoices-query');
     expect(history.fingerprint).toBe('sqli-invoices-query');
     // Ingest hashes what the model sends back: it must land on the stored key.

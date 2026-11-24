@@ -142,7 +142,7 @@ export async function runSelfTest(options: SelfTestOptions = {}): Promise<SelfTe
     uid,
     node: process.version,
     model,
-    egress: Object.fromEntries(Object.keys(targets).map((name, index) => [name, egress[index]!])),
+    egress: Object.fromEntries(Object.keys(targets).map((name, index) => [name, egress[index]])),
     envSuspicious: suspiciousEnvNames(options.env ?? process.env),
   };
 }

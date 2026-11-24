@@ -120,7 +120,7 @@ export function createFsTools(options: FsToolsOptions): FsTools {
       }
       segments.push(segment);
     }
-    if (segments.length === 0 || !READABLE_AREAS.has(segments[0]!)) {
+    if (segments.length === 0 || !READABLE_AREAS.has(segments[0])) {
       throw new ToolInputError(`only ${displayRoot}/input and ${displayRoot}/memory can be read`);
     }
     const base = await realRoot();
@@ -319,7 +319,7 @@ export function createFsTools(options: FsToolsOptions): FsTools {
           }
           const lines = text.split('\n');
           for (let index = 0; index < lines.length; index++) {
-            const line = lines[index]!;
+            const line = lines[index];
             const haystack = insensitive ? line.toLowerCase() : line;
             if (haystack.includes(needle)) {
               out.push(

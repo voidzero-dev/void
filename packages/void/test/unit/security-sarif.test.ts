@@ -29,14 +29,14 @@ describe('securityFindingsSarif (M31)', () => {
     expect(log.$schema).toBe(SARIF_SCHEMA_URI);
     expect(log.version).toBe('2.1.0');
     expect(log.runs).toHaveLength(1);
-    expect(log.runs[0]!.tool.driver).toMatchObject({
+    expect(log.runs[0].tool.driver).toMatchObject({
       name: 'Void Security Audit',
       version: '1.10.0',
       rules: [],
     });
-    expect(log.runs[0]!.results).toEqual([]);
+    expect(log.runs[0].results).toEqual([]);
     const noVersion = securityFindingsSarif([], { version: null }) as unknown as Log;
-    expect(noVersion.runs[0]!.tool.driver.version).toBeUndefined();
+    expect(noVersion.runs[0].tool.driver.version).toBeUndefined();
   });
 
   it('maps severity to level, file and lines to a location, and keys a result by finding id', () => {
@@ -75,7 +75,7 @@ describe('securityFindingsSarif (M31)', () => {
         file: null,
       },
     ]);
-    const [critical, medium, lead] = log.runs[0]!.results;
+    const [critical, medium, lead] = log.runs[0].results;
     expect(critical).toEqual({
       ruleId: 'sql-injection',
       level: 'error',
@@ -99,12 +99,12 @@ describe('securityFindingsSarif (M31)', () => {
       },
     });
     // No line: a file location only. Path segments are URI-encoded.
-    expect(medium!.level).toBe('warning');
-    expect(medium!.locations).toEqual([
+    expect(medium.level).toBe('warning');
+    expect(medium.locations).toEqual([
       { physicalLocation: { artifactLocation: { uri: 'src/a%20b.ts', uriBaseId: '%SRCROOT%' } } },
     ]);
     expect(lead).toMatchObject({ level: 'note', properties: { verdict: 'lead' } });
-    expect(lead!.locations).toBeUndefined();
+    expect(lead.locations).toBeUndefined();
   });
 
   it('marks a resolved finding as suppressed with its reason', () => {
@@ -118,15 +118,15 @@ describe('securityFindingsSarif (M31)', () => {
         title: 'Weak hash',
         category: 'crypto',
       },
-    ]).runs[0]!.results;
-    expect(result!.suppressions).toEqual([
+    ]).runs[0].results;
+    expect(result.suppressions).toEqual([
       { kind: 'external', status: 'accepted', justification: 'accepted risk' },
     ]);
   });
 
   it('gives a reader finding a generic rule and message, with no details', () => {
     const [result] = sarif([{ id: 'F-7', verdict: 'confirmed', severity: 'high', state: 'open' }])
-      .runs[0]!.results;
+      .runs[0].results;
     expect(result).toMatchObject({
       ruleId: 'finding',
       level: 'error',
@@ -163,7 +163,7 @@ describe('securityFindingsSarif (M31)', () => {
         category: 'ai-reviewer-text',
       },
     ]);
-    expect(log.runs[0]!.tool.driver.rules).toEqual([
+    expect(log.runs[0].tool.driver.rules).toEqual([
       {
         id: 'secret-in-output',
         shortDescription: { text: 'secret in output' },
@@ -196,10 +196,10 @@ describe('securityFindingsSarif (M31)', () => {
         title: 'z',
       },
     ]);
-    const [web, api] = log.runs[0]!.results;
-    expect(web!.partialFingerprints).toEqual({ 'voidFinding/v1': 'acme-web/F-1' });
-    expect(api!.partialFingerprints).toEqual({ 'voidFinding/v1': 'acme-api/F-1' });
-    expect(web!.properties.project).toBe('acme-web');
-    expect(web!.message.text).toBe('F-1: x y');
+    const [web, api] = log.runs[0].results;
+    expect(web.partialFingerprints).toEqual({ 'voidFinding/v1': 'acme-web/F-1' });
+    expect(api.partialFingerprints).toEqual({ 'voidFinding/v1': 'acme-api/F-1' });
+    expect(web.properties.project).toBe('acme-web');
+    expect(web.message.text).toBe('F-1: x y');
   });
 });

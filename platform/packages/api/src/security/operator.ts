@@ -467,7 +467,7 @@ export async function previewInRollback<T>(db: Db, run: (tx: Db) => Promise<T>):
   let result: { value: T } | undefined;
   try {
     await db.transaction(async (tx) => {
-      result = { value: await run(tx as Db) };
+      result = { value: await run(tx) };
       tx.rollback();
     });
   } catch (error) {

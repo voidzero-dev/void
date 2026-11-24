@@ -204,43 +204,49 @@ function anthropicMessage(blocks, stopReason, stream) {
   const events = [['message_start', { type: 'message_start', message }]];
   blocks.forEach((block, index) => {
     if (block.type === 'text') {
-      events.push([
-        'content_block_start',
-        { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
-      ]);
-      events.push([
-        'content_block_delta',
-        { type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text } },
-      ]);
+      events.push(
+        [
+          'content_block_start',
+          { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
+        ],
+        [
+          'content_block_delta',
+          { type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text } },
+        ],
+      );
     } else {
-      events.push([
-        'content_block_start',
-        {
-          type: 'content_block_start',
-          index,
-          content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} },
-        },
-      ]);
-      events.push([
-        'content_block_delta',
-        {
-          type: 'content_block_delta',
-          index,
-          delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) },
-        },
-      ]);
+      events.push(
+        [
+          'content_block_start',
+          {
+            type: 'content_block_start',
+            index,
+            content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} },
+          },
+        ],
+        [
+          'content_block_delta',
+          {
+            type: 'content_block_delta',
+            index,
+            delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) },
+          },
+        ],
+      );
     }
     events.push(['content_block_stop', { type: 'content_block_stop', index }]);
   });
-  events.push([
-    'message_delta',
-    {
-      type: 'message_delta',
-      delta: { stop_reason: stopReason, stop_sequence: null },
-      usage: { output_tokens: 50 },
-    },
-  ]);
-  events.push(['message_stop', { type: 'message_stop' }]);
+  events.push(
+    [
+      'message_delta',
+      {
+        type: 'message_delta',
+        delta: { stop_reason: stopReason, stop_sequence: null },
+        usage: { output_tokens: 50 },
+      },
+    ],
+    ['message_stop', { type: 'message_stop' }],
+  );
   return { status: 200, contentType: 'text/event-stream', text: sse(events) };
 }
 
@@ -283,10 +289,12 @@ function anthropicReply(body) {
       toolUse(6, 'Grep', { pattern: 'root', path: '/etc' }),
     ];
     if (names.includes('Skill')) {
-      calls.push(toolUse(7, 'Skill', { skill: 'evil' }));
-      calls.push(toolUse(8, 'Skill', { skill: 'doctor' }));
-      calls.push(toolUse(11, 'Skill', { skill: 'plugin-authoring' }));
-      calls.push(toolUse(12, 'Skill', { skill: 'void-security:void-security-review' }));
+      calls.push(
+        toolUse(7, 'Skill', { skill: 'evil' }),
+        toolUse(8, 'Skill', { skill: 'doctor' }),
+        toolUse(11, 'Skill', { skill: 'plugin-authoring' }),
+        toolUse(12, 'Skill', { skill: 'void-security:void-security-review' }),
+      );
     }
     if (names.includes('DeferredToolPlaceholder')) {
       calls.push(toolUse(9, 'DeferredToolPlaceholder', {}));
@@ -333,14 +341,16 @@ function responsesStream(items) {
   const id = `resp_${Date.now()}`;
   const events = [['response.created', { type: 'response.created', response: { id } }]];
   items.forEach((item, index) => {
-    events.push([
-      'response.output_item.added',
-      { type: 'response.output_item.added', output_index: index, item },
-    ]);
-    events.push([
-      'response.output_item.done',
-      { type: 'response.output_item.done', output_index: index, item },
-    ]);
+    events.push(
+      [
+        'response.output_item.added',
+        { type: 'response.output_item.added', output_index: index, item },
+      ],
+      [
+        'response.output_item.done',
+        { type: 'response.output_item.done', output_index: index, item },
+      ],
+    );
   });
   events.push([
     'response.completed',
@@ -425,14 +435,18 @@ function responsesReply(body) {
     const read = find('read_file');
     const list = find('list_files');
     if (read) {
-      items.push(call(5, read, { path: '/etc/passwd' }));
-      items.push(call(6, read, { path: '/scan/input/../../etc/hostname' }));
+      items.push(
+        call(5, read, { path: '/etc/passwd' }),
+        call(6, read, { path: '/scan/input/../../etc/hostname' }),
+      );
     }
     if (list) {
       items.push(call(7, list, { path: '/scan/input' }));
     }
-    items.push(raw(8, 'view_image', { path: '/etc/passwd' }));
-    items.push(raw(9, 'spawn_agent', { message: 'touch /tmp/pwned-agent' }));
+    items.push(
+      raw(8, 'view_image', { path: '/etc/passwd' }),
+      raw(9, 'spawn_agent', { message: 'touch /tmp/pwned-agent' }),
+    );
     const resource = find('read_mcp_resource');
     if (resource) {
       items.push(call(10, resource, { server: 'void-scan', uri: 'file:///etc/passwd' }));

@@ -110,17 +110,17 @@ function cString(block: Uint8Array, offset: number, length: number): string {
 
 /** An octal number field, or a base-256 one (high bit set) for large sizes. */
 function numberField(block: Uint8Array, offset: number, length: number): number {
-  if ((block[offset]! & 0x80) !== 0) {
-    let value = block[offset]! & 0x7f;
+  if ((block[offset] & 0x80) !== 0) {
+    let value = block[offset] & 0x7f;
     for (let index = offset + 1; index < offset + length; index++) {
-      value = value * 256 + block[index]!;
+      value = value * 256 + block[index];
     }
     return value;
   }
   let value = 0;
   let seen = false;
   for (let index = offset; index < offset + length; index++) {
-    const byte = block[index]!;
+    const byte = block[index];
     if (byte === 0 || byte === 0x20) {
       if (seen) {
         break;
@@ -139,7 +139,7 @@ function numberField(block: Uint8Array, offset: number, length: number): number 
 function checksumOk(block: Uint8Array): boolean {
   let sum = 0;
   for (let index = 0; index < BLOCK; index++) {
-    sum += index >= 148 && index < 156 ? 0x20 : block[index]!;
+    sum += index >= 148 && index < 156 ? 0x20 : block[index];
   }
   return sum === numberField(block, 148, 8);
 }
@@ -242,7 +242,7 @@ export async function walkSourceTarball(
       if (!checksumOk(block)) {
         throw new SourceTarballError('the source archive has a bad header');
       }
-      const type = String.fromCharCode(block[156]!);
+      const type = String.fromCharCode(block[156]);
       let size = numberField(block, 124, 12);
       if (type === 'x' || type === 'g' || type === 'L') {
         if (size > MAX_EXTENDED_HEADER_BYTES) {

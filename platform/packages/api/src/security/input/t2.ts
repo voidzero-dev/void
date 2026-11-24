@@ -193,7 +193,7 @@ export function readSourceMap(mapName: string, text: string): Array<SecurityMapS
     for (const section of raw.sections) {
       const map = (section as { map?: unknown } | null)?.map;
       if (typeof map === 'object' && map !== null) {
-        read(map as RawMap);
+        read(map);
       }
     }
   } else {
@@ -242,7 +242,7 @@ export function sourceMapFor(
     let end = marker + 'sourceMappingURL='.length;
     const from = end;
     while (end < text.length) {
-      const char = text[end]!;
+      const char = text[end];
       if (char === ' ' || char === '\n' || char === '\r' || char === '*' || char === '\t') {
         break;
       }
@@ -320,7 +320,7 @@ export function relativeImports(text: string): Array<string> {
 function skipBlank(text: string, from: number): number {
   let index = from;
   while (index < text.length) {
-    const char = text[index]!;
+    const char = text[index];
     if (char === ' ' || char === '\n' || char === '\t' || char === '\r') {
       index++;
     } else if (text.startsWith('//', index)) {

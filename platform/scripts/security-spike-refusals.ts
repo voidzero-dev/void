@@ -153,7 +153,7 @@ async function runFixture(fixture: Fixture, work: string): Promise<Mapped> {
           root,
           baseUrl: BASE_URL,
           configBase: home,
-          fetch: lastFailureFetch(fixture.proxyFailure ?? null) as typeof fetch,
+          fetch: lastFailureFetch(fixture.proxyFailure ?? null),
           loadSdk: async () => ({
             query: ({ options }: { options: Record<string, unknown> }) =>
               (async function* () {
@@ -161,8 +161,8 @@ async function runFixture(fixture: Fixture, work: string): Promise<Mapped> {
                 // Read that worked, the PostToolUse hook with what it read.
                 type Hook = (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
                 const hooks = options.hooks as Record<string, Array<{ hooks: Array<Hook> }>>;
-                const before = hooks.PreToolUse![0]!.hooks[0]!;
-                const after = hooks.PostToolUse![0]!.hooks[0]!;
+                const before = hooks.PreToolUse[0].hooks[0];
+                const after = hooks.PostToolUse[0].hooks[0];
                 for (const message of fixture.messages ?? []) {
                   const inner = message.message as { content?: unknown } | undefined;
                   for (const block of Array.isArray(inner?.content) ? inner.content : []) {
@@ -204,7 +204,7 @@ async function runFixture(fixture: Fixture, work: string): Promise<Mapped> {
         root,
         baseUrl: `${BASE_URL}/v1`,
         image: { homeBase: home },
-        fetch: lastFailureFetch(fixture.proxyFailure ?? null) as typeof fetch,
+        fetch: lastFailureFetch(fixture.proxyFailure ?? null),
         loadSdk: async () => ({
           Codex: class {
             private readonly config: Record<string, unknown>;
@@ -216,8 +216,8 @@ async function runFixture(fixture: Fixture, work: string): Promise<Mapped> {
               return {
                 runStreamed: async () => {
                   const servers = config.mcp_servers as Record<string, { args: Array<string> }>;
-                  const args = servers['void-scan']!.args;
-                  const outPath = args[args.indexOf('--out') + 1]!;
+                  const args = servers['void-scan'].args;
+                  const outPath = args[args.indexOf('--out') + 1];
                   // The read, list and search calls go through the real void-scan server,
                   // which counts the reads that returned code.
                   const server = createMcpServer({ tools: createFsTools({ root }), outPath });

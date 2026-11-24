@@ -116,7 +116,7 @@ async function call(
   const text = await response.text();
   let parsed: { usage?: unknown } = {};
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(text) as typeof parsed;
   } catch {
     // not JSON
   }

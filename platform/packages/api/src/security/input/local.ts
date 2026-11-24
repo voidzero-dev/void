@@ -113,7 +113,7 @@ async function readLocalTree(r2: R2Bucket, key: string): Promise<Array<SecurityS
   const files = new Map<string, SecuritySourceFile>();
   try {
     await walkSourceTarball(
-      object.body,
+      object.body as ReadableStream<Uint8Array>,
       {
         maxFiles: SECURITY_LOCAL_CHECK_LIMITS.maxFiles,
         maxBytes: SECURITY_LOCAL_CHECK_LIMITS.maxBytes,

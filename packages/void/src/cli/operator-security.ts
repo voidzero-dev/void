@@ -205,10 +205,10 @@ async function runFindings(
   }
   const combined: Result =
     items.length === 1
-      ? items[0]!.preview
+      ? items[0].preview
       : {
           dryRun: true,
-          action: items[0]!.preview.action,
+          action: items[0].preview.action,
           target: { findings: items.map((item) => item.id) },
           previews: items.map((item) => item.preview),
         };
@@ -236,7 +236,7 @@ async function runFindings(
     }
   }
   if (items.length === 1 && failed === 0) {
-    io.outputMutation(results[0]!, args);
+    io.outputMutation(results[0], args);
     return;
   }
   io.output({ results }, args.json);
@@ -279,7 +279,7 @@ async function runBudget(
       typeof budget.capUsd === 'number' &&
       budget.capUsd < set
     ) {
-      const project = decodeURIComponent(args.path.split('/')[2]!);
+      const project = decodeURIComponent(args.path.split('/')[2]);
       console.log(
         `${project}'s own cap (${money(budget.capUsd)}) is lower and still applies. A project admin can raise it: void project security budget --usd ${set}`,
       );
@@ -317,7 +317,7 @@ async function runRescan(
   }
   if (!args.json && !args.plan) {
     // The server's preview is the cost check (edge #43): say what it would run and what it can cost.
-    const target = preview.target as unknown;
+    const target = preview.target;
     const id = typeof preview.deploymentId === 'string' ? preview.deploymentId : String(target);
     const model = typeof preview.model === 'string' ? preview.model : 'the scan model';
     const whole =

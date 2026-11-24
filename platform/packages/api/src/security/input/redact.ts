@@ -156,10 +156,10 @@ export function createSecurityRedactor(secrets: ReadonlyArray<SecuritySecret>): 
             break;
           }
           const end = at + needle.form.length;
-          while (next < starts.length && stops[next]! <= at) {
+          while (next < starts.length && stops[next] <= at) {
             next++;
           }
-          if (next >= starts.length || starts[next]! >= end) {
+          if (next >= starts.length || starts[next] >= end) {
             newStarts.push(at);
             newStops.push(end);
             const entry = found.get(needle.name);
@@ -180,14 +180,14 @@ export function createSecurityRedactor(secrets: ReadonlyArray<SecuritySecret>): 
           while (left < starts.length || right < newStarts.length) {
             if (
               right >= newStarts.length ||
-              (left < starts.length && starts[left]! < newStarts[right]!)
+              (left < starts.length && starts[left] < newStarts[right])
             ) {
-              mergedStarts.push(starts[left]!);
-              mergedStops.push(stops[left]!);
+              mergedStarts.push(starts[left]);
+              mergedStops.push(stops[left]);
               left++;
             } else {
-              mergedStarts.push(newStarts[right]!);
-              mergedStops.push(newStops[right]!);
+              mergedStarts.push(newStarts[right]);
+              mergedStops.push(newStops[right]);
               right++;
             }
           }

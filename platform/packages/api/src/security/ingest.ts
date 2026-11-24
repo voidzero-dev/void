@@ -1427,7 +1427,7 @@ async function takeFindingNumbers(tx: DbOrTx, projectId: string, count: number):
       },
     })
     .returning({ next: projectSecuritySettings.next_finding_number });
-  return row!.next - count;
+  return row.next - count;
 }
 
 /** `file \0 category` → the newest resolved finding with them (possible duplicate, §9.4). */

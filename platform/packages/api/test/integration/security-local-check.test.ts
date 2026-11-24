@@ -166,7 +166,7 @@ const APP = {
 
 async function scanRow(id: string) {
   const [row] = await env.db.select().from(securityScans).where(eq(securityScans.id, id));
-  return row!;
+  return row;
 }
 
 /** Creates a check through the API and uploads its tree, then starts it. */
@@ -354,7 +354,7 @@ describe('local check routes', () => {
       `security-scans/${project.id}/scans/${created.checkId}/local-tree.tar.gz`,
     );
     expect(created.upload.headers['Content-Md5']).toBe(
-      Buffer.from(request.md5, 'hex').toString('base64'),
+      (Buffer as BufferConstructor).from(request.md5, 'hex').toString('base64'),
     );
     expect(created.upload.headers['Content-Length']).toBe(String(request.size));
     const row = await scanRow(created.checkId);
@@ -518,7 +518,7 @@ describe('local check scan', () => {
     const client = built.entries.find((e) => e.path === 'input/src/lib/client.ts')!;
     expect(String(client.data)).toContain('[REDACTED:API_KEY]');
     expect(String(client.data)).not.toContain('Sup3r-Secret-Value');
-    expect(JSON.parse(String(built.entries[0]!.data))).toMatchObject({
+    expect(JSON.parse(String(built.entries[0].data))).toMatchObject({
       tier: 'full',
       changed_files: [],
     });
@@ -528,7 +528,9 @@ describe('local check scan', () => {
         `${securityRawOutputPrefix(project.id, checkId)}server-leads.json`,
       ))!.text(),
     );
-    expect(leads.leads.map((lead: { kind: string }) => lead.kind)).toContain('secret_in_output');
+    expect((leads.leads as Array<{ kind: string }>).map((lead) => lead.kind)).toContain(
+      'secret_in_output',
+    );
     // No base snapshot, backlog or scope file is written for the project.
     const keys = (
       await env.STATIC_ASSETS_R2.list({ prefix: securityScanProjectPrefix(project.id) })
@@ -600,11 +602,9 @@ describe('local check scan', () => {
     });
     expect(view.result.total).toBe(3);
     expect(
-      view.result.findings.map((f: { verdict: string; severity: string | null; title: string }) => [
-        f.verdict,
-        f.severity,
-        f.title,
-      ]),
+      (
+        view.result.findings as Array<{ verdict: string; severity: string | null; title: string }>
+      ).map((f) => [f.verdict, f.severity, f.title]),
     ).toEqual([
       ['confirmed', 'high', 'SQL injection in /users'],
       ['confirmed', 'low', 'Verbose error'],
@@ -622,7 +622,7 @@ describe('local check scan', () => {
     const scans = await json(
       await call(`/projects/${project.id}/security/scans?limit=10`, owner.jwt),
     );
-    expect(scans.scans.map((s: { trigger: string }) => s.trigger)).toEqual(['local']);
+    expect((scans.scans as Array<{ trigger: string }>).map((s) => s.trigger)).toEqual(['local']);
   });
 
   it('writes the result before the row ends: a failed write leaves the check running', async () => {
@@ -674,13 +674,17 @@ describe('local check scan', () => {
     const view = await json(
       await call(`/projects/${project.id}/security/checks/${checkId}`, owner.jwt),
     );
-    const secret = view.result.findings.find(
-      (f: { category: string }) => f.category === 'secret-in-output',
-    );
-    expect(secret.title).toBe(
+    const secret = (
+      view.result.findings as Array<{
+        category: string;
+        title: string;
+        detail: { evidence: string };
+      }>
+    ).find((f) => f.category === 'secret-in-output');
+    expect(secret?.title).toBe(
       'Secret API_KEY is written into your code (not deployed yet): src/routes/key.ts',
     );
-    expect(secret.detail.evidence).toContain('of your code (not deployed yet).');
+    expect(secret?.detail.evidence).toContain('of your code (not deployed yet).');
     expect(JSON.stringify(view.result)).not.toContain('deployed Worker');
   });
 

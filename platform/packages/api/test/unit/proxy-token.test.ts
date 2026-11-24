@@ -72,7 +72,9 @@ function nodeAiUsageTag(projectId: string, secret = SECRET): string {
 }
 
 function nodeSecurityScanTag(scanId: string, secret = SECRET): string {
-  const key = Buffer.from(hkdfSync('sha256', secret, 'void-security-scan', 'security-scan', 32));
+  const key = (Buffer as BufferConstructor).from(
+    hkdfSync('sha256', secret, 'void-security-scan', 'security-scan', 32),
+  );
   const mac = base64url(createHmac('sha256', key).update(`void-security-scan\n${scanId}`).digest());
   return `${scanId}.${mac.slice(0, 22)}`;
 }

@@ -21,7 +21,7 @@ export type FakeContainerOptions = {
 const encoder = new TextEncoder();
 
 function buffer(text: string | undefined): ArrayBuffer {
-  return encoder.encode(text ?? '').buffer as ArrayBuffer;
+  return encoder.encode(text ?? '').buffer;
 }
 
 export function createFakeContainer(options: FakeContainerOptions = {}) {
@@ -70,14 +70,14 @@ export function createFakeContainer(options: FakeContainerOptions = {}) {
       let piped: Promise<void> = Promise.resolve();
       let stdinWritable: WritableStream | null = null;
       if (execOptions?.stdin instanceof ReadableStream) {
-        const reader = execOptions.stdin.getReader();
+        const reader = (execOptions.stdin as ReadableStream<Uint8Array>).getReader();
         piped = (async () => {
           for (;;) {
             const { done, value } = await reader.read();
             if (done) {
               return;
             }
-            chunks.push(value as Uint8Array);
+            chunks.push(value);
           }
         })();
       } else if (execOptions?.stdin === 'pipe') {
@@ -118,7 +118,7 @@ export function createFakeContainer(options: FakeContainerOptions = {}) {
       result = await options.exec?.(call);
       if (!result) {
         if (argv[0] === 'node' && argv[1] === '-e' && argv.length === 5) {
-          const path = argv[3]!;
+          const path = argv[3];
           const text = files.get(path);
           result = unsafe.has(path)
             ? { exitCode: 3 }

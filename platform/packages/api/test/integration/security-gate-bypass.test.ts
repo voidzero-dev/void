@@ -86,8 +86,8 @@ describe('public gate bypass races', () => {
     );
     expect(won).toHaveLength(1);
     expect(lost).toHaveLength(1);
-    expect(lost[0]!.reason).toBeInstanceOf(SecurityApiError);
-    expect(lost[0]!.reason).toMatchObject({
+    expect(lost[0].reason).toBeInstanceOf(SecurityApiError);
+    expect(lost[0].reason).toMatchObject({
       status: 409,
       code: expect.stringMatching(/^(public request closed|no public request)$/),
     });
@@ -119,12 +119,12 @@ describe('public gate bypass races', () => {
     const records = await bypassRows(s);
     if (bypassed.status === 'fulfilled') {
       // Bypass first: the request closed as bypassed, then protect ran on a closed request.
-      expect(request!.state).toBe('bypassed');
+      expect(request.state).toBe('bypassed');
       expect(records).toHaveLength(1);
       expect(await bypassEmails()).toHaveLength(1);
     } else {
       // Cancel first: the bypass found the request closed and recorded nothing.
-      expect(request!.state).toBe('canceled');
+      expect(request.state).toBe('canceled');
       expect(bypassed.reason).toMatchObject({
         status: 409,
         code: expect.stringMatching(/^(public request closed|no public request)$/),
@@ -147,9 +147,9 @@ describe('public gate bypass races', () => {
 
     expect(rechecked.status).toBe('fulfilled');
     const [request] = await requestRows(s);
-    expect(['passed', 'bypassed']).toContain(request!.state);
+    expect(['passed', 'bypassed']).toContain(request.state);
     expect((await ztRow(s)).desired_protected).toBe(false);
-    if (request!.state === 'passed') {
+    if (request.state === 'passed') {
       expect(bypassed.status).toBe('rejected');
       expect(await bypassRows(s)).toHaveLength(0);
       expect(await bypassEmails()).toHaveLength(0);
@@ -172,7 +172,7 @@ describe('public gate bypass races', () => {
     expect(await bypassRows(s)).toHaveLength(0);
     expect(await bypassEmails()).toHaveLength(0);
     const [request] = await requestRows(s);
-    expect(request!.state).not.toBe('bypassed');
+    expect(request.state).not.toBe('bypassed');
     expect((await ztRow(s)).desired_protected).toBe(true);
   });
 
@@ -190,7 +190,7 @@ describe('public gate bypass races', () => {
     });
     expect(await bypassRows(s)).toHaveLength(0);
     expect(await bypassEmails()).toHaveLength(0);
-    expect((await requestRows(s))[0]!.state).toBe('held_findings');
+    expect((await requestRows(s))[0].state).toBe('held_findings');
 
     await env.db
       .update(securityFindings)

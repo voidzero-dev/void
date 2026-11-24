@@ -155,7 +155,7 @@ export function tarStream(entries: ReadonlyArray<TarEntry>): ReadableStream<Uint
         controller.close();
         return;
       }
-      for (const chunk of entryChunks(entries[next++]!)) {
+      for (const chunk of entryChunks(entries[next++])) {
         if (chunk.length > 0) {
           controller.enqueue(chunk);
         }

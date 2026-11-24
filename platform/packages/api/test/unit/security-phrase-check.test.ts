@@ -49,7 +49,7 @@ describe('reviewerTextLeads', () => {
       title: 'Text aimed at AI reviewers in src/a.ts',
       file: 'src/a.ts',
     });
-    expect(leads[0]!.hits.map((hit) => hit.phrase)).toEqual([
+    expect(leads[0].hits.map((hit) => hit.phrase)).toEqual([
       'security scanner',
       'do not report',
       'ai scanner',

@@ -970,7 +970,7 @@ export async function runProjectSecurityCommand(
           const answer = await confirm({ message, initialValue: false });
           return !isCancel(answer) && answer;
         });
-      if (!(await ask(question!))) {
+      if (!(await ask(question))) {
         console.log('Nothing was queued.');
         return;
       }

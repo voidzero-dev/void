@@ -502,16 +502,17 @@ describe('operator security findings', () => {
     expect(Object.keys(all.body.findings[0])).toEqual(
       expect.arrayContaining(['cwe', 'lineEnd', 'verdictSource']),
     );
-    expect(all.body.findings.map((row: Json) => `${row.project}/${row.id}`)).toEqual([
-      'bravo/F-1',
-      'alpha/F-1',
-      'alpha/F-2',
-    ]);
+    expect(
+      (all.body.findings as Array<{ project: string; id: string }>).map(
+        (row) => `${row.project}/${row.id}`,
+      ),
+    ).toEqual(['bravo/F-1', 'alpha/F-1', 'alpha/F-2']);
     const urgent = await call('/security/findings?urgent=true');
-    expect(urgent.body.findings.map((row: Json) => `${row.project}/${row.id}`)).toEqual([
-      'bravo/F-1',
-      'alpha/F-1',
-    ]);
+    expect(
+      (urgent.body.findings as Array<{ project: string; id: string }>).map(
+        (row) => `${row.project}/${row.id}`,
+      ),
+    ).toEqual(['bravo/F-1', 'alpha/F-1']);
     const mine = await call('/security/findings?project=alpha&state=all');
     expect(mine.body.total).toBe(2);
     const paged = await call('/security/findings?limit=1&page=2');
@@ -829,15 +830,15 @@ function accessApi() {
     if (match && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       const application = { ...body, id: match[1], aud: `aud-${match[1]}` };
-      applications.set(match[1]!, application);
+      applications.set(match[1], application);
       return Response.json({ success: true, result: application });
     }
     if (match && init?.method === 'DELETE') {
-      applications.delete(match[1]!);
+      applications.delete(match[1]);
       return Response.json({ success: true, result: { id: match[1] } });
     }
     if (match) {
-      const application = applications.get(match[1]!);
+      const application = applications.get(match[1]);
       return application
         ? Response.json({ success: true, result: application })
         : Response.json({ success: false, errors: [{ message: 'not found' }] }, { status: 404 });

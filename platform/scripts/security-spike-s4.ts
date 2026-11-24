@@ -88,6 +88,9 @@ import {
 } from './security-spike-s1.ts';
 import type { SpikeEnv } from './security-spike-s1.ts';
 
+// Workers types declare the global Buffer as any here; keep Node's signatures.
+const Buffer = globalThis.Buffer as BufferConstructor;
+
 export const REPO = fileURLToPath(new URL('../../', import.meta.url));
 export const FIXTURES = join(REPO, 'platform/scripts/fixtures/security-seeded-apps');
 const WORK = join(REPO, 'playground-local/security-spike');

@@ -444,7 +444,7 @@ describe('sweeps policy', () => {
     const post = await operator();
     const preview = await post({ dryRun: true, sweeps: { on: true, everyDays: 14 } });
     expect(preview.status).toBe(200);
-    const body = (await preview.json()) as { preview: Array<string>; expectedRevision: number };
+    const body = await preview.json<{ preview: Array<string>; expectedRevision: number }>();
     const text = body.preview.join('\n');
     expect(text).toContain('Turn on: scheduled full sweeps, every 14 days');
     expect(text).toContain('1 project in scope has not had a full scan in the last 14 days');
@@ -456,7 +456,7 @@ describe('sweeps policy', () => {
     expect(stored.sweeps).toEqual({ on: true, everyDays: 14 });
 
     const lines = async (sweeps: Record<string, unknown>) =>
-      ((await (await post({ dryRun: true, sweeps })).json()) as { preview: Array<string> }).preview;
+      (await (await post({ dryRun: true, sweeps })).json<{ preview: Array<string> }>()).preview;
     expect(await lines({ everyDays: 30 })).toContain('Sweep interval: 14 → 30 days.');
     expect((await lines({ on: false })).join('\n')).toContain('Turn off: scheduled full sweeps');
 

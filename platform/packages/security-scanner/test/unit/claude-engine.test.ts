@@ -69,11 +69,11 @@ const RESULT_OK = {
 
 function fetchOf(failures: Array<unknown>): typeof fetch {
   let index = 0;
-  return (async (input: string | URL | Request) => {
+  return async (input: string | URL | Request) => {
     expect(String(input)).toBe(`http://model.test${LAST_FAILURE_PATH}`);
     const failure = failures[Math.min(index++, failures.length - 1)];
     return Response.json({ failure });
-  }) as typeof fetch;
+  };
 }
 
 function engine(sdk: ClaudeSdk | null, failures: Array<unknown> = [null]) {
@@ -311,8 +311,8 @@ describe('Engine A sessions', () => {
       query: ({ options }) =>
         (async function* () {
           const hooks = options.hooks as Record<string, Array<{ hooks: Array<Hook> }>>;
-          const before = hooks.PreToolUse![0]!.hooks[0]!;
-          const after = hooks.PostToolUse![0]!.hooks[0]!;
+          const before = hooks.PreToolUse[0].hooks[0];
+          const after = hooks.PostToolUse[0].hooks[0];
           await before({ tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } });
           await after({ tool_name: 'Glob', tool_input: { pattern: '**/*.ts' }, tool_response: {} });
           const file_path = join(root, 'input/a.ts');
@@ -340,8 +340,8 @@ describe('Engine A sessions', () => {
       kind: 'submitted',
       stats: { turns: 3, modelCalls: 3, inputTokens: 150, outputTokens: 20 },
     });
-    expect(seen[0]!.prompt).toBe('hunt');
-    expect((seen[0]!.options.env as Record<string, string>).ANTHROPIC_CUSTOM_HEADERS).toBe(
+    expect(seen[0].prompt).toBe('hunt');
+    expect((seen[0].options.env as Record<string, string>).ANTHROPIC_CUSTOM_HEADERS).toBe(
       'x-void-scan-session: 2',
     );
     expect(await readdir(configBase)).toEqual([]);
@@ -491,7 +491,7 @@ describe('Engine A sessions', () => {
       query: () =>
         (async function* () {
           live.abort();
-          yield { type: 'assistant' } as ClaudeMessage;
+          yield { type: 'assistant' };
         })(),
     };
     expect(await engine(sdk).runSession(spec({ signal: live.signal }))).toMatchObject({

@@ -207,10 +207,12 @@ describe('operator security policy', () => {
       },
       providerNotice: { version: SECURITY_PROVIDER_NOTICE_VERSION, accepted: false },
     });
-    const on = (await (await request('/policy')).json()) as {
+    const on = await (
+      await request('/policy')
+    ).json<{
       capability: boolean;
       models: Array<{ id: string; pickable: boolean; priced: boolean }>;
-    };
+    }>();
     expect(on.capability).toBe(true);
     expect(on.models.find((model) => model.id === 'anthropic/claude-sonnet-5.5')).toMatchObject({
       priced: false,
@@ -252,7 +254,7 @@ describe('operator security policy', () => {
         limits: [{ key: 'concurrency', from: 2, to: 4 }],
       },
     });
-    const read = (await (await request('/policy')).json()) as Record<string, unknown>;
+    const read = await (await request('/policy')).json<Record<string, unknown>>();
     expect(read).toMatchObject({
       policy: { mode: 'all', revision: 4, limits: { concurrency: 4 } },
       entitlementFresh: true,
@@ -260,7 +262,7 @@ describe('operator security policy', () => {
     expect(await readSecurityPolicyLenient(env.db)).toMatchObject({ mode: 'all', revision: 4 });
     const [event] = await env.db.select().from(operatorEvents);
     expect(event).toMatchObject({ action: 'security/policy', status: 'success' });
-    expect(JSON.parse(event!.target)).toEqual({
+    expect(JSON.parse(event.target)).toEqual({
       expectedRevision: 3,
       mode: 'all',
       block: ['openai/gpt-6.1-sol'],
@@ -321,7 +323,7 @@ describe('operator security policy', () => {
     ];
     const failed = await request('/policy', { expectedRevision: 3, mode: 'all' });
     expect(failed.status).toBe(409);
-    const failedBody = (await failed.json()) as { message: string; details: unknown };
+    const failedBody = await failed.json<{ message: string; details: unknown }>();
     expect(failedBody).toMatchObject({
       error: 'security entitlement missing',
       // Each refusing check's copy and the probe id reach the operator; a host
@@ -403,7 +405,7 @@ describe('operator security policy', () => {
     await seedPolicy({ entitlement: entitlement(30, { ok: false, missing: ['egress'] }) });
     const preview = await request('/policy', { expectedRevision: 3, dryRun: true, mode: 'all' });
     expect(preview.status).toBe(200);
-    const body = (await preview.json()) as { preview: Array<string> };
+    const body = await preview.json<{ preview: Array<string> }>();
     expect(body.preview).toContain(
       '  The entitlement probe runs again when you apply. A failing check refuses the change.',
     );
@@ -501,7 +503,7 @@ describe('operator security policy', () => {
 
     const publicPreview = await request('/policy', { dryRun: true, mode: 'public' });
     expect(publicPreview.status).toBe(200);
-    const body = (await publicPreview.json()) as Record<string, unknown>;
+    const body = await publicPreview.json<Record<string, unknown>>();
     expect(body).toMatchObject({
       dryRun: true,
       action: 'security.policy',
@@ -518,17 +520,19 @@ describe('operator security policy', () => {
       '  The entitlement probe runs again when you apply. A failing check refuses the change.',
     ]);
 
-    const allPreview = (await (await request('/policy', { dryRun: true, mode: 'all' })).json()) as {
+    const allPreview = await (
+      await request('/policy', { dryRun: true, mode: 'all' })
+    ).json<{
       counts: Record<string, number>;
-    };
+    }>();
     expect(allPreview.counts).toMatchObject({ scannedProjects: 3, firstFullScan: 2 });
 
     await env.db
       .insert(platformSettings)
       .values({ key: 'plans:security-caps', value: { pro: 5000, lab: null } });
-    const cappedPreview = (await (
+    const cappedPreview = await (
       await request('/policy', { dryRun: true, mode: 'all' })
-    ).json()) as { preview: Array<string> };
+    ).json<{ preview: Array<string> }>();
     expect(cappedPreview.preview).toContain(
       '  Monthly scan budgets are off: only plans with a scan cap have a money limit. Set them with: void platform security budget',
     );
@@ -558,14 +562,16 @@ describe('operator security policy', () => {
     ]);
 
     // Off → Public: the plain project and the protected `always` one.
-    const publicPreview = (await (
+    const publicPreview = await (
       await request('/policy', { dryRun: true, mode: 'public' })
-    ).json()) as { counts: Record<string, number> };
+    ).json<{ counts: Record<string, number> }>();
     expect(publicPreview.counts).toMatchObject({ scannedProjects: 2, firstFullScan: 2 });
     // Off → All: every project but the `never` one.
-    const allPreview = (await (await request('/policy', { dryRun: true, mode: 'all' })).json()) as {
+    const allPreview = await (
+      await request('/policy', { dryRun: true, mode: 'all' })
+    ).json<{
       counts: Record<string, number>;
-    };
+    }>();
     expect(allPreview.counts).toMatchObject({ scannedProjects: 3, firstFullScan: 3 });
 
     // All → Public moves only the protected project that follows the mode.
@@ -573,12 +579,12 @@ describe('operator security policy', () => {
       .delete(platformSettings)
       .where(eq(platformSettings.key, SECURITY_POLICY_SETTINGS_KEY));
     await seedPolicy({ mode: 'all' });
-    const toPublic = (await (
+    const toPublic = await (
       await request('/policy', { dryRun: true, mode: 'public' })
-    ).json()) as {
+    ).json<{
       counts: Record<string, number>;
       preview: Array<string>;
-    };
+    }>();
     expect(toPublic.counts).toMatchObject({ protectedProjects: 1 });
     expect(toPublic.preview).toContain(
       '  1 protected project is no longer scanned at deploy. Running scans finish.',
@@ -613,7 +619,7 @@ describe('operator security policy', () => {
       block: ['@cf/deepseek-ai/deepseek-v4.1-flash-1017'],
     });
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { preview: Array<string> };
+    const body = await response.json<{ preview: Array<string> }>();
     expect(body.preview).toEqual([
       `Provider notice accepted (version ${SECURITY_PROVIDER_NOTICE_VERSION}).`,
       'Change default model: @cf/deepseek-ai/deepseek-v4.1-flash-1017 → anthropic/claude-opus-5.5',
@@ -652,11 +658,11 @@ describe('operator security policy', () => {
         lease_until: new Date(Date.now() + 60_000).toISOString(),
       },
     ]);
-    const preview = (await (
+    const preview = await (
       await request('/policy', { dryRun: true, mode: 'disabled' })
-    ).json()) as {
+    ).json<{
       preview: Array<string>;
-    };
+    }>();
     expect(preview.preview).toEqual([
       'Change policy: All projects → Off',
       '  New deploys are not scanned.',
@@ -682,15 +688,15 @@ describe('operator security policy', () => {
       key: SECURITY_POLICY_SETTINGS_KEY,
       value: { mode: 'sometimes', revision: 7 },
     });
-    const read = (await (await request('/policy')).json()) as Record<string, unknown>;
+    const read = await (await request('/policy')).json<Record<string, unknown>>();
     expect(read).toMatchObject({
       policy: { mode: 'disabled', revision: 7 },
       unreadable: expect.any(String),
     });
     expect(error).toHaveBeenCalled();
-    const preview = (await (
+    const preview = await (
       await request('/policy', { dryRun: true, limits: { concurrency: 3 } })
-    ).json()) as { preview: Array<string> };
+    ).json<{ preview: Array<string> }>();
     expect(preview.preview[0]).toBe(
       'The saved policy could not be read. Saving replaces it, starting from Off.',
     );

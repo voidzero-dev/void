@@ -170,7 +170,7 @@ describe('the gateway cost query', () => {
   const until = new Date('2026-11-18T10:00:00.000Z');
 
   function answer(body: unknown, status = 200): typeof fetch {
-    return (async () => Response.json(body, { status })) as typeof fetch;
+    return async () => Response.json(body, { status });
   }
 
   it('filters on the scan tag and returns the summed cost', async () => {

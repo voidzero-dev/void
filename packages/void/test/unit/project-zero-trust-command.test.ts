@@ -505,7 +505,7 @@ describe('project Zero Trust command with a public request', () => {
     const out = capture();
     await runProjectCommand(root, { ...base, action: 'public', json: true });
     expect(out.logged).toHaveLength(1);
-    const printed = JSON.parse(out.logged[0]!);
+    const printed = JSON.parse(out.logged[0]);
     expect(printed.held).toBe(true);
     expect(printed.project).toMatchObject({ state: 'protected', last_error: null });
     expect(printed.publicRequest.state).toBe('waiting_scan');
@@ -572,7 +572,7 @@ describe('project Zero Trust command with a public request', () => {
     const root = setup(vi.fn(async () => Response.json(reply)));
     const out = capture();
     await runProjectCommand(root, { ...base, action: 'status', json: true });
-    expect(JSON.parse(out.logged[0]!)).toEqual(reply);
+    expect(JSON.parse(out.logged[0])).toEqual(reply);
   });
 });
 
@@ -654,7 +654,7 @@ describe('project Zero Trust bypass', () => {
       { ...args, yes: true, json: true },
       { interactive: false },
     );
-    const printed = JSON.parse(out.logged[0]!);
+    const printed = JSON.parse(out.logged[0]);
     expect(printed.publicRequest.state).toBe('bypassed');
     expect(printed.skipped).toContain('did not finish');
   });

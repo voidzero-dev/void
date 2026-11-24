@@ -478,7 +478,7 @@ async function findOurComment(
       await res.body?.cancel();
       return 'unknown';
     }
-    const comments = (await res.json()) as unknown;
+    const comments = await res.json<unknown>();
     if (!Array.isArray(comments)) {
       return 'unknown';
     }
@@ -529,7 +529,7 @@ async function updatePullRequestComments(
     await res.body?.cancel();
     return 0;
   }
-  const pulls = (await res.json()) as unknown;
+  const pulls = await res.json<unknown>();
   if (!Array.isArray(pulls)) {
     return 0;
   }

@@ -170,7 +170,7 @@ async function scans(projectId: string) {
 
 async function scan(id: string) {
   const [row] = await env.db.select().from(securityScans).where(eq(securityScans.id, id));
-  return row!;
+  return row;
 }
 
 describe('enqueue in the go-live transaction', () => {
@@ -837,13 +837,13 @@ describe('real deploys', () => {
       deployment_id: id,
       status: 'queued',
       trigger: 'deploy',
-      input_prefix: operation!.input_prefix,
+      input_prefix: operation.input_prefix,
     });
     expect(pokes).toBe(1);
     // Held: the operation ended but kept its input.
     expect(operation).toMatchObject({ status: 'terminal', inputs_deleted: false });
     expect(
-      (await env.STATIC_ASSETS_R2.list({ prefix: operation!.input_prefix })).objects.length,
+      (await env.STATIC_ASSETS_R2.list({ prefix: operation.input_prefix })).objects.length,
     ).toBeGreaterThan(0);
 
     // An idempotent replay of the same deploy makes no new deployment and no new row.
@@ -971,7 +971,7 @@ describe('real deploys', () => {
     expect(await response.text()).toContain('"event":"done"');
     const [deployment] = await env.db.select().from(deployments);
     expect(deployment).toMatchObject({ status: 'live' });
-    await expectCopiedWorkerScan(project.id, deployment!.id);
+    await expectCopiedWorkerScan(project.id, deployment.id);
   });
 
   it.each([
@@ -996,7 +996,7 @@ describe('real deploys', () => {
     }
     const [deployment] = await env.db.select().from(deployments);
     expect(deployment).toMatchObject({ status: 'live' });
-    await expectCopiedWorkerScan(project.id, deployment!.id);
+    await expectCopiedWorkerScan(project.id, deployment.id);
   });
 
   it('nothing changes with the capability off', async () => {

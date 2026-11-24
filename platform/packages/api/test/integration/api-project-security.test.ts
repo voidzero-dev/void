@@ -205,7 +205,10 @@ describe('GET /projects/:id/security: who sees what', () => {
         more: 0,
       });
       expect(body.counts).toMatchObject({ urgent: 2, leads: 1, open: { medium: 1 } });
-      expect(body.urgent.findings.map((row: { id: string }) => row.id)).toEqual(['F-1', 'F-2']);
+      expect((body.urgent.findings as Array<{ id: string }>).map((row) => row.id)).toEqual([
+        'F-1',
+        'F-2',
+      ]);
       expect(body.lastSuccessfulScan).toMatchObject({ status: 'succeeded', filesScanned: 12 });
       expect(body.publicRequest).toBeNull();
       // Who may resolve: `settings` (admin, owner), which the deploy notice names.
@@ -429,7 +432,9 @@ describe('findings: list, show, scoping', () => {
       await call(`/projects/${a.project.id}/security/findings?state=all`, a.people.reader.jwt),
     );
     expect(reader.findings).toHaveLength(4);
-    expect(JSON.stringify(reader.findings.slice(0, 3))).not.toMatch(/SECRET TITLE|secret-|trace/);
+    expect(JSON.stringify((reader.findings as Array<unknown>).slice(0, 3))).not.toMatch(
+      /SECRET TITLE|secret-|trace/,
+    );
     expect(reader.findings[3]).toMatchObject({
       id: 'F-4',
       title: 'SECRET TITLE 4',
@@ -440,7 +445,7 @@ describe('findings: list, show, scoping', () => {
     const first = await json(
       await call(`/projects/${a.project.id}/security/findings?limit=2`, a.people.collaborator.jwt),
     );
-    expect(first.findings.map((row: { id: string }) => row.id)).toEqual(['F-1', 'F-2']);
+    expect((first.findings as Array<{ id: string }>).map((row) => row.id)).toEqual(['F-1', 'F-2']);
     expect(first.findings[0]).toMatchObject({
       title: 'SECRET TITLE 1',
       file: 'src/routes/secret-1.ts',
@@ -451,7 +456,7 @@ describe('findings: list, show, scoping', () => {
         a.people.collaborator.jwt,
       ),
     );
-    expect(second.findings.map((row: { id: string }) => row.id)).toEqual(['F-3']);
+    expect((second.findings as Array<{ id: string }>).map((row) => row.id)).toEqual(['F-3']);
     expect(second.nextCursor).toBeNull();
     for (const bad of [
       'limit=0',
@@ -542,7 +547,7 @@ describe('comment, resolve, reopen', () => {
       expect(response.status, role).toBe(201);
     }
     const [finding] = await env.db.select().from(securityFindings);
-    expect(finding!.revision).toBe(1);
+    expect(finding.revision).toBe(1);
     const events = await env.db.select().from(securityFindingEvents);
     expect(events.map((event) => [event.action, event.actor_role]).sort()).toEqual([
       ['commented', 'admin'],
@@ -560,7 +565,10 @@ describe('comment, resolve, reopen', () => {
       );
     const history = await json(await call(base, people.admin.jwt));
     expect(
-      history.events.map((event: Record<string, unknown>) => [event.actor, event.formerMember]),
+      (history.events as Array<Record<string, unknown>>).map((event) => [
+        event.actor,
+        event.formerMember,
+      ]),
     ).toEqual([
       [people.collaborator.login, true],
       [people.admin.login, false],
@@ -620,7 +628,7 @@ describe('comment, resolve, reopen', () => {
       fix_checked_scan_id: null,
       revision: 2,
     });
-    expect(row!.resolved_by_user_id).toBe(people.admin.id);
+    expect(row.resolved_by_user_id).toBe(people.admin.id);
 
     // A second admin who read revision 1 loses.
     const stale = await call(`${base}/resolve`, people.owner.jwt, {
@@ -818,7 +826,7 @@ describe('severity edit (M35)', () => {
     const low = await json(
       await call(`/projects/${project.id}/security/findings?severity=low`, people.admin.jwt),
     );
-    expect(low.findings.map((finding: { id: string }) => finding.id)).toEqual(['F-1']);
+    expect((low.findings as Array<{ id: string }>).map((finding) => finding.id)).toEqual(['F-1']);
     const urgent = await json(
       await call(`/projects/${project.id}/security/findings?urgent=1`, people.admin.jwt),
     );
@@ -1046,7 +1054,7 @@ describe('project rescan (M25)', () => {
       .select()
       .from(securityScans)
       .where(eq(securityScans.id, queued.scanId));
-    expect(row!.coverage_notes).toEqual(['client-assets']);
+    expect(row.coverage_notes).toEqual(['client-assets']);
   });
 
   it('needs settings, a JSON body, the capability, and a scannable live deployment', async () => {
@@ -1129,11 +1137,9 @@ describe('model', () => {
     // The picker lists exactly what the PUT below accepts (M29 page and dashboard forms).
     const status = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
     expect(status.modelChoices).toMatchObject({ noticeVersion: 1 });
-    expect(status.modelChoices.choices.map((choice: { id: string }) => choice.id)).toEqual([
-      '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-      '@cf/zai-org/glm-5.3',
-      FOREIGN,
-    ]);
+    expect(
+      (status.modelChoices.choices as Array<{ id: string }>).map((choice) => choice.id),
+    ).toEqual(['@cf/deepseek-ai/deepseek-v4.1-flash-1017', '@cf/zai-org/glm-5.3', FOREIGN]);
     expect(status.modelChoices.choices[2].notice[0]).toContain('run by OpenAI');
     expect(status.modelChoices.choices[0].notice).toBeNull();
 
@@ -1198,7 +1204,7 @@ describe('model', () => {
       requested: expect.any(String),
     });
     const [after] = await env.db.select().from(projectSecuritySettings);
-    expect(after!.model).toBeNull();
+    expect(after.model).toBeNull();
   });
 
   it('keeps a project on Cloudflare until it accepts a third-party default', async () => {

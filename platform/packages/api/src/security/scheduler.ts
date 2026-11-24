@@ -168,7 +168,7 @@ export function securityScanControllerClient(env: ApiEnv['Bindings']): SecurityS
         await response.body?.cancel();
         return { ok: false, reason: `http_${response.status}` };
       }
-      const result = (await response.json()) as StartResult;
+      const result = await response.json<StartResult>();
       return result.ok === true ? { ok: true } : { ok: false, reason: String(result.reason) };
     },
     async cancel(scanId, attempt) {

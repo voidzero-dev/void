@@ -374,7 +374,7 @@ export function applySecurityArgs(
     }
   }
   if (action === 'cancel') {
-    parsed.path = parsed.path.replace(':sid', encodeURIComponent(parameters[0]!));
+    parsed.path = parsed.path.replace(':sid', encodeURIComponent(parameters[0]));
     return;
   }
   if (action === 'rescan' && flags.has('client-assets')) {
@@ -413,7 +413,7 @@ export function applySecurityArgs(
     throw new Error('platform: --trigger must be gate.');
   }
   if (action === 'show' || action === 'resolve' || action === 'reopen' || action === 'comment') {
-    const ids = list(parameters[1]!, 'finding ids');
+    const ids = list(parameters[1], 'finding ids');
     if (ids.length > MAX_FINDING_IDS) {
       throw new Error(`platform: Name at most ${MAX_FINDING_IDS} findings at a time.`);
     }
@@ -424,7 +424,7 @@ export function applySecurityArgs(
   }
   switch (action) {
     case 'policy': {
-      const mode = parameters[0]!;
+      const mode = parameters[0];
       const project = values.project;
       if (project !== undefined) {
         if (!OVERRIDES.has(mode)) {
@@ -452,7 +452,7 @@ export function applySecurityArgs(
       return;
     }
     case 'sweeps': {
-      const state = parameters[0]!;
+      const state = parameters[0];
       if (state !== 'on' && state !== 'off') {
         throw new Error(
           'platform: Usage: void platform security sweeps <on|off> [--every-days <n>].',
@@ -470,7 +470,7 @@ export function applySecurityArgs(
     }
     case 'fallback':
     case 'digest': {
-      const state = parameters[0]!;
+      const state = parameters[0];
       if (state !== 'on' && state !== 'off') {
         throw new Error(`platform: Usage: void platform security ${action} <on|off>.`);
       }
@@ -478,7 +478,7 @@ export function applySecurityArgs(
       return;
     }
     case 'webhook': {
-      const url = parameters[0]!;
+      const url = parameters[0];
       if (url !== 'off' && !url.startsWith('https://')) {
         throw new Error('platform: Usage: void platform security webhook <https-url|off>.');
       }
@@ -486,7 +486,7 @@ export function applySecurityArgs(
       return;
     }
     case 'public-gate': {
-      const state = parameters[0]!;
+      const state = parameters[0];
       if (state !== 'on' && state !== 'off') {
         throw new Error('platform: Usage: void platform security public-gate <on|off>.');
       }

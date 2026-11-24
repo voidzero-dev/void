@@ -345,7 +345,7 @@ async function headScan(
 
 async function scanRow() {
   const [row] = await env.db.select().from(securityScans).where(eq(securityScans.id, 'scan_head'));
-  return row!;
+  return row;
 }
 
 function label(row: Awaited<ReturnType<typeof scanRow>>) {
@@ -607,9 +607,9 @@ describe('T1 source diff with GitHub', () => {
     // A managed build ran at the repository root.
     const repo = {
       'package.json': '{"name":"app"}',
-      'src/server.ts': REPO['apps/web/src/server.ts']!,
+      'src/server.ts': REPO['apps/web/src/server.ts'],
       'src/routes/users.ts': USERS_V2,
-      'packages/shared/src/auth.ts': REPO['packages/shared/src/auth.ts']!,
+      'packages/shared/src/auth.ts': REPO['packages/shared/src/auth.ts'],
     };
     stubGithub({
       repo,
@@ -659,7 +659,7 @@ describe('T1 source diff with GitHub', () => {
 
     const prepared = await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1);
     expect(prepared!.built.tier).toBe('source_diff');
-    expect(uploads[0]!.parts).toEqual([
+    expect(uploads[0].parts).toEqual([
       SECURITY_SOURCE_TARBALL_PART_BYTES,
       SECURITY_SOURCE_TARBALL_PART_BYTES,
       archive.length - 2 * SECURITY_SOURCE_TARBALL_PART_BYTES,

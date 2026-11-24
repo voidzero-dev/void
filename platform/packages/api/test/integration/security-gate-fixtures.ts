@@ -79,17 +79,17 @@ export function gateAccessApi() {
     const match = path.match(/^apps\/([^/]+)$/);
     if (match && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      const previous = applications.get(match[1]!);
+      const previous = applications.get(match[1]);
       const application = { ...body, id: match[1], aud: previous?.aud ?? `aud-${match[1]}` };
-      applications.set(match[1]!, application);
+      applications.set(match[1], application);
       return Response.json({ success: true, result: application });
     }
     if (match && init?.method === 'DELETE') {
-      applications.delete(match[1]!);
+      applications.delete(match[1]);
       return Response.json({ success: true, result: { id: match[1] } });
     }
     if (match) {
-      const application = applications.get(match[1]!);
+      const application = applications.get(match[1]);
       return application
         ? Response.json({ success: true, result: application })
         : Response.json({ success: false, errors: [{ message: 'not found' }] }, { status: 404 });
@@ -154,7 +154,7 @@ export async function ztRow(s: GateSetup) {
     .select()
     .from(projectZeroTrust)
     .where(eq(projectZeroTrust.project_id, s.project.id));
-  return row!;
+  return row;
 }
 
 export async function succeededScan(s: GateSetup, id = 'ss_ok') {

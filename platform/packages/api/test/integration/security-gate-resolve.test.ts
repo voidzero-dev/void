@@ -72,7 +72,7 @@ async function resolve(
     ref: `F-${number}`,
     userId: s.user.id,
     comment: `resolved as ${resolution}`,
-    expectedRevision: row!.revision,
+    expectedRevision: row.revision,
     resolution,
   });
   // What the resolve route does after the write.
@@ -156,7 +156,7 @@ describe('resolving the last urgent finding of a held public request (Q13)', () 
     const [claim] = await env.db
       .select({ checked: securityFindings.fix_checked_scan_id })
       .from(securityFindings);
-    expect(claim!.checked).toBeNull();
+    expect(claim.checked).toBeNull();
 
     // A new deploy, admitted after the resolve, goes live and is scanned clean.
     const next = await createTestDeployment(env.db, s.project.id, 'live');
@@ -169,7 +169,7 @@ describe('resolving the last urgent finding of a held public request (Q13)', () 
       .select({ active: projects.active_deployment_id })
       .from(projects)
       .where(eq(projects.id, s.project.id));
-    expect(project!.active).toBe(next.id);
+    expect(project.active).toBe(next.id);
     // The cutover publishes the new version to routing.
     await env.ROUTING.put(
       s.project.slug,

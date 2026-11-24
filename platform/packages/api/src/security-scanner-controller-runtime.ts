@@ -367,7 +367,7 @@ export class DenyAll extends WorkerEntrypoint<ControllerEnv> {
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {
   try {
-    const value = (await request.json()) as unknown;
+    const value = await request.json<unknown>();
     return value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
@@ -741,7 +741,7 @@ export class ScannerController extends DurableObject<ControllerEnv> {
     }
     // Wait for the whole tar: the runner keeps running after this alarm returns,
     // and later alarms only read its result files.
-    await input.pipeTo(process.stdin);
+    await input.pipeTo(process.stdin as WritableStream<Uint8Array>);
     // The hunt takes minutes; the copy is ready long before verify needs it.
     await this.makeCopy(state);
     await this.ctx.storage.setAlarm(Date.now() + POLL_MS);

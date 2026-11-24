@@ -481,7 +481,7 @@ class MemoryR2Bucket {
               'Your proposed upload is smaller than the minimum allowed object size.',
             );
           }
-          if (chunk.length !== leading[0]!.length) {
+          if (chunk.length !== leading[0].length) {
             throw new Error(
               'completeMultipartUpload: All non-trailing parts must have the same size. (10048)',
             );
@@ -1873,12 +1873,14 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
         const rest = path.slice(namespaceAt + '/workers/dispatch/namespaces'.length);
         const parts = rest.split('/').filter(Boolean);
         if (parts.length === 0 && method === 'POST') {
-          const name = String(JSON.parse(String(init?.body ?? '{}')).name ?? '');
+          const name = String(
+            (JSON.parse(String(init?.body ?? '{}')) as { name?: unknown }).name ?? '',
+          );
           dispatchNamespaces.add(name);
           return cfSuccess({ namespace_name: name });
         }
         if (parts.length === 1 && method === 'GET') {
-          return dispatchNamespaces.has(parts[0]!)
+          return dispatchNamespaces.has(parts[0])
             ? cfSuccess({ namespace_name: parts[0] })
             : Response.json(
                 { success: false, errors: [{ code: 100_119, message: 'namespace not found' }] },
@@ -1886,7 +1888,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
               );
         }
         if (parts.length === 1 && method === 'DELETE') {
-          dispatchNamespaces.delete(parts[0]!);
+          dispatchNamespaces.delete(parts[0]);
           return cfSuccess(null);
         }
         if (parts.length === 2 && parts[1] === 'scripts' && method === 'GET') {
@@ -1896,7 +1898,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
         if (
           parts.length === 4 &&
           parts[1] === 'scripts' &&
-          parts[2]!.startsWith('void-sec-copy-') &&
+          parts[2].startsWith('void-sec-copy-') &&
           parts[3] === 'settings' &&
           method === 'GET'
         ) {

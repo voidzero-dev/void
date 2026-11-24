@@ -480,7 +480,7 @@ describe('durable deployment admission and observation', () => {
 
   it('keeps staged input a waiting security scan holds, and deletes it once released', async () => {
     const id = await admit();
-    const operation = (await getDeploymentOperation(env.db, id))!;
+    const operation = await getDeploymentOperation(env.db, id);
     await env.db
       .update(deploymentOperations)
       .set({ status: 'terminal' })
@@ -545,7 +545,7 @@ describe('durable deployment admission and observation', () => {
     const heldPrefix = (heldId: string) => `deployment-inputs/${project.id}/${heldId}/`;
     await env.db.insert(deploymentOperations).values(
       held.map((heldId) => ({
-        ...operation!,
+        ...operation,
         id: heldId,
         idempotency_key: heldId,
         input_prefix: heldPrefix(heldId),
@@ -572,7 +572,7 @@ describe('durable deployment admission and observation', () => {
 
     await dispatchPendingDeployments(queuedEnv, env.db);
     expect(await getDeploymentOperation(env.db, id)).toMatchObject({ inputs_deleted: true });
-    expect(await getDeploymentOperation(env.db, held[0]!)).toMatchObject({ inputs_deleted: false });
+    expect(await getDeploymentOperation(env.db, held[0])).toMatchObject({ inputs_deleted: false });
   });
 
   it('redispatches the durable outbox on a disabled installation fast tick while skipping application maintenance', async () => {

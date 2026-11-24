@@ -46,7 +46,7 @@ function inCi(env: NodeJS.ProcessEnv): boolean {
 }
 
 function providerName(model: string): string {
-  const prefix = model.startsWith('@') ? '' : model.split('/')[0]!;
+  const prefix = model.startsWith('@') ? '' : model.split('/')[0];
   return PROVIDERS[prefix] ?? (prefix ? cleanLine(prefix) : 'a third-party provider');
 }
 

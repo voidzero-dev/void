@@ -517,7 +517,7 @@ describe('PR comment', () => {
     expect(result).toMatchObject({ reported: true, comments: 1 });
     const posted = calls.filter((call) => call.method === 'POST' && call.url.includes('/issues/'));
     expect(posted.map((call) => call.url)).toEqual([`${API}/repos/${REPO}/issues/12/comments`]);
-    const body = (posted[0]!.body as { body: string }).body;
+    const body = (posted[0].body as { body: string }).body;
     expect(body).toContain(`<!-- void-security-audit:${project.id} -->`);
     expect(body).toContain('1 urgent security finding is open');
     expect(body).not.toContain('SQL built');
@@ -549,7 +549,7 @@ describe('PR comment', () => {
     expect(writes.map((call) => `${call.method} ${call.url}`)).toEqual([
       `PATCH ${API}/repos/${REPO}/issues/comments/555`,
     ]);
-    expect((writes[0]!.body as { body: string }).body).toContain(
+    expect((writes[0].body as { body: string }).body).toContain(
       'No urgent security findings are open',
     );
   });
@@ -714,7 +714,7 @@ describe('check_run:rerequested for the security check', () => {
       { ...onEnv, GITHUB_WEBHOOK_SECRET: WEBHOOK_SECRET },
     );
     expect(res.status).toBe(200);
-    return (await res.json()) as Record<string, unknown>;
+    return await res.json<Record<string, unknown>>();
   }
 
   async function member(projectId: string, role: 'admin' | 'collaborator', githubId: string) {
@@ -727,7 +727,7 @@ describe('check_run:rerequested for the security check', () => {
       project_id: projectId,
       user_id: user.id,
       role,
-      added_by_user_id: owner!.user_id,
+      added_by_user_id: owner.user_id,
     });
     return user;
   }
@@ -749,8 +749,8 @@ describe('check_run:rerequested for the security check', () => {
     const json = await rerequest(scanId, 4242);
 
     const queued = await rescans(project.id);
-    expect(json).toEqual({ ok: true, queued: queued[0]!.id });
-    expect(queued).toEqual([{ id: queued[0]!.id, deploymentId: deployment.id }]);
+    expect(json).toEqual({ ok: true, queued: queued[0].id });
+    expect(queued).toEqual([{ id: queued[0].id, deploymentId: deployment.id }]);
     // Nothing is written to GitHub until that scan ends.
     expect(calls).toEqual([]);
   });

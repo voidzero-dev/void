@@ -61,5 +61,5 @@ export function record(raw: Record<string, unknown>): FindingRecord {
   if (!result.ok) {
     throw new Error(result.message);
   }
-  return result.report.findings[0]!;
+  return result.report.findings[0];
 }

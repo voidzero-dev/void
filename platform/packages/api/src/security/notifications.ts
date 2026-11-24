@@ -358,7 +358,7 @@ async function failRows(
       .update(securityNotifications)
       .set({
         attempts,
-        next_attempt_at: iso(now + SECURITY_NOTIFICATION_BACKOFF_MS[attempts - 1]!),
+        next_attempt_at: iso(now + SECURITY_NOTIFICATION_BACKOFF_MS[attempts - 1]),
       })
       .where(
         and(eq(securityNotifications.id, row.id), eq(securityNotifications.status, 'pending')),
@@ -443,7 +443,7 @@ export async function runSecurityNotifications(
   // endpoint costs one timeout per pass, not one per row, and the emails keep going.
   let webhookDownUntil: number | null = null;
   for (const group of groups) {
-    if (group[0]!.kind === 'webhook' && webhookDownUntil !== null) {
+    if (group[0].kind === 'webhook' && webhookDownUntil !== null) {
       await delayRows(
         db,
         group.map((row) => row.id),
@@ -471,14 +471,14 @@ export async function runSecurityNotifications(
       totals[status] += group.length;
     } catch (error) {
       console.error('[security-notify] delivery failed', {
-        kind: group[0]!.kind,
-        projectId: group[0]!.project_id,
+        kind: group[0].kind,
+        projectId: group[0].project_id,
         error: error instanceof Error ? error.message : String(error),
       });
       if ((await failRows(db, group, now)) === 'failed') {
         totals.failed += group.length;
       }
-      if (group[0]!.kind === 'webhook') {
+      if (group[0].kind === 'webhook') {
         webhookDownUntil = now + SECURITY_NOTIFICATION_BACKOFF_MS[0];
       }
     }
@@ -493,7 +493,7 @@ async function deliver(
   now: number,
   options: SecurityNotifyOptions,
 ): Promise<Delivery> {
-  const row = group[0]!;
+  const row = group[0];
   switch (row.kind) {
     case 'findings':
       return deliverFindings(db, env, row.project_id!, group, now);

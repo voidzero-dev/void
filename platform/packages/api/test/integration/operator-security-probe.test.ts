@@ -187,7 +187,7 @@ async function probe(overrides: Partial<TestEnv> = {}): Promise<ProbeBody> {
     { ...bindings, ...overrides },
   );
   expect(response.status).toBe(200);
-  return (await response.json()) as ProbeBody;
+  return await response.json<ProbeBody>();
 }
 
 function check(body: ProbeBody, name: SecurityProbeCheck['name'], host?: string) {
@@ -601,10 +601,10 @@ describe('security probe', () => {
     fakes.ai.mockRejectedValueOnce(new Error('no credits'));
     const refused = await policyRequest({ expectedRevision: 0, mode: 'public' });
     expect(refused.status).toBe(409);
-    const refusedBody = (await refused.json()) as {
+    const refusedBody = await refused.json<{
       message: string;
       details: { probeId: string; checks: Array<Record<string, unknown>> };
-    };
+    }>();
     expect(refusedBody).toMatchObject({
       error: 'security entitlement missing',
       details: {

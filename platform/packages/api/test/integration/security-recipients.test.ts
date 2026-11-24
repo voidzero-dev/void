@@ -69,7 +69,7 @@ function mailer(options: { failFor?: ReadonlyArray<string> } = {}) {
     } as unknown as SendEmail,
     EMAIL_FROM: 'Void <noreply@example.com>',
     DASHBOARD_URL: undefined,
-  } as PlatformEmailEnv;
+  };
   return { mail, sent, attempts };
 }
 
@@ -210,7 +210,7 @@ describe('findings email recipients (spec §12)', () => {
     });
     const byUser = new Map(recipients.map((recipient) => [recipient.userId, recipient.reason]));
     expect([...byUser.keys()].sort()).toEqual([owner.id, ...authors.map((a) => a.id)].sort());
-    expect(byUser.get(authors[0]!.id)).toEqual({
+    expect(byUser.get(authors[0].id)).toEqual({
       kind: 'author',
       deploymentIds: [deploymentIds[0]],
     });
@@ -309,7 +309,7 @@ describe('public request and installation recipients', () => {
     await person('plain');
     const recipients = await resolveInstallationAdminRecipients(env.db);
     expect(recipients.map((recipient) => recipient.userId)).toEqual([root.id]);
-    expect(recipients[0]!.reason).toEqual({ kind: 'installation_admin' });
+    expect(recipients[0].reason).toEqual({ kind: 'installation_admin' });
   });
 });
 
@@ -344,10 +344,10 @@ describe('the outbox', () => {
       'admin@example.com',
       'owner@example.com',
     ]);
-    expect(sent[0]!.subject).toContain(
+    expect(sent[0].subject).toContain(
       `${project.slug}: 2 new security findings (1 critical, 1 medium)`,
     );
-    expect(sent[0]!.text).toContain('SQL built from query');
+    expect(sent[0].text).toContain('SQL built from query');
 
     await runSecurityNotifications(env.db, mail);
     expect(sent).toHaveLength(2);
@@ -415,8 +415,8 @@ describe('the outbox', () => {
       'b@example.com',
       'owner@example.com',
     ]);
-    expect(sent[0]!.subject).toContain('2 new security findings');
-    expect(sent[0]!.text).toContain('2 security scans');
+    expect(sent[0].subject).toContain('2 new security findings');
+    expect(sent[0].text).toContain('2 security scans');
   });
 
   it('skips a scan whose findings were resolved before the send', async () => {
@@ -478,7 +478,7 @@ describe('the outbox', () => {
     });
     await runSecurityNotifications(env.db, mail, t0 + SECURITY_FINDINGS_COOLDOWN_MS + 1000);
     expect(sent).toHaveLength(2);
-    expect(sent[1]!.subject).toContain('(critical)');
+    expect(sent[1].subject).toContain('(critical)');
   });
 
   it('does not announce a raise that ends below high', async () => {
@@ -517,10 +517,10 @@ describe('the outbox', () => {
     });
     const run = await runSecurityNotifications(env.db, {
       EMAIL: undefined,
-    } as unknown as PlatformEmailEnv);
+    });
     expect(run.nextAt).toBeNull();
     const [row] = await env.db.select().from(securityNotifications);
-    expect(row!.status).toBe('skipped');
+    expect(row.status).toBe('skipped');
   });
 
   it('retries with back-off and gives up after the third attempt', async () => {
@@ -601,17 +601,17 @@ describe('the outbox', () => {
       'root-a@example.com',
       'root-b@example.com',
     ]);
-    expect(sent[0]!.subject).toBe(
+    expect(sent[0].subject).toBe(
       `[Void Cloud] ${project.slug}: security scan bypassed by the owner`,
     );
-    expect(sent[0]!.text).toContain('owner@example.com (owner)');
-    expect(sent[0]!.text).not.toContain('z'.repeat(301));
-    expect(sent[0]!.html).not.toContain('<b>Scanner');
+    expect(sent[0].text).toContain('owner@example.com (owner)');
+    expect(sent[0].text).not.toContain('z'.repeat(301));
+    expect(sent[0].html).not.toContain('<b>Scanner');
     const [bypass] = await env.db
       .select()
       .from(securityScanBypasses)
       .where(eq(securityScanBypasses.id, 'sbp_1'));
-    expect(bypass!.notified_at).not.toBeNull();
+    expect(bypass.notified_at).not.toBeNull();
     expect(rootA.id).toBeTruthy();
   });
 
@@ -663,9 +663,9 @@ describe('the outbox', () => {
     const { mail, sent } = mailer();
     await runSecurityNotifications(env.db, mail);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.text).toContain('Open redirect');
-    expect(sent[0]!.text).not.toMatch(/bypass/i);
-    expect(sent[0]!.text).toContain('You get this because you asked');
+    expect(sent[0].text).toContain('Open redirect');
+    expect(sent[0].text).not.toMatch(/bypass/i);
+    expect(sent[0].text).toContain('You get this because you asked');
 
     // A held row for a state the request already left is dropped.
     await env.db
@@ -777,7 +777,7 @@ describe('cap rows', () => {
       'admin@example.com',
       'owner@example.com',
     ]);
-    expect(sent[0]!.subject).toContain('monthly security scan budget used up');
-    expect(sent[0]!.text).toContain('void project security budget --usd');
+    expect(sent[0].subject).toContain('monthly security scan budget used up');
+    expect(sent[0].text).toContain('void project security budget --usd');
   });
 });

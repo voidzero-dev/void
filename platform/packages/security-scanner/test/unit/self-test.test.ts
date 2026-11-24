@@ -17,14 +17,14 @@ afterEach(async () => {
 function interceptedFetch(
   answers: Record<string, () => Response | Promise<Response>>,
 ): typeof fetch {
-  return (async (input: string | URL | Request) => {
+  return async (input: string | URL | Request) => {
     const url = String(input instanceof Request ? input.url : input);
     const answer = answers[url];
     if (!answer) {
       throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
     }
     return answer();
-  }) as typeof fetch;
+  };
 }
 
 describe('runSelfTest', () => {
@@ -64,10 +64,10 @@ describe('runSelfTest', () => {
     const report = await runSelfTest({
       targets: { hang: 'http://example.com/' },
       timeoutMs: 50,
-      fetch: ((_input: string | URL | Request, init?: RequestInit) =>
+      fetch: (_input: string | URL | Request, init?: RequestInit) =>
         new Promise((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
-        })) as typeof fetch,
+        }),
     });
     expect(report.egress.hang).toMatchObject({ blocked: true, error: 'TimeoutError' });
   });

@@ -80,7 +80,7 @@ function lineAt(offset: number, lineStarts: ReadonlyArray<number>): number {
   let high = lineStarts.length - 1;
   while (low < high) {
     const mid = (low + high + 1) >> 1;
-    if (lineStarts[mid]! <= offset) {
+    if (lineStarts[mid] <= offset) {
       low = mid;
     } else {
       high = mid - 1;

@@ -73,7 +73,7 @@ function repoIndex(files: Record<string, string>): SecurityRepoIndex {
  * up, the shared package three, an installed package from the pnpm store.
  */
 function bundle(overrides: Record<string, string> = {}): Array<SecurityModuleFile> {
-  const text = (path: string) => overrides[path] ?? REPO[path]!;
+  const text = (path: string) => overrides[path] ?? REPO[path];
   return [
     module('index.js', 'import"./chunk.js";export default {}'),
     module(
@@ -430,7 +430,7 @@ describe('buildSecurityScanInput with a source diff', () => {
     const files = [
       ...diff.read.map((file) => ({
         path: file.inputPath,
-        text: REPO[file.repoPath]!,
+        text: REPO[file.repoPath],
         sha256: file.sha256,
         module: '',
         map: null,
@@ -482,7 +482,7 @@ describe('buildSecurityScanInput with a source diff', () => {
     ]);
     expect(built.coverage).toBe('complete');
     expect(built.droppedFiles).toBe(2);
-    expect(built.droppedBytes).toBe(100 + new TextEncoder().encode(REPO['apps/web/.env']!).length);
+    expect(built.droppedBytes).toBe(100 + new TextEncoder().encode(REPO['apps/web/.env']).length);
     expect(built.entries.map((entry) => entry.path)).toContain('input/src/client/app.tsx');
     expect(built.entries.map((entry) => entry.path)).not.toContain('input/.env');
     expect(

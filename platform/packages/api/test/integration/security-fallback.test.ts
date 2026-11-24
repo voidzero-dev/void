@@ -261,7 +261,7 @@ describe('queueing a fallback scan', () => {
         model_used: CF,
         finished_at: new Date().toISOString(),
       })
-      .where(eq(securityScans.id, row!.id));
+      .where(eq(securityScans.id, row.id));
     expect(await queueSecurityFallbackScans(onEnv, env.db, policy, { now: Date.now() })).toEqual(
       [],
     );
@@ -479,7 +479,7 @@ describe('a fallback of a gate scan', () => {
       .select()
       .from(securityScans)
       .where(eq(securityScans.project_id, s.project.id));
-    expect(gate).toMatchObject({ trigger: 'gate', public_request_id: request!.id });
+    expect(gate).toMatchObject({ trigger: 'gate', public_request_id: request.id });
     await env.db
       .update(securityScans)
       .set({
@@ -489,7 +489,7 @@ describe('a fallback of a gate scan', () => {
         model_requested: OPUS,
         finished_at: new Date().toISOString(),
       })
-      .where(eq(securityScans.id, gate!.id));
+      .where(eq(securityScans.id, gate.id));
     const policy = await savePolicy({
       mode: 'public',
       publicGate: true,
@@ -500,7 +500,7 @@ describe('a fallback of a gate scan', () => {
         hosts: { openai: true, anthropic: true },
       },
     });
-    return { s, request: request!, gate: gate!, policy };
+    return { s, request, gate, policy };
   }
 
   async function queueAndClaim({
@@ -520,8 +520,8 @@ describe('a fallback of a gate scan', () => {
       coverage_notes: [],
     });
     return claimSecurityScan(env.db, {
-      scanId: row!.id,
-      attempt: row!.attempt,
+      scanId: row.id,
+      attempt: row.attempt,
       model: { requested: CF, used: CF, engine: 'void_loop' },
       limits: policy.limits,
       now: Date.now(),

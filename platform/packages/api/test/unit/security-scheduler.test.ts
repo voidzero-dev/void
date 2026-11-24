@@ -142,15 +142,17 @@ function harness(): Harness {
   const requeues: Harness['requeues'] = [];
   const clock = { now: NOW };
   const attempts = new Map<string, number>();
-  const claim = vi.fn(async (input: { scanId: string; attempt: number }) => {
-    const attempt = input.attempt + 1;
-    attempts.set(input.scanId, attempt);
-    return {
-      kind: 'claimed',
-      attempt,
-      times: securityScanTimes({ timeoutMinutes: 20 }, clock.now),
-    } as SecurityClaimOutcome;
-  });
+  const claim = vi.fn(
+    async (input: { scanId: string; attempt: number }): Promise<SecurityClaimOutcome> => {
+      const attempt = input.attempt + 1;
+      attempts.set(input.scanId, attempt);
+      return {
+        kind: 'claimed',
+        attempt,
+        times: securityScanTimes({ timeoutMinutes: 20 }, clock.now),
+      };
+    },
+  );
   const reserve = vi.fn(async (): Promise<SecurityReserveResult> => ({
     ok: true,
     month: '2026-11-01',

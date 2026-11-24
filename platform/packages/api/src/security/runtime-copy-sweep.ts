@@ -156,7 +156,7 @@ async function deleteListedCopies(
   const results = await Promise.allSettled(stores.map((store) => deleteStore(target, store)));
   const failed = results.find((result) => result.status === 'rejected');
   if (failed) {
-    throw (failed as PromiseRejectedResult).reason;
+    throw failed.reason;
   }
   return new Set([...scripts, ...stores.map((store) => runtimeCopyStoreOwner(store.name))]).size;
 }
@@ -218,7 +218,7 @@ export async function deleteSecurityRuntimeCopy(
   );
   const failed = results.find((result) => result.status === 'rejected');
   if (failed) {
-    throw (failed as PromiseRejectedResult).reason;
+    throw failed.reason;
   }
 }
 

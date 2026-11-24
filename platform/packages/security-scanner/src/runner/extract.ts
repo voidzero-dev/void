@@ -99,7 +99,7 @@ export async function extractTar(
     }
     const isDir = header.type === '5';
     const segments = safeSegments(rawName, isDir);
-    if (allowed.size > 0 && !allowed.has(segments[0]!)) {
+    if (allowed.size > 0 && !allowed.has(segments[0])) {
       throw new ExtractError(`tar entry ${quote(rawName)} is outside the scan input`);
     }
     const key = segments.join('/');
@@ -178,7 +178,7 @@ function readHeader(block: Uint8Array): Header {
   const stored = readOctal(block.subarray(148, 156), 'checksum');
   let sum = 0;
   for (let index = 0; index < BLOCK; index++) {
-    sum += index >= 148 && index < 156 ? 0x20 : block[index]!;
+    sum += index >= 148 && index < 156 ? 0x20 : block[index];
   }
   if (sum !== stored) {
     throw new ExtractError('tar header checksum does not match');
@@ -189,12 +189,12 @@ function readHeader(block: Uint8Array): Header {
   return {
     name: prefix ? `${prefix}/${name}` : name,
     size: readSize(block.subarray(124, 136)),
-    type: String.fromCharCode(block[156]!),
+    type: String.fromCharCode(block[156]),
   };
 }
 
 function readSize(field: Uint8Array): number {
-  if ((field[0]! & 0x80) !== 0) {
+  if ((field[0] & 0x80) !== 0) {
     // Base-256 (GNU) for sizes past 8 GiB: always beyond our limits.
     throw new ExtractError('tar entry is too large');
   }
@@ -386,7 +386,7 @@ class BlockReader {
     const out = new Uint8Array(length);
     let filled = 0;
     while (filled < length) {
-      const chunk = this.chunks[0]!;
+      const chunk = this.chunks[0];
       const take = Math.min(chunk.length, length - filled);
       out.set(chunk.subarray(0, take), filled);
       filled += take;

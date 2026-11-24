@@ -82,7 +82,7 @@ function parseZeroTrustArgs(rest: Array<string>): ProjectZeroTrustArgs {
   let yes = false;
   let json = false;
   for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
+    const arg = args[index];
     if (arg === '--project') {
       const value = args[++index];
       if (!value || value.startsWith('-')) {

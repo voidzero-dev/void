@@ -119,43 +119,49 @@ function anthropicMessage(blocks, stopReason) {
   const events = [['message_start', { type: 'message_start', message }]];
   blocks.forEach((block, index) => {
     if (block.type === 'text') {
-      events.push([
-        'content_block_start',
-        { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
-      ]);
-      events.push([
-        'content_block_delta',
-        { type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text } },
-      ]);
+      events.push(
+        [
+          'content_block_start',
+          { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
+        ],
+        [
+          'content_block_delta',
+          { type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text } },
+        ],
+      );
     } else {
-      events.push([
-        'content_block_start',
-        {
-          type: 'content_block_start',
-          index,
-          content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} },
-        },
-      ]);
-      events.push([
-        'content_block_delta',
-        {
-          type: 'content_block_delta',
-          index,
-          delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) },
-        },
-      ]);
+      events.push(
+        [
+          'content_block_start',
+          {
+            type: 'content_block_start',
+            index,
+            content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} },
+          },
+        ],
+        [
+          'content_block_delta',
+          {
+            type: 'content_block_delta',
+            index,
+            delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) },
+          },
+        ],
+      );
     }
     events.push(['content_block_stop', { type: 'content_block_stop', index }]);
   });
-  events.push([
-    'message_delta',
-    {
-      type: 'message_delta',
-      delta: { stop_reason: stopReason, stop_sequence: null },
-      usage: { output_tokens: 50 },
-    },
-  ]);
-  events.push(['message_stop', { type: 'message_stop' }]);
+  events.push(
+    [
+      'message_delta',
+      {
+        type: 'message_delta',
+        delta: { stop_reason: stopReason, stop_sequence: null },
+        usage: { output_tokens: 50 },
+      },
+    ],
+    ['message_stop', { type: 'message_stop' }],
+  );
   return { status: 200, type: 'text/event-stream', text: sse(events) };
 }
 
@@ -231,14 +237,16 @@ function responsesStream(items) {
   const id = `resp_${Date.now()}`;
   const events = [['response.created', { type: 'response.created', response: { id } }]];
   items.forEach((item, index) => {
-    events.push([
-      'response.output_item.added',
-      { type: 'response.output_item.added', output_index: index, item },
-    ]);
-    events.push([
-      'response.output_item.done',
-      { type: 'response.output_item.done', output_index: index, item },
-    ]);
+    events.push(
+      [
+        'response.output_item.added',
+        { type: 'response.output_item.added', output_index: index, item },
+      ],
+      [
+        'response.output_item.done',
+        { type: 'response.output_item.done', output_index: index, item },
+      ],
+    );
   });
   events.push([
     'response.completed',

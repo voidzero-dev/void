@@ -728,7 +728,7 @@ describe('uninstall --purge-resources', () => {
           fake.calls.indexOf('DELETE security-scanner'),
         );
         expect(fake.calls.indexOf('DELETE security-scanner')).toBeLessThan(
-          fake.calls.indexOf(FULL_ORDER[0]!),
+          fake.calls.indexOf(FULL_ORDER[0]),
         );
       }
       rmSync(process.env.VOID_PLATFORM_REGISTRY_DIR!, { force: true, recursive: true });

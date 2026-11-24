@@ -402,9 +402,9 @@ describe('per-scan cap (spec §9.2)', () => {
     const confirmed = selected.records.filter((item) => item.verdict === 'confirmed');
     const leads = selected.records.filter((item) => item.verdict === 'needs_validation');
     expect(confirmed).toHaveLength(SECURITY_MAX_CONFIRMED_PER_SCAN);
-    expect(confirmed[0]!.key).toBe('critical-late');
+    expect(confirmed[0].key).toBe('critical-late');
     expect(leads).toHaveLength(SECURITY_MAX_LEADS_PER_SCAN);
-    expect(leads[0]!.key).toBe('server-lead');
+    expect(leads[0].key).toBe('server-lead');
   });
 
   it('an incomplete scan keeps validated confirmed records only', () => {

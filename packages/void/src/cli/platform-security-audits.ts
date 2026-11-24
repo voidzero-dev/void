@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { PlatformDeploymentManifest, PlatformInstallationManifest } from '@void/platform';
+import { Buffer } from './node-buffer.ts';
 import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
 import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
 
@@ -168,7 +169,7 @@ async function deleteScannerImages(
         `platform: Listing the security scanner images failed (HTTP ${list.status}).`,
       );
     }
-    const { tags } = (await list.json()) as { tags?: unknown };
+    const { tags } = await list.json<{ tags?: unknown }>();
     for (const tag of Array.isArray(tags) ? tags : []) {
       if (typeof tag !== 'string') {
         continue;

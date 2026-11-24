@@ -245,7 +245,7 @@ describe('Access-protected platform requests', () => {
       env,
     );
     expect(redeemed.status).toBe(303);
-    const cookie = redeemed.headers.get('set-cookie')!.split(';')[0]!;
+    const cookie = redeemed.headers.get('set-cookie')!.split(';')[0];
     const page = await app.fetch(
       new Request(`${origin}/security/projects/secured-page`, {
         headers: { 'Cf-Access-Jwt-Assertion': access, Cookie: cookie },

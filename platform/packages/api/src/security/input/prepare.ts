@@ -328,7 +328,7 @@ async function readR2Module(
     await object.body.cancel();
     throw error;
   }
-  const bytes = await readBytes(object.body);
+  const bytes = await readBytes(object.body as ReadableStream<Uint8Array>);
   charge(bytes.length - object.size);
   return bytes;
 }
@@ -592,7 +592,7 @@ async function loadBaseSnapshot(r2: R2Bucket, prefix: string): Promise<BaseSnaps
     if (!object) {
       return null;
     }
-    modules.set(entry.name, sha256Hex(await readBytes(object.body)));
+    modules.set(entry.name, sha256Hex(await readBytes(object.body as ReadableStream<Uint8Array>)));
   }
   return {
     modules,
@@ -627,7 +627,7 @@ async function readAsset(
   const key = `assets/${projectId}/${hash}`;
   const object = await env.STATIC_ASSETS_R2.get(key);
   if (object) {
-    return decoder.decode(await readBytes(object.body));
+    return decoder.decode(await readBytes(object.body as ReadableStream<Uint8Array>));
   }
   const stored = await env.STATIC_ASSETS.get(key, 'arrayBuffer');
   return stored ? decoder.decode(stored) : null;

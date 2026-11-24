@@ -211,7 +211,7 @@ export async function compareCommits(
     }
     let data: CommitComparisonResponse;
     try {
-      data = (await res.json()) as CommitComparisonResponse;
+      data = await res.json<CommitComparisonResponse>();
     } catch {
       return null;
     }

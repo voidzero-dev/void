@@ -195,7 +195,7 @@ async function runningScan(
 
 async function scan(id: string) {
   const [row] = await env.db.select().from(securityScans).where(eq(securityScans.id, id));
-  return row!;
+  return row;
 }
 
 async function findingsOf(projectId: string) {
@@ -367,9 +367,9 @@ describe('scan result ingest', () => {
       first_deployment_id: deployment.id,
       sink_path: 'src/routes/users.ts',
     });
-    expect(rows[0]!.sink_content_hash).toHaveLength(64);
-    expect(rows[0]!.detail).toMatchObject({ fix: 'bind the id' });
-    expect(stored.ok && stored.kind === 'stored' && stored.news).toEqual([rows[0]!.id]);
+    expect(rows[0].sink_content_hash).toHaveLength(64);
+    expect(rows[0].detail).toMatchObject({ fix: 'bind the id' });
+    expect(stored.ok && stored.kind === 'stored' && stored.news).toEqual([rows[0].id]);
     for (const row of rows) {
       expect(await eventsOf(row.id)).toEqual(['created']);
     }
@@ -384,7 +384,7 @@ describe('scan result ingest', () => {
       .select({ next: projectSecuritySettings.next_finding_number })
       .from(projectSecuritySettings)
       .where(eq(projectSecuritySettings.project_id, project.id));
-    expect(settings!.next).toBe(4);
+    expect(settings.next).toBe(4);
 
     const row = await scan('scan_exit');
     expect(row).toMatchObject({
@@ -396,7 +396,7 @@ describe('scan result ingest', () => {
     });
     expect(row.ledger_summary).toMatchObject({ version: 1, scan_id: 'scan_exit' });
     const [platform] = await env.db.select().from(securityPlatformSpend);
-    expect(platform!.reserved_nano_usd).toBe(0);
+    expect(platform.reserved_nano_usd).toBe(0);
     // Raw output, promoted backlog, the call ledger forgets the attempt, the queue moves on.
     const raw = securityRawOutputPrefix(project.id, 'scan_exit');
     expect(await r2Text(`${raw}findings.json`)).toBe(report.findings);
@@ -468,7 +468,7 @@ describe('scan result ingest', () => {
     rows = await findingsOf(project.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ number: 1, last_seen_scan_id: 'scan_b', revision: 1 });
-    expect(await eventsOf(rows[0]!.id)).toEqual(['created']);
+    expect(await eventsOf(rows[0].id)).toEqual(['created']);
   });
 
   it('a scan of a deployment admitted before a fixed resolve cannot reopen it (edge #35)', async () => {
@@ -485,22 +485,22 @@ describe('scan result ingest', () => {
         resolution: 'fixed',
         resolved_at: '2026-11-18T14:05:00.000Z',
         resolved_severity: 'high',
-        resolved_sink_hash: created!.sink_content_hash,
+        resolved_sink_hash: created.sink_content_hash,
       })
-      .where(eq(securityFindings.id, created!.id));
+      .where(eq(securityFindings.id, created.id));
     const older = await deploy(project.id, '2026-11-18T14:00:00.000Z');
     await runningScan('scan_stale', project.id, older.id);
     const stale = await ingest('scan_stale', result('scan_stale', [finding()]));
     expect(stale).toMatchObject({ ok: true, news: [], reopened: [] });
     let [row] = await findingsOf(project.id);
     expect(row).toMatchObject({ state: 'resolved', resolution: 'fixed', reopen_count: 0 });
-    expect(await eventsOf(row!.id)).toEqual(['created', 'seen_again_stale']);
+    expect(await eventsOf(row.id)).toEqual(['created', 'seen_again_stale']);
 
     const newer = await deploy(project.id, '2026-11-18T14:10:00.000Z');
     await runningScan('scan_new', project.id, newer.id);
     const reopened = await ingest('scan_new', result('scan_new', [finding()]));
     [row] = await findingsOf(project.id);
-    expect(reopened).toMatchObject({ ok: true, reopened: [row!.id], news: [row!.id] });
+    expect(reopened).toMatchObject({ ok: true, reopened: [row.id], news: [row.id] });
     expect(row).toMatchObject({
       state: 'open',
       resolution: null,
@@ -508,7 +508,7 @@ describe('scan result ingest', () => {
       reopen_count: 1,
       revision: 2,
     });
-    expect(await eventsOf(row!.id)).toEqual(['created', 'seen_again_stale', 'reopened']);
+    expect(await eventsOf(row.id)).toEqual(['created', 'seen_again_stale', 'reopened']);
   });
 
   it('a false positive seen again unchanged stays resolved, one seen_again per resolve', async () => {
@@ -524,16 +524,16 @@ describe('scan result ingest', () => {
         resolution: 'false_positive',
         resolved_at: '2026-11-18T12:00:00.000Z',
         resolved_severity: 'high',
-        resolved_sink_hash: created!.sink_content_hash,
+        resolved_sink_hash: created.sink_content_hash,
       })
-      .where(eq(securityFindings.id, created!.id));
+      .where(eq(securityFindings.id, created.id));
     for (const id of ['scan_2', 'scan_3']) {
       await runningScan(id, project.id, deployment.id);
       await ingest(id, result(id, [finding()]));
     }
     const [row] = await findingsOf(project.id);
     expect(row).toMatchObject({ state: 'resolved', resolution: 'false_positive' });
-    expect(await eventsOf(row!.id)).toEqual(['created', 'seen_again']);
+    expect(await eventsOf(row.id)).toEqual(['created', 'seen_again']);
     // A higher severity reopens it.
     await runningScan('scan_4', project.id, deployment.id);
     await ingest('scan_4', result('scan_4', [finding({ severity: 'critical' })]));
@@ -552,14 +552,14 @@ describe('scan result ingest', () => {
     await env.db
       .update(securityFindings)
       .set({ severity_override: 'low' })
-      .where(eq(securityFindings.id, created!.id));
+      .where(eq(securityFindings.id, created.id));
     await runningScan('scan_2', project.id, deployment.id);
     const raised = await ingest('scan_2', result('scan_2', [finding({ severity: 'critical' })]));
     expect(raised).toMatchObject({ ok: true, news: [], reopened: [] });
     let [row] = await findingsOf(project.id);
     // The scan value is kept under the human one; the revision does not move.
     expect(row).toMatchObject({ severity: 'critical', severity_override: 'low', revision: 1 });
-    expect(await eventsOf(row!.id)).toEqual(['created']);
+    expect(await eventsOf(row.id)).toEqual(['created']);
 
     // Resolved as accepted risk at the human value: a critical report does not reopen it.
     await env.db
@@ -569,14 +569,14 @@ describe('scan result ingest', () => {
         resolution: 'accepted_risk',
         resolved_at: '2026-11-18T12:00:00.000Z',
         resolved_severity: 'low',
-        resolved_sink_hash: row!.sink_content_hash,
+        resolved_sink_hash: row.sink_content_hash,
       })
-      .where(eq(securityFindings.id, row!.id));
+      .where(eq(securityFindings.id, row.id));
     await runningScan('scan_3', project.id, deployment.id);
     await ingest('scan_3', result('scan_3', [finding({ severity: 'critical' })]));
     [row] = await findingsOf(project.id);
     expect(row).toMatchObject({ state: 'resolved', severity_override: 'low' });
-    expect(await eventsOf(row!.id)).toEqual(['created', 'seen_again']);
+    expect(await eventsOf(row.id)).toEqual(['created', 'seen_again']);
   });
 
   it('a static finding proven later at runtime keeps its detail and gets the proof (M30)', async () => {
@@ -593,13 +593,13 @@ describe('scan result ingest', () => {
     );
     const [row] = await findingsOf(project.id);
     expect(row).toMatchObject({ verdict_source: 'runtime' });
-    expect(row!.detail).toMatchObject({ fix: 'bind the id', runtime_proof: proof });
+    expect(row.detail).toMatchObject({ fix: 'bind the id', runtime_proof: proof });
     // A later static scan never takes the proof away.
     await runningScan('scan_3', project.id, deployment.id);
     await ingest('scan_3', result('scan_3', [finding()]));
     const [after] = await findingsOf(project.id);
     expect(after).toMatchObject({ verdict_source: 'runtime' });
-    expect(after!.detail).toMatchObject({ runtime_proof: proof });
+    expect(after.detail).toMatchObject({ runtime_proof: proof });
   });
 
   it('an incomplete scan keeps validated confirmed records only; the base does not move', async () => {
@@ -819,7 +819,7 @@ describe('scan result ingest', () => {
     await env.db
       .update(securityFindings)
       .set({ state: 'resolved', resolution: 'fixed', resolved_at: '2026-11-18T11:00:00.000Z' })
-      .where(eq(securityFindings.id, ssrf!.id));
+      .where(eq(securityFindings.id, ssrf.id));
 
     // A deploy admitted after the resolve, scanned clean, with model calls and no backlog.
     const second = await deploy(project.id, '2026-11-18T12:00:00.000Z');
@@ -842,12 +842,12 @@ describe('scan result ingest', () => {
     const rows = await findingsOf(project.id);
     const byId = new Map(rows.map((row) => [row.id, row]));
     // F-1 sits in a file this diff looked at and was not reported: the hint, one event.
-    expect(byId.get(sqli!.id)).toMatchObject({ state: 'open', not_seen_in_latest: true });
-    expect(await eventsOf(sqli!.id)).toEqual(['created', 'not_seen']);
-    expect(byId.get(ssrf!.id)).toMatchObject({ fix_checked_scan_id: 'scan_2' });
+    expect(byId.get(sqli.id)).toMatchObject({ state: 'open', not_seen_in_latest: true });
+    expect(await eventsOf(sqli.id)).toEqual(['created', 'not_seen']);
+    expect(byId.get(ssrf.id)).toMatchObject({ fix_checked_scan_id: 'scan_2' });
     // A new key with the file and category of a resolved finding.
     const duplicate = rows.find((row) => row.model_fingerprint === 'ssrf-2');
-    expect(duplicate).toMatchObject({ number: 3, possible_duplicate_of: ssrf!.id });
+    expect(duplicate).toMatchObject({ number: 3, possible_duplicate_of: ssrf.id });
   });
 
   it('a no-backlog requirement and a stale deployment never prove a fix', async () => {
@@ -859,14 +859,14 @@ describe('scan result ingest', () => {
     await env.db
       .update(securityFindings)
       .set({ state: 'resolved', resolution: 'fixed', resolved_at: '2026-11-18T11:00:00.000Z' })
-      .where(eq(securityFindings.id, created!.id));
+      .where(eq(securityFindings.id, created.id));
     const before = await deploy(project.id, '2026-11-18T10:30:00.000Z');
     await runningScan('scan_old', project.id, before.id);
     await ingest('scan_old', result('scan_old', []));
     const backlog = await deploy(project.id, '2026-11-18T12:00:00.000Z');
     await runningScan('scan_backlog', project.id, backlog.id, { backlog_files: 3 });
     await ingest('scan_backlog', result('scan_backlog', []));
-    expect((await findingsOf(project.id))[0]!.fix_checked_scan_id).toBeNull();
+    expect((await findingsOf(project.id))[0].fix_checked_scan_id).toBeNull();
   });
 
   it('stores at most 50 confirmed and 50 leads per scan and notes findings-capped', async () => {
@@ -1008,7 +1008,7 @@ describe('scan result ingest', () => {
       line_start: 2,
       state: 'open',
     });
-    expect(rows[0]!.detail).toMatchObject({ secret: 'STRIPE_KEY', forms: ['raw'], client: true });
+    expect(rows[0].detail).toMatchObject({ secret: 'STRIPE_KEY', forms: ['raw'], client: true });
     expect(JSON.stringify(rows[0])).not.toContain('sk_live_must_not_be_kept');
     expect(stored).toMatchObject({ news: [expect.any(String)] });
 
@@ -1050,7 +1050,7 @@ describe('scan result ingest', () => {
     );
     const created = await ingest('scan_1', result('scan_1', []));
     const [row] = await findingsOf(project.id);
-    expect(created).toMatchObject({ news: [row!.id] });
+    expect(created).toMatchObject({ news: [row.id] });
     expect(row).toMatchObject({
       title: 'Secret PUBLISHABLE_KEY is in a public file: _assets/assets/index-aaa.js',
       sink_content_hash: null,
@@ -1065,7 +1065,7 @@ describe('scan result ingest', () => {
         resolved_severity: 'high',
         resolved_sink_hash: null,
       })
-      .where(eq(securityFindings.id, row!.id));
+      .where(eq(securityFindings.id, row.id));
 
     // The client code changed: a new bundle name, the same finding, still accepted.
     const second = await deploy(project.id, '2026-11-18T14:00:00.000Z');
@@ -1079,7 +1079,7 @@ describe('scan result ingest', () => {
     const rows = await findingsOf(project.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      id: row!.id,
+      id: row.id,
       state: 'resolved',
       resolution: 'accepted_risk',
       file: '_assets/assets/index-bbb.js',
@@ -1087,7 +1087,7 @@ describe('scan result ingest', () => {
       line_start: 7,
       title: 'Secret PUBLISHABLE_KEY is in a public file: _assets/assets/index-bbb.js',
     });
-    expect(await eventsOf(row!.id)).toEqual(['created', 'seen_again']);
+    expect(await eventsOf(row.id)).toEqual(['created', 'seen_again']);
   });
 
   it('a rejection never reaches a later scan and never hides a finding (edge #40)', async () => {

@@ -88,7 +88,7 @@ describe('scanner image pins', () => {
       .sort();
     const make = read('codex/make-catalog.mjs');
     const keep = /const keep = \[([^\]]*)\]/
-      .exec(make)![1]!
+      .exec(make)![1]
       .split(',')
       .map((item) => item.trim().slice(1, -1))
       .sort();

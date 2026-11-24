@@ -712,7 +712,7 @@ export function readStoredPlanSecurityCap(entry: unknown): SecurityPlanCap | und
 
 /** A plan ID: a lowercase letter, then lowercase letters, digits or hyphens, at most 64. */
 function isPlanKey(key: string): boolean {
-  if (key.length === 0 || key.length > PLAN_KEY_MAX || key[0]! < 'a' || key[0]! > 'z') {
+  if (key.length === 0 || key.length > PLAN_KEY_MAX || key[0] < 'a' || key[0] > 'z') {
     return false;
   }
   for (const char of key) {

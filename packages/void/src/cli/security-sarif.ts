@@ -161,7 +161,7 @@ export function securityFindingsSarif(
   const results = findings.map(result);
   const rules = new Map<string, { id: string; score: number; cwes: Set<string> }>();
   for (const [index, finding] of findings.entries()) {
-    const ruleId = results[index]!.ruleId as string;
+    const ruleId = results[index].ruleId as string;
     const rule = rules.get(ruleId) ?? { id: ruleId, score: 0, cwes: new Set<string>() };
     rule.score = Math.max(rule.score, SECURITY_SEVERITY[finding.severity ?? ''] ?? 0);
     if (finding.cwe) {

@@ -225,13 +225,13 @@ describe('scheduler on real SQL', () => {
     });
     expect(running?.started_at).not.toBeNull();
     // Lease = hard cap (40 min) + 5 min.
-    const lease = Date.parse(running!.lease_until!) - Date.parse(running!.started_at!);
+    const lease = Date.parse(running.lease_until!) - Date.parse(running.started_at!);
     expect(Math.abs(lease - 45 * 60_000)).toBeLessThan(5000);
     expect(await platformReserved()).toBe(RESERVE_NANO);
     await expect(checkScanFence(env.db, 'ss_drive', 1)).resolves.toMatchObject({ ok: true });
 
     // The lease passes: the reaper ends the attempt and gives the reserve back.
-    const later = Date.parse(running!.lease_until!) + 1000;
+    const later = Date.parse(running.lease_until!) + 1000;
     expect(await reapExpiredSecurityScans(env.db, later)).toEqual([
       { scanId: 'ss_drive', attempt: 1 },
     ]);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vite-plus/test';
-import type { Engine, SessionOutcome, SessionSpec } from '../../src/runner/engines/types.ts';
+import type { Engine, SessionSpec } from '../../src/runner/engines/types.ts';
 import {
   fitsReport,
   runPhases,
@@ -62,7 +62,7 @@ function scriptedEngine(
       return {
         ...body,
         stats: { turns: 2, modelCalls: 2, inputTokens: 100, outputTokens: 10, reads },
-      } as SessionOutcome;
+      };
     },
   };
 }
@@ -87,16 +87,16 @@ describe('runPhases', () => {
       ['ssrf:proxy', 'needs_validation'],
       ['xss:render', 'rejected'],
     ]);
-    expect(result.findings[0]!.title).toBe('SQL injection (verified)');
+    expect(result.findings[0].title).toBe('SQL injection (verified)');
     expect(engine.specs.map((s) => [s.phase, s.index])).toEqual([
       ['hunt', 0],
       ['verify', 1],
       ['verify', 2],
     ]);
     // Each changed file is a quoted string on its own line.
-    expect(engine.specs[0]!.prompt).toContain('\n- "/scan/input/src/users.ts"');
-    expect(engine.specs[0]!.prompt).toContain('/scan/memory/index.json');
-    expect(engine.specs[1]!.prompt).toContain('sqli:listUsers:orderBy');
+    expect(engine.specs[0].prompt).toContain('\n- "/scan/input/src/users.ts"');
+    expect(engine.specs[0].prompt).toContain('/scan/memory/index.json');
+    expect(engine.specs[1].prompt).toContain('sqli:listUsers:orderBy');
     expect(engine.specs.every((s) => s.maxTurns === 40)).toBe(true);
     expect(result.sessions).toHaveLength(3);
     expect(result.modelCalls).toBe(6);
@@ -117,7 +117,7 @@ describe('runPhases', () => {
       ['b', 'needs_validation', null],
       ['a', 'rejected', null],
     ]);
-    expect(engine.specs[0]!.prompt).toContain('no past findings');
+    expect(engine.specs[0].prompt).toContain('no past findings');
   });
 
   test('an empty verify answer rejects the candidate', async () => {
@@ -131,14 +131,14 @@ describe('runPhases', () => {
       confirmed({ fingerprint: `f${i}`, severity: i === 11 ? 'critical' : 'medium' }),
     );
     const verifies = Array.from({ length: 10 }, () => (spec: SessionSpec) => {
-      const fingerprint = spec.prompt.split('"fingerprint": "')[1]!.split('"')[0]!;
+      const fingerprint = spec.prompt.split('"fingerprint": "')[1].split('"')[0];
       return submitted([confirmed({ fingerprint, severity: 'medium' })]);
     });
     const engine = scriptedEngine([submitted(hunt), ...verifies]);
     const result = await runPhases({ engine, task: TASK, hasMemory: false });
     expect(engine.specs.filter((s) => s.phase === 'verify')).toHaveLength(10);
     // The critical one is verified first.
-    expect(engine.specs[1]!.prompt).toContain('"fingerprint": "f11"');
+    expect(engine.specs[1].prompt).toContain('"fingerprint": "f11"');
     expect(result.findings.filter((f) => f.verdict === 'confirmed')).toHaveLength(10);
     expect(result.findings.filter((f) => f.verdict === 'needs_validation')).toHaveLength(2);
     expect(
@@ -157,10 +157,10 @@ describe('runPhases', () => {
   test('a verify session gets the one-record rule', async () => {
     const engine = scriptedEngine([submitted([confirmed()]), submitted([confirmed()])]);
     await runPhases({ engine, task: TASK, hasMemory: false });
-    const check = engine.specs[1]!.check!;
+    const check = engine.specs[1].check!;
     expect(check(reportOf([confirmed()]))).toBeNull();
     expect(check(reportOf([confirmed(), lead()]))).toContain('exactly one record');
-    expect(engine.specs[0]!.check).toBeUndefined();
+    expect(engine.specs[0].check).toBeUndefined();
   });
 
   test.each([
@@ -283,7 +283,7 @@ describe('runPhases', () => {
       hasMemory: false,
     });
     expect(result).toMatchObject({ status: 'succeeded', findings: [] });
-    expect(engine.specs[0]!.prompt).toContain('review the whole of /scan/input');
+    expect(engine.specs[0].prompt).toContain('review the whole of /scan/input');
   });
 });
 
@@ -299,7 +299,7 @@ describe('splitCandidates', () => {
       ]),
     );
     expect(candidates.map((c) => c.fingerprint)).toEqual(['crit', 'low', 'l']);
-    expect(candidates[0]!.severity).toBe('critical');
+    expect(candidates[0].severity).toBe('critical');
     expect(rejections.map((r) => r.fingerprint)).toEqual(['r']);
   });
 });
@@ -334,12 +334,12 @@ describe('runPhases standard profile (sweeps)', () => {
       ['verify', 4],
     ]);
     for (const [index, focus] of STANDARD_HUNT_FOCUS.entries()) {
-      expect(engine.specs[index]!.prompt).toContain(focus);
-      expect(engine.specs[index]!.prompt).toContain('whole of /scan/input');
-      expect(engine.specs[index]!.maxTurns).toBe(standardHuntTurns(SWEEP));
+      expect(engine.specs[index].prompt).toContain(focus);
+      expect(engine.specs[index].prompt).toContain('whole of /scan/input');
+      expect(engine.specs[index].maxTurns).toBe(standardHuntTurns(SWEEP));
     }
     expect(standardHuntTurns(SWEEP)).toBe(20);
-    expect(engine.specs[3]!.maxTurns).toBe(40);
+    expect(engine.specs[3].maxTurns).toBe(40);
     expect(result.findings.map((f) => [f.fingerprint, f.verdict])).toEqual([
       ['auth:admin', 'confirmed'],
       ['sqli:q', 'needs_validation'],

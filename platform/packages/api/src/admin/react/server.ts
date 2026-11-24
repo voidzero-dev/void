@@ -9,7 +9,9 @@ import { adminComponents, adminLayoutTree } from './pages.ts';
 import type { AdminPageId } from './pages.ts';
 
 export async function renderAdminPage(
-  context: Pick<Context<ApiEnv>, 'get'> & { req: Pick<Context<ApiEnv>['req'], 'url' | 'header'> },
+  context: Pick<Context<ApiEnv>, 'env' | 'get'> & {
+    req: Pick<Context<ApiEnv>['req'], 'url' | 'header'>;
+  },
   component: AdminPageId,
   title: string,
   props: Record<string, unknown>,

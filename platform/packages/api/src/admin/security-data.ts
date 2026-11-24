@@ -58,7 +58,6 @@ import {
   securityScans,
   SECURITY_BYPASSABLE_REQUEST_STATES,
 } from '../security/schema.ts';
-import type { SecurityBypassableRequestState } from '../security/schema.ts';
 import { readZeroTrustConfigurationStrict } from '../zero-trust/configuration.ts';
 
 type AdminContext = Context<ApiEnv>;
@@ -79,7 +78,7 @@ const PAGE_SIZE = 20;
 const STALE_REQUEST_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function capabilityOn(context: AdminContext): boolean {
+function capabilityOn(context: Pick<AdminContext, 'env'>): boolean {
   try {
     return getPlatformCapabilities(context.env).securityAudits;
   } catch {
@@ -180,7 +179,9 @@ function utcLabel(iso: string): string {
  * The banner and badge shown on every admin page. Nothing is read while the capability
  * is off, and a failure here never breaks a page.
  */
-export async function loadSecurityChrome(context: AdminContext): Promise<SecurityChrome | null> {
+export async function loadSecurityChrome(
+  context: Pick<AdminContext, 'env' | 'get'>,
+): Promise<SecurityChrome | null> {
   if (!capabilityOn(context)) {
     return null;
   }
@@ -582,9 +583,7 @@ export async function loadProjectGate(
     }),
     bypassable:
       urgentIds.length === 0 &&
-      (SECURITY_BYPASSABLE_REQUEST_STATES as ReadonlyArray<string>).includes(
-        request.state as SecurityBypassableRequestState,
-      ),
+      (SECURITY_BYPASSABLE_REQUEST_STATES as ReadonlyArray<string>).includes(request.state),
     urgentIds,
   };
 }

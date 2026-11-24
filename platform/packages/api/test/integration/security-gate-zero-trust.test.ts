@@ -130,7 +130,7 @@ describe('public gate and installation Zero Trust', () => {
       .select()
       .from(platformSettings)
       .where(eq(platformSettings.key, SECURITY_POLICY_SETTINGS_KEY));
-    expect(policy[0]!.value).toMatchObject({ publicGate: false });
+    expect(policy[0].value).toMatchObject({ publicGate: false });
   });
 
   it('a gate turn-on racing a disable never leaves the gate on without Zero Trust (#90)', async () => {
@@ -148,7 +148,7 @@ describe('public gate and installation Zero Trust', () => {
       .select()
       .from(platformSettings)
       .where(eq(platformSettings.key, SECURITY_POLICY_SETTINGS_KEY));
-    const gateOn = (policy!.value as { publicGate: boolean }).publicGate;
+    const gateOn = (policy.value as { publicGate: boolean }).publicGate;
     const configuration = await readZeroTrustConfigurationStrict(env.db);
     if (turned.status === 'fulfilled') {
       expect(gateOn).toBe(true);

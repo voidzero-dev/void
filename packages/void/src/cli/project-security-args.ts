@@ -187,7 +187,7 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
   const positionals: Array<string> = [];
   const allowed = new Set(['--project', '--json', ...(ACTION_FLAGS[action] ?? [])]);
   for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
+    const arg = args[index];
     if (BOOLEAN_FLAGS.has(arg) || VALUE_FLAGS.has(arg)) {
       if (!allowed.has(arg)) {
         throw new Error(`project: ${arg} is not used with security ${action || '<command>'}.`);
@@ -277,7 +277,7 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
     if (positionals.length !== 2) {
       throw new Error('project: Usage: void project security comment <F-id> "<text>".');
     }
-    const id = parseFindingIds([positionals[0]!])[0];
+    const id = parseFindingIds([positionals[0]])[0];
     if (!id) {
       throw new Error(`project: '${positionals[0]}' is not a finding id. Use a form like F-12.`);
     }
@@ -302,11 +302,11 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
     if (positionals.length !== 2) {
       throw new Error(usage);
     }
-    const id = parseFindingIds([positionals[0]!])[0];
+    const id = parseFindingIds([positionals[0]])[0];
     if (!id) {
       throw new Error(`project: '${positionals[0]}' is not a finding id. Use a form like F-12.`);
     }
-    const level = positionals[1]!;
+    const level = positionals[1];
     if (level !== 'scan' && !SEVERITIES.includes(level)) {
       throw new Error(
         `project: Invalid severity '${level}'. Use one of ${SEVERITIES.join('|')}, or scan to use the scan severity again.`,

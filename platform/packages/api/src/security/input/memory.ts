@@ -371,7 +371,7 @@ export function buildSecurityMemory(input: SecurityMemoryInput): SecurityMemoryF
       historyTrimmed++;
     }
     for (let at = files.length - 1; at >= 0; at--) {
-      if (dropped.has(files[at]!.path)) {
+      if (dropped.has(files[at].path)) {
         files.splice(at, 1);
       }
     }

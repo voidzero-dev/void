@@ -210,7 +210,7 @@ describe('deploys and rollbacks while a public request is open', () => {
       .select()
       .from(securityPublicRequests)
       .where(eq(securityPublicRequests.project_id, s.project.id));
-    return request!;
+    return request;
   }
 
   it('keeps admitting deploys while the request waits, and the request follows the new live deployment', async () => {
@@ -218,11 +218,8 @@ describe('deploys and rollbacks while a public request is open', () => {
     const before = await openRequest(s);
     mockCfApi();
     const bytes = new TextEncoder().encode('held deploy');
-    const hash = computeAssetHash(bytes.buffer as ArrayBuffer, '/index.html');
-    await env.STATIC_ASSETS_R2.put(
-      `assets/${s.project.id}/${hash}`,
-      bytes as unknown as ArrayBuffer,
-    );
+    const hash = computeAssetHash(bytes.buffer, '/index.html');
+    await env.STATIC_ASSETS_R2.put(`assets/${s.project.id}/${hash}`, bytes);
 
     const response = await app.fetch(
       new Request(`http://localhost/projects/${s.project.id}/deploy`, {
@@ -244,9 +241,9 @@ describe('deploys and rollbacks while a public request is open', () => {
       .select()
       .from(securityPublicRequests)
       .where(eq(securityPublicRequests.project_id, s.project.id));
-    expect(['needs_deploy', 'waiting_scan']).toContain(after!.state);
-    expect(after!.id).toBe(before.id);
-    expect(after!.target_deployment_id).toBe(done!.deployment);
+    expect(['needs_deploy', 'waiting_scan']).toContain(after.state);
+    expect(after.id).toBe(before.id);
+    expect(after.target_deployment_id).toBe(done!.deployment);
     expect((await env.db.select().from(projectZeroTrust))[0]).toMatchObject({
       desired_protected: true,
       effective_protected: true,
@@ -278,9 +275,9 @@ describe('deploys and rollbacks while a public request is open', () => {
       .select()
       .from(securityPublicRequests)
       .where(eq(securityPublicRequests.project_id, s.project.id));
-    expect(after!.id).toBe(before.id);
-    expect(after!.target_deployment_id).toBe(target.id);
-    expect(after!.revision).toBeGreaterThan(before.revision);
-    expect(['needs_deploy', 'waiting_scan']).toContain(after!.state);
+    expect(after.id).toBe(before.id);
+    expect(after.target_deployment_id).toBe(target.id);
+    expect(after.revision).toBeGreaterThan(before.revision);
+    expect(['needs_deploy', 'waiting_scan']).toContain(after.state);
   });
 });

@@ -171,7 +171,9 @@ async function fetchTarball(
     return SECURITY_T1_NOTES.tooLarge;
   }
   try {
-    return (await storeTarball(r2, key, res.body)) ? null : SECURITY_T1_NOTES.tooLarge;
+    return (await storeTarball(r2, key, res.body as ReadableStream<Uint8Array>))
+      ? null
+      : SECURITY_T1_NOTES.tooLarge;
   } catch {
     return SECURITY_T1_NOTES.unavailable;
   }
@@ -304,7 +306,7 @@ export async function loadSecuritySourceDiff(
   if (
     !(await installationCoversRepo(
       db,
-      connection!.id,
+      connection.id,
       request.projectId,
       start.connection.installationId,
       start.connection.repositoryId,

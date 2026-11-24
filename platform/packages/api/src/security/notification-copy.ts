@@ -204,7 +204,7 @@ export function composeSecurityFindingsEmail(
   const breakdown =
     data.moreFindings > 0
       ? ''
-      : ` (${total === 1 ? counts[0]!.severity : counts.map((entry) => `${entry.count} ${entry.severity}`).join(', ')})`;
+      : ` (${total === 1 ? counts[0].severity : counts.map((entry) => `${entry.count} ${entry.severity}`).join(', ')})`;
   const subject = `${bracket(data.platform)} ${data.slug}: ${total} new security ${plural(total, 'finding', 'findings')}${breakdown}`;
 
   const details: Array<string> = [];
@@ -224,8 +224,8 @@ export function composeSecurityFindingsEmail(
       data.baseDeploymentId && data.tier !== 'full'
         ? `changes since ${data.baseDeploymentId}`
         : 'whole project',
+      TIER_LABELS[data.tier],
     );
-    scanned.push(TIER_LABELS[data.tier]);
   }
   if (data.filesScanned !== null) {
     scanned.push(`${data.filesScanned} ${plural(data.filesScanned, 'file', 'files')}`);

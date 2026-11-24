@@ -342,7 +342,7 @@ export function securityProbeDeps(
       if (!response.ok) {
         throw new Error(`the scanner controller answered HTTP ${response.status}`);
       }
-      return (await response.json()) as SelfTestResult;
+      return await response.json<SelfTestResult>();
     },
     async workersAi(model) {
       if (!env.AI) {
@@ -509,14 +509,14 @@ export async function runSecurityProbe(
   let coldStartMs: number | null = null;
   if (!capability) {
     // Nothing else runs: no provisioning call, no model call.
-    checks.push({
-      check: 1,
-      name: 'capability',
-      label: 'Capability securityAudits',
-      status: 'fail',
-      message: SECURITY_PROBE_COPY.capability,
-    });
     checks.push(
+      {
+        check: 1,
+        name: 'capability',
+        label: 'Capability securityAudits',
+        status: 'fail',
+        message: SECURITY_PROBE_COPY.capability,
+      },
       {
         check: 2,
         name: 'container',
@@ -683,43 +683,43 @@ export async function runSecurityProbe(
         : { message: SECURITY_PROBE_COPY.workersAi(aiModel), detail: errorText(ai.error) }),
     });
     HOSTS.forEach((host, index) => {
-      const entry = hosts[index]!;
+      const entry = hosts[index];
       const result = entry.credits;
       const status = result.value;
-      const ok = creditsOk[index]!;
+      const ok = creditsOk[index];
       const permission = status === 401 || status === 403;
       const detail = result.error !== undefined ? errorText(result.error) : `HTTP ${status}`;
       const slot = deps.keys[host];
-      checks.push({
-        check: 5,
-        name: 'credits',
-        label: slot ? ownKeyLabel(host) : creditsLabel(host),
-        host,
-        model: securityProbeHostModel(host),
-        status: ok ? 'ok' : 'fail',
-        ms: result.ms,
-        ...(ok
-          ? {}
-          : slot
-            ? {
-                // A saved key: its own copy, never the credits or token one.
-                message:
-                  'unreadable' in slot
-                    ? SECURITY_PROBE_COPY.ownKeyUnreadable(host)
-                    : permission
-                      ? SECURITY_PROBE_COPY.ownKeyRefused(host, status ?? 0)
-                      : SECURITY_PROBE_COPY.ownKeyFailed(host, detail),
-                detail,
-              }
-            : {
-                message: permission
-                  ? SECURITY_PROBE_COPY.creditsPermission(host)
-                  : SECURITY_PROBE_COPY.credits(host),
-                detail,
-                ...(permission ? {} : { link: SECURITY_CREDITS_LINK }),
-              }),
-      });
       checks.push(
+        {
+          check: 5,
+          name: 'credits',
+          label: slot ? ownKeyLabel(host) : creditsLabel(host),
+          host,
+          model: securityProbeHostModel(host),
+          status: ok ? 'ok' : 'fail',
+          ms: result.ms,
+          ...(ok
+            ? {}
+            : slot
+              ? {
+                  // A saved key: its own copy, never the credits or token one.
+                  message:
+                    'unreadable' in slot
+                      ? SECURITY_PROBE_COPY.ownKeyUnreadable(host)
+                      : permission
+                        ? SECURITY_PROBE_COPY.ownKeyRefused(host, status ?? 0)
+                        : SECURITY_PROBE_COPY.ownKeyFailed(host, detail),
+                  detail,
+                }
+              : {
+                  message: permission
+                    ? SECURITY_PROBE_COPY.creditsPermission(host)
+                    : SECURITY_PROBE_COPY.credits(host),
+                  detail,
+                  ...(permission ? {} : { link: SECURITY_CREDITS_LINK }),
+                }),
+        },
         imageCheck({
           host,
           probeId,

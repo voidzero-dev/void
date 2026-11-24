@@ -147,7 +147,7 @@ describe('normalizeSourcePath', () => {
 describe('bundleSources', () => {
   for (const [framework, bundle] of Object.entries(FRAMEWORK_BUNDLES)) {
     it(`maps a ${framework} bundle back to its sources`, () => {
-      const result = bundleSources(bundle.modules, bundle.modules[0]!.name);
+      const result = bundleSources(bundle.modules, bundle.modules[0].name);
       expect(result.files.map((file) => file.path)).toEqual(bundle.expected);
       expect(result.noSourceMaps).toBe(0);
     });
@@ -267,12 +267,11 @@ describe('import graph', () => {
 });
 
 describe('changedSources', () => {
-  const files = bundleSources(FRAMEWORK_BUNDLES.react!.modules, 'index.js').files;
+  const files = bundleSources(FRAMEWORK_BUNDLES.react.modules, 'index.js').files;
   const head = new Map(
-    FRAMEWORK_BUNDLES.react!.modules.filter((m) => !m.name.endsWith('.map')).map((m) => [
-      m.name,
-      m.sha256,
-    ]),
+    FRAMEWORK_BUNDLES.react.modules
+      .filter((m) => !m.name.endsWith('.map'))
+      .map((m) => [m.name, m.sha256]),
   );
 
   it('is empty when no module hash changed (edge #14)', () => {
@@ -288,7 +287,7 @@ describe('changedSources', () => {
   });
 
   it('counts a module as changed when only its source map changed', () => {
-    const all = new Map(FRAMEWORK_BUNDLES.react!.modules.map((m) => [m.name, m.sha256]));
+    const all = new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256]));
     const base = new Map(all);
     base.set('chunks/users-1a2b.js.map', 'old');
     expect(changedSources(files, all, base, null).map((file) => file.path)).toEqual([
@@ -380,7 +379,7 @@ function plan(overrides: Partial<SecurityInputPlan> = {}): SecurityInputPlan {
       commit: 'abc',
     },
     tier: { tier: 'full', fullReason: 'first_scan' },
-    head: { modules: FRAMEWORK_BUNDLES.react!.modules, main: 'index.js' },
+    head: { modules: FRAMEWORK_BUNDLES.react.modules, main: 'index.js' },
     base: null,
     assets: [],
     backlog: [],
@@ -425,7 +424,7 @@ describe('buildSecurityScanInput', () => {
   });
 
   it('diffs against the base, ranks client assets after server code, redacts and finds reviewer text', async () => {
-    const modules = FRAMEWORK_BUNDLES.react!.modules.map((m) =>
+    const modules = FRAMEWORK_BUNDLES.react.modules.map((m) =>
       m.name === 'chunks/users-1a2b.js.map'
         ? module(
             m.name,
@@ -438,7 +437,7 @@ describe('buildSecurityScanInput', () => {
           ? module(m.name, `${m.text}\n// changed`)
           : m,
     );
-    const baseFiles = bundleSources(FRAMEWORK_BUNDLES.react!.modules, 'index.js').files;
+    const baseFiles = bundleSources(FRAMEWORK_BUNDLES.react.modules, 'index.js').files;
     const built = buildSecurityScanInput(
       plan({
         scan: { ...plan().scan, commit: null },
@@ -446,10 +445,9 @@ describe('buildSecurityScanInput', () => {
         head: { modules, main: 'index.js' },
         base: {
           modules: new Map(
-            FRAMEWORK_BUNDLES.react!.modules.filter((m) => !m.name.endsWith('.map')).map((m) => [
-              m.name,
-              m.sha256,
-            ]),
+            FRAMEWORK_BUNDLES.react.modules
+              .filter((m) => !m.name.endsWith('.map'))
+              .map((m) => [m.name, m.sha256]),
           ),
           sources: new Map(baseFiles.map((file) => [file.path, file.sha256])),
         },
@@ -536,7 +534,7 @@ describe('buildSecurityScanInput', () => {
 
     // Same code, new vars: only the deploy config is in focus.
     const base = {
-      modules: new Map(FRAMEWORK_BUNDLES.react!.modules.map((m) => [m.name, m.sha256])),
+      modules: new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256])),
       sources: first.sourceIndex,
     };
     const varsOnly = buildSecurityScanInput(
@@ -560,7 +558,7 @@ describe('buildSecurityScanInput', () => {
 
   it('marks an unchanged redeploy as no changes (edge #14), but a gate scan re-checks (edge #85)', () => {
     const base = {
-      modules: new Map(FRAMEWORK_BUNDLES.react!.modules.map((m) => [m.name, m.sha256])),
+      modules: new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256])),
       sources: null,
     };
     const unchanged = buildSecurityScanInput(
@@ -622,7 +620,7 @@ describe('buildSecurityScanInput', () => {
 
   it('keeps the gate rule for a fallback of a gate scan, not for other fallbacks (M26)', () => {
     const base = {
-      modules: new Map(FRAMEWORK_BUNDLES.react!.modules.map((m) => [m.name, m.sha256])),
+      modules: new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256])),
       sources: null,
     };
     const fallback = (forPublicRequest: boolean, recheckFiles: Array<string>) =>
@@ -1104,12 +1102,12 @@ describe('path and size helpers', () => {
   });
 
   it('reads a map ahead, keeping only its sources', () => {
-    const modules = FRAMEWORK_BUNDLES.react!.modules.map((m) =>
+    const modules = FRAMEWORK_BUNDLES.react.modules.map((m) =>
       securityModuleFile(m.name, m.sha256, m.text),
     );
     expect(modules.find((m) => m.name === 'index.js.map')).toMatchObject({ text: '' });
     expect(bundleSources(modules, 'index.js')).toEqual(
-      bundleSources(FRAMEWORK_BUNDLES.react!.modules, 'index.js'),
+      bundleSources(FRAMEWORK_BUNDLES.react.modules, 'index.js'),
     );
   });
 

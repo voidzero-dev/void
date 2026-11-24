@@ -986,7 +986,7 @@ async function callGateway(
     return { kind: 'failed', status: response.status, credits: response.status === 402, detail };
   }
   if (plan.stream && response.body) {
-    return { kind: 'stream', body: response.body };
+    return { kind: 'stream', body: response.body as ReadableStream<Uint8Array> };
   }
   try {
     return { kind: 'json', value: await response.json() };
@@ -1003,7 +1003,7 @@ async function readLimited(request: Request, limit: number): Promise<Uint8Array 
   if (!request.body) {
     return new Uint8Array();
   }
-  const reader = request.body.getReader();
+  const reader = (request.body as ReadableStream<Uint8Array>).getReader();
   const chunks: Array<Uint8Array> = [];
   let total = 0;
   for (;;) {

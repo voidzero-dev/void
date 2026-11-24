@@ -168,7 +168,7 @@ async function openSource(pin: SecurityScannerImagePin, clock: Clock): Promise<S
     await response.body?.cancel();
     throw new ImageStepError('source', `ghcr.io refused a pull token (HTTP ${response.status}).`);
   }
-  const { token } = (await response.json()) as { token?: unknown };
+  const { token } = await response.json<{ token?: unknown }>();
   if (typeof token !== 'string') {
     throw new ImageStepError('source', 'ghcr.io answered without a pull token.');
   }
@@ -496,7 +496,7 @@ export async function deleteSecurityScannerImages(
       await list.body?.cancel();
       throw new Error(`Listing scanner images failed (HTTP ${list.status}).`);
     }
-    const { tags } = (await list.json()) as { tags?: unknown };
+    const { tags } = await list.json<{ tags?: unknown }>();
     for (const tag of Array.isArray(tags) ? tags : []) {
       if (typeof tag !== 'string') {
         continue;

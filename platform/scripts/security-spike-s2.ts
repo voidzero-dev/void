@@ -79,6 +79,9 @@ import {
 } from './security-spike-s1.ts';
 import type { SpikeEnv } from './security-spike-s1.ts';
 
+// Workers types declare the global Buffer as any here; keep Node's signatures.
+const Buffer = globalThis.Buffer as BufferConstructor;
+
 export const IMAGES_DIR = join(import.meta.dirname, 'security-spike-images');
 export const GATEWAY_ID = `${SPIKE_PREFIX}gw`;
 export const MODEL_HOST = 'model.scan.internal';
@@ -755,11 +758,11 @@ export async function registryImageSize(env: SpikeEnv, repo: string, tag: string
   let response = await fetch(`${base}/manifests/${tag}`, {
     headers: { Authorization: auth, Accept: accept },
   });
-  let manifest = (await response.json()) as {
+  let manifest = await response.json<{
     manifests?: Array<{ digest: string; mediaType: string; platform?: { architecture: string } }>;
     config?: { size: number };
     layers?: Array<{ size: number }>;
-  };
+  }>();
   const digest = response.headers.get('docker-content-digest');
   let amd64Digest = digest;
   if (manifest.manifests) {
@@ -938,7 +941,7 @@ export async function copyTest(env: SpikeEnv, deployment: LiveDeployment, tag: s
     }),
     signal: AbortSignal.timeout(20 * 60_000),
   });
-  const copy = (await response.json()) as { pushedDigest?: string; error?: string };
+  const copy = await response.json<{ pushedDigest?: string; error?: string }>();
   const result: Record<string, unknown> = { copy, copyHttpMs: Date.now() - started };
   if (!copy.pushedDigest) {
     return result;
@@ -1001,7 +1004,7 @@ export async function runLive(
   };
   let body: Record<string, unknown>;
   try {
-    body = JSON.parse(text);
+    body = JSON.parse(text) as typeof body;
   } catch {
     outcome.error = `HTTP ${status}: ${text.slice(0, 1000)}`;
     return outcome;

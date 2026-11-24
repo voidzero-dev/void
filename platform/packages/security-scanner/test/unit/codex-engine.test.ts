@@ -73,8 +73,8 @@ function sdkOf(
           runStreamed: async (prompt: string, run: { outputSchema: unknown }) => {
             seen.prompt = prompt;
             seen.outputSchema = run.outputSchema;
-            const args = seen.config!.mcp_servers['void-scan']!.args;
-            await act?.(args[args.indexOf('--out') + 1]!);
+            const args = seen.config!.mcp_servers['void-scan'].args;
+            await act?.(args[args.indexOf('--out') + 1]);
             return {
               events: (async function* () {
                 for (const event of events) {
@@ -94,10 +94,10 @@ function sdkOf(
 
 function fetchOf(failures: Array<unknown>): typeof fetch {
   let index = 0;
-  return (async (input: string | URL | Request) => {
+  return async (input: string | URL | Request) => {
     expect(String(input)).toBe(`http://model.test${LAST_FAILURE_PATH}`);
     return Response.json({ failure: failures[Math.min(index++, failures.length - 1)] });
-  }) as typeof fetch;
+  };
 }
 
 function engine(sdk: CodexSdk | null, failures: Array<unknown> = [null]) {
@@ -242,7 +242,7 @@ describe('Engine C sessions', () => {
     const env = seen.sdkOptions!.env as Record<string, string>;
     expect(Object.keys(env).sort()).toEqual(['CODEX_HOME', 'HOME', 'PATH', 'SSL_CERT_FILE']);
     expect(env.CODEX_HOME).toContain(join(dir, 'home'));
-    expect(seen.config!.model_providers['void-proxy']!.http_headers).toEqual({
+    expect(seen.config!.model_providers['void-proxy'].http_headers).toEqual({
       'x-void-scan-session': '1',
     });
     expect(await readdir(join(dir, 'home'))).toEqual([]);
@@ -251,7 +251,7 @@ describe('Engine C sessions', () => {
   test('a verify session limits the MCP server to one record', async () => {
     const seen: Seen = {};
     await engine(sdkOf(DONE, seen)).runSession(spec({ phase: 'verify', index: 2 }));
-    expect(seen.config!.mcp_servers['void-scan']!.args.slice(-2)).toEqual(['--max-records', '1']);
+    expect(seen.config!.mcp_servers['void-scan'].args.slice(-2)).toEqual(['--max-records', '1']);
   });
 
   test('402 comes from the proxy, not from Codex error text', async () => {

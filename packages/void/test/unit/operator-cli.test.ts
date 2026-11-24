@@ -164,7 +164,7 @@ describe('operator argument and help coverage', () => {
       expect(command.group !== 'security' || security !== undefined).toBe(true);
       const parameters =
         command.group === 'security'
-          ? security!
+          ? security
           : (command.positional ?? []).map((name) => (name === 'type' ? 'email' : `${name}-value`));
       const configureFlags =
         command.group === 'zero-trust' && command.action === 'configure'
@@ -2266,8 +2266,8 @@ describe('platform security commands', () => {
       'POST /security/policy',
       'POST /security/policy',
     ]);
-    expect(calls[0]!.body).toEqual({ mode: 'public', dryRun: true });
-    expect(calls[1]!.body).toEqual({ mode: 'public', expectedRevision: 7 });
+    expect(calls[0].body).toEqual({ mode: 'public', dryRun: true });
+    expect(calls[1].body).toEqual({ mode: 'public', expectedRevision: 7 });
     // The preview is shown without the whole stored policy.
     expect(out.errors()).toContain('Mode: disabled → public');
     expect(out.errors()).not.toContain('"policy"');
@@ -2291,8 +2291,8 @@ describe('platform security commands', () => {
       'POST /projects/proj_1/security/policy',
       'POST /projects/proj_1/security/policy',
     ]);
-    expect(calls[0]!.body).toEqual({ override: 'always', dryRun: true });
-    expect(calls[1]!.body).toEqual({ override: 'always' });
+    expect(calls[0].body).toEqual({ override: 'always', dryRun: true });
+    expect(calls[1].body).toEqual({ override: 'always' });
     expect(out.errors()).toContain('always scanned, also while Zero Trust protects it');
     expect(out.terminal()).toContain('Platform security project-policy completed.');
   });
@@ -2327,12 +2327,12 @@ describe('platform security commands', () => {
       'POST /security/provider-keys',
       'POST /security/provider-keys',
     ]);
-    expect(calls[0]!.body).toEqual({
+    expect(calls[0].body).toEqual({
       host: 'anthropic',
       key: 'sk-ant-secret-value-123',
       dryRun: true,
     });
-    expect(calls[1]!.body).toEqual({ host: 'anthropic', key: 'sk-ant-secret-value-123' });
+    expect(calls[1].body).toEqual({ host: 'anthropic', key: 'sk-ant-secret-value-123' });
     expect(out.errors()).toContain('Saved your own Anthropic key.');
     expect(out.printed() + out.errors() + out.terminal()).not.toContain('sk-ant-secret-value-123');
   });
@@ -2382,7 +2382,7 @@ describe('platform security commands', () => {
       'POST /security/policy',
       'POST /security/policy',
     ]);
-    expect(calls[2]!.body).toEqual({
+    expect(calls[2].body).toEqual({
       defaultModel: 'anthropic/claude-opus-5.5',
       acceptProviderNoticeVersion: 3,
       expectedRevision: 4,
@@ -2399,8 +2399,8 @@ describe('platform security commands', () => {
     ]);
     await run('public-gate', 'on', '--yes');
     await run('limits', '--scan-timeout', '30', '--yes');
-    expect(calls[1]!.body).toEqual({ publicGate: true, expectedRevision: 1 });
-    expect(calls[3]!.body).toEqual({ limits: { timeoutMinutes: 30 }, expectedRevision: 2 });
+    expect(calls[1].body).toEqual({ publicGate: true, expectedRevision: 1 });
+    expect(calls[3].body).toEqual({ limits: { timeoutMinutes: 30 }, expectedRevision: 2 });
   });
 
   it('applies the saved default project cap for --project-caps on', async () => {
@@ -2412,7 +2412,7 @@ describe('platform security commands', () => {
     ]);
     await run('budget', '--project-caps', 'on', '--yes');
     expect(calls[0]).toMatchObject({ method: 'GET', path: '/security/budget' });
-    expect(calls[2]!.body).toEqual({ projectDefaultMonthlyUsd: 40, expectedRevision: 9 });
+    expect(calls[2].body).toEqual({ projectDefaultMonthlyUsd: 40, expectedRevision: 9 });
   });
 
   it('sets a project limit and says when the project’s own lower cap still wins', async () => {
@@ -2466,12 +2466,12 @@ describe('platform security commands', () => {
       'POST /projects/p1/security/findings/F-1/resolve',
       'POST /projects/p1/security/findings/F-2/resolve',
     ]);
-    expect(calls[4]!.body).toEqual({
+    expect(calls[4].body).toEqual({
       reason: 'accepted_risk',
       comment: 'Known',
       expectedRevision: 3,
     });
-    expect(calls[5]!.body).toMatchObject({ expectedRevision: 5 });
+    expect(calls[5].body).toMatchObject({ expectedRevision: 5 });
     expect(out.terminal()).toContain('Platform security resolve completed.');
   });
 
@@ -2514,7 +2514,7 @@ describe('platform security commands', () => {
     ]);
     await run('comment', 'p1', 'F-1', 'Please look', '--yes');
     expect(calls.map(({ method }) => method)).toEqual(['POST', 'POST']);
-    expect(calls[1]!.body).toEqual({ text: 'Please look' });
+    expect(calls[1].body).toEqual({ text: 'Please look' });
   });
 
   it('shows several findings and reads the lists with their filters', async () => {
@@ -2627,7 +2627,7 @@ describe('platform security commands', () => {
       { dryRun: true, action: 'security.rescan', target: 'p1', deploymentId: 'dpl_9a1d' },
     ]);
     await run('rescan', 'p1', '--client-assets', '--yes');
-    expect(calls[0]!.body).toEqual({ clientAssets: true, dryRun: true });
+    expect(calls[0].body).toEqual({ clientAssets: true, dryRun: true });
     expect(calls[1]).toMatchObject({ body: { clientAssets: true } });
     expect(out.errors()).toContain('and the sources of its client bundles');
     await expect(run('rescan', 'p1', '--client-assets', '--yes')).rejects.toThrow(
@@ -2658,12 +2658,11 @@ describe('platform security commands', () => {
       '?urgent=true&page=1&limit=100',
       '?urgent=true&page=2&limit=100',
     ]);
-    const log = JSON.parse(out.printed());
+    const log = JSON.parse(out.printed()) as {
+      runs: Array<{ results: Array<{ partialFingerprints: Record<string, string> }> }>;
+    };
     expect(
-      log.runs[0].results.map(
-        (result: { partialFingerprints: Record<string, string> }) =>
-          result.partialFingerprints['voidFinding/v1'],
-      ),
+      log.runs[0].results.map((result) => result.partialFingerprints['voidFinding/v1']),
     ).toEqual(['acme/F-1', 'beta/F-1']);
     expect(() => run('findings', '--format', 'csv')).toThrow('--format must be sarif');
     expect(() => run('findings', '--format', 'sarif', '--page', '2')).toThrow(
@@ -2700,7 +2699,7 @@ describe('platform security commands', () => {
       { ok: true },
     ]);
     await run('model', 'p1', 'anthropic/claude-opus-5.5', '--accept-provider-notice', '--yes');
-    expect(calls[2]!.body).toEqual({
+    expect(calls[2].body).toEqual({
       model: 'anthropic/claude-opus-5.5',
       acceptProviderNoticeVersion: 2,
     });

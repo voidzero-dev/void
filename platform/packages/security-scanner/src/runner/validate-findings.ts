@@ -277,7 +277,7 @@ function readObject<K extends string>(
       throw new ShapeError(`${path}.${key}`, 'is not an allowed field');
     }
   }
-  return value as Partial<Record<K, unknown>>;
+  return value;
 }
 
 function readEnum<T extends string>(value: unknown, path: string, values: ReadonlyArray<T>): T {

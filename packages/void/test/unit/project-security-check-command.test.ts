@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { parseProjectArgs } from '../../src/cli/project-args.ts';
 import { runProjectCommand } from '../../src/cli/project-cmd.ts';
@@ -351,7 +352,7 @@ describe('project security check (M32)', () => {
     expect(dry.body).toMatchObject({ dryRun: true, files: 2 });
     expect(create.body).toEqual({ ...(dry.body as object), dryRun: undefined });
     // The upload is the gzip tar of the two files, under `tree/`, with the signed headers.
-    const put = calls[2]!;
+    const put = calls[2];
     expect(put.headers['content-md5']).toBe('x');
     const tar = gunzipSync(put.body as Buffer).toString('latin1');
     expect(tar).toContain('tree/src/routes/users.ts');
@@ -438,7 +439,7 @@ describe('project security check (M32)', () => {
       'The check was refused by anthropic/claude-opus-5.5 (category: cyber). Pick another model',
     );
     expect(out).toHaveLength(1);
-    expect(JSON.parse(out[0]!)).toMatchObject({ check: { status: 'refused' }, ended: true });
+    expect(JSON.parse(out[0])).toMatchObject({ check: { status: 'refused' }, ended: true });
   });
 
   it('keeps the "See it later" hint when the wait fails, and none for a missing check', async () => {

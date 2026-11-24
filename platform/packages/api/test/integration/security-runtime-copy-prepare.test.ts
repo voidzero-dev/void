@@ -145,7 +145,7 @@ async function meter(): Promise<number> {
     .select({ nano: securityScans.metered_nano_usd })
     .from(securityScans)
     .where(eq(securityScans.id, 'scan_copy'));
-  return Number(row!.nano);
+  return Number(row.nano);
 }
 
 describe('prepareSecurityRuntimeCopy', () => {
@@ -185,7 +185,7 @@ describe('prepareSecurityRuntimeCopy', () => {
     const deleted = cf.calls.filter((call) => call.method === 'DELETE').map((call) => call.path);
     expect(deleted).toHaveLength(2);
     expect(deleted[0]).toContain('/workers/dispatch/namespaces/');
-    expect(deleted[1]!.startsWith('/d1/database/uuid-void-sec-copy-')).toBe(true);
+    expect(deleted[1].startsWith('/d1/database/uuid-void-sec-copy-')).toBe(true);
     expect(await meter()).toBe(0);
   });
 
@@ -196,7 +196,7 @@ describe('prepareSecurityRuntimeCopy', () => {
         .select({ notes: securityScans.coverage_notes })
         .from(securityScans)
         .where(eq(securityScans.id, 'scan_copy'));
-      return row!.notes;
+      return row.notes;
     };
     await env.db
       .update(securityScans)

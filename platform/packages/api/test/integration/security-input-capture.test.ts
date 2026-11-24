@@ -223,7 +223,7 @@ async function runningScan(
 
 async function scan(id: string) {
   const [row] = await env.db.select().from(securityScans).where(eq(securityScans.id, id));
-  return row!;
+  return row;
 }
 
 const dirs: Array<string> = [];

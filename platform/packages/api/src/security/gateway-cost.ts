@@ -35,12 +35,12 @@ export type SecurityGatewayCostDeps = Readonly<{
   scanTag(scanId: string): Promise<string>;
 }>;
 
+type CostRequest = { sum?: { cost?: number | null } };
+type CostAccount = { requests?: ReadonlyArray<CostRequest> | null };
 type CostResponse = Readonly<{
   data?: {
     viewer?: {
-      accounts?: ReadonlyArray<{
-        requests?: ReadonlyArray<{ sum?: { cost?: number | null } }> | null;
-      }> | null;
+      accounts?: ReadonlyArray<CostAccount> | null;
     } | null;
   } | null;
   errors?: unknown;
@@ -79,7 +79,7 @@ export async function queryAiGatewayTagCost(
   if (!response.ok) {
     throw new Error(`AI Gateway cost query failed with HTTP ${response.status}`);
   }
-  const result = (await response.json()) as CostResponse | null;
+  const result = await response.json<CostResponse | null>();
   if (result?.errors !== undefined && result.errors !== null) {
     if (!Array.isArray(result.errors)) {
       throw new Error('AI Gateway cost query returned invalid GraphQL errors');
@@ -94,14 +94,14 @@ export async function queryAiGatewayTagCost(
   if (!Array.isArray(accounts) || accounts.length !== 1) {
     throw new Error('AI Gateway cost query returned no account data');
   }
-  const requests = accounts[0]?.requests;
+  const requests = (accounts as ReadonlyArray<CostAccount>)[0]?.requests;
   if (!Array.isArray(requests) || requests.length > 1) {
     throw new Error('AI Gateway cost query returned invalid request data');
   }
   if (requests.length === 0) {
     return 0;
   }
-  const cost = requests[0]?.sum?.cost;
+  const cost = (requests as ReadonlyArray<CostRequest>)[0]?.sum?.cost;
   if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) {
     throw new Error('AI Gateway cost query returned invalid cost data');
   }

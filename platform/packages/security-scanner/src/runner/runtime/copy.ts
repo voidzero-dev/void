@@ -263,7 +263,7 @@ function checkArgs(args: Record<string, unknown>): CheckedArgs | string {
 }
 
 async function readCapped(response: Response, maxChars: number): Promise<string> {
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     return '';
   }

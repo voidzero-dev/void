@@ -22,8 +22,7 @@ export function buildTar(entries: Array<TarEntry>, options: { end?: boolean } = 
       typeof entry.data === 'string'
         ? new TextEncoder().encode(entry.data)
         : (entry.data ?? new Uint8Array());
-    parts.push(header(entry, entry.size ?? data.length));
-    parts.push(pad(data));
+    parts.push(header(entry, entry.size ?? data.length), pad(data));
   }
   if (options.end !== false) {
     parts.push(new Uint8Array(BLOCK * 2));

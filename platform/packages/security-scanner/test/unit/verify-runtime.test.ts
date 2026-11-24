@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vite-plus/test';
-import type { Engine, SessionOutcome, SessionSpec } from '../../src/runner/engines/types.ts';
+import type { Engine, SessionSpec } from '../../src/runner/engines/types.ts';
 import { createVoidLoopEngine } from '../../src/runner/engines/void-loop.ts';
 import { runPhases } from '../../src/runner/phases.ts';
 import type { ScanReport } from '../../src/runner/report.ts';
@@ -52,7 +52,7 @@ function fakeCopy(
     };
     calls.push(call);
     if (url.endsWith('/__void_copy/ready')) {
-      const state = ready.length > 1 ? ready.shift()! : ready[0]!;
+      const state = ready.length > 1 ? ready.shift()! : ready[0];
       if (state === 'deny') {
         return new Response('egress denied: copy.void.internal', { status: 403 });
       }
@@ -96,7 +96,7 @@ function scriptedEngine(
       return {
         ...(await next(spec)),
         stats: { turns: 1, modelCalls: 1, inputTokens: 1, outputTokens: 1, reads: 1 },
-      } as SessionOutcome;
+      };
     },
   };
 }
@@ -145,15 +145,15 @@ describe('copy_request tool', () => {
     expect(first.text).toContain('id: r1');
     expect(first.text).toContain('status: 200');
     expect(first.text).toContain('Globex');
-    expect(copy.calls[0]!.url).toBe('http://copy.void.internal/api/invoices/2');
+    expect(copy.calls[0].url).toBe('http://copy.void.internal/api/invoices/2');
     // The model cannot pick the host or forge the copy marker.
-    expect(copy.calls[0]!.headers.get('cookie')).toBe('inv_session=x');
-    expect(copy.calls[0]!.headers.has('host')).toBe(false);
-    expect(copy.calls[0]!.headers.has('x-void-copy')).toBe(false);
+    expect(copy.calls[0].headers.get('cookie')).toBe('inv_session=x');
+    expect(copy.calls[0].headers.has('host')).toBe(false);
+    expect(copy.calls[0].headers.has('x-void-copy')).toBe(false);
 
     const second = await tool.run({ method: 'POST', path: '/api/login', body: '{"a":1}' });
     expect(second.text).toContain('id: r2');
-    expect(copy.calls[1]!.body).toBe('{"a":1}');
+    expect(copy.calls[1].body).toBe('{"a":1}');
     expect(requests).toEqual([
       {
         id: 'r1',
@@ -220,7 +220,7 @@ describe('copy_request tool', () => {
     });
     const { tool, requests } = new CopyClient({ fetch: copy.fetch }).sessionTool();
     expect((await tool.run({ method: 'GET', path: '/' })).text).toContain('(copy unavailable)');
-    expect(requests[0]!.dispatched).toBe(false);
+    expect(requests[0].dispatched).toBe(false);
   });
 });
 
@@ -345,7 +345,7 @@ describe('runPhases with a runtime copy', () => {
       },
       // The lead stays a lead: a request that shows nothing is no proof.
       async (spec) => {
-        await spec.tools![0]!.run({ method: 'GET', path: '/proxy?url=http://169.254.169.254/' });
+        await spec.tools![0].run({ method: 'GET', path: '/proxy?url=http://169.254.169.254/' });
         return submitted([lead({ proof_request: 'r2' })]);
       },
     ]);
@@ -362,13 +362,13 @@ describe('runPhases with a runtime copy', () => {
         status: 200,
       },
     });
-    expect(ssrf!.verdict).toBe('needs_validation');
+    expect(ssrf.verdict).toBe('needs_validation');
     expect(ssrf).not.toHaveProperty('verdict_source');
     expect(ssrf).not.toHaveProperty('proof_request');
     // Only verify sessions get the tool and the runtime text; the hunt never does.
-    expect(engine.specs[0]!.tools).toBeUndefined();
-    expect(engine.specs[1]!.prompt).toContain('copy_request');
-    expect(engine.specs[1]!.prompt).not.toContain('from the code alone');
+    expect(engine.specs[0].tools).toBeUndefined();
+    expect(engine.specs[1].prompt).toContain('copy_request');
+    expect(engine.specs[1].prompt).not.toContain('from the code alone');
     // Each verify session numbers its own requests from the client's counter.
     expect(copy.calls.filter((call) => !call.url.endsWith('/ready'))).toHaveLength(2);
     expect(validateFindingsValue(report(result.findings)).ok).toBe(true);
@@ -387,8 +387,8 @@ describe('runPhases with a runtime copy', () => {
         sessionTools,
       );
       const result = await runPhases({ engine, task, hasMemory: false, copy: client });
-      expect(engine.specs[1]!.tools).toBeUndefined();
-      expect(engine.specs[1]!.prompt).toContain('from the code alone');
+      expect(engine.specs[1].tools).toBeUndefined();
+      expect(engine.specs[1].prompt).toContain('from the code alone');
       expect(result.findings[0]).not.toHaveProperty('verdict_source');
       expect(result.findings[0]).not.toHaveProperty('proof_request');
       if (task === STATIC_TASK || !sessionTools) {
@@ -404,7 +404,7 @@ describe('Engine B with the copy tool', () => {
     readFile: async () => ({ ok: true, text: '' }),
     listFiles: async () => ({ ok: true, text: '' }),
     grep: async () => ({ ok: true, text: '' }),
-  } as unknown as FsTools;
+  };
 
   function chat(toolCalls: Array<{ name: string; args: unknown }>) {
     return Response.json({
@@ -456,11 +456,11 @@ describe('Engine B with the copy tool', () => {
       tools: [session.tool],
     });
     expect(outcome.kind).toBe('submitted');
-    expect(bodies[0]!.tools.map((tool) => tool.function.name)).toContain('copy_request');
-    expect(JSON.stringify(bodies[1]!.messages)).toContain('id: r1');
+    expect(bodies[0].tools.map((tool) => tool.function.name)).toContain('copy_request');
+    expect(JSON.stringify(bodies[1].messages)).toContain('id: r1');
     expect(session.requests).toHaveLength(1);
     const submittedReport = (outcome as { report: ScanReport }).report;
-    expect(submittedReport.findings[0]!.proof_request).toBe('r1');
+    expect(submittedReport.findings[0].proof_request).toBe('r1');
   });
 
   test('a session without tools offers only the four scan tools', async () => {
@@ -471,7 +471,7 @@ describe('Engine B with the copy tool', () => {
     }) as unknown as typeof fetch;
     const engine = createVoidLoopEngine({ model: 'm', tools: noTools, fetch: modelFetch });
     await engine.runSession({ phase: 'hunt', index: 0, system: 's', prompt: 'p', maxTurns: 2 });
-    expect(bodies[0]!.tools.map((tool) => tool.function.name)).toEqual([
+    expect(bodies[0].tools.map((tool) => tool.function.name)).toEqual([
       'read_file',
       'list_files',
       'grep',
