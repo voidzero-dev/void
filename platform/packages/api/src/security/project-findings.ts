@@ -13,7 +13,7 @@ import { and, asc, desc, eq, gt, inArray, sql, type SQL } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import { generateId } from '../id.ts';
 import { requireProjectCapability } from '../project-access.ts';
-import { users } from '../schema.ts';
+import { projectMembers, projects, users } from '../schema.ts';
 import type { ProjectRole } from '../types.ts';
 import { SecurityApiError } from './errors.ts';
 import { isUrgentSeverity } from './findings.ts';
@@ -215,6 +215,100 @@ async function loginsFor(
   return out;
 }
 
+export type SecurityFindingEventView = Readonly<Record<string, unknown>>;
+
+/** The owner and members of a project, of the people in `ids`. */
+async function currentMembers(
+  db: DbOrTx,
+  projectId: string,
+  ids: ReadonlyArray<string | null>,
+): Promise<Set<string>> {
+  const wanted = [...new Set(ids.filter((id): id is string => id !== null))];
+  if (wanted.length === 0) {
+    return new Set();
+  }
+  const [owners, members] = await Promise.all([
+    db
+      .select({ id: projects.user_id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), inArray(projects.user_id, wanted))),
+    db
+      .select({ id: projectMembers.user_id })
+      .from(projectMembers)
+      .where(
+        and(eq(projectMembers.project_id, projectId), inArray(projectMembers.user_id, wanted)),
+      ),
+  ]);
+  return new Set([...owners, ...members].map((member) => member.id));
+}
+
+/**
+ * The history of each finding, oldest first, keyed by finding id (full detail only).
+ * A person no longer on the project keeps their events, marked `formerMember` (spec #24).
+ */
+export async function securityFindingTimelines(
+  db: DbOrTx,
+  projectId: string,
+  findingIds: ReadonlyArray<string>,
+): Promise<Map<string, ReadonlyArray<SecurityFindingEventView>>> {
+  const out = new Map<string, Array<SecurityFindingEventView>>();
+  if (findingIds.length === 0) {
+    return out;
+  }
+  const rows = await db
+    .select({
+      findingId: securityFindingEvents.finding_id,
+      action: securityFindingEvents.action,
+      actorKind: securityFindingEvents.actor_kind,
+      actorRole: securityFindingEvents.actor_role,
+      actorUserId: securityFindingEvents.actor_user_id,
+      scanId: securityFindingEvents.scan_id,
+      resolution: securityFindingEvents.resolution,
+      comment: securityFindingEvents.comment,
+      severityFrom: securityFindingEvents.severity_from,
+      severityTo: securityFindingEvents.severity_to,
+      createdAt: securityFindingEvents.created_at,
+    })
+    .from(securityFindingEvents)
+    .where(
+      and(
+        eq(securityFindingEvents.project_id, projectId),
+        inArray(securityFindingEvents.finding_id, [...findingIds]),
+      ),
+    )
+    .orderBy(asc(securityFindingEvents.created_at), asc(securityFindingEvents.id));
+  // Installation admins act from outside the project, so only `user` events are checked.
+  const people = rows.map((event) => (event.actorKind === 'user' ? event.actorUserId : null));
+  const [logins, members] = await Promise.all([
+    loginsFor(
+      db,
+      rows.map((event) => event.actorUserId),
+    ),
+    currentMembers(db, projectId, people),
+  ]);
+  for (const event of rows) {
+    const list = out.get(event.findingId) ?? [];
+    list.push({
+      action: event.action,
+      actorKind: event.actorKind,
+      actorRole: event.actorRole,
+      // A removed member keeps their comment; the login is gone with the account.
+      actor: event.actorUserId ? (logins.get(event.actorUserId) ?? null) : null,
+      formerMember:
+        event.actorKind === 'user' && event.actorUserId !== null && !members.has(event.actorUserId),
+      scanId: event.scanId,
+      resolution: event.resolution,
+      comment: event.comment,
+      ...(event.action === 'severity_edited'
+        ? { severityFrom: event.severityFrom, severityTo: event.severityTo }
+        : {}),
+      createdAt: securityIso(event.createdAt),
+    });
+    out.set(event.findingId, list);
+  }
+  return out;
+}
+
 export async function listSecurityFindings(
   db: Db,
   projectId: string,
@@ -297,44 +391,15 @@ export async function showSecurityFinding(
     level === 'full' && row.possibleDuplicateOf
       ? await securityDuplicateHints(db, projectId, [row.possibleDuplicateOf])
       : new Map<string, SecurityDuplicateHint>();
-  let events: ReadonlyArray<Record<string, unknown>> = [];
+  let events: ReadonlyArray<SecurityFindingEventView> = [];
   let resolvedBy: string | null = null;
   if (level === 'full') {
-    const rows = await db
-      .select({
-        action: securityFindingEvents.action,
-        actorKind: securityFindingEvents.actor_kind,
-        actorRole: securityFindingEvents.actor_role,
-        actorUserId: securityFindingEvents.actor_user_id,
-        scanId: securityFindingEvents.scan_id,
-        resolution: securityFindingEvents.resolution,
-        comment: securityFindingEvents.comment,
-        severityFrom: securityFindingEvents.severity_from,
-        severityTo: securityFindingEvents.severity_to,
-        createdAt: securityFindingEvents.created_at,
-      })
-      .from(securityFindingEvents)
-      .where(eq(securityFindingEvents.finding_id, row.id))
-      .orderBy(asc(securityFindingEvents.created_at), asc(securityFindingEvents.id));
-    const logins = await loginsFor(db, [
-      row.resolvedByUserId,
-      ...rows.map((event) => event.actorUserId),
+    const [timelines, logins] = await Promise.all([
+      securityFindingTimelines(db, projectId, [row.id]),
+      loginsFor(db, [row.resolvedByUserId]),
     ]);
+    events = timelines.get(row.id) ?? [];
     resolvedBy = row.resolvedByUserId ? (logins.get(row.resolvedByUserId) ?? null) : null;
-    events = rows.map((event) => ({
-      action: event.action,
-      actorKind: event.actorKind,
-      actorRole: event.actorRole,
-      // A removed member keeps their comment; the login is gone with the account.
-      actor: event.actorUserId ? (logins.get(event.actorUserId) ?? null) : null,
-      scanId: event.scanId,
-      resolution: event.resolution,
-      comment: event.comment,
-      ...(event.action === 'severity_edited'
-        ? { severityFrom: event.severityFrom, severityTo: event.severityTo }
-        : {}),
-      createdAt: securityIso(event.createdAt),
-    }));
   }
   return {
     finding: securityFindingView(

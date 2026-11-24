@@ -147,6 +147,8 @@ export type SecurityFindingEvent = {
   actorKind: string;
   actorRole: string | null;
   actor: string | null;
+  /** The person is no longer the owner or a member of the project (older platforms omit it). */
+  formerMember?: boolean;
   resolution: string | null;
   comment: string | null;
   /** `severity_edited` only: the severity before and after. */

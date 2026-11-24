@@ -13,7 +13,7 @@
  */
 import { escapeBrowserHtml } from '@void/platform/browser-page';
 import { securityPickProblemNote } from '@void/platform/security-models';
-import { parseSecurityFindingLabel } from '@void/platform/security-policy';
+import { parseSecurityFindingLabel, securityTraceLines } from '@void/platform/security-policy';
 import { desc, eq } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import { hasProjectCapability } from '../project-access.ts';
@@ -22,6 +22,8 @@ import { formatSecurityDay, formatSecurityStamp } from './notification-copy.ts';
 import {
   listSecurityFindings,
   SECURITY_COMMENT_MAX_CHARS,
+  securityFindingTimelines,
+  type SecurityFindingEventView,
   type SecurityFindingView,
 } from './project-findings.ts';
 import { SECURITY_PROJECT_POLICY_SKIP_REASON } from './project-policy.ts';
@@ -60,6 +62,8 @@ export type SecurityPageData = Readonly<{
   status: Status;
   open: ReadonlyArray<SecurityFindingView>;
   resolved: ReadonlyArray<SecurityFindingView>;
+  /** Each shown finding's history by internal finding id (deploy roles only). */
+  timelines: ReadonlyMap<string, ReadonlyArray<SecurityFindingEventView>>;
   scans: ReadonlyArray<SecurityScanView> | null;
   request: PublicRequestView | null;
   bypass: SecurityPageBypass;
@@ -126,21 +130,34 @@ export async function loadSecurityPage(
     readSecurityProjectModelChoices(db, project.id),
   ]);
   const newest = bypasses[0];
-  const scans =
+  const openShown = [
+    ...urgentOpen.findings,
+    ...open.findings.filter(
+      (finding) => !urgentOpen.findings.some((urgent) => urgent.id === finding.id),
+    ),
+  ];
+  const [scans, timelines] =
     level === 'full'
-      ? (await listSecurityScans(db, project.id, level, { limit: SCANS_SHOWN, cursor: null })).scans
-      : null;
+      ? await Promise.all([
+          listSecurityScans(db, project.id, level, { limit: SCANS_SHOWN, cursor: null }).then(
+            (list) => list.scans,
+          ),
+          securityFindingTimelines(
+            db,
+            project.id,
+            [...openShown, ...resolved.findings].flatMap((finding) =>
+              typeof finding.findingId === 'string' ? [finding.findingId] : [],
+            ),
+          ),
+        ])
+      : [null, new Map<string, ReadonlyArray<SecurityFindingEventView>>()];
   return {
     slug: project.slug,
     role,
     status,
-    open: [
-      ...urgentOpen.findings,
-      ...open.findings.filter(
-        (finding) => !urgentOpen.findings.some((urgent) => urgent.id === finding.id),
-      ),
-    ],
+    open: openShown,
     resolved: resolved.findings,
+    timelines,
     scans,
     request,
     bypass: {
@@ -211,6 +228,30 @@ function row(label: string, html: string): string {
   return `<div><dt>${esc(label)}</dt><dd>${html}</dd></div>`;
 }
 
+/** The finding's history, oldest first, as the CLI `show` prints it. */
+function timelineField(events: ReadonlyArray<SecurityFindingEventView> | undefined): string {
+  if (!events || events.length === 0) {
+    return '';
+  }
+  const items = events.map((event) => {
+    const action = plainText(event.action).split('_').join(' ');
+    const resolution = event.resolution
+      ? ` (${plainText(event.resolution).split('_').join(' ')})`
+      : '';
+    const severity =
+      event.severityFrom && event.severityTo
+        ? ` (${plainText(event.severityFrom)} → ${plainText(event.severityTo)})`
+        : '';
+    const who = plainText(event.actor) || plainText(event.actorKind);
+    // Spec #24: a removed commenter keeps the comment, shown as a former member.
+    const role = event.formerMember === true ? 'former member' : plainText(event.actorRole);
+    const line = `${stamp(typeof event.createdAt === 'string' ? event.createdAt : null)} · ${action}${resolution}${severity} · ${who}${role ? ` (${role})` : ''}`;
+    const comment = plainText(event.comment);
+    return `<li>${esc(line)}${comment ? code(comment) : ''}</li>`;
+  });
+  return `<p><strong>History</strong></p><ul class="sec-history">${items.join('')}</ul>`;
+}
+
 function detailField(label: string, value: unknown): string {
   const text = plainText(value);
   return text ? `<p><strong>${esc(label)}</strong></p>${code(text)}` : '';
@@ -227,6 +268,7 @@ const PAGE_STYLE = `<style>
 .void-auth-page details>*+*{margin-top:10px}
 .void-auth-page .sec-list{display:grid;gap:8px}
 .void-auth-page .sec-sev{font-weight:600;text-transform:uppercase;font-size:12px}
+.void-auth-page .sec-history{display:grid;gap:6px;margin:0;padding-left:18px}
 .void-auth-page .sec-file{font:12px ui-monospace,Menlo,monospace;color:var(--auth-secondary)}
 .void-auth-page .void-auth-identity>div{grid-template-columns:96px minmax(0,1fr)}
 .void-auth-page .sec-form{border-top:1px solid var(--auth-border);padding-top:10px}
@@ -297,6 +339,7 @@ function findingBlock(
   finding: SecurityFindingView,
   full: boolean,
   forms: FindingForms | null = null,
+  events?: ReadonlyArray<SecurityFindingEventView>,
 ): string {
   const id = plainText(finding.id);
   const severity = typeof finding.severity === 'string' ? finding.severity : 'lead';
@@ -322,11 +365,14 @@ function findingBlock(
       : '';
   return `<details>${summary}${meta ? `<p>${esc(meta)}</p>` : ''}${detailField(
     'Trace',
-    finding.trace,
+    securityTraceLines(finding.trace)?.join('\n') ?? finding.trace,
   )}${detailField('Evidence', finding.evidence)}${detailField(
     'Conditions',
     finding.conditions,
-  )}${detailField('Suggested fix', finding.fix)}${resolution}${findingForms(finding, forms)}</details>`;
+  )}${detailField('Suggested fix', finding.fix)}${resolution}${timelineField(events)}${findingForms(
+    finding,
+    forms,
+  )}</details>`;
 }
 
 /** Says so when a list is cut, and where the rest is. */
@@ -344,12 +390,20 @@ function findingList(
   full: boolean,
   total: number,
   forms: FindingForms | null = null,
+  timelines?: SecurityPageData['timelines'],
 ): string {
   if (findings.length === 0) {
     return '';
   }
   return `<div class="void-auth-section"><h2>${esc(heading)}</h2><div class="sec-list">${findings
-    .map((finding) => findingBlock(finding, full, forms))
+    .map((finding) =>
+      findingBlock(
+        finding,
+        full,
+        forms,
+        typeof finding.findingId === 'string' ? timelines?.get(finding.findingId) : undefined,
+      ),
+    )
     .join('')}</div>${cutNote(findings.length, total)}</div>`;
 }
 
@@ -657,9 +711,9 @@ export function renderSecurityPage(
   const head =
     `<div class="void-auth-lead"><h1 id="void-auth-title">${esc(slug)} · Security</h1></div>` +
     noticeBlock(notice);
-  if (status.policy.mode === 'disabled') {
-    return PAGE_STYLE + head + `<p>${esc(status.policy.reason)}</p>`;
-  }
+  // Spec §5.4 (Any → Off): findings stay listed, and read, comment and resolve still work.
+  // Only the scan settings and the bypass go, since no scan runs.
+  const off = status.policy.mode === 'disabled';
   const forms: FindingForms | null = full
     ? { slug, comment: hasProjectCapability(role, 'configure'), resolve: settings }
     : null;
@@ -680,16 +734,18 @@ export function renderSecurityPage(
   }
 
   const rows: Array<string> = [row('Last scan', lastScanRow(data, full))];
-  rows.push(
-    row(
-      'Policy',
-      esc(
-        status.policy.applies
-          ? `applies: ${status.policy.reason}`
-          : `does not apply: ${status.policy.reason}`,
+  if (!off) {
+    rows.push(
+      row(
+        'Policy',
+        esc(
+          status.policy.applies
+            ? `applies: ${status.policy.reason}`
+            : `does not apply: ${status.policy.reason}`,
+        ),
       ),
-    ),
-  );
+    );
+  }
   if (full && status.budget) {
     const { budget } = status;
     rows.push(
@@ -736,10 +792,31 @@ export function renderSecurityPage(
   let lists: string;
   if (full) {
     lists =
-      findingList('Urgent (confirmed critical or high)', urgentRows, true, urgent.count, forms) +
-      findingList(`Other open: ${otherTotal}`, otherRows, true, otherTotal, forms) +
-      findingList(`Leads (need a human look): ${leadsTotal}`, leads, true, leadsTotal, forms) +
-      findingList(`Resolved: ${resolvedTotal}`, data.resolved, true, resolvedTotal, forms);
+      findingList(
+        'Urgent (confirmed critical or high)',
+        urgentRows,
+        true,
+        urgent.count,
+        forms,
+        data.timelines,
+      ) +
+      findingList(`Other open: ${otherTotal}`, otherRows, true, otherTotal, forms, data.timelines) +
+      findingList(
+        `Leads (need a human look): ${leadsTotal}`,
+        leads,
+        true,
+        leadsTotal,
+        forms,
+        data.timelines,
+      ) +
+      findingList(
+        `Resolved: ${resolvedTotal}`,
+        data.resolved,
+        true,
+        resolvedTotal,
+        forms,
+        data.timelines,
+      );
   } else {
     const counts = status.counts.open;
     lists =
@@ -779,8 +856,10 @@ export function renderSecurityPage(
   const firstUrgent = urgentRows[0] ? plainText(urgentRows[0].id) : 'F-1';
   if (settings) {
     commands.push(`void project security resolve ${firstUrgent} --reason fixed --comment "…"`);
-    commands.push('void project security budget --usd 100');
-    if (bypassOffered(data)) {
+    if (!off) {
+      commands.push('void project security budget --usd 100');
+    }
+    if (!off && bypassOffered(data)) {
       commands.push('void project zero-trust bypass --reason "…"');
     }
   } else if (full) {
@@ -793,7 +872,7 @@ export function renderSecurityPage(
       : '');
 
   let settingsBlock = '';
-  if (settings) {
+  if (settings && !off) {
     settingsBlock =
       '<div class="void-auth-section"><h2>Settings</h2>' +
       modelForm(data) +
@@ -812,6 +891,7 @@ export function renderSecurityPage(
   return (
     PAGE_STYLE +
     head +
+    (off ? `<p>${esc(status.policy.reason)}</p>` : '') +
     banner +
     `<dl class="void-auth-identity">${rows.join('')}</dl>` +
     lists +

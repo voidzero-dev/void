@@ -837,6 +837,26 @@ export function parseSecurityFindingLabel(text: string): number | null {
 }
 
 /**
+ * A finding trace of `{ file, line, note }` steps as `file:line  note` lines, the way the
+ * CLI and the project page print it; `null` for a trace of another shape. The text is as
+ * stored: callers escape or clean it for where it goes.
+ */
+export function securityTraceLines(value: unknown): Array<string> | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+  const lines: Array<string> = [];
+  for (const step of value) {
+    const { file, line, note } = (step ?? {}) as Record<string, unknown>;
+    if (typeof file !== 'string' || typeof note !== 'string') {
+      return null;
+    }
+    lines.push(`${file}${typeof line === 'number' ? `:${line}` : ''}  ${note}`);
+  }
+  return lines;
+}
+
+/**
  * A dollar amount typed in a budget form, such as `50`, `12.50` or `$12.50`. Empty text
  * is `null` (no cap of its own); text that is not an amount is `undefined`. The range is
  * checked by `parseSecurityUsd` on the server.

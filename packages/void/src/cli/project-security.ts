@@ -1,5 +1,6 @@
 import { stripVTControlCharacters } from 'node:util';
 import { securityPickProblemNote } from '@void/platform/security-models';
+import { securityTraceLines } from '@void/platform/security-policy';
 import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { isCI } from 'ci-info';
 import { getToken, openBrowser } from './auth.ts';
@@ -566,24 +567,6 @@ function indent(text: string): Array<string> {
     .map((line) => `    ${line}`);
 }
 
-/** A trace of `{ file, line, note }` steps as `file:line  note` lines; else null. */
-function traceText(value: unknown): string | null {
-  if (!Array.isArray(value) || value.length === 0) {
-    return null;
-  }
-  const lines: Array<string> = [];
-  for (const step of value) {
-    const { file, line, note } = (step ?? {}) as Record<string, unknown>;
-    if (typeof file !== 'string' || typeof note !== 'string') {
-      return null;
-    }
-    lines.push(
-      `${cleanLine(file)}${typeof line === 'number' ? `:${line}` : ''}  ${cleanLine(note)}`,
-    );
-  }
-  return lines.join('\n');
-}
-
 export function formatFinding(
   finding: SecurityFinding,
   events: Array<SecurityFindingEvent> | undefined,
@@ -624,7 +607,7 @@ export function formatFinding(
     lines.push(`  Possible duplicate of ${cleanLine(finding.possibleDuplicateOf.id)}.`);
   }
   for (const [label, value] of [
-    ['Trace', traceText(finding.trace) ?? finding.trace],
+    ['Trace', securityTraceLines(finding.trace)?.map(cleanLine).join('\n') ?? finding.trace],
     ['Evidence', finding.evidence],
     [
       'Runtime proof',
@@ -647,8 +630,14 @@ export function formatFinding(
     lines.push('', '  History');
     for (const event of events) {
       const who = event.actor ?? event.actorKind;
+      // Spec #24: a removed commenter keeps the comment, shown as a former member.
+      const role = event.formerMember
+        ? 'former member'
+        : event.actorRole
+          ? cleanLine(event.actorRole)
+          : null;
       lines.push(
-        `    ${stamp(event.createdAt)} · ${cleanLine(event.action)}${event.resolution ? ` (${cleanLine(event.resolution).split('_').join('-')})` : ''}${event.severityFrom && event.severityTo ? ` (${cleanLine(event.severityFrom)} → ${cleanLine(event.severityTo)})` : ''} · ${cleanLine(who)}${event.actorRole ? ` (${cleanLine(event.actorRole)})` : ''}`,
+        `    ${stamp(event.createdAt)} · ${cleanLine(event.action)}${event.resolution ? ` (${cleanLine(event.resolution).split('_').join('-')})` : ''}${event.severityFrom && event.severityTo ? ` (${cleanLine(event.severityFrom)} → ${cleanLine(event.severityTo)})` : ''} · ${cleanLine(who)}${role ? ` (${role})` : ''}`,
       );
       if (event.comment) {
         lines.push(...indent(event.comment).map((line) => `  ${line}`));
@@ -1226,13 +1215,27 @@ async function runSecurityCheck(
     ]);
     return;
   }
-  const view = await waitForSecurityLocalCheck(
-    client,
-    projectId,
-    checkId,
-    (status) => log([status === 'running' ? '  Running…' : '  Waiting in the scan queue…']),
-    deps.check,
-  );
+  let view: Awaited<ReturnType<typeof waitForSecurityLocalCheck>>;
+  try {
+    view = await waitForSecurityLocalCheck(
+      client,
+      projectId,
+      checkId,
+      (status) => log([status === 'running' ? '  Running…' : '  Waiting in the scan queue…']),
+      deps.check,
+    );
+  } catch (error) {
+    // A lost session, a disabled platform or the network stops the wait, not the check.
+    if (!(error instanceof PlatformApiError && error.status === 404)) {
+      const hint = `  The check keeps running. See it later: void project security check ${cleanLine(checkId)}`;
+      if (args.json) {
+        console.error(hint.trim());
+      } else {
+        log([hint]);
+      }
+    }
+    throw error;
+  }
   if (view === null) {
     print(args, { checkId, ended: false }, [
       `  Still not done. See it later: void project security check ${cleanLine(checkId)}`,

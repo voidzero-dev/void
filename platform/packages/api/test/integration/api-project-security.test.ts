@@ -547,6 +547,23 @@ describe('comment, resolve, reopen', () => {
       ['commented', 'collaborator'],
       ['commented', 'owner'],
     ]);
+    // Spec #24: a removed commenter keeps the comment, shown as a former member.
+    await env.db
+      .delete(projectMembers)
+      .where(
+        and(
+          eq(projectMembers.project_id, project.id),
+          eq(projectMembers.user_id, people.collaborator.id),
+        ),
+      );
+    const history = await json(await call(base, people.admin.jwt));
+    expect(
+      history.events.map((event: Record<string, unknown>) => [event.actor, event.formerMember]),
+    ).toEqual([
+      [people.collaborator.login, true],
+      [people.admin.login, false],
+      [people.owner.login, false],
+    ]);
 
     const resolveBody = {
       reason: 'false_positive',

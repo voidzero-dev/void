@@ -378,13 +378,71 @@ describe('what each role sees', () => {
     expect(html).toContain('[a](http://e)');
   });
 
-  it('says so when security audits are off', async () => {
+  it('says so when security audits are off, and keeps listing open findings', async () => {
     await savePolicy({ mode: 'disabled' });
     const { project, people } = await setup();
-    await addFinding(project.id);
+    await addFinding(project.id, { number: 1, severity: 'critical' });
     const html = await view(await signIn(people.owner.id, project.id));
     expect(html).toContain('Security audits are off on this platform.');
-    expect(html).not.toContain('SECRET TITLE');
+    // Spec §5.4 (Any → Off): open findings stay listed; read, comment and resolve still work.
+    expect(html).toContain('1 urgent finding is open');
+    expect(html).toContain('SECRET TITLE 1');
+    expect(html).toContain('action="/security/projects/acme-web/findings/F-1/resolve"');
+    expect(html).toContain('action="/security/projects/acme-web/findings/F-1/comment"');
+    // No scan runs, so no scan settings.
+    expect(html).not.toContain('/model"');
+    expect(html).not.toContain('/budget"');
+    expect(html).not.toContain('void project security budget');
+  });
+
+  it('prints the trace one step per line and the history, with a removed commenter as a former member', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    await addFinding(project.id, {
+      number: 1,
+      detail: {
+        trace: [
+          { file: 'virtual:void-routes', line: 6, note: 'route /users' },
+          { file: 'src/db.ts', note: 'query built from id' },
+        ],
+      },
+    });
+    const findingId = `sf_page${project.id}1`;
+    const gone = await createTestUser(env.db, 'gone-collab');
+    await env.db.insert(securityFindingEvents).values([
+      {
+        id: 'sfe_page_1',
+        finding_id: findingId,
+        project_id: project.id,
+        actor_kind: 'user',
+        actor_user_id: people.admin.id,
+        actor_role: 'admin',
+        action: 'commented',
+        comment: 'looking at it',
+        created_at: '2026-11-17T10:00:00.000Z',
+      },
+      {
+        id: 'sfe_page_2',
+        finding_id: findingId,
+        project_id: project.id,
+        actor_kind: 'user',
+        actor_user_id: gone.id,
+        actor_role: 'collaborator',
+        action: 'commented',
+        comment: '<b>left</b> a note',
+        created_at: '2026-11-18T10:00:00.000Z',
+      },
+    ]);
+    const html = await view(await signIn(people.owner.id, project.id));
+    expect(html).toContain('virtual:void-routes:6  route /users\nsrc/db.ts  query built from id');
+    expect(html).not.toContain('&quot;note&quot;');
+    expect(html).toContain('commented · admin-acme-web (admin)');
+    expect(html).toContain('commented · gone-collab (former member)');
+    expect(html).toContain('&lt;b&gt;left&lt;/b&gt; a note');
+    expect(html).not.toContain('(collaborator)');
+    // Readers get no detail, so no history.
+    const reader = await view(await signIn(people.reader.id, project.id));
+    expect(reader).not.toContain('looking at it');
   });
 
   it('says there is no scan yet and reports a clean project', async () => {

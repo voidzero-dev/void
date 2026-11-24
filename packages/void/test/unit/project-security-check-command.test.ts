@@ -443,6 +443,51 @@ describe('project security check (M32)', () => {
     expect(JSON.parse(out[0]!)).toMatchObject({ check: { status: 'refused' }, ended: true });
   });
 
+  it('keeps the "See it later" hint when the wait fails, and none for a missing check', async () => {
+    const root = linked();
+    write(root, APP);
+    for (const [status, body] of [
+      [401, { error: 'Your session is no longer active' }],
+      [503, { error: 'Platform disabled' }],
+    ] as const) {
+      const { fetch } = route({
+        ...platform(),
+        [`GET ${CHECKS}/scan_9`]: () => Response.json(body, { status }),
+      });
+      const out = capture();
+      await expect(
+        runProjectSecurityCommand(root, args(), deps(Object.keys(APP), { fetch })),
+      ).rejects.toThrow(`HTTP ${status}`);
+      expect(out.join('\n'), String(status)).toContain(
+        'The check keeps running. See it later: void project security check scan_9',
+      );
+    }
+
+    // With --json the hint goes to stderr, so stdout stays JSON.
+    const { fetch } = route({
+      ...platform(),
+      [`GET ${CHECKS}/scan_9`]: () => Response.json({ error: 'x' }, { status: 401 }),
+    });
+    const out = capture();
+    const errors: Array<string> = [];
+    vi.spyOn(console, 'error').mockImplementation((...a) => void errors.push(a.join(' ')));
+    await expect(
+      runProjectSecurityCommand(root, args({ json: true }), deps(Object.keys(APP), { fetch })),
+    ).rejects.toThrow('HTTP 401');
+    expect(out).toEqual([]);
+    expect(errors.join('\n')).toContain('See it later: void project security check scan_9');
+
+    const gone = route({
+      ...platform(),
+      [`GET ${CHECKS}/scan_9`]: () => Response.json({ error: 'not found' }, { status: 404 }),
+    });
+    const missing = capture();
+    await expect(
+      runProjectSecurityCommand(root, args(), deps(Object.keys(APP), { fetch: gone.fetch })),
+    ).rejects.toThrow();
+    expect(missing.join('\n')).not.toContain('See it later');
+  });
+
   it('shows an earlier check without sending anything, and returns at once with --no-wait', async () => {
     const root = linked();
     const { calls } = route(platform());

@@ -15,6 +15,7 @@ import {
   parseSecurityUsd,
   parseSecurityUsdText,
   readSecurityPolicy,
+  securityTraceLines,
   SECURITY_ENTITLEMENT_MAX_AGE_MS,
   SECURITY_ERRORS,
   SECURITY_LIMIT_KEYS,
@@ -613,6 +614,18 @@ describe('security form text (M29)', () => {
     expect(parseSecurityFindingLabel('F-123456789')).toBe(123456789);
     for (const text of ['F-', 'F-1234567890', 'f-1', '12', 'F-1x', 'sf_1']) {
       expect(parseSecurityFindingLabel(text), text).toBeNull();
+    }
+  });
+
+  it('prints a trace of steps as file:line  note lines, and nothing for another shape', () => {
+    expect(
+      securityTraceLines([
+        { file: 'virtual:void-routes', line: 6, note: 'route /users' },
+        { file: 'src/db.ts', note: 'query built from id' },
+      ]),
+    ).toEqual(['virtual:void-routes:6  route /users', 'src/db.ts  query built from id']);
+    for (const value of [null, [], ['a', 'b'], [{ file: 'x' }], { file: 'x', note: 'y' }]) {
+      expect(securityTraceLines(value), JSON.stringify(value)).toBeNull();
     }
   });
 

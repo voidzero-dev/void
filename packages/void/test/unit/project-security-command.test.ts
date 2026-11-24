@@ -779,6 +779,15 @@ describe('project security command paths', () => {
               actorRole: 'admin',
               comment: 'looked',
             },
+            {
+              createdAt: '2026-11-18T10:00:00.000Z',
+              action: 'commented',
+              actorKind: 'user',
+              actor: 'sa-b-collab',
+              actorRole: 'collaborator',
+              formerMember: true,
+              comment: 'left a note',
+            },
           ],
         }),
       [`GET ${F}/F-2`]: () =>
@@ -797,7 +806,10 @@ describe('project security command paths', () => {
     expect(text).not.toContain('"note"');
     expect(text).toContain('confirmed (runtime)');
     expect(text).toContain('GET /users?id=1 answered 200 on a throwaway copy');
-    expect(text).toContain('ana');
+    expect(text).toContain('ana (admin)');
+    // Spec #24: a removed commenter keeps the comment, shown as a former member.
+    expect(text).toContain('sa-b-collab (former member)');
+    expect(text).not.toContain('(collaborator)');
     out.length = 0;
     await run(root, ['security', 'show', 'F-2']);
     text = out.join('\n');
