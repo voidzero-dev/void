@@ -77,14 +77,17 @@ function createEnv(options: {
   return { env, workerFetch, analyticsWrites, isrWrites };
 }
 
-function sseResponse(body = 'data: hello\n\n', headers?: HeadersInit): Response {
+function sseResponse(body = 'data: hello\n\n', init?: HeadersInit): Response {
+  const headers = new Headers(init);
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'text/event-stream; charset=utf-8');
+  }
+  if (!headers.has('Content-Length')) {
+    headers.set('Content-Length', '999');
+  }
   return new Response(body, {
     status: 200,
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Content-Length': '999',
-      ...headers,
-    },
+    headers,
   });
 }
 

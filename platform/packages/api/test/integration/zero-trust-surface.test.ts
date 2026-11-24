@@ -124,14 +124,17 @@ async function operator(path: string, init: RequestInit = {}): Promise<Response>
     'admin',
   );
   const token = await createOperatorToken(env.db, admin);
+  const headers = new Headers(init.headers);
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   return app.fetch(
     new Request('http://localhost/operator/v1' + path, {
       ...init,
-      headers: {
-        Authorization: 'Bearer ' + token,
-        'Content-Type': 'application/json',
-        ...init.headers,
-      },
+      headers,
     }),
     bindings(),
   );

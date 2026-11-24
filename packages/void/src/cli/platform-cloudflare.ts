@@ -429,15 +429,20 @@ export class PlatformCloudflareClient {
     path: string,
     init?: RequestInit,
   ): Promise<{ result: T; resultInfo: CloudflareEnvelope<T>['result_info'] }> {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/json');
+    }
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${this.#token}`);
+    }
+    // FormData sets its own multipart boundary.
+    if (typeof init?.body === 'string' && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
     const response = await this.#fetcher(`${this.apiBaseUrl}${path}`, {
       ...init,
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${this.#token}`,
-        // FormData sets its own multipart boundary.
-        ...(typeof init?.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
-        ...init?.headers,
-      },
+      headers,
       signal: init?.signal ?? AbortSignal.timeout(30_000),
       redirect: 'manual',
     });

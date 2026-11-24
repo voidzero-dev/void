@@ -831,7 +831,7 @@ async function prepareContainerMetadata(options: {
           const remote = matches.length === 1 ? matches[0][1] : '';
           if (
             !remote.startsWith(`registry.cloudflare.com/${options.accountId}/`) ||
-            [...remote].some(
+            Array.from(remote).some(
               (character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127,
             )
           ) {

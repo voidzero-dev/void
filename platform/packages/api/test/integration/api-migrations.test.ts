@@ -329,13 +329,14 @@ async function insertHyperdriveResource(db: TestEnv['db'], projectId: string): P
 }
 
 function authedReq(path: string, jwt: string, init?: RequestInit): Request {
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${jwt}`);
+  if (init?.body) {
+    headers.set('Content-Type', 'application/json');
+  }
   return new Request(`http://localhost${path}`, {
     ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      Authorization: `Bearer ${jwt}`,
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-    },
+    headers,
   });
 }
 

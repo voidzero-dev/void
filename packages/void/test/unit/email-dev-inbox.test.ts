@@ -461,10 +461,12 @@ describe('dev inbox auth (dev-trigger token on every route)', () => {
       expect(body).toContain(`?${DEV_INBOX_TOKEN_QUERY}=`);
       expect(body).not.toContain(TOKEN);
 
+      const headers = new Headers(init.headers);
+      headers.set(DEV_INBOX_TOKEN_HEADER, 'nope');
       const wrongHeader = await server.dispatch(
         new Request(url, {
           ...init,
-          headers: { ...init.headers, [DEV_INBOX_TOKEN_HEADER]: 'nope' },
+          headers,
         }),
       );
       expect(wrongHeader.status).toBe(401);
@@ -477,7 +479,7 @@ describe('dev inbox auth (dev-trigger token on every route)', () => {
       const wrongHeaderRightQuery = await server.dispatch(
         new Request(`${url}?${DEV_INBOX_TOKEN_QUERY}=${TOKEN}`, {
           ...init,
-          headers: { ...init.headers, [DEV_INBOX_TOKEN_HEADER]: 'nope' },
+          headers,
         }),
       );
       expect(wrongHeaderRightQuery.status).toBe(401);

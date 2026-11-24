@@ -588,9 +588,11 @@ function agentRequest(
   url: string,
   init: RequestInit = {},
 ): Request {
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${agentToken(ctx)}`);
   return new Request(url, {
     ...init,
-    headers: { ...(init.headers ?? {}), Authorization: `Bearer ${agentToken(ctx)}` },
+    headers,
   });
 }
 

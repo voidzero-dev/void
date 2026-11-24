@@ -269,7 +269,7 @@ function readHttpMetadata(data: RemoteR2Object): R2HTTPMetadata {
   return cacheExpiry ? { ...metadata, cacheExpiry: new Date(cacheExpiry) } : metadata;
 }
 
-function makeR2Object(data: RemoteR2Object): R2Object {
+function makeR2Object(data: RemoteR2Object) {
   const etag = normalizeEtag(data.etag ?? '');
   const httpMetadata = readHttpMetadata(data);
   return {
@@ -300,7 +300,7 @@ function makeR2Object(data: RemoteR2Object): R2Object {
         }
       }
     },
-  } as R2Object;
+  } satisfies R2Object;
 }
 
 function makeR2ObjectBody(key: string, res: Response): R2ObjectBody {

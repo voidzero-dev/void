@@ -127,14 +127,19 @@ export class ZeroTrustCloudflareClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/json');
+    }
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${this.token}`);
+    }
+    if (init?.body && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
     const response = await this.fetcher(`${this.#base}/${path.replace(/^\/+/, '')}`, {
       ...init,
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${this.token}`,
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-        ...init?.headers,
-      },
+      headers,
       redirect: 'manual',
       signal: init?.signal ?? AbortSignal.timeout(30_000),
     });

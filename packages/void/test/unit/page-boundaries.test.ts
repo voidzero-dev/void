@@ -53,6 +53,7 @@ describe('client boundary errors', () => {
         '/settings',
       );
       expect(clientPageError(error)).toEqual({ status, message });
+      // oxlint-disable-next-line typescript/no-misused-spread -- Exercise classification after the error loses its prototype.
       expect(clientPageError({ ...error, message: error.message })).toEqual({ status, message });
     },
   );

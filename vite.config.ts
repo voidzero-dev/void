@@ -555,8 +555,6 @@ const config = defineConfig({
       'quality/no-unknown-returns': 'off',
       // Environment dictionaries, manifest parsers, and schema inputs carry unknown values until each entry has been validated.
       'quality/no-unsafe-dictionary-type': 'off',
-      // Existing code spreads strings into code points, constructs plain records from runtime wrappers, and exercises nonstandard inputs in tests.
-      'typescript/no-misused-spread': 'off',
       // Generated routing and registry access rely on invariants enforced by code generation and preceding validation. Replace assertions with local checks as those paths change.
       'typescript/no-non-null-assertion': 'off',
       // Hundreds of remaining findings require changing inferred generic arguments. Review inference and declaration output in a separate type-focused pass.

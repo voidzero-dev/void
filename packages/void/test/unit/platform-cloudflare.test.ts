@@ -18,6 +18,35 @@ const expectedRejection = (): never => {
 };
 
 describe('platform Cloudflare client', () => {
+  it.each([
+    {
+      format: 'Headers',
+      headers: new Headers({ 'Content-Type': 'text/plain', 'X-Request-Id': 'test-request' }),
+    },
+    {
+      format: 'header tuples',
+      headers: [
+        ['Content-Type', 'text/plain'],
+        ['X-Request-Id', 'test-request'],
+      ] as Array<[string, string]>,
+    },
+  ])('preserves caller headers and fills in API defaults for $format', async ({ headers }) => {
+    const client = new PlatformCloudflareClient('operator-token', {
+      fetcher: async (_input, init) => {
+        const actual = new Headers(init?.headers);
+        expect(actual.get('Content-Type')).toBe('text/plain');
+        expect(actual.get('X-Request-Id')).toBe('test-request');
+        expect(actual.get('Authorization')).toBe('Bearer operator-token');
+        expect(actual.get('Accept')).toBe('application/json');
+        return Response.json({ success: true, result: 'ok' });
+      },
+    });
+
+    await expect(client.request('/test', { method: 'POST', body: 'test', headers })).resolves.toBe(
+      'ok',
+    );
+  });
+
   it('uses the runtime credential only for AI Gateway operations while keeping the API origin pinned', async () => {
     const requests: Array<{ path: string; authorization: string | null }> = [];
     const client = new PlatformCloudflareClient('operator-token', {

@@ -1917,7 +1917,7 @@ describe('buildMime', () => {
     // ceiling leaves 63 base64 characters, so 45 source bytes is the
     // largest payload that fits.
     const subject = '日本語のメールを送信します。テス';
-    expect([...subject]).toHaveLength(16);
+    expect(Array.from(subject)).toHaveLength(16);
     const { text } = await build({
       from: 'a@x.dev',
       to: 'b@y.dev',
@@ -1937,7 +1937,7 @@ describe('buildMime', () => {
     // Unfolded, 246 CJK characters are one 1005-octet line, past RFC 5322
     // §2.1.1's 998-octet MUST.
     const subject = '日本語'.repeat(82);
-    expect([...subject]).toHaveLength(246);
+    expect(Array.from(subject)).toHaveLength(246);
     const { raw, text } = await build({
       from: 'a@x.dev',
       to: 'b@y.dev',

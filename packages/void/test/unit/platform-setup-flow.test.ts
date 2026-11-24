@@ -732,11 +732,8 @@ describe('platform credential onboarding', () => {
     expect(management).not.toBe(mocks.plan.mock.calls[0]![0]);
     expect(mocks.install.mock.calls[0]![3].client).toBe(management);
     await management.request('/test');
-    expect(fetcher).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'Bearer management-secret' }),
-      }),
+    expect(new Headers(fetcher.mock.lastCall?.[1]?.headers).get('Authorization')).toBe(
+      'Bearer management-secret',
     );
     fetcher.mockResolvedValueOnce(
       Response.json(
@@ -795,11 +792,8 @@ describe('platform credential onboarding', () => {
       expect(mocks.plan).toHaveBeenCalledTimes(2);
       const client = mocks.install.mock.calls[0]![3].client as PlatformCloudflareClient;
       await client.request('/management-token-check');
-      expect(fetcher).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: 'Bearer saved-management-secret' }),
-        }),
+      expect(new Headers(fetcher.mock.lastCall?.[1]?.headers).get('Authorization')).toBe(
+        'Bearer saved-management-secret',
       );
       fetcher.mockResolvedValueOnce(
         Response.json(

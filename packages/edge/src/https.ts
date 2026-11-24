@@ -27,6 +27,6 @@ function isIpv4Loopback(hostname: string): boolean {
   return (
     parts.length === 4 &&
     parts[0] === '127' &&
-    parts.every((part) => part !== '' && [...part].every((char) => char >= '0' && char <= '9'))
+    parts.every((part) => part !== '' && !/[^0-9]/.test(part))
   );
 }
