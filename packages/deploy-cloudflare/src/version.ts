@@ -555,9 +555,9 @@ function triggerConfigWithQueueConsumerCleanup(
     ...base,
     queueConsumers: [
       ...base.queueConsumers,
-      ...queues
-        .filter((queue) => !queueConsumerNames(base.queueConsumers).includes(queue))
-        .map((queue) => ({ queue })),
+      ...queues.flatMap((queue) =>
+        !queueConsumerNames(base.queueConsumers).includes(queue) ? [{ queue }] : [],
+      ),
     ],
   };
 }
@@ -673,9 +673,9 @@ function readEmailAddresses(value: unknown): ReadonlyArray<string> | undefined {
 
 function nonVersionedSettingsHash(config: Record<string, unknown>): string {
   const settings = Object.fromEntries(
-    ['logpush', 'observability', 'tail_consumers', 'streaming_tail_consumers']
-      .filter((key) => config[key] !== undefined)
-      .map((key) => [key, config[key]]),
+    ['logpush', 'observability', 'tail_consumers', 'streaming_tail_consumers'].flatMap((key) =>
+      config[key] !== undefined ? [[key, config[key]]] : [],
+    ),
   );
   return createHash('sha256').update(canonicalJson(settings)).digest('hex');
 }

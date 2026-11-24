@@ -636,9 +636,10 @@ export async function installPlatform(
     // The Cloudflare CLI asks the operator before it replaces changes made
     // outside Void. Let it ask now: the resources that these configs use
     // exist, and this run has not paused traffic or deployed a Worker.
-    const outsideChangeConfigs = workerKeys
-      .map((key) => enabledConfigs[key])
-      .filter((config) => dependencies.replaceOutsideChanges?.includes(String(config.name)));
+    const outsideChangeConfigs = workerKeys.flatMap((key) => {
+      const config = enabledConfigs[key];
+      return dependencies.replaceOutsideChanges?.includes(String(config.name)) ? [config] : [];
+    });
     if (outsideChangeConfigs.length > 0) {
       await dependencies.uploadOutsideChanges?.(outsideChangeConfigs);
     }

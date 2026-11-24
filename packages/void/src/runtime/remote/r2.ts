@@ -238,11 +238,12 @@ function missingMetadata(
   stored: RemoteR2Object | undefined,
 ): Array<string> {
   const meta = options?.httpMetadata;
-  const missing: Array<string> = EXTRA_HTTP_METADATA.filter(
-    ([field, header]) =>
-      (meta instanceof Headers ? meta.has(header) : meta?.[field] !== undefined) &&
-      stored?.httpMetadata?.[field] === undefined,
-  ).map(([field]) => field);
+  const missing: Array<string> = EXTRA_HTTP_METADATA.flatMap(([field, header]) =>
+    (meta instanceof Headers ? meta.has(header) : meta?.[field] !== undefined) &&
+    stored?.httpMetadata?.[field] === undefined
+      ? [field]
+      : [],
+  );
   if (
     Object.keys(options?.customMetadata ?? {}).some(
       (name) => stored?.customMetadata?.[name] === undefined,

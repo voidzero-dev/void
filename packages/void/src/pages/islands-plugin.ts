@@ -491,19 +491,21 @@ export function computePagesNeedingClientJS(
 
   const pageIds = new Set(pageScan.pages.map((page) => page.componentId));
   const interactiveLayouts = new Set(
-    [...pageScan.layouts, ...pageScan.namedLayouts]
-      .filter(
-        (layout) =>
+    [...pageScan.layouts, ...pageScan.namedLayouts].flatMap((layout) => {
+      if (
+        !(
           layout.island &&
           hasIslandImports(
             readFileSync(resolve(pagesDir, layout.filePath), 'utf8'),
             layout.filePath,
-          ),
-      )
-      .map((layout) => {
-        const id = toLayoutId(layout);
-        return pageIds.has(id) ? id.replace(/(^|\/)([^/]+)$/, '$1_$2') : id;
-      }),
+          )
+        )
+      ) {
+        return [];
+      }
+      const id = toLayoutId(layout);
+      return [pageIds.has(id) ? id.replace(/(^|\/)([^/]+)$/, '$1_$2') : id];
+    }),
   );
   for (const plan of Object.values(createBoundaryManifest(pageScan).plans)) {
     if (plan.layouts.some((id) => interactiveLayouts.has(id))) {

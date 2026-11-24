@@ -243,7 +243,12 @@ export function nextDurableObjectMigrationTag(
   migrations: Array<DurableObjectMigration>,
   baseTag: string,
 ): string {
-  const existingTags = new Set(migrations.map((migration) => migration.tag).filter(Boolean));
+  const existingTags = new Set(
+    migrations.flatMap((migration) => {
+      const value = migration.tag;
+      return value ? [value] : [];
+    }),
+  );
   if (!existingTags.has(baseTag)) {
     return baseTag;
   }
@@ -726,9 +731,11 @@ export function syncWranglerDurableObjects(
       );
     }
   }
-  const additions = durableObjects
-    .filter((module) => !existingBindings.some((binding) => binding.name === module.bindingName))
-    .map((module) => ({ name: module.bindingName, class_name: module.className }));
+  const additions = durableObjects.flatMap((module) =>
+    !existingBindings.some((binding) => binding.name === module.bindingName)
+      ? [{ name: module.bindingName, class_name: module.className }]
+      : [],
+  );
   if (additions.length > 0) {
     parsed.durable_objects = { bindings: [...existingBindings, ...additions] };
     modified = true;

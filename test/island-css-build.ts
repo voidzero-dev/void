@@ -117,8 +117,7 @@ export function defineIslandCssBuildTest(app: IslandCssApp): void {
       }
       // Rolldown keeps each stylesheet module in one chunk, so no rule repeats.
       const clientCss = [...build.output('client')]
-        .filter(([file]) => file.endsWith('.css'))
-        .map(([, text]) => text)
+        .flatMap(([file, text]) => (file.endsWith('.css') ? [text] : []))
         .join('\n');
       for (const rule of app.expectedCss) {
         expect(countOf(clientCss, rule), rule).toBe(1);

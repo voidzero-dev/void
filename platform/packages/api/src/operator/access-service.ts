@@ -362,9 +362,11 @@ export async function sendOperatorInvitations(
     target,
     invitations: created,
     emailDelivery,
-    warnings: emailDelivery
-      .filter((entry) => entry.status !== 'sent')
-      .map((entry) => `Email ${entry.status}: ${entry.email}. Signup access was granted.`),
+    warnings: emailDelivery.flatMap((entry) =>
+      entry.status !== 'sent'
+        ? [`Email ${entry.status}: ${entry.email}. Signup access was granted.`]
+        : [],
+    ),
   };
 }
 

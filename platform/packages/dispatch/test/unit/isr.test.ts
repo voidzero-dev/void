@@ -736,8 +736,10 @@ describe('writeIsrCache — variant cap', () => {
         },
         list: async (opts: { prefix: string; limit?: number; cursor?: string }) => {
           const all = [...kvStore.keys()]
-            .map((key) => `isr-cache/${key}`)
-            .filter((k) => k.startsWith(opts.prefix))
+            .flatMap((key) => {
+              const k = `isr-cache/${key}`;
+              return k.startsWith(opts.prefix) ? [k] : [];
+            })
             .sort();
           const limit = opts.limit ?? 1000;
           const start = opts.cursor ? Number.parseInt(opts.cursor, 10) : 0;

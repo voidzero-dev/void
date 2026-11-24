@@ -1057,22 +1057,20 @@ function compilePageRoutes(
     pageDevRootPhases[page.componentId] = routeRootPhases.filter((phase) => phase.length > 0);
   }
   for (const plan of Object.values(boundaryManifest.plans)) {
-    const files = [...scan.pages.layouts, ...scan.pages.namedLayouts]
-      .filter((layout) => {
-        const id =
-          'name' in layout
-            ? layout.directory
-              ? layout.directory + '/_layouts/' + layout.name
-              : '_layouts/' + layout.name
-            : layout.directory
-              ? layout.directory + '/layout'
-              : 'layout';
-        const key = scan.pages.pages.some((page) => page.componentId === id)
-          ? id.replace(/(^|\/)([^/]+)$/, '$1_$2')
-          : id;
-        return plan.layouts.includes(key);
-      })
-      .map((layout) => layout.filePath);
+    const files = [...scan.pages.layouts, ...scan.pages.namedLayouts].flatMap((layout) => {
+      const id =
+        'name' in layout
+          ? layout.directory
+            ? layout.directory + '/_layouts/' + layout.name
+            : '_layouts/' + layout.name
+          : layout.directory
+            ? layout.directory + '/layout'
+            : 'layout';
+      const key = scan.pages.pages.some((page) => page.componentId === id)
+        ? id.replace(/(^|\/)([^/]+)$/, '$1_$2')
+        : id;
+      return plan.layouts.includes(key) ? [layout.filePath] : [];
+    });
     files.push(plan.filePath);
     pageCssKeys[plan.id] = files.map((file) => `${relPagesDir}/${file}`);
     pageDevRootPhases[plan.id] = [

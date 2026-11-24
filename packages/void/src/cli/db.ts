@@ -2403,9 +2403,10 @@ function resolveSeedTarget(root: string, file: string | undefined): SeedTarget {
   }
 
   const paths = readProjectPaths(root);
-  const defaults = DEFAULT_SEED_FILES.map((candidate) => paths.sourceRelative(candidate)).filter(
-    (candidate) => existsSync(join(root, candidate)),
-  );
+  const defaults = DEFAULT_SEED_FILES.flatMap((candidate) => {
+    const mappedCandidate = paths.sourceRelative(candidate);
+    return existsSync(join(root, mappedCandidate)) ? [mappedCandidate] : [];
+  });
   if (defaults.length === 0) {
     log.error(
       `db: No seed file found. Create one of: ${DEFAULT_SEED_FILES.map((candidate) => paths.sourceRelative(candidate)).join(', ')} or pass --file <path>.`,

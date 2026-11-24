@@ -387,7 +387,7 @@ describe('operator installation plans', () => {
       ok: true,
       reconciliation: { complete: true, processed: 1 },
     });
-    const initialized = calls.filter((call) => call.path === '/init').map((call) => call.id);
+    const initialized = calls.flatMap((call) => (call.path === '/init' ? [call.id] : []));
     expect(initialized).toHaveLength(26);
     expect(new Set(initialized).size).toBe(26);
   });

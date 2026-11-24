@@ -420,7 +420,10 @@ function splitCacheDirectives(policy: string): Array<string> {
     }
   }
   directives.push(policy.slice(start));
-  return directives.map((directive) => directive.trim()).filter(Boolean);
+  return directives.flatMap((directive) => {
+    const value = directive.trim();
+    return value ? [value] : [];
+  });
 }
 
 function resolveUserConfig(

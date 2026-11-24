@@ -776,9 +776,9 @@ async function cleanupRaceWindowResourceOrphans(
   const jobs = orphans.flatMap((resource) => cleanupJobsForResource(projectId, resource));
   const result = await runCleanupBatch(context.env, jobs);
   const failedTargets = new Set(result.failed.map((job) => job.target));
-  const completedTargets = jobs
-    .filter((job) => !failedTargets.has(job.target))
-    .map((job) => job.target);
+  const completedTargets = jobs.flatMap((job) =>
+    !failedTargets.has(job.target) ? [job.target] : [],
+  );
   if (completedTargets.length > 0) {
     await context
       .get('db')

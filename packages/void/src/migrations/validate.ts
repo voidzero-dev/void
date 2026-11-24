@@ -244,7 +244,9 @@ export function assertJournalCoherence(
   for (const entry of journal.entries) {
     tagCounts.set(entry.tag, (tagCounts.get(entry.tag) ?? 0) + 1);
   }
-  const duplicateTags = [...tagCounts.entries()].filter(([, n]) => n > 1).map(([tag]) => tag);
+  const duplicateTags = [...tagCounts.entries()].flatMap(([tag, count]) =>
+    count > 1 ? [tag] : [],
+  );
   if (duplicateTags.length > 0) {
     throw new Error(
       [
@@ -259,9 +261,10 @@ export function assertJournalCoherence(
   const journalTags = new Set(journal.entries.map((e) => e.tag));
   const collectedTags = new Set(collected.map((m) => stripSqlExt(m.name)));
 
-  const orphans = collected
-    .map((m) => m.name)
-    .filter((name) => !journalTags.has(stripSqlExt(name)));
+  const orphans = collected.flatMap((m) => {
+    const name = m.name;
+    return !journalTags.has(stripSqlExt(name)) ? [name] : [];
+  });
   const missing = journal.entries
     .filter((e) => !collectedTags.has(e.tag))
     .map((e) => `${e.tag}.sql`);

@@ -700,9 +700,13 @@ export async function runDeploymentPipeline(input: {
         for (const d of projectDomains) {
           boundHosts.add(d.hostname);
         }
-        const unbound = [...(manifest.redirectRules ?? []), ...(manifest.fallbackRules ?? [])]
-          .map((r) => r.host)
-          .filter((h): h is string => typeof h === 'string' && !boundHosts.has(h));
+        const unbound = [
+          ...(manifest.redirectRules ?? []),
+          ...(manifest.fallbackRules ?? []),
+        ].flatMap((r) => {
+          const h = r.host;
+          return typeof h === 'string' && !boundHosts.has(h) ? [h] : [];
+        });
         if (unbound.length > 0) {
           const unique = Array.from(new Set(unbound));
           emit({

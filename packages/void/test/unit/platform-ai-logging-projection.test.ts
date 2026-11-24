@@ -27,11 +27,11 @@ function memoryKv(initial: Record<string, { value: string; metadata?: unknown }>
   const kv: AiLoggingProjectionKv = {
     list: async (prefix) => {
       calls.push('list');
-      return [...store]
-        .filter(([name]) => name.startsWith(prefix))
-        .map(([name, entry]) =>
-          entry.metadata === undefined ? { name } : { name, metadata: entry.metadata },
-        );
+      return [...store].flatMap(([name, entry]) =>
+        name.startsWith(prefix)
+          ? [entry.metadata === undefined ? { name } : { name, metadata: entry.metadata }]
+          : [],
+      );
     },
     put: async (entries: ReadonlyArray<CloudflareKvBulkEntry>) => {
       calls.push('put');

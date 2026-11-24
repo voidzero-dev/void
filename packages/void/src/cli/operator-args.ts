@@ -674,8 +674,7 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
   if (!command) {
     throw new Error(
       `platform: Usage: void platform ${group} <${operatorCommands
-        .filter((entry) => entry.group === group)
-        .map(({ action }) => action)
+        .flatMap(({ group: entryGroup, action }) => (entryGroup === group ? [action] : []))
         .join('|')}>.`,
     );
   }

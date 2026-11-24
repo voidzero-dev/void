@@ -189,9 +189,9 @@ export async function projectDestinations(
   );
   const platform = [...new Set(platformProjectHostnames(project, application))];
   const reserved = new Set(
-    [env.AUTH_REDIRECT_URI, env.PROXY_URL, env.EMAIL_GATEWAY_ORIGIN]
-      .filter((value): value is string => !!value && URL.canParse(value))
-      .map((value) => new URL(value).hostname.toLowerCase()),
+    [env.AUTH_REDIRECT_URI, env.PROXY_URL, env.EMAIL_GATEWAY_ORIGIN].flatMap((value) =>
+      !!value && URL.canParse(value) ? [new URL(value).hostname.toLowerCase()] : [],
+    ),
   );
   const checkHostnames = (values: ReadonlyArray<string>) => {
     if (values.some((hostname) => reserved.has(hostname.toLowerCase()))) {

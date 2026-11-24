@@ -43,12 +43,13 @@ function resolveSingleEntry(
   label: string,
   paths: ProjectPaths = readProjectPaths(root),
 ): ResolvedEntry | null {
-  const matches = entries
-    .map((entryName) => ({
+  const matches = entries.flatMap((entryName) => {
+    const entry = {
       relativePath: relative(root, join(paths.ssrDir, entryName)),
       absolutePath: join(paths.ssrDir, entryName),
-    }))
-    .filter((entry) => existsSync(entry.absolutePath));
+    };
+    return existsSync(entry.absolutePath) ? [entry] : [];
+  });
 
   if (matches.length === 0) {
     return null;

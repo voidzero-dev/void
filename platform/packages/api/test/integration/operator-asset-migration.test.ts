@@ -221,12 +221,11 @@ async function fixture(
       `manifest:${deployment.id}`,
       JSON.stringify(
         Object.fromEntries(
-          entries
-            .filter(({ path }) => !path.startsWith('/.void-deploy/'))
-            .map(({ path, hash, store, size }) => [
-              path,
-              store === 'r2' || (!store && size >= KV_THRESHOLD) ? `!${hash}` : hash,
-            ]),
+          entries.flatMap(({ path, hash, store, size }) =>
+            !path.startsWith('/.void-deploy/')
+              ? [[path, store === 'r2' || (!store && size >= KV_THRESHOLD) ? `!${hash}` : hash]]
+              : [],
+          ),
         ),
       ),
     );

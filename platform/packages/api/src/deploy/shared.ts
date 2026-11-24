@@ -74,7 +74,9 @@ export function projectPublicUrls(
   domains: ReadonlyArray<Readonly<{ hostname: string; status: string }>>,
 ): Array<string> {
   return [
-    ...domains.filter((domain) => domain.status === 'active').map((d) => `https://${d.hostname}`),
+    ...domains.flatMap((domain) =>
+      domain.status === 'active' ? [`https://${domain.hostname}`] : [],
+    ),
     `https://${platformProjectHostname(project, readPlatformApplication(env))}`,
   ];
 }

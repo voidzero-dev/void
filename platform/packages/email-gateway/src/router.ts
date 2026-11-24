@@ -66,9 +66,9 @@ export interface AuthoritativeEmailRoute {
 
 /** Shared-domain names a reply or forward may be sent from: the slug and the email alias. */
 function mailboxNames(route: AuthoritativeEmailRoute): ReadonlyArray<string> {
-  const names = [route.slug, route.alias, route.mailbox]
-    .filter((name): name is string => typeof name === 'string')
-    .map((name) => name.toLowerCase());
+  const names = [route.slug, route.alias, route.mailbox].flatMap((name) =>
+    typeof name === 'string' ? [name.toLowerCase()] : [],
+  );
   return [...new Set(names)];
 }
 

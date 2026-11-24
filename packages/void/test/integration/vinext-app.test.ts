@@ -156,13 +156,17 @@ export default defineConfig({
         convertV4MiniflareOptions({
           compatibilityDate: config.compatibility_date,
           compatibilityFlags: config.compatibility_flags,
-          modules: modulePaths
-            .filter((path) => /\.(?:js|mjs)$/.test(path))
-            .map((path) => ({
-              type: 'ESModule',
-              path: join(serverDir, path),
-              contents: files.get(path)!,
-            })),
+          modules: modulePaths.flatMap((path) =>
+            /\.(?:js|mjs)$/.test(path)
+              ? [
+                  {
+                    type: 'ESModule',
+                    path: join(serverDir, path),
+                    contents: files.get(path)!,
+                  },
+                ]
+              : [],
+          ),
           modulesRoot: serverDir,
           d1Databases: ['DB'],
           kvNamespaces: ['KV'],

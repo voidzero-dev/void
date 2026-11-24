@@ -32,11 +32,15 @@ class GatedR2 {
 
   async list({ prefix }: { prefix: string }) {
     return {
-      objects: [...this.objects.keys()]
-        .filter((key) => key.startsWith(prefix))
-        .map((key) => ({
-          key,
-        })),
+      objects: [...this.objects.keys()].flatMap((key) =>
+        key.startsWith(prefix)
+          ? [
+              {
+                key,
+              },
+            ]
+          : [],
+      ),
       truncated: false,
     };
   }

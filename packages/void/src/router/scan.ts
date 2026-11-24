@@ -34,14 +34,18 @@ export type MiddlewareDefinition = {
 
 function parseMiddlewareDefinitions(files: Array<string>): Array<MiddlewareDefinition> {
   return files
-    .filter((f) => !f.startsWith('_'))
-    .map((f) => {
+    .flatMap((f) => {
+      if (f.startsWith('_')) {
+        return [];
+      }
       const basename = f.split('/').pop()!;
       const match = basename.match(/^(\d+)\./);
-      return {
-        order: match ? Number.parseInt(match[1], 10) : Infinity,
-        filePath: f,
-      };
+      return [
+        {
+          order: match ? Number.parseInt(match[1], 10) : Infinity,
+          filePath: f,
+        },
+      ];
     })
     .sort((a, b) => a.order - b.order);
 }

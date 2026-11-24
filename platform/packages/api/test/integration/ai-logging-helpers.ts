@@ -50,9 +50,9 @@ export function recordAiLoggingWrites(kv: KVNamespace): () => Array<string> {
   const put = vi.spyOn(kv, 'put');
   const remove = vi.spyOn(kv, 'delete');
   return () =>
-    [...put.mock.calls, ...remove.mock.calls]
-      .map(([key]) => key)
-      .filter((key) => key.startsWith(PREFIX));
+    [...put.mock.calls, ...remove.mock.calls].flatMap(([key]) =>
+      key.startsWith(PREFIX) ? [key] : [],
+    );
 }
 
 /** Writes a key the way the platform publishes it. */

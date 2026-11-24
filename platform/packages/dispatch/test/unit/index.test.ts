@@ -186,8 +186,10 @@ function createEnv(options: {
       },
       list: async (opts: { prefix: string; limit?: number }) => {
         const all = [...kvStore.keys()]
-          .map((key) => `isr-cache/${key}`)
-          .filter((key) => key.startsWith(opts.prefix))
+          .flatMap((key) => {
+            const mappedKey = `isr-cache/${key}`;
+            return mappedKey.startsWith(opts.prefix) ? [mappedKey] : [];
+          })
           .sort();
         const limit = opts.limit ?? 1000;
         const slice = all.slice(0, limit);

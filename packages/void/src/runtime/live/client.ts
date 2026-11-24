@@ -268,9 +268,9 @@ export function connectLiveStream(
         resubscribeWithNextFlush = false;
         const pendingIds = new Set(operations.map((operation) => operation.id));
         operations = [
-          ...[...subscriptions.values()]
-            .filter((subscription) => !pendingIds.has(subscription.id))
-            .map(subscribeOperation),
+          ...[...subscriptions.values()].flatMap((subscription) =>
+            !pendingIds.has(subscription.id) ? [subscribeOperation(subscription)] : [],
+          ),
           ...operations,
         ];
       }

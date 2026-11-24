@@ -2300,15 +2300,19 @@ export async function runBuild(deps = {}) {
       cfAccessClientId && cfAccessClientSecret
         ? JSON.stringify(
             Object.fromEntries(
-              [apiUrl, proxyUrl]
-                .filter((url) => url !== undefined && url !== '')
-                .map((url) => [
-                  new URL(/** @type {string} */ (url)).origin,
-                  {
-                    CF_ACCESS_CLIENT_ID: cfAccessClientId,
-                    CF_ACCESS_CLIENT_SECRET: cfAccessClientSecret,
-                  },
-                ]),
+              [apiUrl, proxyUrl].flatMap((url) =>
+                url !== undefined && url !== ''
+                  ? [
+                      [
+                        new URL(/** @type {string} */ (url)).origin,
+                        {
+                          CF_ACCESS_CLIENT_ID: cfAccessClientId,
+                          CF_ACCESS_CLIENT_SECRET: cfAccessClientSecret,
+                        },
+                      ],
+                    ]
+                  : [],
+              ),
             ),
           )
         : undefined;

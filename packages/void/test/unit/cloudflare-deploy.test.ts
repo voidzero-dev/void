@@ -4636,12 +4636,12 @@ describe('runCloudflareDeploy — secrets gate', () => {
 
     expect(explicitBootstrapProof).not.toBe(true);
     expect(
-      operations
-        .map((operation) => operation.type)
-        .filter(
-          (type) =>
-            type !== 'auth.whoami' && type !== 'deployments.status' && type !== 'versions.list',
-        ),
+      operations.flatMap((operation) => {
+        const type = operation.type;
+        return type !== 'auth.whoami' && type !== 'deployments.status' && type !== 'versions.list'
+          ? [type]
+          : [];
+      }),
     ).toEqual(['versions.upload', 'worker.deploy', 'triggers.deploy', 'triggers.clear-crons']);
     expect(active).toBe(next);
   });
@@ -5031,7 +5031,7 @@ describe('runCloudflareDeploy — Cloudflare queue names', () => {
   }
 
   const queueInfoArgs = (wranglerArgs: Array<Array<string>>) =>
-    wranglerArgs.filter((a) => a[0] === 'queues' && a[1] === 'info').map((a) => a[2]);
+    wranglerArgs.flatMap((a) => (a[0] === 'queues' && a[1] === 'info' ? [a[2]] : []));
 
   it('names a new queue after the Worker and reads the account before the build', async () => {
     const root = queueProject();
@@ -11924,9 +11924,9 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
       addresses: ['support@mail.acme.com'],
       vars: { __VOID_EMAIL_FROM: 'noreply@mail.acme.com' },
     });
-    expect(
-      setupFetchCalls.filter((call) => call.method !== 'GET').map((call) => call.method),
-    ).toEqual(['POST', 'PATCH']);
+    expect(setupFetchCalls.flatMap((call) => (call.method !== 'GET' ? [call.method] : []))).toEqual(
+      ['POST', 'PATCH'],
+    );
     const afterSetup = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
 
     const baseDns = emailDns();

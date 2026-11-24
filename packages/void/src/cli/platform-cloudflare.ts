@@ -1569,18 +1569,19 @@ export class PlatformCloudflareClient {
         break;
       }
     }
-    return entries
-      .filter(
-        (entry) =>
-          !(Array.isArray(entry.matchers) ? entry.matchers : []).some(
-            (matcher: unknown) => (matcher as { type?: unknown } | null)?.type === 'all',
-          ),
+    return entries.flatMap((entry) =>
+      !(Array.isArray(entry.matchers) ? entry.matchers : []).some(
+        (matcher: unknown) => (matcher as { type?: unknown } | null)?.type === 'all',
       )
-      .map((entry) => ({
-        // `tag` is the deprecated name of `id`.
-        id: requiredString(entry.id ?? entry.tag, 'Email Routing rule id'),
-        ...parseEmailRoutingTarget(entry),
-      }));
+        ? [
+            {
+              // `tag` is the deprecated name of `id`.
+              id: requiredString(entry.id ?? entry.tag, 'Email Routing rule id'),
+              ...parseEmailRoutingTarget(entry),
+            },
+          ]
+        : [],
+    );
   }
 
   async deleteEmailRoutingRule(zoneId: string, ruleId: string): Promise<void> {

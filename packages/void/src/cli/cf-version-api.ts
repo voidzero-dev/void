@@ -543,16 +543,16 @@ function localNamespaceBindings(
   className: string,
   workerName: string,
 ): Array<Json> {
-  return bindings
-    .map(object)
-    .filter(
-      (binding): binding is Json =>
-        binding?.type === 'durable_object_namespace' &&
-        binding.class_name === className &&
-        (binding.script_name === undefined || binding.script_name === workerName) &&
-        binding.environment === undefined &&
-        binding.dispatch_namespace === undefined,
-    );
+  return bindings.flatMap((item) => {
+    const binding = object(item);
+    return binding?.type === 'durable_object_namespace' &&
+      binding.class_name === className &&
+      (binding.script_name === undefined || binding.script_name === workerName) &&
+      binding.environment === undefined &&
+      binding.dispatch_namespace === undefined
+      ? [binding]
+      : [];
+  });
 }
 
 function assertContainerApplicationIdentity(

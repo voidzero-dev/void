@@ -137,10 +137,11 @@ function parseWebSocketFiles(
 ): Array<WebSocketRouteDefinition> {
   const routes = files
     .filter((f) => isWebSocketRouteFile(f))
-    .filter((filePath) =>
-      isRouteEnabledForEnvironment(parseWebSocketFilename(filePath), environment),
+    .flatMap((filePath) =>
+      isRouteEnabledForEnvironment(parseWebSocketFilename(filePath), environment)
+        ? [buildWebSocketRoute(root, filePath, paths)]
+        : [],
     )
-    .map((filePath) => buildWebSocketRoute(root, filePath, paths))
     .sort(compareRouteSpecificity);
   const byClass = new Map<string, Array<WebSocketRouteDefinition>>();
   for (const route of routes) {

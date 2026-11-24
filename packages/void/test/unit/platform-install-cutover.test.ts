@@ -227,13 +227,17 @@ async function createFakeCloudflare() {
       };
     };
   const list = (kind: string, name?: string) =>
-    [...(named.get(kind) ?? new Map<string, string>())]
-      .filter(([entry]) => name === undefined || entry === name)
-      .map(([entry, id]) => ({
-        id,
-        name: entry,
-        ...(kind === 'r2' ? { fingerprint: '2026-10-01T00:00:00.000Z' } : {}),
-      }));
+    [...(named.get(kind) ?? new Map<string, string>())].flatMap(([entry, id]) =>
+      name === undefined || entry === name
+        ? [
+            {
+              id,
+              name: entry,
+              ...(kind === 'r2' ? { fingerprint: '2026-10-01T00:00:00.000Z' } : {}),
+            },
+          ]
+        : [],
+    );
   const plainTextBindings = async (_account: string, name: string) => {
     const entry = workers.get(name);
     const active = entry?.deployments[0]?.versions[0]?.version_id;
@@ -274,9 +278,9 @@ async function createFakeCloudflare() {
     }),
     getWorkerPlainTextBindings: plainTextBindings,
     listKvKeys: async (_account: string, namespace: string, prefix: string) =>
-      [...kv.keys()]
-        .filter((key) => key.startsWith(`${namespace}/${prefix}`))
-        .map((key) => ({ name: key.slice(namespace.length + 1) })),
+      [...kv.keys()].flatMap((key) =>
+        key.startsWith(`${namespace}/${prefix}`) ? [{ name: key.slice(namespace.length + 1) }] : [],
+      ),
     listWorkerDomains: async () => [],
     listWorkerNames: async () => [...workers.keys()],
     listWorkerRoutes: async () => [],

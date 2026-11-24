@@ -541,8 +541,6 @@ const config = defineConfig({
       'no-console': 'off',
       // Operator-facing errors often map provider failures to sanitized messages. Review nested causes for safe logging before attaching them.
       'preserve-caught-error': 'off',
-      // Keep eager callbacks and array index semantics in existing filters and maps. Iterator rewrites need their own compatibility and behavior review.
-      'quality/no-array-filter-map': 'off',
       // SDK adapters and test doubles use staged assertions across mismatched framework and mock types. Tighten those contracts separately.
       'quality/no-chained-type-assertions': 'off',
       // Conditional spreads are used to omit optional config and manifest keys. Preserve omission and property order in follow-up refactors.
