@@ -2,6 +2,7 @@ import { resolveEffectiveLayoutEntries } from './layout-resolution.ts';
 import type { PageBoundaryDefinition, PageScanResult } from './types.ts';
 
 export type BoundaryPlan = {
+  serverView?: boolean;
   id: string;
   componentId: string;
   filePath: string;
@@ -36,9 +37,15 @@ export function createBoundaryManifest(scan: PageScanResult): BoundaryManifest {
   const layoutKey = (id: string) => (pageIds.has(id) ? id.replace(/(^|\/)([^/]+)$/, '$1_$2') : id);
   for (const page of scan.pages) {
     const directory = page.componentPath.split('/').slice(0, -1).join('/');
-    const layouts = resolveEffectiveLayoutEntries(page, scan.layouts, scan.namedLayouts);
+    const sameRenderer = (entry: { serverView?: boolean }) =>
+      Boolean(entry.serverView) === Boolean(page.serverView);
+    const layouts = resolveEffectiveLayoutEntries(
+      page,
+      scan.layouts.filter(sameRenderer),
+      scan.namedLayouts.filter(sameRenderer),
+    );
     const candidates = (scan.boundaries ?? [])
-      .filter((b) => encloses(b.directory, directory))
+      .filter((b) => sameRenderer(b) && encloses(b.directory, directory))
       .sort((a, b) => b.directory.length - a.directory.length);
     const add = (boundary: PageBoundaryDefinition) => {
       const retained = layouts
@@ -66,18 +73,24 @@ export function createBoundaryManifest(scan: PageScanResult): BoundaryManifest {
       })),
     };
   }
-  const root = scan.boundaries?.find((b) => b.kind === 'not-found' && !b.directory);
+  const root =
+    scan.boundaries?.find((b) => b.kind === 'not-found' && !b.directory && b.serverView) ??
+    scan.boundaries?.find((b) => b.kind === 'not-found' && !b.directory);
   if (root) {
-    const id = `_void:boundary:root-not-found:${JSON.stringify(scan.layouts.filter((l) => !l.directory).map((l) => l.filePath))}`;
+    const rootLayouts = scan.layouts.filter(
+      (l) => !l.directory && Boolean(l.serverView) === Boolean(root.serverView),
+    );
+    const id = `_void:boundary:root-not-found:${JSON.stringify(rootLayouts.map((l) => l.filePath))}`;
     plans[id] = {
       id,
       ...root,
       source: id,
-      layouts: scan.layouts
-        .filter((l) => !l.directory)
-        .map((l) => layoutKey(l.directory ? l.directory + '/layout' : 'layout')),
+      layouts: rootLayouts.map((l) => layoutKey(l.directory ? l.directory + '/layout' : 'layout')),
     };
-    const error = scan.boundaries?.find((b) => b.kind === 'error' && !b.directory);
+    const error = scan.boundaries?.find(
+      (b) =>
+        b.kind === 'error' && !b.directory && Boolean(b.serverView) === Boolean(root.serverView),
+    );
     const rootErrors: Array<string> = [];
     if (error) {
       const errorId = `_void:boundary:root-error:${id}`;

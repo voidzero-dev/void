@@ -514,4 +514,4 @@ export function defineQueue<T = unknown>(handler: QueueFn<T>): TypedQueueHandler
 export type { ValidatorSlots, HandlerInput } from './validator.ts';
 export { ValidationError } from '../../pages/validation-error.ts';
 export { defer } from '../../pages/defer.ts';
-export type { Deferred, InferProps } from '../../pages/defer.ts';
+export type { Deferred, InferProps, InferServerProps } from '../../pages/defer.ts';

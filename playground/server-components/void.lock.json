@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "source": {
+    "name": "void-server-components",
+    "compatibility_date": "2026-02-24"
+  },
+  "resolved": {
+    "compatibility_date": "2026-02-24",
+    "name": "void-server-components"
+  },
+  "text": "{\n  \"compatibility_date\": \"2026-02-24\",\n  \"name\": \"void-server-components\"\n}\n"
+}

@@ -1279,6 +1279,57 @@ describe('handlePageMutation', () => {
 });
 
 describe('handlePageGet with deferred props', () => {
+  it.each(['GET', 'POST'])(
+    'resolves server view deferred props before head and rendering on %s',
+    async (method) => {
+      const c = await createTestContext(method, '/');
+      const grouped = vi.fn(async () => ({ first: 'one', second: 'two' }));
+      const loader = vi.fn(() => ({
+        title: defer(async () => 'Resolved title'),
+        first: defer('pair', grouped),
+        second: defer('pair', grouped),
+      }));
+      const head = vi.fn((_c: CloudContext, props: Record<string, unknown>) => ({
+        title: String(props.title),
+      }));
+      const render = vi.fn(async () => '<main>Server page</main>');
+      const assets = async () => ({ css: '', preloads: '', body: '' });
+      const options = { serverView: true };
+      const response =
+        method === 'GET'
+          ? await handlePageGet(loader, head, c, 'index', render, assets, undefined, options)
+          : await handlePageMutation(
+              () => undefined,
+              loader,
+              head,
+              c,
+              'index',
+              render,
+              assets,
+              undefined,
+              options,
+            );
+
+      expect(await response.text()).toBe('<main>Server page</main>');
+      expect(loader).toHaveBeenCalledTimes(1);
+      expect(grouped).toHaveBeenCalledTimes(1);
+      expect(head).toHaveBeenCalledWith(c, {
+        title: 'Resolved title',
+        first: 'one',
+        second: 'two',
+      });
+      expect(render).toHaveBeenCalledWith(
+        expect.objectContaining({
+          props: head.mock.calls[0][1],
+          head: expect.objectContaining({ title: 'Resolved title' }),
+        }),
+        expect.anything(),
+        expect.anything(),
+        c,
+      );
+    },
+  );
+
   it('SPA — streams NDJSON with immediate props first, then deferred', async () => {
     const c = await createTestContext('GET', '/dashboard', {
       headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },

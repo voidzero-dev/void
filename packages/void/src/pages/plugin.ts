@@ -65,9 +65,17 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
   const normalizedPagesDir = normalizePath(pagesDir);
   let pendingRescan: Promise<void> | null = null;
   async function rescanPages(): Promise<void> {
-    pageScan = existsSync(pagesDir)
+    const scan = existsSync(pagesDir)
       ? await scanPages(root, { pagesDir, environment: isDev ? 'dev' : 'prod' })
       : null;
+    pageScan = scan && {
+      pages: scan.pages.filter((page) => !page.serverView),
+      layouts: scan.layouts.filter((layout) => !layout.serverView),
+      namedLayouts: scan.namedLayouts.filter((layout) => !layout.serverView),
+      ...(scan.boundaries && {
+        boundaries: scan.boundaries.filter((boundary) => !boundary.serverView),
+      }),
+    };
   }
 
   function runRescan(): Promise<void> {

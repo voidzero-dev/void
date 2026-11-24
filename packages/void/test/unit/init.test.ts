@@ -165,7 +165,7 @@ describe('init scaffold arguments', () => {
       deploy: undefined,
     });
     expect(() => parseInitArgs(['--framework', 'angular'])).toThrow(
-      'init: --framework must be one of react, vue, svelte, solid.',
+      'init: --framework must be one of none, react, vue, svelte, solid.',
     );
   });
 
@@ -199,7 +199,7 @@ describe('init scaffold arguments', () => {
     try {
       Object.defineProperty(process.stdin, 'isTTY', { configurable: true, get: () => false });
       await expect(runInitCommand(root, parseInitArgs(['--toolchain', 'vite']))).rejects.toThrow(
-        'init: Pass --framework (react, vue, svelte, solid) when running without an interactive terminal.',
+        'init: Pass --framework (none, react, vue, svelte, solid) when running without an interactive terminal.',
       );
       expect(mockSelect).not.toHaveBeenCalled();
       expect(readdirSync(root)).toEqual([]);
@@ -2374,6 +2374,11 @@ describe('isScaffoldableEmptyProject', () => {
       expect(frameworkPrompt.message).toBe('Choose a Pages framework to scaffold:');
       expect(frameworkPrompt.options).toEqual([
         {
+          value: 'none',
+          label: 'None',
+          hint: 'Server-rendered JSX Pages without a framework adapter.',
+        },
+        {
           value: 'react',
           label: 'React',
           hint: 'TSX Pages starter with the React adapter.',
@@ -2419,6 +2424,32 @@ describe('isScaffoldableEmptyProject', () => {
           hint: 'No database or server starter files yet. Good for content sites; add Void features later.',
         },
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('scaffolds built-in JSX Pages with --framework none', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      await runInitCommand(root, {
+        tsconfig: false,
+        github: false,
+        toolchain: 'vite',
+        framework: 'none',
+        starter: 'static',
+        deploy: 'none',
+        git: false,
+      });
+
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      expect(pkg.devDependencies['@void/react']).toBeUndefined();
+      expect(readFileSync(join(root, 'pages/index.server.tsx'), 'utf-8')).toContain(
+        'export default function Page',
+      );
+      expect(readFileSync(join(root, 'tsconfig.json'), 'utf-8')).toContain(
+        '"jsxImportSource": "void/jsx"',
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -71,6 +71,17 @@ function warnPageSettings(pagesDir: string, warnings: ReadonlyArray<string>): vo
   }
 }
 
+function hasServerViewExport(pagesDir: string, file: string): boolean {
+  return deriveFromSource(join(pagesDir, file), 'server-view-default', (source) =>
+    parseSync(file, source).module.staticExports.some(({ entries }) =>
+      entries.some(
+        ({ isType, exportName }) =>
+          !isType && (exportName.kind === 'Default' || exportName.name === 'default'),
+      ),
+    ),
+  );
+}
+
 type PageRenderingSource = {
   componentPath: string;
   island?: boolean;
@@ -346,8 +357,10 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     return { pages: [], layouts: [], namedLayouts: [] };
   }
 
-  const pattern = `**/*.{${COMPONENT_EXTENSIONS.join(',')}}`;
-  const files = await glob(pattern, { cwd: pagesDir, absolute: false });
+  const files = await glob(
+    [`**/*.{${COMPONENT_EXTENSIONS.join(',')}}`, `**/*.server.{${ROUTE_EXTENSIONS.join(',')}}`],
+    { cwd: pagesDir, absolute: false },
+  );
 
   const pages: Array<PageDefinition> = [];
   const layouts: Array<LayoutDefinition> = [];
@@ -357,9 +370,28 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
   // Glob traversal order can vary between identical scans. Keep layout inventories stable too.
   for (const file of files.sort()) {
     const segments = file.split('/');
-    const boundary = /^_(error|not-found)(?:\.(dev|prod))?(\.island)?\.(tsx|jsx|vue|svelte)$/.exec(
-      segments.at(-1)!,
-    );
+    const ext = extname(file);
+    const stem = basename(file, ext);
+    const serverView = stem.endsWith('.server') && ROUTE_EXTENSIONS_SET.has(ext);
+    let base = serverView ? stem.slice(0, -'.server'.length) : stem;
+    if (serverView) {
+      if (options?.checkRoutes === false || base.endsWith('.island')) {
+        continue;
+      }
+      const environment = /\.(dev|prod)$/.exec(base)?.[1];
+      if (options?.environment && environment && environment !== options.environment) {
+        continue;
+      }
+      if (
+        (base.startsWith('_') && !/^_not-found(?:\.(?:dev|prod))?$/.test(base)) ||
+        !hasServerViewExport(pagesDir, file)
+      ) {
+        continue;
+      }
+    }
+    const boundary =
+      (serverView || /\.(tsx|jsx|vue|svelte)$/.test(file)) &&
+      /^_(error|not-found)(?:\.(dev|prod))?(\.island)?$/.exec(base);
     if (boundary && !segments.slice(0, -1).some((segment) => segment.startsWith('_'))) {
       const env = boundary[2] as RouteEnvironment | undefined;
       if (options?.environment && env && env !== options.environment) {
@@ -368,7 +400,14 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       const base = file.slice(0, -extname(file).length);
       if (
         boundary[3] ||
-        ROUTE_EXTENSIONS.some((ext) => existsSync(join(pagesDir, `${base}.server.${ext}`))) ||
+        (!serverView &&
+          ROUTE_EXTENSIONS.some((ext) => {
+            const candidate = `${base}.server.${ext}`;
+            return (
+              existsSync(join(pagesDir, candidate)) &&
+              (boundary[1] === 'error' || !hasServerViewExport(pagesDir, candidate))
+            );
+          })) ||
         deriveFromSource(join(pagesDir, file), 'page-boundary-layout', (source) =>
           scriptBlocks(source, file).some((script) =>
             readStaticExports(script.filename, script.source, new Set(['layout'])).initializers.has(
@@ -387,6 +426,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
         if (
           prior.directory === directory &&
           prior.kind === boundary[1] &&
+          Boolean(prior.serverView) === serverView &&
           (!env || !priorEnv || env === priorEnv)
         ) {
           throw new Error(`pages: Ambiguous boundary files '${prior.filePath}' and '${file}'.`);
@@ -397,17 +437,12 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
         directory,
         componentId: base,
         filePath: file,
+        ...(serverView && { serverView }),
       });
       continue;
     }
     // Skip files starting with _ in any segment (except _layouts/)
     if (segments.some((s) => s.startsWith('_') && s !== '_layouts')) {
-      continue;
-    }
-
-    const ext = extname(file);
-    let base = basename(file, ext);
-    if (base.endsWith('.server') && ROUTE_EXTENSIONS_SET.has(ext)) {
       continue;
     }
 
@@ -434,6 +469,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
           directory: segments.slice(0, layoutsDirIdx).join('/'),
           filePath: file,
           island,
+          ...(serverView && { serverView }),
         });
       }
       continue;
@@ -445,6 +481,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
         directory: dir === '.' ? '' : dir,
         filePath: file,
         island,
+        ...(serverView && { serverView }),
       });
       continue;
     }
@@ -452,17 +489,19 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     // Page files — parse as route
     // Convert component extensions to .ts so the route parser handles them uniformly.
     // Strip .island suffix before parsing so route patterns are clean.
-    const parseName = hasIslandSuffix
-      ? file.replace(`.island${ext}`, '.ts')
-      : file.replace(ext, '.ts');
+    const parseName = serverView
+      ? file.slice(0, -`.server${ext}`.length) + '.ts'
+      : hasIslandSuffix
+        ? file.replace(`.island${ext}`, '.ts')
+        : file.replace(ext, '.ts');
     const route = parseRouteFilename(parseName);
     // Skip pages for the other environment before reading their companion.
     if (!isRouteEnabledForEnvironment(route, options?.environment)) {
       continue;
     }
+    const viewStem = file.slice(0, -(serverView ? `.server${ext}` : ext).length);
     const componentId =
-      file
-        .replace(ext, '')
+      viewStem
         .replace(/\.island$/, '')
         .replace(/\/index$/, '')
         .replace(/^index$/, '') || 'index';
@@ -474,10 +513,10 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     let prerender: ExplicitBoolean;
     let ssr: ExplicitBoolean;
     let hasGetPrerenderPaths: boolean | undefined;
-    const serverBase = hasIslandSuffix ? file.replace(`.island${ext}`, '') : file.replace(ext, '');
+    const serverBase = viewStem.replace(/\.island$/, '');
     for (const serverExt of ROUTE_EXTENSIONS) {
       const candidate = `${serverBase}.server.${serverExt}`;
-      if (existsSync(join(pagesDir, candidate))) {
+      if (serverView ? candidate === file : existsSync(join(pagesDir, candidate))) {
         serverPath = candidate;
 
         const metadata = deriveFromSource(join(pagesDir, candidate), 'page-server', (source) =>
@@ -507,6 +546,9 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       },
       options,
     );
+    if (serverView && ssr === false) {
+      throw new Error(`pages: Server component '${file}' cannot set ssr = false.`);
+    }
 
     // Prerender → max revalidate (applies to all pages)
     if (rendering.shouldPrerender && revalidate === undefined) {
@@ -537,6 +579,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       params: route.params,
       catchAll: route.catchAll,
       componentPath: file,
+      ...(serverView && { serverView }),
       serverPath,
       methods,
       componentId,
@@ -569,7 +612,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
 
   // Validate: throw when regular pages are under island layouts
   for (const page of pages) {
-    if (page.island) {
+    if (page.island || page.serverView) {
       continue;
     }
     const dir = dirname(page.componentPath);
@@ -599,9 +642,16 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       }
       continue;
     }
-    if (!resolveNamedLayout(name, page.componentId, namedLayouts, page.componentPath)) {
+    if (
+      !resolveNamedLayout(
+        name,
+        page.componentId,
+        namedLayouts.filter((l) => Boolean(l.serverView) === Boolean(page.serverView)),
+        page.componentPath,
+      )
+    ) {
       throw new Error(
-        `pages: Page '${page.componentPath}' specifies layout '${page.layout}', but _layouts/${name}.vue was not found in any ancestor directory.`,
+        `pages: Page '${page.componentPath}' specifies layout '${page.layout}', but ${page.serverView ? `_layouts/${name}.server.*` : `_layouts/${name}.vue`} was not found in any ancestor directory.`,
       );
     }
   }
