@@ -575,6 +575,7 @@ const config = defineConfig({
       'typescript/no-unsafe-return': 'off',
       // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',
+      // Awaiting within catch and finally paths changes when failure handling and cleanup run. Review those paths with targeted tests.
       'typescript/return-await': 'off',
       'typescript/unbound-method': 'off',
       'typescript/use-unknown-in-catch-callback-variable': 'off',
