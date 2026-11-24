@@ -591,6 +591,7 @@ const config = defineConfig({
       'unicorn/prefer-import-meta-properties': 'off',
       // Code generators and CLI output accumulate lines across distinct steps. Preserve staging and evaluation order before merging pushes.
       'unicorn/prefer-single-call': 'off',
+      // Manifest and pack fixtures use JSON round trips for JSON serialization semantics, including dropped undefined keys.
       'unicorn/prefer-structured-clone': 'off',
       'unicorn/prefer-top-level-await': 'off',
       '@typescript-eslint/array-type': [
