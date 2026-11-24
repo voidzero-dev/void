@@ -745,7 +745,7 @@ const dispatcher = {
       });
     }
 
-    const routing: RoutingEntry = JSON.parse(routingRaw);
+    const routing = JSON.parse(routingRaw) as RoutingEntry;
     if (selected.projectId && selected.projectId !== routing.projectId) {
       return createErrorResponse(request, 404, 'Not Found');
     }

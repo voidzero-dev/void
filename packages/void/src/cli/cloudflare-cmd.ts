@@ -61,8 +61,8 @@ function formatSession(root: string, session: CloudflareAuthSession): string {
   if (overrides.length > 0) {
     lines.push(`Environment credentials: ${overrides.join(', ')}`);
   }
-  lines.push('Accessible accounts:');
   lines.push(
+    'Accessible accounts:',
     ...(session.accounts.length > 0
       ? session.accounts.map((account) => `  ${account.name} (${account.id})`)
       : ['  No accessible accounts were returned.']),

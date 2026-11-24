@@ -527,7 +527,13 @@ export function voidDbBundlerPlugin(
         const resolved = await this.resolve(id, importer, {
           ...resolveOptions,
           skipSelf: true,
-          custom: { ...custom, 'node-resolve': { ...custom?.['node-resolve'], isRequire: true } },
+          custom: {
+            ...custom,
+            'node-resolve': {
+              ...(custom?.['node-resolve'] as Record<string, unknown> | undefined),
+              isRequire: true,
+            },
+          },
         });
         const entry =
           resolved && !resolved.external

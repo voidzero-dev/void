@@ -1007,6 +1007,7 @@ describe('POST /projects/:id/deploy', () => {
     });
     expect(uploadCall).toBeDefined();
     const uploadUrl =
+      // oxlint-disable-next-line typescript/no-unsafe-call -- The upload spy records a string or a byte buffer for the local request.
       typeof uploadCall![0] === 'string' ? uploadCall![0] : uploadCall![0].toString();
     expect(uploadUrl).toContain(
       `/accounts/${CF_ACCOUNT_ID}/workers/dispatch/namespaces/void-users/scripts/user-worker-app-dpl_`,
@@ -5437,6 +5438,7 @@ describe('ambiguous go-live commit outcomes', () => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           return (async (fn: any) =>
             realTransaction(async (tx) => {
+              // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the transaction callback provided to this partial database mock.
               const result = await fn(tx);
               const [lockedProject] = await tx
                 .select({ activeDeploymentId: projects.active_deployment_id })

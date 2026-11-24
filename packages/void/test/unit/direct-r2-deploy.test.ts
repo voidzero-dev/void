@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import type { DeployManifest } from '../../src/cli/types.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 

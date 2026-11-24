@@ -1,5 +1,6 @@
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import { createCodeChallenge } from '../../src/cli/auth.ts';
 import { PlatformApiError } from '../../src/cli/client.ts';
 import type { GithubInstallation, PlatformClient } from '../../src/cli/client.ts';
@@ -114,11 +115,11 @@ function driveConnect(opts: {
   };
 }
 
-let exitSpy: ReturnType<typeof vi.spyOn>;
-let successSpy: ReturnType<typeof vi.spyOn>;
-let errorSpy: ReturnType<typeof vi.spyOn>;
-let messageSpy: ReturnType<typeof vi.spyOn>;
-let infoSpy: ReturnType<typeof vi.spyOn>;
+let exitSpy: MockInstance;
+let successSpy: MockInstance;
+let errorSpy: MockInstance;
+let messageSpy: MockInstance;
+let infoSpy: MockInstance;
 const originalIsTTY = process.stdin.isTTY;
 
 beforeEach(() => {
@@ -549,8 +550,11 @@ describe('runConnect — member repo prompt (redacted repository list)', () => {
       await promise;
 
       const repoPrompt = mockText.mock.calls[0]![0];
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(repoPrompt.validate('')).toBeUndefined();
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(repoPrompt.validate(' ')).toBe('Enter the repository as owner/repo.');
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(repoPrompt.validate('another/project')).toBeUndefined();
       for (const [index, suggestion] of [
         [0, repoFullName],

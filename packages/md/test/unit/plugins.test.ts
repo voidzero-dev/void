@@ -17,6 +17,7 @@ function clickCopy(lines: Array<string>, writeText: (text: string) => unknown): 
   });
   let onClick: ((event: { target: unknown }) => void) | undefined;
   const body = CODE_COPY_SCRIPT.slice('<script>'.length, -'</script>'.length);
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   new Function('window', 'document', 'navigator', 'Element', 'setTimeout', body)(
     {},
     {

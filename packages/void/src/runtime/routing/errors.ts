@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import { renderDefaultErrorPage } from './error-pages/index.ts';
+import type { RuntimeEnvironment } from './worker.ts';
 
 type ErrorPageStatus = 404 | 500;
 
@@ -240,7 +241,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
       const structured: unknown = error.stack;
       if (Array.isArray(structured)) {
         const frames = [];
-        for (const callSite of structured) {
+        for (const callSite of structured as Array<NodeJS.CallSite>) {
           try {
             const fileName = callSite.getFileName?.() || callSite.getScriptNameOrSourceURL?.();
             const line = callSite.getLineNumber?.();
@@ -608,7 +609,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
     error?: unknown,
   ): Promise<Response> {
     try {
-      const assets = c.env?.ASSETS;
+      const assets = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
       if (assets && typeof assets.fetch === 'function') {
         const request = new Request(new URL('/' + status + '.html', c.req.url));
         const response: Response = await assets.fetch(request);
@@ -647,7 +648,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
         'getResponse' in error &&
         typeof error.getResponse === 'function'
       ) {
-        return error.getResponse() as Response;
+        return (error.getResponse as () => Response)();
       }
       console.error(error);
       return serveCustomPage(c, 500, 'Internal Server Error', error);

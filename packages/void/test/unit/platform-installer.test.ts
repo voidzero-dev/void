@@ -30,6 +30,7 @@ import {
 import type { PlatformRuntimeDatabaseManifest } from '@void/platform/installer';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import type { AiLoggingProjectionKv } from '../../src/cli/platform-ai-logging-projection.ts';
 import { PlatformCloudflareApiError } from '../../src/cli/platform-cloudflare.ts';
 import {

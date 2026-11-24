@@ -56,7 +56,6 @@ type SveltePluginApi = {
     sourcemap?: unknown,
   ) => Promise<{ compiled: CompileResult }>;
 };
-type SvelteConfigPlugin = Plugin & { api?: SveltePluginApi };
 
 export function islandsPlugin(
   pagesDir: string,
@@ -246,8 +245,8 @@ export function islandsPlugin(
             ? id.slice(0, -'.css?island-style'.length)
             : id.slice(0, id.indexOf('?'));
           const api = resolvedConfig?.plugins.find(
-            (plugin): plugin is SvelteConfigPlugin => plugin.name === 'vite-plugin-svelte:config',
-          )?.api;
+            (plugin) => plugin.name === 'vite-plugin-svelte:config',
+          )?.api as SveltePluginApi | undefined;
           if (typeof api?.compileSvelte !== 'function' || typeof api.idParser !== 'function') {
             this.error(
               'Svelte island page styles need the @sveltejs/vite-plugin-svelte version that @void/svelte depends on.',

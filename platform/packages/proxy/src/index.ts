@@ -275,7 +275,11 @@ app.post('/*', async (context, next) => {
       path === '/r2/get')
   ) {
     context.res = new Response(
-      guardHumanStream(context.res.body, revalidateHuman, context.req.raw.signal),
+      guardHumanStream(
+        context.res.body as ReadableStream<Uint8Array>,
+        revalidateHuman,
+        context.req.raw.signal,
+      ),
       context.res,
     );
   }

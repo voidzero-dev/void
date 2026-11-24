@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deployArtifactDigest } from '@void/deploy-core';
 import { beforeEach, afterEach, it, expect, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { prepareDeployArtifact } from '../../src/deploy.ts';
 
 let root: string;

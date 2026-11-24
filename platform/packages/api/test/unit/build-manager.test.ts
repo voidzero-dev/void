@@ -7219,7 +7219,9 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     const text = await res.text();
 
     // If broken: ~12.6 MB, six times the cap it claims to honour.
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MAX_LOG_RESPONSE_BYTES);
+    expect((Buffer as BufferConstructor).byteLength(text)).toBeLessThanOrEqual(
+      MAX_LOG_RESPONSE_BYTES,
+    );
     const body = JSON.parse(text) as { lines: Array<{ seq: number }>; hasMore: boolean };
     // Still makes progress, and still reports the remainder.
     expect(body.lines.length).toBeGreaterThan(0);
@@ -7744,7 +7746,7 @@ describe('build-agent log buffer is bounded', () => {
     // units. Counting code units here would let the ring hold up to 6x this on the
     // wire, which no longer fits what one drain can fetch.
     const retained = buf.reduce(
-      (sum, entry) => sum + Buffer.byteLength(JSON.stringify(entry)) + 1,
+      (sum, entry) => sum + (Buffer as BufferConstructor).byteLength(JSON.stringify(entry)) + 1,
       0,
     );
     expect(retained).toBeLessThanOrEqual(MAX_BUFFERED_LOG_BYTES);
@@ -7778,7 +7780,7 @@ describe('build-agent log buffer is bounded', () => {
     }
 
     const wire = getBufferedLogLines().reduce(
-      (sum, entry) => sum + Buffer.byteLength(JSON.stringify(entry)) + 1,
+      (sum, entry) => sum + (Buffer as BufferConstructor).byteLength(JSON.stringify(entry)) + 1,
       0,
     );
     // If broken: ~6x the cap, because only code units were counted.

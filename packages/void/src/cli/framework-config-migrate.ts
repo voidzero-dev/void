@@ -95,8 +95,13 @@ function walk(root: Expression): Array<Expression> {
     result.push(node);
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) {
-        for (const child of value) {
-          if (child && typeof child === 'object' && typeof child.type === 'string') {
+        for (const child of value as Array<unknown>) {
+          if (
+            child &&
+            typeof child === 'object' &&
+            'type' in child &&
+            typeof child.type === 'string'
+          ) {
             pending.push(child as Expression);
           }
         }

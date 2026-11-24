@@ -5,7 +5,7 @@ import { delimiter, dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 
 const script = resolve(import.meta.dirname, '../scripts/refresh-access-token.mjs');
-const jwt = `header.${Buffer.from(JSON.stringify({ exp: 4_102_444_800 })).toString('base64url')}.test`;
+const jwt = `header.${(Buffer as BufferConstructor).from(JSON.stringify({ exp: 4_102_444_800 })).toString('base64url')}.test`;
 let root: string;
 
 beforeEach(() => {

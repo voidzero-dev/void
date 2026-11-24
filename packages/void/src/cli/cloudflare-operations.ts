@@ -397,16 +397,21 @@ export function parseCloudflareVersions(value: unknown): Array<CloudflareWorkerV
   if (!Array.isArray(parsed)) {
     throw new Error('Cloudflare version list returned an unexpected response.');
   }
-  return parsed.map((entry, index) => {
-    if (typeof entry !== 'object' || entry === null || typeof entry.id !== 'string') {
+  return (parsed as Array<unknown>).map((entry, index) => {
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      !('id' in entry) ||
+      typeof entry.id !== 'string'
+    ) {
       throw new Error(`Cloudflare version list entry ${index + 1} is malformed.`);
     }
     const metadata =
-      typeof entry.metadata === 'object' && entry.metadata !== null
+      'metadata' in entry && typeof entry.metadata === 'object' && entry.metadata !== null
         ? (entry.metadata as Record<string, unknown>)
         : undefined;
     const annotations =
-      typeof entry.annotations === 'object' && entry.annotations !== null
+      'annotations' in entry && typeof entry.annotations === 'object' && entry.annotations !== null
         ? (entry.annotations as Record<string, unknown>)
         : undefined;
     const message =
@@ -429,7 +434,7 @@ export function parseActiveVersionId(value: unknown): string | null {
   if (!Array.isArray(deployment.versions)) {
     throw new Error('Cloudflare deployment status returned an unexpected response.');
   }
-  const versions = deployment.versions;
+  const versions = deployment.versions as Array<unknown>;
   const active = versions.find(
     (entry) =>
       typeof entry === 'object' &&

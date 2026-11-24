@@ -4293,6 +4293,7 @@ describe('POST /projects — owner email destination auto-add', () => {
                 }
                 return (...args: Array<unknown>) => {
                   observe(textOf(args[0]));
+                  // oxlint-disable-next-line typescript/no-unsafe-call -- The proxy delegates the original method to its receiver with the fixture arguments.
                   return value.apply(target, args);
                 };
               },

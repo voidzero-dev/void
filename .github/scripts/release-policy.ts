@@ -60,7 +60,7 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
     .flatMap(({ name }) => {
       const manifest = JSON.parse(
         readFileSync(new URL(`${encodeURIComponent(name)}/package.json`, root), 'utf8'),
-      );
+      ) as { private?: boolean; name: string; version: string };
       return manifest.private ? [] : [{ name: manifest.name, version: manifest.version }];
     });
   const result = releasePolicy(process.env.GITHUB_REF_NAME ?? '', packages);

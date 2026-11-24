@@ -50,6 +50,7 @@ function compileNativeScheduled(jobsDir: string, load: LoadJob): Scheduled {
     code.indexOf('const job0Crons'),
     code.indexOf('const __scheduledHandler'),
   );
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(
     'load',
     source.replace('export async function', 'async function').replaceAll('import(', 'load(') +
@@ -73,7 +74,16 @@ it('authenticates framework cron HTTP requests while leaving native events usabl
     queues: [],
     crons: [{ name: 'job', filePath: 'job.mjs', crons: ['* * * * *'] }],
   });
-  const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+  const { default: worker } = (await import(pathToFileURL(join(root, 'index.mjs')).href)) as {
+    default: {
+      fetch(request: Request, env: object, context: object): Promise<Response>;
+      scheduled(
+        controller: { cron: string; scheduledTime: number },
+        env: object,
+        context: object,
+      ): Promise<void>;
+    };
+  };
   const request = (token?: string) =>
     new Request('https://public.example/__void/scheduled', {
       method: 'POST',

@@ -1099,9 +1099,9 @@ describe('Cloudflare version activation', () => {
       modules: [
         {
           ...voidSecretDraftVersion().modules[0],
-          content_base64: Buffer.from(
-            'export default { fetch() { return new Response("real app"); } };',
-          ).toString('base64'),
+          content_base64: (Buffer as BufferConstructor)
+            .from('export default { fetch() { return new Response("real app"); } };')
+            .toString('base64'),
         },
       ],
     });
@@ -5060,9 +5060,9 @@ describe('Cloudflare trigger synchronization recovery', () => {
           {
             name: 'index.js',
             content_type: 'application/javascript+module',
-            content_base64: Buffer.from('export default { fetch() { return app(); } };\n').toString(
-              'base64',
-            ),
+            content_base64: (Buffer as BufferConstructor)
+              .from('export default { fetch() { return app(); } };\n')
+              .toString('base64'),
           },
         ],
       },

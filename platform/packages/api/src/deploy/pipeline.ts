@@ -653,7 +653,11 @@ export async function runDeploymentPipeline(input: {
           if (size === null || size === undefined) {
             throw new Error('Approved asset has conflicting sizes.');
           }
-          const verified = await computeAssetStreamHashes(object.body, paths, size);
+          const verified = await computeAssetStreamHashes(
+            object.body as ReadableStream<Uint8Array>,
+            paths,
+            size,
+          );
           if (verified.size !== size || verified.hashes.some((value) => value !== hash)) {
             emit({
               event: 'error',

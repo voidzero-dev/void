@@ -780,7 +780,7 @@ export function registerSharedClientTests({
         async function assertState(data: typeof edited, dirty: boolean) {
           await expect
             .poll(async () => ({
-              data: JSON.parse((await form.getByTestId('values').textContent())!),
+              data: JSON.parse((await form.getByTestId('values').textContent())!) as unknown,
               dirty: await form.getByTestId('dirty').textContent(),
             }))
             .toEqual({ data, dirty: String(dirty) });

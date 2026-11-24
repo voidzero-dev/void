@@ -54,7 +54,7 @@ function mergeConfig(previous: unknown, resolved: unknown, authored: unknown): u
           ? mergeConfig(previousByIdentity.get(identity), resolvedByIdentity.get(identity), item)
           : item;
       }),
-      ...resolved.filter((item) => {
+      ...(resolved as Array<unknown>).filter((item) => {
         const identity = arrayIdentity(item);
         return !previousByIdentity.has(identity) && !authoredIdentities.has(identity);
       }),

@@ -65,6 +65,7 @@ async function generate(resolved: Record<string, unknown>, command: 'build' | 's
 async function readiness(entry: string, env: Record<string, unknown>): Promise<Response> {
   const source = entry.match(/const __voidFetch = (__createWorkerFetch\([\s\S]*?\n {2}\}\));/)?.[1];
   expect(source).toBeDefined();
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   const fetch = new Function(
     '__createWorkerFetch',
     'app',

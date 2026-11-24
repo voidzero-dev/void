@@ -911,10 +911,12 @@ describe('readConfig redirects', () => {
 
   it('schema.json revalidate key pattern matches runtime validation', () => {
     const schema = JSON.parse(readFileSync(join(import.meta.dirname, '../../schema.json'), 'utf8'));
-    const objectForm = schema.properties.routing.properties.revalidate.oneOf.find(
-      (s: { type?: string }) => s.type === 'object',
-    );
-    const keyPattern = new RegExp(Object.keys(objectForm.patternProperties)[0]);
+    const forms = schema.properties.routing.properties.revalidate.oneOf as Array<{
+      type?: string;
+      patternProperties?: Record<string, unknown>;
+    }>;
+    const objectForm = forms.find((form) => form.type === 'object')!;
+    const keyPattern = new RegExp(Object.keys(objectForm.patternProperties!)[0]);
 
     for (const key of ['*', '/x', '/docs/*']) {
       expect(keyPattern.test(key)).toBe(true);

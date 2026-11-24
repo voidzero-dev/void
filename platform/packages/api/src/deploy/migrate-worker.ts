@@ -98,7 +98,7 @@ export async function migrateDeploymentWorker(input: {
               return undefined;
             }
             try {
-              const data = JSON.parse(text);
+              const data = JSON.parse(text) as Record<string, unknown>;
               if (data.ready === true) {
                 return true;
               }

@@ -10,6 +10,7 @@ import {
 } from '@void/platform/installer';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { describe, expect, it } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { loadPlatformRuntime } from '../../src/cli/platform-installer.ts';
 
 describe('platform runtime manifest', () => {

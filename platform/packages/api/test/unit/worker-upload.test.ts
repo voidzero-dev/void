@@ -394,9 +394,9 @@ describe('workerUploadBody', () => {
     }
     expect(failure).toBeInstanceOf(WorkerModuleIntegrityError);
     expect(upload.failure()).toBe(failure);
-    const text = Buffer.from(concat(received)).toString('latin1');
+    const text = (Buffer as BufferConstructor).from(concat(received)).toString('latin1');
     for (const bytes of contents.slice(0, 3)) {
-      expect(text).toContain(Buffer.from(bytes).toString('latin1'));
+      expect(text).toContain((Buffer as BufferConstructor).from(bytes).toString('latin1'));
     }
     const boundary = upload.contentType.split('boundary=')[1]!;
     expect(text).not.toContain(`--${boundary}--`);

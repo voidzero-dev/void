@@ -287,10 +287,10 @@ export async function prepareInstallationAppAccess(input: {
       );
     }
     identityProviderIds = input.checkpoint.appAccessIdentityProviderIds
-      ? JSON.parse(input.checkpoint.appAccessIdentityProviderIds)
+      ? (JSON.parse(input.checkpoint.appAccessIdentityProviderIds) as Array<string>)
       : ((reuse ? setupSpec?.identityProviderIds : undefined) ?? file?.identityProviderIds ?? []);
     policyIds = input.checkpoint.appAccessPolicyIds
-      ? JSON.parse(input.checkpoint.appAccessPolicyIds)
+      ? (JSON.parse(input.checkpoint.appAccessPolicyIds) as Array<string>)
       : ((reuse ? setupSpec?.policyIds : undefined) ?? file?.policyIds ?? []);
     if (!identityProviderIds.length) {
       if (!process.stdin.isTTY) {

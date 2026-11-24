@@ -8,6 +8,7 @@ import { chromium } from 'playwright';
 import { build } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { analyzeApplication } from '../../src/application-routing.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { createProjectTsconfig } from '../../src/codegen/project-tsconfig.ts';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { readConfig } from '../../src/config.ts';

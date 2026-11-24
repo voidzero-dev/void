@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   buildFrameworkManifest,
   buildStaticManifest,
