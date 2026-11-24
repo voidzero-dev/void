@@ -277,6 +277,11 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // Tests dispatch methods on partial runtime mocks with explicit receivers.
+        files: ['**/test/**/*'],
+        rules: { 'quality/no-reflect-apply': 'off' },
+      },
+      {
         // These string scans test for substrings and delimiters.
         files: ['packages/edge/src/pattern.ts', 'platform/packages/api/container/build-agent.mjs'],
         rules: { 'unicorn/prefer-set-has': 'off' },
@@ -498,7 +503,6 @@ const config = defineConfig({
       'quality/no-conditional-empty-object-spread': 'off',
       'quality/no-known-value-widening': 'off',
       'quality/no-object-parameters': 'off',
-      'quality/no-reflect-apply': 'off',
       'quality/no-reflect-get': 'off',
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
