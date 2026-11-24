@@ -277,6 +277,18 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // Void uses empty defaults in public route and binding types and their test fixtures.
+        files: [
+          'platform/packages/api/src/admin/fate/client.generated.ts',
+          'playground/**/env.d.ts',
+          'packages/void/src/routes-stub.ts',
+          'packages/void/src/runtime/{queues,handler,auth,ws}/index.ts',
+          'packages/void/src/runtime/client/{fetch,fetch-stream}.ts',
+          'packages/void/test/unit/{route-type-extraction,ws-room,fetch,fetch-stream.test,fetch.test,fetch.typecheck,ws-room.typecheck,route-type-extraction.typecheck}.ts',
+        ],
+        rules: { 'typescript/no-empty-object-type': 'off' },
+      },
+      {
         // The footer uses the current year when rendering the default copyright notice.
         files: ['platform/packages/dashboard/ui/components/oss/FooterNav.tsx'],
         rules: { 'react/purity': 'off' },
@@ -475,7 +487,6 @@ const config = defineConfig({
       'quality/no-widen-then-assert': 'off',
       'react/set-state-in-effect': 'off',
       'typescript/await-thenable': 'off',
-      'typescript/no-empty-object-type': 'off',
       'typescript/no-misused-spread': 'off',
       'typescript/no-non-null-assertion': 'off',
       'typescript/no-unnecessary-type-assertion': 'off',
