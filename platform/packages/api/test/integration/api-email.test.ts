@@ -457,7 +457,7 @@ describe('POST /projects/:id/email/destinations', () => {
     const res = await addDestination(project.id, user.jwt, 'Owner@Example.com');
 
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { address: string; status: string };
+    const body = await res.json<{ address: string; status: string }>();
     // Address is lowercased on insert.
     expect(body.address).toBe('owner@example.com');
     expect(body.status).toBe('pending');
@@ -480,13 +480,13 @@ describe('POST /projects/:id/email/destinations', () => {
     expect(first.status).toBe(201);
     // CF created the address for this request and is mailing the link: the
     // "nothing sent" marker must NOT appear on a real create.
-    expect((await first.json()) as { verificationSent?: boolean }).not.toHaveProperty(
+    expect(await first.json<{ verificationSent?: boolean }>()).not.toHaveProperty(
       'verificationSent',
     );
 
     const second = await addDestination(project.id, user.jwt, 'a@b.com', emailEnv());
     expect(second.status).toBe(200);
-    expect(((await second.json()) as { verificationSent?: boolean }).verificationSent).toBe(false);
+    expect((await second.json<{ verificationSent?: boolean }>()).verificationSent).toBe(false);
 
     // CF is touched once — the duplicate is fully short-circuited, so the
     // recipient gets one verification email rather than one per click.
@@ -558,7 +558,7 @@ describe('POST /projects/:id/email/destinations', () => {
 
       const res = await addDestination(project.id, user.jwt, 'r5@example.com');
       expect(res.status).toBe(429);
-      expect((await res.json()) as { error: string }).toEqual({
+      expect(await res.json<{ error: string }>()).toEqual({
         error: expect.stringMatching(/per minute|limit/i),
       });
     } finally {
@@ -579,7 +579,7 @@ describe('POST /projects/:id/email/destinations', () => {
 
     const res = await addDestination(project.id, user.jwt, 'over-the-cap@example.com');
     expect(res.status).toBe(429);
-    expect((await res.json()) as { error: string }).toEqual({
+    expect(await res.json<{ error: string }>()).toEqual({
       error: expect.stringMatching(/today|day/i),
     });
   });
@@ -676,7 +676,7 @@ describe('GET /projects/:id/email/destinations', () => {
 
     const res = await listDestinations(project.id, user.jwt);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ address: string; status: string }>;
+    const body = await res.json<Array<{ address: string; status: string }>>();
     expect(body).toHaveLength(1);
     expect(body[0]?.status).toBe('verified');
 
@@ -695,7 +695,7 @@ describe('GET /projects/:id/email/destinations', () => {
 
     const res = await listDestinations(project.id, user.jwt);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ address: string; status: string }>;
+    const body = await res.json<Array<{ address: string; status: string }>>();
     expect(body).toHaveLength(1);
     expect(body[0]?.status).toBe('pending');
   });
@@ -723,7 +723,7 @@ describe('GET /projects/:id/email/destinations', () => {
 
     const res = await listDestinations(project.id, user.jwt);
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ status: string; verification_source: string }>;
+    const list = await res.json<Array<{ status: string; verification_source: string }>>();
     expect(list[0]?.status).toBe('pending');
     expect(list[0]?.verification_source).toBe('platform');
     expect(await readVerifiedDestinations(project.id)).toEqual([]);
@@ -790,11 +790,11 @@ describe('GET refresh against a recreated Cloudflare destination', () => {
       emailEnv(),
     );
     expect(addedA.status).toBe(201);
-    const rowA = (await addedA.json()) as {
+    const rowA = await addedA.json<{
       id: string;
       status: string;
       verification_source: string;
-    };
+    }>();
     expect(rowA.status).toBe('pending');
     expect(rowA.verification_source).toBe('cf');
     expect((await rowsFor(projectA.id))[0]?.cf_destination_id).toBe(tagT1);
@@ -811,11 +811,11 @@ describe('GET refresh against a recreated Cloudflare destination', () => {
       emailEnv(),
     );
     expect(addedB.status).toBe(201);
-    const rowB = (await addedB.json()) as {
+    const rowB = await addedB.json<{
       id: string;
       status: string;
       verification_source: string;
-    };
+    }>();
     expect(rowB.status).toBe('pending');
     expect(rowB.verification_source).toBe('cf');
     expect((await rowsFor(projectB.id))[0]?.cf_destination_id).toBe(tagT2);
@@ -845,7 +845,7 @@ describe('GET refresh against a recreated Cloudflare destination', () => {
     // B registered T2: the click is B's.
     const listedB = await listDestinations(projectB.id, owner.jwt, emailEnv());
     expect(listedB.status).toBe(200);
-    const bodyB = (await listedB.json()) as Array<{ status: string }>;
+    const bodyB = await listedB.json<Array<{ status: string }>>();
     expect(bodyB[0]?.status).toBe('verified');
     expect(await readVerifiedDestinations(projectB.id)).toEqual(['alice@example.com']);
 
@@ -853,7 +853,7 @@ describe('GET refresh against a recreated Cloudflare destination', () => {
     // allowlist, and says why once.
     const listedA = await listDestinations(projectA.id, owner.jwt, emailEnv());
     expect(listedA.status).toBe(200);
-    const bodyA = (await listedA.json()) as Array<{ status: string; verification_source: string }>;
+    const bodyA = await listedA.json<Array<{ status: string; verification_source: string }>>();
     expect(bodyA).toHaveLength(1);
     expect(bodyA[0]?.status).toBe('pending');
     expect(bodyA[0]?.verification_source).toBe('cf');
@@ -866,9 +866,9 @@ describe('GET refresh against a recreated Cloudflare destination', () => {
       String(call[0]).includes('[email] destination tag mismatch'),
     );
     expect(mismatchLines).toHaveLength(1);
-    expect(String(mismatchLines[0]![0])).toContain(rowA.id);
-    expect(String(mismatchLines[0]![0])).toContain(tagT1);
-    expect(String(mismatchLines[0]![0])).toContain(tagT2);
+    expect(String(mismatchLines[0][0])).toContain(rowA.id);
+    expect(String(mismatchLines[0][0])).toContain(tagT1);
+    expect(String(mismatchLines[0][0])).toContain(tagT2);
   });
 
   it("adopts the recreated tag for the project owner's OWN address, with the inherited-consent audit", async () => {
@@ -888,7 +888,7 @@ describe('GET refresh against a recreated Cloudflare destination', () => {
 
     const listedA = await listDestinations(projectA.id, owner.jwt, emailEnv());
     expect(listedA.status).toBe(200);
-    const bodyA = (await listedA.json()) as Array<{ status: string; verification_source: string }>;
+    const bodyA = await listedA.json<Array<{ status: string; verification_source: string }>>();
     expect(bodyA[0]?.status).toBe('verified');
     expect(bodyA[0]?.verification_source).toBe('cf');
     expect(await readVerifiedDestinations(projectA.id)).toEqual(['owner@example.com']);
@@ -925,28 +925,28 @@ describe('GET refresh against a recreated Cloudflare destination', () => {
     expect(removed.status).toBe(200);
     const deletes = cfCalls(fetchMock, 'DELETE', '/email/routing/addresses');
     expect(deletes).toHaveLength(1);
-    expect(String(deletes[0]![0])).toContain(tagT1);
+    expect(String(deletes[0][0])).toContain(tagT1);
     expect(await rowsFor(projectA.id)).toHaveLength(0);
 
     const readded = await addDestination(projectA.id, owner.jwt, 'alice@example.com', emailEnv());
     expect(readded.status).toBe(201);
-    const body = (await readded.json()) as {
+    const body = await readded.json<{
       status: string;
       verification_source: string;
       platformVerificationPending?: boolean;
-    };
+    }>();
     expect(body.status).toBe('pending');
     expect(body.verification_source).toBe('platform');
     expect(body.platformVerificationPending).toBe(true);
     const sends = recordedVerificationSends();
     expect(sends).toHaveLength(1);
-    expect(sends[0]!.to).toBe('alice@example.com');
+    expect(sends[0].to).toBe('alice@example.com');
     expect((await rowsFor(projectA.id))[0]?.cf_destination_id).toBe(tagT2);
 
     // And the refresh keeps its hands off a platform-pending row.
     const listed = await listDestinations(projectA.id, owner.jwt, emailEnv());
     expect(listed.status).toBe(200);
-    expect(((await listed.json()) as Array<{ status: string }>)[0]?.status).toBe('pending');
+    expect((await listed.json<Array<{ status: string }>>())[0]?.status).toBe('pending');
     expect(await readVerifiedDestinations(projectA.id)).toEqual([]);
   });
 });
@@ -972,7 +972,7 @@ describe('DELETE /projects/:id/email/destinations/:destId', () => {
     const project = await createTestProject(env.db, owner.id);
     mockCfApi();
     const created = await addDestination(project.id, owner.jwt, 'a@b.com');
-    const dest = (await created.json()) as { id: string };
+    const dest = await created.json<{ id: string }>();
 
     const res = await removeDestination(project.id, dest.id, intruder.jwt);
 
@@ -1017,7 +1017,7 @@ describe('DELETE /projects/:id/email/destinations/:destId', () => {
     const project = await createTestProject(env.db, user.id);
     mockCfApi();
     const created = await addDestination(project.id, user.jwt, 'a@b.com');
-    const dest = (await created.json()) as { id: string };
+    const dest = await created.json<{ id: string }>();
     await env.db.update(projects).set({ status: 'deleting' }).where(eq(projects.id, project.id));
 
     const res = await removeDestination(project.id, dest.id, user.jwt);
@@ -1041,7 +1041,7 @@ describe('DELETE /projects/:id/email/destinations/:destId', () => {
     mockCfApi();
 
     const created = await addDestination(projectA.id, user.jwt, 'a@b.com');
-    const dest = (await created.json()) as { id: string };
+    const dest = await created.json<{ id: string }>();
 
     // Same owner, wrong project in the path — must 404, not delete.
     const res = await removeDestination(projectB.id, dest.id, user.jwt);
@@ -1060,7 +1060,7 @@ describe('DELETE /projects/:id/email/destinations/:destId', () => {
     const fetchMock = mockCfApi();
 
     const created = await addDestination(project.id, user.jwt, 'a@b.com');
-    const dest = (await created.json()) as { id: string };
+    const dest = await created.json<{ id: string }>();
 
     const res = await removeDestination(project.id, dest.id, user.jwt);
     expect(res.status).toBe(200);
@@ -1086,7 +1086,7 @@ describe('DELETE /projects/:id/email/destinations/:destId', () => {
     const aRows = await rowsFor(projectA.id);
     expect(aRows[0]?.cf_destination_id).toBe('cf-tag-shared@example.com');
 
-    const res = await removeDestination(projectA.id, aRows[0]!.id, user.jwt);
+    const res = await removeDestination(projectA.id, aRows[0].id, user.jwt);
     expect(res.status).toBe(200);
 
     expect(cfCalls(fetchMock, 'DELETE', '/email/routing/addresses/')).toHaveLength(0);
@@ -1099,7 +1099,7 @@ describe('DELETE /projects/:id/email/destinations/:destId', () => {
     const project = await createTestProject(env.db, user.id);
     mockCfApi();
     const created = await addDestination(project.id, user.jwt, 'a@b.com');
-    const dest = (await created.json()) as { id: string };
+    const dest = await created.json<{ id: string }>();
 
     mockCfApi({ deleteEmailDestination: () => cfError('CF outage', 500) });
 
@@ -1141,7 +1141,7 @@ describe('DELETE /projects/:id/email/destinations/:destId', () => {
     const second = await createTestProject(env.db, user.id, 'second-tag-owner');
     mockCfApi();
     const created = await addDestination(first.id, user.jwt, 'stale@example.com');
-    const destination = (await created.json()) as { id: string };
+    const destination = await created.json<{ id: string }>();
     expect((await removeDestination(first.id, destination.id, user.jwt)).status).toBe(200);
 
     mockCfApi({
@@ -1168,7 +1168,7 @@ describe('DELETE /projects/:id/email/destinations/:destId', () => {
     const sibling = await createTestProject(env.db, user.id, 'sibling-tag-owner');
     mockCfApi();
     const created = await addDestination(deleting.id, user.jwt, 'racing@example.com');
-    const destination = (await created.json()) as { id: string };
+    const destination = await created.json<{ id: string }>();
 
     let siblingStatus: number | undefined;
     mockCfApi({
@@ -1254,7 +1254,7 @@ describe('per-project verification (Option C + Option B)', () => {
     const res = await addDestination(project.id, user.jwt, 'owner@example.com', emailEnv());
 
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { status: string; verification_source: string };
+    const body = await res.json<{ status: string; verification_source: string }>();
     expect(body.status).toBe('verified');
     expect(body.verification_source).toBe('cf');
 
@@ -1289,11 +1289,11 @@ describe('per-project verification (Option C + Option B)', () => {
 
     const res = await addDestination(project.id, user.jwt, 'shared@example.com', emailEnv());
     expect(res.status).toBe(201);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       status: string;
       verification_source: string;
       platformVerificationPending?: boolean;
-    };
+    }>();
     expect(body.status).toBe('pending');
     expect(body.verification_source).toBe('platform');
     expect(body.platformVerificationPending).toBe(true);
@@ -1303,10 +1303,10 @@ describe('per-project verification (Option C + Option B)', () => {
 
     const sends = recordedVerificationSends();
     expect(sends).toHaveLength(1);
-    expect(sends[0]!.to).toBe('shared@example.com');
+    expect(sends[0].to).toBe('shared@example.com');
     // The sender is derived from the CONFIGURED domain, never a literal.
-    expect(sends[0]!.from).toBe(`noreply@${MAIL_DOMAIN}`);
-    expect(sends[0]!.text).toContain('/email/destinations/confirm?token=');
+    expect(sends[0].from).toBe(`noreply@${MAIL_DOMAIN}`);
+    expect(sends[0].text).toContain('/email/destinations/confirm?token=');
   });
 
   it('Option B: does NOT populate the audit columns (consent was per-recipient)', async () => {
@@ -1345,11 +1345,11 @@ describe('per-project verification (Option C + Option B)', () => {
 
     const res = await addDestination(project.id, user.jwt, 'shared@example.com', emailEnv());
     expect(res.status).toBe(201);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       status: string;
       verification_source: string;
       platformVerificationPending?: boolean;
-    };
+    }>();
     expect(body.status).toBe('pending');
     expect(body.verification_source).toBe('platform');
     expect(body.platformVerificationPending).toBe(true);
@@ -1357,7 +1357,7 @@ describe('per-project verification (Option C + Option B)', () => {
     // Our own link is the only one the recipient can receive for this project.
     const sends = recordedVerificationSends();
     expect(sends).toHaveLength(1);
-    expect(sends[0]!.to).toBe('shared@example.com');
+    expect(sends[0].to).toBe('shared@example.com');
 
     // The recipient now clicks the link CF sent for the OTHER project. That
     // consent is not ours to claim: the row stays pending and the proxy keeps
@@ -1365,10 +1365,10 @@ describe('per-project verification (Option C + Option B)', () => {
     cfVerifiedAt = '2026-04-28T00:00:00Z';
     const listed = await listDestinations(project.id, user.jwt, emailEnv());
     expect(listed.status).toBe(200);
-    const rows = (await listed.json()) as Array<{ status: string; verification_source: string }>;
+    const rows = await listed.json<Array<{ status: string; verification_source: string }>>();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.status).toBe('pending');
-    expect(rows[0]!.verification_source).toBe('platform');
+    expect(rows[0].status).toBe('pending');
+    expect(rows[0].verification_source).toBe('platform');
     expect(await readVerifiedDestinations(project.id)).toEqual([]);
   });
 
@@ -1390,12 +1390,12 @@ describe('per-project verification (Option C + Option B)', () => {
 
     const res = await addDestination(project.id, user.jwt, 'owner@example.com', emailEnv());
     expect(res.status).toBe(201);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       status: string;
       verification_source: string;
       verificationSent?: boolean;
       platformVerificationPending?: boolean;
-    };
+    }>();
     expect(body.status).toBe('pending');
     // Not Option B: the owner's own address needs no per-project consent,
     // and CF's click is the one that unlocks the send binding.
@@ -1446,7 +1446,7 @@ describe('per-project verification (Option C + Option B)', () => {
 
     const added = await addDestination(second.id, user.jwt, 'owner@example.com', emailEnv());
     expect(added.status).toBe(201);
-    const addedBody = (await added.json()) as { id: string; verificationSent?: boolean };
+    const addedBody = await added.json<{ id: string; verificationSent?: boolean }>();
     expect(addedBody.verificationSent).toBe(false);
 
     // Sibling still lists the address: the CF address survives the DELETE...
@@ -1457,7 +1457,7 @@ describe('per-project verification (Option C + Option B)', () => {
     // ...so the re-add adopts it again, and says so again.
     const readded = await addDestination(second.id, user.jwt, 'owner@example.com', emailEnv());
     expect(readded.status).toBe(201);
-    const readdedBody = (await readded.json()) as { id: string; verificationSent?: boolean };
+    const readdedBody = await readded.json<{ id: string; verificationSent?: boolean }>();
     expect(readdedBody.verificationSent).toBe(false);
 
     // Drop the sibling's row too, then the recipe works: DELETE reaches CF,
@@ -1469,7 +1469,7 @@ describe('per-project verification (Option C + Option B)', () => {
     expect(cfCalls(fetchMock, 'DELETE', '/email/routing/addresses')).toHaveLength(1);
     const fresh = await addDestination(second.id, user.jwt, 'owner@example.com', emailEnv());
     expect(fresh.status).toBe(201);
-    expect((await fresh.json()) as { verificationSent?: boolean }).not.toHaveProperty(
+    expect(await fresh.json<{ verificationSent?: boolean }>()).not.toHaveProperty(
       'verificationSent',
     );
     expect((await rowsFor(second.id))[0]?.cf_destination_id).toBe('cf-tag-owner-2');
@@ -1513,7 +1513,7 @@ describe('per-project verification (Option C + Option B)', () => {
 
     const sends = recordedVerificationSends();
     expect(sends).toHaveLength(1);
-    expect(sends[0]!.to).toBe('shared@example.com');
+    expect(sends[0].to).toBe('shared@example.com');
     expect(await rowsFor(project.id)).toHaveLength(1);
   });
 
@@ -1544,18 +1544,18 @@ describe('per-project verification (Option C + Option B)', () => {
     deliveryFails = false;
     const second = await addDestination(project.id, user.jwt, 'shared@example.com', emailEnv());
     expect(second.status).toBe(200);
-    const body = (await second.json()) as {
+    const body = await second.json<{
       status: string;
       verification_source: string;
       platformVerificationPending?: boolean;
-    };
+    }>();
     expect(body.status).toBe('pending');
     expect(body.verification_source).toBe('platform');
     expect(body.platformVerificationPending).toBe(true);
 
     const sends = recordedVerificationSends();
     expect(sends).toHaveLength(2);
-    expect(sends[1]!.to).toBe('shared@example.com');
+    expect(sends[1].to).toBe('shared@example.com');
     expect(cfCalls(fetchMock, 'POST', '/email/routing/addresses')).toHaveLength(1);
     expect(await rowsFor(project.id)).toHaveLength(1);
   });
@@ -1590,7 +1590,7 @@ describe('per-project verification (Option C + Option B)', () => {
     expect(retry.status).toBe(200);
     const sends = recordedVerificationSends();
     expect(sends).toHaveLength(1);
-    expect(sends[0]!.to).toBe('shared@example.com');
+    expect(sends[0].to).toBe('shared@example.com');
     expect(await rowsFor(project.id)).toHaveLength(1);
   });
 
@@ -1640,7 +1640,7 @@ describe('POST /projects — owner destination auto-add', () => {
 
     const res = await createProject(user.jwt, 'email-autoadd-inherited', emailEnv());
     expect(res.status).toBe(201);
-    const project = (await res.json()) as { id: string };
+    const project = await res.json<{ id: string }>();
 
     const rows = await rowsFor(project.id);
     expect(rows).toHaveLength(1);
@@ -1662,7 +1662,7 @@ describe('POST /projects — owner destination auto-add', () => {
 
     const res = await createProject(user.jwt, 'email-autoadd-fresh', emailEnv());
     expect(res.status).toBe(201);
-    const project = (await res.json()) as { id: string };
+    const project = await res.json<{ id: string }>();
 
     const rows = await rowsFor(project.id);
     expect(rows).toHaveLength(1);
@@ -1685,7 +1685,7 @@ describe('POST /projects — owner destination auto-add', () => {
     // allow-list a recipient for, so the auto-add stays inert.
     const res = await createProject(user.jwt, 'email-autoadd-nodomain', env);
     expect(res.status).toBe(201);
-    const project = (await res.json()) as { id: string };
+    const project = await res.json<{ id: string }>();
 
     expect(cfCalls(fetchMock, 'POST', '/email/routing/addresses')).toHaveLength(0);
     expect(await rowsFor(project.id)).toHaveLength(0);
@@ -1827,7 +1827,7 @@ describe('revokeOwnerVerifiedDestinationsForUserChange', () => {
 
     const res = await listDestinations(project.id, user.jwt);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ status: string; verification_source: string }>;
+    const body = await res.json<Array<{ status: string; verification_source: string }>>();
     expect(body[0]?.status).toBe('pending');
     expect(body[0]?.verification_source).toBe('platform');
 
@@ -2127,13 +2127,13 @@ describe('/email/destinations/confirm', () => {
     expect(added.status).toBe(201);
 
     const [send] = recordedVerificationSends();
-    const link = /https:\/\/\S*\/email\/destinations\/confirm\?token=(\S+)/.exec(send!.text);
-    expect(link, `no confirm link in the mail body:\n${send!.text}`).not.toBeNull();
+    const link = /https:\/\/\S*\/email\/destinations\/confirm\?token=(\S+)/.exec(send.text);
+    expect(link, `no confirm link in the mail body:\n${send.text}`).not.toBeNull();
 
     // Stop mocking fetch before the confirm request — nothing outbound is
     // expected on that path.
     vi.unstubAllGlobals();
-    const res = await confirm(decodeURIComponent(link![1]!));
+    const res = await confirm(decodeURIComponent(link![1]));
     expect(res.status).toBe(200);
 
     const rows = await rowsFor(project.id);
@@ -2232,7 +2232,7 @@ describe('PUT /projects/:id/email/alias', () => {
 
   async function storedAlias(projectId: string): Promise<string | null> {
     const [row] = await env.db.select().from(projects).where(eq(projects.id, projectId));
-    return row!.email_alias;
+    return row.email_alias;
   }
 
   async function seedAlias(projectId: string, alias: string): Promise<void> {
@@ -2426,7 +2426,7 @@ describe('PUT /projects/:id/email/alias', () => {
         EMAIL_SHARED_ACCOUNT_ID: env.CF_ACCOUNT_ID,
         EMAIL_SHARED_ZONE_ID: 'shared-zone',
         EMAIL_SHARED_INGRESS_NAME: 'native-gateway',
-      } as ApiEnv['Bindings'];
+      };
     }
 
     async function connectShared(config: NonNullable<Parameters<typeof stubCustomerCf>[0]> = {}) {
@@ -2468,7 +2468,7 @@ describe('PUT /projects/:id/email/alias', () => {
 
       const res = await setAlias(project.id, user.jwt, { alias: 'support-desk' }, sharedEnv());
       expect(res.status).toBe(409);
-      expect(((await res.json()) as { error: string }).error).toContain(
+      expect((await res.json<{ error: string }>()).error).toContain(
         `already routes support-desk@${SHARED_DOMAIN}`,
       );
       expect(await storedAlias(project.id)).toBeNull();
@@ -2584,7 +2584,7 @@ describe('GET /projects/:id/email/usage', () => {
     await env.ROUTING.put(`email-limit:${project.id}`, '-5');
 
     const res = await usage(project.id, user.jwt);
-    const body = (await res.json()) as { attempts: number; limit: number; remaining: number };
+    const body = await res.json<{ attempts: number; limit: number; remaining: number }>();
     expect(body.attempts).toBe(0);
     // A non-positive override is ignored in favour of the default.
     expect(body.limit).toBe(200);
@@ -2598,7 +2598,7 @@ describe('GET /projects/:id/email/usage', () => {
       .insert(emailMonthlyUsage)
       .values({ project_id: project.id, month: monthBucket(), recipient_attempts: 500 });
 
-    const body = (await (await usage(project.id, user.jwt)).json()) as { remaining: number };
+    const body = await (await usage(project.id, user.jwt)).json<{ remaining: number }>();
     expect(body.remaining).toBe(0);
   });
 });
@@ -2640,7 +2640,7 @@ describe('GET /projects/:id/email/logs', () => {
 
     const res = await logs(project.id, user.jwt);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { logs: Array<unknown> };
+    const body = await res.json<{ logs: Array<unknown> }>();
     expect(body.logs).toEqual([]);
   });
 });
@@ -2844,7 +2844,7 @@ describe('email platform capability', () => {
       capabilityEnv(false, emailEnv()),
     );
     expect(res.status).toBe(201);
-    const project = (await res.json()) as { id: string; owner_email_destination?: unknown };
+    const project = await res.json<{ id: string; owner_email_destination?: unknown }>();
     // The CLI prints this field to explain a verification email that may
     // follow; a platform that cannot send one must not announce it.
     expect(project.owner_email_destination).toBeUndefined();

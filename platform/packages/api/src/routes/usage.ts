@@ -227,7 +227,7 @@ async function queryProjectUsage(
     throw new Error(`Usage query failed with HTTP ${response.status}`);
   }
 
-  const result = (await response.json()) as { data: ReadonlyArray<AnalyticsRow> };
+  const result = await response.json<{ data: ReadonlyArray<AnalyticsRow> }>();
   const row = result.data?.[0];
   return {
     requests: Math.round(row?.requests ?? 0),
@@ -336,7 +336,7 @@ async function queryBatchProjectUsageWindows(
       }
       return new Map();
     }
-    const json = (await response.json()) as { data: ReadonlyArray<BatchAnalyticsRow> };
+    const json = await response.json<{ data: ReadonlyArray<BatchAnalyticsRow> }>();
     for (const row of json.data ?? []) {
       const previous = usage.get(row.blob1) ?? ZERO_USAGE;
       usage.set(row.blob1, {
@@ -370,7 +370,7 @@ export async function sumAiUsageForWindows(
       interval.end,
       true,
     );
-    totals[index]! += usage.neurons;
+    totals[index] += usage.neurons;
   });
   return totals;
 }
@@ -408,7 +408,7 @@ async function queryTopProjectTraffic(
     return [];
   }
 
-  const json = (await response.json()) as { data: ReadonlyArray<TopProjectTrafficRow> };
+  const json = await response.json<{ data: ReadonlyArray<TopProjectTrafficRow> }>();
   return (json.data ?? []).map((row) => ({
     projectId: row.blob1,
     requests: Math.round(row.requests ?? 0),
@@ -492,7 +492,7 @@ async function queryProjectRequestOverview(
       return overview;
     }
 
-    json = (await response.json()) as { data: ReadonlyArray<ProjectRequestOverviewRow> };
+    json = await response.json<{ data: ReadonlyArray<ProjectRequestOverviewRow> }>();
   } catch {
     return overview;
   }
@@ -634,7 +634,7 @@ async function queryProjectAiUsage(
 
   let result: AiGatewayResponse | null;
   try {
-    result = (await response.json()) as AiGatewayResponse | null;
+    result = await response.json<AiGatewayResponse | null>();
   } catch (error) {
     if (failOnError) {
       // oxlint-disable-next-line preserve-caught-error -- The upstream JSON parser error may contain response data.

@@ -35,9 +35,7 @@ describe('parseCacheFor', () => {
   });
 
   it('throws on invalid string', () => {
-    expect(() =>
-      parseCacheFor('invalid' as unknown as Parameters<typeof parseCacheFor>[0]),
-    ).toThrow('Invalid');
+    expect(() => parseCacheFor('invalid')).toThrow('Invalid');
   });
 });
 

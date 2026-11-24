@@ -259,7 +259,7 @@ export function createSsrRouter(
     },
   };
 
-  return router as VoidRouter;
+  return router;
 }
 
 // --- SSR proxy ---
@@ -363,7 +363,7 @@ export function createActionClient(
       throw new Error('action(): called before router initialization.');
     }
 
-    const options = args[0] as ActionOptions<U> | undefined;
+    const options = args[0];
     const data = options?.data;
     const method = options?.method || 'POST';
 

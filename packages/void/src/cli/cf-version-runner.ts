@@ -117,7 +117,7 @@ export async function pinActiveWorkerSecrets(options: {
   if (!record(worker) || (worker.env !== undefined && !record(worker.env))) {
     return false;
   }
-  const env = (worker.env ?? {}) as Record<string, unknown>;
+  const env = worker.env ?? {};
   for (const [name, value] of Object.entries(env)) {
     if (
       record(value) &&
@@ -620,8 +620,8 @@ export function createCfVersionRunner(options: {
           return failed('The Cloudflare Worker version history was not readable.');
         }
         if (second.versions.length > 0) {
-          const firstNumbers = versions.map((item) => item.number as number);
-          const secondNumbers = second.versions.map((item) => item.number as number);
+          const firstNumbers = versions.map((item) => item.number);
+          const secondNumbers = second.versions.map((item) => item.number);
           if (Math.min(...secondNumbers) > Math.max(...firstNumbers)) {
             versions.push(...second.versions);
             let last = Math.max(...secondNumbers);
@@ -636,7 +636,7 @@ export function createCfVersionRunner(options: {
               if (next.versions.length === 0) {
                 break;
               }
-              const numbers = next.versions.map((item) => item.number as number);
+              const numbers = next.versions.map((item) => item.number);
               if (Math.min(...numbers) <= last) {
                 return failed('The Cloudflare Worker version history changed during inspection.');
               }
@@ -656,7 +656,7 @@ export function createCfVersionRunner(options: {
       }
       return {
         ...first.result,
-        data: versions.sort((a, b) => (a.number as number) - (b.number as number)).slice(-10),
+        data: versions.sort((a, b) => a.number - b.number).slice(-10),
       };
     }
 

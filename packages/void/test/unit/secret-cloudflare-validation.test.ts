@@ -178,7 +178,7 @@ describe('direct Cloudflare secret validation', () => {
   it('exits non-zero when the put password prompt is cancelled', async () => {
     const root = project();
     defineEnv({ API_TOKEN: string() });
-    vi.mocked(password).mockResolvedValueOnce(CANCEL_SYMBOL as never);
+    vi.mocked(password).mockResolvedValueOnce(CANCEL_SYMBOL);
     const tty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
     const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {

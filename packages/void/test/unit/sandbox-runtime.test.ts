@@ -91,7 +91,7 @@ describe('Sandbox runtime', () => {
         });
         expect(await client.fetch(5173, request)).toBe(response);
         expect(invoke).not.toHaveBeenCalled();
-        const forwarded = fetch.mock.calls[0]![0] as Request;
+        const forwarded = fetch.mock.calls[0][0] as Request;
         expect(forwarded.url).toBe(request.url);
         expect(forwarded.headers.get('x-void-sandbox-port')).toBe('5173');
         expect(request.headers.has('x-void-sandbox-port')).toBe(false);
@@ -142,7 +142,7 @@ describe('Sandbox runtime', () => {
     await envContext.run({ __VOID_SANDBOX: { getSandbox: async () => c } }, async () => {
       const client = await getSandbox();
       await client.exec(['sleep', '10'], { signal: controller.signal });
-      const encoded = c.invoke.mock.calls[0]![1][1] as { abort: ReadableStream; signal?: unknown };
+      const encoded = c.invoke.mock.calls[0][1][1] as { abort: ReadableStream; signal?: unknown };
       expect(encoded.signal).toBeUndefined();
       const reader = encoded.abort.getReader();
       controller.abort();
@@ -167,8 +167,8 @@ describe('Sandbox runtime', () => {
               : client.files.readFile('/file', { signal: controller.signal }),
           ).rejects.toThrow('admission failed');
           expect(add).toHaveBeenCalledOnce();
-          expect(remove).toHaveBeenCalledWith('abort', add.mock.calls[0]![1]);
-          const args = invoke.mock.calls[0]![1];
+          expect(remove).toHaveBeenCalledWith('abort', add.mock.calls[0][1]);
+          const args = invoke.mock.calls[0][1];
           const encoded = args[operation === 'exec' ? 1 : 2] as { abort: ReadableStream };
           expect(await encoded.abort.getReader().read()).toEqual({ done: true, value: undefined });
         },

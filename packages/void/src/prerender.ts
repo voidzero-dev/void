@@ -142,7 +142,7 @@ export function buildPrerenderBindings(input: PrerenderBindingsInput): Record<st
       );
     }
     voidBindings.__VOID_PROXY_URL = input.voidProxyUrl;
-    const access = scopedAccessCredentials(input.accessEnv ?? {}, voidBindings.__VOID_PROXY_URL!);
+    const access = scopedAccessCredentials(input.accessEnv ?? {}, voidBindings.__VOID_PROXY_URL);
     if (access) {
       voidBindings.__VOID_ACCESS_CREDENTIALS = access;
     }

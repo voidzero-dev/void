@@ -44,7 +44,7 @@ export async function selectPlatformLoginMethod(
   }
   const provider =
     providers.length === 1
-      ? providers[0]!
+      ? providers[0]
       : await select({
           message: 'Choose a login provider:',
           options: methods.map(({ id, label }) => ({

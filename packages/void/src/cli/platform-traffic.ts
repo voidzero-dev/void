@@ -89,7 +89,7 @@ export function recordPlatformWorkerTraffic(
         `platform: Expected exactly one published Worker route for ${JSON.stringify(target.pattern)} and ${JSON.stringify(target.script)}.`,
       );
     }
-    const route = matches[0]!;
+    const route = matches[0];
     next = recordInstallationResource(
       next,
       {
@@ -113,7 +113,7 @@ export function recordPlatformWorkerTraffic(
         `platform: Expected exactly one published Worker custom domain for ${JSON.stringify(target.hostname)} and ${JSON.stringify(target.service)}.`,
       );
     }
-    const domain = matches[0]!;
+    const domain = matches[0];
     next = recordInstallationResource(
       next,
       {

@@ -604,7 +604,7 @@ describe('detectFramework', () => {
       expect(compatPlugin).toBeTruthy();
       expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
 
-      config.call({}, {}, { command: 'serve', mode: 'development' } as import('vite').ConfigEnv);
+      config.call({}, {}, { command: 'serve', mode: 'development' });
 
       // The adapter reads the root Wrangler file by default, so the date and the dev
       // flags land there, not in a new void.config.ts.
@@ -618,7 +618,7 @@ describe('detectFramework', () => {
 
       // A second run reads the pinned date and leaves the root file alone.
       const written = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
-      config.call({}, {}, { command: 'serve', mode: 'development' } as import('vite').ConfigEnv);
+      config.call({}, {}, { command: 'serve', mode: 'development' });
       expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(written);
     } finally {
       cwd.mockRestore();
@@ -638,9 +638,9 @@ describe('detectFramework', () => {
       const compatPlugin = plugins.find(
         (plugin) => plugin.name === 'void:nuxt-vite8-websocket-compat',
       );
-      const configResolved = getHookHandler(compatPlugin?.configResolved) as (
-        config: import('vite').ResolvedConfig,
-      ) => void;
+      const configResolved = getHookHandler<(config: import('vite').ResolvedConfig) => void>(
+        compatPlugin?.configResolved,
+      );
       const sharedServer = {};
       const config = {
         build: { ssr: true },
@@ -713,7 +713,7 @@ describe('detectFramework', () => {
       ) => import('vite').UserConfig | void;
 
       expect(externalPlugin).toBeTruthy();
-      const result = config.call({} as never, {}, { command: 'build', mode: 'production' });
+      const result = config.call({}, {}, { command: 'build', mode: 'production' });
       const rootExternal = result?.build?.rollupOptions?.external as Array<unknown>;
       expect(rootExternal).toBeTruthy();
       expect(

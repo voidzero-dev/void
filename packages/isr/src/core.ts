@@ -420,5 +420,5 @@ export function normalizePageDataForJsonCache(raw: string): string | null {
 /** Extract validated Void Pages data embedded in an HTML response. */
 export function extractPageDataFromHtml(html: string): string | null {
   const match = html.match(PAGE_DATA_SCRIPT_RE);
-  return match ? normalizePageDataForJsonCache(match[2]!) : null;
+  return match ? normalizePageDataForJsonCache(match[2]) : null;
 }

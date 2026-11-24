@@ -180,7 +180,7 @@ describe('runGithubDisconnect', () => {
 
   it('prompts to confirm in a TTY and aborts when declined', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
-    vi.mocked(confirm).mockResolvedValue(false as never);
+    vi.mocked(confirm).mockResolvedValue(false);
     const { client, deleteGithubConnection } = makeClient();
 
     await runGithubDisconnect('/project', client, {
@@ -195,7 +195,7 @@ describe('runGithubDisconnect', () => {
 
   it('prompts to confirm in a TTY and disconnects when accepted', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
-    vi.mocked(confirm).mockResolvedValue(true as never);
+    vi.mocked(confirm).mockResolvedValue(true);
     const { client, deleteGithubConnection } = makeClient();
 
     await runGithubDisconnect('/project', client, {

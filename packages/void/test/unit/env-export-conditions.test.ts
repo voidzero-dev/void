@@ -13,7 +13,7 @@ function resolveConditional(entry: ExportEntry, conditions: ReadonlySet<string>)
   }
   for (const key of Object.keys(entry)) {
     if (key === 'default' || conditions.has(key)) {
-      const nested = resolveConditional(entry[key]!, conditions);
+      const nested = resolveConditional(entry[key], conditions);
       if (nested !== null) {
         return nested;
       }

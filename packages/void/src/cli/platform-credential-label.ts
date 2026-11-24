@@ -107,7 +107,7 @@ export function formatPlatformCredentialDenials(
 
 /** The Cloudflare permission a request path needs, when Void knows it. */
 export function cloudflarePermissionForPath(requestPath: string): string | undefined {
-  const parts = requestPath.split('?')[0]!.split('/').filter(Boolean);
+  const parts = requestPath.split('?')[0].split('/').filter(Boolean);
   if (parts[0] === 'accounts') {
     if (parts.length === 1) {
       return 'Account → Account Settings → Read';

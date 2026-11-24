@@ -36,7 +36,7 @@ function fixture() {
     expect(options?.redirect).toBe('manual');
     return Response.json({ keys: [jwk] });
   });
-  return { verifier: new PlatformAccessVerifier(request as typeof fetch), request };
+  return { verifier: new PlatformAccessVerifier(request), request };
 }
 describe('Cloudflare Access assertions', () => {
   it('verifies human identity and caches signing keys', async () => {

@@ -56,7 +56,7 @@ describe('signConfirmToken / verifyConfirmToken', () => {
     const [body, sig] = token.split('.');
     const decoded = JSON.parse(
       new TextDecoder().decode(
-        Uint8Array.from(atob(body!.replaceAll('-', '+').replaceAll('_', '/')), (ch) =>
+        Uint8Array.from(atob(body.replaceAll('-', '+').replaceAll('_', '/')), (ch) =>
           ch.charCodeAt(0),
         ),
       ),
@@ -181,10 +181,10 @@ describe('sendPlatformVerificationEmail', () => {
       to: 'recipient@example.com',
       subject: '[acme] wants permission to email you',
     });
-    expect(sent[0]!.text).toContain(
+    expect(sent[0].text).toContain(
       `${GATEWAY_ORIGIN}/email/destinations/confirm?token=confirm-token.signature`,
     );
-    expect(sent[0]!.text).not.toContain('api.staging.void.cloud');
+    expect(sent[0].text).not.toContain('api.staging.void.cloud');
   });
 
   it('uses the configured self-hosted public gateway instead of its protected API origin', async () => {
@@ -197,10 +197,10 @@ describe('sendPlatformVerificationEmail', () => {
 
     await sendVerification(env, 'token');
 
-    expect(sent[0]!.text).toContain(
+    expect(sent[0].text).toContain(
       'https://mail-gateway.example.workers.dev/email/destinations/confirm?token=token',
     );
-    expect(sent[0]!.text).not.toContain('control.example.com');
+    expect(sent[0].text).not.toContain('control.example.com');
   });
 
   it.each([
@@ -220,7 +220,7 @@ describe('sendPlatformVerificationEmail', () => {
     ['EMAIL_GATEWAY_ORIGIN', { EMAIL_GATEWAY_ORIGIN: undefined }],
     ['EMAIL binding', { EMAIL: undefined }],
   ])('fails before delivery when %s is missing', async (_label, overrides) => {
-    const { env, send } = verificationEnv(overrides as Partial<ApiEnv['Bindings']>);
+    const { env, send } = verificationEnv(overrides);
     await expect(sendVerification(env)).rejects.toThrow();
     expect(send).not.toHaveBeenCalled();
   });

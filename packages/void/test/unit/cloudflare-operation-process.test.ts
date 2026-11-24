@@ -91,7 +91,7 @@ it.each(['apac', undefined] as const)(
       },
     ]);
     if (!locationHint) {
-      expect(requests[0]!.body).not.toHaveProperty('locationHint');
+      expect(requests[0].body).not.toHaveProperty('locationHint');
     }
     expect(JSON.parse(readFileSync(configPath, 'utf8')).r2_buckets).toEqual([
       { binding: 'STORAGE', bucket_name: 'test-storage' },
@@ -171,7 +171,7 @@ it.each([false, true])(
     const directory = temporaryDirectory('void-cf-secret-source-');
     const draft = voidSecretDraftVersion();
     if (large) {
-      draft.modules[0]!.content_base64 = Buffer.from(
+      draft.modules[0].content_base64 = Buffer.from(
         `/* ${'x'.repeat(1024 * 1024)} */\nexport default { fetch() { return new Response("ok"); } };`,
       ).toString('base64');
     }
@@ -1043,7 +1043,7 @@ it('uses the configured HTTP proxy for cf resource requests', async () => {
   proxy.on('connect', (request, socket, head) => {
     proxied++;
     const [host, port] = request.url!.split(':');
-    const upstream = connect(Number(port), host!, () => {
+    const upstream = connect(Number(port), host, () => {
       socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       if (head.length) {
         upstream.write(head);
@@ -1297,7 +1297,7 @@ it.each([
       proxied++;
       proxyAuthorizations.push(request.headers['proxy-authorization']);
       const [host, port] = request.url!.split(':');
-      const upstream = connect(Number(port), host!, () => {
+      const upstream = connect(Number(port), host, () => {
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
         if (head.length) {
           upstream.write(head);
@@ -1619,12 +1619,12 @@ it('renders binary and text frames from a real Node WebSocket in order and remov
       if (input.length < 6) {
         return;
       }
-      const length = input[1]! & 127;
+      const length = input[1] & 127;
       if (length >= 126 || input.length < 6 + length) {
         return;
       }
       initialization = Buffer.from(
-        input.subarray(6, 6 + length).map((value, index) => value ^ input[2 + (index % 4)]!),
+        input.subarray(6, 6 + length).map((value, index) => value ^ input[2 + (index % 4)]),
       ).toString();
       socket.off('data', started);
       const frame = (value: unknown, opcode: number) => {
@@ -1699,7 +1699,7 @@ it('renders binary and text frames from a real Node WebSocket in order and remov
   expect(output.stdout).toContain('Queue owned-queue - ok');
   expect(output.stdout.indexOf('binary marker')).toBeLessThan(output.stdout.indexOf('text marker'));
   expect(requests).toHaveLength(2);
-  expect(JSON.parse(requests[0]!.body)).toEqual({
+  expect(JSON.parse(requests[0].body)).toEqual({
     filters: [{ query: 'marker' }, { scriptVersion: '11111111-2222-3333-4444-555555555555' }],
   });
   expect(requests[1]).toEqual({

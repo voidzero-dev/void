@@ -1489,7 +1489,7 @@ function createDefaultListHyperdriveConfigs(apiToken?: string): ListHyperdriveCo
       if (!res.ok) {
         throw new Error(`Cloudflare API returned HTTP ${res.status} listing Hyperdrive configs`);
       }
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = await res.json<Record<string, unknown>>();
       if (!isRecord(body) || body.success !== true || !Array.isArray(body.result)) {
         throw new Error(
           'Cloudflare API returned an unsuccessful or malformed Hyperdrive configs payload',

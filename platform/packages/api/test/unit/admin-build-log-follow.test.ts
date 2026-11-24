@@ -47,7 +47,7 @@ afterEach(() => {
 
 async function mount() {
   BuildLogs({ build: { id: 'build', status: 'complete' } as Build });
-  cleanup = effects[0]!();
+  cleanup = effects[0]();
   await vi.advanceTimersByTimeAsync(0);
 }
 

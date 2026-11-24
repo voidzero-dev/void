@@ -63,10 +63,8 @@ export async function signJwt(
     exp: now + ttlSeconds,
   };
 
-  const header = base64url(
-    encoder.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).buffer as ArrayBuffer,
-  );
-  const body = base64url(encoder.encode(JSON.stringify(fullPayload)).buffer as ArrayBuffer);
+  const header = base64url(encoder.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).buffer);
+  const body = base64url(encoder.encode(JSON.stringify(fullPayload)).buffer);
   const signature = await hmacSignState(`${header}.${body}`, secret);
 
   return `${header}.${body}.${signature}`;

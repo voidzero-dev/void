@@ -9,11 +9,11 @@ export async function lookupMxOverDns(domain: string): Promise<ReadonlyArray<str
   if (!response.ok) {
     throw new Error(`public DNS MX lookup failed with HTTP ${response.status}`);
   }
-  const json = (await response.json()) as {
+  const json = await response.json<{
     Status: number;
     TC?: boolean;
     Answer?: ReadonlyArray<{ type: number; data: string }>;
-  };
+  }>();
   if ((json.Status !== 0 && json.Status !== 3) || json.TC) {
     throw new Error('public DNS MX lookup did not return a complete answer');
   }

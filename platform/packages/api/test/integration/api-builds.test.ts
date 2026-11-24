@@ -65,7 +65,7 @@ describe('user-facing build routes', () => {
 
     const res = await authGet(`/projects/${project.id}/builds`, user.jwt, env);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { builds: Array<{ id: string }> };
+    const body = await res.json<{ builds: Array<{ id: string }> }>();
     expect(body.builds.map((b) => b.id)).toEqual([b2.id, b1.id]);
     // BuildSummary must not leak internal columns.
     expect(body.builds[0]).not.toHaveProperty('user_id');
@@ -103,13 +103,13 @@ describe('user-facing build routes', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: Array<{ line: string }>;
       lastSeq: number;
       status: string;
       terminal: boolean;
       external: string | null;
-    };
+    }>();
     expect(body.lines).toEqual([{ seq: 1, line: 'hi', stream: 'stdout', ts: 1 }]);
     expect(body.lastSeq).toBe(1);
     expect(body.terminal).toBe(false); // 'queued' default
@@ -146,11 +146,11 @@ describe('user-facing build routes', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       status: string;
       terminal: boolean;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(body.terminal).toBe(true); // DO-authoritative terminal closes the window
     expect(body.status).toBe('complete'); // reflects the DO's terminal status
     expect(body.logsComplete).toBe(false); // terminal status is not producer completion
@@ -214,11 +214,11 @@ describe('user-facing build routes', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       status: string;
       terminal: boolean;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(body.terminal).toBe(true);
     expect(body.status).toBe('cancelled'); // fresh PG wins over the DO's 'complete'
     expect(body.logsComplete).toBe(false);
@@ -280,7 +280,7 @@ describe('user-facing build routes', () => {
     env.BUILD_MANAGER = base.ns;
 
     const res = await authGet(`/projects/${project.id}/builds/${build.id}/logs`, user.jwt, env);
-    const body = (await res.json()) as { lines: Array<unknown>; external: string | null };
+    const body = await res.json<{ lines: Array<unknown>; external: string | null }>();
     expect(body.lines).toEqual([]);
     expect(body.external).toBe('https://github.com/o/r/actions/runs/1');
     expect(base.calls).toHaveLength(0);

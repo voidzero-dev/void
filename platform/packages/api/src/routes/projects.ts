@@ -989,7 +989,7 @@ const app = new Hono<ApiEnv>()
                 ) {
                   throw new RollbackError(409, `deploy in progress: ${activeDeploy.id}`);
                 }
-                const migrationDiff = lease.migrationDiff as Array<string>;
+                const migrationDiff = lease.migrationDiff;
                 const released = await deleteRollbackLease(tx, activeDeploy.id, lease.ownerId);
                 if (!released) {
                   throw new RollbackError(409, `deploy in progress: ${activeDeploy.id}`);
@@ -2771,13 +2771,13 @@ const app = new Hono<ApiEnv>()
     const ns = buildManagerNamespace(context.env, build.instance_type);
     const stub = ns.get(ns.idFromName(build.id));
     const res = await stub.fetch(`http://manager/logs?since=${since}`);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: ReadonlyArray<{ seq: number; line: string; stream: string; ts: number }>;
       lastSeq: number;
       status?: string;
       terminal?: boolean;
       logsComplete?: boolean | null;
-    };
+    }>();
     // Claiming a container build durably sets started_at. Only a terminal row
     // that was never claimed can prove completion without a producer marker.
     const logsComplete = body.logsComplete ?? (terminal && build.started_at === null ? true : null);

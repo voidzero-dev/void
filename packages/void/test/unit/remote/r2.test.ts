@@ -40,7 +40,7 @@ function mockFetch(response: unknown, contentType = 'application/json') {
         headers: { 'content-type': contentType },
       }),
   );
-  globalThis.fetch = fetchMock as typeof fetch;
+  globalThis.fetch = fetchMock;
   return fetchMock;
 }
 
@@ -122,7 +122,7 @@ describe('ProxyR2Bucket', () => {
             },
           }),
       );
-      globalThis.fetch = fetchMock as typeof fetch;
+      globalThis.fetch = fetchMock;
 
       const r2 = new ProxyR2Bucket(createClient(), 'STORAGE');
       const obj = await r2.get('file.txt');
@@ -311,7 +311,7 @@ describe('ProxyR2Bucket', () => {
 
       const data = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
       const r2 = new ProxyR2Bucket(createClient(), 'STORAGE');
-      await r2.put('binary.bin', data.buffer as ArrayBuffer);
+      await r2.put('binary.bin', data.buffer);
 
       const call = vi.mocked(globalThis.fetch).mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(String(call[1].body));

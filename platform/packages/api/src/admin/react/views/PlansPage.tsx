@@ -69,7 +69,7 @@ const aiLoggingLabels: Record<AiLoggingMode, string> = {
   full: 'Full (prompts and responses)',
 };
 function aiLoggingMode(modes: PlanAiLoggingSettings['modes'], planId: string): AiLoggingMode {
-  return Object.hasOwn(modes, planId) ? modes[planId]! : 'inherit';
+  return Object.hasOwn(modes, planId) ? modes[planId] : 'inherit';
 }
 function usePlans(path: string) {
   const { plans: ref } = useRequest(plansRequest(path), { mode: 'stale-while-revalidate' });
@@ -618,7 +618,7 @@ export function PlanProgressPage({
             'Account updates paused. Reload plans to inspect the saved configuration, then retry.',
           );
         }
-        const next = (await response.json()) as AdminPlanProgress;
+        const next = await response.json<AdminPlanProgress>();
         if (
           next.revision !== initial.revision ||
           typeof next.complete !== 'boolean' ||

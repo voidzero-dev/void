@@ -174,7 +174,7 @@ describe('platform runtime manifest', () => {
     const workers = miniflareOptions.workers as Array<{ config: Record<string, unknown> }>;
     // The legacy-options converter omits this flag, though Wrangler sets it
     // when a Worker entrypoint and assets directory are deployed together.
-    workers[0]!.config.assets = {
+    workers[0].config.assets = {
       directory: join(runtimeDirectory, 'api', 'assets'),
       hasUserWorker: true,
     };

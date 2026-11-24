@@ -136,9 +136,9 @@ describe('runLink', () => {
     mockListProjects.mockResolvedValueOnce([existingProject]);
     mockSelect.mockResolvedValueOnce('proj_1');
     mockConfirm.mockResolvedValueOnce(false);
-    vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+    vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
       throw new Error(`exit ${code}`);
-    }) as never);
+    });
 
     await expect(runLink(root)).rejects.toThrow('exit 0');
 

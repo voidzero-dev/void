@@ -431,7 +431,7 @@ export async function runFullDeploy(
       migrations: validatedMigrations,
       schedules,
       ssr: isSsr || hasRoutes || hasMiddleware || hasWebSockets || authEnabled,
-      framework: isFrameworkMode ? detected!.name : undefined,
+      framework: isFrameworkMode ? detected.name : undefined,
       revalidate,
       vars: voidConfig.worker?.vars,
       queues,

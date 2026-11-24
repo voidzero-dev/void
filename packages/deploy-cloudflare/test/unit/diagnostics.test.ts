@@ -113,7 +113,7 @@ describe('Cloudflare command diagnostics', () => {
       // Without a Unicode terminal, cf prints fallback symbols.
       ['', scriptApi.replace('▲', '!').replace('■', 'x').replace('│', '|').replace('◆', '*')],
     ]) {
-      expect(cloudflareCommandDiagnostic({ status: 1, stdout: stdout!, stderr: stderr! })).toBe(
+      expect(cloudflareCommandDiagnostic({ status: 1, stdout, stderr })).toBe(
         `${reason}\n${abort}`,
       );
     }

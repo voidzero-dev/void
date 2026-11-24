@@ -61,7 +61,7 @@ function resolveConfig(
   command: 'build' | 'serve',
   plugins: Array<{ name: string }> = [],
 ): void {
-  (getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void)({
+  getHookHandler<(config: ResolvedConfig) => void>(plugin.configResolved)({
     build: { assetsDir: 'assets' },
     command,
     mode: command === 'build' ? 'production' : 'development',
@@ -226,7 +226,7 @@ describe('routingPlugin', () => {
     );
 
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => true });
-    (getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void)({
+    getHookHandler<(config: ResolvedConfig) => void>(plugin.configResolved)({
       build: { assetsDir: 'assets' },
       command: 'build',
       mode: 'production',
@@ -562,7 +562,7 @@ describe('routingPlugin', () => {
   ])('retries after a failed $failure for $change', async ({ change, failure }) => {
     const root = createTempRoot();
     const routePath = join(root, 'routes', 'health.ts');
-    const envPath = readProjectPaths(root).envFileCandidates[0]!;
+    const envPath = readProjectPaths(root).envFileCandidates[0];
     const changesExports = change === 'route exports';
     const failsWrite = failure === 'generated-file write';
 
@@ -634,7 +634,7 @@ describe('routingPlugin', () => {
   it('regenerates for an environment file save that leaves the scan unchanged', async () => {
     const root = createTempRoot();
     const routePath = join(root, 'routes', 'health.ts');
-    const envPath = readProjectPaths(root).envFileCandidates[0]!;
+    const envPath = readProjectPaths(root).envFileCandidates[0];
     writeFileSync(routePath, 'export const GET = () => new Response("ok");');
     writeFileSync(envPath, 'export default {};');
 
@@ -896,7 +896,7 @@ describe('routingPlugin', () => {
     const root = realpathSync.native(createTempRoot());
     const routePath = join(root, 'routes', 'health.ts');
     writeFileSync(routePath, 'export const GET = () => new Response();');
-    const authPath = readProjectPaths(root).authConfigCandidates[0]!;
+    const authPath = readProjectPaths(root).authConfigCandidates[0];
     const helperPath = join(dirname(authPath), 'auth-fields.ts');
     const extraPath = join(dirname(authPath), 'auth-extra.ts');
     // The type-only export makes the file an auth config without loading void/auth.
@@ -1171,7 +1171,7 @@ describe('routingPlugin native asset Worker bypass', () => {
       ...options,
     });
     runConfig(plugin, { command: 'build', mode: 'production' });
-    (getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void)({
+    getHookHandler<(config: ResolvedConfig) => void>(plugin.configResolved)({
       build: { assetsDir: 'assets' },
       base,
       root,

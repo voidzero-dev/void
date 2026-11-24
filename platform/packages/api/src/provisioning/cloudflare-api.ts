@@ -67,7 +67,7 @@ export async function cfFetch<T>(url: string, apiToken: string, init?: RequestIn
     });
     // Keep the same deadline through the body read: receiving headers does
     // not prove a stalled provider response has completed. Never replay writes.
-    const json = (await response.json()) as CfApiResult<T>;
+    const json = await response.json<CfApiResult<T>>();
     if (!json.success) {
       const message = json.errors.map((error) => error.message).join(', ');
       throw new CloudflareApiError(

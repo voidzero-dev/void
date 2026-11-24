@@ -591,8 +591,6 @@ const config = defineConfig({
       'quality/no-unsafe-dictionary-type': 'off',
       // Generated routing and registry access rely on invariants enforced by code generation and preceding validation. Replace assertions with local checks as those paths change.
       'typescript/no-non-null-assertion': 'off',
-      // Hundreds of remaining findings require changing inferred generic arguments. Review inference and declaration output in a separate type-focused pass.
-      'typescript/no-unnecessary-type-assertion': 'off',
       // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.

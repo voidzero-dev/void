@@ -76,7 +76,7 @@ export async function chooseCloudflareQueueNames(input: {
   // queue `app-jobs`, and nothing says which one an existing `app-jobs` belongs to.
   const queueNames = desired.queueNames;
   const clashes = Object.keys(queueNames)
-    .filter((queueName) => Object.hasOwn(queueNames, queueNames[queueName]!))
+    .filter((queueName) => Object.hasOwn(queueNames, queueNames[queueName]))
     .map(
       (queueName) =>
         `  • ${queueName} uses the Cloudflare queue ${queueNames[queueName]}, which is also a queue in queues/`,
@@ -99,7 +99,7 @@ export async function chooseCloudflareQueueNames(input: {
   const tooLong: Array<string> = [];
   const taken: Array<string> = [];
   for (const queueName of Object.keys(desired.queueNames)) {
-    const scopedName = desired.queueNames[queueName]!;
+    const scopedName = desired.queueNames[queueName];
     const scoped = isValidQueueName(scopedName) ? await lookup(scopedName) : null;
     // A queue this Worker consumed before queues were named after the Worker keeps its name.
     const plain = scoped?.consumers.includes(workerName) ? undefined : await lookup(queueName);

@@ -78,7 +78,7 @@ function readFlagValue(
   i: number,
   flag: string,
 ): { value: string | undefined; next: number } {
-  const token = rest[i]!;
+  const token = rest[i];
   if (token.startsWith(`${flag}=`)) {
     return { value: token.slice(flag.length + 1), next: i };
   }

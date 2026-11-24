@@ -25,7 +25,7 @@ describe('hasRevalidate', () => {
 });
 
 function configWith(revalidate: number | Record<string, number> | undefined): VoidConfig {
-  return (revalidate === undefined ? {} : { routing: { revalidate } }) as VoidConfig;
+  return revalidate === undefined ? {} : { routing: { revalidate } };
 }
 
 describe('collectRevalidate', () => {

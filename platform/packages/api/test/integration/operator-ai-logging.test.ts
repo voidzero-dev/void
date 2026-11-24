@@ -128,7 +128,7 @@ describe('operator project override', () => {
     const before = Date.now();
     const response = await setMode(project.id, 'off');
     expect(response.status).toBe(200);
-    const body = (await response.json()) as Record<string, unknown>;
+    const body = await response.json<Record<string, unknown>>();
     expect(body).toMatchObject({
       mode: 'off',
       planId: 'free',
@@ -205,7 +205,7 @@ describe('operator project override', () => {
       const before = Date.now();
       const retry = await setMode(project.id, to);
       expect(retry.status).toBe(200);
-      const { expectedBy } = (await retry.json()) as { expectedBy: string };
+      const { expectedBy } = await retry.json<{ expectedBy: string }>();
       expect(Date.parse(expectedBy)).toBeGreaterThanOrEqual(before + AI_LOGGING_SETTLE_MS);
       expect((await published(project.id)).value).toBe(to === 'inherit' ? null : to);
     },
@@ -223,7 +223,7 @@ describe('operator project override', () => {
     // save stays, and the hourly sweep will publish it, so "nothing changed" would mislead.
     const retry = await setMode(project.id, 'full');
     expect(retry.status).toBe(503);
-    const body = (await retry.json()) as { error: string; message: string };
+    const body = await retry.json<{ error: string; message: string }>();
     expect(body.error).toBe('ai_logging_publish_failed');
     expect(body.message).toContain('The saved project setting is still "full"');
     expect(body.message).not.toContain('nothing was changed');
@@ -295,8 +295,8 @@ describe('operator project override', () => {
     const [lock, inputs] = queries.filter((query) =>
       query.trim().toLowerCase().startsWith('update'),
     );
-    expect(lock!.toLowerCase()).not.toContain(' from ');
-    expect(lock!.toLowerCase()).not.toContain(' join ');
+    expect(lock.toLowerCase()).not.toContain(' from ');
+    expect(lock.toLowerCase()).not.toContain(' join ');
     expect(inputs).toContain('"project_ai_logging"');
     expect((await published(project.id)).value).toBe('metadata');
   });
@@ -439,9 +439,11 @@ describe('readback', () => {
     expect((await setMode(project.id, 'off')).status).toBe(200);
     // Past the settle time of the 'off' write, so only the marker can make it pending.
     vi.spyOn(Date, 'now').mockReturnValue(Date.now() + AI_LOGGING_SETTLE_MS + 1);
-    const change = (await (await setMode(project.id, 'inherit')).json()) as {
+    const change = await (
+      await setMode(project.id, 'inherit')
+    ).json<{
       expectedBy: string;
-    };
+    }>();
     expect(await published(project.id)).toEqual({ value: null, metadata: null });
     expect(await readback(project.id)).toMatchObject({
       published: 'inherit',
@@ -588,7 +590,7 @@ describe('project create', () => {
     failing.mockRestore();
     const retried = await create(owner, 'retry-app');
     expect(retried.status).toBe(201);
-    const { id } = (await retried.json()) as { id: string };
+    const { id } = await retried.json<{ id: string }>();
     expect(await published(id)).toMatchObject({ value: 'off', metadata: { mode: 'off' } });
   });
 });

@@ -380,7 +380,7 @@ export function generateRouteTypes(
     });
     lines.push(
       `    ${JSON.stringify(publicRoutePattern(pattern))}: {`,
-      `      params: RouteParams<${JSON.stringify(sources[0]!.params)}>;`,
+      `      params: RouteParams<${JSON.stringify(sources[0].params)}>;`,
       `      client: ${imports.map((source) => `ExtractInput<${source}["client"]>`).join(' & ')};`,
       `      server: ${imports.map((source) => `ExtractOutput<${source}["server"]>`).join(' | ')};`,
     );

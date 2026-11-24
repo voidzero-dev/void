@@ -43,7 +43,7 @@ describe('asset hash compatibility', () => {
           controller.close();
           return;
         }
-        const end = Math.min(bytes.length, offset + chunks[step++ % chunks.length]!);
+        const end = Math.min(bytes.length, offset + chunks[step++ % chunks.length]);
         controller.enqueue(bytes.slice(offset, end));
         offset = end;
       },

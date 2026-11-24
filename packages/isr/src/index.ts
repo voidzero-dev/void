@@ -159,7 +159,7 @@ export function hashOriginalUrl(originalUrl: string): string {
   const bytes = new TextEncoder().encode(originalUrl);
   let h = FNV_OFFSET_BASIS;
   for (let i = 0; i < bytes.length; i++) {
-    h = (h ^ BigInt(bytes[i]!)) & FNV_MASK;
+    h = (h ^ BigInt(bytes[i])) & FNV_MASK;
     h = (h * FNV_PRIME) & FNV_MASK;
   }
   return h.toString(16).padStart(16, '0');

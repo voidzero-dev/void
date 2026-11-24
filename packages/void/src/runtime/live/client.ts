@@ -287,7 +287,7 @@ export function connectLiveStream(
           operations,
         }),
       });
-      const result = (await response.json()) as LiveControlResponse;
+      const result = await response.json<LiveControlResponse>();
       if (!response.ok || !result.accepted) {
         throw new Error(result.accepted ? response.statusText : result.error.message);
       }

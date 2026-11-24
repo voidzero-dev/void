@@ -22,7 +22,7 @@ describe('detectHttpExports', () => {
     ['export type { GET as "GET" } from "./types";', []],
     ['export { type GET as "GET", handler as "POST" } from "./handler";', ['POST']],
   ])('uses the actual exported name in %s', (source, methods) => {
-    expect(detectHttpExports(writeRoute('quoted.ts', source as string))).toEqual(methods);
+    expect(detectHttpExports(writeRoute('quoted.ts', source))).toEqual(methods);
   });
 
   beforeEach(() => {

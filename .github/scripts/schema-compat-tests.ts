@@ -137,7 +137,7 @@ async function runIsolatedCompatibilityTests(options: {
   const worker = async () => {
     while (cursor < options.files.length) {
       const index = cursor++;
-      const file = options.files[index]!;
+      const file = options.files[index];
       const name = `${prefix}_${index}`;
       const database = new URL(template);
       database.pathname = `/${name}`;

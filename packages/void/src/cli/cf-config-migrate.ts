@@ -20,7 +20,7 @@ function empty(value: unknown): boolean {
     value === undefined ||
     value === null ||
     (Array.isArray(value) && value.length === 0) ||
-    (record(value) !== null && Object.keys(value as JsonObject).length === 0)
+    (record(value) !== null && Object.keys(value).length === 0)
   );
 }
 

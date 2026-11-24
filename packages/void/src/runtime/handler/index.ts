@@ -374,10 +374,7 @@ export namespace defineHandler {
  * At runtime it simply returns the function passed to it.
  */
 export function defineMiddleware(handler: MiddlewareFn): MiddlewareHandler<CloudEnv> {
-  // The callback's context accepts destination objects. Hono's handler type
-  // does not, so the same function is not assignable without a cast. The
-  // routing runtime replaces `redirect` before this runs.
-  return handler as MiddlewareHandler<CloudEnv>;
+  return handler;
 }
 
 const basicAuthEncoder = new TextEncoder();

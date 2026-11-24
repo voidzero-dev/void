@@ -93,7 +93,7 @@ describe('typed fetch client', () => {
     const init = call[1] as RequestInit;
     expect(init.method).toBe('POST');
     expect(init.body).toBe(JSON.stringify({ name: 'Alice' }));
-    expect(new Headers(init.headers!).get('Content-Type')).toBe('application/json');
+    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
   });
 
   it('throws FetchError on non-OK response', async () => {

@@ -69,7 +69,7 @@ export function writeCloudflareFrameworkDeployConfig(
     upsert(['triggers', 'crons'], [...options.crons]);
   }
   if (options.requiredSecrets && options.requiredSecrets.length > 0) {
-    const config = parse(content) as { secrets?: unknown };
+    const config = parse(content) as { secrets?: { required?: unknown } };
     if (
       config.secrets !== undefined &&
       (typeof config.secrets !== 'object' ||
@@ -78,14 +78,14 @@ export function writeCloudflareFrameworkDeployConfig(
     ) {
       throw new Error('Cloudflare framework config has a malformed secrets field.');
     }
-    const required = (config.secrets as { required?: unknown } | undefined)?.required;
+    const required = config.secrets?.required;
     if (
       required !== undefined &&
       (!Array.isArray(required) || !required.every((name) => typeof name === 'string'))
     ) {
       throw new Error('Cloudflare framework config has a malformed secrets.required field.');
     }
-    const current = (required as Array<string> | undefined) ?? [];
+    const current = required ?? [];
     upsert(['secrets', 'required'], [...new Set([...current, ...options.requiredSecrets])]);
   }
 

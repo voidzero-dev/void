@@ -80,7 +80,7 @@ describe('project token command', () => {
       expiresInDays: 30,
       json: true,
     });
-    const [url, init] = request.mock.calls[0]!;
+    const [url, init] = request.mock.calls[0];
     expect(url).toBe('https://api.example.test/projects/project-1/tokens');
     expect(init).toBeDefined();
     expect(init!).toMatchObject({ method: 'POST', redirect: 'manual' });

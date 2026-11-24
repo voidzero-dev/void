@@ -2300,7 +2300,7 @@ describe('UsageCounter durable sandbox receipts', () => {
     const { counter, storage } = makeCounter({ plan: 'pro' });
     const event = sandboxInterval(from, from + 10_000);
     await counter.fetch(recordRequest([event], 'u1'));
-    const originalKey = Array.from(storedWatermarks(storage).keys())[0]!;
+    const originalKey = Array.from(storedWatermarks(storage).keys())[0];
     // Seed the same durable record shape at scale; avoid 10,000 simulated
     // network requests merely to establish the old eviction threshold.
     for (let i = 0; i < 10_000; i++) {

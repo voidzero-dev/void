@@ -162,9 +162,9 @@ export async function prepareExistingCloudflareDeploy(options: {
   if (
     config.version_metadata === undefined &&
     metadataBindings.length === 1 &&
-    typeof metadataBindings[0]!.name === 'string'
+    typeof metadataBindings[0].name === 'string'
   ) {
-    config.version_metadata = { binding: metadataBindings[0]!.name };
+    config.version_metadata = { binding: metadataBindings[0].name };
     patch.version_metadata = config.version_metadata;
   }
   assertExistingCloudflareConfig(existing, config, false, options.approvedKv);

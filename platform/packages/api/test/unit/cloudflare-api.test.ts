@@ -266,7 +266,7 @@ describe('queue consumer snapshots', () => {
     fetchMock.mockResolvedValueOnce(cfSuccess({ consumer_id: 'c1' }));
     await restoreQueueConsumer(ACCOUNT, TOKEN, QUEUE_ID, SCRIPT, snapshot);
 
-    const restoreRequest = fetchMock.mock.calls[2]![1] as RequestInit;
+    const restoreRequest = fetchMock.mock.calls[2][1] as RequestInit;
     expect(restoreRequest.method).toBe('PUT');
     expect(JSON.parse(String(restoreRequest.body))).toEqual({
       script_name: SCRIPT,
@@ -286,8 +286,8 @@ describe('queue consumer snapshots', () => {
 
     await removeQueueConsumer(ACCOUNT, TOKEN, QUEUE_ID, SCRIPT);
 
-    expect(fetchMock.mock.calls[1]![0]).toContain('/consumers/ours');
-    expect((fetchMock.mock.calls[1]![1] as RequestInit).method).toBe('DELETE');
+    expect(fetchMock.mock.calls[1][0]).toContain('/consumers/ours');
+    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('DELETE');
   });
 });
 

@@ -84,8 +84,8 @@ describe('kitchen-sink Sandbox requests', () => {
     ]);
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    const firstResult = (await first.json()) as { output: { value: string } };
-    const secondResult = (await second.json()) as { output: { value: string } };
+    const firstResult = await first.json<{ output: { value: string } }>();
+    const secondResult = await second.json<{ output: { value: string } }>();
     expect(firstResult.output.value).toBe('first program');
     expect(secondResult.output.value).toBe('second program');
     expect(containers.size).toBe(2);

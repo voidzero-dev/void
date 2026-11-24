@@ -146,7 +146,7 @@ async function warnOnDefineOverlap(define: Record<string, unknown>): Promise<voi
     if (!match) {
       continue;
     }
-    const name = match[1]!;
+    const name = match[1];
     if (name in schema) {
       overlaps.push({ defineKey, schemaKey: name });
     }
@@ -224,7 +224,7 @@ export function envSchemaPlugin(root: string, options: EnvSchemaPluginOptions = 
     const serverKeys = keys.filter((key) => !clientKeySet.has(key));
     const requiredServerKeys: Array<string> = [];
     for (const key of serverKeys) {
-      const result = schema[key]!['~standard'].validate(undefined);
+      const result = schema[key]['~standard'].validate(undefined);
       const resolved = result instanceof Promise ? await result : result;
       if (resolved.issues) {
         requiredServerKeys.push(key);

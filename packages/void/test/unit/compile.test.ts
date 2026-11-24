@@ -284,7 +284,7 @@ function evalCompiledApp(code: string): Hono {
     createManifestLoader,
     createSsrFallback,
     createAssetNotFound,
-  ) as Hono;
+  );
 }
 
 const runtimeByApp = new WeakMap<Hono, RoutingRuntime>();
@@ -656,11 +656,7 @@ describe('default-target dev parity', () => {
       passThroughOnException: () => undefined,
       props: {},
     };
-    const res = await app.fetch(
-      new Request('http://localhost/redirect'),
-      {},
-      stubCtx as unknown as ExecutionContext,
-    );
+    const res = await app.fetch(new Request('http://localhost/redirect'), {}, stubCtx);
 
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('https://example.com/next');
@@ -773,7 +769,7 @@ describe('default-target dev parity', () => {
           headers: { 'X-Void-Original-URL': 'http://localhost/spoof' },
         }),
         {},
-        stubCtx as unknown as ExecutionContext,
+        stubCtx,
       );
 
       expect(res.status, `${label}: probe should return 200`).toBe(200);
