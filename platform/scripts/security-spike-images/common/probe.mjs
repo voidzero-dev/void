@@ -122,7 +122,8 @@ console.log(
       pid1EnvError,
       markerFiles,
       pwned,
-      inputFiles: inputFiles.sort((left, right) => left.localeCompare(right)),
+      // Code-unit order, the same as the plain .sort() judgeContainer uses for `expected`.
+      inputFiles: inputFiles.sort((left, right) => Number(left > right) - Number(left < right)),
       processes: processes.sort(),
       cloudflareCaPresent: existsSync('/etc/cloudflare/certs/cloudflare-containers-ca.crt'),
       httpsExample: await get('https://example.com/'),
