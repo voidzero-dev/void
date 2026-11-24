@@ -29,12 +29,12 @@ function createMockKV(initial: Record<string, string> = {}) {
         .sort();
       const start = cursor ? all.indexOf(cursor) + 1 : 0;
       const page = all.slice(start, start + 2);
-      const last = all.indexOf(page[page.length - 1] ?? '');
+      const last = all.indexOf(page.at(-1) ?? '');
       const hasMore = last >= 0 && last < all.length - 1;
       return {
         keys: page.map((name) => ({ name })),
         list_complete: !hasMore,
-        ...(hasMore ? { cursor: page[page.length - 1] } : {}),
+        ...(hasMore ? { cursor: page.at(-1) } : {}),
       };
     }),
   } as unknown as KVNamespace & { store: Map<string, string> };

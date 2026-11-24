@@ -514,8 +514,8 @@ function runMigration(root: string, name: string): void {
   // snapshots the current schema, so the next `void db generate` does not
   // re-emit DDL that the custom migration already applies.
   const existingJournal = readJournal(migrationsDir, paths.sourceRelative);
-  if (existingJournal !== undefined && existingJournal.entries.length > 0) {
-    const lastEntry = existingJournal.entries[existingJournal.entries.length - 1];
+  const lastEntry = existingJournal?.entries.at(-1);
+  if (existingJournal && lastEntry) {
     const metaDir = join(migrationsDir, 'meta');
     // Use the snapshot named by the last journal tag, not the newest file in
     // meta/, which may be a stale leftover.

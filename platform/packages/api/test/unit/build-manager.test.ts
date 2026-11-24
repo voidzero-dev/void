@@ -3532,7 +3532,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       return new RealResponse(
         JSON.stringify({
           lines: page,
-          lastSeq: page[page.length - 1]?.seq ?? 0,
+          lastSeq: page.at(-1)?.seq ?? 0,
           hasMore: more,
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
@@ -3549,10 +3549,10 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         stopped: containerCalls.stopped,
         destroyed: containerCalls.destroyed,
       });
-      return new RealResponse(
-        JSON.stringify({ lines, lastSeq: lines[lines.length - 1]?.seq ?? 0 }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      );
+      return new RealResponse(JSON.stringify({ lines, lastSeq: lines.at(-1)?.seq ?? 0 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     });
     (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
     return { fetchFn, teardownAtPull };
@@ -3871,7 +3871,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     const fetchFn = vi.fn(async (url: string, _port?: number, _init?: RequestInit) => {
       const since = Number(new URL(url).searchParams.get('since') ?? '0');
       const lines = buffer.filter((entry) => entry.seq > since);
-      const lastSeq = buffer[buffer.length - 1]?.seq ?? since;
+      const lastSeq = buffer.at(-1)?.seq ?? since;
       calls += 1;
       if (calls === 1) {
         markEntered();
@@ -4018,7 +4018,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       // Snapshot at RECEIPT, like the agent — a line recorded while this request is
       // open cannot appear in its body.
       const lines = buffer.filter((entry) => entry.seq > since);
-      const lastSeq = buffer[buffer.length - 1]?.seq ?? since;
+      const lastSeq = buffer.at(-1)?.seq ?? since;
       stoppedAtPull.push(containerCalls.stopped);
       calls += 1;
       if (calls === 1) {
@@ -5196,7 +5196,7 @@ function parseFence(out: string): { fenceLen: number; content: Array<string> } {
   const openIdx = rendered.findIndex((line) => /^`+text$/.test(line));
   expect(openIdx).toBeGreaterThan(-1);
   const fenceLen = rendered[openIdx].length - 'text'.length;
-  expect(rendered[rendered.length - 1]).toBe('`'.repeat(fenceLen));
+  expect(rendered.at(-1)).toBe('`'.repeat(fenceLen));
   return { fenceLen, content: rendered.slice(openIdx + 1, rendered.length - 1) };
 }
 
@@ -7194,7 +7194,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     // cursor only after a SUCCESSFUL parse, so a body too large to read inside
     // LOG_PULL_TIMEOUT_MS is a livelock, not a slow transfer.
     const before = getBufferedLogLines();
-    const since = before.length > 0 ? before[before.length - 1].seq : 0;
+    const since = before.at(-1)?.seq ?? 0;
 
     // Under the OLD accounting these fit one page twice over (2000 x 1048 chars
     // is just under the 2 MiB budget, and the line cap is 2000). Serialized, each
@@ -7235,7 +7235,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     // asks for the same backlog and the cursor never moves, until the drain
     // barrier expires and the tail is lost.
     const before = getBufferedLogLines();
-    let since = before.length > 0 ? before[before.length - 1].seq : 0;
+    let since = before.at(-1)?.seq ?? 0;
     const start = since;
 
     // Comfortably past the byte cap: 40 x 128KB.
@@ -7243,7 +7243,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     for (let i = 0; i < 40; i++) {
       record(big, 'stdout');
     }
-    const finalSeq = getBufferedLogLines().slice(-1)[0].seq;
+    const finalSeq = getBufferedLogLines().at(-1)!.seq;
 
     server = await startControlServer(0);
     const address = server.address();
@@ -7263,7 +7263,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     const first = await pull(since);
     expect(JSON.stringify(first.lines).length).toBeLessThanOrEqual(MAX_LOG_RESPONSE_BYTES * 1.1);
     expect(first.lastSeq).toBeLessThan(finalSeq);
-    expect(first.lastSeq).toBe(first.lines[first.lines.length - 1].seq);
+    expect(first.lastSeq).toBe(first.lines.at(-1)!.seq);
 
     // And repeated pulls converge — each batch strictly advances the cursor.
     let rounds = 0;
@@ -7282,7 +7282,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     // The module-level ring is shared across this file's suites, so poll from the
     // current high-water mark rather than 0.
     const before = getBufferedLogLines();
-    const since = before.length > 0 ? before[before.length - 1].seq : 0;
+    const since = before.at(-1)?.seq ?? 0;
 
     // Ephemeral port: the container's fixed 4000 could collide in CI.
     server = await startControlServer(0);

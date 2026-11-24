@@ -795,7 +795,7 @@ export function startControlServer(port = PORT) {
         lines.push(entry);
         responseBytes += entryBytes;
       }
-      const servedSeq = lines.length > 0 ? lines[lines.length - 1].seq : lastSeq;
+      const servedSeq = lines.at(-1)?.seq ?? lastSeq;
       // Explicit, because the puller cannot infer it: it does not know our caps,
       // and a page that happens to land exactly on one is indistinguishable from
       // the last page. Without it the puller waits a full tick per page, and the
@@ -1492,7 +1492,7 @@ export async function downloadSource(options = {}) {
       const backoff =
         typeof lastError.retryAfterMs === 'number' && lastError.retryAfterMs >= 0
           ? lastError.retryAfterMs
-          : (backoffMs[attempt - 1] ?? backoffMs[backoffMs.length - 1] ?? 0);
+          : (backoffMs[attempt - 1] ?? backoffMs.at(-1) ?? 0);
       // Don't sleep into the deadline just to be refused at the top of the loop.
       // This is also what keeps a long `retry-after` from parking the whole build:
       // a delay that does not fit the phase budget ends the download now.

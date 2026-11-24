@@ -25,7 +25,7 @@ const shareUrl = computed(
     })}`,
 );
 const framework = computed(() => frameworks[game.value.moving?.framework ?? 0]?.name);
-const top = computed(() => game.value.tiles[game.value.tiles.length - 1]!);
+const top = computed(() => game.value.tiles.at(-1)!);
 const originX = computed(
   () => 320 - (top.value.x + top.value.width / 2 - top.value.z - top.value.depth / 2) * 0.8,
 );

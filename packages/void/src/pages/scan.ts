@@ -320,7 +320,7 @@ export function pageFileEnvironment(relativePath: string): RouteEnvironment | nu
   if (segments.some((segment) => segment.startsWith('_'))) {
     return null;
   }
-  const file = segments[segments.length - 1];
+  const file = segments.at(-1) ?? '';
   const ext = extname(file);
   let base = basename(file, ext);
   if (ROUTE_EXTENSIONS_SET.has(ext) && base.endsWith('.server')) {

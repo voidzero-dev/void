@@ -322,7 +322,7 @@ export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHa
     return args[0] as TypedHandler;
   }
   const middlewares = args.slice(0, -1) as Array<MiddlewareFn>;
-  const handler = args[args.length - 1] as HandlerFn;
+  const handler = args.at(-1) as HandlerFn;
   // Pages read the recorded composition to render inside the same chain.
   const composed = setHandlerComposition(
     async (c: CloudContext) =>

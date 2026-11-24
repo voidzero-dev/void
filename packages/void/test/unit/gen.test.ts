@@ -105,7 +105,7 @@ function simulateDrizzleCustom(
       breakpoints: boolean;
     }>;
   };
-  const lastEntry = journal.entries[journal.entries.length - 1];
+  const lastEntry = journal.entries.at(-1);
   const nextIdx =
     journal.entries.length > 0 ? Math.max(...journal.entries.map((e) => e.idx)) + 1 : 0;
   journal.entries.push({

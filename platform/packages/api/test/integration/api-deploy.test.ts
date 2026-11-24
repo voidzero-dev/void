@@ -2400,7 +2400,7 @@ describe('POST /projects/:id/deploy', () => {
     const eventNames = events.filter(isDeployEvent).map((event) => event.event);
 
     expect(eventNames[0]).toBe('start');
-    expect(eventNames[eventNames.length - 1]).toBe('done');
+    expect(eventNames.at(-1)).toBe('done');
     expect(eventNames).toContain('worker_upload');
     expect(eventNames).toContain('worker_upload_done');
   });
@@ -5814,7 +5814,7 @@ describe('POST /projects/:id/deploy (streaming response headers / heartbeat)', (
     const order = nonHeartbeat.map((e) => e.event);
     expect(order).toContain('asset_upload');
     expect(order).toContain('asset_upload_done');
-    expect(order[order.length - 1]).toBe('done');
+    expect(order.at(-1)).toBe('done');
 
     // Sanity: the deploy actually succeeded with the right asset count.
     const doneEvent = nonHeartbeat.find((e) => e.event === 'done') as {

@@ -581,8 +581,6 @@ const config = defineConfig({
       'unicorn/catch-error-name': 'off',
       // Keep helpers beside their call sites where they express local test setup, plugin lifecycle, or runtime initialization.
       'unicorn/consistent-function-scoping': 'off',
-      // Existing indexing narrows values through bounds checks. The rewrite added possibly-undefined results at several checked accesses.
-      'unicorn/prefer-at': 'off',
       // Code generators and CLI output accumulate lines across distinct steps. Preserve staging and evaluation order before merging pushes.
       'unicorn/prefer-single-call': 'off',
       // Manifest and pack fixtures use JSON round trips for JSON serialization semantics, including dropped undefined keys.

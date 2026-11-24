@@ -56,7 +56,7 @@ function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefini
   segments.push(filename);
 
   // 3. Strip trailing "index"
-  if (segments[segments.length - 1] === 'index') {
+  if (segments.at(-1) === 'index') {
     segments.pop();
   }
 

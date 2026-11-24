@@ -1859,7 +1859,7 @@ describe('buildMime', () => {
         to: 'b@y.dev',
         subject: 's',
         text: 't',
-        threading: { references: refs, inReplyTo: ids[ids.length - 1] },
+        threading: { references: refs, inReplyTo: ids.at(-1) },
       }),
     );
     const text = new TextDecoder().decode(raw);

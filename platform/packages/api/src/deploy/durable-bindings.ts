@@ -52,7 +52,7 @@ export function buildDurableObjectUploadMigrations(
   const sortedSteps = [...steps].sort(compareDurableObjectMigrationSteps);
 
   return {
-    new_tag: sortedSteps[sortedSteps.length - 1].tag,
+    new_tag: sortedSteps.at(-1)!.tag,
     steps: sortedSteps.map(({ tag: _tag, index: _index, ...step }) => step),
   };
 }

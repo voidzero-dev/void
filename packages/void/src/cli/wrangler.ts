@@ -1184,12 +1184,10 @@ export function writeProvisionedWranglerConfig(
       knownExistingClasses,
     );
     if (planned.added) {
-      text = applyMemberEdit(
-        text,
-        ['migrations', migrations.length],
-        planned.migrations[planned.migrations.length - 1],
-        { formattingOptions, isArrayInsertion: true },
-      );
+      text = applyMemberEdit(text, ['migrations', migrations.length], planned.migrations.at(-1), {
+        formattingOptions,
+        isArrayInsertion: true,
+      });
     }
   }
 
@@ -1573,7 +1571,7 @@ export function writeProvisionedWranglerConfig(
         })
       : undefined;
     if (compositeField) {
-      const field = String(compositeField[compositeField.length - 1]);
+      const field = String(compositeField.at(-1));
       throw new Error(
         `deploy: cannot update "${configPath}" — "${field}" has an object/array value; ` +
           `expected a string. Fix the config and retry.`,
@@ -1849,14 +1847,12 @@ function applyMemberEdit(
     receivingPath = receivingPath.slice(0, -1);
     container = findNodeAtLocation(root, receivingPath);
   }
-  const members = container?.children;
-  if (!container || !members || members.length === 0) {
-    return plain();
-  }
-
   // jsonc-parser appends both new object properties and new array elements after
   // the container's current last member, so that member is the preceding sibling.
-  const last = members[members.length - 1];
+  const last = container?.children?.at(-1);
+  if (!last) {
+    return plain();
+  }
   const trailing = readTrailingComment(text, last.offset + last.length);
   if (!trailing) {
     return plain();
@@ -1868,13 +1864,12 @@ function applyMemberEdit(
 
   const newRoot = parseTree(rewritten, undefined, { allowTrailingComma: true });
   const newContainer = newRoot ? findNodeAtLocation(newRoot, receivingPath) : undefined;
-  const newMembers = newContainer?.children;
-  if (!newRoot || !newContainer || !newMembers || newMembers.length < 2) {
+  // The appended member is last; its predecessor is the sibling we relocate onto.
+  const sibling = newContainer?.children?.at(-2);
+  if (!sibling) {
     // We just appended, so this should not happen; fall back rather than corrupt.
     return plain();
   }
-  // The appended member is last; its predecessor is the sibling we relocate onto.
-  const sibling = newMembers[newMembers.length - 2];
   const commaPos = rewritten.indexOf(',', sibling.offset + sibling.length);
   if (commaPos === -1) {
     return plain();

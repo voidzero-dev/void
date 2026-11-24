@@ -85,7 +85,7 @@ function pushText(tokens: Array<Token>, text: string): void {
   if (!text) {
     return;
   }
-  const last = tokens[tokens.length - 1];
+  const last = tokens.at(-1);
   if (last?.kind === 'text') {
     last.text += text;
   } else {
@@ -183,7 +183,7 @@ function parseSegments(source: string): Array<Token> {
 function prepare(tokens: ReadonlyArray<Token>): Prepared {
   const steps: Array<Token> = [];
   for (const token of tokens) {
-    if (!(token.kind === 'any' && steps[steps.length - 1]?.kind === 'any')) {
+    if (!(token.kind === 'any' && steps.at(-1)?.kind === 'any')) {
       steps.push(token);
     }
   }
@@ -256,7 +256,7 @@ function endRow(width: number): Uint8Array {
 /** Checks that reject most paths before any row is built. */
 function quickReject({ steps, minLength }: Prepared, path: string): boolean {
   const first = steps[0];
-  const last = steps[steps.length - 1];
+  const last = steps.at(-1);
   return (
     path.length < minLength ||
     (first?.kind === 'text' && !path.startsWith(first.text)) ||

@@ -355,7 +355,7 @@ export function hashWranglerUploader(
   let entry: string | undefined;
   try {
     const argv = resolveArgv(root);
-    entry = argv[argv.length - 1];
+    entry = argv.at(-1);
   } catch {
     return undefined;
   }

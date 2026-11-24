@@ -177,7 +177,7 @@ function formRecordToObject(
       }
       parent = container;
     }
-    write(parent, segments[segments.length - 1] as string, value);
+    write(parent, segments.at(-1) as string, value);
   };
 
   for (const [key, raw] of Object.entries(record)) {
