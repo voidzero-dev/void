@@ -74,7 +74,7 @@ it('reads the connection slots left for roles without SUPERUSER', async () => {
             current_setting('superuser_reserved_connections')::int AS "superuser",
             COALESCE(current_setting('reserved_connections', true), '0')::int AS "reserved"`,
   );
-  const { max, superuser, reserved } = settings.rows[0]!;
+  const { max, superuser, reserved } = settings.rows[0];
   expect(max).toBeGreaterThan(superuser + reserved);
   await expect(lock.readConnectionSlots!()).resolves.toBe(max - superuser - reserved);
 }, 30_000);
