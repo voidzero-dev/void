@@ -571,6 +571,7 @@ const config = defineConfig({
       'typescript/no-unsafe-call': 'off',
       // Provider response schemas and dynamic module interfaces need coverage before enforcing typed member access everywhere.
       'typescript/no-unsafe-member-access': 'off',
+      // Several adapter return types inherit any from dependencies or JSON parsers. Define and validate the boundary contracts first.
       'typescript/no-unsafe-return': 'off',
       'typescript/no-unsafe-type-assertion': 'off',
       'typescript/return-await': 'off',
