@@ -555,6 +555,7 @@ const config = defineConfig({
       'quality/no-known-value-widening': 'off',
       // Decoders and dynamic adapters expose unknown until the caller validates it against the relevant schema.
       'quality/no-unknown-returns': 'off',
+      // Environment dictionaries, manifest parsers, and schema inputs carry unknown values until each entry has been validated.
       'quality/no-unsafe-dictionary-type': 'off',
       'typescript/no-misused-spread': 'off',
       'typescript/no-non-null-assertion': 'off',
