@@ -14,7 +14,7 @@ import Actual from './Actual' with { island: 'visible' };`;
       hydrate: 'visible',
     });
     const changed = editIslandSource(code, [
-      { start: imports[0]!.start, end: imports[0]!.end, text: "import Actual from './Wrapper';" },
+      { start: imports[0].start, end: imports[0].end, text: "import Actual from './Wrapper';" },
     ]);
     expect(changed.code).toContain("// import Fake from './Fake'");
     expect(changed.code).toContain("import Actual from './Wrapper';");
@@ -46,7 +46,7 @@ import Fenced from './Fenced' with { island: 'load' };
     expect(imports).toMatchObject([
       { importName: 'Badge', specifier: '../components/Badge', hydrate: 'load' },
     ]);
-    expect(code.slice(imports[0]!.start, imports[0]!.end)).toBe(
+    expect(code.slice(imports[0].start, imports[0].end)).toBe(
       "import Badge from '../components/Badge' with { island: 'load' };",
     );
   });

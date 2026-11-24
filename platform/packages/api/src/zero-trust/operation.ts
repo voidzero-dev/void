@@ -91,7 +91,7 @@ export async function operationStartedAt(db: DbOrTx): Promise<string> {
   const result = await db.execute<{ startedAt: string }>(
     sql`SELECT now()::timestamp::text AS "startedAt"`,
   );
-  return result.rows[0]!.startedAt;
+  return result.rows[0].startedAt;
 }
 
 /**

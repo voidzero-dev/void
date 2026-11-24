@@ -66,7 +66,7 @@ describe.each(libraries)('withValidator + $library', ({ CreateUser }) => {
     const res = await app.request(postJson({ name: '', email: 'not-an-email' }));
 
     expect(res.status).toBe(400);
-    const json = (await res.json()) as ValidationIssueBody;
+    const json = await res.json<ValidationIssueBody>();
     expect(json.error).toBe('Validation failed');
     expect(json.issues[0].slot).toBe('body');
     expect(json.issues[0].issues.length).toBeGreaterThanOrEqual(1);
@@ -84,7 +84,7 @@ it('does not validate inherited array length as a query parameter', async () => 
   );
 
   expect(res.status).toBe(400);
-  const json = (await res.json()) as ValidationIssueBody;
+  const json = await res.json<ValidationIssueBody>();
   expect(json.error).toBe('Validation failed');
   expect(json.issues[0].slot).toBe('query');
   expect(json.issues[0].issues[0].path).toBe('length');

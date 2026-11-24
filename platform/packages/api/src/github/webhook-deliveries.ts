@@ -122,7 +122,7 @@ async function fetchDeliveriesPage(
     try {
       const res = await fetch(url, { headers: appJwtHeaders(appJwt) });
       if (res.ok) {
-        const data = (await res.json().catch(() => [])) as unknown;
+        const data = await res.json<unknown>().catch(() => []);
         const items = Array.isArray(data) ? (data as Array<DeliveryItem>) : [];
         return { items, next: parseNextCursorUrl(res.headers.get('Link')) };
       }

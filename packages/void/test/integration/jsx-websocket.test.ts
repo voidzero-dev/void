@@ -167,7 +167,7 @@ export default ${helper}({
   });
 
   it('generates WebSocket types and bundles only the selected environment and JSX runtime', () => {
-    const websocketTypes = types.split('  interface WebSocketRouteMap {')[1]!;
+    const websocketTypes = types.split('  interface WebSocketRouteMap {')[1];
     const graph = modules.join('\n').replaceAll('\\', '/');
     const otherEnvironment = environment === 'dev' ? 'prod' : 'dev';
     for (const { ext, mode } of variants) {

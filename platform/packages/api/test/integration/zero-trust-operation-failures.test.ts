@@ -143,7 +143,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return providerError('application not found', 404);
@@ -604,7 +604,7 @@ describe('Zero Trust operation failures', () => {
     );
 
     expect(response.status).toBe(201);
-    const body = (await response.json()) as { id: string; warnings?: Array<string> };
+    const body = await response.json<{ id: string; warnings?: Array<string> }>();
     expect(body.warnings).toBeUndefined();
     const row = await getProjectZeroTrustState(env.db, body.id);
     expect(row).toMatchObject({

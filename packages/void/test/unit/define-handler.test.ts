@@ -231,7 +231,7 @@ describe('defineHandler.withValidator', () => {
     );
 
     expect(res.status).toBe(400);
-    const json = (await res.json()) as ValidationIssueBody;
+    const json = await res.json<ValidationIssueBody>();
     expect(json.error).toBe('Validation failed');
     expect(json.issues[0].slot).toBe('body');
     expect(json.issues[0].issues[0].message).toBe('name is required');
@@ -255,7 +255,7 @@ describe('defineHandler.withValidator', () => {
     );
 
     expect(res.status).toBe(400);
-    const json = (await res.json()) as { error: string };
+    const json = await res.json<{ error: string }>();
     expect(json.error).toBe('Invalid JSON body');
   });
 
@@ -603,7 +603,7 @@ describe('defineHandler.withValidator', () => {
       }),
     );
     expect(malformed.status).toBe(400);
-    expect(((await malformed.json()) as { error: string }).error).toBe('Invalid form body');
+    expect((await malformed.json<{ error: string }>()).error).toBe('Invalid form body');
 
     const invalid = await app.request(
       new Request('http://localhost/test', {
@@ -612,7 +612,7 @@ describe('defineHandler.withValidator', () => {
       }),
     );
     expect(invalid.status).toBe(400);
-    const json = (await invalid.json()) as ValidationIssueBody;
+    const json = await invalid.json<ValidationIssueBody>();
     expect(json.error).toBe('Validation failed');
     expect(json.issues[0]?.slot).toBe('body');
     expect(json.issues[0]?.issues[0]?.message).toBe('title is required');

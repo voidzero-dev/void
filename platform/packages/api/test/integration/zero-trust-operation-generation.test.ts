@@ -131,7 +131,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return providerError('application not found', 404);

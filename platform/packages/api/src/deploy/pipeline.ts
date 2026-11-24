@@ -170,7 +170,7 @@ export async function runDeploymentPipeline(input: {
       });
       return;
     }
-    logger.info('emit', 'ndjson_event', event as Record<string, unknown>);
+    logger.info('emit', 'ndjson_event', event);
     if (!streamOpen) {
       return;
     }
@@ -742,7 +742,7 @@ export async function runDeploymentPipeline(input: {
           emit({
             event: 'done',
             deployment: currentLiveDeployment.id,
-            url: urls[0]!,
+            url: urls[0],
             urls,
             assets: 0,
             workers: 0,
@@ -871,7 +871,7 @@ export async function runDeploymentPipeline(input: {
           // routing entry under `project.slug`.
           return await publishStaticDeployment({
             get currentStep() {
-              return currentStep!;
+              return currentStep;
             },
             set currentStep(value: string) {
               currentStep = value;
@@ -886,13 +886,13 @@ export async function runDeploymentPipeline(input: {
             cutoverOwnerId,
             deployBuild,
             get cutoverProtected() {
-              return cutoverProtected!;
+              return cutoverProtected;
             },
             set cutoverProtected(value: boolean) {
               cutoverProtected = value;
             },
             get currentStatus() {
-              return currentStatus!;
+              return currentStatus;
             },
             set currentStatus(value: DeploymentStatus) {
               currentStatus = value;
@@ -906,26 +906,26 @@ export async function runDeploymentPipeline(input: {
             project,
             putTrackedRouting,
             get routingSwitched() {
-              return routingSwitched!;
+              return routingSwitched;
             },
             set routingSwitched(value: boolean) {
               routingSwitched = value;
             },
             get logger() {
-              return logger!;
+              return logger;
             },
             set logger(value: DeployLogger) {
               logger = value;
             },
             get cronSchedulerWriteAttempted() {
-              return cronSchedulerWriteAttempted!;
+              return cronSchedulerWriteAttempted;
             },
             set cronSchedulerWriteAttempted(value: boolean) {
               cronSchedulerWriteAttempted = value;
             },
             actor,
             get cutoverCommitted() {
-              return cutoverCommitted!;
+              return cutoverCommitted;
             },
             set cutoverCommitted(value: boolean) {
               cutoverCommitted = value;
@@ -954,7 +954,7 @@ export async function runDeploymentPipeline(input: {
         // matches the existing R2 head verify pool.
         const uploadDeploymentWorkerResult = await uploadDeploymentWorker({
           get currentStep() {
-            return currentStep!;
+            return currentStep;
           },
           set currentStep(value: string) {
             currentStep = value;
@@ -982,7 +982,7 @@ export async function runDeploymentPipeline(input: {
           },
           workerFiles,
           get sandboxControllerAttempted() {
-            return sandboxControllerAttempted!;
+            return sandboxControllerAttempted;
           },
           set sandboxControllerAttempted(value: boolean) {
             sandboxControllerAttempted = value;
@@ -995,7 +995,7 @@ export async function runDeploymentPipeline(input: {
             workerUploadUrl = value;
           },
           get workerUploaded() {
-            return workerUploaded!;
+            return workerUploaded;
           },
           set workerUploaded(value: boolean) {
             workerUploaded = value;
@@ -1009,7 +1009,7 @@ export async function runDeploymentPipeline(input: {
         const migrateDeploymentWorkerResult = await migrateDeploymentWorker({
           manifest,
           get currentStep() {
-            return currentStep!;
+            return currentStep;
           },
           set currentStep(value: string) {
             currentStep = value;
@@ -1017,7 +1017,7 @@ export async function runDeploymentPipeline(input: {
           markPhase,
           logger,
           get currentStatus() {
-            return currentStatus!;
+            return currentStatus;
           },
           set currentStatus(value: DeploymentStatus) {
             currentStatus = value;
@@ -1038,7 +1038,7 @@ export async function runDeploymentPipeline(input: {
         // terminalize a request whose queue/routing cutover may have landed.
         await publishWorkerDeployment({
           get currentStep() {
-            return currentStep!;
+            return currentStep;
           },
           set currentStep(value: string) {
             currentStep = value;
@@ -1049,13 +1049,13 @@ export async function runDeploymentPipeline(input: {
           context,
           deployment,
           get cutoverProtected() {
-            return cutoverProtected!;
+            return cutoverProtected;
           },
           set cutoverProtected(value: boolean) {
             cutoverProtected = value;
           },
           get currentStatus() {
-            return currentStatus!;
+            return currentStatus;
           },
           set currentStatus(value: DeploymentStatus) {
             currentStatus = value;
@@ -1071,7 +1071,7 @@ export async function runDeploymentPipeline(input: {
           previousManifest,
           deleteTrackedRouting,
           get logger() {
-            return logger!;
+            return logger;
           },
           set logger(value: DeployLogger) {
             logger = value;
@@ -1082,20 +1082,20 @@ export async function runDeploymentPipeline(input: {
           deployedAssetCount,
           assetConfig,
           get routingSwitched() {
-            return routingSwitched!;
+            return routingSwitched;
           },
           set routingSwitched(value: boolean) {
             routingSwitched = value;
           },
           get cronSchedulerWriteAttempted() {
-            return cronSchedulerWriteAttempted!;
+            return cronSchedulerWriteAttempted;
           },
           set cronSchedulerWriteAttempted(value: boolean) {
             cronSchedulerWriteAttempted = value;
           },
           actor,
           get cutoverCommitted() {
-            return cutoverCommitted!;
+            return cutoverCommitted;
           },
           set cutoverCommitted(value: boolean) {
             cutoverCommitted = value;
@@ -1142,7 +1142,7 @@ export async function runDeploymentPipeline(input: {
           cutoverProtected,
           writtenRoutingKeys,
           get currentStatus() {
-            return currentStatus!;
+            return currentStatus;
           },
           set currentStatus(value: DeploymentStatus) {
             currentStatus = value;

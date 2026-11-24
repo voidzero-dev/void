@@ -150,7 +150,7 @@ export function applyClientHead(head: HeadDescriptor | undefined): void {
     if (el !== cursor) {
       document.head.insertBefore(el, cursor);
     }
-    cursor = el.nextSibling as Node | null;
+    cursor = el.nextSibling;
   }
 
   document.title = head?.title ?? '';

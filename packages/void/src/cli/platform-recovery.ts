@@ -215,7 +215,7 @@ export async function verifyInstallationEndpoint(
       `platform: Installation ${manifest.id} is not reachable (HTTP ${response.status}).`,
     );
   }
-  const value = (await response.json()) as { installationId?: unknown };
+  const value = await response.json<{ installationId?: unknown }>();
   if (value.installationId !== manifest.id) {
     throw new Error(`platform: Installation ${manifest.id} endpoint identity does not match.`);
   }

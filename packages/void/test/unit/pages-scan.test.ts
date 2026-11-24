@@ -68,7 +68,7 @@ describe('scanPages', () => {
     ['const { loader, action } = handlers; export const helper = loader;', []],
   ])('detects exported page bindings in %s', async (source, methods) => {
     writeFile('index.vue', '<template><div>Home</div></template>');
-    writeFile('index.server.ts', source as string);
+    writeFile('index.server.ts', source);
     expect((await scanPages(TMP)).pages[0].methods).toEqual(methods);
   });
 
@@ -1587,10 +1587,10 @@ describe('scanPages between saves', () => {
   it('does not expose cached markdown metadata for mutation between scans', async () => {
     writeFile('notes.md', '---\ntitle: Original\ndescription: Unchanged\n---\n# Notes');
     const first = await scanPages(TMP);
-    first.pages[0]!.metadata!.title = 'Mutated';
-    first.pages[0]!.metadata!.description = 'Also mutated';
+    first.pages[0].metadata!.title = 'Mutated';
+    first.pages[0].metadata!.description = 'Also mutated';
     const second = await scanPages(TMP);
-    expect(second.pages[0]!.metadata).toEqual({ title: 'Original', description: 'Unchanged' });
+    expect(second.pages[0].metadata).toEqual({ title: 'Original', description: 'Unchanged' });
   });
 
   it('picks up page metadata changed since the previous scan', async () => {

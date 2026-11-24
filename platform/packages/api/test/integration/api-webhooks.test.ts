@@ -480,7 +480,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     expect(json.ok).toBe(true);
     expect(json.buildIds).toHaveLength(1);
 
@@ -497,7 +497,7 @@ describe('POST /webhooks/github', () => {
     expect(build!.instance_type).toBe('standard-3');
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [pokeUrl, pokeInit] = fetchSpy.mock.calls[0]! as [string, RequestInit];
+    const [pokeUrl, pokeInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(pokeUrl).toContain('/poke');
     expect(pokeInit.method).toBe('POST');
   });
@@ -527,7 +527,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
 
     const build = await getBuild(env.db, json.buildIds[0]);
@@ -563,7 +563,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'push is not the current branch head',
     });
     // No build row was created for the stale commit.
@@ -607,7 +607,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const build = await getBuild(env.db, json.buildIds[0]);
     expect(build!.commit_sha).toBe('headsha1');
@@ -649,7 +649,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'push is not the current branch head',
     });
     // No new build row, and the pre-existing queued build is left intact.
@@ -695,7 +695,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'push is not the current branch head',
     });
     // No new build row for the unverifiable push.
@@ -740,7 +740,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'push is not the current branch head',
     });
     // No new build row, and the pre-existing queued build is left intact.
@@ -799,7 +799,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { executor?: string }).toMatchObject({
+    expect(await res.json<{ executor?: string }>()).toMatchObject({
       executor: 'github_actions',
     });
     const rows = await env.db.select().from(builds);
@@ -1370,7 +1370,7 @@ describe('POST /webhooks/github', () => {
     expect((await getBuild(env.db, build.id))!.status).toBe('complete');
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]! as [string, RequestInit];
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/repos/octo/check-ok/check-runs/5001');
     expect(init.method).toBe('PATCH');
     const body = JSON.parse(init.body as string) as { status: string; conclusion: string };
@@ -1425,7 +1425,7 @@ describe('POST /webhooks/github', () => {
     expect((await getBuild(env.db, build.id))!.status).toBe('failed');
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]! as [string, RequestInit];
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/repos/octo/check-fail/check-runs/5002');
     const body = JSON.parse(init.body as string) as { conclusion: string };
     expect(body.conclusion).toBe('failure');
@@ -1593,7 +1593,7 @@ describe('POST /webhooks/github', () => {
 
     // ...but the check was STILL PATCHed to the mapped conclusion.
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]! as [string, RequestInit];
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/repos/octo/check-terminal/check-runs/5010');
     expect(init.method).toBe('PATCH');
     const body = JSON.parse(init.body as string) as { status: string; conclusion: string };
@@ -1799,7 +1799,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const body = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     expect(body.buildIds).toHaveLength(2);
     expect([...body.buildIds].sort()).toEqual([buildA.id, buildB.id].sort());
 
@@ -1864,7 +1864,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const body = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     // The webhook resolved and finalized the active rerun build.
     expect(body.buildIds).toEqual([rerun.id]);
     const updatedRerun = await getBuild(env.db, rerun.id);
@@ -1928,7 +1928,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'build already terminal',
     });
 
@@ -1965,7 +1965,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
   });
@@ -2000,7 +2000,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     expect((await env.db.select().from(builds)).length).toBe(0);
@@ -2041,7 +2041,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const build = await getBuild(env.db, json.buildIds[0]);
     expect(build!.project_id).toBe(project.id);
@@ -2087,7 +2087,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
 
     // The stored name was healed to the new full_name.
@@ -2132,7 +2132,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     // No build was created for the unmatched connection.
@@ -2187,7 +2187,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds?: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds?: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
 
     const rows = await env.db.select().from(builds);
@@ -2237,7 +2237,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds?: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds?: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(2);
 
     const rows = await env.db.select().from(builds);
@@ -2278,7 +2278,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     // The build is untouched — still building.
@@ -2312,7 +2312,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     expect((await env.db.select().from(builds)).length).toBe(0);
@@ -2341,7 +2341,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     expect((await env.db.select().from(builds)).length).toBe(0);
@@ -2370,7 +2370,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     expect((await env.db.select().from(builds)).length).toBe(0);
@@ -2399,7 +2399,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const build = await getBuild(env.db, json.buildIds[0]);
     expect(build!.status).toBe('queued');
@@ -2466,7 +2466,7 @@ describe('POST /webhooks/github — push idempotency + latest-wins', () => {
       repository: { full_name: 'octo/idem', id: 70 },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const body = await res.json<{ buildIds: ReadonlyArray<string> }>();
     // Each push here creates or reuses exactly one build.
     expect(body.buildIds).toHaveLength(1);
     return { buildId: body.buildIds[0] };
@@ -2805,7 +2805,7 @@ describe('scheduled() re-arms BUILD_SCHEDULER for orphaned queued builds', () =>
     await scheduled(mockController, makeBindings(pokeFetch), mockCtx);
 
     expect(pokeFetch).toHaveBeenCalledTimes(1);
-    const [pokeUrl, pokeInit] = pokeFetch.mock.calls[0]! as [string, RequestInit];
+    const [pokeUrl, pokeInit] = pokeFetch.mock.calls[0] as [string, RequestInit];
     expect(pokeUrl).toContain('/poke');
     expect(pokeInit.method).toBe('POST');
   });
@@ -3298,7 +3298,7 @@ describe('POST /webhooks/github — supersede stale actions builds on push', () 
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { executor?: string }).toMatchObject({
+    expect(await res.json<{ executor?: string }>()).toMatchObject({
       executor: 'github_actions',
     });
     const updated = await getBuild(env.db, stale.id);
@@ -3444,7 +3444,7 @@ describe('POST /webhooks/github — supersede stale container builds on push', (
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     expect(json.ok).toBe(true);
     expect(json.buildIds).toHaveLength(1);
     // The older active build is cancelled (token revoked + slot freed) and its
@@ -3490,7 +3490,7 @@ describe('POST /webhooks/github — supersede stale container builds on push', (
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     // Same-commit in-flight build is REUSED (dedup), not cancelled, and no DO
     // teardown happened.
     expect(json.buildIds).toEqual([fresh.id]);
@@ -3564,7 +3564,7 @@ describe('POST /webhooks/github — supersede stale container builds on push', (
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     // The same-commit building build is reused, not self-cancelled.
     expect(json.buildIds).toEqual([building.id]);
     expect((await getBuild(env.db, building.id))!.status).toBe('building');
@@ -4938,7 +4938,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
     const res = await post(app, appEnv, 'check_run', checkRunPayload({ externalId: failed.id }));
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     // A NEW row — a failed build is never reused.
     expect(json.buildIds[0]).not.toBe(failed.id);
@@ -5037,7 +5037,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       checkRunPayload({ headBranch: 'main', externalId: clicked.id }),
     );
 
-    const json = (await res.json()) as { buildIds?: Array<string> };
+    const json = await res.json<{ buildIds?: Array<string> }>();
     expect(json.buildIds).toHaveLength(1);
     expect((await getBuild(env.db, json.buildIds![0]))!.project_id).toBe(project.id);
   });
@@ -5085,7 +5085,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       check_suite: { head_sha: 'cafe1234', head_branch: 'main' },
     });
 
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const build = await getBuild(env.db, json.buildIds[0]);
     expect(build!.project_id).toBe(project.id);
@@ -5125,7 +5125,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
 
     const res = await post(app, appEnv, 'check_run', checkRunPayload({ externalId: clicked.id }));
 
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const connection = await getGitHubConnection(env.db, project.id);
     expect(connection!.repo_full_name).toBe('octo/site');
@@ -5179,7 +5179,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
     const res = await post(app, appEnv, 'check_run', checkRunPayload({ externalId: failed.id }));
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds?: Array<string> };
+    const json = await res.json<{ buildIds?: Array<string> }>();
     expect(json.buildIds).toHaveLength(1);
     // Resolving by repo + branch alone would have rebuilt the sibling too.
     expect(await getProjectBuilds(env.db, sibling.id)).toHaveLength(0);
@@ -5230,7 +5230,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       check_suite: { head_sha: 'cafe1234', head_branch: 'main' },
     });
 
-    const json = (await res.json()) as { buildIds?: Array<string> };
+    const json = await res.json<{ buildIds?: Array<string> }>();
     expect(json.buildIds).toHaveLength(2);
     expect(await getProjectBuilds(env.db, first.id)).toHaveLength(1);
     expect(await getProjectBuilds(env.db, second.id)).toHaveLength(1);
@@ -5265,7 +5265,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
     });
 
     expect(compareConcurrencyPeak).toBe(2);
-    const json = (await res.json()) as { buildIds?: Array<string> };
+    const json = await res.json<{ buildIds?: Array<string> }>();
     expect(json.buildIds).toHaveLength(2);
     expect(await getProjectBuilds(env.db, first.id)).toHaveLength(1);
     expect(await getProjectBuilds(env.db, second.id)).toHaveLength(1);
@@ -5291,7 +5291,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       expect(await getProjectBuilds(env.db, sibling.id)).toHaveLength(0);
       expect(pokes).toHaveLength(0);
       // The refusal is reported, and it does NOT invent a passing conclusion.
-      const [, , , , opts] = spy.mock.calls[0]!;
+      const [, , , , opts] = spy.mock.calls[0];
       expect(opts.conclusion).toBe('failure');
     } finally {
       spy.mockRestore();
@@ -5325,7 +5325,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       );
 
       expect(await res.json()).toEqual({ ok: true, enqueued: 0 });
-      const [, , , , opts] = spy.mock.calls[0]!;
+      const [, , , , opts] = spy.mock.calls[0];
       // The run stays red, with an explanation. It does not become passing.
       expect(opts.conclusion).toBe('failure');
       expect(opts.title).toBe('Commit is no longer the branch head');
@@ -5352,7 +5352,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         checkRunPayload({ id: 77_008, externalId: clicked.id, conclusion: 'stale' }),
       );
 
-      const [, , , , opts] = spy.mock.calls[0]!;
+      const [, , , , opts] = spy.mock.calls[0];
       expect(opts.conclusion).toBe('cancelled');
     } finally {
       spy.mockRestore();
@@ -5382,7 +5382,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         checkRunPayload({ id: 77_006, externalId: failed.id, conclusion: null }),
       );
 
-      const [, , , , opts] = spy.mock.calls[0]!;
+      const [, , , , opts] = spy.mock.calls[0];
       // Never ran to a verdict, so it was never passing. `cancelled`, not neutral.
       expect(opts.conclusion).toBe('cancelled');
     } finally {
@@ -5418,7 +5418,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
 
       // An UNRUN build must never be reported as deployed, and it still needs the
       // scheduler poke it is waiting for.
-      const json = (await res.json()) as { buildIds?: Array<string> };
+      const json = await res.json<{ buildIds?: Array<string> }>();
       expect(json.buildIds).toEqual([queued.id]);
       expect(pokes).toHaveLength(1);
       expect(spy).not.toHaveBeenCalled();
@@ -5463,7 +5463,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       // The run this replaces was green; downgrading it to `neutral` would lose an
       // accurate success.
       expect(spy).toHaveBeenCalledTimes(1);
-      const [, , , checkRunId, opts] = spy.mock.calls[0]!;
+      const [, , , checkRunId, opts] = spy.mock.calls[0];
       expect(checkRunId).toBe('77003');
       expect(opts.conclusion).toBe('success');
       expect(opts.title).toBe('Already built and live');
@@ -5494,7 +5494,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       // GitHub reset the suite to `queued` on the click. Leaving it there is what
       // makes the button look broken, so the refusal is reported ON the check.
       expect(spy).toHaveBeenCalledTimes(1);
-      const [, , , checkRunId, opts] = spy.mock.calls[0]!;
+      const [, , , checkRunId, opts] = spy.mock.calls[0];
       expect(checkRunId).toBe('77001');
       // Echoes the run's OWN conclusion back; it does not invent one.
       expect(opts.conclusion).toBe('neutral');

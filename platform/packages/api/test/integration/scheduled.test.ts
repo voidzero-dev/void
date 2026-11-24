@@ -736,7 +736,7 @@ describe('scheduled() proxy token rotations', () => {
       .select({ payload: projectCleanupJobs.payload })
       .from(projectCleanupJobs)
       .where(eq(projectCleanupJobs.target, proxyTokenRotationTarget(projectId)));
-    return { gen: project!.gen, phase: job?.payload.phase };
+    return { gen: project.gen, phase: job?.payload.phase };
   }
 
   it.each([

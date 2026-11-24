@@ -63,7 +63,7 @@ export function transformWorkerRequireBundle(
       if (
         specifiers?.length !== 1 ||
         !isIdentifier(specifiers[0]?.imported as AstNode | undefined) ||
-        (specifiers[0]!.imported as { name: string }).name !== 'createRequire'
+        (specifiers[0].imported as { name: string }).name !== 'createRequire'
       ) {
         throw new Error(
           `deploy: Unsupported node:module import in ${database} bundle ${filename}.`,

@@ -152,7 +152,7 @@ describe('platform authentication storage', () => {
       ['installation', 'company:2'],
     ]) {
       await expect(
-        decryptPlatformCredential(rotated, installation!, id!, credential),
+        decryptPlatformCredential(rotated, installation, id, credential),
       ).rejects.toThrow('Failed to decrypt');
     }
     await expect(

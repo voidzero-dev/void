@@ -28,7 +28,7 @@ export function platformAccessFixture(): {
   let sequence = 0;
   const transport = {
     request: async <T>(path: string, init?: RequestInit): Promise<T> => {
-      const target = path.split('?')[0]!.replace('/accounts/account/access/', '');
+      const target = path.split('?')[0].replace('/accounts/account/access/', '');
       const method = init?.method ?? 'GET';
       const body = init?.body ? (JSON.parse(String(init.body)) as RecordValue) : undefined;
       calls.push({ method, path: target, body });
@@ -68,7 +68,7 @@ export function platformAccessFixture(): {
         }
         result = app;
       } else if (target.startsWith('apps/') && target.endsWith('/policies')) {
-        const app = apps.get(target.split('/')[1]!)!;
+        const app = apps.get(target.split('/')[1])!;
         result = (app.policies as Array<RecordValue>).map((entry, index) =>
           entry.id === 'employees' ? policy : { id: `inline-${index}`, ...entry },
         );

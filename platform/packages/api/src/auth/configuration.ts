@@ -321,6 +321,6 @@ export async function stageLoginConfiguration(
       .update(platformAuthSettings)
       .set({ revision: sql`${platformAuthSettings.revision} + 1` })
       .where(eq(platformAuthSettings.singleton, true));
-    return connection!;
+    return connection;
   });
 }

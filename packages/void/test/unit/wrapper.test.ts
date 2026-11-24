@@ -869,7 +869,7 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       expect(imports.filter((id) => !/^(node:|cloudflare:|\.\/)/.test(id))).toEqual([]);
       const required = Array.from(
         code.matchAll(/\b__require\(\s*["']([^"']+)["']\s*\)/g),
-        (match) => match[1]!,
+        (match) => match[1],
       );
       expect(required.filter((id) => !isBuiltin(id) && !optionalRequires.includes(id))).toEqual([]);
     }

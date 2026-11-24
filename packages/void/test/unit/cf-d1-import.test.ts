@@ -191,7 +191,7 @@ it('keeps a stalled upload a plain failure that names its deadline', async () =>
     'fetch',
     vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(uploaded()[0]!)
+      .mockResolvedValueOnce(uploaded()[0])
       .mockRejectedValueOnce(
         new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
       ),
@@ -342,7 +342,7 @@ it('keeps an upload failure a plain failure', async () => {
     'fetch',
     vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(uploaded()[0]!)
+      .mockResolvedValueOnce(uploaded()[0])
       .mockRejectedValueOnce(new TypeError('fetch failed')),
   );
   expect((await importError()).message).toBe('fetch failed');

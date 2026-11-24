@@ -202,7 +202,7 @@ it.each(['fresh', 'initialized'] as const)(
       ownershipStartedAt,
       neurons: initialNeurons,
     });
-    expect(Date.parse(window!.ownershipEndedAt)).toBeGreaterThan(Date.parse(ownershipStartedAt));
+    expect(Date.parse(window.ownershipEndedAt)).toBeGreaterThan(Date.parse(ownershipStartedAt));
     expect(await storage.getAlarm()).toBeGreaterThan(Date.now());
 
     const restarted = makeCounter();
@@ -218,7 +218,7 @@ it.each(['fresh', 'initialized'] as const)(
         `metadataRaw: ${JSON.stringify(JSON.stringify({ projectId: usageTag }))}`,
       );
       expect(query).toContain(`datetime_geq: "${ownershipStartedAt}"`);
-      expect(query).toContain(`datetime_lt: "${window!.ownershipEndedAt}"`);
+      expect(query).toContain(`datetime_lt: "${window.ownershipEndedAt}"`);
     }
     const recovered = (await storage.get<CounterState>('state'))!;
     expect(recovered).toMatchObject({ totalNeurons: 30, projectSlugs: {}, projectNeurons: {} });

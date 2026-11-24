@@ -195,9 +195,9 @@ it.each(recoveries)(
       expect.objectContaining({ bypassDeploymentChecks: true }),
     ]);
     // Void checks that it still owns traffic between the refusal and the forced retry.
-    const refused = calls.indexOf(rollbacks[0]!);
+    const refused = calls.indexOf(rollbacks[0]);
     expect(
-      calls.slice(refused, calls.indexOf(rollbacks[1]!)).map((operation) => operation.type),
+      calls.slice(refused, calls.indexOf(rollbacks[1])).map((operation) => operation.type),
     ).toContain('deployments.status');
     expect(
       calls.filter(

@@ -8,7 +8,7 @@ const keyCache = new Map<string, CryptoKey>();
 async function getSigningKey(privateKeyPem: string): Promise<CryptoKey> {
   let key = keyCache.get(privateKeyPem);
   if (!key) {
-    key = (await importPKCS8(privateKeyPem, 'RS256')) as CryptoKey;
+    key = await importPKCS8(privateKeyPem, 'RS256');
     keyCache.set(privateKeyPem, key);
   }
   return key;

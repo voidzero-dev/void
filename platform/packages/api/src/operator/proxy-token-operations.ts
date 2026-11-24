@@ -131,7 +131,7 @@ export async function rotateProxyTokens(db: Db, env: ApiEnv['Bindings'], input: 
     throw new OperatorError(400, 'Supply --project <id> or --all.', 'invalid_argument');
   }
   const all = input.all === true;
-  const projectId = input.project as string | undefined;
+  const projectId = input.project;
   const [project] = projectId
     ? await db
         .select({

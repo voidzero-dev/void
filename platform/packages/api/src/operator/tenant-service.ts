@@ -543,7 +543,7 @@ async function commitOwnershipTransfer(
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1);
-    const transferBoundary = clock!.transferredAt;
+    const transferBoundary = clock.transferredAt;
     if (openPeriod) {
       await tx
         .update(projectOwnershipPeriods)
@@ -568,7 +568,7 @@ async function commitOwnershipTransfer(
         changed_by_user_id: operatorUserId,
       })
       .returning({ startsAt: projectOwnershipPeriods.starts_at });
-    const transferredAt = newPeriod!.startsAt;
+    const transferredAt = newPeriod.startsAt;
     await tx
       .update(projectDeployCredentials)
       .set({ revoked_at: transferBoundary })
@@ -596,7 +596,7 @@ async function commitOwnershipTransfer(
         set: { role: 'admin', updated_at: sql`now()` },
       });
     return {
-      project: updatedProject!,
+      project: updatedProject,
       previousOwner: currentOwner,
       previousOwnerId: currentOwner.id,
       previousOwnerBillingCycleStart: currentOwner.billing_cycle_start,

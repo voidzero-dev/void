@@ -31,39 +31,42 @@ function readClientKey(key: string): unknown {
   );
 }
 
-export const env = new Proxy({} as Record<string, unknown>, {
-  get(_target, key) {
-    if (typeof key === 'symbol') {
-      return undefined;
-    }
-    return readClientKey(String(key));
+export const env: Record<string, unknown> = new Proxy(
+  {},
+  {
+    get(_target, key) {
+      if (typeof key === 'symbol') {
+        return undefined;
+      }
+      return readClientKey(String(key));
+    },
+    has(_target, key) {
+      if (typeof key !== 'string') {
+        return false;
+      }
+      const meta = getClientEnv();
+      return meta ? key in meta : false;
+    },
+    ownKeys() {
+      const meta = getClientEnv();
+      return meta ? Object.keys(meta) : [];
+    },
+    getOwnPropertyDescriptor(_target, key) {
+      if (typeof key !== 'string') {
+        return undefined;
+      }
+      const meta = getClientEnv();
+      if (!meta || !(key in meta)) {
+        return undefined;
+      }
+      return {
+        enumerable: true,
+        configurable: true,
+        value: meta[key],
+      };
+    },
   },
-  has(_target, key) {
-    if (typeof key !== 'string') {
-      return false;
-    }
-    const meta = getClientEnv();
-    return meta ? key in meta : false;
-  },
-  ownKeys() {
-    const meta = getClientEnv();
-    return meta ? Object.keys(meta) : [];
-  },
-  getOwnPropertyDescriptor(_target, key) {
-    if (typeof key !== 'string') {
-      return undefined;
-    }
-    const meta = getClientEnv();
-    if (!meta || !(key in meta)) {
-      return undefined;
-    }
-    return {
-      enumerable: true,
-      configurable: true,
-      value: meta[key],
-    };
-  },
-}) as Record<string, unknown>;
+);
 
 /**
  * In client builds `defineEnv` is a no-op identity function — schema

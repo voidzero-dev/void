@@ -372,7 +372,7 @@ export async function publishStaticDeployment(input: {
   emit({
     event: 'done',
     deployment: deployment.id,
-    url: urls[0]!,
+    url: urls[0],
     urls,
     assets: assetCount,
     workers: 0,

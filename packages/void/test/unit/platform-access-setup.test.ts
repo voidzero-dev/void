@@ -199,7 +199,7 @@ describe('interactive Access policy creation', () => {
     const env = platformAccessFixture();
     let policies = initialPolicies;
     const request = vi.fn(async <T>(path: string, init?: RequestInit): Promise<T> => {
-      const target = path.split('?')[0]!;
+      const target = path.split('?')[0];
       if (target === '/accounts/account/access/policies' && init?.method === 'POST') {
         const created = { ...JSON.parse(String(init.body)), id: 'company-domain' };
         policies = [...policies, created];
@@ -252,7 +252,7 @@ describe('interactive Access policy creation', () => {
     );
     prompts.confirm.mockImplementation(async () => {
       expect(fixture.env.apps.size).toBe(0);
-      expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!)).toMatchObject({
+      expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson)).toMatchObject({
         identityProviderIds: ['company-idp'],
       });
       fixture.setPolicies([fixture.env.policy]);
@@ -285,7 +285,7 @@ describe('interactive Access policy creation', () => {
         ([path]) => path.split('?')[0] === '/accounts/account/access/policies',
       ),
     ).toHaveLength(2);
-    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!)).toMatchObject({
+    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson)).toMatchObject({
       policyIds: ['employees'],
     });
     expect([...fixture.env.apps.values()][0]?.policies).toEqual([
@@ -327,7 +327,7 @@ describe('interactive Access policy creation', () => {
     });
     await preparePlatformAccessSetup(fixture.input);
     expect(prompts.select).not.toHaveBeenCalled();
-    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!).policyIds).toEqual([
+    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson).policyIds).toEqual([
       'employees',
       'managers',
     ]);
@@ -410,7 +410,7 @@ describe('interactive Access policy creation', () => {
       expect(
         fixture.request.mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
       ).toBe(true);
-      expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!)).toEqual({
+      expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson)).toEqual({
         mode: 'create',
         identityProviderIds: ['company-idp'],
       });
@@ -491,7 +491,7 @@ describe('interactive Access policy creation', () => {
       '/accounts/account/access/policies',
       '/accounts/account/access/apps',
     ]);
-    expect(JSON.parse(String(posts[0]![1]!.body))).toEqual({
+    expect(JSON.parse(String(posts[0][1]!.body))).toEqual({
       name: 'Emails ending in @example.com and 1 more',
       decision: 'allow',
       include: [
@@ -504,7 +504,7 @@ describe('interactive Access policy creation', () => {
         'Created the Access policy “Emails ending in @example.com and 1 more” in Cloudflare.',
       ),
     );
-    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!).policyIds).toEqual([
+    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson).policyIds).toEqual([
       'company-domain',
     ]);
     expect([...fixture.env.apps.values()][0]?.policies).toEqual([
@@ -536,7 +536,7 @@ describe('interactive Access policy creation', () => {
         'Cloudflare API error: refused. Choose “Create in Cloudflare” instead.',
       );
       expect(prompts.select).toHaveBeenCalledTimes(2);
-      expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!).policyIds).toEqual(['employees']);
+      expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson).policyIds).toEqual(['employees']);
     },
   );
 
@@ -585,7 +585,7 @@ describe('interactive Access policy creation', () => {
       'Company Access policies must not allow Everyone or any valid service token. Choose other policies, or fix the policy in Cloudflare and refresh the list.',
     );
     expect(policyPrompts()).toHaveLength(2);
-    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!).policyIds).toEqual(['employees']);
+    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson).policyIds).toEqual(['employees']);
     expect(
       fixture.request.mock.calls
         .filter(([, init]) => init?.method === 'POST')
@@ -616,7 +616,7 @@ describe('interactive Access policy creation', () => {
     expect(prompts.warn).toHaveBeenCalledExactlyOnceWith(
       'Select Access allow policies restricted to company identities. Choose other policies, or fix the policy in Cloudflare and refresh the list.',
     );
-    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!).policyIds).toEqual(['employees']);
+    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson).policyIds).toEqual(['employees']);
   });
 
   it('asks again when a picked policy uses a login method that was not selected', async () => {
@@ -642,7 +642,7 @@ describe('interactive Access policy creation', () => {
     expect(prompts.warn).toHaveBeenCalledExactlyOnceWith(
       'An Access allow policy uses an identity provider that is not one of the selected identity providers. Choose other policies, or fix the policy in Cloudflare and refresh the list.',
     );
-    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!).policyIds).toEqual(['employees']);
+    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson).policyIds).toEqual(['employees']);
   });
 
   it('forgets a rejected saved pick so the next interactive run asks again', async () => {
@@ -731,7 +731,7 @@ describe('interactive Access policy creation', () => {
     await expect(preparePlatformAccessSetup({ ...fixture.input, spec })).rejects.toThrow(
       'Fix the selected policy in Cloudflare, then resume.',
     );
-    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson!)).toEqual(spec);
+    expect(JSON.parse(fixture.checkpoint.accessSetupSpecJson)).toEqual(spec);
   });
 
   it('keeps the saved pick when provisioning fails for another reason', async () => {

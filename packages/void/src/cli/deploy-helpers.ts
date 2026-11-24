@@ -156,7 +156,7 @@ export function getExitCode(error: unknown): number {
     typeof error === 'object' &&
     error !== null &&
     'status' in error &&
-    typeof (error as { status: unknown }).status === 'number'
+    typeof error.status === 'number'
   ) {
     return (error as { status: number }).status;
   }
@@ -510,7 +510,7 @@ export async function ensureManagedHyperdrive(
     log.info('Deploy cancelled.');
     process.exit(0);
   }
-  await client.provisionDatabase(projectId, connectionString as string);
+  await client.provisionDatabase(projectId, connectionString);
   log.step('Hyperdrive provisioned.');
 }
 

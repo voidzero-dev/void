@@ -283,8 +283,8 @@ app.post('/:id/finish', async (context) => {
         body.recipients,
         body.state as 'provider_accepted' | 'failed' | 'outcome_unknown' | 'cancelled',
         {
-          providerReference: body.providerReference as string | undefined,
-          errorCode: body.errorCode as string | undefined,
+          providerReference: body.providerReference,
+          errorCode: body.errorCode,
         },
       ),
     });

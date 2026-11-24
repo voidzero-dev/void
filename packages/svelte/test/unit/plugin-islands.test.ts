@@ -31,8 +31,8 @@ function setupPlugin(options?: { dev?: boolean }) {
   const plugins = islandsPlugin(PAGES_DIR);
   const plugin = plugins[0] as IslandsPluginHooks;
 
-  const command = options?.dev ? 'serve' : 'build';
-  const config = { root: TMP, command: command as 'serve' | 'build', plugins: [] };
+  const command: 'build' | 'serve' = options?.dev ? 'serve' : 'build';
+  const config = { root: TMP, command, plugins: [] };
   plugin.configResolved?.(config);
 
   return {

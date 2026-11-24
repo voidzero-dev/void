@@ -64,7 +64,7 @@ describe('runtime ai', () => {
           body: { messages: [] },
           signal: controller.signal,
         });
-        const init = request.mock.calls[0]![1];
+        const init = request.mock.calls[0][1];
         expect(init.signal).toBe(controller.signal);
         const payload = JSON.parse(init.body as string);
         expect(payload).not.toHaveProperty('signal');
@@ -479,12 +479,9 @@ describe('runtime ai', () => {
         __VOID_PROXY_URL: 'https://proxy.test',
       },
       async () => {
-        const result = await ai.run(
-          '@cf/black-forest-labs/flux-1-schnell' as keyof AiModels,
-          {
-            prompt: 'a small robot',
-          } as never,
-        );
+        const result = await ai.run('@cf/black-forest-labs/flux-1-schnell' as keyof AiModels, {
+          prompt: 'a small robot',
+        });
 
         expect(result).toBeInstanceOf(Blob);
         expect((result as Blob).type).toBe('image/png');
@@ -633,7 +630,7 @@ describe('runtime ai', () => {
           body: { model: 'gpt-4o' },
         });
         expect(response.status).toBe(501);
-        const body = (await response.json()) as { error: string };
+        const body = await response.json<{ error: string }>();
         expect(body.error).toMatch(/gateway/i);
         expect(body.error).toContain('Set `ai.gateway` in void.config.ts.');
       });
@@ -659,7 +656,7 @@ describe('runtime ai', () => {
           body: { model: 'gpt-4o' },
         });
         expect(response.status).toBe(400);
-        const body = (await response.json()) as { error: string };
+        const body = await response.json<{ error: string }>();
         expect(body.error).toContain('OPENAI_API_KEY');
       });
 
@@ -690,7 +687,7 @@ describe('runtime ai', () => {
             body: { model: 'gpt-4o' },
           });
           expect(response.status).toBe(502);
-          const body = (await response.json()) as { error: string };
+          const body = await response.json<{ error: string }>();
           expect(body.error).toContain('my-gw');
         },
       );
@@ -718,7 +715,7 @@ describe('runtime ai', () => {
             .provider('openai')
             .fetch('https://evil.example.com/v1/chat', { body: { model: 'gpt-4o' } });
           expect(response.status).toBe(400);
-          const body = (await response.json()) as { error: string };
+          const body = await response.json<{ error: string }>();
           expect(body.error).toMatch(/must be relative/);
         },
       );

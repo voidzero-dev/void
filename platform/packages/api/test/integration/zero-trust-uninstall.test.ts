@@ -117,7 +117,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return Response.json(
@@ -209,8 +209,8 @@ describe('platform uninstall check against the API database', () => {
       );
     const refusal = (await check().catch((error: unknown) => error)) as Error;
     expect(refusal).toBeInstanceOf(Error);
-    expect(refusal!.message).toContain('Deletion of project stopped-deletion stopped');
-    expect(refusal!.message).toContain('`void project delete <name>`');
+    expect(refusal.message).toContain('Deletion of project stopped-deletion stopped');
+    expect(refusal.message).toContain('`void project delete <name>`');
 
     // The operator follows the dashboard hint first, then reruns the deletion.
     cloudflare.applications.delete(bypass.bypass_application_id!);
@@ -276,7 +276,7 @@ describe('platform uninstall check against the API database', () => {
       platform,
     );
     expect(response.status).toBe(409);
-    expect(((await response.json()) as { error: string }).error).toBe(
+    expect((await response.json<{ error: string }>()).error).toBe(
       'The platform is being uninstalled, so new projects cannot be created.',
     );
     expect(await readPlatformProjectSlugsConnection(connection)).toEqual([]);

@@ -164,7 +164,7 @@ export function stubCustomerCf(
       if (failure) {
         return failure;
       }
-      const name = new URL(url).hostname.split('.')[0]!;
+      const name = new URL(url).hostname.split('.')[0];
       const secret = relaySecrets.get(name);
       if (!secret || !scriptSubdomains.get(name)) {
         return new Response(null, { status: 404 });
@@ -241,11 +241,11 @@ export function stubCustomerCf(
         return failure;
       }
       if (method === 'POST') {
-        scriptSubdomains.set(scriptSubdomainMatch[1]!, true);
+        scriptSubdomains.set(scriptSubdomainMatch[1], true);
         return cfSuccess({ enabled: true, previews_enabled: false });
       }
       return cfSuccess({
-        enabled: scriptSubdomains.get(scriptSubdomainMatch[1]!) ?? false,
+        enabled: scriptSubdomains.get(scriptSubdomainMatch[1]) ?? false,
         previews_enabled: false,
       });
     }
@@ -322,7 +322,7 @@ export function stubCustomerCf(
       if (failure) {
         return failure;
       }
-      return cfSuccess(settingsFor(path.split('/')[2]!));
+      return cfSuccess(settingsFor(path.split('/')[2]));
     }
 
     if (/\/zones\/[^/]+\/email\/routing$/.test(path) && method === 'PATCH') {
@@ -331,8 +331,8 @@ export function stubCustomerCf(
       if (config.failBeforeEffect?.includes('subaddressing')) {
         return fail('subaddressing') ?? cfSuccess({});
       }
-      Object.assign(settingsFor(path.split('/')[2]!), body);
-      return fail('subaddressing') ?? cfSuccess(settingsFor(path.split('/')[2]!));
+      Object.assign(settingsFor(path.split('/')[2]), body);
+      return fail('subaddressing') ?? cfSuccess(settingsFor(path.split('/')[2]));
     }
 
     if (/\/zones\/[^/]+\/email\/routing\/rules\?/.test(path) && method === 'GET') {
@@ -343,14 +343,14 @@ export function stubCustomerCf(
       return (
         fail('routingRulesGet') ??
         cfSuccess(
-          [...rulesFor(path.split('/')[2]!).values()].slice((page - 1) * perPage, page * perPage),
+          [...rulesFor(path.split('/')[2]).values()].slice((page - 1) * perPage, page * perPage),
         )
       );
     }
 
     const literal = /^\/zones\/([^/]+)\/email\/routing\/rules(?:\/([^/?]+))?$/.exec(path);
     if (literal && literal[2] !== 'catch_all') {
-      const rules = rulesFor(literal[1]!);
+      const rules = rulesFor(literal[1]);
       if (method === 'GET' && literal[2]) {
         await record({ tag: 'literalRuleGet', method, url });
         return (
@@ -387,7 +387,7 @@ export function stubCustomerCf(
       if (failure) {
         return failure;
       }
-      const state = catchAllStateFor(catchAllMatch[1]!);
+      const state = catchAllStateFor(catchAllMatch[1]);
       if (state === null) {
         return cfError('rule not found', 404);
       }
@@ -413,7 +413,7 @@ export function stubCustomerCf(
       const actions = (body as { actions?: Array<{ type: string; value?: Array<string> }> })
         ?.actions;
       const worker = actions?.find((action) => action.type === 'worker');
-      catchAllStates.set(catchAllMatch[1]!, {
+      catchAllStates.set(catchAllMatch[1], {
         enabled: Boolean((body as { enabled?: unknown })?.enabled),
         workerName: worker?.value?.[0] ?? null,
       });
@@ -442,8 +442,8 @@ export function stubCustomerCf(
       // The worker's CURRENT secret, tracked by sha256 only — the same
       // form the ROUTING mirror stores — so a test can prove worker, row
       // and mirror carry ONE secret without the value ever being recorded.
-      secretHashes.set(secretsMatch[1]!, await sha256Hex(text));
-      relaySecrets.set(secretsMatch[1]!, text);
+      secretHashes.set(secretsMatch[1], await sha256Hex(text));
+      relaySecrets.set(secretsMatch[1], text);
       return fail('secretPut') ?? cfSuccess({});
     }
 
@@ -454,7 +454,7 @@ export function stubCustomerCf(
       if (failure) {
         return failure;
       }
-      if (config.existingScripts?.includes(scriptMatch[1]!)) {
+      if (config.existingScripts?.includes(scriptMatch[1])) {
         // The raw script GET answers source bytes, not a v4 envelope.
         return new Response('export default {}', { status: 200 });
       }

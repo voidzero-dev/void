@@ -208,7 +208,7 @@ describe('expandDotenv — cycles', () => {
     const out = expandDotenv({ A: '${A}' }, { onWarn });
     expect(out.A).toBe('${A}');
     expect(onWarn).toHaveBeenCalledOnce();
-    expect(onWarn.mock.calls[0]![0]).toMatch(/cycle/);
+    expect(onWarn.mock.calls[0][0]).toMatch(/cycle/);
   });
 
   it('detects an indirect cycle', () => {

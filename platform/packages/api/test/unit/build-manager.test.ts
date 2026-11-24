@@ -176,7 +176,7 @@ vi.mock('../../src/db.ts', () => ({
         return false;
       }
       dbState.status.set(id, 'building');
-      dbState.writes.push({ id, status: 'building', opts: opts as StatusWrite['opts'] });
+      dbState.writes.push({ id, status: 'building', opts });
       return true;
     },
   ),
@@ -638,7 +638,7 @@ beforeEach(() => {
     construct(target, args) {
       const init = args[1] as { status?: number } | undefined;
       if (init?.status === 101) {
-        return new FakeUpgradeResponse(args[0], init as { webSocket?: unknown });
+        return new FakeUpgradeResponse(args[0], init);
       }
       return Reflect.construct(target, args, target);
     },
@@ -2949,11 +2949,11 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
 
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: Array<{ seq: number; line: string; stream: string; ts: number }>;
       lastSeq: number;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(body.lines).toEqual([
       { seq: 1, line: 'installing deps', stream: 'stdout', ts: 10 },
       { seq: 2, line: 'build done', stream: 'stdout', ts: 20 },
@@ -2996,19 +2996,23 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     const failing = m.onError(new Error('container runtime error'));
     await terminalWriteStarted;
 
-    const pending = (await (await m.fetch(new Request('https://manager/logs?since=0'))).json()) as {
+    const pending = await (
+      await m.fetch(new Request('https://manager/logs?since=0'))
+    ).json<{
       lines: Array<LogRow>;
       terminal: boolean;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(pending).toMatchObject({ lines: [], terminal: true, logsComplete: false });
 
     releaseTerminalWrite();
     await failing;
-    const drained = (await (await m.fetch(new Request('https://manager/logs?since=0'))).json()) as {
+    const drained = await (
+      await m.fetch(new Request('https://manager/logs?since=0'))
+    ).json<{
       lines: Array<LogRow>;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(drained.lines.map((line) => line.line)).toEqual(['delayed diagnostic']);
     expect(drained.logsComplete).toBe(false);
 
@@ -3016,9 +3020,9 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     // onStop is the producer barrier that makes the drained snapshot final.
     (m as unknown as { _containerRunning: boolean })._containerRunning = false;
     await m.onStop({ exitCode: 1, reason: 'exit' });
-    const complete = (await (
+    const complete = await (
       await m.fetch(new Request('https://manager/logs?since=1'))
-    ).json()) as { lines: Array<LogRow>; lastSeq: number; logsComplete: boolean | null };
+    ).json<{ lines: Array<LogRow>; lastSeq: number; logsComplete: boolean | null }>();
     expect(complete).toMatchObject({ lines: [], lastSeq: 1, logsComplete: true });
   });
 
@@ -3036,10 +3040,10 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
 
     const res = await m.fetch(new Request('https://manager/logs?since=1', { method: 'GET' }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: Array<{ seq: number; line: string; stream: string; ts: number }>;
       lastSeq: number;
-    };
+    }>();
     // seq 1 ('a') is excluded; only seq > 1 returned.
     expect(body.lines).toEqual([
       { seq: 2, line: 'b', stream: 'stdout', ts: 2 },
@@ -3057,13 +3061,13 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     // No logs ingested. since=0 → empty list, lastSeq echoes the requested 0.
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { lines: Array<unknown>; lastSeq: number };
+    const body = await res.json<{ lines: Array<unknown>; lastSeq: number }>();
     expect(body.lines).toEqual([]);
     expect(body.lastSeq).toBe(0);
 
     // A non-zero cursor against an empty table echoes that cursor (never moves back).
     const res2 = await m.fetch(new Request('https://manager/logs?since=7', { method: 'GET' }));
-    const body2 = (await res2.json()) as { lines: Array<unknown>; lastSeq: number };
+    const body2 = await res2.json<{ lines: Array<unknown>; lastSeq: number }>();
     expect(body2.lines).toEqual([]);
     expect(body2.lastSeq).toBe(7);
   });
@@ -3078,16 +3082,16 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
 
     // No `since` param at all → defaults to 0.
     const missing = await m.fetch(new Request('https://manager/logs', { method: 'GET' }));
-    const missingBody = (await missing.json()) as {
+    const missingBody = await missing.json<{
       lines: Array<{ seq: number }>;
       lastSeq: number;
-    };
+    }>();
     expect(missingBody.lines.map((r) => r.seq)).toEqual([1]);
     expect(missingBody.lastSeq).toBe(1);
 
     // A non-numeric `since` → NaN → defaults to 0.
     const nan = await m.fetch(new Request('https://manager/logs?since=abc', { method: 'GET' }));
-    const nanBody = (await nan.json()) as { lines: Array<{ seq: number }>; lastSeq: number };
+    const nanBody = await nan.json<{ lines: Array<{ seq: number }>; lastSeq: number }>();
     expect(nanBody.lines.map((r) => r.seq)).toEqual([1]);
     expect(nanBody.lastSeq).toBe(1);
   });
@@ -3123,7 +3127,7 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     await (m as unknown as { setStatus: (s: string) => Promise<void> }).setStatus('building');
 
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
-    const body = (await res.json()) as { status: string | null; terminal: boolean };
+    const body = await res.json<{ status: string | null; terminal: boolean }>();
     expect(body.status).toBe('building');
     expect(body.terminal).toBe(false);
   });
@@ -3138,7 +3142,7 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     await (m as unknown as { setStatus: (s: string) => Promise<void> }).setStatus('complete');
 
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
-    const body = (await res.json()) as { status: string | null; terminal: boolean };
+    const body = await res.json<{ status: string | null; terminal: boolean }>();
     expect(body.status).toBe('complete');
     expect(body.terminal).toBe(true);
   });
@@ -3150,11 +3154,11 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     // No startBuild → no stored config.
 
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
-    const body = (await res.json()) as {
+    const body = await res.json<{
       status: string | null;
       terminal: boolean;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(body.status).toBeNull();
     expect(body.terminal).toBe(false);
     expect(body.logsComplete).toBeNull();
@@ -3168,10 +3172,12 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     const m = makeManager(ctx, makeEnv());
     ctx.storage.put.mockClear();
 
-    const body = (await (await m.fetch(new Request('https://manager/logs?since=0'))).json()) as {
+    const body = await (
+      await m.fetch(new Request('https://manager/logs?since=0'))
+    ).json<{
       lines: Array<LogRow>;
       logsComplete: boolean | null;
-    };
+    }>();
 
     expect(body.logsComplete).toBe(true);
     expect(body.lines.map((line) => line.line)).toEqual(['legacy tail']);
@@ -4551,9 +4557,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // parked and Postgres continues to authorize the deploy token. The peer must
     // signal immediately, not drain during that publication window.
     expect(fetchFn).not.toHaveBeenCalled();
-    const beforeOwner = (await (
+    const beforeOwner = await (
       await m.fetch(new Request('https://manager/logs?since=0'))
-    ).json()) as { logsComplete: boolean | null };
+    ).json<{ logsComplete: boolean | null }>();
     expect(beforeOwner.logsComplete).toBe(false);
     releaseRevocation();
     await timeout;
@@ -4565,9 +4571,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       .map((r) => r.line)
       .filter((line) => line.startsWith('[build-manager] container terminated:'));
     expect(markers).toEqual(['[build-manager] container terminated: build timed out']);
-    const afterOwner = (await (
+    const afterOwner = await (
       await m.fetch(new Request('https://manager/logs?since=0'))
-    ).json()) as { lines: Array<LogRow>; logsComplete: boolean | null };
+    ).json<{ lines: Array<LogRow>; logsComplete: boolean | null }>();
     expect(afterOwner.logsComplete).toBe(true);
     expect(afterOwner.lines.at(-1)?.line).toBe(
       '[build-manager] container terminated: build timed out',
@@ -7255,10 +7261,12 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     const pull = async (
       from: number,
     ): Promise<{ lines: Array<{ seq: number }>; lastSeq: number }> =>
-      (await (await fetch(`http://127.0.0.1:${address.port}/logs?since=${from}`)).json()) as {
+      await (
+        await fetch(`http://127.0.0.1:${address.port}/logs?since=${from}`)
+      ).json<{
         lines: Array<{ seq: number }>;
         lastSeq: number;
-      };
+      }>();
 
     // If broken: one body carries all 40 lines (~5MB) and `lastSeq` jumps
     // straight to the end, so nothing bounds the transfer the DO must finish.
@@ -7305,10 +7313,10 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
 
     const res = await fetch(`http://127.0.0.1:${address.port}/logs?since=${since}`);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: Array<{ seq: number; line: string }>;
       lastSeq: number;
-    };
+    }>();
 
     // Without the drain barrier the container exits before the DO's next ~1s
     // poll, so this line would never reach the DO's store or the check run.
@@ -7329,7 +7337,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     // is `lastSeq` verbatim, so it comes back as `since=lastSeq`.
     const ack = await fetch(`http://127.0.0.1:${address.port}/logs?since=${body.lastSeq}`);
     expect(ack.status).toBe(200);
-    const ackBody = (await ack.json()) as { lines: Array<unknown>; lastSeq: number };
+    const ackBody = await ack.json<{ lines: Array<unknown>; lastSeq: number }>();
     expect(ackBody.lines).toEqual([]);
     expect(getAckedLogSeq()).toBe(body.lastSeq);
     await expect(waitForLogDrain({ timeoutMs: 50, pollMs: 5 })).resolves.toBe(true);

@@ -99,7 +99,7 @@ describe('project Access verification', () => {
 
   it('verifies the scoped workers.dev audience', async () => {
     const request = vi.fn(async () => Response.json({ keys: [jwk] }));
-    const verifier = new ProjectAccessVerifier(request as typeof fetch);
+    const verifier = new ProjectAccessVerifier(request);
     const hostname = 'void-123456abcdef-blog-789abc.my-account.workers.dev';
 
     await expect(
@@ -110,7 +110,7 @@ describe('project Access verification', () => {
 
   it('verifies Access app assertions and caches the signing keys', async () => {
     const request = vi.fn(async () => Response.json({ keys: [jwk] }));
-    const verifier = new ProjectAccessVerifier(request as typeof fetch);
+    const verifier = new ProjectAccessVerifier(request);
     const token = await assertion();
 
     await expect(verifier.verify('project.apps.example.com', token, routing)).resolves.toBe(true);
@@ -120,7 +120,7 @@ describe('project Access verification', () => {
 
   it('fails closed for absent, mismatched, future, or non-app assertions', async () => {
     const request = vi.fn(async () => Response.json({ keys: [jwk] }));
-    const verifier = new ProjectAccessVerifier(request as typeof fetch);
+    const verifier = new ProjectAccessVerifier(request);
 
     await expect(verifier.verify('project.apps.example.com', null, routing)).resolves.toBe(false);
     await expect(
@@ -165,7 +165,7 @@ describe('project Access verification', () => {
       async () =>
         new Response(null, { status: 302, headers: { Location: 'https://attacker.test' } }),
     );
-    const verifier = new ProjectAccessVerifier(request as typeof fetch);
+    const verifier = new ProjectAccessVerifier(request);
 
     await expect(
       verifier.verify('project.apps.example.com', await assertion(), routing),

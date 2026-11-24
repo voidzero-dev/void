@@ -258,10 +258,10 @@ r2.post('/list', async (context) => {
     return context.json({ error: 'R2 list failed', status: cfRes.status }, 502);
   }
 
-  const data = (await cfRes.json()) as {
+  const data = await cfRes.json<{
     result?: ReadonlyArray<{ key: string; size: number; last_modified?: string }>;
     result_info?: { cursor?: string };
-  };
+  }>();
 
   return context.json({
     objects: (data.result ?? []).map((object) => ({

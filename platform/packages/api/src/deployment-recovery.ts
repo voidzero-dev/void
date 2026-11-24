@@ -31,7 +31,7 @@ async function committedEvent(
   return {
     event: 'done',
     deployment: deployment.id,
-    url: urls[0]!,
+    url: urls[0],
     urls,
     assets: deployment.asset_hashes
       ? Object.keys(JSON.parse(deployment.asset_hashes) as Record<string, unknown>).length

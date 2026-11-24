@@ -48,7 +48,7 @@ export async function* fetchStream<
 
   const response = await ofetch
     .raw(url, {
-      method: (options?.method ?? 'POST') as string,
+      method: options?.method ?? 'POST',
       body: options?.body as never,
       query: options?.query as never,
       headers: options?.headers,

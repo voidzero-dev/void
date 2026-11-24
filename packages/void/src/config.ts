@@ -276,7 +276,7 @@ function assertUniqueCaptureNames(source: string, kind: string): void {
   const captureNameRe = /:([A-Za-z0-9_]+)\*?/g;
   let captureMatch: RegExpExecArray | null;
   while ((captureMatch = captureNameRe.exec(source)) !== null) {
-    const name = captureMatch[1]!;
+    const name = captureMatch[1];
     if (seen.has(name)) {
       dups.add(name);
     }
@@ -656,7 +656,7 @@ function validateConfigObject(obj: unknown): VoidConfig {
           `config: "routing.prerender" in ${CONFIG_FILE} must be an array of strings.`,
         );
       }
-      for (const p of routing.prerender as Array<string>) {
+      for (const p of routing.prerender) {
         if (!p.startsWith('/')) {
           throw new Error(
             `config: "routing.prerender" path '${p}' in ${CONFIG_FILE} must start with "/".`,
@@ -802,7 +802,7 @@ function validateConfigObject(obj: unknown): VoidConfig {
           `config: "inference.scanDirs" in ${CONFIG_FILE} must be an array of strings.`,
         );
       }
-      for (const d of inf.scanDirs as Array<string>) {
+      for (const d of inf.scanDirs) {
         if (d.startsWith('/') || d.startsWith('..')) {
           throw new Error(
             `config: "inference.scanDirs" path '${d}' in ${CONFIG_FILE} must be a relative directory.`,
@@ -1049,9 +1049,9 @@ function validateConfigObject(obj: unknown): VoidConfig {
   if ('$schema' in obj) {
     const resolved = { ...obj };
     delete resolved.$schema;
-    return resolved as VoidConfig;
+    return resolved;
   }
-  return obj as VoidConfig;
+  return obj;
 }
 
 /**

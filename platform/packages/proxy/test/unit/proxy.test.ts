@@ -1533,14 +1533,14 @@ describe('proxy worker', () => {
       }
       expect(policyReads(env)).toEqual(AI_LOGGING_PATHS.map(() => [POLICY_KEY, { cacheTtl: 30 }]));
       for (const method of [env.AI.run, env.AI.toMarkdown]) {
-        const options = method.mock.calls[0]!.at(-1) as Record<string, unknown>;
+        const options = method.mock.calls[0].at(-1) as Record<string, unknown>;
         expect(options.gateway).toStrictEqual({
           id: 'void',
           metadata: { projectId: usageTags[PROJECT] },
         });
         expect(options).not.toHaveProperty('extraHeaders');
       }
-      const headers = new Headers(upstream.mock.calls[0]![1]!.headers);
+      const headers = new Headers(upstream.mock.calls[0][1]!.headers);
       expect([...headers.keys()].filter((name) => name.startsWith('cf-aig-'))).toEqual([]);
       expect(apiPolicyCalls(env)).toEqual([]);
     });
@@ -1603,7 +1603,7 @@ describe('proxy worker', () => {
           expect(response.status).toBe(200);
         }
         for (const method of [env.AI.run, env.AI.toMarkdown]) {
-          const options = method.mock.calls[0]!.at(-1) as Record<string, unknown>;
+          const options = method.mock.calls[0].at(-1) as Record<string, unknown>;
           expect(options.gateway).toStrictEqual({
             id: 'void',
             metadata: { projectId: usageTags[PROJECT] },
@@ -1633,7 +1633,7 @@ describe('proxy worker', () => {
         env,
       );
       expect(response.status).toBe(200);
-      const headers = new Headers(upstream.mock.calls[0]![1]!.headers);
+      const headers = new Headers(upstream.mock.calls[0][1]!.headers);
       expect([...headers].filter(([name]) => name.startsWith('cf-aig-'))).toStrictEqual([
         ['cf-aig-collect-log', collectLog],
         ['cf-aig-collect-log-payload', payload],
@@ -1746,7 +1746,7 @@ describe('proxy worker', () => {
       );
       const res = await worker.fetch(request, env);
       expect(res.status).toBe(200);
-      const options = env.AI.run.mock.calls[0]![2];
+      const options = env.AI.run.mock.calls[0][2];
       expect(options.returnRawResponse).toBe(true);
       expect(options.signal).toBe(request.signal);
       expect(options.signal.aborted).toBe(false);
@@ -1852,7 +1852,7 @@ describe('proxy worker', () => {
         env,
       );
 
-      const options = env.AI.run.mock.calls[0]![2] as { gateway: { metadata: unknown } };
+      const options = env.AI.run.mock.calls[0][2] as { gateway: { metadata: unknown } };
       expect(options.gateway.metadata).toStrictEqual({ projectId: usageTags['proj_000000000042'] });
     });
 
@@ -2052,7 +2052,7 @@ describe('proxy worker', () => {
         env,
       );
 
-      const options = env.AI.run.mock.calls[0]![2] as {
+      const options = env.AI.run.mock.calls[0][2] as {
         gateway: { metadata: { projectId: string } };
       };
       const tag = options.gateway.metadata.projectId;

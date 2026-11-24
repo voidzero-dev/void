@@ -16,7 +16,7 @@ type ExtractInput<V> = {
 describe('Awaited<handler.__output>', () => {
   it('extracts plain object return type', () => {
     const handler = defineHandler((_c) => {
-      return { name: 'Alice' as string, age: 30 as number };
+      return { name: 'Alice', age: 30 };
     });
     type Output = Awaited<(typeof handler)['__output']>;
 
@@ -30,7 +30,7 @@ describe('Awaited<handler.__output>', () => {
     const handler = defineHandler.withValidator({
       body: z.object({ name: z.string() }),
     })((_c, { body }) => {
-      return { greeting: `Hello ${body.name}` as string };
+      return { greeting: `Hello ${body.name}` };
     });
     type Output = Awaited<(typeof handler)['__output']>;
 

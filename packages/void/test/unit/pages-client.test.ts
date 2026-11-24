@@ -176,7 +176,7 @@ describe('Pages serialization compatibility', () => {
       const result = await router.visit('/next', operation === 'action' ? { method: 'POST' } : {});
       expect(result).toMatchObject({ props: { date: new Date('2026-11-08'), count: 42n } });
       expect(requests).toHaveLength(1);
-      expect(requests[0]!.headers.get('X-VoidPages-Version')).toBe(PAGES_PROTOCOL_VERSION);
+      expect(requests[0].headers.get('X-VoidPages-Version')).toBe(PAGES_PROTOCOL_VERSION);
       expect(window.location.href).toBeUndefined();
     },
   );
@@ -208,14 +208,14 @@ describe('Pages serialization compatibility', () => {
       expect(loader).not.toHaveBeenCalled();
       expect(action).toHaveBeenCalledTimes(operation === 'action' ? 1 : 0);
       expect(responses).toHaveLength(1);
-      expect(responses[0]!.status).toBe(200);
-      expect(responses[0]!.headers.has('X-VoidPages')).toBe(false);
-      expect(responses[0]!.headers.get('Content-Type')).toContain('text/plain');
-      expect(responses[0]!.headers.get('Cache-Control')).toBe('no-store');
-      expect(responses[0]!.headers.get('Vary')).toContain('X-VoidPages-Version');
-      expect(await responses[0]!.text()).toBe('');
+      expect(responses[0].status).toBe(200);
+      expect(responses[0].headers.has('X-VoidPages')).toBe(false);
+      expect(responses[0].headers.get('Content-Type')).toContain('text/plain');
+      expect(responses[0].headers.get('Cache-Control')).toBe('no-store');
+      expect(responses[0].headers.get('Vary')).toContain('X-VoidPages-Version');
+      expect(await responses[0].text()).toBe('');
       if (operation === 'action') {
-        expect(responses[0]!.headers.get('Set-Cookie')).toContain('saved=yes');
+        expect(responses[0].headers.get('Set-Cookie')).toContain('saved=yes');
       }
     },
   );

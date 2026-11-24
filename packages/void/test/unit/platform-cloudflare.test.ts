@@ -625,7 +625,7 @@ describe('platform Cloudflare client', () => {
       'GET /client/v4/accounts/account/hyperdrive/configs',
       'POST /client/v4/zones/zone/purge_cache',
     ]);
-    const purge = JSON.parse(requests[1]!.body) as { files: ReadonlyArray<string> };
+    const purge = JSON.parse(requests[1].body) as { files: ReadonlyArray<string> };
     expect(purge.files).toHaveLength(1);
     expect(purge.files[0]).toMatch(
       /^https:\/\/apps\.example\.com\/\.well-known\/void\/runtime-token-preflight-[a-f0-9-]+$/,
@@ -958,8 +958,8 @@ describe('platform Cloudflare client', () => {
       ['PUT', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk', 1],
       ['POST', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk/delete', 1],
     ]);
-    expect(requests[0]!.body[0]).toEqual(entries[0]);
-    expect(requests[2]!.body).toEqual(['ai-logging:gone']);
+    expect(requests[0].body[0]).toEqual(entries[0]);
+    expect(requests[2].body).toEqual(['ai-logging:gone']);
 
     failed = ['ai-logging:p1'];
     await expect(client.putKvBulk('account', 'routing', entries.slice(0, 2))).rejects.toThrow(
@@ -1808,9 +1808,7 @@ describe('platform Cloudflare client', () => {
       },
       method: 'PUT',
     });
-    expect(requests[1]!.url).toContain(
-      '/accounts/account/workers/scripts/void-api/domains/records',
-    );
+    expect(requests[1].url).toContain('/accounts/account/workers/scripts/void-api/domains/records');
     expect(requests[2]).toMatchObject({ method: 'GET' });
   });
 

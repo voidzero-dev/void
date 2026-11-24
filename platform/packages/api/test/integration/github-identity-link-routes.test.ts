@@ -152,7 +152,7 @@ async function mintState(payload: {
 // and src/html-redirect.ts). The target carries the signed `link_code`.
 function extractRedirectTarget(body: string): string | null {
   const match = /location\.replace\("([^"]+)"\)/.exec(body);
-  return match ? match[1]! : null;
+  return match ? match[1] : null;
 }
 
 // Drive the callback for a freshly-minted valid state + a stubbed exchange, and
@@ -204,7 +204,7 @@ describe('GET /github/link-url', () => {
     );
 
     expect(res.status).toBe(200);
-    const { url } = (await res.json()) as { url: string };
+    const { url } = await res.json<{ url: string }>();
     expect(url.startsWith('https://github.com/login/oauth/authorize?')).toBe(true);
     expect(url).toContain(`client_id=${GITHUB_APP_USER_OAUTH_ENV.GITHUB_APP_CLIENT_ID}`);
 
@@ -250,7 +250,7 @@ describe('GET /github/link-url', () => {
     );
 
     expect(res.status).not.toBe(200);
-    expect(((await res.json()) as { error: string }).error).toBe('github_oauth_not_configured');
+    expect((await res.json<{ error: string }>()).error).toBe('github_oauth_not_configured');
   });
 
   it('requires auth', async () => {
@@ -457,7 +457,7 @@ describe('POST /github/link/complete', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('linked');
+    expect((await res.json<{ status: string }>()).status).toBe('linked');
 
     const owner = await getUserByOAuthAccount(env.db, 'github', providerId);
     expect(owner?.id).toBe(userA.id);
@@ -482,7 +482,7 @@ describe('POST /github/link/complete', () => {
       env,
     );
     expect(firstComplete.status).toBe(200);
-    expect(((await firstComplete.json()) as { status: string }).status).toBe('linked');
+    expect((await firstComplete.json<{ status: string }>()).status).toBe('linked');
 
     // A second, independent link_code for the same provider id.
     const second = await runCallback({
@@ -498,7 +498,7 @@ describe('POST /github/link/complete', () => {
       env,
     );
     expect(secondComplete.status).toBe(200);
-    expect(((await secondComplete.json()) as { status: string }).status).toBe('already_linked');
+    expect((await secondComplete.json<{ status: string }>()).status).toBe('already_linked');
     expect(await countOAuthRows(env.db, providerId)).toBe(1);
   });
 
@@ -521,7 +521,7 @@ describe('POST /github/link/complete', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid_verifier');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid_verifier');
     expect(await countOAuthRows(env.db, providerId)).toBe(0);
   });
 
@@ -575,7 +575,7 @@ describe('POST /github/link/complete', () => {
     );
 
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe('github_identity_conflict');
+    expect((await res.json<{ error: string }>()).error).toBe('github_identity_conflict');
     // The row is still owned by B.
     const owner = await getUserByOAuthAccount(env.db, 'github', providerId);
     expect(owner?.id).toBe(userB.id);
@@ -613,7 +613,7 @@ describe('POST /github/link/complete', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('linked');
+    expect((await res.json<{ status: string }>()).status).toBe('linked');
 
     const owner = await getUserByOAuthAccount(env.db, 'github', providerId);
     expect(owner?.id).toBe(completer.id);
@@ -647,7 +647,7 @@ describe('POST /github/link/complete', () => {
     );
 
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe('github_already_linked');
+    expect((await res.json<{ error: string }>()).error).toBe('github_already_linked');
     // No second github row was created for Alice.
     expect(await countOAuthRows(env.db, providerId)).toBe(0);
   });
@@ -686,7 +686,7 @@ describe('POST /github/link/complete', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('linked');
+    expect((await res.json<{ status: string }>()).status).toBe('linked');
 
     // The installation is now owned by Alice...
     const [row] = await env.db

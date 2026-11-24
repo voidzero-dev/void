@@ -92,17 +92,20 @@ function createActionProxy(
   id: string,
   params: Record<string, string>,
 ): Record<string, (...args: Array<unknown>) => Promise<unknown>> {
-  return new Proxy({} as Record<string, (...args: Array<unknown>) => Promise<unknown>>, {
-    get(_target, property) {
-      // `await` and `Promise.resolve` read `then`. Returning a function there would
-      // dispatch an action named "then" with resolver callbacks it cannot clone.
-      if (typeof property !== 'string' || property === 'then') {
-        return undefined;
-      }
-      return (...args: Array<unknown>) =>
-        stub.__voidRoomAction({ name: property, args, id, params });
+  return new Proxy(
+    {},
+    {
+      get(_target, property) {
+        // `await` and `Promise.resolve` read `then`. Returning a function there would
+        // dispatch an action named "then" with resolver callbacks it cannot clone.
+        if (typeof property !== 'string' || property === 'then') {
+          return undefined;
+        }
+        return (...args: Array<unknown>) =>
+          stub.__voidRoomAction({ name: property, args, id, params });
+      },
     },
-  });
+  );
 }
 
 export function getRoom<P extends RoomPath & string>(
