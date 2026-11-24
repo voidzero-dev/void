@@ -87,18 +87,18 @@ export function createAssetCachePolicy(
       return applyAssetCachePolicy(request, asset, assetsDir);
     }
     if (!files) {
-      // A failed lookup must not break a served asset, and the in-flight request is not
-      // held here: if it never settles it would stall every later asset request in this
-      // isolate. Overlapping cold requests both get past this guard, so keep the first
-      // resolved set instead of letting the last response win.
+      // Keep the lookup scoped to this request. A miss uses the conservative policy
+      // until a request successfully loads the manifest.
       const manifest = await loadManifest(request, env).catch(() => null);
-      files ??= new Set(
-        Object.values(manifest ?? {}).flatMap((entry) =>
-          Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
-        ),
-      );
+      if (manifest) {
+        files ??= new Set(
+          Object.values(manifest).flatMap((entry) =>
+            Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
+          ),
+        );
+      }
     }
-    return applyAssetCachePolicy(request, asset, assetsDir, files.has(path.slice(1)));
+    return applyAssetCachePolicy(request, asset, assetsDir, files?.has(path.slice(1)));
   };
 }
 

@@ -791,7 +791,7 @@ describe('typed asset fallthrough', () => {
       applyAssetCachePolicy(request, cookie, 'static', true).headers.get('cache-control'),
     ).toBe('no-store');
   });
-  it.each([null, { client: { file: 'assets/client-abcdefgh.js' } }])(
+  it.each<ClientManifest>([{}, { client: { file: 'assets/client-abcdefgh.js' } }])(
     'uses conservative cache policy without build provenance: %j',
     async (manifest) => {
       const load = vi.fn(async () => manifest);
@@ -812,18 +812,30 @@ describe('typed asset fallthrough', () => {
       expect(load).toHaveBeenCalledTimes(1);
     },
   );
-  it('keeps assets available when optional manifest lookup fails', async () => {
-    const policy = createAssetCachePolicy('assets', async () => {
-      throw new Error('unavailable');
-    });
-    const response = await policy(
-      new Request('https://app.test/assets/app-settings.json'),
-      {},
-      new Response('asset'),
-    );
-    expect(response.headers.get('cache-control')).toBe('no-store');
-    await expect(response.text()).resolves.toBe('asset');
-  });
+  it.each(['missing', 'rejected'])(
+    'serves assets and retries after a %s manifest lookup',
+    async (failure) => {
+      const path = 'assets/client-abcdefgh.js';
+      const load = vi
+        .fn<ManifestLoader>()
+        .mockImplementationOnce(async () => {
+          if (failure === 'rejected') {
+            throw new Error('unavailable');
+          }
+          return null;
+        })
+        .mockResolvedValue({ client: { file: path, immutableFiles: [path] } });
+      const policy = createAssetCachePolicy('assets', load);
+      const request = () => new Request(`https://app.test/${path}`);
+      const response = await policy(request(), {}, new Response('asset'));
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      await expect(response.text()).resolves.toBe('asset');
+      const recovered = await policy(request(), {}, new Response('asset'));
+      expect(recovered.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      await policy(request(), {}, new Response('asset'));
+      expect(load).toHaveBeenCalledTimes(2);
+    },
+  );
   it('keeps a stalled manifest lookup from blocking later asset requests', async () => {
     const load = vi
       .fn<ManifestLoader>()
@@ -851,36 +863,49 @@ describe('typed asset fallthrough', () => {
     expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
     expect(load).toHaveBeenCalledTimes(2);
   });
-  it('keeps the first resolved manifest when cold requests overlap', async () => {
-    let resolveHit!: (manifest: ClientManifest | null) => void;
-    let resolveMiss!: (manifest: ClientManifest | null) => void;
-    const hit = new Promise<ClientManifest | null>((resolve) => (resolveHit = resolve));
-    const miss = new Promise<ClientManifest | null>((resolve) => (resolveMiss = resolve));
-    const load = vi.fn<ManifestLoader>((request) =>
-      new URL(request.url).pathname.includes('/hit-') ? hit : miss,
-    );
-    const policy = createAssetCachePolicy('assets', load);
-    const asset = () =>
-      new Response('asset', { headers: { 'cache-control': 'public, max-age=0, must-revalidate' } });
-    const ranHit = policy(new Request('https://app.test/assets/hit-11111111.js'), {}, asset());
-    const ranMiss = policy(new Request('https://app.test/assets/miss-22222222.js'), {}, asset());
-    // The successful load resolves first, then the overlapping request finds no manifest.
-    resolveHit({
-      client: {
-        file: 'assets/client-abcdefgh.js',
-        immutableFiles: ['assets/client-abcdefgh.js'],
-      },
-    });
-    await ranHit;
-    resolveMiss(null);
-    await ranMiss;
-    const response = await policy(
-      new Request('https://app.test/assets/client-abcdefgh.js'),
-      {},
-      asset(),
-    );
-    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
-  });
+  it.each(['success', 'miss'])(
+    'caches the successful manifest when %s resolves first',
+    async (first) => {
+      let resolveHit!: (manifest: ClientManifest | null) => void;
+      let resolveMiss!: (manifest: ClientManifest | null) => void;
+      const hit = new Promise<ClientManifest | null>((resolve) => (resolveHit = resolve));
+      const miss = new Promise<ClientManifest | null>((resolve) => (resolveMiss = resolve));
+      const load = vi.fn<ManifestLoader>((request) =>
+        new URL(request.url).pathname.includes('/hit-') ? hit : miss,
+      );
+      const policy = createAssetCachePolicy('assets', load);
+      const asset = () =>
+        new Response('asset', {
+          headers: { 'cache-control': 'public, max-age=0, must-revalidate' },
+        });
+      const ranHit = policy(new Request('https://app.test/assets/hit-11111111.js'), {}, asset());
+      const ranMiss = policy(new Request('https://app.test/assets/miss-22222222.js'), {}, asset());
+      const finishHit = () =>
+        resolveHit({
+          client: {
+            file: 'assets/client-abcdefgh.js',
+            immutableFiles: ['assets/client-abcdefgh.js'],
+          },
+        });
+      if (first === 'success') {
+        finishHit();
+        await ranHit;
+        resolveMiss(null);
+      } else {
+        resolveMiss(null);
+        await ranMiss;
+        finishHit();
+      }
+      await Promise.all([ranHit, ranMiss]);
+      const response = await policy(
+        new Request('https://app.test/assets/client-abcdefgh.js'),
+        {},
+        asset(),
+      );
+      expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      expect(load).toHaveBeenCalledTimes(2);
+    },
+  );
   it('preserves non-success, redirects and mutation responses', () => {
     for (const source of [
       new Response('missing', { status: 404 }),
