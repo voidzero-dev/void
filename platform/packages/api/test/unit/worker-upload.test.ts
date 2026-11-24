@@ -81,8 +81,8 @@ function bucket(
             }
             const value = bytes.slice(offset, offset + chunk);
             offset += value.byteLength;
-            state.pulledChunks[key]!++;
-            state.pulledBytes[key]! += value.byteLength;
+            state.pulledChunks[key]++;
+            state.pulledBytes[key] += value.byteLength;
             controller.enqueue(value);
           },
           cancel() {
@@ -265,7 +265,7 @@ describe('workerUploadBody', () => {
     const decoder = new TextDecoder();
     const text =
       received.map((chunk) => decoder.decode(chunk, { stream: true })).join('') + decoder.decode();
-    const boundary = upload.contentType.split('boundary=')[1]!;
+    const boundary = upload.contentType.split('boundary=')[1];
     expect(text).not.toContain(`--${boundary}--`);
     // A longer object never passes more bytes than the declared size.
     expect(text).not.toContain('more');
@@ -398,7 +398,7 @@ describe('workerUploadBody', () => {
     for (const bytes of contents.slice(0, 3)) {
       expect(text).toContain((Buffer as BufferConstructor).from(bytes).toString('latin1'));
     }
-    const boundary = upload.contentType.split('boundary=')[1]!;
+    const boundary = upload.contentType.split('boundary=')[1];
     expect(text).not.toContain(`--${boundary}--`);
   });
 

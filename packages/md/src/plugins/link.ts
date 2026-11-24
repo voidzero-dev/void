@@ -48,7 +48,7 @@ export function linkPlugin(md: MarkdownExit): void {
         normalized = normalized.replace('.md#', '#');
       }
       if (normalized !== url) {
-        token.attrs![hrefIndex]![1] = normalized;
+        token.attrs![hrefIndex][1] = normalized;
       }
     }
 

@@ -128,7 +128,7 @@ export function parseConfigFlags(
   const flags = new Set<string>();
   const values = new Map<string, string>();
   for (let index = 1; index < args.length; index++) {
-    const arg = args[index]!;
+    const arg = args[index];
     if (!arg.startsWith('-')) {
       positional.push(arg);
       continue;

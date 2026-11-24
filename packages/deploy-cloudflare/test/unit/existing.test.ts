@@ -175,9 +175,9 @@ describe('assets-only Worker handoff', () => {
 
 describe('existing Worker preservation', () => {
   const approved = [{ binding: 'ISR_CACHE', id: '0123456789abcdef0123456789abcdef' }];
-  const cache = { name: 'ISR_CACHE', type: 'kv_namespace', namespace_id: approved[0]!.id };
+  const cache = { name: 'ISR_CACHE', type: 'kv_namespace', namespace_id: approved[0].id };
   it('allows only the approved new KV identity and preserves the original bindings', () => {
-    const withCache = { ...config, kv_namespaces: [...config.kv_namespaces, approved[0]!] };
+    const withCache = { ...config, kv_namespaces: [...config.kv_namespaces, approved[0]] };
     expect(() => assertExistingCloudflareConfig(worker, config, false, approved)).not.toThrow();
     expect(() => assertExistingCloudflareConfig(worker, config, true, approved)).toThrow(
       'approved KV namespace',
@@ -206,7 +206,7 @@ describe('existing Worker preservation', () => {
     expect(() =>
       assertExistingCloudflareConfig(
         worker,
-        { ...withCache, kv_namespaces: [approved[0]!] },
+        { ...withCache, kv_namespaces: [approved[0]] },
         true,
         approved,
       ),
@@ -216,7 +216,7 @@ describe('existing Worker preservation', () => {
         worker,
         {
           ...withCache,
-          kv_namespaces: [...withCache.kv_namespaces, { binding: 'OTHER', id: approved[0]!.id }],
+          kv_namespaces: [...withCache.kv_namespaces, { binding: 'OTHER', id: approved[0].id }],
         },
         true,
         approved,
@@ -224,7 +224,7 @@ describe('existing Worker preservation', () => {
     ).toThrow('cannot add');
   });
   it('cannot use approval to replace or weaken a production binding', () => {
-    const retarget = [{ binding: 'KV', id: approved[0]!.id }];
+    const retarget = [{ binding: 'KV', id: approved[0].id }];
     expect(() => assertExistingCloudflareConfig(worker, config, false, retarget)).toThrow(
       'cannot replace',
     );
@@ -252,7 +252,7 @@ describe('existing Worker preservation', () => {
     ).toThrow('event handlers');
     const sharedNamespace = {
       ...worker,
-      bindings: [{ name: 'KV', type: 'kv_namespace', namespace_id: approved[0]!.id }],
+      bindings: [{ name: 'KV', type: 'kv_namespace', namespace_id: approved[0].id }],
     };
     expect(() =>
       assertCloudflareBindingsPreserved(
@@ -268,7 +268,7 @@ describe('existing Worker preservation', () => {
     expect(() =>
       assertExistingCloudflareConfig(
         active,
-        { ...config, kv_namespaces: [...config.kv_namespaces, approved[0]!] },
+        { ...config, kv_namespaces: [...config.kv_namespaces, approved[0]] },
         true,
         approved,
       ),
@@ -383,7 +383,7 @@ describe('existing Worker preservation', () => {
         configPath: '/app/wrangler.jsonc',
       }),
     ).rejects.toThrow('production changed');
-    expect(runWrangler.mock.calls[1]![0]).toContain('original');
+    expect(runWrangler.mock.calls[1][0]).toContain('original');
   });
 
   it('does not infer an active migration tag from an explicitly requested candidate', async () => {
@@ -410,7 +410,7 @@ describe('existing Worker preservation', () => {
     });
     expect(candidate.script).toEqual({ handlers: ['fetch'] });
     expect(runWrangler).toHaveBeenCalledTimes(1);
-    expect(runWrangler.mock.calls[0]![0].slice(0, 3)).toEqual(['versions', 'view', 'candidate']);
+    expect(runWrangler.mock.calls[0][0].slice(0, 3)).toEqual(['versions', 'view', 'candidate']);
   });
   it.each([403, 404, 1])('never turns a failed read (%s) into Worker creation', async (status) => {
     const inspect = readExistingCloudflareWorker({
@@ -504,7 +504,7 @@ describe('existing Worker preservation', () => {
       const source =
         scenario === 'api-placeholder' ? apiSecretDraftVersion() : voidSecretDraftVersion();
       if (scenario === 'real-code') {
-        source.modules[0]!.content_base64 = (Buffer as BufferConstructor)
+        source.modules[0].content_base64 = (Buffer as BufferConstructor)
           .from('export default { fetch() { return new Response("app"); } };')
           .toString('base64');
       }

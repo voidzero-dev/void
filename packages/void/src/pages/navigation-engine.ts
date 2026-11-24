@@ -6,7 +6,6 @@ import { createActionErrorFromResponse, isAbortError } from './action-result.ts'
 import { pageBoundarySlots, clientPageError, showTerminalPageError } from './boundary-client.ts';
 import type { BoundaryManifest } from './boundary-plans.ts';
 import { initClientHead, applyClientHead } from './head-client.ts';
-import type { HeadDescriptor } from './head.ts';
 import { PrefetchCache, parseCacheFor } from './prefetch.ts';
 import type { CacheForInput, CacheForResult, LinkPrefetchValue } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
@@ -391,7 +390,7 @@ export async function createPageNavigationEngine(
         return;
       }
 
-      for (const [key, group] of Object.entries(pageData.deferredKeys) as Array<[string, string]>) {
+      for (const [key, group] of Object.entries<string>(pageData.deferredKeys)) {
         let value = adapter.createDeferred();
         if (resolved) {
           const error = pageData.deferredErrors?.[group];
@@ -499,7 +498,7 @@ export async function createPageNavigationEngine(
     private resolveGroup(group: string, data: unknown): void {
       const keys = this.groups[group] ?? (this.keyRefs[group] ? [group] : []);
       if (keys.length === 1) {
-        this.resolveKey(keys[0]!, data);
+        this.resolveKey(keys[0], data);
         return;
       }
       const values =
@@ -1073,7 +1072,7 @@ export async function createPageNavigationEngine(
       if (preservedDeferredRegistry && preservedDeferredRegistry !== deferredRegistry) {
         deferredRegistry.dispose();
       }
-      applyClientHead(result.pageData.head as HeadDescriptor | undefined);
+      applyClientHead(result.pageData.head);
       _currentFetchUrl = commitTarget.fetchUrl;
       scrollRestoration.commit();
 
@@ -1320,7 +1319,7 @@ export async function createPageNavigationEngine(
     start() {
       initialScrollPosition = scrollRestoration.start();
 
-      initClientHead(initialPageData.head as HeadDescriptor | undefined);
+      initClientHead(initialPageData.head);
 
       if (deferredWindow.__deferredQueue) {
         for (const entry of deferredWindow.__deferredQueue) {

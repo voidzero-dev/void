@@ -666,7 +666,7 @@ export async function publishWorkerDeployment(input: {
   emit({
     event: 'done',
     deployment: deployment.id,
-    url: urls[0]!,
+    url: urls[0],
     urls,
     assets: deployedAssetCount,
     workers: workerFiles.length,

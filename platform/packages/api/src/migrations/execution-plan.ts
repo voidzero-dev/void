@@ -31,8 +31,8 @@ export async function validateSubmittedExecutionPlans(
     return 'executionPlans must match migrations length';
   }
   for (let index = 0; index < migrations.length; index++) {
-    const migration = migrations[index]!;
-    const plan = (plans as Array<Record<string, unknown>>)[index]!;
+    const migration = migrations[index];
+    const plan = (plans as Array<Record<string, unknown>>)[index];
     if (plan.name !== migration.name) {
       return `executionPlans[${index}].name must match migrations[${index}].name`;
     }

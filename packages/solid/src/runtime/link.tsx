@@ -196,7 +196,7 @@ export function Link(props: LinkProps): JSX.Element {
           }}
           type="button"
           {...pendingAttributes()}
-          {...(rest as JSX.ButtonHTMLAttributes<HTMLButtonElement>)}
+          {...rest}
           style={resolvedStyle()}
           {...eventHandlers()}
         >

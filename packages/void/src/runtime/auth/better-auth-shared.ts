@@ -243,7 +243,7 @@ function assertSocialProviderSettings(
 
 /** `a`, `a and b`, `a, b and c`. */
 function joinNames(names: Array<string>): string {
-  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]!;
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
 }
 
 function resolveSocialProviders(
@@ -396,7 +396,7 @@ export function privateCachePolicy(policy: string | null): string {
     return policy!;
   }
   const kept = directives.filter((_directive, index) => {
-    const directive = lowered[index]!;
+    const directive = lowered[index];
     const equals = directive.indexOf('=');
     const name = (equals === -1 ? directive : directive.slice(0, equals)).trim();
     return !['public', 'proxy-revalidate', 's-maxage', 'private'].includes(name);
@@ -767,7 +767,7 @@ export function createVoidAuthRuntime(
       returnHeaders: true,
     });
 
-    return (result.response ?? null) as AuthState | null;
+    return result.response ?? null;
   }
 
   async function runVoidAuthMiddleware(
@@ -798,7 +798,7 @@ export function createVoidAuthRuntime(
       returnHeaders: true,
     });
 
-    const state = (result.response ?? null) as AuthState | null;
+    const state = result.response ?? null;
     c.set('user', state?.user ?? null);
     c.set('session', state?.session ?? null);
 

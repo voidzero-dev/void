@@ -349,7 +349,7 @@ function platformWorkerUploaderHash(): string | null {
           .toString('utf8')
           .matchAll(/\b(?:from|import)\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g),
       ]
-        .map((match) => match[1]!)
+        .map((match) => match[1])
         .sort();
       for (const specifier of imports) {
         visit(resolve(dirname(path), specifier), specifier);
@@ -657,7 +657,7 @@ export async function deployPlatformWorker(
           before[0]?.id !== after[0]?.id ||
           !deploymentRunsOnlyVersion(after[0], snapshot.versionId);
         if (!changedDuringRead && snapshot.contentHash === contentHash) {
-          candidate = { deploymentId: after[0]!.id, snapshot };
+          candidate = { deploymentId: after[0].id, snapshot };
         }
       } catch (error) {
         if (error instanceof PlatformWorkerOwnershipError) {

@@ -139,10 +139,10 @@ it('wraps Workers secrets bulk payload in a secrets object', async () => {
   });
   expect(result.status, result.stderr).toBe(0);
   expect(cfCalls).toHaveLength(1);
-  expect(cfCalls[0]!.label).toMatch(
+  expect(cfCalls[0].label).toMatch(
     /^workers secrets bulk --worker my-worker --file \S+body\.json$/,
   );
-  expect(JSON.parse(cfCalls[0]!.file!)).toEqual({
+  expect(JSON.parse(cfCalls[0].file!)).toEqual({
     secrets: {
       ONE: { type: 'secret_text', text: 'first' },
       TWO: { type: 'secret_text', text: 'second' },

@@ -444,7 +444,7 @@ export function compareWranglerMigrationPaths(a: string, b: string): number {
   const bSegments = b.split('/');
   const shared = Math.min(aSegments.length, bSegments.length);
   for (let i = 0; i < shared; i++) {
-    const cmp = compareWranglerMigrationSegments(aSegments[i] as string, bSegments[i] as string);
+    const cmp = compareWranglerMigrationSegments(aSegments[i], bSegments[i]);
     if (cmp !== 0) {
       return cmp;
     }
@@ -555,7 +555,7 @@ export async function checkWranglerMigrationApplySet(
     wranglerNames.map((name) => [name, readFileSync(join(absDir, name), 'utf8')]),
   );
   const gatedNames = gated.map((m) => m.name.replaceAll('\\', '/'));
-  const gatedContent = new Map(gatedNames.map((name, i) => [name, gated[i]!.sql]));
+  const gatedContent = new Map(gatedNames.map((name, i) => [name, gated[i].sql]));
 
   const wranglerSet = new Set(wranglerNames);
   const extra = wranglerNames.filter((k) => !gatedContent.has(k));

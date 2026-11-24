@@ -92,5 +92,5 @@ export function cloudflareQueueName(
   queueName: string,
   names: CloudflareQueueNames | undefined,
 ): string {
-  return names && Object.hasOwn(names, queueName) ? names[queueName]! : queueName;
+  return names && Object.hasOwn(names, queueName) ? names[queueName] : queueName;
 }

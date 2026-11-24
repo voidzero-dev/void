@@ -276,7 +276,7 @@ app.post('/:id/deploy/worker-upload-urls', async (context) => {
     { step: 'worker_upload_urls', moduleCount: modules.length },
     async (_tx, signingKeyCache) => {
       await uploadPool([...modules.keys()], PRESIGN_BATCH_CONCURRENCY, async (index) => {
-        const module = modules[index]!;
+        const module = modules[index];
         urls[index] = await presignAssetPut(
           {
             accountId: context.env.CF_ACCOUNT_ID,

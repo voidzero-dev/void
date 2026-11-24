@@ -109,7 +109,7 @@ async function proxyRequest(projectId: string, aiToken: string) {
         fetch: (input: string | Request, init?: RequestInit) =>
           app.fetch(new Request(input, init), env),
       },
-    } as never,
+    },
   );
   return { response, run };
 }
@@ -366,7 +366,7 @@ describe('proxy credential on the metadata routes', () => {
       {},
     );
     expect(response.status).toBe(200);
-    return ((await response.json()) as { proxyTokenGen?: unknown }).proxyTokenGen;
+    return (await response.json<{ proxyTokenGen?: unknown }>()).proxyTokenGen;
   }
 
   async function setGenerations(

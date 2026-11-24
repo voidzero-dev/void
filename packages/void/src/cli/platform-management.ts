@@ -180,7 +180,7 @@ export async function verifyPlatformInstallationOwnership(
     const unsafe = ready.filter((resource) => resource.kind !== 'zone');
     if (unsafe.length > 0) {
       throw ownershipError(
-        `the remote installation checkpoint is missing for ${unsafe[0]!.kind} ${unsafe[0]!.name}`,
+        `the remote installation checkpoint is missing for ${unsafe[0].kind} ${unsafe[0].name}`,
       );
     }
     const zone = ready.find((resource) => resource.kind === 'zone');

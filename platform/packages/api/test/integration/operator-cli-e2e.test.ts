@@ -94,7 +94,7 @@ beforeEach(async () => {
     }),
     env,
   );
-  const session = (await response.json()) as { token: string };
+  const session = await response.json<{ token: string }>();
   operatorToken = session.token;
 });
 

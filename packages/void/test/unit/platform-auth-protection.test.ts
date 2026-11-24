@@ -183,7 +183,7 @@ beforeEach(() => {
     // oxlint-disable-next-line typescript/no-unsafe-call -- Call the persistence callback captured by the setup mock.
     input.save({ accessProvisioningJson: '{"version":1}' });
     process.env.VOID_ACCESS_CREDENTIALS = JSON.stringify({
-      [origins[0]!]: {
+      [origins[0]]: {
         CF_ACCESS_CLIENT_ID: 'machine-client',
         CF_ACCESS_CLIENT_SECRET: 'machine-secret',
       },
@@ -214,7 +214,7 @@ beforeEach(() => {
       .update(
         platformProtectionProofMessage({
           installationId: manifest.id,
-          origin: origins[0]!,
+          origin: origins[0],
           userId: 'human-user',
           sessionId: 'human-session',
           revision: body.revision as number,
@@ -291,7 +291,7 @@ describe('platform protection configuration', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const humanCredentials = JSON.stringify({
-      [origins[0]!]: { CF_ACCESS_TOKEN: 'human-access-token' },
+      [origins[0]]: { CF_ACCESS_TOKEN: 'human-access-token' },
     });
     vi.stubEnv('VOID_ACCESS_CREDENTIALS', humanCredentials);
     state.raceArmed = true;

@@ -29,10 +29,10 @@ describe('typed Cloudflare process protocol', () => {
       expect(runner({ ...read, includeSource: true }, { capture: true }).status).toBe(0);
       // Workers allow 64 MiB of source, which grows by a third when base64-encoded.
       const encodedWorkerBytes = Math.ceil((64 * 1024 * 1024 * 4) / 3);
-      expect(spawn.mock.calls[0]![2]!.maxBuffer).toBeGreaterThan(encodedWorkerBytes);
+      expect(spawn.mock.calls[0][2]!.maxBuffer).toBeGreaterThan(encodedWorkerBytes);
 
       expect(runner(read, { capture: true }).status).toBe(0);
-      expect(spawn.mock.calls[1]![2]!.maxBuffer).toBe(32 * 1024 * 1024);
+      expect(spawn.mock.calls[1][2]!.maxBuffer).toBe(32 * 1024 * 1024);
     } finally {
       spawn.mockRestore();
       syncBuiltinESMExports();

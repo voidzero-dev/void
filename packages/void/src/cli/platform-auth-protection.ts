@@ -90,7 +90,7 @@ export async function verifyProtectionWorkerOrigins(
       }
     }
     for (const route of await client.listWorkerServiceRoutes(manifest.account.id, worker)) {
-      const hostname = route.pattern.replace(/^https?:\/\//, '').split('/')[0]!;
+      const hostname = route.pattern.replace(/^https?:\/\//, '').split('/')[0];
       if (!allowed.has(hostname)) {
         throw new Error(
           'platform: A control-plane Worker has an additional or wildcard route. Protect or remove it before enabling Access.',
@@ -295,7 +295,7 @@ export async function runPlatformProtectionConfig(args: PlatformConfigArgs): Pro
               account: currentManifest.account,
               installationId: currentManifest.id,
               apiUrl: origin,
-              proxyUrl: currentManifest.endpoints.proxyUrl!,
+              proxyUrl: currentManifest.endpoints.proxyUrl,
             },
             ownershipNonce: currentManifest.ownershipNonce,
             protection: true,

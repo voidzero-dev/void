@@ -572,7 +572,7 @@ export async function createOrRefreshProjectInvitation(
   if (targets.length !== 1) {
     throw new ProjectTeamMutationError('target-user-not-found');
   }
-  const target = targets[0]!;
+  const target = targets[0];
   const expiresAt = new Date(Date.now() + PROJECT_INVITATION_TTL_MS).toISOString();
 
   return db.transaction(async (tx) => {

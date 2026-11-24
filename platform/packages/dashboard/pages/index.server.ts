@@ -17,7 +17,7 @@ export const loader = defineHandler<Props>(async (context) => {
   try {
     const response = await fetchApi(context, '/.well-known/void-platform');
     if (response.ok) {
-      platformName = discoveryDisplayName((await response.json()) as { displayName?: unknown });
+      platformName = discoveryDisplayName(await response.json<{ displayName?: unknown }>());
     }
   } catch {
     // The user's dashboard remains available when discovery is temporarily unavailable.

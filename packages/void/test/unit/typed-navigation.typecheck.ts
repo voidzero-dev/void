@@ -64,7 +64,7 @@ export function checkTypedServerDestinations(c: CloudContext): void {
     hash: 'details',
   });
   const dynamic: string = 'https://example.com/callback';
-  c.redirect(dynamic as Href);
+  c.redirect(dynamic);
   void c.rewrite('/unknown');
   // @ts-expect-error typed rewrite destinations require params
   void c.rewrite({ pathname: '/typed-navigation/:id' });

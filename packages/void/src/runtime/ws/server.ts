@@ -79,7 +79,7 @@ function matchRoute(
 
   let i = 0;
   for (; i < patternSegments.length; i++) {
-    const patternSegment = patternSegments[i]!;
+    const patternSegment = patternSegments[i];
     const pathSegment = pathSegments[i];
 
     if (patternSegment === '*') {
@@ -396,7 +396,7 @@ export function createWebSocketDurableObject(
       const roomId = buildWebSocketInstanceId(instanceRoute, params);
       const authState =
         authRuntime && resolveAuthState
-          ? await resolveAuthState(request, this.env as VoidAuthEnv, authRuntime)
+          ? await resolveAuthState(request, this.env, authRuntime)
           : null;
       const user = authState?.user ?? null;
       const upgrade = request.headers.get('upgrade');

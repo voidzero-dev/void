@@ -13,7 +13,7 @@ describe('hosted deploy order', () => {
     ['deploy', 'deploy:email-gateway', 'deploy:api'],
     ['deploy:staging', 'deploy:staging:email-gateway', 'deploy:staging:api'],
   ])('%s deploys the email gateway before the API', (script, gateway, api) => {
-    const steps = scripts[script]!.split('&&').map((step) => step.trim());
+    const steps = scripts[script].split('&&').map((step) => step.trim());
     const gatewayStep = steps.indexOf(`vp run ${gateway}`);
     const apiStep = steps.indexOf(`vp run ${api}`);
     expect(gatewayStep).toBeGreaterThan(-1);

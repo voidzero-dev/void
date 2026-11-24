@@ -181,7 +181,7 @@ export interface DerivedEmailAddresses {
  */
 export function emailFromDomain(from: string): string | null {
   const bracketed = /<([^<>]*)>\s*$/.exec(from.trim());
-  const address = bracketed ? (bracketed[1] as string) : from;
+  const address = bracketed ? bracketed[1] : from;
   const at = address.lastIndexOf('@');
   if (at <= 0 || at === address.length - 1) {
     return null;
@@ -1326,7 +1326,7 @@ export async function fetchWithSessionBearer(
     errors?: Array<{ code?: number; message?: string }>;
   };
   try {
-    payload = (await response.json()) as typeof payload;
+    payload = await response.json<typeof payload>();
   } catch {
     payload = {};
   }

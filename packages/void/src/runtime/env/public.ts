@@ -465,35 +465,38 @@ function isMissing(raw: unknown): boolean {
  * on first access and passing through bindings / unknown keys unchanged.
  * Async validators must be resolved first by `_validateEnvOnce()` or `_prepareEnv()`.
  */
-export const env = new Proxy({} as Record<string, unknown>, {
-  get(_target, key) {
-    if (typeof key === 'symbol') {
-      return undefined;
-    }
-    return readKey(key);
+export const env = new Proxy(
+  {},
+  {
+    get(_target, key) {
+      if (typeof key === 'symbol') {
+        return undefined;
+      }
+      return readKey(key);
+    },
+    has(_target, key) {
+      if (typeof key === 'symbol') {
+        return false;
+      }
+      return Object.hasOwn(getClientEnvValues(), key) || Reflect.has(getRuntimeEnv(), key);
+    },
+    ownKeys() {
+      return [
+        ...new Set([...Reflect.ownKeys(getRuntimeEnv()), ...Object.keys(getClientEnvValues())]),
+      ];
+    },
+    getOwnPropertyDescriptor(_target, key) {
+      if (typeof key === 'symbol') {
+        return undefined;
+      }
+      return {
+        enumerable: true,
+        configurable: true,
+        value: readKey(String(key)),
+      };
+    },
   },
-  has(_target, key) {
-    if (typeof key === 'symbol') {
-      return false;
-    }
-    return Object.hasOwn(getClientEnvValues(), key) || Reflect.has(getRuntimeEnv() as object, key);
-  },
-  ownKeys() {
-    return [
-      ...new Set([...Reflect.ownKeys(getRuntimeEnv()), ...Object.keys(getClientEnvValues())]),
-    ];
-  },
-  getOwnPropertyDescriptor(_target, key) {
-    if (typeof key === 'symbol') {
-      return undefined;
-    }
-    return {
-      enumerable: true,
-      configurable: true,
-      value: readKey(String(key)),
-    };
-  },
-}) as ValidatedEnv;
+) as ValidatedEnv;
 
 /** Aggregate report from validating an entire env object against the schema. */
 export type EnvValidationReport = {

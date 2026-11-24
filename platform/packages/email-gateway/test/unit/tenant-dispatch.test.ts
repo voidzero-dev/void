@@ -18,7 +18,7 @@ describe('bounded tenant email dispatch', () => {
         }),
       };
       const pending = dispatchBoundedEmailToTenant(
-        stub as never,
+        stub,
         { EMAIL_SIGNING_SECRET: 'secret' },
         {
           projectId: 'project-1',

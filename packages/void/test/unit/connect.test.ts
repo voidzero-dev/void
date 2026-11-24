@@ -86,7 +86,7 @@ describe('connect arguments', () => {
       { url: discovery.apiUrl, platform: 'void', noLogin: true },
     ],
   ])('parses %j', (args, expected) => {
-    expect(parseConnectArgs(args as Array<string>)).toEqual(expected);
+    expect(parseConnectArgs(args)).toEqual(expected);
   });
   it.each([
     ['--platform', 'invalid'],

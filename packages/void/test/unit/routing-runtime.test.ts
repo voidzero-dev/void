@@ -1138,7 +1138,7 @@ describe('typed Pages and SSR execution', () => {
           },
         }),
       );
-      expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
+      expect(decodePageData<{ url: string }>(await response.json()).url).toBe('/named?page=2');
     });
 
     it('marks the request for a one-argument middleware that answers first', async () => {
@@ -1254,7 +1254,7 @@ describe('typed Pages and SSR execution', () => {
           headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
         }),
       );
-      expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
+      expect(decodePageData<{ url: string }>(await response.json()).url).toBe('/named?page=2');
     });
   });
   it.each([
@@ -1322,7 +1322,7 @@ describe('typed Pages and SSR execution', () => {
         headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       }),
     );
-    expect((decodePageData(await response.json()) as { props: unknown }).props).toEqual({
+    expect(decodePageData<{ props: unknown }>(await response.json()).props).toEqual({
       title: 'loaded',
     });
   });
@@ -1348,7 +1348,7 @@ describe('typed Pages and SSR execution', () => {
           headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
         }),
       );
-      return (decodePageData(await response.json()) as { head?: { title?: string } }).head?.title;
+      return decodePageData<{ head?: { title?: string } }>(await response.json()).head?.title;
     };
     expect(await title('/admin/users')).toBe('Users | Admin');
     expect(await title('/users')).toBe('Users | My Site');
@@ -1380,7 +1380,7 @@ describe('typed Pages and SSR execution', () => {
           headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
         }),
       );
-      return (decodePageData(await response.json()) as { head?: { title?: string } }).head?.title;
+      return decodePageData<{ head?: { title?: string } }>(await response.json()).head?.title;
     };
     expect(await title('/admin/reports')).toBe('Reports - Team');
     expect(await title('/reports')).toBe('Reports - Team');
@@ -1992,7 +1992,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     const app = createPageApp({ loader: defineHandler(passThrough, () => ({ notes: ['a'] })) });
     const json = await get(app);
     expect(json.status).toBe(200);
-    expect((decodePageData(await json.json()) as PageJson).props).toEqual({ notes: ['a'] });
+    expect(decodePageData<PageJson>(await json.json()).props).toEqual({ notes: ['a'] });
     const html = await get(app, {});
     expect(html.status).toBe(200);
     expect(await html.text()).toContain('{"notes":["a"]}');
@@ -2185,7 +2185,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       expect(response.status).toBe(200);
       expect(response.headers.get('X-Before')).toBe('1');
       expect(response.headers.get('X-After')).toBe('1');
-      expect((decodePageData(await response.json()) as PageJson).shared).toEqual({ user: 'u1' });
+      expect(decodePageData<PageJson>(await response.json()).shared).toEqual({ user: 'u1' });
     }
   });
 
@@ -2197,7 +2197,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       await next();
     };
     const sharedOf = async (response: Response) =>
-      (decodePageData(await response.json()) as PageJson).shared;
+      decodePageData<PageJson>(await response.json()).shared;
     const setCount = (n: number) => (c: CloudContext) => {
       c.set('shared', { ...(c.get('shared') as object), ...count(n) });
     };

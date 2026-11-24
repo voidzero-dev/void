@@ -149,7 +149,7 @@ function relativeImports(code: string, parsed: ReturnType<typeof parseSync>): Ar
   for (const { moduleRequest } of parsed.module.dynamicImports) {
     const literal = RELATIVE_LITERAL.exec(code.slice(moduleRequest.start, moduleRequest.end));
     if (literal) {
-      specifiers.push(literal[2]!);
+      specifiers.push(literal[2]);
     }
   }
   return specifiers.filter((specifier) => /^\.{1,2}\//.test(specifier));

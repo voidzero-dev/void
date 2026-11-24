@@ -228,7 +228,7 @@ function createBuildTrace(root: string) {
     attach(nitro: NitroInstance) {
       driverDir = join(nitro.options.buildDir, 'void');
       nitro.hooks.hook('rollup:before', (_, config) => {
-        const plugins = [config.plugins].flat(Infinity as 1) as Array<unknown>;
+        const plugins = [config.plugins].flat(Infinity as 1);
         config.plugins = [
           stepsPlugin,
           ...plugins.map((plugin) =>
@@ -281,7 +281,7 @@ type NitroBuildApi = {
 /** Nitro's build API, from the Nitro that the Nuxt playground's Nuxt installs. */
 async function importNitro(version: 2 | 3 = 2): Promise<NitroBuildApi> {
   if (version === 3) {
-    return import('nitro/builder') as unknown as Promise<NitroBuildApi>;
+    return import('nitro/builder');
   }
   let require = createRequire(
     join(import.meta.dirname, '../../../../playground/nuxt/package.json'),

@@ -226,7 +226,7 @@ function parseOperation(value: unknown): ZeroTrustOperation | null {
     leaseExpiresAt:
       input.leaseExpiresAt === null ? null : timestamp(input.leaseExpiresAt, 'operation lease'),
     startedAt: timestamp(input.startedAt, 'operation start timestamp'),
-    existingProjects: input.existingProjects as ZeroTrustOperation['existingProjects'],
+    existingProjects: input.existingProjects,
     ...(input.applicationTarget === undefined
       ? {}
       : { applicationTarget: parseZeroTrustApplicationTarget(input.applicationTarget) }),

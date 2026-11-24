@@ -34,7 +34,7 @@ function readProjectConfigFile(root: string): ProjectConfigFile | null {
     if (typeof config !== 'object' || config === null || Array.isArray(config)) {
       return null;
     }
-    return config as ProjectConfigFile;
+    return config;
   } catch {
     return null;
   }

@@ -28,7 +28,7 @@ export class ProxyD1Database {
       binding: this.binding,
       statements,
     });
-    return (await res.json()) as Array<D1Result<T>>;
+    return await res.json<Array<D1Result<T>>>();
   }
 
   async exec(sql: string): Promise<D1ExecResult> {
@@ -37,7 +37,7 @@ export class ProxyD1Database {
       sql,
       method: 'run',
     });
-    const data = (await res.json()) as { meta?: { changes?: number; duration?: number } };
+    const data = await res.json<{ meta?: { changes?: number; duration?: number } }>();
     return {
       count: data.meta?.changes ?? 0,
       duration: data.meta?.duration ?? 0,
@@ -95,14 +95,14 @@ export class ProxyD1PreparedStatement {
 
   async all<T = Record<string, unknown>>(): Promise<D1Result<T>> {
     const res = await this.query('all');
-    return (await res.json()) as D1Result<T>;
+    return await res.json<D1Result<T>>();
   }
 
   async first<T = Record<string, unknown>>(): Promise<T | null>;
   async first<T = unknown>(col: string): Promise<T | null>;
   async first<T = unknown>(col?: string): Promise<T | null> {
     const res = await this.query('first');
-    const row = (await res.json()) as Record<string, unknown> | null;
+    const row = await res.json<Record<string, unknown> | null>();
     if (row === null) {
       return null;
     }
@@ -114,15 +114,15 @@ export class ProxyD1PreparedStatement {
 
   async run<T = Record<string, unknown>>(): Promise<D1Result<T>> {
     const res = await this.query('run');
-    return (await res.json()) as D1Result<T>;
+    return await res.json<D1Result<T>>();
   }
 
   async raw<T = Array<unknown>>(options?: { columnNames?: boolean }): Promise<Array<T>> {
     const res = await this.query('raw');
-    const data = (await res.json()) as {
+    const data = await res.json<{
       columns: Array<string>;
       results: Array<Array<unknown>>;
-    };
+    }>();
     if (options?.columnNames) {
       return [data.columns, ...data.results] as Array<T>;
     }

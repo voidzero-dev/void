@@ -267,7 +267,7 @@ export default __vite__css;`;
 
     expect(() =>
       resolveId.call(
-        { environment: { name: 'client' } } as never,
+        { environment: { name: 'client' } },
         DEV_CSS_ASSET_MODULE_ID,
         undefined,
         {} as never,

@@ -333,7 +333,7 @@ export async function collectInstallationAuthentication(
   const administratorConnectionId =
     selection.file?.administratorConnectionId ??
     (connections.length === 1
-      ? connections[0]!.configuration.id
+      ? connections[0].configuration.id
       : process.stdin.isTTY
         ? platformPromptAnswer(
             await select({
@@ -344,7 +344,7 @@ export async function collectInstallationAuthentication(
               })),
             }),
           )
-        : connections[0]!.configuration.id);
+        : connections[0].configuration.id);
   let protection = prepared?.protection ?? selection.file?.protection ?? null;
   if (selection.authentication.accessProtection && !protection) {
     const teamDomain = await prompt('Access team origin (https://team.cloudflareaccess.com):');

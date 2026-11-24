@@ -100,7 +100,7 @@ export function planAiLoggingChanges(
       const previous = modeFor(modesBefore, before, id);
       const next = modeFor(modesAfter, after, id);
       return (
-        previous !== next || (moved && modeFor(modesBefore, before, input.moved!.from) !== next)
+        previous !== next || (moved && modeFor(modesBefore, before, input.moved.from) !== next)
       );
     });
   return {
@@ -559,5 +559,5 @@ export async function runUserAiLoggingPublishPage(
 
 /** A plan's saved default for display; `inherit` when it has none. */
 export function planAiLoggingMode(settings: PlanAiLoggingSettings, planId: string): AiLoggingMode {
-  return Object.hasOwn(settings.modes, planId) ? settings.modes[planId]! : 'inherit';
+  return Object.hasOwn(settings.modes, planId) ? settings.modes[planId] : 'inherit';
 }

@@ -270,7 +270,7 @@ export function platformAccessPublicDestinations(application: ObjectValue): Arra
   ];
 }
 function platformAccessOverlapsOrigin(destination: string, origin: string): boolean {
-  const host = destination.split('/')[0]!;
+  const host = destination.split('/')[0];
   const pattern =
     '^' +
     host
@@ -495,13 +495,13 @@ export async function provisionPlatformAccess(
       return found;
     }
     if (checkpoint?.pending) {
-      const matching = inventory.filter((app) => app.name === checkpoint!.name);
+      const matching = inventory.filter((app) => app.name === checkpoint.name);
       if (matching.length !== 1) {
         throw new Error(
           'platform: An Access application creation has an uncertain outcome. Inspect Cloudflare and connect the existing application; no creation was retried.',
         );
       }
-      checkpoint.id = text(matching[0]!.id, 'application ID');
+      checkpoint.id = text(matching[0].id, 'application ID');
       save(state);
       return object(
         await client.get(`apps/${encodeURIComponent(checkpoint.id)}`),
@@ -616,7 +616,7 @@ export async function provisionPlatformAccess(
         };
         state.resources[tokenKey] = saved;
         save(state);
-        if (tokenInventory.some((token) => token.name === saved!.name)) {
+        if (tokenInventory.some((token) => token.name === saved.name)) {
           throw new Error(
             'platform: An Access service token for this installation already exists. Supply its credentials explicitly; no duplicate was created.',
           );
@@ -633,9 +633,9 @@ export async function provisionPlatformAccess(
       }
       if (!saved.id || !saved.clientId || !saved.clientSecret) {
         const tokens = await client.list('service_tokens');
-        const found = tokens.filter((token) => token.name === saved!.name);
+        const found = tokens.filter((token) => token.name === saved.name);
         if (found.length === 1) {
-          saved.id = text(found[0]!.id, 'service token ID');
+          saved.id = text(found[0].id, 'service token ID');
           save(state);
         }
         throw new Error(

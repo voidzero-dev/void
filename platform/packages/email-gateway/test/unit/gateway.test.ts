@@ -77,7 +77,7 @@ function request(body: BodyInit, headers: Record<string, string> = {}) {
       ...headers,
     },
     ...(body instanceof ReadableStream ? { duplex: 'half' as const } : {}),
-  } as RequestInit);
+  });
 }
 
 beforeEach(() => {
@@ -205,7 +205,7 @@ describe('dedicated email gateway', () => {
     const apiFetch = vi.fn();
     const response = await gateway.fetch(
       new Request('https://gateway.example/email/destinations/confirm?token=payload.signature'),
-      { ...env(apiFetch), PLATFORM_TRAFFIC_STATE: state } as never,
+      { ...env(apiFetch), PLATFORM_TRAFFIC_STATE: state },
       context,
     );
 
@@ -252,7 +252,7 @@ describe('dedicated email gateway', () => {
       const pending = gateway.fetch(
         new Request('https://gateway.example/email/destinations/confirm?token=payload.signature'),
         env((_input, init) => {
-          signal = (init as RequestInit | undefined)?.signal ?? undefined;
+          signal = init?.signal ?? undefined;
           markStarted();
           return new Promise<Response>(() => {});
         }),
@@ -277,7 +277,7 @@ describe('dedicated email gateway', () => {
       const pending = gateway.fetch(
         new Request('https://gateway.example/email/destinations/confirm?token=payload.signature'),
         env((_input, init) => {
-          signal = (init as RequestInit | undefined)?.signal ?? undefined;
+          signal = init?.signal ?? undefined;
           return new Promise<Response>((resolve) => {
             resolveApi = resolve;
           });
@@ -601,8 +601,8 @@ describe('dedicated email gateway', () => {
       message,
       env(async (url, init) => {
         expect(url).toBe('https://api/internal/email/resolve-ingress');
-        const request = new Request(String(url), init as RequestInit);
-        const identity = (await request.json()) as Record<string, unknown>;
+        const request = new Request(String(url), init);
+        const identity = await request.json<Record<string, unknown>>();
         expect(identity).toMatchObject({
           accountId: 'account-1',
           zoneId: 'zone-1',
@@ -696,7 +696,7 @@ describe('dedicated email gateway', () => {
       probe,
       env(async (url, init) => {
         expect(url).toBe('https://api/internal/email/probe-ingress');
-        const request = new Request(String(url), init as RequestInit);
+        const request = new Request(String(url), init);
         expect(
           await hmacVerifyState(
             'email-probe-v1\naccount-1\nzone-1\ngateway-1',

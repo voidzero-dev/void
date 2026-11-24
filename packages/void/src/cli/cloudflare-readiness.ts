@@ -158,9 +158,7 @@ function readCloudflareLocalState(root: string): CloudflareLocalState {
   }
   try {
     const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as CloudflareLocalState)
-      : {};
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }

@@ -54,7 +54,7 @@ describe('createKV', () => {
 
   beforeEach(() => {
     mockNS = createMockKVNamespace();
-    kv = createKV(mockNS as unknown as KVNamespace);
+    kv = createKV(mockNS);
   });
 
   describe('get', () => {

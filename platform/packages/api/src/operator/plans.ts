@@ -566,13 +566,13 @@ async function previewQuotaOverages(
         if (!response.ok) {
           return null;
         }
-        const state = (await response.json()) as {
+        const state = await response.json<{
           ownerUserId?: unknown;
           billingPeriodStart?: unknown;
           totalRequests?: unknown;
           totalNeurons?: unknown;
           totalSandboxSeconds?: unknown;
-        };
+        }>();
         if (
           state.ownerUserId !== account.id ||
           typeof state.billingPeriodStart !== 'string' ||

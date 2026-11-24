@@ -213,7 +213,7 @@ async function upload(
     }
     let result: { success: boolean };
     try {
-      result = (await response.json()) as { success: boolean };
+      result = await response.json<{ success: boolean }>();
     } catch (error) {
       throw failed(error);
     }

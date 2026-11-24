@@ -77,7 +77,7 @@ export function createManifestLoader(): ManifestLoader {
     if (!response.ok) {
       return null;
     }
-    cached = (await response.json()) as ClientManifest;
+    cached = await response.json<ClientManifest>();
     return cached;
   };
 }

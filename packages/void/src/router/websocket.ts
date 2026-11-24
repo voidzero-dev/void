@@ -49,7 +49,7 @@ function identifierWords(segment: string): Array<string> {
 export function deriveWebSocketClassNameFromName(name: string): string {
   return (
     resourceNameWords(name)
-      .map((part) => part[0]!.toUpperCase() + part.slice(1))
+      .map((part) => part[0].toUpperCase() + part.slice(1))
       .join('') + 'Ws'
   );
 }

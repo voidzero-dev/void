@@ -199,7 +199,7 @@ function parsePlanAiLoggingPublish(value: unknown): PlanAiLoggingPublish | null 
   }
   return {
     revision: revision as number,
-    planIds: planIds as Array<string>,
+    planIds,
     includeUnknown,
     cursor,
     complete,
@@ -258,7 +258,7 @@ export function planAiLogging(
 ): PlanAiLogging {
   const planKnown = catalog.plans.some((plan) => plan.id === planId);
   const lookup = planKnown ? planId : catalog.defaultPlanId;
-  const planMode = Object.hasOwn(settings.modes, lookup) ? settings.modes[lookup]! : null;
+  const planMode = Object.hasOwn(settings.modes, lookup) ? settings.modes[lookup] : null;
   return { planId, planKnown, defaultPlanId: catalog.defaultPlanId, planMode };
 }
 

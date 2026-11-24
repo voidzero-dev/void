@@ -147,7 +147,7 @@ export class PlatformOidcProvider {
     url.searchParams.set('code_challenge', await calculatePKCECodeChallenge(verifier));
     url.searchParams.set('code_challenge_method', 'S256');
     if (this.configuration.kind === 'google' && this.configuration.allowedDomains.length === 1) {
-      url.searchParams.set('hd', this.configuration.allowedDomains[0]!);
+      url.searchParams.set('hd', this.configuration.allowedDomains[0]);
     }
     return { url: url.href, verifier, nonce };
   }
@@ -206,7 +206,7 @@ export class PlatformOidcProvider {
     }
     const groups =
       Array.isArray(claims.groups) && claims.groups.every((group) => typeof group === 'string')
-        ? (claims.groups as Array<string>)
+        ? claims.groups
         : [];
     if (
       this.configuration.allowedDomains.length &&

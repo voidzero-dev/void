@@ -133,7 +133,7 @@ describe('scanRoutes', () => {
         join(TMP, '.void'),
         join(TMP, 'pages'),
       );
-      const actionMap = dts.split('  interface PageActionMap {')[1]!;
+      const actionMap = dts.split('  interface PageActionMap {')[1];
       expect(actionMap.split('"/home": {')).toHaveLength(2);
       for (const env of ['dev', 'prod'] as const) {
         const companion = `typeof import("../pages/home.${env}.server.ts")`;

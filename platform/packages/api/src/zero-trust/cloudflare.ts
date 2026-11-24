@@ -145,7 +145,7 @@ export class ZeroTrustCloudflareClient {
     });
     let body: CloudflareEnvelope<T>;
     try {
-      body = (await response.json()) as CloudflareEnvelope<T>;
+      body = await response.json<CloudflareEnvelope<T>>();
     } catch {
       throw new ZeroTrustCloudflareError(
         `Cloudflare returned a non-JSON response (HTTP ${response.status}).`,

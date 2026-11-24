@@ -97,13 +97,13 @@ app.post('/previews', async (context) => {
         .set({ preview_expires_at: expiry(7 * 86_400) })
         .where(eq(projects.id, existing.id))
         .returning();
-      return renewed!;
+      return renewed;
     }
     const [total] = await tx
       .select({ count: count() })
       .from(projects)
       .where(and(eq(projects.user_id, user.id), sql`${projects.preview_client_id} IS NOT NULL`));
-    if (total!.count >= 10) {
+    if (total.count >= 10) {
       throw new OAuthError(
         'access_denied',
         'Remove an unused preview before creating another (limit 10).',
@@ -140,7 +140,7 @@ app.post('/previews', async (context) => {
       }
       throw error;
     });
-    return preview!;
+    return preview;
   });
   await initializeNewProjectZeroTrust(context.env, context.get('db'), project.id);
   return context.json(
@@ -207,7 +207,7 @@ app.post('/preview-deployment-requests', async (context) => {
           sql`${oauthRequests.expires_at} > now() - interval '45 minutes'`,
         ),
       );
-    if (recent!.count >= 60) {
+    if (recent.count >= 60) {
       throw new OAuthError(
         'access_denied',
         'Preview build allowance reached. Try again in an hour.',

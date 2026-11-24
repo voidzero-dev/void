@@ -121,7 +121,7 @@ export function* tokenizeSql(sql: string): Generator<SqlSegment> {
       }
       yield {
         kind: 'ident-quote',
-        open: character as '"' | '`' | '[',
+        open: character,
         start: index,
         end: scanIndex,
       };
