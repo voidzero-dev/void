@@ -51,6 +51,8 @@ npm create void@latest my-app -- --toolchain vite-plus --framework react --start
 
 For non-interactive scaffolding, choose `--deploy none` and run `void connect` later to sign in.
 
+Vite+ is the recommended toolchain. Vite+ starters include [`@cloudflare/oxlint-config`](https://github.com/cloudflare/oxlint-config). Run `vp lint` to check your code.
+
 Vite+ projects install dependencies through `vp install`; no global Vite+ installation is required. Void preserves existing package-manager versions and lockfiles. New Vite+ projects without a package-manager configuration use pnpm without pinning a version.
 
 In an existing app, Void adds missing dependencies and scripts and updates the Vite config. If it cannot edit your config, it prints the snippet to add.

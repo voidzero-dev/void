@@ -86,7 +86,13 @@ it('installs the tested Vite+ pair even when newer CLI and core releases are ava
   try {
     const project = join(root, 'app');
     mkdirSync(project);
-    const manifest = { private: true, devDependencies: { ...SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES } };
+    const manifest = {
+      private: true,
+      devDependencies: {
+        vite: SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite,
+        'vite-plus': SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      },
+    };
     configureVitePlusScaffold(project, 'npm', manifest);
     writeFileSync(join(project, 'package.json'), JSON.stringify(manifest));
     writeFileSync(join(root, 'npmrc'), '');

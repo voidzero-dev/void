@@ -2117,6 +2117,7 @@ describe('isScaffoldableEmptyProject', () => {
               '@void/svelte': '^0.2.3',
               vite: '^8.0.10',
               'vite-plus': '^0.1.21',
+              '@cloudflare/oxlint-config': '^0.2.0',
               typescript: '^7.0.2',
             },
           },
@@ -2163,6 +2164,11 @@ describe('isScaffoldableEmptyProject', () => {
       });
       expect(pkg.devDependencies.vite).toBe('^8.0.10');
       expect(pkg.devDependencies['vite-plus']).toBeUndefined();
+      expect(pkg.devDependencies['@cloudflare/oxlint-config']).toBeUndefined();
+      const viteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf8');
+      expect(viteConfig).toContain('from "vite"');
+      expect(viteConfig).not.toContain('lint:');
+      expect(viteConfig).not.toContain('@cloudflare/oxlint-config');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -2222,12 +2228,19 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.devDependencies['@types/react']).toBeDefined();
       expect(pkg.devDependencies['@types/react-dom']).toBeDefined();
       expect(pkg.devDependencies['oxc-transform-react']).toBeDefined();
+      expect(pkg.devDependencies['@cloudflare/oxlint-config']).toBe('^0.2.0');
       expect(pkg.scripts.dev).toBe('vp dev');
       expect(pkg.scripts.build).toBe('vp build');
       expect(pkg.scripts.preview).toBe('vp preview');
       expect(pkg.scripts.postinstall).toBe('void prepare');
 
       const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf8');
+      expect(reactViteConfig).toContain('from "vite-plus"');
+      expect(reactViteConfig).toContain('from "@cloudflare/oxlint-config/vite-plus"');
+      expect(reactViteConfig).toContain('extends: [cloudflare]');
+      expect(reactViteConfig).toContain('env: cloudflare.env');
+      expect(reactViteConfig).toContain('...cloudflare.ignorePatterns');
+      expect(reactViteConfig).toContain('"**/.void/**"');
       expect(reactViteConfig).toContain('from "@void/react/plugin"');
       expect(reactViteConfig).toContain('voidReact({ react: { compiler: true } })');
       const page = readFileSync(join(root, 'pages', 'index.tsx'), 'utf8');
@@ -2358,7 +2371,7 @@ describe('isScaffoldableEmptyProject', () => {
       expect(toolchainPrompt.options).toEqual([
         {
           value: 'vite-plus',
-          label: 'Vite+',
+          label: expect.stringContaining('Vite+ (recommended)'),
           hint: 'Uses the Vite+ toolchain and vp commands.',
         },
         {

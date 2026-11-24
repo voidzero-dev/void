@@ -279,6 +279,7 @@ try {
         }
         const manifest = JSON.parse(readFileSync(join(fixture, 'package.json'), 'utf8'));
         if (useVitePlus) {
+          assert.equal(manifest.devDependencies['@cloudflare/oxlint-config'], '^0.2.0');
           assert.equal(
             manifest.devDependencies['vite-plus'],
             vitePlusVersion,
@@ -312,6 +313,7 @@ try {
             !manifest.devDependencies?.['vite-plus'],
             'Plain Vite init must not install Vite+',
           );
+          assert(!manifest.devDependencies?.['@cloudflare/oxlint-config']);
           const installedVite = JSON.parse(
             readFileSync(join(fixture, 'node_modules/vite/package.json'), 'utf8'),
           );
@@ -324,6 +326,13 @@ try {
         );
         await run(process.execPath, [cli, 'prepare'], fixture);
         await run(manager, manager === 'npm' ? ['ci'] : ['install', '--frozen-lockfile'], fixture);
+        const vite = join(
+          fixture,
+          useVitePlus ? 'node_modules/vite-plus/bin/vp' : 'node_modules/vite/bin/vite.js',
+        );
+        if (useVitePlus) {
+          await run(process.execPath, [vite, 'lint'], fixture);
+        }
         const extension = framework === 'vue' ? 'vue' : framework === 'svelte' ? 'svelte' : 'tsx';
         writeFileSync(join(fixture, `pages/index.${extension}`), pages[framework]);
         writeFileSync(join(fixture, `pages/next.${extension}`), pages[framework]);
@@ -347,10 +356,6 @@ try {
         );
         mkdirSync(join(fixture, 'public'), { recursive: true });
         writeFileSync(join(fixture, 'public/packed.txt'), label);
-        const vite = join(
-          fixture,
-          useVitePlus ? 'node_modules/vite-plus/bin/vp' : 'node_modules/vite/bin/vite.js',
-        );
         await run(process.execPath, [vite, 'build'], fixture);
         await run(
           process.execPath,
