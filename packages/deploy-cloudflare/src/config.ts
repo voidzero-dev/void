@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { applyEdits, modify, parse as parseJsoncConfig, type ParseError } from 'jsonc-parser';
+import { applyEdits, modify, parse as parseJsoncConfig } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 
 /** Parse a root Wrangler JSON/JSONC config without accepting a partial parse. */
 export function parseRootWranglerConfig(configPath: string): Record<string, unknown> {
@@ -8,7 +9,7 @@ export function parseRootWranglerConfig(configPath: string): Record<string, unkn
   }
   let raw: string;
   try {
-    raw = readFileSync(configPath, 'utf-8');
+    raw = readFileSync(configPath, 'utf8');
   } catch {
     return {};
   }
@@ -47,8 +48,11 @@ function findBindingEntry(
     return undefined;
   }
   return list.find(
-    (entry): entry is Record<string, unknown> =>
-      entry && typeof entry === 'object' && (entry as { binding?: unknown }).binding === binding,
+    (entry: unknown): entry is Record<string, unknown> =>
+      typeof entry === 'object' &&
+      entry !== null &&
+      'binding' in entry &&
+      entry.binding === binding,
   );
 }
 

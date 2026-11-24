@@ -1,4 +1,5 @@
-import { defineHandler, type InferProps } from 'void';
+import { defineHandler } from 'void';
+import type { InferProps } from 'void';
 
 export const ssr = false;
 export const prerender = true;

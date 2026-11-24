@@ -233,7 +233,7 @@ async function uploadOne(
         // Clone the buffer into a fresh Uint8Array view so each retry sees
         // an independent body. Reusing the same Buffer across retries is
         // safe with `fetch` (it consumes once), but explicit here.
-        body: new Uint8Array(body) as unknown as BodyInit,
+        body: new Uint8Array(body) as BodyInit,
         headers: item.headers,
       });
     } catch (err) {
@@ -319,5 +319,7 @@ function truncate(s: string): string {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

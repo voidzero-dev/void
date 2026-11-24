@@ -234,6 +234,7 @@ export async function queryD1(
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       const preview = query.sql.length > 80 ? `${query.sql.slice(0, 80)}…` : query.sql;
+      // oxlint-disable-next-line preserve-caught-error -- Report the timeout without attaching an unsanitized provider or request error.
       throw new Error(`D1 request timed out after ${timeoutMs}ms (${preview})`);
     }
     throw err;

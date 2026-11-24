@@ -1,8 +1,5 @@
-import {
-  recordInstallationStep,
-  transitionInstallation,
-  type PlatformLifecycleOperation,
-} from '@void/platform';
+import { recordInstallationStep, transitionInstallation } from '@void/platform';
+import type { PlatformLifecycleOperation } from '@void/platform';
 import type { PlatformRuntimeManifest } from '@void/platform/installer';
 import { join } from 'pathslash';
 import { publishInstallationAiLogging } from './platform-ai-logging-projection.ts';
@@ -19,14 +16,14 @@ import {
   reconcilePlatformInstallationResources,
   hash,
 } from './platform-installer-resources.ts';
-import {
-  type InstallationCheckpointWriter,
-  type PlatformDatabaseLifecycleLock,
-  type PlatformInstallerDependencies,
-  type PlatformInstallationResult,
-  type PlatformInstallRunState,
+import type {
+  InstallationCheckpointWriter,
+  PlatformDatabaseLifecycleLock,
+  PlatformInstallerDependencies,
+  PlatformInstallationResult,
+  PlatformInstallRunState,
 } from './platform-installer-types.ts';
-import { type PlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformInstallPlan } from './platform-plan.ts';
 import { writeInstallationManifest } from './platform-registry.ts';
 
 export async function provisionInstallationServices(input: {

@@ -7,7 +7,8 @@ import {
   setOAuthPreviewPermission,
   OAuthError,
 } from '../../auth/oauth.ts';
-import { isDevBypass, type ApiEnv } from '../../env.ts';
+import { isDevBypass } from '../../env.ts';
+import type { ApiEnv } from '../../env.ts';
 import { executeAuditedMutation, operatorAuditIntent } from '../../operator/audit.ts';
 import { getPlatformDisplayName } from '../../platform-identity.ts';
 import { oauthClients } from '../../schema.ts';

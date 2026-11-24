@@ -9,8 +9,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { setGetProjectOverride } from './setup.ts';
 
 // A JSON deploy keeps running after its response is returned until the NDJSON
@@ -45,7 +45,9 @@ async function lockWaitOrTimeout(limitMs: number): Promise<void> {
     if (rows[0]!.n > 0) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
   }
 }
 
@@ -58,9 +60,13 @@ describe('fixture cleanup after an unread deploy stream', () => {
     await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${HASH(1)}`, bytes.buffer as ArrayBuffer);
 
     let reached!: () => void;
-    const locked = new Promise<void>((resolve) => (reached = resolve));
+    const locked = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     setGetProjectOverride(async ({ original, argsList }) => {
       const [db, id] = argsList;
       if (db !== env.db) {
@@ -104,7 +110,7 @@ describe('fixture cleanup after an unread deploy stream', () => {
     await locked;
     // Let the deploy continue once the next cleanup waits on its lock, or after
     // a short bound when the harness finishes the deploy before cleanup.
-    void lockWaitOrTimeout(1_000).then(release);
+    void lockWaitOrTimeout(1000).then(release);
     // Return without reading `res`, as a status-only test does.
   });
 

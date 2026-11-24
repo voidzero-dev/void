@@ -2,7 +2,8 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { capabilityMiddleware } from '../capabilities.ts';
-import { getProject, getProjectBySlug, type Db } from '../db.ts';
+import { getProject, getProjectBySlug } from '../db.ts';
+import type { Db } from '../db.ts';
 import {
   emailActionRecipients,
   emailProjectControls,
@@ -54,8 +55,8 @@ import {
   repairEmailRecipientPolicyMirror,
   setEmailDomainManagement,
   setEmailRecipientPolicy,
-  type EmailRecipientPolicy,
 } from '../email/settings.ts';
+import type { EmailRecipientPolicy } from '../email/settings.ts';
 import {
   inspectSharedEmailRecipientRecovery,
   resolveSharedEmailRecipientCreation,

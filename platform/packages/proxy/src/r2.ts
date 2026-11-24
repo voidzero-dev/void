@@ -324,7 +324,7 @@ r2.post('/head', async (context) => {
 
   return context.json({
     key,
-    size: parseInt(cfRes.headers.get('content-length') ?? '0'),
+    size: Number.parseInt(cfRes.headers.get('content-length') ?? '0'),
     etag: cfRes.headers.get('etag') ?? '',
     lastModified: cfRes.headers.get('last-modified') ?? '',
     contentType: cfRes.headers.get('content-type') ?? 'application/octet-stream',

@@ -2,14 +2,8 @@
 // Copyright (c) Cloudflare, Inc., MIT licensed. Void translates Wrangler-format settings to the
 // cf format in process with it. Keep changes minimal so that it can be compared with upstream;
 // `cf-config-convert.test.ts` checks it against the installed codemod.
-import {
-  getRecord,
-  getRecords,
-  getStrings,
-  hasOwn,
-  isRecord,
-  type UnknownRecord,
-} from './converter-helpers.ts';
+import { getRecord, getRecords, getStrings, hasOwn, isRecord } from './converter-helpers.ts';
+import type { UnknownRecord } from './converter-helpers.ts';
 import { DURABLE_OBJECT_EXPORTS_DOCS_URL, createFollowUp } from './follow-ups.ts';
 import type { MigrationFollowUp } from './types.ts';
 

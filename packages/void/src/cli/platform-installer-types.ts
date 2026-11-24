@@ -1,10 +1,10 @@
-import { type CloudflareTriggerConfig } from '@void/deploy-cloudflare';
-import {
-  createPlatformDeploymentManifest,
-  type PlatformInstallationManifest,
-  type PlatformLifecycleOperation,
-  type PlatformAccessProtection,
-  type PlatformLoginKind,
+import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
+import { createPlatformDeploymentManifest } from '@void/platform';
+import type {
+  PlatformInstallationManifest,
+  PlatformLifecycleOperation,
+  PlatformAccessProtection,
+  PlatformLoginKind,
 } from '@void/platform';
 import type {
   PlatformRuntime,
@@ -19,9 +19,9 @@ import type {
 } from './platform-ai-logging-projection.ts';
 import type { initializeInstalledAppAccess } from './platform-app-access.ts';
 import type { initializeInstalledPlatformAuthentication } from './platform-auth-bootstrap.ts';
-import {
-  type CloudflareWorkerCustomDomainOrigin,
-  type PlatformCloudflareClient,
+import type {
+  CloudflareWorkerCustomDomainOrigin,
+  PlatformCloudflareClient,
 } from './platform-cloudflare.ts';
 import type {
   bootstrapPlatformSharedEmail,
@@ -29,8 +29,8 @@ import type {
   verifyPlatformDeploymentExecutionDrain,
 } from './platform-installer-health.ts';
 import type { runPlatformWrangler } from './platform-installer-workers.ts';
-import { type PlatformInstallPlan, type PlatformInstallPlanAction } from './platform-plan.ts';
-import { type PlatformProjectZeroTrustState } from './platform-zero-trust-uninstall.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
+import type { PlatformProjectZeroTrustState } from './platform-zero-trust-uninstall.ts';
 
 export type PlatformInstallationSecrets = Readonly<{
   appAccessSetupJson?: string;

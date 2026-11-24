@@ -7,13 +7,8 @@ import { canonicalJson, isRecord } from '@void/deploy-core';
 import { join } from 'pathslash';
 import { parseRootWranglerConfig } from './config.ts';
 import { cloudflareCommandDiagnostic } from './diagnostics.ts';
-import {
-  isCleanCommandExit,
-  isCompletedCommand,
-  isWorkerNotFound,
-  type CloudflareCommandResult,
-  type CloudflareCommandRunner,
-} from './execute.ts';
+import { isCleanCommandExit, isCompletedCommand, isWorkerNotFound } from './execute.ts';
+import type { CloudflareCommandResult, CloudflareCommandRunner } from './execute.ts';
 import type { CloudflareUploadResult } from './operations.ts';
 import {
   isVoidSecretDraftHeader,
@@ -23,8 +18,8 @@ import {
   VOID_SECRET_DRAFT_SOURCE,
 } from './secret-draft.ts';
 
-const DURABLE_MIGRATION_VERSION_ERROR = 10211;
-const CLOUDFLARE_SECRET_CHANGED_ERROR = 10220;
+const DURABLE_MIGRATION_VERSION_ERROR = 10_211;
+const CLOUDFLARE_SECRET_CHANGED_ERROR = 10_220;
 
 export type CloudflareVersionMetadata =
   | Readonly<{
@@ -484,23 +479,24 @@ function triggerRepairOutcome(
   return result.reason === 'metadata-unavailable' ? 'unavailable' : 'failed';
 }
 
+const unique = (values: ReadonlyArray<unknown>): Array<unknown> => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = JSON.stringify(value);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
 function mergeTriggerCleanupBaselines(
   ...configs: Array<CloudflareTriggerConfig | undefined>
 ): CloudflareTriggerConfig {
   const present = configs.filter(
     (config): config is CloudflareTriggerConfig => config !== undefined,
   );
-  const unique = (values: ReadonlyArray<unknown>): Array<unknown> => {
-    const seen = new Set<string>();
-    return values.filter((value) => {
-      const key = JSON.stringify(value);
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
-  };
   // Keep `addresses` absent when no config carried a plan (see CloudflareTriggerConfig).
   const withAddresses = present.filter((config) => config.addresses !== undefined);
   return {
@@ -560,9 +556,9 @@ function triggerConfigWithQueueConsumerCleanup(
     ...base,
     queueConsumers: [
       ...base.queueConsumers,
-      ...queues
-        .filter((queue) => !queueConsumerNames(base.queueConsumers).includes(queue))
-        .map((queue) => ({ queue })),
+      ...queues.flatMap((queue) =>
+        !queueConsumerNames(base.queueConsumers).includes(queue) ? [{ queue }] : [],
+      ),
     ],
   };
 }
@@ -678,9 +674,9 @@ function readEmailAddresses(value: unknown): ReadonlyArray<string> | undefined {
 
 function nonVersionedSettingsHash(config: Record<string, unknown>): string {
   const settings = Object.fromEntries(
-    ['logpush', 'observability', 'tail_consumers', 'streaming_tail_consumers']
-      .filter((key) => config[key] !== undefined)
-      .map((key) => [key, config[key]]),
+    ['logpush', 'observability', 'tail_consumers', 'streaming_tail_consumers'].flatMap((key) =>
+      config[key] !== undefined ? [[key, config[key]]] : [],
+    ),
   );
   return createHash('sha256').update(canonicalJson(settings)).digest('hex');
 }
@@ -1277,7 +1273,7 @@ async function activateCloudflareVersionWithSecretsFile(
       (upload.failure === 'durable-migration' ||
         upload.failure === 'not-found' ||
         cloudflareErrorCode === DURABLE_MIGRATION_VERSION_ERROR ||
-        cloudflareErrorCode === 10007);
+        cloudflareErrorCode === 10_007);
     if (
       !options.preserveTriggers &&
       isBootstrapError &&
@@ -2794,7 +2790,7 @@ async function probeReadiness(
       }
     }
     if (attempt + 1 < attempts) {
-      const waitMs = Math.min(250 * 2 ** attempt, 2_000, deadline - Date.now());
+      const waitMs = Math.min(250 * 2 ** attempt, 2000, deadline - Date.now());
       if (waitMs > 0) {
         await sleep(waitMs);
       }

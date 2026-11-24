@@ -31,7 +31,7 @@ describe.each([
     for (const char of ['<', '>', '&', '\u2028', '\u2029']) {
       expect(out).not.toContain(char);
     }
-    expect(out).toContain('\\u0026');
+    expect(out).toContain(String.raw`\u0026`);
     expect(deserializePageData(out)).toEqual(payload);
   });
 });

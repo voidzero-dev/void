@@ -97,8 +97,8 @@ describe('parseDotenv — values read as Vite reads them', () => {
     ['inline comment', 'A=val # note', { A: 'val' }],
     ['comment after a quoted value', 'A="v" # note', { A: 'v' }],
     ['# inside quotes', 'A="a # b"', { A: 'a # b' }],
-    ['escaped newline in double quotes', 'A="a\\nb"', { A: 'a\nb' }],
-    ['escaped newline in single quotes', "A='a\\nb'", { A: 'a\\nb' }],
+    ['escaped newline in double quotes', String.raw`A="a\nb"`, { A: 'a\nb' }],
+    ['escaped newline in single quotes', String.raw`A='a\nb'`, { A: String.raw`a\nb` }],
     ['multi-line double quotes', 'A="line1\nline2"\nB=after', { A: 'line1\nline2', B: 'after' }],
     ['backticks', 'A=`back`', { A: 'back' }],
     [
@@ -186,8 +186,8 @@ describe('expandDotenv — $VAR bare form', () => {
 });
 
 describe('expandDotenv — escapes', () => {
-  it('treats \\$VAR as a literal $VAR (consuming the backslash)', () => {
-    expect(expandDotenv({ A: '\\$NOT_EXPANDED' })).toEqual({ A: '$NOT_EXPANDED' });
+  it(String.raw`treats \$VAR as a literal $VAR (consuming the backslash)`, () => {
+    expect(expandDotenv({ A: String.raw`\$NOT_EXPANDED` })).toEqual({ A: '$NOT_EXPANDED' });
   });
 
   it('treats \\${VAR} as a literal ${VAR}', () => {
@@ -195,7 +195,7 @@ describe('expandDotenv — escapes', () => {
   });
 
   it('mixes escaped and non-escaped refs in one value', () => {
-    expect(expandDotenv({ X: 'real', A: '\\$X and $X' })).toEqual({
+    expect(expandDotenv({ X: 'real', A: String.raw`\$X and $X` })).toEqual({
       X: 'real',
       A: '$X and real',
     });

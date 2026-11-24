@@ -1,10 +1,11 @@
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import type { SQLInputValue } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { buildMigrationPlanBundle } from '../../src/migrations/plan.ts';
-import {
-  createMigrationHandler,
-  type MigrationEntry,
-  type MigrationResponse,
+import { createMigrationHandler } from '../../src/runtime/db/migrations/d1-handler.ts';
+import type {
+  MigrationEntry,
+  MigrationResponse,
 } from '../../src/runtime/db/migrations/d1-handler.ts';
 
 const databases: Array<DatabaseSync> = [];

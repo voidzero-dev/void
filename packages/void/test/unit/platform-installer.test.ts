@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,8 +26,8 @@ import {
   platformDatabaseSchemaDigest,
   readPlatformRuntimeManifest,
   resolvePlatformRuntime,
-  type PlatformRuntimeDatabaseManifest,
 } from '@void/platform/installer';
+import type { PlatformRuntimeDatabaseManifest } from '@void/platform/installer';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { AiLoggingProjectionKv } from '../../src/cli/platform-ai-logging-projection.ts';
@@ -278,7 +279,7 @@ function examplePlan(
   );
 }
 
-function useRegistryDirectory(): string {
+function setupRegistryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), 'void-platform-installer-test-'));
   directories.push(directory);
   process.env.VOID_PLATFORM_REGISTRY_DIR = directory;
@@ -406,7 +407,7 @@ describe('platform installer', () => {
   ])(
     'installs $kind with Access protection=$protection and initializes auth after deploying the API',
     async ({ kind, protection }) => {
-      useRegistryDirectory();
+      setupRegistryDirectory();
       const plan = await createPlatformInstallPlan(
         planningClient(),
         {
@@ -651,7 +652,7 @@ describe('platform installer', () => {
   ])(
     'installs core Workers without a zone and probes the dispatch hostname (draft: $fromDraft, dashboard: $dashboardUrl)',
     async ({ fromDraft, dashboardUrl }) => {
-      useRegistryDirectory();
+      setupRegistryDirectory();
       const forbidden = async (): Promise<never> => {
         throw new Error('no zone or DNS access allowed');
       };
@@ -788,7 +789,7 @@ describe('platform installer', () => {
   );
 
   it('lifts a left-over uninstall fence before traffic opens', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       planningClient(),
       {
@@ -849,7 +850,7 @@ describe('platform installer', () => {
   });
 
   it('publishes AI logging settings after migrations, before the Workers upload, and again after it', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       planningClient(),
       {
@@ -949,7 +950,7 @@ describe('platform installer', () => {
   });
 
   it('keeps traffic disabled and the verified Worker set when shared email bootstrap blocks', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       planningClient(),
       {
@@ -1033,7 +1034,7 @@ describe('platform installer', () => {
   });
 
   it('refuses minimal runtime logs on a runtime that cannot honour them', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const plan = await examplePlan(null, { runtimeLogs: 'minimal' });
     const current = resolvePlatformRuntime(getPlatformRuntimeDirectory());
     // The built runtime declares support; only the copy below drops it.
@@ -1290,7 +1291,7 @@ describe('platform installer', () => {
   });
 
   it('does not let an email-disable plan bypass an unresolved email secret update', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const currentDeployment = createPlatformDeploymentManifest({
       application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
       capabilities: { email: true },
@@ -2569,7 +2570,7 @@ describe('platform installer', () => {
         fetcher,
       );
 
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2000);
 
       expect(await result).toBe('eop-resume');
       expect(fetcher).toHaveBeenCalledTimes(3);
@@ -2594,7 +2595,7 @@ describe('platform installer', () => {
         fetcher,
       ).catch((error: unknown) => error);
 
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2000);
 
       const error = String(await result);
       expect(error).toContain('Shared email bootstrap did not finish within five minutes');
@@ -2657,7 +2658,7 @@ describe('platform installer', () => {
         fetcher,
       ).catch((error: unknown) => error);
 
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(1000);
 
       expect(String(await result)).toContain('operation identity changed');
       expect(fetcher).toHaveBeenCalledTimes(2);
@@ -3730,7 +3731,7 @@ describe('platform installer', () => {
     await expect(
       resolveBootstrapGitHubId('Octocat', async (input) => {
         requests.push(String(input));
-        return Response.json({ id: 583231 });
+        return Response.json({ id: 583_231 });
       }),
     ).resolves.toBe('583231');
     expect(requests).toEqual(['https://api.github.com/users/Octocat']);
@@ -3802,7 +3803,7 @@ describe('platform installer', () => {
   });
 
   it('stores a restored complete project-secret keyring in encrypted recovery state', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan(null, {
       emailSenderDomain: 'mail.example.com',
       emailSharedZoneId: 'mail-zone',
@@ -3924,7 +3925,7 @@ describe('platform installer', () => {
   });
 
   it('resumes encrypted per-Worker credential updates without replaying the baseline', () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const deployment = createPlatformDeploymentManifest({
       application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
       displayName: 'Example',
@@ -4256,7 +4257,7 @@ describe('platform installer', () => {
   });
 
   it('does not checkpoint failure when another host owns the lifecycle lock', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan();
     await expect(
       installPlatform(plan, freshSecrets(), null, {
@@ -4275,7 +4276,7 @@ describe('platform installer', () => {
   });
 
   it('validates a resume only after reading the authoritative database checkpoint', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const deployment = createPlatformDeploymentManifest({
       application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
       displayName: 'Example',
@@ -4362,7 +4363,7 @@ describe('platform installer', () => {
     failAppAccess?: boolean;
     failHealthToken?: boolean;
   }) {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       planningClient(),
       { ...EXAMPLE_PLAN_INPUT, appAccess },
@@ -4617,7 +4618,7 @@ describe('platform installer', () => {
   });
 
   it('closes the routing gate before an ambiguous fresh Worker upload', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan();
     let disabled = false;
 
@@ -4648,7 +4649,7 @@ describe('platform installer', () => {
   });
 
   it('rejects a database URL Hyperdrive cannot use before claiming the database', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan();
     expect(plan.actions.find((action) => action.key === 'hyperdrive')?.action).toBe('create');
     let claims = 0;
@@ -4697,7 +4698,7 @@ describe('platform installer', () => {
   ])(
     'rejects a private certificate authority for a Void-created Hyperdrive before claiming the database: %s',
     async (databaseUrl) => {
-      const directory = useRegistryDirectory();
+      const directory = setupRegistryDirectory();
       const plan = await examplePlan();
       expect(plan.actions.find((action) => action.key === 'hyperdrive')?.action).toBe('create');
       const secrets = (url: string) => freshSecrets({ databaseUrl: url });
@@ -4775,7 +4776,7 @@ describe('platform installer', () => {
   );
 
   it('accepts a private certificate authority for an externally managed Hyperdrive', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const databaseUrl =
       'postgres://user:password@db.example.com/void?sslmode=verify-full&sslrootcert=/etc/ssl/private-ca.pem';
     const plan = await createPlatformInstallPlan(
@@ -4822,7 +4823,7 @@ describe('platform installer', () => {
   });
 
   it('rechecks the Workers VPC service before claiming the database on apply', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const databaseUrl = 'postgresql://iam_owner@127.0.0.1/void?sslmode=disable';
     const plan = await createPlatformInstallPlan(
       {
@@ -4880,7 +4881,7 @@ describe('platform installer', () => {
   });
 
   it('resumes a claimed verify-full database URL by creating Hyperdrive with its TLS mode', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const databaseUrl = 'postgresql://user:password@db.example.com:5432/void?sslmode=verify-full';
     const deployment = createPlatformDeploymentManifest({
       application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
@@ -4974,7 +4975,7 @@ describe('platform installer', () => {
   });
 
   it('keeps a cutover unresolved when the current Worker rollback is incomplete', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan();
     let deployments = 0;
     let previousRollbackRan = false;
@@ -5060,7 +5061,7 @@ describe('platform installer', () => {
   });
 
   it('stops after a newly-created zone until nameservers become active', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       { ...planningClient(), findZone: async () => null },
       {
@@ -5123,7 +5124,7 @@ describe('platform installer', () => {
   });
 
   async function installedPlatform() {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const secrets = freshSecrets();
     const client = creatingClient();
     const installed = await installPlatform(await examplePlan(), secrets, null, {
@@ -6011,6 +6012,7 @@ describe('platform installer', () => {
     });
 
     const cleanMachineDiscovery = parsePlatformInstallationManifest(
+      // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
       JSON.parse(JSON.stringify(rollbackResult.manifest)),
     );
     expect(cleanMachineDiscovery.databaseSchemaDigest).toBe(

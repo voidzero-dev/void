@@ -29,7 +29,7 @@ type ProjectConfigFile = {
 function readProjectConfigFile(root: string): ProjectConfigFile | null {
   const filePath = join(root, PROJECT_FILE);
   try {
-    const raw = readFileSync(filePath, 'utf-8');
+    const raw = readFileSync(filePath, 'utf8');
     const config = JSON.parse(raw);
     if (typeof config !== 'object' || config === null || Array.isArray(config)) {
       return null;

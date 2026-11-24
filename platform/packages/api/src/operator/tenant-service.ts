@@ -18,11 +18,10 @@ import {
   publishProjectsAiLogging,
   runUserAiLoggingPublishPage,
   startUserAiLoggingPublish,
-  type UserAiLoggingPublishProgress,
 } from '../ai-logging-plans.ts';
+import type { UserAiLoggingPublishProgress } from '../ai-logging-plans.ts';
 import { readProjectAiLoggingStatus } from '../ai-logging.ts';
 import {
-  type Db,
   ACTIVE_BUILD_STATUSES,
   countUserDeploymentsToday,
   deleteUser,
@@ -41,6 +40,7 @@ import {
   unsuspendUser,
   updateUserPlan,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { cancelContainerBuildDos } from '../github/cancel-builds.ts';
 import { generateId } from '../id.ts';
@@ -92,7 +92,7 @@ function assertOwnershipTransferRolloutComplete(env: ApiEnv['Bindings']): void {
       503,
       'Project ownership transfers are temporarily unavailable while the usage consumer rollout completes.',
       'ownership_transfer_rollout_pending',
-      remainingMs > 0 ? { retryAfterSeconds: Math.ceil(remainingMs / 1_000) } : undefined,
+      remainingMs > 0 ? { retryAfterSeconds: Math.ceil(remainingMs / 1000) } : undefined,
     );
   }
 }

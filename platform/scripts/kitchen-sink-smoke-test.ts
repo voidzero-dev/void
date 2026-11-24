@@ -14,7 +14,8 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { describe, it, before, after } from 'node:test';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser, BrowserContext, Page } from 'playwright';
 import {
   resetKitchenSink,
   waitForChangedRender,
@@ -101,7 +102,7 @@ async function pollForText(page: Page, path: string, text: string, timeoutMs = 3
     if (body?.includes(text)) {
       return;
     }
-    await page.waitForTimeout(2_000);
+    await page.waitForTimeout(2000);
   }
   throw new Error(`Timed out after ${timeoutMs}ms waiting for "${text}" on ${path}`);
 }
@@ -133,6 +134,13 @@ async function deleteRowContaining(page: Page, needle: string) {
   }, needle);
 }
 
+/** Create an isolated browser context + page. Caller must close ctx when done. */
+async function freshPage(): Promise<{ ctx: BrowserContext; page: Page }> {
+  const ctx = await browser.newContext({ extraHTTPHeaders: CF_ACCESS });
+  const page = await ctx.newPage();
+  return { ctx, page };
+}
+
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
@@ -146,13 +154,6 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
   after(async () => {
     await browser?.close();
   });
-
-  /** Create an isolated browser context + page. Caller must close ctx when done. */
-  async function freshPage(): Promise<{ ctx: BrowserContext; page: Page }> {
-    const ctx = await browser.newContext({ extraHTTPHeaders: CF_ACCESS });
-    const page = await ctx.newPage();
-    return { ctx, page };
-  }
 
   void it('1 — home SSR + asset caching', async () => {
     const { ctx, page } = await freshPage();

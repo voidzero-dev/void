@@ -10,8 +10,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // DO namespace spy: records fetched URLs and returns a fixed JSON payload.
 function spyNamespace(payload: unknown): { ns: DurableObjectNamespace; calls: Array<string> } {

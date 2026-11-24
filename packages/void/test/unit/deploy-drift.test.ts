@@ -170,7 +170,7 @@ describe('hasDeploySchemaDrift', { timeout: driftTestTimeout }, () => {
     }
     try {
       hasDeploySchemaDrift(root, 'sqlite');
-      const leaked = JSON.parse(readFileSync(leakFile, 'utf-8')) as Record<string, string | null>;
+      const leaked = JSON.parse(readFileSync(leakFile, 'utf8')) as Record<string, string | null>;
       for (const name of WRANGLER_AUTH_CREDENTIAL_ENV_VARS) {
         expect(leaked[name]).toBeNull();
       }
@@ -309,6 +309,6 @@ function collectFiles(current: string, root: string, snapshot: Record<string, st
       collectFiles(fullPath, root, snapshot);
       continue;
     }
-    snapshot[relative(root, fullPath)] = readFileSync(fullPath, 'utf-8');
+    snapshot[relative(root, fullPath)] = readFileSync(fullPath, 'utf8');
   }
 }

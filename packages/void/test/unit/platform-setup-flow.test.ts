@@ -9,8 +9,9 @@ import {
   transitionInstallation,
 } from '@void/platform';
 import { log, note, outro } from '@voidzero-dev/vite-plus-prompts';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { pc } from '../../src/cli/output.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as terminalOutput from '../../src/cli/output.ts';
 import { parsePlatformArgs } from '../../src/cli/platform-args.ts';
 import {
@@ -474,7 +475,7 @@ describe('platform credential onboarding', () => {
       vi.fn<typeof fetch>(async (_input, init) =>
         new Headers(init?.headers).get('Authorization') === 'Bearer missing-access'
           ? Response.json(
-              { success: false, errors: [{ message: 'Access denied', code: 10000 }] },
+              { success: false, errors: [{ message: 'Access denied', code: 10_000 }] },
               { status: 403 },
             )
           : Response.json({ success: true, result: [] }),
@@ -504,7 +505,7 @@ describe('platform credential onboarding', () => {
       'fetch',
       vi.fn<typeof fetch>(async () =>
         Response.json(
-          { success: false, errors: [{ message: 'Access unavailable', code: 10000 }] },
+          { success: false, errors: [{ message: 'Access unavailable', code: 10_000 }] },
           { status: 503 },
         ),
       ),
@@ -541,7 +542,7 @@ describe('platform credential onboarding', () => {
       'fetch',
       vi.fn<typeof fetch>(async () =>
         Response.json(
-          { success: false, errors: [{ message: 'Access denied', code: 10000 }] },
+          { success: false, errors: [{ message: 'Access denied', code: 10_000 }] },
           { status: 403 },
         ),
       ),
@@ -732,11 +733,8 @@ describe('platform credential onboarding', () => {
     expect(management).not.toBe(mocks.plan.mock.calls[0]![0]);
     expect(mocks.install.mock.calls[0]![3].client).toBe(management);
     await management.request('/test');
-    expect(fetcher).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'Bearer management-secret' }),
-      }),
+    expect(new Headers(fetcher.mock.lastCall?.[1]?.headers).get('Authorization')).toBe(
+      'Bearer management-secret',
     );
     fetcher.mockResolvedValueOnce(
       Response.json(
@@ -746,7 +744,8 @@ describe('platform credential onboarding', () => {
     );
     const denied = await management
       .request('/accounts/account/queues')
-      .then(expectedFailure, (error: PlatformCloudflareApiError) => error);
+      .then(expectedFailure, (error: unknown) => error);
+    assert.instanceOf(denied, PlatformCloudflareApiError);
     expect(denied.credential).toEqual({ role: 'management', source: 'entered' });
     expect(denied.message).toContain('Void used the management token you entered.');
     expect(mocks.open).toHaveBeenCalledWith(expect.stringContaining('name=Test+Management'));
@@ -795,11 +794,8 @@ describe('platform credential onboarding', () => {
       expect(mocks.plan).toHaveBeenCalledTimes(2);
       const client = mocks.install.mock.calls[0]![3].client as PlatformCloudflareClient;
       await client.request('/management-token-check');
-      expect(fetcher).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: 'Bearer saved-management-secret' }),
-        }),
+      expect(new Headers(fetcher.mock.lastCall?.[1]?.headers).get('Authorization')).toBe(
+        'Bearer saved-management-secret',
       );
       fetcher.mockResolvedValueOnce(
         Response.json(
@@ -809,7 +805,8 @@ describe('platform credential onboarding', () => {
       );
       const denied = await client
         .request('/accounts/account/queues')
-        .then(expectedFailure, (error: PlatformCloudflareApiError) => error);
+        .then(expectedFailure, (error: unknown) => error);
+      assert.instanceOf(denied, PlatformCloudflareApiError);
       expect(denied.credential).toEqual({ role: 'management', source: 'saved' });
       expect(denied.message).toContain('Void used the management token saved on this machine.');
       expect(mocks.install.mock.calls[0]![1].cloudflareApiToken).toBe('saved-runtime-token');
@@ -982,7 +979,7 @@ describe('platform credential onboarding', () => {
         Response.json(
           {
             success: false,
-            errors: [{ code: 10000, message: 'Access denied for rejected-secret' }],
+            errors: [{ code: 10_000, message: 'Access denied for rejected-secret' }],
           },
           { status: 403 },
         ),

@@ -103,7 +103,7 @@ export function isAlreadyExistsError(err: unknown): boolean {
   if (!(err instanceof Error)) {
     return false;
   }
-  if (err instanceof CloudflareApiError && err.codes.includes(10037)) {
+  if (err instanceof CloudflareApiError && err.codes.includes(10_037)) {
     return true;
   }
   return ALREADY_EXISTS_PATTERN.test(err.message);

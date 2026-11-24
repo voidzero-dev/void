@@ -6,8 +6,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const INVALID = '---\ntitle\ndescription: Missing colon above\n---\n\n# Invalid\n';

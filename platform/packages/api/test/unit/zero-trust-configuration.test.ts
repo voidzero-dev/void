@@ -4,10 +4,10 @@ import { describe, expect, it } from 'vite-plus/test';
 import { resolveAccessAudience } from '../../../dispatch/src/access.ts';
 import {
   normalizeZeroTrustConfigureInput,
-  type ZeroTrustConfiguration,
   zeroTrustConfigurationStatus,
   zeroTrustWildcardDestinations,
 } from '../../src/zero-trust/configuration.ts';
+import type { ZeroTrustConfiguration } from '../../src/zero-trust/configuration.ts';
 
 const application: PlatformApplication = {
   baseDomain: 'my-account.workers.dev',

@@ -2,7 +2,8 @@ import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { signConfirmToken, type ConfirmTokenPayload } from '../auth/confirm-token.ts';
+import { signConfirmToken } from '../auth/confirm-token.ts';
+import type { ConfirmTokenPayload } from '../auth/confirm-token.ts';
 import { capabilityMiddleware } from '../capabilities.ts';
 import {
   deleteEmailDestination,
@@ -16,9 +17,8 @@ import {
   queueUnreferencedEmailDestinationCleanup,
   tryCreateEmailDestination,
   updateEmailDestinationStatus,
-  type Db,
-  type OwnerVerificationAudit,
 } from '../db.ts';
+import type { Db, OwnerVerificationAudit } from '../db.ts';
 import { getProjectEmailUsage, getProjectEmailLogs } from '../email/admission.ts';
 import { emailDomainRoutes, emailZoneConnections } from '../email/connection-schema.ts';
 import { EmailOperationError } from '../email/connection-service.ts';
@@ -57,8 +57,8 @@ import {
   addDestination,
   isAlreadyExistsError,
   listDestinations,
-  type CfDestinationAddress,
 } from '../provisioning/email-routing.ts';
+import type { CfDestinationAddress } from '../provisioning/email-routing.ts';
 import { projects } from '../schema.ts';
 import type { EmailDestination } from '../types.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
@@ -260,7 +260,7 @@ const app = new Hono<ApiEnv>()
     // Malformed JSON is user input, not a server fault — 400 it here rather
     // than letting the throw reach the app-level `onError` 500 (same shape
     // the secrets/domains routes use).
-    let body: { address?: unknown } = {};
+    let body: { address?: unknown };
     try {
       body = await context.req.json<{ address?: unknown }>();
     } catch {
@@ -691,7 +691,7 @@ const app = new Hono<ApiEnv>()
       refreshToken?: unknown;
       apiToken?: unknown;
       attemptId?: unknown;
-    } = {};
+    };
     try {
       body = await context.req.json();
     } catch {
@@ -795,7 +795,7 @@ export function parseCounter(raw: string | null): number {
   if (!raw) {
     return 0;
   }
-  const n = parseInt(raw, 10);
+  const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 

@@ -1089,7 +1089,7 @@ it.each([401, 403, 404, 503])(
         requests.push(`${request.method} ${request.url}`);
         response.statusCode = status;
         response.setHeader('Content-Type', 'application/json');
-        response.end(JSON.stringify({ success: false, errors: [{ code: 10006 }] }));
+        response.end(JSON.stringify({ success: false, errors: [{ code: 10_006 }] }));
       }),
     );
     const configPath = join(directory, 'wrangler.json');
@@ -1195,7 +1195,7 @@ child.spawnSync = (binary, args, options) => {
   return ${
     uploadType === 'worker.deploy'
       ? // cf 1.0.0-beta.21 and later print the uploaded version on stderr.
-        "{ status:0, stdout:'', stderr:'│  Current Version ID: 11111111-1111-4111-8111-111111111111\\n' }"
+        String.raw`{ status:0, stdout:'', stderr:'│  Current Version ID: 11111111-1111-4111-8111-111111111111\n' }`
       : "{ status:0, stdout:JSON.stringify({id:'11111111-1111-4111-8111-111111111111'}), stderr:'' }"
   };
 };
@@ -1515,9 +1515,9 @@ syncBuiltinESMExports();`,
 });
 
 it.each([
-  { label: 'signal', code: 10006, signal: 'SIGTERM', spawnError: false },
-  { label: 'spawn error', code: 10007, signal: null, spawnError: true },
-  { label: 'missing exit status', code: 10006, signal: null, spawnError: false },
+  { label: 'signal', code: 10_006, signal: 'SIGTERM', spawnError: false },
+  { label: 'spawn error', code: 10_007, signal: null, spawnError: true },
+  { label: 'missing exit status', code: 10_006, signal: null, spawnError: false },
 ])('preserves an inner provider $label without authorizing resource absence', async (example) => {
   const directory = temporaryDirectory('void-operation-provider-failure-');
   const preload = join(directory, 'failed-provider.mjs');
@@ -1535,7 +1535,7 @@ child.spawnSync = () => ({
 syncBuiltinESMExports();`,
   );
   const operation =
-    example.code === 10007
+    example.code === 10_007
       ? { type: 'secret.list' as const, workerName: 'test-worker' }
       : { type: 'r2.bucket.info' as const, name: 'test-bucket' };
   const output = await runOperation(directory, operation, tokenEnv(), preload);
@@ -1643,7 +1643,7 @@ it('renders binary and text frames from a real Node WebSocket in order and remov
           frame(
             {
               event: { request: { method: 'POST', url: 'https://isolated.invalid/runtime' } },
-              eventTimestamp: 1790000000000,
+              eventTimestamp: 1_790_000_000_000,
               outcome: 'ok',
               logs: [
                 { level: 'log', message: ['binary marker \u001b]52;c;ZXZpbA==\u0007'] },
@@ -1655,7 +1655,7 @@ it('renders binary and text frames from a real Node WebSocket in order and remov
           frame(
             {
               event: { queue: 'owned-queue' },
-              eventTimestamp: 1790000000001,
+              eventTimestamp: 1_790_000_000_001,
               outcome: 'ok',
               logs: [{ level: 'log', message: ['text marker'] }],
             },
@@ -1693,8 +1693,8 @@ it('renders binary and text frames from a real Node WebSocket in order and remov
   expect(output.stderr).not.toContain('malformed tail');
   expect(output.stdout).toContain('POST https://isolated.invalid/runtime - ok');
   expect(output.stdout).toContain('  (log) binary marker');
-  expect(output.stdout).not.toContain('\x1b]');
-  expect(output.stdout).not.toContain('\x07');
+  expect(output.stdout).not.toContain('\u001b]');
+  expect(output.stdout).not.toContain('\u0007');
   expect(output.stdout).toContain('  (error) error marker');
   expect(output.stdout).toContain('Queue owned-queue - ok');
   expect(output.stdout.indexOf('binary marker')).toBeLessThan(output.stdout.indexOf('text marker'));

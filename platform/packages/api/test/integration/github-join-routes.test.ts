@@ -13,6 +13,7 @@ import {
 import { hmacSignState } from '../../src/auth/hmac.ts';
 import { createCodeChallenge } from '../../src/auth/pkce.ts';
 import type { Db } from '../../src/db.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as dbModule from '../../src/db.ts';
 import {
   getGitHubInstallationsByUser,
@@ -23,14 +24,8 @@ import {
 import type { ApiEnv } from '../../src/env.ts';
 import { githubRoutes } from '../../src/routes/github.ts';
 import { githubInstallationMembers } from '../../src/schema.ts';
-import {
-  JWT_SECRET,
-  clearTables,
-  createTestUser,
-  setupEnv,
-  teardownEnv,
-  type TestEnv,
-} from './helpers.ts';
+import { JWT_SECRET, clearTables, createTestUser, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

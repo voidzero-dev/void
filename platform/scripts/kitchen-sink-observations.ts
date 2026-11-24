@@ -57,11 +57,14 @@ async function pollObservation(
 ): Promise<string> {
   const now = options.now ?? Date.now;
   const wait =
-    options.wait ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    options.wait ??
+    ((milliseconds) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, milliseconds);
+      }));
   const deadline = now() + options.timeoutMs;
-  let latest: string | null = null;
   for (;;) {
-    latest = await read();
+    const latest = await read();
     if (accepts(latest, now())) {
       return latest!;
     }
@@ -71,7 +74,7 @@ async function pollObservation(
         `${description} after ${options.timeoutMs}ms (last value: ${JSON.stringify(latest)}).`,
       );
     }
-    await wait(Math.min(options.intervalMs ?? 3_000, remaining));
+    await wait(Math.min(options.intervalMs ?? 3000, remaining));
   }
 }
 
@@ -82,12 +85,12 @@ export function waitForFreshHeartbeat(
   return pollObservation(
     read,
     (value, now) => {
-      const timestamp = value === null ? NaN : Date.parse(value);
+      const timestamp = value === null ? Number.NaN : Date.parse(value);
       const age = now - timestamp;
       return (
         Number.isFinite(timestamp) &&
         timestamp >= (options.notBefore ?? -Infinity) &&
-        age >= -1_000 &&
+        age >= -1000 &&
         age < 5 * 60_000
       );
     },

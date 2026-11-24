@@ -23,8 +23,8 @@ import {
   aiLoggingClearedKey,
   aiLoggingKey,
   PLAN_AI_LOGGING_SETTING,
-  type PlanAiLoggingSettings,
 } from '../../src/ai-logging-policy.ts';
+import type { PlanAiLoggingSettings } from '../../src/ai-logging-policy.ts';
 import {
   AI_LOGGING_SWEEP_KV_BUDGET,
   AI_LOGGING_SWEEP_STATUS_PAGE,
@@ -51,8 +51,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // Hosted Void Cloud does not set PLATFORM_AUTH_DATABASE_UNCACHED. Nothing here may
 // depend on it.
@@ -462,6 +462,7 @@ describe('plan routes', () => {
     await planChange('/pro/set', { aiLogging: 'metadata' });
     // Older APIs rebuild the catalog from known keys and save it on every write.
     const catalog = await readPlanCatalog(env.db);
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     await writePlanCatalog(env.db, parsePlatformPlanCatalog(JSON.parse(JSON.stringify(catalog))));
     await setPlatformSetting(env.db, PLAN_CATALOG_SETTING, {
       ...createDefaultPlanCatalog('free'),

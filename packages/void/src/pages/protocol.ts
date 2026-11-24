@@ -5,16 +5,16 @@ import { executeComposedHandler, getHandlerComposition } from '../runtime/handle
 import type { CloudBindings, CloudContext } from '../runtime/handler/index.ts';
 import { isConvertedResponse } from '../runtime/handler/response.ts';
 import { hasActionKey, searchWithoutActionKey } from './action-key.ts';
-import { DEFERRED, separateDeferred, type ResolvedDeferredGroup } from './defer.ts';
+import { DEFERRED, separateDeferred } from './defer.ts';
+import type { ResolvedDeferredGroup } from './defer.ts';
 import {
   absolutizeHead,
   resolveHead,
   renderBodyAttrs,
   renderHeadToString,
   renderHtmlAttrs,
-  type HeadDescriptor,
-  type HeadConfig,
 } from './head.ts';
+import type { HeadDescriptor, HeadConfig } from './head.ts';
 import { withLoaderNotFoundDecision } from './not-found-context.ts';
 import { escapeScriptJson } from './script-json.ts';
 import { serializePageData } from './serialize.ts';
@@ -66,7 +66,7 @@ type ValidationErrorBody = {
 
 type PageHandler = ((c: CloudContext) => unknown | Promise<unknown>) | undefined;
 type PageHeadHandler =
-  | ((c: CloudContext, props: Record<string, unknown>) => HeadDescriptor | undefined)
+  | ((c: CloudContext, props: Record<string, unknown>) => HeadConfig | undefined)
   | undefined;
 type PageRequestContext = Context | CloudContext;
 type PageRenderOptions = {
@@ -155,7 +155,7 @@ function escapeHtmlAttr(value: string): string {
 }
 
 function serializeStyleCss(css: string): string {
-  return css.replace(/<\/style/gi, '<\\/style');
+  return css.replaceAll(/<\/style/gi, String.raw`<\/style`);
 }
 
 function serializeDevCssAssets(assets: Array<DevCssAsset>, nonce: string): string {
@@ -729,7 +729,7 @@ function streamDeferredResponse(
 }
 
 function asCloudContext(c: PageRequestContext): CloudContext {
-  return c as unknown as CloudContext;
+  return c as CloudContext;
 }
 
 /** Handle GET page request — run handler, return page object or SSR HTML */
@@ -763,7 +763,7 @@ function resolveRequestHead(
   c: CloudContext,
   configHead: HeadConfig | undefined,
   middlewareHead: HeadConfig | undefined,
-  pageHead: HeadDescriptor | undefined,
+  pageHead: HeadConfig | undefined,
 ): HeadDescriptor | undefined {
   const head = resolveHead(configHead, middlewareHead, pageHead);
   return absolutizeHead(

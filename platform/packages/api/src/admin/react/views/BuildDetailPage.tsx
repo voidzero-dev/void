@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHeaderCell, TableRow } from '@astryxd
 import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import { BuildDetailView, buildDetailRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { BuildLogs } from './BuildLogs.tsx';
 import { formatDateTime } from './format.ts';
 import { Layout } from './Layout.tsx';

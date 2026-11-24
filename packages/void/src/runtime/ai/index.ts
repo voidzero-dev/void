@@ -1,13 +1,10 @@
 import { bytesToBase64 } from '../../shared/base64.ts';
 import { cfAccessHeaders } from '../../shared/cf-access.ts';
-import { getRawRuntimeEnv, type RuntimeEnv } from '../env/raw.ts';
+import { getRawRuntimeEnv } from '../env/raw.ts';
+import type { RuntimeEnv } from '../env/raw.ts';
 import { UsageLimit, limitFromResponse } from '../limits/index.ts';
-import {
-  PROVIDER_KEY_MAP,
-  type AiProvider,
-  type AiProviderFetchInit,
-  type AiProviderOptions,
-} from './types.ts';
+import { PROVIDER_KEY_MAP } from './types.ts';
+import type { AiProvider, AiProviderFetchInit, AiProviderOptions } from './types.ts';
 
 const VOID_FILE_MARKER = '__voidFile';
 

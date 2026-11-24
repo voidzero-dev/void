@@ -1,4 +1,5 @@
-import { parsePlatformLoginConfiguration, type PlatformLoginConfiguration } from '@void/platform';
+import { parsePlatformLoginConfiguration } from '@void/platform';
+import type { PlatformLoginConfiguration } from '@void/platform';
 import { and, eq, sql } from 'drizzle-orm';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db } from '../db.ts';

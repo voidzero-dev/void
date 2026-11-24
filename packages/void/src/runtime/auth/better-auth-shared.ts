@@ -1,5 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth';
+import { betterAuth } from 'better-auth';
+import type { BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { createAuthMiddleware } from 'better-auth/api';
 import type { Context } from 'hono';
 import type { VoidAuthMigrationSchema } from '../../auth/drizzle.ts';
@@ -8,11 +9,11 @@ import {
   getVoidAuthProviderEnvNames,
   getVoidAuthProviderSettingEnvNames,
   isVoidSocialAuthProvider,
-  type VoidAuthProvider,
-  type VoidSocialAuthProvider,
 } from '../../auth/providers.ts';
+import type { VoidAuthProvider, VoidSocialAuthProvider } from '../../auth/providers.ts';
 import { isUnchangedStaticAsset } from '../routing/static-asset-marker.ts';
-import { authContext, type AuthState, type VoidAuthConfig } from './index.ts';
+import { authContext } from './index.ts';
+import type { AuthState, VoidAuthConfig } from './index.ts';
 import { SHARED_CACHE_HEADERS, authDependentRequests } from './response.ts';
 
 export type VoidAuthDialect = 'sqlite' | 'postgresql' | 'mysql';
@@ -45,35 +46,41 @@ type VoidAuthPasswordOptions = PasswordOptions & {
 
 export type VoidAuthRuntimeApi = {
   resolveVoidAuthOptions(
+    this: void,
     request: Request,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<BetterAuthOptions>;
   createVoidAuth(
+    this: void,
     request: Request,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<ReturnType<typeof betterAuth>>;
   resolveVoidAuthState(
+    this: void,
     request: Request,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<AuthState | null>;
   runVoidAuthMiddleware(
+    this: void,
     c: Context,
     next: () => Promise<void>,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<void>;
   handleVoidAuthRequest(
+    this: void,
     c: Context,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<Response>;
   runVoidAuthMigrations(
+    this: void,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     migrationSchema: VoidAuthMigrationSchema,
@@ -413,7 +420,10 @@ function splitCacheDirectives(policy: string): Array<string> {
     }
   }
   directives.push(policy.slice(start));
-  return directives.map((directive) => directive.trim()).filter(Boolean);
+  return directives.flatMap((directive) => {
+    const value = directive.trim();
+    return value ? [value] : [];
+  });
 }
 
 function resolveUserConfig(

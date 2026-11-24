@@ -117,7 +117,7 @@ describe('runLink', () => {
       message:
         'Linking to an existing project. Running `void deploy` will overwrite the current deployment of existing-app.void.app. Continue?',
     });
-    expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf-8'))).toEqual({
+    expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf8'))).toEqual({
       applicationDomain: 'void.app',
       platform: 'void',
       platformUrl: 'https://api.void.cloud',

@@ -1,5 +1,7 @@
-import React, { Component, Suspense, lazy, type ReactNode } from 'react';
-import { clientPageError, type ClientPageBoundary, type ErrorPageProps } from 'void/pages-client';
+import React, { Component, Suspense, lazy } from 'react';
+import type { ReactNode } from 'react';
+import { clientPageError } from 'void/pages-client';
+import type { ClientPageBoundary, ErrorPageProps } from 'void/pages-client';
 
 type Props = {
   boundary: ClientPageBoundary;

@@ -374,7 +374,7 @@ describe('cleanupWrapper', () => {
     cleanupWrapper(root);
 
     expect(existsSync(projectFile)).toBe(true);
-    expect(readFileSync(join(voidDir, 'dev-trigger-token'), 'utf-8')).toBe('stable-token');
+    expect(readFileSync(join(voidDir, 'dev-trigger-token'), 'utf8')).toBe('stable-token');
     for (const directory of temporaryDirectories) {
       expect(existsSync(join(voidDir, directory))).toBe(false);
     }
@@ -698,12 +698,12 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       migrationDialect: 'sqlite',
     });
 
-    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf-8');
+    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf8');
     expect(wrapper).toContain('__migrations');
     expect(wrapper).toContain('001_create_users.sql');
     expect(wrapper).toContain('CREATE TABLE users');
 
-    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf-8');
+    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf8');
     expect(handler).not.toMatch(/from\s+["']\.\.\//);
     expect(handler).not.toContain('../migrations/canonical-json');
     expect(handler).not.toContain('../canonical-json-');
@@ -728,13 +728,13 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       migrationDialect: 'postgresql',
     });
 
-    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf-8');
+    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf8');
     expect(handler).not.toContain('import("pg")');
     expect(
       readdirSync(workerDir).some((file) => file.startsWith('__void_migration_handler-')),
     ).toBe(true);
     const bundled = readdirSync(workerDir)
-      .map((file) => readFileSync(join(workerDir, file), 'utf-8'))
+      .map((file) => readFileSync(join(workerDir, file), 'utf8'))
       .join('\n');
     expect(bundled).not.toContain('PGPASSFILE');
     expect(bundled).not.toContain('createReadStream');
@@ -1312,7 +1312,7 @@ export default {
       crons: [{ name: 'daily', filePath: 'daily.ts', crons: ['0 0 * * *'] }],
     });
 
-    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf-8');
+    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf8');
     expect(wrapper).not.toContain('/__void/migrate');
     expect(wrapper).toContain('/__void/scheduled');
   });

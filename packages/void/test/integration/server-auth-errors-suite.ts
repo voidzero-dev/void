@@ -7,9 +7,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
-  type StartedServer,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground, StartedServer } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 
 const ROOT = join(import.meta.dirname, '../../../..');

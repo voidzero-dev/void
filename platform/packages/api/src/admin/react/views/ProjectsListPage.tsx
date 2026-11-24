@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import { ProjectsPageView, projectsPageRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { Layout } from './Layout.tsx';
 import { Pagination } from './Pagination.tsx';
 import { ProjectsTable } from './ProjectsTable.tsx';
@@ -36,7 +36,7 @@ export function ProjectsListPage({ path, platformName, username }: AdminPageProp
           initialSelection={selectedProject}
         />
         <ProjectsTable projects={projects} siteDomain={siteDomain} tz={tz} />
-        {page != null && totalPages != null && (
+        {page !== null && page !== undefined && totalPages !== null && totalPages !== undefined && (
           <Pagination page={page} totalPages={totalPages} baseUrl="/admin/projects" />
         )}
       </SectionStack>

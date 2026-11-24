@@ -9,6 +9,7 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as database from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { scheduled } from '../../src/index.ts';
@@ -24,8 +25,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -327,7 +328,9 @@ describe('legacy routing owner backfill', () => {
       ).finally(() => {
         protectionSettled = true;
       });
-      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25);
+      });
       const settledBeforeRelease = protectionSettled;
       release.resolve();
       await Promise.all([rollover, protection]);

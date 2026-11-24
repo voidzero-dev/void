@@ -4,7 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import app from '../../src/index.ts';
 import { sandboxDrainCheckpoints } from '../../src/schema.ts';
 import { USAGE_SIGNING_KEY_KV_KEY } from '../../src/usage-auth.ts';
-import { setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

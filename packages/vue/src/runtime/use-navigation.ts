@@ -1,4 +1,5 @@
-import { idleNavigationState, type NavigationState } from 'void/pages-client';
+import { idleNavigationState } from 'void/pages-client';
+import type { NavigationState } from 'void/pages-client';
 import { inject } from 'vue';
 
 export function useNavigation(): NavigationState {

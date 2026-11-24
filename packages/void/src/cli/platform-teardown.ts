@@ -2,13 +2,10 @@ import {
   PLATFORM_R2_OWNERSHIP_MARKER_KEY,
   recordInstallationResource,
   recordInstallationStep,
-  type InstallationResource,
-  type PlatformInstallationManifest,
 } from '@void/platform';
-import {
-  PlatformCloudflareApiError,
-  type PlatformCloudflareClient,
-} from './platform-cloudflare.ts';
+import type { InstallationResource, PlatformInstallationManifest } from '@void/platform';
+import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import { platformTrafficAttachmentWorker } from './platform-traffic.ts';
 import { readPlatformDatabase } from './platform-zero-trust-uninstall.ts';
 
@@ -219,6 +216,11 @@ function emailRoutingZone(manifest: PlatformInstallationManifest): string | null
     : null;
 }
 
+const rank = (resource: InstallationResource) => {
+  const index = WORKER_ORDER.indexOf(resource.key);
+  return index < 0 ? WORKER_ORDER.length : index;
+};
+
 /** Everything --purge-resources will delete, in deletion order. */
 function purgeResourcesTargets(manifest: PlatformInstallationManifest): Array<Target> {
   const resources = manifest.resources;
@@ -275,10 +277,6 @@ function purgeResourcesTargets(manifest: PlatformInstallationManifest): Array<Ta
       targets.push({ phase: 'queue-consumers', resource });
     }
   }
-  const rank = (resource: InstallationResource) => {
-    const index = WORKER_ORDER.indexOf(resource.key);
-    return index < 0 ? WORKER_ORDER.length : index;
-  };
   for (const resource of workers
     .filter((worker) => !isPlatformTailWorker(manifest, worker))
     .sort((left, right) => rank(left) - rank(right) || left.key.localeCompare(right.key))) {

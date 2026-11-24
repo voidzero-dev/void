@@ -538,8 +538,8 @@ describe('readConfig', () => {
   it('accepts worker.limits.cpu_ms boundary values (1 and 300000)', () => {
     setup(JSON.stringify({ worker: { limits: { cpu_ms: 1 } } }));
     expect(readConfig(tmpDir).worker?.limits?.cpu_ms).toBe(1);
-    setup(JSON.stringify({ worker: { limits: { cpu_ms: 300000 } } }));
-    expect(readConfig(tmpDir).worker?.limits?.cpu_ms).toBe(300000);
+    setup(JSON.stringify({ worker: { limits: { cpu_ms: 300_000 } } }));
+    expect(readConfig(tmpDir).worker?.limits?.cpu_ms).toBe(300_000);
     cleanup();
   });
 
@@ -555,7 +555,7 @@ describe('readConfig', () => {
     cleanup();
   });
 
-  it.each([0, -5, 50.5, 300001])('throws on invalid worker.limits.cpu_ms: %s', (cpuMs) => {
+  it.each([0, -5, 50.5, 300_001])('throws on invalid worker.limits.cpu_ms: %s', (cpuMs) => {
     setup(JSON.stringify({ worker: { limits: { cpu_ms: cpuMs } } }));
     expect(() => readConfig(tmpDir)).toThrow('"worker.limits.cpu_ms"');
     cleanup();
@@ -578,11 +578,11 @@ describe('readConfig', () => {
   it('accepts routing.revalidate as a path map', () => {
     setup(
       JSON.stringify({
-        routing: { revalidate: { '/': 60, '/docs/*': 31536000, '*': 30 } },
+        routing: { revalidate: { '/': 60, '/docs/*': 31_536_000, '*': 30 } },
       }),
     );
     const config = readConfig(tmpDir);
-    expect(config.routing?.revalidate).toEqual({ '/': 60, '/docs/*': 31536000, '*': 30 });
+    expect(config.routing?.revalidate).toEqual({ '/': 60, '/docs/*': 31_536_000, '*': 30 });
     cleanup();
   });
 
@@ -971,7 +971,7 @@ describe('readConfig redirects', () => {
     expect(Object.keys(limits.properties)).toEqual(['cpu_ms']);
     expect(limits.properties.cpu_ms.type).toBe('integer');
     expect(limits.properties.cpu_ms.minimum).toBe(1);
-    expect(limits.properties.cpu_ms.maximum).toBe(300000);
+    expect(limits.properties.cpu_ms.maximum).toBe(300_000);
   });
 
   it('publishes schema.json as a package file and subpath export', () => {

@@ -73,7 +73,7 @@ export async function openSqliteDatabase(
 ): Promise<SqliteDatabase> {
   try {
     const Database = (await import('better-sqlite3')).default;
-    return new Database(dbPath, options) as unknown as SqliteDatabase;
+    return new Database(dbPath, options) as SqliteDatabase;
   } catch (error) {
     throw toBetterSqlite3Error(error);
   }

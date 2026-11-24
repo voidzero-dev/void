@@ -438,7 +438,10 @@ ai.post('/run', async (context) => {
       ...options,
       signal: context.req.raw.signal,
     });
-    return responseFromAiResult(result, hasStreamFlag(body.inputs) && body.inputs.stream === true);
+    return await responseFromAiResult(
+      result,
+      hasStreamFlag(body.inputs) && body.inputs.stream === true,
+    );
   } catch (err) {
     const message = messageFromThrown(err);
     console.error('AI inference error:', message);
@@ -506,7 +509,7 @@ ai.post('/provider', async (context) => {
       return context.json({ error }, response.status as 400);
     }
 
-    return responseFromGateway(response, false);
+    return await responseFromGateway(response, false);
   } catch (err) {
     if (err instanceof BadRequestError) {
       return context.json({ error: err.message }, 400);

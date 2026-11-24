@@ -3,19 +3,20 @@ import { tmpdir } from 'node:os';
 import {
   parseCloudflareVersionMessage,
   readCloudflareTriggerConfig,
-  type CloudflareTriggerConfig,
 } from '@void/deploy-cloudflare';
-import { recordInstallationStep, type PlatformInstallationManifest } from '@void/platform';
+import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
+import { recordInstallationStep } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { join } from 'pathslash';
 import {
   readActivePlatformWorkerSnapshot,
   readPlatformWorkerOwnershipMarker,
 } from './platform-installer-inspection.ts';
 import { runPlatformWrangler } from './platform-installer-process.ts';
-import {
-  type PlatformWorkerKey,
-  type PlatformWorkerCutoverSnapshot,
-  type InterruptedWorkerCutover,
+import type {
+  PlatformWorkerKey,
+  PlatformWorkerCutoverSnapshot,
+  InterruptedWorkerCutover,
 } from './platform-installer-types.ts';
 import { latestPlatformWorkerCutoverGeneration } from './platform-registry.ts';
 

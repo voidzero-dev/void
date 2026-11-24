@@ -20,7 +20,7 @@ const MAX_CONCURRENT_DELIVERIES = 2;
 const CONFIRMATION_PATH = '/email/destinations/confirm';
 const MAX_CONFIRMATION_TOKEN_LENGTH = 4 * 1024;
 const MAX_CONFIRMATION_RESPONSE_BYTES = 32 * 1024;
-const CONFIRMATION_DEADLINE_MS = 5_000;
+const CONFIRMATION_DEADLINE_MS = 5000;
 let activeDeliveries = 0;
 
 class MimeHeaderError extends Error {
@@ -95,7 +95,7 @@ async function resolveIngress(
     native?: true;
   },
 ): Promise<Route | null> {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 5000;
   const controller = new AbortController();
   const beforeDeadline = async <T>(run: () => Promise<T>): Promise<T> => {
     const remaining = deadline - Date.now();
@@ -492,7 +492,7 @@ async function probe(request: Request, env: Env): Promise<Response> {
   }
   const bytes = new Uint8Array(1024);
   let size = 0;
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 5000;
   try {
     while (true) {
       const remaining = deadline - Date.now();
@@ -554,7 +554,7 @@ async function probe(request: Request, env: Env): Promise<Response> {
     env.EMAIL_SIGNING_SECRET,
   );
   const controller = new AbortController();
-  const apiDeadline = Date.now() + 5_000;
+  const apiDeadline = Date.now() + 5000;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const response = await Promise.race([

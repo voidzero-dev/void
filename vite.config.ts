@@ -1,6 +1,7 @@
 import { globSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import cloudflare from '@cloudflare/oxlint-config/vite-plus';
 import { defineConfig } from 'vite-plus';
 import { integrationTestDirs, listIntegrationTestFiles } from './test/integration-files.ts';
 import { SuiteSequencer } from './test/sequencer.ts';
@@ -239,10 +240,12 @@ const config = defineConfig({
     ],
   },
   lint: {
+    extends: [cloudflare],
     categories: {
       correctness: 'off',
     },
     env: {
+      ...cloudflare.env,
       browser: true,
       builtin: true,
       es2024: true,
@@ -274,9 +277,168 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // The production comparisons use default JavaScript order for reproducible serialized values.
+        files: [
+          '**/test/**/*',
+          'packages/void/src/cli/cf-version-api.ts',
+          'platform/packages/email-gateway/src/router.ts',
+        ],
+        rules: { 'typescript/require-array-sort-compare': 'off' },
+      },
+      {
+        // These wrappers propagate original rejection values through cleanup and retries.
+        files: [
+          'packages/void/src/cli/{direct-r2-upload,platform-install-workers}.ts',
+          'packages/void/src/runtime/live/index.ts',
+          'platform/packages/api/src/{ai-logging-plans,build-manager,routing,worker-upload}.ts',
+          'platform/packages/api/src/routes/projects.ts',
+          'platform/packages/api/src/zero-trust/lock.ts',
+        ],
+        rules: { 'typescript/only-throw-error': 'off' },
+      },
+      {
+        // Hosted admin views synchronize streamed logs and externally loaded data in effects.
+        files: ['platform/packages/api/src/admin/react/views/**/*'],
+        rules: { 'react/set-state-in-effect': 'off' },
+      },
+      {
+        // These adapters and test helpers accept opaque objects for identity and weak keys.
+        files: [
+          '**/test/**/*',
+          'packages/void/src/plugin-cloudflare-config.ts',
+          'packages/void/src/runtime/env/{runtime,public}.ts',
+        ],
+        rules: { 'quality/no-object-parameters': 'off' },
+      },
+      {
+        // Proxy traps preserve receiver semantics and tests inspect dynamic members.
+        files: [
+          '**/test/**/*',
+          'packages/void/src/runtime/db/{index,session}.ts',
+          'packages/void/src/runtime/env/runtime.ts',
+          'packages/void/src/runtime/routing/worker.ts',
+          'packages/void/src/runtime/storage/index.ts',
+        ],
+        rules: { 'quality/no-reflect-get': 'off' },
+      },
+      {
+        // Tests dispatch methods on partial runtime mocks with explicit receivers.
+        files: ['**/test/**/*'],
+        rules: { 'quality/no-reflect-apply': 'off' },
+      },
+      {
+        // Keep mock implementations and fixture builders next to the cases that use them.
+        files: [
+          '**/test/**/*',
+          '**/*.test.*',
+          '**/*.typecheck.*',
+          'platform/scripts/fixtures/**/*',
+        ],
+        rules: { 'unicorn/consistent-function-scoping': 'off' },
+      },
+      {
+        // Tests use partial runtime and provider mocks to exercise specific behavior.
+        files: [
+          '**/test/**/*',
+          '**/*.test.*',
+          '**/*.typecheck.*',
+          'platform/scripts/fixtures/**/*',
+        ],
+        rules: { 'quality/no-chained-type-assertions': 'off' },
+      },
+      {
+        // Test doubles and fixture shims can return partial dependency results.
+        files: [
+          '**/test/**/*',
+          '**/*.test.*',
+          '**/*.typecheck.*',
+          'platform/scripts/fixtures/**/*',
+        ],
+        rules: { 'typescript/no-unsafe-return': 'off' },
+      },
+      {
+        // These string scans test for substrings and delimiters.
+        files: ['packages/edge/src/pattern.ts', 'platform/packages/api/container/build-agent.mjs'],
+        rules: { 'unicorn/prefer-set-has': 'off' },
+      },
+      {
+        // These mocked provider rejections exercise non-Error failure payloads.
+        files: ['packages/void/test/unit/provision-resources.test.ts'],
+        rules: { 'prefer-promise-reject-errors': 'off' },
+      },
+      {
+        // Routing adapters accept component functions with framework-specific signatures.
+        files: ['packages/void/src/runtime/routing/{errors,pages}.ts'],
+        rules: { 'typescript/no-unsafe-function-type': 'off' },
+      },
+      {
+        // Database tests intentionally await proxy and mock values to verify thenable handling.
+        files: ['packages/void/test/unit/{db-session,plugin-drizzle}.test.ts'],
+        rules: { 'typescript/await-thenable': 'off' },
+      },
+      {
+        // Void uses empty defaults in public route and binding types and their test fixtures.
+        files: [
+          'platform/packages/api/src/admin/fate/client.generated.ts',
+          'playground/**/env.d.ts',
+          'packages/void/src/routes-stub.ts',
+          'packages/void/src/runtime/{queues,handler,auth,ws}/index.ts',
+          'packages/void/src/runtime/client/{fetch,fetch-stream}.ts',
+          'packages/void/test/unit/{route-type-extraction,ws-room,fetch,fetch-stream.test,fetch.test,fetch.typecheck,ws-room.typecheck,route-type-extraction.typecheck}.ts',
+        ],
+        rules: { 'typescript/no-empty-object-type': 'off' },
+      },
+      {
+        // The footer uses the current year when rendering the default copyright notice.
+        files: ['platform/packages/dashboard/ui/components/oss/FooterNav.tsx'],
+        rules: { 'react/purity': 'off' },
+      },
+      {
+        // Solid signal initializers run once and may read the clock.
+        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
+        rules: { 'react/purity': 'off' },
+      },
+      {
+        // These compile-only fixtures call hooks to exercise their type signatures.
+        files: ['**/*.typecheck.ts'],
+        rules: { 'react/rules-of-hooks': 'off' },
+      },
+      {
+        // Signal and composition helpers do not follow React hook rules.
+        files: ['packages/{svelte,solid,vue}/**/*'],
+        rules: { 'react/rules-of-hooks': 'off' },
+      },
+      {
+        // The resolver reports false positives in these public dependency re-exports.
+        files: [
+          'packages/void/src/runtime/db/schema/{d1,mysql,postgres}.ts',
+          'packages/void/src/runtime/db/validators/drizzle-{arktype,valibot,zod}.ts',
+          'packages/void/src/runtime/sandbox/index.ts',
+        ],
+        rules: { 'import/export': 'off' },
+      },
+      {
+        // Solid JSX uses native DOM attribute names, including label for.
+        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
+        rules: { 'react/no-unknown-property': 'off' },
+      },
+      {
+        // Solid uses mutable refs across reactive updates.
+        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
+        rules: { 'react/immutability': 'off' },
+      },
+      {
+        // Workers types overload DOM append in these shared browser modules.
+        files: [
+          'packages/void/src/pages/boundary-client.ts',
+          'packages/void/src/pages/navigation-engine.ts',
+        ],
+        rules: { 'unicorn/prefer-dom-node-append': 'off' },
+      },
+      {
         // Fate may emit unused imports; still lint and typecheck the generated client.
         files: ['platform/packages/api/src/admin/fate/client.generated.ts'],
-        rules: { 'no-unused-vars': 'off' },
+        rules: { 'import/consistent-type-specifier-style': 'off', 'no-unused-vars': 'off' },
       },
       {
         files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
@@ -287,6 +449,8 @@ const config = defineConfig({
           'no-const-assign': 'off',
           'no-dupe-class-members': 'off',
           'no-dupe-keys': 'off',
+          // Continue checking explicit any in TypeScript tests.
+          'typescript/no-explicit-any': 'error',
           'no-func-assign': 'off',
           'no-import-assign': 'off',
           'no-new-native-nonconstructor': 'off',
@@ -393,6 +557,44 @@ const config = defineConfig({
       },
     ],
     rules: {
+      // Framework callback and JSX types use void for handlers that may be async.
+      'typescript/no-misused-promises': [
+        'error',
+        { checksVoidReturn: { arguments: false, attributes: false } },
+      ],
+      // Keep type queries for ambient declarations and inferred mock module types.
+      'typescript/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
+      // Project-wide exceptions for existing code.
+      // Keep runtime dispatch and error classification based on native and framework class identity. Review cross-realm cases separately.
+      '@nkzw/no-instanceof': 'off',
+      // CLI output, platform Worker logging, and output-capture fixtures intentionally use the console across the workspace.
+      'no-console': 'off',
+      // Conditional spreads are used to omit optional config and manifest keys. Preserve omission and property order in follow-up refactors.
+      'quality/no-conditional-empty-object-spread': 'off',
+      // Validation helpers deliberately accept unknown, including when tests pass values whose concrete types are known.
+      'quality/no-known-value-widening': 'off',
+      // Decoders and dynamic adapters expose unknown until the caller validates it against the relevant schema.
+      'quality/no-unknown-returns': 'off',
+      // Environment dictionaries, manifest parsers, and schema inputs carry unknown values until each entry has been validated.
+      'quality/no-unsafe-dictionary-type': 'off',
+      // Generated routing and registry access rely on invariants enforced by code generation and preceding validation. Replace assertions with local checks as those paths change.
+      'typescript/no-non-null-assertion': 'off',
+      // Hundreds of remaining findings require changing inferred generic arguments. Review inference and declaration output in a separate type-focused pass.
+      'typescript/no-unnecessary-type-assertion': 'off',
+      // Type producer boundaries for fetch, provider SDKs, and process tooling before checking arguments across the workspace.
+      'typescript/no-unsafe-argument': 'off',
+      // Several SDK and tool APIs expose any, including response JSON and mixed Node and Worker globals. Narrow at each owning boundary.
+      'typescript/no-unsafe-assignment': 'off',
+      // Runtime adapter calls and mixed Node and Worker declarations need typed entry points before broad enforcement.
+      'typescript/no-unsafe-call': 'off',
+      // Provider response schemas and dynamic module interfaces need coverage before enforcing typed member access everywhere.
+      'typescript/no-unsafe-member-access': 'off',
+      // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
+      'typescript/no-unsafe-type-assertion': 'off',
+      // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.
+      'unicorn/catch-error-name': 'off',
+      // Code generators and CLI output accumulate lines across distinct steps. Preserve staging and evaluation order before merging pushes.
+      'unicorn/prefer-single-call': 'off',
       '@typescript-eslint/array-type': [
         'error',
         {
@@ -603,9 +805,9 @@ const config = defineConfig({
           fsModuleCache: true,
           include: sdkPgliteUnitTests,
           sequence: { groupOrder: 2 },
-          // Native Node 24 worker crashes can abort the run on Linux and macOS.
-          // Keep PGlite's Wasm heap in a separate process for each database.
-          pool: ['linux', 'darwin'].includes(process.platform) ? 'forks' : 'threads',
+          // PGlite's Wasm JIT teardown can crash Node 24 worker threads, including Windows.
+          // Keep each database in a separate process on every platform.
+          pool: 'forks',
           maxWorkers,
           ...(process.platform === 'win32' ? { testTimeout: 20_000 } : {}),
         },

@@ -25,8 +25,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { nativeFormSubmission } from './native-form-browser.ts';
 
 let env: TestEnv;

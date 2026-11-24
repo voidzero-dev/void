@@ -137,9 +137,9 @@ function runCloudflared(
 ): string | null {
   try {
     const result = spawnSync('cloudflared', args, {
-      encoding: 'utf-8',
+      encoding: 'utf8',
       stdio: opts?.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
-      timeout: opts?.timeoutMs ?? 5_000,
+      timeout: opts?.timeoutMs ?? 5000,
     });
     if (result.error || result.status !== 0) {
       return null;

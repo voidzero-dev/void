@@ -6,8 +6,8 @@ import {
   projectWorkerObservability,
   shouldUpdateProjectWorkerRuntimeLogs,
   updateProjectWorkerRuntimeLogs,
-  type PlatformRuntimeLogsClient,
 } from '../../src/cli/platform-runtime-logs.ts';
+import type { PlatformRuntimeLogsClient } from '../../src/cli/platform-runtime-logs.ts';
 
 const full = createPlatformDeploymentManifest({
   application: { baseDomain: 'example.com', zoneName: 'example.com' },
@@ -33,7 +33,9 @@ function fakeClient(scripts: ReadonlyArray<string>, failing: ReadonlySet<string>
     patchDispatchNamespaceScriptSettings: async (_accountId, _namespace, script, settings) => {
       active++;
       peak = Math.max(peak, active);
-      await new Promise((resolve) => setTimeout(resolve, 1));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1);
+      });
       active--;
       if (failing.has(script)) {
         throw new Error('rate limited');

@@ -4,7 +4,8 @@ import {
   parsePlatformAccessProtection,
 } from '@void/platform';
 import { and, eq, gt, sql } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { platformAccessVerifier } from '../auth/access.ts';
 import { requireUncachedAuthenticationDatabase } from '../auth/bootstrap.ts';
 import {
@@ -20,9 +21,9 @@ import {
   disableLoginConnection,
   enableLoginConnection,
   linkTestedIdentity,
-  type AuthenticationActor,
   updateAuthenticationAdmission,
 } from '../auth/management.ts';
+import type { AuthenticationActor } from '../auth/management.ts';
 import {
   updatePlatformProtection,
   verifyProtectionAuthority,

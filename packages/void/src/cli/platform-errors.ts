@@ -34,7 +34,7 @@ function plainExplanation(value: string | undefined): string | undefined {
     ? stripVTControlCharacters(value)
         // Keep line breaks and tabs, but not control characters that rewrite the terminal.
         // eslint-disable-next-line no-control-regex
-        .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ')
+        .replaceAll(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ')
         .trim()
     : undefined;
   // Error fields should contain an explanation, not another serialized response
@@ -135,7 +135,7 @@ export function formatPlatformApiError(
       const plain = plainExplanation(body);
       const explanation =
         plain && !/^(forbidden|unauthorized|access denied|permission denied)[.!]?$/i.test(plain)
-          ? plain.replace(/\s+/g, ' ').slice(0, 240)
+          ? plain.replaceAll(/\s+/g, ' ').slice(0, 240)
           : unexplainedRejection(status);
       return `${action} (HTTP ${status}): ${explanation}`;
     }

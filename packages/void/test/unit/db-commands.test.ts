@@ -282,9 +282,9 @@ describe('void db drizzle-kit subprocesses', () => {
 
     await runDbCommand(root, { action: 'generate' });
 
-    const config = JSON.parse(readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf-8'));
+    const config = JSON.parse(readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf8'));
     expect(config.schema).toEqual(['./db/schema.ts', './.void/better-auth-schema.ts']);
-    const authSchema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf-8');
+    const authSchema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf8');
     expect(authSchema).toContain('export const userTable = sqliteTable("user"');
     expect(authSchema).toContain('export const sessionTable = sqliteTable("session"');
     expect(authSchema).toContain('export const accountTable = sqliteTable("account"');
@@ -315,7 +315,7 @@ describe('void db drizzle-kit subprocesses', () => {
 
     await runDbCommand(root, { action: 'generate' });
 
-    const config = JSON.parse(readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf-8'));
+    const config = JSON.parse(readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf8'));
     expect(config.schema).toBe('./.void/better-auth-schema.ts');
     expect(mockExecFileSync).toHaveBeenCalledOnce();
   });
@@ -344,7 +344,7 @@ describe('void db drizzle-kit subprocesses', () => {
 
     await runDbCommand(root, { action: 'generate' });
 
-    const authSchema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf-8');
+    const authSchema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf8');
     expect(authSchema).toContain('sqliteTable("development_users"');
   });
 
@@ -979,7 +979,7 @@ describe('void db rename-migrations', () => {
     expect(files[0]).toMatch(/^\d{14}_a\.sql$/);
     expect(files[1]).toMatch(/^\d{14}_b\.sql$/);
 
-    const journal = JSON.parse(readFileSync(join(metaDir, '_journal.json'), 'utf-8'));
+    const journal = JSON.parse(readFileSync(join(metaDir, '_journal.json'), 'utf8'));
     expect(journal.version).toBe('7');
     expect(journal.dialect).toBe('sqlite');
     expect(journal.entries).toHaveLength(2);
@@ -994,12 +994,8 @@ describe('void db rename-migrations', () => {
     const [prefixA, prefixB] = tagsOnDisk.map((tag) => tag.split('_')[0]);
     const snapshots = readdirSync(metaDir).filter((f) => f.endsWith('_snapshot.json'));
     expect(snapshots.sort()).toEqual([`${prefixA}_snapshot.json`, `${prefixB}_snapshot.json`]);
-    expect(readFileSync(join(metaDir, `${prefixA}_snapshot.json`), 'utf-8')).toBe(
-      snapshotContentsA,
-    );
-    expect(readFileSync(join(metaDir, `${prefixB}_snapshot.json`), 'utf-8')).toBe(
-      snapshotContentsB,
-    );
+    expect(readFileSync(join(metaDir, `${prefixA}_snapshot.json`), 'utf8')).toBe(snapshotContentsA);
+    expect(readFileSync(join(metaDir, `${prefixB}_snapshot.json`), 'utf8')).toBe(snapshotContentsB);
 
     const { collectMigrations } = await import('../../src/migrations/collect.ts');
     const { assertJournalCoherence } = await import('../../src/migrations/validate.ts');
@@ -1238,8 +1234,8 @@ describe('void db rename-migrations', () => {
     expect(sqlFiles).toEqual(['0001_a.sql', '0002_b.sql']);
 
     const metaDir = join(migrationsDir, 'meta');
-    expect(readFileSync(join(metaDir, '0001_snapshot.json'), 'utf-8')).toBe(snapshotContentsA);
-    expect(readFileSync(join(metaDir, '0002_snapshot.json'), 'utf-8')).toBe(snapshotContentsB);
+    expect(readFileSync(join(metaDir, '0001_snapshot.json'), 'utf8')).toBe(snapshotContentsA);
+    expect(readFileSync(join(metaDir, '0002_snapshot.json'), 'utf8')).toBe(snapshotContentsB);
     const allSnapshots = readdirSync(metaDir).filter((f) => f.endsWith('_snapshot.json'));
     expect(allSnapshots.sort()).toEqual(['0001_snapshot.json', '0002_snapshot.json']);
 

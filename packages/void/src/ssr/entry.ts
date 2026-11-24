@@ -1,19 +1,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'pathslash';
 import { parseSync } from 'vite';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
 import { bindingNames, bindingResolver } from '../shared/ast-bindings.ts';
-import {
-  isIdentifier,
-  moduleExportName,
-  type AstCallExpression,
-  type AstExportDefaultDeclaration,
-  type AstExportNamedDeclaration,
-  type AstExportSpecifier,
-  type AstFunctionDeclaration,
-  type AstNode,
-  type AstProgram,
-  type AstVariableDeclaration,
+import { asAstProgram, isIdentifier, moduleExportName } from '../shared/ast.ts';
+import type {
+  AstCallExpression,
+  AstExportDefaultDeclaration,
+  AstExportNamedDeclaration,
+  AstExportSpecifier,
+  AstFunctionDeclaration,
+  AstNode,
+  AstVariableDeclaration,
 } from '../shared/ast.ts';
 import { unwrapStaticExpression } from '../shared/static-exports.ts';
 
@@ -43,12 +42,13 @@ function resolveSingleEntry(
   label: string,
   paths: ProjectPaths = readProjectPaths(root),
 ): ResolvedEntry | null {
-  const matches = entries
-    .map((entryName) => ({
+  const matches = entries.flatMap((entryName) => {
+    const entry = {
       relativePath: relative(root, join(paths.ssrDir, entryName)),
       absolutePath: join(paths.ssrDir, entryName),
-    }))
-    .filter((entry) => existsSync(entry.absolutePath));
+    };
+    return existsSync(entry.absolutePath) ? [entry] : [];
+  });
 
   if (matches.length === 0) {
     return null;
@@ -75,17 +75,18 @@ export function hasSsrEntry(root: string, paths: ProjectPaths = readProjectPaths
 function validateServerRenderExport(entry: ResolvedEntry): void {
   const { absolutePath, relativePath } = entry;
 
-  const source = readFileSync(absolutePath, 'utf-8');
+  const source = readFileSync(absolutePath, 'utf8');
   let parsed: ReturnType<typeof parseSync>;
   try {
     parsed = parseSync(relativePath, source);
   } catch (err) {
     throw new Error(
       `ssr: Invalid entry '${relativePath}'. Could not parse source: '${err instanceof Error ? err.message : String(err)}'.`,
+      { cause: err },
     );
   }
 
-  const program = parsed.program as unknown as AstProgram;
+  const program = asAstProgram(parsed.program);
   const body = program.body ?? [];
   let resolve: ReturnType<typeof bindingResolver> | undefined;
   const binding = (node: AstNode, name: string) =>

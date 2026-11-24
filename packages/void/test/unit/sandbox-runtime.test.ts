@@ -95,7 +95,7 @@ describe('Sandbox runtime', () => {
         expect(forwarded.url).toBe(request.url);
         expect(forwarded.headers.get('x-void-sandbox-port')).toBe('5173');
         expect(request.headers.has('x-void-sandbox-port')).toBe(false);
-        await expect(client.fetch(65536, request)).rejects.toThrow('Invalid Sandbox TCP port');
+        await expect(client.fetch(65_536, request)).rejects.toThrow('Invalid Sandbox TCP port');
         expect(fetch).toHaveBeenCalledOnce();
       },
     );

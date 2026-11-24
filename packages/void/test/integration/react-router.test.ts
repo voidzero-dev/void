@@ -8,10 +8,10 @@ import {
   killChild,
   spawnFixtureServer,
   startServer,
-  type IsolatedPlayground,
-  type StartedServer,
 } from '../../../../test/integration-helpers.ts';
-import { startFakeMySqlServer, type FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import type { IsolatedPlayground, StartedServer } from '../../../../test/integration-helpers.ts';
+import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
+import type { FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/react-router';
@@ -39,7 +39,7 @@ describe('playground/react-router dev', { retry: 2 }, () => {
 
   it('applies env.ts to server routes', async () => {
     const response = await fetch(`${DEV_BASE}/api/env`);
-    expect(await response.json()).toEqual({ SCHEMA_DEFAULT: 48213 });
+    expect(await response.json()).toEqual({ SCHEMA_DEFAULT: 48_213 });
   });
 
   it('renders home page with SSR', async () => {

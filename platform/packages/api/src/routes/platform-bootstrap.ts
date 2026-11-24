@@ -1,6 +1,7 @@
 import { parsePlatformAuthenticationSetup } from '@void/platform';
 import { browserPageLead, browserPageStatus } from '@void/platform/browser-page';
-import { Hono, type MiddlewareHandler } from 'hono';
+import { Hono } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';

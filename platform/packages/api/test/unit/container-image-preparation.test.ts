@@ -19,7 +19,7 @@ describe('managed Container image preparation', () => {
       .mockResolvedValue(response('ready'));
     vi.stubGlobal('fetch', fetch);
     const result = prepareContainerImage('account', 'token', image);
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(2000);
     await result;
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[0][0]).toBe(

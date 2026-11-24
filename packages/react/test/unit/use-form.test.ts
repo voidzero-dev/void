@@ -10,14 +10,17 @@ import {
   use,
   useLayoutEffect,
   useState,
-  type ReactNode,
 } from 'react';
-import { createRoot, type Root, type RootOptions } from 'react-dom/client';
+import type { ReactNode } from 'react';
+import { createRoot } from 'react-dom/client';
+import type { Root, RootOptions } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { VoidActionError, type VoidRouter } from 'void/pages-client';
+import { VoidActionError } from 'void/pages-client';
+import type { VoidRouter } from 'void/pages-client';
 import { RouterContext } from '../../src/runtime/context.ts';
 import { useForm } from '../../src/runtime/use-form.ts';
-import { useIslandForm, type IslandFormReturn } from '../../src/runtime/use-island-form.ts';
+import { useIslandForm } from '../../src/runtime/use-island-form.ts';
+import type { IslandFormReturn } from '../../src/runtime/use-island-form.ts';
 
 declare module 'void/routes' {
   interface PageActionMap {

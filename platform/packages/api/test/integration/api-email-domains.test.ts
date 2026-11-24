@@ -25,8 +25,8 @@ import {
   EMAIL_SIGNING_SECRET,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 const token = 'customer-scoped-token';

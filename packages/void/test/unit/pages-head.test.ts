@@ -5,9 +5,8 @@ import {
   renderHeadToString,
   renderHtmlAttrs,
   renderBodyAttrs,
-  type HeadConfig,
-  type HeadDescriptor,
 } from '../../src/pages/head.ts';
+import type { HeadConfig, HeadDescriptor } from '../../src/pages/head.ts';
 
 describe('resolveHead', () => {
   it('returns undefined when all inputs are undefined', () => {
@@ -71,6 +70,44 @@ describe('resolveHead', () => {
     expect(resolveHead(config, middleware, page)?.title).toBe('Users');
   });
 
+  it('page titleTemplate wins over middleware and config', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadConfig = { title: 'Users', titleTemplate: '%s - Team' };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users - Team');
+    expect(resolveHead(config, undefined, page)?.title).toBe('Users - Team');
+  });
+
+  it('lets a page skip the template with an empty string or `%s`', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My App' };
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const title = 'My App | Questions & Answers';
+    for (const titleTemplate of ['', '%s']) {
+      expect(resolveHead(config, middleware, { title, titleTemplate })?.title).toBe(title);
+      expect(resolveHead(config, undefined, { title, titleTemplate })?.title).toBe(title);
+    }
+  });
+
+  it('wraps a lower-layer title with the page titleTemplate', () => {
+    const middleware: HeadConfig = { title: 'Dashboard', titleTemplate: '%s | Admin' };
+    const page: HeadConfig = { titleTemplate: '%s | Reports' };
+    expect(resolveHead(undefined, middleware, page)?.title).toBe('Dashboard | Reports');
+  });
+
+  it('keeps the middleware or config template when the page sets none', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadConfig = { title: 'Users', titleTemplate: undefined };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users | Admin');
+    expect(resolveHead(config, undefined, page)?.title).toBe('Users | My Site');
+  });
+
+  it('does not emit a page titleTemplate, or a head for a template alone', () => {
+    const page: HeadConfig = { title: 'Users', titleTemplate: '%s | Team' };
+    expect(resolveHead(undefined, undefined, page)).toEqual({ title: 'Users | Team' });
+    expect(resolveHead(undefined, undefined, { titleTemplate: '%s | Team' })).toBeUndefined();
+  });
+
   it('inserts a title containing `$` replacement patterns as written', () => {
     const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
     for (const title of ['A $& B', 'Price $` x', "x $' y", 'Tom $$ Jerry', '$1 off']) {
@@ -108,6 +145,7 @@ describe('resolveHead', () => {
 
   it('appends non-conflicting meta entries', () => {
     const config: HeadConfig = {
+      // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
       meta: [{ charset: 'utf-8' }],
     };
     const page: HeadDescriptor = {
@@ -115,6 +153,7 @@ describe('resolveHead', () => {
     };
     const result = resolveHead(config, undefined, page);
     expect(result?.meta).toHaveLength(2);
+    // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
     expect(result?.meta![0]).toEqual({ charset: 'utf-8' });
     expect(result?.meta![1]).toEqual({ name: 'description', content: 'Hello' });
   });
@@ -242,6 +281,7 @@ describe('renderHeadToString', () => {
   it('renders meta tags', () => {
     const html = renderHeadToString({
       meta: [
+        // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
         { charset: 'utf-8' },
         { name: 'description', content: 'A page' },
         { property: 'og:title', content: 'Title' },

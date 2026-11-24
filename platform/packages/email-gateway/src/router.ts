@@ -66,9 +66,9 @@ export interface AuthoritativeEmailRoute {
 
 /** Shared-domain names a reply or forward may be sent from: the slug and the email alias. */
 function mailboxNames(route: AuthoritativeEmailRoute): ReadonlyArray<string> {
-  const names = [route.slug, route.alias, route.mailbox]
-    .filter((name): name is string => typeof name === 'string')
-    .map((name) => name.toLowerCase());
+  const names = [route.slug, route.alias, route.mailbox].flatMap((name) =>
+    typeof name === 'string' ? [name.toLowerCase()] : [],
+  );
   return [...new Set(names)];
 }
 
@@ -219,7 +219,7 @@ interface ReplySenderPin {
 
 /** Check the envelope shape before authoritative admission checks sender ownership. */
 function isPermittedReplySender(from: string, pin: ReplySenderPin): boolean {
-  if (!/^[\x21-\x7e]+$/.test(from)) {
+  if (!/^[\u0021-\u007e]+$/.test(from)) {
     return false;
   }
   const lower = from.toLowerCase();
@@ -302,6 +302,7 @@ export async function routeInbound(
     ) as Fetcher;
   } catch (e) {
     console.error(`[email-router] DISPATCH.get(${sanitize(workerName, 320)}) failed:`, e);
+    // oxlint-disable-next-line preserve-caught-error -- Do not attach internal delivery details to this public failure.
     throw new Error('email worker temporarily unavailable');
   }
 
@@ -366,6 +367,7 @@ export async function routeInbound(
     await recordEmailReceipt(env, receiptId, projectId, 'handler_failed').catch(() => {});
     const msg = e instanceof Error ? e.message.slice(0, 320) : describeUntrusted(e, 320);
     console.error(`[email-router] dispatch to ${sanitize(workerName, 320)} failed:`, msg);
+    // oxlint-disable-next-line preserve-caught-error -- Do not attach internal delivery details to this public failure.
     throw new Error('email handler execution unresolved');
   }
 
@@ -499,6 +501,7 @@ function createRelayedMessage(envelope: EmailEnvelope): {
     },
   };
   return {
+    // oxlint-disable-next-line quality/no-chained-type-assertions -- Relayed messages emulate native messages without native delivery methods.
     message: message as unknown as ForwardableEmailMessage,
     rejectedReason: () => reason,
   };

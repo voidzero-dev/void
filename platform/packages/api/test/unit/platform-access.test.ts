@@ -70,7 +70,7 @@ describe('Cloudflare Access assertions', () => {
     { exp: undefined },
     { sub: '' },
     { email: undefined },
-    { iat: 9999999999 },
+    { iat: 9_999_999_999 },
     { common_name: 'machine', sub: 'employee' },
   ])('rejects invalid or ambiguous claims %j', async (claims) => {
     await expect(

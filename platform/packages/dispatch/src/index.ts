@@ -1,9 +1,5 @@
-import {
-  matchLiteralPattern,
-  PAGES_PROTOCOL_VERSION,
-  redirectToHttps,
-  type ProjectZeroTrustRouting,
-} from '@void/edge';
+import { matchLiteralPattern, PAGES_PROTOCOL_VERSION, redirectToHttps } from '@void/edge';
+import type { ProjectZeroTrustRouting } from '@void/edge';
 import { clientRevalidateResponse, isEventStreamResponse } from '@void/isr/runtime';
 import {
   PLATFORM_HEALTH_HOSTNAME_LABEL,
@@ -15,7 +11,8 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import { projectAccessVerifier } from './access.ts';
 import type { Env } from './env.ts';
 import { createErrorResponse, createMaintenanceResponse } from './error-page.ts';
-import { applyHeaderRules, type HeaderRule } from './headers.ts';
+import { applyHeaderRules } from './headers.ts';
+import type { HeaderRule } from './headers.ts';
 import {
   readIsrCache,
   writeIsrCache,
@@ -38,25 +35,21 @@ import {
   normalizePageDataForJsonCache,
 } from './isr.ts';
 import { createLimitResponse } from './limit-response.ts';
-import {
-  recordPlatformLog,
-  recordRequest,
-  sendUsageEvent,
-  type FailureKind,
-  type RequestType,
-} from './metering.ts';
+import { recordPlatformLog, recordRequest, sendUsageEvent } from './metering.ts';
+import type { FailureKind, RequestType } from './metering.ts';
 import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from './platform-lifecycle.ts';
 import { applicationEdgeCache, resolveProjectHostname } from './project-hostname.ts';
 import { classifyDynamicRequestType, hasExtension, isApiPath } from './request-type.ts';
-import { applyRoutingRules, mergeQueryIntoLocation, type RedirectRule } from './routing-rules.ts';
+import { applyRoutingRules, mergeQueryIntoLocation } from './routing-rules.ts';
+import type { RedirectRule } from './routing-rules.ts';
 import { resolveStaticPath, resolveAssetContentType, safeDecodePathname } from './static.ts';
 import type { AssetConfig } from './static.ts';
 import {
   buildVariantOriginalUrl,
   exactQueryAllowlist,
   hasUnlistedQueryParams,
-  type QueryAllowlist,
 } from './variant-key.ts';
+import type { QueryAllowlist } from './variant-key.ts';
 import {
   DispatchTimeoutError,
   resolveTimeoutMs,
@@ -166,7 +159,7 @@ function platformHealthExceptionPath(request: Request, url: URL): boolean {
       // Malformed escapes are matched as sent.
     }
     return decoded
-      .replace(/[\\/]+/g, '/')
+      .replaceAll(/[\\/]+/g, '/')
       .toLowerCase()
       .startsWith('/health');
   });
@@ -409,7 +402,7 @@ async function fetchAssetManifest(
   const hedgeDelayMs = staticAssetHedgeDelayMs(timeoutMs);
   try {
     const raw = await withDelayedHedge(
-      () => env.ROUTING.get(`manifest:${deploymentId}`, { cacheTtl: 86400 }),
+      () => env.ROUTING.get(`manifest:${deploymentId}`, { cacheTtl: 86_400 }),
       {
         delayMs: hedgeDelayMs,
         timeoutMs,
@@ -465,7 +458,7 @@ async function serveWfpAssetFallback(
   env: Env,
   routing: RoutingEntry,
   pathname: string,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
   fallbackPathname?: string,
 ): Promise<{ response: Response; pathname: string } | null> {
   if (!routing.assetManifestId) {
@@ -551,7 +544,7 @@ async function maybeServeWfpAssetFallback(opts: {
   fallbackPathname?: string;
 }): Promise<{ response: Response; failureKind?: FailureKind; pathname: string }> {
   const startedAt = opts.deadline?.startedAt ?? Date.now();
-  const timeoutMs = opts.deadline?.timeoutMs ?? opts.timeoutMs ?? 10000;
+  const timeoutMs = opts.deadline?.timeoutMs ?? opts.timeoutMs ?? 10_000;
   if (isEventStreamResponse(opts.response)) {
     return { response: opts.response, pathname: opts.pathname };
   }
@@ -2144,7 +2137,9 @@ const dispatcher = {
           cfMessage.ack();
         } else if (decision.action === 'retry') {
           cfMessage.retry(
-            decision.delaySeconds != null ? { delaySeconds: decision.delaySeconds } : undefined,
+            decision.delaySeconds !== null && decision.delaySeconds !== undefined
+              ? { delaySeconds: decision.delaySeconds }
+              : undefined,
           );
         }
       }
@@ -2213,7 +2208,7 @@ async function fetchStaticAsset(
   path: string,
   projectId?: string,
   deploymentId?: string,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
 ): Promise<Response | null> {
   const hedgeDelayMs = staticAssetHedgeDelayMs(timeoutMs);
   const startedAt = Date.now();
@@ -2320,7 +2315,7 @@ async function fetchStaticAssetOnce(
   const readKvAsset = async (key: string): Promise<Response | null> => {
     const { value, metadata } = await env.STATIC_ASSETS.getWithMetadata<{ ct: string }>(key, {
       type: 'arrayBuffer',
-      cacheTtl: 86400,
+      cacheTtl: 86_400,
     });
     if (!value) {
       return null;
@@ -2364,7 +2359,7 @@ async function revalidateInBackground(
   jsonCacheKey: Request,
   staleSinceMs: number,
   originalUrl?: string | null,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
 ): Promise<boolean> {
   try {
     const worker = getWorker(env, routing);

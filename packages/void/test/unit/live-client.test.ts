@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { connectLiveStream, type ConnectLiveStreamOptions } from '../../src/runtime/live/client.ts';
+import { connectLiveStream } from '../../src/runtime/live/client.ts';
+import type { ConnectLiveStreamOptions } from '../../src/runtime/live/client.ts';
 import { MockEventSource } from '../helpers/mock-event-source.ts';
 
 const originalLocation = (globalThis as { location?: unknown }).location;

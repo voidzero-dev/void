@@ -10,6 +10,7 @@ import type { Db } from '../../src/db.ts';
 import { generateId } from '../../src/id.ts';
 import { encryptProjectSecret } from '../../src/project-secrets.ts';
 import type { SandboxConcurrencyCounter } from '../../src/sandbox-concurrency-counter.ts';
+// oxlint-disable-next-line import/no-namespace -- Drizzle consumes the full schema module with its relations.
 import * as schema from '../../src/schema.ts';
 import {
   users,
@@ -692,7 +693,7 @@ export async function createTestUser(
   role: 'user' | 'admin' = 'user',
 ): Promise<{ id: string; login: string; jwt: string; adminJwt: string }> {
   const id = `user_test${++userCounter}`;
-  const pid = providerId ?? String(10000 + userCounter);
+  const pid = providerId ?? String(10_000 + userCounter);
   await db.insert(users).values({
     id,
     provider,
@@ -1355,7 +1356,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
             success: false,
             errors: [
               {
-                code: 10061,
+                code: 10_061,
                 message: `Cannot create binding for class in script '${refScript}' that does not exist.`,
               },
             ],
@@ -1444,7 +1445,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return Response.json(
         {
           success: false,
-          errors: [{ code: 10007, message: 'workers.api.error.script_not_found' }],
+          errors: [{ code: 10_007, message: 'workers.api.error.script_not_found' }],
         },
         { status: 404 },
       );
@@ -1466,7 +1467,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     const scriptName = parseScriptNameFromUrl(url);
     const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
     if (!script) {
-      return cfError('workers.api.error.script_not_found', 404, 10007);
+      return cfError('workers.api.error.script_not_found', 404, 10_007);
     }
     const part = init?.body instanceof FormData ? init.body.get('settings') : null;
     const settings = (
@@ -1784,7 +1785,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
               }),
             })
           : Response.json(
-              { success: false, errors: [{ code: 10007, message: 'script not found' }] },
+              { success: false, errors: [{ code: 10_007, message: 'script not found' }] },
               { status: 404 },
             );
       }

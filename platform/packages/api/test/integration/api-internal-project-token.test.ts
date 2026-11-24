@@ -13,11 +13,8 @@ import { hmacSignState } from '../../src/auth/hmac.ts';
 import { signJwt } from '../../src/auth/jwt.ts';
 import { createResource } from '../../src/db.ts';
 import app from '../../src/index.ts';
-import {
-  deriveProxyInternalAuth,
-  deriveProxyToken,
-  type ProxyInternalRoute,
-} from '../../src/proxy-token.ts';
+import { deriveProxyInternalAuth, deriveProxyToken } from '../../src/proxy-token.ts';
+import type { ProxyInternalRoute } from '../../src/proxy-token.ts';
 import { deployments, projects } from '../../src/schema.ts';
 import {
   clearTables,
@@ -28,8 +25,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

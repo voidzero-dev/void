@@ -50,8 +50,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // Each fixture domain below is the apex of its own visible test zone.
 const zones = Object.fromEntries(
@@ -143,7 +143,7 @@ function bindings(): ApiEnv['Bindings'] {
 }
 
 async function waitForPostgresLockWaiters(minimum: number): Promise<void> {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     const result = await env.db.execute(sql`
       SELECT count(*)::int AS waiters
@@ -155,7 +155,9 @@ async function waitForPostgresLockWaiters(minimum: number): Promise<void> {
     if (Number((result.rows[0] as { waiters?: number } | undefined)?.waiters ?? 0) >= minimum) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
   }
   throw new Error(`timed out waiting for ${minimum} PostgreSQL lock waiters`);
 }
@@ -504,7 +506,7 @@ describe('durable zone email connections', () => {
       actor: { kind: 'owner', userId: owner.id },
     });
     await runEmailOperation(env.db, bindings(), operationId);
-    const old = new Date(Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1_000).toISOString();
+    const old = new Date(Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1000).toISOString();
     await env.db
       .update(emailOperationSteps)
       .set({ started_at: old })
@@ -570,9 +572,7 @@ describe('durable zone email connections', () => {
     await env.db
       .update(emailOperationSteps)
       .set({
-        started_at: new Date(
-          Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1_000,
-        ).toISOString(),
+        started_at: new Date(Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1000).toISOString(),
       })
       .where(eq(emailOperationSteps.operation_id, operationId));
     const fence = await inspectUnknownEmailOperationRecovery(env.db, bindings(), operationId);
@@ -665,9 +665,7 @@ describe('durable zone email connections', () => {
     await env.db
       .update(emailOperationSteps)
       .set({
-        started_at: new Date(
-          Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1_000,
-        ).toISOString(),
+        started_at: new Date(Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1000).toISOString(),
       })
       .where(eq(emailOperationSteps.operation_id, operationId));
     const fence = await inspectUnknownEmailOperationRecovery(env.db, bindings(), operationId);
@@ -1216,7 +1214,7 @@ describe('durable zone email connections', () => {
         .update(emailOperationSteps)
         .set({
           started_at: new Date(
-            Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1_000,
+            Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1000,
           ).toISOString(),
         })
         .where(
@@ -1836,9 +1834,7 @@ describe('durable zone email connections', () => {
     await env.db
       .update(emailOperationSteps)
       .set({
-        started_at: new Date(
-          Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1_000,
-        ).toISOString(),
+        started_at: new Date(Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1000).toISOString(),
       })
       .where(eq(emailOperationSteps.operation_id, removal));
     const fence = await inspectUnknownEmailOperationRecovery(env.db, bindings(), removal);
@@ -2612,9 +2608,7 @@ describe('durable zone email connections', () => {
     await env.db
       .update(emailOperationSteps)
       .set({
-        started_at: new Date(
-          Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1_000,
-        ).toISOString(),
+        started_at: new Date(Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1000).toISOString(),
       })
       .where(eq(emailOperationSteps.operation_id, rotation));
     const fence = await inspectUnknownEmailOperationRecovery(env.db, bindings(), rotation);

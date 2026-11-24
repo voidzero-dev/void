@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 
 import { Activity, CircleCheck, CircleHelp, CircleX, Clock } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { AdminCard } from './AdminCard.tsx';
 
 export function LastCheckedTime({
@@ -17,7 +18,7 @@ export function LastCheckedTime({
       return;
     }
     setNow(Date.now());
-    const interval = setInterval(() => setNow(Date.now()), 5_000);
+    const interval = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(interval);
   }, [checkedAt]);
   const seconds = checkedAt === undefined ? 0 : Math.max(0, Math.floor((now - checkedAt) / 1000));

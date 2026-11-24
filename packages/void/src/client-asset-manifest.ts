@@ -17,9 +17,9 @@ export function stampClientAssetCachePolicy(
     return [];
   }
   const fingerprinted = new Set<string>();
-  const authoredCachePatterns = headerRules
-    .filter((rule) => rule.headers.some(([name]) => name.toLowerCase() === 'cache-control'))
-    .map((rule) => rule.pattern);
+  const authoredCachePatterns = headerRules.flatMap((rule) =>
+    rule.headers.some(([name]) => name.toLowerCase() === 'cache-control') ? [rule.pattern] : [],
+  );
   // A malformed pattern still fails the build.
   for (const pattern of authoredCachePatterns) {
     compilePattern(pattern);

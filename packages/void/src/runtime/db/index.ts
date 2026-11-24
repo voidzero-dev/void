@@ -5,13 +5,15 @@
  * virtual module that auto-wires the D1 binding with the user's schema.
  * This stub exists for the published npm package and type declarations.
  */
-import { drizzle as _drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
+import { drizzle as _drizzle } from 'drizzle-orm/d1';
+import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import {
   getRuntimeBinding,
   getRuntimeRequestResource,
   requireRuntimeBinding,
 } from '../env/runtime.ts';
-import { createD1SessionAccess, resolveD1SessionStart, type DbSessionStart } from './session.ts';
+import { createD1SessionAccess, resolveD1SessionStart } from './session.ts';
+import type { DbSessionStart } from './session.ts';
 
 // Re-export commonly used Drizzle utilities so consumers never need
 // to depend on drizzle-orm directly.
@@ -62,6 +64,7 @@ export function createDb(
   options?: { session?: DbSessionStart },
 ): DrizzleD1Database {
   return _drizzle(
+    // oxlint-disable-next-line quality/no-chained-type-assertions -- Drizzle only uses the query methods shared by D1 databases and sessions.
     d1.withSession(
       resolveD1SessionStart(
         options?.session === undefined ? 'first-unconstrained' : options.session,
@@ -93,8 +96,9 @@ function requireD1(): D1Database {
   // an installed package only when the package is an ES module that depends on void and the
   // app lists it or reaches it through such packages.
   if (
-    getRuntimeBinding(DEFAULT_BINDING) == null &&
-    (getRuntimeBinding('HYPERDRIVE') != null || getRuntimeBinding('DATABASE_URL') != null)
+    (getRuntimeBinding(DEFAULT_BINDING) ?? null) === null &&
+    ((getRuntimeBinding('HYPERDRIVE') ?? null) !== null ||
+      (getRuntimeBinding('DATABASE_URL') ?? null) !== null)
   ) {
     throw new Error(
       `db: Missing Cloudflare binding '${DEFAULT_BINDING}'. This app connects through HYPERDRIVE or DATABASE_URL, but its server bundle loaded the D1 client. In Nuxt or Analog, add 'void/nitro' to the Nitro modules. An installed package that imports void/db must be an ES module that lists void in its dependencies or peerDependencies, and the app must list it or reach it through such packages.`,
@@ -114,7 +118,7 @@ function d1Init() {
  * schema-aware instance via virtual module.
  */
 export const db: DrizzleD1Database = new Proxy({} as DrizzleD1Database, {
-  get(_, prop) {
+  get(_, prop): unknown {
     // Promise assimilation and inspection are not database use.
     if (
       prop === 'then' ||

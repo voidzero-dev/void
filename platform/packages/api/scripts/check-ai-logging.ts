@@ -2,8 +2,8 @@ import pg from 'pg';
 
 const client = new pg.Client({
   connectionString: process.env.DATABASE_URL,
-  connectionTimeoutMillis: 15000,
-  statement_timeout: 15000,
+  connectionTimeoutMillis: 15_000,
+  statement_timeout: 15_000,
 });
 await client.connect();
 try {
@@ -35,7 +35,7 @@ if (accountId && token) {
   try {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai-gateway/gateways/void`,
-      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000) },
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
     );
     const gateway = (await response.json()) as { result?: { collect_logs?: boolean } };
     if (!response.ok || typeof gateway.result?.collect_logs !== 'boolean') {

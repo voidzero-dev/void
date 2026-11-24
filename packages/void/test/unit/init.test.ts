@@ -38,7 +38,7 @@ import { readConfig } from '../../src/config.ts';
 const mockSpawnSync = vi.fn();
 /** Ends each mocked `spawn` whose result sets `hang`. */
 const hangingCommands: Array<() => void> = [];
-const HANGING_COMMAND_PID = 0x7fffffff;
+const HANGING_COMMAND_PID = 0x7f_ff_ff_ff;
 const mockSelect = vi.fn();
 const mockConfirm = vi.fn();
 const mockText = vi.fn();
@@ -772,7 +772,7 @@ describe('init summary', () => {
 
         await runInitCommand(root);
 
-        const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+        const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
         expect(pkg.devDependencies['@cloudflare/workers-types']).toBeUndefined();
         expect(summaryMessages('✓')[0]).toEqual(
           expect.arrayContaining([
@@ -951,7 +951,7 @@ describe('init summary', () => {
         /EACCES|EPERM/,
       );
 
-      expect(readFileSync(tsconfigPath, 'utf-8')).toBe(original);
+      expect(readFileSync(tsconfigPath, 'utf8')).toBe(original);
       expect(mockLogWarn).not.toHaveBeenCalled();
     } finally {
       chmodSync(tsconfigPath, 0o644);
@@ -1098,7 +1098,7 @@ describe('GitHub Actions deployment workflows', () => {
 });
 
 function expectPnpmAllowBuilds(root: string): void {
-  const yaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf-8');
+  const yaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
   expect(yaml.match(/^allowBuilds:\n(?: {2}.*\n)*/m)?.[0]).toBe(
     'allowBuilds:\n  better-sqlite3: false\n  esbuild: true\n  sharp: true\n  workerd: true\n',
   );
@@ -1230,7 +1230,7 @@ async function withTempDirAsync(run: (root: string) => Promise<void>): Promise<v
 }
 
 function writeMockGeneratedMigration(root: string): void {
-  const schema = readFileSync(join(root, 'db', 'schema.ts'), 'utf-8');
+  const schema = readFileSync(join(root, 'db', 'schema.ts'), 'utf8');
   const isPostgres = schema.includes('from "void/schema-pg"');
   const migrationsDir = join(root, 'db', 'migrations');
   const metaDir = join(migrationsDir, 'meta');
@@ -1378,7 +1378,7 @@ async function runInitWithDemo(root: string): Promise<void> {
 }
 
 function expectVoidDeclared(root: string): void {
-  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const voidSpec =
     pkg.devDependencies?.void ?? pkg.dependencies?.void ?? pkg.peerDependencies?.void;
   expect(typeof voidSpec).toBe('string');
@@ -2157,7 +2157,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.scripts).toMatchObject({
         dev: 'vite',
         build: 'vite build',
@@ -2210,7 +2210,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.dependencies.react).toBeDefined();
       expect(pkg.dependencies['react-dom']).toBeDefined();
       expect(pkg.dependencies.hono).toBeDefined();
@@ -2229,10 +2229,10 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.scripts.preview).toBe('vp preview');
       expect(pkg.scripts.postinstall).toBe('void prepare');
 
-      const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
+      const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf8');
       expect(reactViteConfig).toContain('from "@void/react/plugin"');
       expect(reactViteConfig).toContain('voidReact({ react: { compiler: true } })');
-      const page = readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8');
+      const page = readFileSync(join(root, 'pages', 'index.tsx'), 'utf8');
       expect(page).toContain('Welcome to Void');
       expect(page).toContain('The list below is loaded from your database in');
       expect(page).toContain('href="/api/hello"');
@@ -2245,42 +2245,42 @@ describe('isScaffoldableEmptyProject', () => {
       expect(page).toContain('useForm');
       expect(page).toContain('<Form form={form}');
       expect(page).toContain('No messages yet.');
-      expect(readFileSync(join(root, 'pages', 'style.css'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'pages', 'style.css'), 'utf8')).toContain(
         'prefers-color-scheme: dark',
       );
-      expect(readFileSync(join(root, 'pages', 'vite-env.d.ts'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'pages', 'vite-env.d.ts'), 'utf8')).toContain(
         'reference types="vite/client"',
       );
-      expect(readFileSync(join(root, 'public', 'void.svg'), 'utf-8')).toContain('<svg');
-      expect(readFileSync(join(root, 'public', 'react.svg'), 'utf-8')).toContain('<svg');
-      expect(readFileSync(join(root, 'public', 'stack.svg'), 'utf-8')).toContain('<svg');
+      expect(readFileSync(join(root, 'public', 'void.svg'), 'utf8')).toContain('<svg');
+      expect(readFileSync(join(root, 'public', 'react.svg'), 'utf8')).toContain('<svg');
+      expect(readFileSync(join(root, 'public', 'stack.svg'), 'utf8')).toContain('<svg');
       expect(page).toContain('src="/stack.svg"');
-      expect(readFileSync(join(root, 'public', 'icons.svg'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'public', 'icons.svg'), 'utf8')).toContain(
         'id="documentation-icon"',
       );
-      expect(readFileSync(join(root, 'pages', 'index.server.ts'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'pages', 'index.server.ts'), 'utf8')).toContain(
         'import { messages } from "@schema";',
       );
-      expect(readFileSync(join(root, 'routes', 'api', 'hello.ts'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'routes', 'api', 'hello.ts'), 'utf8')).toContain(
         'export const GET = defineHandler',
       );
-      expect(readFileSync(join(root, 'db', 'schema.ts'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'db', 'schema.ts'), 'utf8')).toContain(
         'from "void/schema-d1"',
       );
-      expect(readFileSync(join(root, 'db', 'seed.ts'), 'utf-8')).toContain('defineSeed');
+      expect(readFileSync(join(root, 'db', 'seed.ts'), 'utf8')).toContain('defineSeed');
       expect(listMigrationSqlFiles(root)).toEqual(['0000_generated.sql']);
-      expect(readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf8')).toContain(
         'CREATE TABLE',
       );
       expect(
-        readFileSync(join(root, 'db', 'migrations', 'meta', '_journal.json'), 'utf-8'),
+        readFileSync(join(root, 'db', 'migrations', 'meta', '_journal.json'), 'utf8'),
       ).toContain('"entries"');
 
-      expect(() => readFileSync(join(root, 'routes', 'api', 'hello.get.ts'), 'utf-8')).toThrow(
+      expect(() => readFileSync(join(root, 'routes', 'api', 'hello.get.ts'), 'utf8')).toThrow(
         /ENOENT/,
       );
-      expect(() => readFileSync(join(root, 'index.html'), 'utf-8')).toThrow(/ENOENT/);
-      expect(() => readFileSync(join(root, 'src', 'main.ts'), 'utf-8')).toThrow(/ENOENT/);
+      expect(() => readFileSync(join(root, 'index.html'), 'utf8')).toThrow(/ENOENT/);
+      expect(() => readFileSync(join(root, 'src', 'main.ts'), 'utf8')).toThrow(/ENOENT/);
       expect(readConfig(root)).toEqual({
         routing: { typedRoutes: true },
         worker: {
@@ -2288,10 +2288,10 @@ describe('isScaffoldableEmptyProject', () => {
         },
       });
       expect(() =>
-        readFileSync(join(root, 'db', 'migrations', '0000_initial.sql'), 'utf-8'),
+        readFileSync(join(root, 'db', 'migrations', '0000_initial.sql'), 'utf8'),
       ).toThrow(/ENOENT/);
 
-      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf-8'));
+      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf8'));
       expect(tsconfig.compilerOptions.jsx).toBe('react-jsx');
       expect(tsconfig.include).toContain('pages');
       expect(tsconfig.include).toContain('db');
@@ -2315,7 +2315,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.dependencies.vue).toBeDefined();
       expect(pkg.devDependencies['@void/vue']).toBeDefined();
       expect(pkg.devDependencies.void).toBeDefined();
@@ -2328,21 +2328,21 @@ describe('isScaffoldableEmptyProject', () => {
         },
       });
 
-      const vueViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
+      const vueViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf8');
       expect(vueViteConfig).toContain('from "@void/vue/plugin"');
       expect(vueViteConfig).toContain('voidVue()');
-      const page = readFileSync(join(root, 'pages', 'index.vue'), 'utf-8');
+      const page = readFileSync(join(root, 'pages', 'index.vue'), 'utf8');
       expect(page).toContain('Welcome to Void');
       expect(page).not.toContain('Void +');
       expect(page).toContain('src="/vue.svg"');
       expect(page).toContain('v-for="message in messages"');
       expect(page).toContain('<Form :form="form"');
-      expect(readFileSync(join(root, 'db', 'schema.ts'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'db', 'schema.ts'), 'utf8')).toContain(
         'from "void/schema-pg"',
       );
-      expect(readFileSync(join(root, 'db', 'seed.ts'), 'utf-8')).toContain('defineSeed');
+      expect(readFileSync(join(root, 'db', 'seed.ts'), 'utf8')).toContain('defineSeed');
       expect(listMigrationSqlFiles(root)).toEqual(['0000_generated.sql']);
-      expect(readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf8')).toContain(
         'CREATE TABLE "messages"',
       );
       expect(summaryMessages('✓')).toEqual([
@@ -2435,7 +2435,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.dependencies.react).toBeDefined();
       expect(pkg.dependencies['react-dom']).toBeDefined();
       expect(pkg.dependencies.hono).toBeDefined();
@@ -2451,7 +2451,7 @@ describe('isScaffoldableEmptyProject', () => {
       expect(installCalls()[0][0]).toBe('vp');
       expect(pkg.scripts.dev).toBe('vp dev');
 
-      const page = readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8');
+      const page = readFileSync(join(root, 'pages', 'index.tsx'), 'utf8');
       expect(page).toContain('Welcome to Void');
       expect(page).toContain(
         'This starter is running in Pages mode with no database or server code yet.',
@@ -2461,12 +2461,12 @@ describe('isScaffoldableEmptyProject', () => {
       expect(page).not.toContain('useForm');
       expect(page).not.toContain('<Form');
 
-      expect(() => readFileSync(join(root, 'pages', 'index.server.ts'), 'utf-8')).toThrow();
-      expect(() => readFileSync(join(root, 'routes', 'api', 'hello.ts'), 'utf-8')).toThrow();
-      expect(() => readFileSync(join(root, 'db', 'schema.ts'), 'utf-8')).toThrow();
-      expect(() => readFileSync(join(root, 'db', 'seed.ts'), 'utf-8')).toThrow();
+      expect(() => readFileSync(join(root, 'pages', 'index.server.ts'), 'utf8')).toThrow();
+      expect(() => readFileSync(join(root, 'routes', 'api', 'hello.ts'), 'utf8')).toThrow();
+      expect(() => readFileSync(join(root, 'db', 'schema.ts'), 'utf8')).toThrow();
+      expect(() => readFileSync(join(root, 'db', 'seed.ts'), 'utf8')).toThrow();
       expect(() =>
-        readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf-8'),
+        readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf8'),
       ).toThrow();
       expect(readConfig(root)).toEqual({
         routing: { typedRoutes: true },
@@ -2659,13 +2659,13 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.scripts.dev).toBe('vp dev');
       expect(pkg.devDependencies['vite-plus']).toBe(
         SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
       );
       expect(pkg.devDependencies.void).toBe('^0.8.9');
-      expect(readFileSync(join(root, 'vite.config.ts'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, 'vite.config.ts'), 'utf8')).toContain(
         'voidReact({ react: { compiler: true } })',
       );
       expectPnpmAllowBuilds(root);
@@ -2706,12 +2706,12 @@ describe('isScaffoldableEmptyProject', () => {
       ]);
 
       const appRoot = join(root, 'my-new-app');
-      const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'));
       expect(pkg.devDependencies['vite-plus']).toBe(
         SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
       );
       expect(pkg.scripts.dev).toBe('vp dev');
-      expect(readFileSync(join(appRoot, 'pages', 'index.tsx'), 'utf-8')).toContain(
+      expect(readFileSync(join(appRoot, 'pages', 'index.tsx'), 'utf8')).toContain(
         'Welcome to Void',
       );
 
@@ -2761,7 +2761,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.type).toBe('module');
       expect(pkg.devDependencies.void).toBeDefined();
       expect(pkg.scripts.dev).toBe('vite');
@@ -2785,7 +2785,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.type).toBeUndefined();
       expect(pkg.scripts.dev).toBe('vite');
       expect(pkg.scripts.build).toBe('vite build');
@@ -2793,7 +2793,7 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.devDependencies.vite).toBe('^8.0.10');
 
       expect(existsSync(join(root, 'vite.config.ts'))).toBe(false);
-      const viteConfig = readFileSync(join(root, 'vite.config.mts'), 'utf-8');
+      const viteConfig = readFileSync(join(root, 'vite.config.mts'), 'utf8');
       expect(viteConfig).toContain('import { voidPlugin } from "void";');
       expect(viteConfig).toContain('plugins: [voidPlugin()]');
       expect(mockConfirm).toHaveBeenCalledWith({
@@ -2823,7 +2823,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root, { github: true, tsconfig: false });
 
-      const yaml = readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf-8');
+      const yaml = readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf8');
       expect(yaml).not.toContain('secrets.VOID_TOKEN');
       expect(yaml).toContain('id-token: write');
       expect(yaml).toContain('contents: read');
@@ -2858,7 +2858,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root, { github: true, tsconfig: false });
 
-      const yaml = readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf-8');
+      const yaml = readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf8');
       expect(yaml).toContain('VOID_PROJECT: my-app');
       expect(yaml).not.toContain('vars.VOID_PROJECT');
       expect(yaml).toContain('concurrency:');
@@ -2912,7 +2912,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       await runInitCommand(root);
 
-      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf-8'))).toEqual({
+      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf8'))).toEqual({
         applicationDomain: 'void.app',
         platform: 'void',
         platformUrl: 'https://api.void.cloud',
@@ -2920,7 +2920,7 @@ describe('isScaffoldableEmptyProject', () => {
         projectId: 'proj_789',
         slug: 'linked-app',
       });
-      const yaml = readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf-8');
+      const yaml = readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf8');
       expect(yaml).toContain('VOID_PROJECT: linked-app');
       expect(yaml).not.toContain('vars.VOID_PROJECT');
       expect(yaml).not.toContain('Set a VOID_PROJECT repository variable');
@@ -2954,10 +2954,10 @@ jobs:
       await runInitCommand(root, { github: true, tsconfig: false });
 
       expect(existsSync(existingPath)).toBe(true);
-      expect(readFileSync(existingPath, 'utf-8')).toBe(existing);
+      expect(readFileSync(existingPath, 'utf8')).toBe(existing);
       const workflows = readdirSync(join(root, '.github', 'workflows')).sort();
       expect(workflows).toEqual(['deploy.yml', 'void-deploy.yml']);
-      const oidc = readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf-8');
+      const oidc = readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf8');
       expect(oidc).toContain('name: Deploy to Void');
       expect(oidc).toContain('npx void deploy --platform void --project "$VOID_PROJECT"');
     } finally {
@@ -2987,7 +2987,7 @@ jobs:
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.scripts).toBeUndefined();
       expect(pkg.devDependencies.void).toBeDefined();
       expect(pkg.devDependencies.vite).toBeUndefined();
@@ -3028,7 +3028,7 @@ jobs:
 
         await runInitCommand(root);
 
-        const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+        const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
         expect(pkg[field].void).toBe('^0.6.0');
         expect(pkg.devDependencies?.void).toBeUndefined();
         expect(existsSync(join(root, 'vite.config.ts'))).toBe(false);
@@ -3135,13 +3135,13 @@ export default defineConfig({
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.type).toBeUndefined();
       expect(pkg.scripts.dev).toBe('custom-dev');
       expect(pkg.scripts.build).toBe('vite build');
       expect(pkg.scripts.test).toBe('vitest');
 
-      const viteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
+      const viteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf8');
       expect(viteConfig).toContain('import { voidPlugin } from "void";');
       expect(viteConfig).toContain(`plugins: [
     voidPlugin(),
@@ -3200,7 +3200,7 @@ export default defineConfig({
 
       await runInitCommand(root);
 
-      const viteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
+      const viteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf8');
       expect(viteConfig).toContain(`rollupOptions: {
       plugins: [legacy()],
     },`);
@@ -3248,7 +3248,7 @@ export default defineConfig({
 
       await runInitCommand(root);
 
-      const viteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
+      const viteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf8');
       expect(viteConfig).toContain(`export default defineConfig({
   plugins: [voidPlugin()],
   build: {`);
@@ -3289,8 +3289,7 @@ export default config;
 
       await runInitCommand(root);
 
-      expect(readFileSync(join(root, 'vite.config.ts'), 'utf-8'))
-        .toBe(`const config = buildConfig();
+      expect(readFileSync(join(root, 'vite.config.ts'), 'utf8')).toBe(`const config = buildConfig();
 
 export default config;
 `);
@@ -3338,7 +3337,7 @@ export default config;
 
       await runInitCommand(root);
 
-      expect(readFileSync(join(root, 'vite.config.ts'), 'utf-8')).toBe(`const config = {
+      expect(readFileSync(join(root, 'vite.config.ts'), 'utf8')).toBe(`const config = {
   build: {
     rollupOptions: {
       plugins: [legacy()],
@@ -3368,7 +3367,7 @@ export default config;
 
       await runInitCommand(root, { tsconfig: true, github: false });
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.scripts).toBeUndefined();
       expect(pkg.devDependencies).toBeUndefined();
       expect(existsSync(join(root, 'vite.config.ts'))).toBe(false);
@@ -3405,7 +3404,7 @@ export default config;
       try {
         await runInitCommand(root, { tsconfig: true, github: false });
 
-        const instructions = readFileSync(join(root, 'AGENTS.md'), 'utf-8');
+        const instructions = readFileSync(join(root, 'AGENTS.md'), 'utf8');
         expect(instructions).toContain('## Void');
         expect(instructions).toContain('node_modules/void/docs/');
         expect(instructions.match(/^- /gm)).toHaveLength(2);
@@ -3414,7 +3413,7 @@ export default config;
         expect(mockConfirm).not.toHaveBeenCalled();
 
         await runInitCommand(root, { tsconfig: true, github: false });
-        expect(readFileSync(join(root, 'AGENTS.md'), 'utf-8')).toBe(instructions);
+        expect(readFileSync(join(root, 'AGENTS.md'), 'utf8')).toBe(instructions);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
@@ -3438,12 +3437,12 @@ export default config;
 
           await runInitCommand(root, { tsconfig: true, github: false });
 
-          const instructions = readFileSync(join(root, 'AGENTS.md'), 'utf-8');
+          const instructions = readFileSync(join(root, 'AGENTS.md'), 'utf8');
           expect(instructions).toContain('## Void');
           if (hasAgentsFile) {
             expect(instructions.startsWith(projectInstructions)).toBe(true);
           }
-          expect(readFileSync(join(root, 'CLAUDE.md'), 'utf-8')).toBe(claudeInstructions);
+          expect(readFileSync(join(root, 'CLAUDE.md'), 'utf8')).toBe(claudeInstructions);
           expect(existsSync(join(root, '.claude/skills/void/SKILL.md'))).toBe(true);
           expect(mockSelect).not.toHaveBeenCalled();
           expect(mockConfirm).toHaveBeenCalledExactlyOnceWith({
@@ -3464,7 +3463,7 @@ export default config;
         const root = mkdtempSync(join(tmpdir(), 'void-init-'));
         try {
           const currentVersion = JSON.parse(
-            readFileSync(join(process.cwd(), 'packages/void/package.json'), 'utf-8'),
+            readFileSync(join(process.cwd(), 'packages/void/package.json'), 'utf8'),
           ).version;
           const before = '# Project guidance\n\nKeep this user-authored introduction.\n\n';
           const after = '\n\nKeep this user-authored footer.\n';
@@ -3477,7 +3476,7 @@ export default config;
 
           await runInitCommand(root, { tsconfig: true, github: false });
 
-          const updated = readFileSync(join(root, 'AGENTS.md'), 'utf-8');
+          const updated = readFileSync(join(root, 'AGENTS.md'), 'utf8');
           expect(updated.startsWith(before)).toBe(true);
           expect(updated.endsWith(after)).toBe(true);
           expect(updated).toContain(`<!--injected-by-void-v${currentVersion}-->`);
@@ -3567,7 +3566,7 @@ export default config;
     try {
       await runInitCommand(root, { tsconfig: true, github: false });
 
-      const gitignore = readFileSync(join(root, '.gitignore'), 'utf-8');
+      const gitignore = readFileSync(join(root, '.gitignore'), 'utf8');
       expect(gitignore).toContain('node_modules');
       expect(gitignore).toContain('.void');
       expect(gitignore).toContain('.wrangler');
@@ -3586,7 +3585,7 @@ export default config;
 
       await runInitCommand(root, { tsconfig: true, github: false });
 
-      const gitignore = readFileSync(join(root, '.gitignore'), 'utf-8');
+      const gitignore = readFileSync(join(root, '.gitignore'), 'utf8');
       expect(gitignore).toContain('custom-cache');
       expect(gitignore).toContain('.void');
       expect(gitignore).toContain('.wrangler');
@@ -3615,7 +3614,7 @@ export default config;
 
       await runInitCommand(root, { tsconfig: true, github: false });
 
-      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf-8'));
+      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf8'));
       expect(tsconfig.extends).toBeDefined();
       expect(tsconfig.compilerOptions.types).toContain('void/env');
     } finally {
@@ -3649,7 +3648,7 @@ export default config;
 
       await runInitCommand(root, { tsconfig: true, github: false });
 
-      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf-8'));
+      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf8'));
       expect(tsconfig.extends).toEqual(['./tsconfig.base.json', './.void/tsconfig.json']);
       expect(tsconfig.files).toEqual(['./src/main.ts', './.void/routes.d.ts']);
       expect(tsconfig.compilerOptions.paths).toEqual({
@@ -3696,7 +3695,7 @@ export default config;
 
       await runInitCommand(root, { tsconfig: true, github: false });
 
-      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf-8'));
+      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf8'));
       expect(tsconfig.extends).toEqual(['./tsconfig.base.json', './.void/tsconfig.json']);
       expect(tsconfig.files).toEqual(['./base.d.ts', './.void/routes.d.ts']);
       expect(tsconfig.compilerOptions.paths).toEqual({
@@ -3742,7 +3741,7 @@ export default config;
 
       await runInitCommand(root, { tsconfig: true, github: false });
 
-      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf-8'));
+      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf8'));
       expect(tsconfig.extends).toEqual(['../../tsconfig.base.json', './.void/tsconfig.json']);
       expect(tsconfig.compilerOptions.paths).toEqual({
         '@shared/*': ['./shared/*'],
@@ -3791,7 +3790,7 @@ export default config;
 
       await runInitCommand(root, { tsconfig: true, github: false });
 
-      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf-8'));
+      const tsconfig = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf8'));
       expect(tsconfig.extends).toEqual(['./tsconfig.base.json', './.void/tsconfig.json']);
       expect(tsconfig.files).toEqual(['./.void/routes.d.ts']);
       expect(tsconfig.compilerOptions.paths).toEqual({
@@ -3829,7 +3828,7 @@ export default config;
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.scripts.dev).toBe('vp dev');
       expect(pkg.devDependencies['vite-plus']).toBe(
         SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
@@ -3840,7 +3839,7 @@ export default config;
       expect(pkg.devDependencies['oxc-transform-react']).toBe('>=0.152.0 <0.157.0');
       expectPnpmAllowBuilds(root);
 
-      const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
+      const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf8');
       expect(reactViteConfig).toContain('from "@void/react/plugin"');
       expect(reactViteConfig).toContain('voidReact({ react: { compiler: true } })');
 
@@ -4015,7 +4014,7 @@ export default config;
       expect(mockSaveToken).toHaveBeenCalledWith('token_123', 'https://api.void.cloud');
       expect(mockListProjects).toHaveBeenCalledOnce();
       expect(mockCreateProject).toHaveBeenCalledWith('my-live-app');
-      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf-8'))).toEqual({
+      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf8'))).toEqual({
         applicationDomain: 'void.app',
         platform: 'void',
         platformUrl: 'https://api.void.cloud',
@@ -4094,7 +4093,7 @@ export default config;
       expect(mockRunLogin).not.toHaveBeenCalled();
       expect(mockSaveToken).not.toHaveBeenCalled();
       expect(mockCreateProject).not.toHaveBeenCalled();
-      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf-8'))).toEqual({
+      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf8'))).toEqual({
         applicationDomain: 'void.app',
         platform: 'void',
         platformUrl: 'https://api.void.cloud',
@@ -4133,10 +4132,10 @@ export default config;
         ([options]) => options.message === 'Where should this project deploy?',
       )?.[0];
       expect(platformPrompt).toMatchObject({ initialValue: 'cloudflare' });
-      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf-8'))).toEqual({
+      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf8'))).toEqual({
         platform: 'cloudflare',
       });
-      expect(JSON.parse(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf-8'))).toEqual({
+      expect(JSON.parse(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf8'))).toEqual({
         compatibility_date: LATEST_KNOWN_COMPAT_DATE,
         compatibility_flags: ['nodejs_als'],
       });
@@ -4161,9 +4160,9 @@ export default config;
       );
       expect(mockGetToken).not.toHaveBeenCalled();
       expect(mockListProjects).not.toHaveBeenCalled();
-      expect(
-        readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf-8'),
-      ).toContain('void deploy --platform cloudflare');
+      expect(readFileSync(join(root, '.github', 'workflows', 'void-deploy.yml'), 'utf8')).toContain(
+        'void deploy --platform cloudflare',
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -4186,7 +4185,7 @@ export default config;
 
       await runInitCommand(root);
 
-      const wrangler = readFileSync(join(root, '.void-wrangler.jsonc'), 'utf-8');
+      const wrangler = readFileSync(join(root, '.void-wrangler.jsonc'), 'utf8');
       expect(existsSync(join(root, 'wrangler.jsonc'))).toBe(false);
       expect(readConfig(root).cloudflare?.name).toBe('existing-worker');
       expect(wrangler).toContain('// Keep this comment.');
@@ -4242,7 +4241,7 @@ export default config;
         { value: 'account-1', label: 'First account', hint: 'account-1' },
         { value: 'account-2', label: 'Second account', hint: 'account-2' },
       ]);
-      expect(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf-8')).toContain(
+      expect(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf8')).toContain(
         '"account_id": "account-2"',
       );
     } finally {
@@ -4277,7 +4276,7 @@ export default config;
       expect(mockSelect).not.toHaveBeenCalledWith(
         expect.objectContaining({ message: 'Choose a Cloudflare account:' }),
       );
-      expect(JSON.parse(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf-8'))).toEqual({
+      expect(JSON.parse(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf8'))).toEqual({
         compatibility_date: '2026-01-02',
         account_id: 'account-2',
         name: 'my-worker',
@@ -4303,7 +4302,7 @@ export default config;
 
       await runInitCommand(root);
 
-      expect(JSON.parse(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf-8'))).toEqual({
+      expect(JSON.parse(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf8'))).toEqual({
         compatibility_date: LATEST_KNOWN_COMPAT_DATE,
         compatibility_flags: ['nodejs_als'],
       });
@@ -4335,7 +4334,7 @@ export default config;
 
       await runInitCommand(root);
 
-      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf-8'))).toEqual({
+      expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf8'))).toEqual({
         platform: 'none',
       });
       expect(mockGetToken).not.toHaveBeenCalled();
@@ -4576,12 +4575,12 @@ export default config;
         await runInitCommand(root);
 
         expect(readConfig(root).database).toBe(configValue);
-        const schema = readFileSync(join(root, 'db', 'schema.ts'), 'utf-8');
+        const schema = readFileSync(join(root, 'db', 'schema.ts'), 'utf8');
         expect(schema).toContain(`from "${schemaModule}"`);
         expect(schema).not.toContain('void/schema-d1');
         expect(drizzleGenerateCalls()).toHaveLength(1);
         const drizzleConfig = JSON.parse(
-          readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf-8'),
+          readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf8'),
         );
         expect(drizzleConfig.dialect).toBe(dialect);
       } finally {
@@ -4606,7 +4605,7 @@ export default config;
 
       await runInitCommand(root);
 
-      expect(readFileSync(join(root, existingFile), 'utf-8')).toBe(authored);
+      expect(readFileSync(join(root, existingFile), 'utf8')).toBe(authored);
       expect(mockLogInfo).toHaveBeenCalledWith(message);
       const prompts = mockConfirm.mock.calls.map(([options]) => String(options?.message));
       expect(prompts.some((prompt) => prompt.startsWith('Scaffold demo code?'))).toBe(false);
@@ -4758,7 +4757,7 @@ export default config;
 
       await runInitCommand(subpkgRoot);
 
-      const pkg = JSON.parse(readFileSync(join(subpkgRoot, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(subpkgRoot, 'package.json'), 'utf8'));
       expect(pkg.devDependencies.void).toBeDefined();
       expect(pkg.devDependencies['@void/vue']).toBeDefined();
       expect(installCalls()).toHaveLength(0);
@@ -4803,7 +4802,7 @@ export default config;
 
       const outroCalls = mockOutro.mock.calls;
       expect(outroCalls.length).toBeGreaterThan(0);
-      const outroText = String(outroCalls[outroCalls.length - 1][0]);
+      const outroText = String(outroCalls.at(-1)![0]);
       expect(outroText).not.toMatch(/void db generate/);
       expect(outroText).toMatch(/Run your workspace install/);
 
@@ -4985,7 +4984,7 @@ export default config;
 
       await runInitCommand(subpkgRoot);
 
-      const pkg = JSON.parse(readFileSync(join(subpkgRoot, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(subpkgRoot, 'package.json'), 'utf8'));
       expectPnpmAllowBuilds(wsroot);
       expect(pkg.pnpm).toBeUndefined();
       expect(pkg.packageManager).toBeUndefined();
@@ -5007,7 +5006,7 @@ export default config;
 
       await runInitCommand(root);
 
-      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expectPnpmAllowBuilds(root);
       expect(pkg.packageManager).toBeUndefined();
     } finally {
@@ -5026,7 +5025,7 @@ export default config;
       mockSelect.mockResolvedValueOnce('none');
       mockConfirm.mockResolvedValueOnce(false).mockResolvedValueOnce(false);
       await runInitCommand(root);
-      return readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf-8');
+      return readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
     };
     try {
       expect(
@@ -5257,7 +5256,7 @@ describe('generateStarterMigration', () => {
         /Failed to generate the initial database migration/,
       );
 
-      expect(readFileSync(join(metaDir, '_journal.json'), 'utf-8')).toBe(originalJournal);
+      expect(readFileSync(join(metaDir, '_journal.json'), 'utf8')).toBe(originalJournal);
       expect(existsSync(join(metaDir, '0000_snapshot.json'))).toBe(true);
       expect(existsSync(join(migrationsDir, '0000_prev.sql'))).toBe(true);
       expect(existsSync(join(metaDir, '0001_snapshot.json'))).toBe(false);

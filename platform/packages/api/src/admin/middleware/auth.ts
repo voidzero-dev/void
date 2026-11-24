@@ -3,7 +3,8 @@ import { getCookie } from 'hono/cookie';
 import { verifyJwt } from '../../auth/jwt.ts';
 import { validateHumanSession } from '../../auth/sessions.ts';
 import { getUser, getFirstAdmin } from '../../db.ts';
-import { type ApiEnv, isDevBypass } from '../../env.ts';
+import { isDevBypass } from '../../env.ts';
+import type { ApiEnv } from '../../env.ts';
 import { isAdminSuspended } from '../../suspension.ts';
 import { adminAccessRejected, adminRequestRejected } from './request-rejection.ts';
 

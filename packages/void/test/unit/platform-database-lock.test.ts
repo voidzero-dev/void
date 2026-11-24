@@ -2,10 +2,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { getPlatformRuntimeDirectory, readPlatformRuntimeManifest } from '@void/platform/installer';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { claimPlatformDatabase } from '../../src/cli/platform-installer-database.ts';
-import {
-  acquirePlatformDatabaseLifecycleLock,
-  type PlatformDatabaseLifecycleLock,
-} from '../../src/cli/platform-installer.ts';
+import { acquirePlatformDatabaseLifecycleLock } from '../../src/cli/platform-installer.ts';
+import type { PlatformDatabaseLifecycleLock } from '../../src/cli/platform-installer.ts';
 
 const mocks = vi.hoisted(() => ({ pool: vi.fn() }));
 vi.mock('pg', () => ({ Pool: mocks.pool }));
@@ -17,7 +15,7 @@ beforeEach(async () => {
   database = new PGlite();
   await database.waitReady;
   queries = [];
-  mocks.pool.mockImplementation(function () {
+  mocks.pool.mockImplementation(function MockPool() {
     const query = async (sql: string, values?: Array<unknown>) => {
       queries.push(sql);
       // PGlite has one session and no advisory locks. All ownership, migration,

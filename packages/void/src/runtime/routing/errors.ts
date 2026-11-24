@@ -31,48 +31,112 @@ export type ErrorRenderer = {
 };
 const ERROR_PAGE_FONT_STACK =
   'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
-const errorStack = Error as unknown as {
+const errorStack = Error as {
   captureStackTrace?: (error: Error, constructor?: Function) => void;
   prepareStackTrace?: (error: Error, sites: Array<NodeJS.CallSite>) => unknown;
 };
 
+function injectErrorAssetCss(html: string, css: string): string {
+  if (!css) {
+    return html;
+  }
+  return /<\/head\s*>/i.test(html)
+    ? html.replace(/<\/head\s*>/i, () => css + '</head>')
+    : css + html;
+}
+
+function getErrorAssetCss(error: unknown): string {
+  const tags =
+    error &&
+    (typeof error === 'object' || typeof error === 'function') &&
+    '__voidPageAssetTags' in error
+      ? error.__voidPageAssetTags
+      : null;
+  return tags && typeof tags === 'object' && 'css' in tags && typeof tags.css === 'string'
+    ? tags.css
+    : '';
+}
+
+function injectDevErrorOverlay(html: string, overlay: string): string {
+  return /<\/body\s*>/i.test(html)
+    ? html.replace(/<\/body\s*>/i, () => overlay + '</body>')
+    : html + overlay;
+}
+
+function isAbsolutePath(value: string): boolean {
+  return value.startsWith('/') || /^[A-Za-z]:\//.test(value);
+}
+
+function normalizeFsPath(value: unknown): string {
+  return typeof value === 'string' ? value.replaceAll('\\', '/') : '';
+}
+
+function shouldServeHtmlErrorPage(request: Request): boolean {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return false;
+  }
+  const url = new URL(request.url);
+  if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+    return false;
+  }
+  if (/\/[^/]+\.[^/]+$/.test(url.pathname)) {
+    return false;
+  }
+  const destination = request.headers.get('sec-fetch-dest');
+  if (destination && destination !== 'document' && destination !== 'empty') {
+    return false;
+  }
+  const accept = request.headers.get('accept');
+  return !accept || accept.includes('text/html') || accept.includes('*/*');
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function editorHref(value: unknown, line: number, column: number): string {
+  const path = normalizeFsPath(value);
+  if (!isAbsolutePath(path)) {
+    return '';
+  }
+  return (
+    'vscode://file/' +
+    encodeURI(path).replaceAll('#', '%23').replaceAll('?', '%3F') +
+    ':' +
+    String(line) +
+    ':' +
+    String(column)
+  );
+}
+
+function renderStack(entry: ErrorDetails): string {
+  if (Array.isArray(entry.frames) && entry.frames.length > 0) {
+    const items = entry.frames
+      .map((frame) => {
+        const name = frame.functionName || '(anonymous)';
+        const location = frame.displayPath + ':' + frame.line + ':' + frame.column;
+        const body = `<span class="__void-error-frame-function">${escapeHtml(name)}</span><span class="__void-error-frame-location">${escapeHtml(location)}</span>`;
+        if (frame.href) {
+          return `<a class="__void-error-frame" href="${escapeHtml(frame.href)}">${body}</a>`;
+        }
+        return `<div class="__void-error-frame is-static">${body}</div>`;
+      })
+      .join('');
+    return `<div class="__void-error-stack"><div class="__void-error-stack-label">Stack trace</div><div class="__void-error-frames">${items}</div></div>`;
+  }
+  if (!entry.stack) {
+    return '';
+  }
+  return `<div class="__void-error-stack"><div class="__void-error-stack-label">Stack trace</div><pre>${escapeHtml(entry.stack)}</pre></div>`;
+}
+
 /** Error rendering is shared by generated Pages apps; production never includes exception details. */
 export function createErrorRenderer(options: ErrorRendererOptions): ErrorRenderer {
   const dev = options.dev === true;
-  function escapeHtml(value: unknown): string {
-    return String(value)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;');
-  }
-
-  function shouldServeHtmlErrorPage(request: Request): boolean {
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      return false;
-    }
-    const url = new URL(request.url);
-    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      return false;
-    }
-    if (/\/[^/]+\.[^/]+$/.test(url.pathname)) {
-      return false;
-    }
-    const destination = request.headers.get('sec-fetch-dest');
-    if (destination && destination !== 'document' && destination !== 'empty') {
-      return false;
-    }
-    const accept = request.headers.get('accept');
-    return !accept || accept.includes('text/html') || accept.includes('*/*');
-  }
-
-  function normalizeFsPath(value: unknown): string {
-    return typeof value === 'string' ? value.replaceAll('\\', '/') : '';
-  }
-
-  function isAbsolutePath(value: string): boolean {
-    return value.startsWith('/') || /^[A-Za-z]:\//.test(value);
-  }
 
   function toDisplayPath(value: unknown): string {
     const path = normalizeFsPath(value);
@@ -90,21 +154,6 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
       return suffix ? '~/' + suffix : '~/';
     }
     return path;
-  }
-
-  function editorHref(value: unknown, line: number, column: number): string {
-    const path = normalizeFsPath(value);
-    if (!isAbsolutePath(path)) {
-      return '';
-    }
-    return (
-      'vscode://file/' +
-      encodeURI(path).replaceAll('#', '%23').replaceAll('?', '%3F') +
-      ':' +
-      String(line) +
-      ':' +
-      String(column)
-    );
   }
 
   function createStackFrame(
@@ -235,7 +284,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
     if (typeof value === 'string') {
       return { name: 'Thrown value', message: value, stack: '', frames: [] };
     }
-    let message = '';
+    let message: string;
     try {
       if (typeof value === 'object' && value !== null) {
         message = JSON.stringify(value, null, 2) ?? String(value);
@@ -248,33 +297,12 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
     return { name: 'Thrown value', message, stack: '', frames: [] };
   }
 
-  function renderStack(entry: ErrorDetails): string {
-    if (Array.isArray(entry.frames) && entry.frames.length > 0) {
-      const items = entry.frames
-        .map((frame) => {
-          const name = frame.functionName || '(anonymous)';
-          const location = frame.displayPath + ':' + frame.line + ':' + frame.column;
-          const body = `<span class="__void-error-frame-function">${escapeHtml(name)}</span><span class="__void-error-frame-location">${escapeHtml(location)}</span>`;
-          if (frame.href) {
-            return `<a class="__void-error-frame" href="${escapeHtml(frame.href)}">${body}</a>`;
-          }
-          return `<div class="__void-error-frame is-static">${body}</div>`;
-        })
-        .join('');
-      return `<div class="__void-error-stack"><div class="__void-error-stack-label">Stack trace</div><div class="__void-error-frames">${items}</div></div>`;
-    }
-    if (!entry.stack) {
-      return '';
-    }
-    return `<div class="__void-error-stack"><div class="__void-error-stack-label">Stack trace</div><pre>${escapeHtml(entry.stack)}</pre></div>`;
-  }
-
   function collectErrorChain(error: unknown): Array<ErrorDetails & { label: string }> {
     const chain = [];
     const seen = new Set();
     let current = error;
     let depth = 0;
-    while (current != null && depth < 8 && !seen.has(current)) {
+    while (current !== null && current !== undefined && depth < 8 && !seen.has(current)) {
       seen.add(current);
       const entry = describeThrownValue(current);
       chain.push({
@@ -284,7 +312,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
       current = current instanceof Error ? current.cause : undefined;
       depth += 1;
     }
-    if (current != null) {
+    if (current !== null && current !== undefined) {
       chain.push({
         label: 'Cause ' + depth,
         name: 'Truncated',
@@ -548,33 +576,6 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
     }
   </style>
 <aside class="__void-error-overlay" data-void-error-overlay role="dialog" aria-label="Void dev error overlay"><div class="__void-error-backdrop" data-void-error-backdrop></div><section class="__void-error-panel"><button type="button" class="__void-error-close" data-void-error-close aria-label="Minimize error overlay"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.757 3.757 12.243 12.243M12.243 3.757 3.757 12.243" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg></button><header class="__void-error-header"><p class="__void-error-status">${escapeHtml(String(status) + ': ' + title)}</p></header>${sections}</section><button type="button" class="__void-error-minimized" data-void-error-toggle aria-label="Show dev error overlay" aria-expanded="true">${escapeHtml(errorCountLabel)}</button><script>(function(){const script=document.currentScript;if(!(script instanceof HTMLScriptElement))return;const root=script.closest("[data-void-error-overlay]");if(!(root instanceof HTMLElement))return;const backdrop=root.querySelector("[data-void-error-backdrop]");const closeButton=root.querySelector("[data-void-error-close]");const toggle=root.querySelector("[data-void-error-toggle]");const setMinimized=(minimized)=>{root.classList.toggle("is-minimized", minimized);if(toggle instanceof HTMLElement)toggle.setAttribute("aria-expanded", minimized ? "false" : "true");};if(backdrop instanceof HTMLElement)backdrop.addEventListener("click",()=>setMinimized(true));if(closeButton instanceof HTMLElement)closeButton.addEventListener("click",()=>setMinimized(true));if(toggle instanceof HTMLElement)toggle.addEventListener("click",()=>setMinimized(false));})();</script></aside>`;
-  }
-
-  function injectDevErrorOverlay(html: string, overlay: string): string {
-    return /<\/body\s*>/i.test(html)
-      ? html.replace(/<\/body\s*>/i, () => overlay + '</body>')
-      : html + overlay;
-  }
-
-  function getErrorAssetCss(error: unknown): string {
-    const tags =
-      error &&
-      (typeof error === 'object' || typeof error === 'function') &&
-      '__voidPageAssetTags' in error
-        ? error.__voidPageAssetTags
-        : null;
-    return tags && typeof tags === 'object' && 'css' in tags && typeof tags.css === 'string'
-      ? tags.css
-      : '';
-  }
-
-  function injectErrorAssetCss(html: string, css: string): string {
-    if (!css) {
-      return html;
-    }
-    return /<\/head\s*>/i.test(html)
-      ? html.replace(/<\/head\s*>/i, () => css + '</head>')
-      : css + html;
   }
 
   function renderErrorPage(status: ErrorPageStatus, title: string, error?: unknown): string {

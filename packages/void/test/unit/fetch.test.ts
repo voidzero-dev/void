@@ -101,7 +101,7 @@ describe('typed fetch client', () => {
       new Response('Not Found', { status: 404, statusText: 'Not Found' }),
     );
 
-    const err = await typedFetch('/api/hello', { retry: 0 }).catch((e: Error) => e);
+    const err = await typedFetch('/api/hello', { retry: 0 }).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(FetchError);
     expect((err as FetchError).status).toBe(404);

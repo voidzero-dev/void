@@ -8,7 +8,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
@@ -50,7 +51,9 @@ beforeEach(async () => {
     response.writeHead(result.status ?? 200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify(result.body));
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   const address = server.address();
   if (!address || typeof address === 'string') {
     throw new Error('Missing server address');
@@ -60,7 +63,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   server.closeAllConnections();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  });
   rmSync(directory, { recursive: true, force: true });
 });
 

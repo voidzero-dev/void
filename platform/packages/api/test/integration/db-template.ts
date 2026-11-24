@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
+// oxlint-disable-next-line import/no-namespace -- Drizzle consumes the full schema module with its relations.
 import * as schema from '../../src/schema.ts';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('../../drizzle', import.meta.url));

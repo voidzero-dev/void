@@ -1,19 +1,15 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  encodeCloudflareVersionMessage,
-  type CloudflareOperation,
-  type CloudflareTriggerConfig,
-} from '@void/deploy-cloudflare';
+import { encodeCloudflareVersionMessage } from '@void/deploy-cloudflare';
+import type { CloudflareOperation, CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import {
   createPlatformDeploymentManifest,
   createPlatformInstallationManifest,
   createPlatformResourceOwnershipMarker,
   recordInstallationResource,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { InstallationResourceKind, PlatformInstallationManifest } from '@void/platform';
 import { getPlatformRuntimeDirectory, resolvePlatformRuntime } from '@void/platform/installer';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
@@ -43,13 +39,13 @@ import {
   findPlatformWorkerOutsideChanges,
   reviewPlatformWorkerOutsideChanges,
   uploadPlatformWorkerOutsideChanges,
-  type PlatformOutsideChangeInstallation,
-  type PlatformWorkerOutsideChange,
 } from '../../src/cli/platform-installer-outside-changes.ts';
-import {
-  deployPlatformWorker,
-  type runPlatformWrangler,
-} from '../../src/cli/platform-installer-workers.ts';
+import type {
+  PlatformOutsideChangeInstallation,
+  PlatformWorkerOutsideChange,
+} from '../../src/cli/platform-installer-outside-changes.ts';
+import { deployPlatformWorker } from '../../src/cli/platform-installer-workers.ts';
+import type { runPlatformWrangler } from '../../src/cli/platform-installer-workers.ts';
 import type {
   PlatformInstallPlan,
   PlatformInstallPlanAction,
@@ -215,7 +211,7 @@ describe('Worker change source', () => {
         {
           success: false,
           result: null,
-          errors: [{ code: 10090, message: 'This Worker does not exist on this account.' }],
+          errors: [{ code: 10_090, message: 'This Worker does not exist on this account.' }],
         },
         { status: 404 },
       ),
@@ -228,7 +224,7 @@ describe('Worker change source', () => {
   it('reports other failed reads', async () => {
     const reader = client(() =>
       Response.json(
-        { success: false, errors: [{ code: 10000, message: 'Internal error' }] },
+        { success: false, errors: [{ code: 10_000, message: 'Internal error' }] },
         { status: 500 },
       ),
     );

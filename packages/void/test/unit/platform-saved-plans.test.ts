@@ -9,10 +9,8 @@ import {
   removeSavedPlatformInstallPlan,
   savePlatformInstallChoices,
 } from '../../src/cli/platform-saved-plans.ts';
-import {
-  platformInstallCommandArguments,
-  type PlatformInstallCommandOptions,
-} from '../../src/cli/platform-setup.ts';
+import { platformInstallCommandArguments } from '../../src/cli/platform-setup.ts';
+import type { PlatformInstallCommandOptions } from '../../src/cli/platform-setup.ts';
 
 let directory: string;
 const options: PlatformInstallCommandOptions = {

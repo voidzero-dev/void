@@ -36,8 +36,8 @@ async function assertion(audience = 'wildcard-aud', claims: Record<string, unkno
     aud: [audience],
     sub: 'employee',
     type: 'app',
-    iat: Math.floor(Date.now() / 1_000),
-    exp: Math.floor(Date.now() / 1_000) + 600,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 600,
     ...claims,
   })
     .setProtectedHeader({ alg: 'RS256', kid: 'key-1' })
@@ -129,7 +129,7 @@ describe('project Access verification', () => {
     await expect(
       verifier.verify(
         'project.apps.example.com',
-        await assertion('wildcard-aud', { iat: Math.floor(Date.now() / 1_000) + 120 }),
+        await assertion('wildcard-aud', { iat: Math.floor(Date.now() / 1000) + 120 }),
         routing,
       ),
     ).resolves.toBe(false);

@@ -1,12 +1,13 @@
-import { eventStream, type SseStream } from '../sse/index.ts';
-import {
-  __getLiveBindingName,
-  type LiveClientEvent,
-  type LiveControlErrorCode,
-  type LiveControlOperation,
-  type LiveControlOperationResult,
-  type LiveControlResponse,
-  type LiveLimits,
+import { eventStream } from '../sse/index.ts';
+import type { SseStream } from '../sse/index.ts';
+import { __getLiveBindingName } from './index.ts';
+import type {
+  LiveClientEvent,
+  LiveControlErrorCode,
+  LiveControlOperation,
+  LiveControlOperationResult,
+  LiveControlResponse,
+  LiveLimits,
 } from './index.ts';
 import { connectionInstanceName, internalUrl, topicDigest, topicInstanceName } from './names.ts';
 
@@ -405,7 +406,12 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
         return Response.json({ ok: true });
       }
       const key =
-        row.connectionId && row.subscriptionId && row.generation != null && row.revision != null
+        row.connectionId &&
+        row.subscriptionId &&
+        row.generation !== null &&
+        row.generation !== undefined &&
+        row.revision !== null &&
+        row.revision !== undefined
           ? subscriberKey(row as SubscriberRow)
           : undefined;
       if (key) {
@@ -482,7 +488,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
     private async pruneAllSubscribers(): Promise<void> {
       const rows = await this.state.storage.list<SubscriberRow>({ prefix: 'sub:' });
       const staleKeys = await this.findStaleSubscriberKeys([...rows], {
-        deliveryAttemptTimeoutMs: 1_500,
+        deliveryAttemptTimeoutMs: 1500,
       });
       if (staleKeys.length > 0) {
         await this.state.storage.delete(staleKeys);

@@ -1,5 +1,7 @@
-import { deployArtifactDigest, createDeployArtifact, type DeployArtifact } from '@void/deploy-core';
-import { and, eq, gt, isNull, sql, type SQL } from 'drizzle-orm';
+import { deployArtifactDigest, createDeployArtifact } from '@void/deploy-core';
+import type { DeployArtifact } from '@void/deploy-core';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import {

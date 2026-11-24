@@ -1,6 +1,7 @@
 import { walk } from 'estree-walker';
 import { parseSync } from 'vite';
-import { isIdentifier, isMemberExpression, type AstNode } from '../shared/ast.ts';
+import { isIdentifier, isMemberExpression } from '../shared/ast.ts';
+import type { AstNode } from '../shared/ast.ts';
 import { staticModuleReferences } from '../shared/module-references.ts';
 import { staticLiteral, unwrapStaticExpression } from '../shared/static-exports.ts';
 import { CLIENT_MODULES, inferClientAuth } from './client-auth.ts';
@@ -28,6 +29,20 @@ export type InferredBindings = {
 const ENV_BINDING_RE = /\benv\b|\\(?:u|x|[0-7\r\n\u2028\u2029])/;
 const RESOURCE_BINDING_RE =
   /\b(?:DB\b|KV\b|STORAGE\b|AI\b|SANDBOX\b|QUEUE_)|\\(?:u|x|[0-7A-Z_\r\n\u2028\u2029])/;
+
+function propertyName(node: AstNode): string | undefined {
+  const key = (node.property ?? node.key) as AstNode | undefined;
+  const name = !node.computed && isIdentifier(key) ? key.name : staticLiteral(key);
+  return typeof name === 'string' ? name : undefined;
+}
+
+function isEnv(node: AstNode | undefined): boolean {
+  node = unwrapStaticExpression(node);
+  return (
+    (isIdentifier(node) && node.name === 'env') ||
+    (isMemberExpression(node) && propertyName(node) === 'env')
+  );
+}
 
 /**
  * Infer which Cloudflare bindings a source file uses.
@@ -118,20 +133,6 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
     return result;
   }
 
-  function propertyName(node: AstNode): string | undefined {
-    const key = (node.property ?? node.key) as AstNode | undefined;
-    const name = !node.computed && isIdentifier(key) ? key.name : staticLiteral(key);
-    return typeof name === 'string' ? name : undefined;
-  }
-
-  function isEnv(node: AstNode | undefined): boolean {
-    node = unwrapStaticExpression(node);
-    return (
-      (isIdentifier(node) && node.name === 'env') ||
-      (isMemberExpression(node) && propertyName(node) === 'env')
-    );
-  }
-
   function recordBinding(name: string | undefined): void {
     switch (name) {
       case 'DB':
@@ -177,7 +178,7 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
     }
   }
 
-  walk(parsed.program as unknown as Parameters<typeof walk>[0], {
+  walk(parsed.program as Parameters<typeof walk>[0], {
     enter(node) {
       const current = node as AstNode;
       if (isMemberExpression(current) && isEnv(current.object)) {

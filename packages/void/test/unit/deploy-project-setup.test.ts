@@ -132,7 +132,7 @@ describe('promptDeployProjectConfig', () => {
     });
     expect(client.createProject).toHaveBeenCalledWith('new-app');
     expect(config).toEqual({ projectId: 'proj_new', slug: 'new-app' });
-    expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf-8'))).toEqual({
+    expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf8'))).toEqual({
       applicationDomain: 'void.app',
       platform: 'void',
       platformUrl: 'https://api.void.cloud',

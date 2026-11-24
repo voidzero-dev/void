@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { join } from 'pathslash';
 import type { PlatformClient, ProjectResponse } from './client.ts';
-import { readProjectConfig, type ProjectConfig } from './project.ts';
+import { readProjectConfig } from './project.ts';
+import type { ProjectConfig } from './project.ts';
 
 export function getRequestedProjectSlug(options?: { projectSlug?: string }): string | null {
   const cliSlug = options?.projectSlug?.trim();
@@ -62,7 +63,7 @@ export async function resolveCommandProjectId(
 
 export function inferDefaultSlug(root: string): string {
   const pkgPath = join(root, 'package.json');
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
   const name: string = pkg.name ?? 'my-app';
-  return name.replace(/^@[^/]+\//, '').replace(/[^a-z0-9-]/g, '-');
+  return name.replace(/^@[^/]+\//, '').replaceAll(/[^a-z0-9-]/g, '-');
 }

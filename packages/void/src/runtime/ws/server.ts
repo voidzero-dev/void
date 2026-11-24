@@ -1,7 +1,8 @@
 import { DurableObject as CloudflareDurableObject } from 'cloudflare:workers';
 import type { StandardSchemaV1 } from '../../standard-schema.ts';
 import type { VoidAuthEnv, VoidAuthRuntimeOptions } from '../auth/better-auth-shared.ts';
-import { authContext, type AuthState, type AuthUser } from '../auth/index.ts';
+import { authContext } from '../auth/index.ts';
+import type { AuthState, AuthUser } from '../auth/index.ts';
 import { withRuntimeEnv } from '../env/runtime.ts';
 import type { CloudEnv } from '../handler/index.ts';
 import type {
@@ -90,7 +91,7 @@ function matchRoute(
       return { matched: true, params };
     }
 
-    if (pathSegment == null) {
+    if (pathSegment === null || pathSegment === undefined) {
       return { matched: false, params: {} };
     }
 
@@ -167,7 +168,10 @@ const WEB_SOCKET_ROUTES_SYMBOL: unique symbol = Symbol.for('void.webSocketRoutes
 const sharedWebSocketRoutes = globalThis as {
   [WEB_SOCKET_ROUTES_SYMBOL]?: Map<string, WebSocketRouteMeta>;
 };
-const webSocketRoutes = (sharedWebSocketRoutes[WEB_SOCKET_ROUTES_SYMBOL] ??= new Map());
+const webSocketRoutes = (sharedWebSocketRoutes[WEB_SOCKET_ROUTES_SYMBOL] ??= new Map<
+  string,
+  WebSocketRouteMeta
+>());
 
 /** @internal Called by the generated route table. */
 export function __registerWebSocketRoutes(routes: Array<WebSocketRouteMeta>): void {
@@ -210,7 +214,7 @@ function withAuthState<T>(state: AuthState | null, fn: () => Promise<T> | T): Pr
 
 function getStoredConnection(webSocket: WebSocket): StoredConnection {
   const stored = (
-    webSocket as WebSocket & {
+    webSocket as {
       deserializeAttachment?: () => StoredConnection | undefined;
     }
   ).deserializeAttachment?.();
