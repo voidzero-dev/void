@@ -589,6 +589,7 @@ const config = defineConfig({
       'unicorn/prefer-at': 'off',
       // Several build and tooling modules use URL resolution for bundle-relative files. Verify packed and bundled paths before simplifying.
       'unicorn/prefer-import-meta-properties': 'off',
+      // Code generators and CLI output accumulate lines across distinct steps. Preserve staging and evaluation order before merging pushes.
       'unicorn/prefer-single-call': 'off',
       'unicorn/prefer-structured-clone': 'off',
       'unicorn/prefer-top-level-await': 'off',
