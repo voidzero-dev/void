@@ -142,7 +142,7 @@ app.post('/resolve-ingress', async (context) => {
     accountId: accountId as string,
     zoneId: zoneId as string,
     ingressName: ingressName as string,
-    recipient: recipient,
+    recipient,
   });
   if (!resolved) {
     return context.json({ error: 'unregistered or disabled email domain' }, 404);

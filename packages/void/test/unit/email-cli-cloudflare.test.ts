@@ -46,7 +46,7 @@ function routingSettings(name: string, status: string, enabled = true): EmailWra
   return {
     status: 0,
     stdout: '',
-    data: { name, enabled: enabled, status, tag: ZONE_ID },
+    data: { name, enabled, status, tag: ZONE_ID },
     stderr: BETA_WARNING,
   };
 }

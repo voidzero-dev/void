@@ -94,7 +94,7 @@ function routingSettings(
   return {
     status: 0,
     stdout: '',
-    data: { name, enabled: enabled, status, tag: tag },
+    data: { name, enabled, status, tag },
     stderr: BETA_WARNING,
   };
 }

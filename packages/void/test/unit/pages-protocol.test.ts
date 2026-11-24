@@ -775,7 +775,7 @@ describe('handlePageMutation', () => {
     'allows same-origin browser actions and requests without browser metadata: %j',
     async (headers) => {
       const c = await createTestContext('POST', '/settings', {
-        headers: headers,
+        headers,
       });
       const action = vi.fn(() => Response.redirect('http://localhost/settings', 303));
       const response = await handlePageMutation(

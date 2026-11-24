@@ -2655,7 +2655,7 @@ async function reconcileD1(
         assertD1MigrationsDirApplied(res, binding, configPath);
         resources.push({ kind: 'd1', binding, name, action: 'adopted', id: existing.id });
       } else {
-        const created = await runWrangler({ type: 'd1.create', name: name, binding, configPath });
+        const created = await runWrangler({ type: 'd1.create', name, binding, configPath });
         if (isCleanSuccess(created)) {
           // Verify the id landed, then set migrations_dir.
           assertCreateWroteRealId(
@@ -2677,7 +2677,7 @@ async function reconcileD1(
           resources.push({ kind: 'd1', binding, name, action: 'created' });
         } else if (isCleanFailure(created) && isAlreadyExistsError(created)) {
           // Created between list and create (code 7502): adopt only an exact `d1 info` match.
-          const infoResult = await runWrangler({ type: 'd1.info', name: name, configPath }, {});
+          const infoResult = await runWrangler({ type: 'd1.info', name, configPath }, {});
           assertDiscoverySucceeded(infoResult, `Cloudflare d1 info ${name}`);
           const info = normalizeD1(isRecord(infoResult.data) ? infoResult.data : undefined, name);
           if (info.kind !== 'match') {
@@ -3004,7 +3004,7 @@ async function reconcileHyperdrive(
         );
       } else {
         const created = await runWrangler(
-          { type: 'hyperdrive.create', name: name, binding, configPath },
+          { type: 'hyperdrive.create', name, binding, configPath },
           { input: connectionString },
         );
         if (!isCleanSuccess(created)) {
@@ -3039,7 +3039,7 @@ async function reconcileQueues(
 ): Promise<void> {
   // Only ensures each queue exists; the deploy orchestrator writes the queue bindings.
   for (const name of desired.queues) {
-    const info = await runWrangler({ type: 'queues.info', name: name, configPath });
+    const info = await runWrangler({ type: 'queues.info', name, configPath });
     // Reuse only when the probe names this queue; a bare exit 0 is not trusted.
     if (queueInfoConfirmsExists(info, name)) {
       resources.push({ kind: 'queue', name, action: 'reused' });
@@ -3052,14 +3052,14 @@ async function reconcileQueues(
           `${info.stderr || info.stdout || 'no output'}`,
       );
     }
-    const created = await runWrangler({ type: 'queues.create', name: name, configPath });
+    const created = await runWrangler({ type: 'queues.create', name, configPath });
     if (!isCleanSuccess(created)) {
       throw new Error(
         `provision: Cloudflare queues create ${name} failed: ${created.stderr || created.stdout}`,
       );
     }
     // Queue creates write no config, so re-probe to confirm.
-    const verify = await runWrangler({ type: 'queues.info', name: name, configPath });
+    const verify = await runWrangler({ type: 'queues.info', name, configPath });
     if (!queueInfoConfirmsExists(verify, name)) {
       throw new Error(
         `provision: Cloudflare queues create ${name} reported success but Cloudflare queues info ` +

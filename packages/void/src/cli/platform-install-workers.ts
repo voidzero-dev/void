@@ -326,7 +326,7 @@ export async function uploadInstallationWorkers(input: {
                 .map((route) => route.pattern),
           preservedRoutes,
           previousConfig: previousWorkerConfig,
-          previousPublicEndpoints: previousPublicEndpoints,
+          previousPublicEndpoints,
           ...(dependencies.replaceOutsideChanges?.includes(action.name)
             ? { replaceOutsideChanges: true }
             : {}),

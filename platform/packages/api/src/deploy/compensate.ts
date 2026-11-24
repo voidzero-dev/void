@@ -109,14 +109,14 @@ export async function recoverFailedDeployment(input: {
   const msg = sanitizeDeployErrorMessage(raw);
   if (msg !== raw) {
     logger.error('catch', 'raw_error_before_sanitization', err, {
-      workerName: workerName,
+      workerName,
       currentPhase: currentStep,
     });
   }
   logger.error('catch', 'pipeline_error', err, {
     currentPhase: currentStep,
-    routingSwitched: routingSwitched,
-    workerUploaded: workerUploaded,
+    routingSwitched,
+    workerUploaded,
   });
 
   // Evict the WfP mirror manifest on pre-routing failure.

@@ -443,7 +443,7 @@ export async function uploadDeploymentWorker(input: {
       apiToken: context.env.CF_API_TOKEN,
       apiService: context.env.SANDBOX_CONTROL_SERVICE ?? 'void-api',
       identity: {
-        projectId: projectId,
+        projectId,
         deploymentId: deployment.id,
         userId: owner.id,
         slug: project.slug,

@@ -140,7 +140,7 @@ export async function putCloudflareSecret(
     context,
     {
       type: 'secret.put',
-      name: name,
+      name,
       configPath: context.configPath,
       workerName: context.workerName,
     },
@@ -168,7 +168,7 @@ export async function deleteCloudflareSecret(
 ): Promise<void> {
   await run(context, {
     type: 'secret.delete',
-    name: name,
+    name,
     configPath: context.configPath,
     workerName: context.workerName,
   });
@@ -505,7 +505,7 @@ export async function activateCloudflareExistingVersion(
       versions: [{ versionId: target.id, percentage: 100 }],
       configPath: context.configPath,
       workerName: context.workerName,
-      message: message,
+      message,
     },
     { capture: false },
   );

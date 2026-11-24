@@ -151,7 +151,7 @@ export async function publishStaticDeployment(input: {
 
   input.currentStep = 'cutover_intent';
   const cutoverMarker: CutoverMarker = {
-    projectId: projectId,
+    projectId,
     ownerId: cutoverOwnerId,
     buildId: deployBuild ?? null,
   };
@@ -192,11 +192,11 @@ export async function publishStaticDeployment(input: {
     const zeroTrust = await resolveProjectZeroTrustRouting(txDb, projectId);
     const routingJson = buildStaticRoutingJson({
       privatePreview: Boolean(project.preview_client_id),
-      projectId: projectId,
+      projectId,
       userId: project.user_id,
       deploymentId: deployment.id,
       assetConfig,
-      manifest: manifest,
+      manifest,
       suspended:
         existingEntry?.suspended ??
         (currentOwner.suspended_reason === REASON_REQUESTS_EXCEEDED

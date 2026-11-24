@@ -151,7 +151,7 @@ export async function publishWorkerDeployment(input: {
 
   input.currentStep = 'cutover_intent';
   const cutoverMarker: CutoverMarker = {
-    projectId: projectId,
+    projectId,
     ownerId: cutoverOwnerId,
     buildId: deployBuild ?? null,
   };
@@ -241,8 +241,8 @@ export async function publishWorkerDeployment(input: {
       await putTrackedRouting(
         queueKey,
         JSON.stringify({
-          workerName: workerName,
-          projectId: projectId,
+          workerName,
+          projectId,
           queueName: outcome.q.name,
           proxyToken,
         }),
@@ -372,10 +372,10 @@ export async function publishWorkerDeployment(input: {
     const zeroTrust = await resolveProjectZeroTrustRouting(txDb, projectId);
     const routingJson = buildRoutingJson({
       privatePreview: Boolean(project.preview_client_id),
-      workerName: workerName,
-      projectId: projectId,
+      workerName,
+      projectId,
       userId: project.user_id,
-      manifest: manifest,
+      manifest,
       deploymentId: deployment.id,
       dispatchLimits,
       suspended:
@@ -415,7 +415,7 @@ export async function publishWorkerDeployment(input: {
     input.cronSchedulerWriteAttempted = true;
     if (hasCrons) {
       await syncCronScheduler(context.env, projectId, {
-        workerName: workerName,
+        workerName,
         schedules: manifest.schedules!,
         proxyToken,
       });
