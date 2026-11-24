@@ -509,7 +509,7 @@ async function rejectedAdmissionReason(response: Response): Promise<string | nul
   const bytes = new Uint8Array(ADMISSION_REASON_MAX_BYTES);
   let size = 0;
   try {
-    if (type.split(';')[0]!.trim().toLowerCase() !== 'application/json') {
+    if (type.split(';')[0].trim().toLowerCase() !== 'application/json') {
       return null;
     }
     for (;;) {

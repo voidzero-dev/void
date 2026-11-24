@@ -1217,14 +1217,14 @@ describe('durable execution claim and revocation', () => {
     expect(message.retry).not.toHaveBeenCalled();
     const [deployment] = await env.db.select().from(deployments);
     expect(deployment).toMatchObject({ id, status: 'failed' });
-    expect(deployment!.error_message).toContain(
+    expect(deployment.error_message).toContain(
       'Zero Trust protection for this project is not ready: The project public exception is still reconciling.',
     );
-    expect(deployment!.error_message).toContain('then retry.');
+    expect(deployment.error_message).toContain('then retry.');
     const operation = await getDeploymentOperation(env.db, id);
     expect(operation?.events.at(-1)?.event).toMatchObject({
       event: 'error',
-      message: deployment!.error_message,
+      message: deployment.error_message,
       step: 'authorization',
     });
   });
