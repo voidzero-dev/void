@@ -442,7 +442,6 @@ const config = defineConfig({
       'typescript/no-unsafe-member-access': 'off',
       'typescript/no-unsafe-return': 'off',
       'typescript/no-unsafe-type-assertion': 'off',
-      'typescript/no-unsafe-unary-minus': 'off',
       'typescript/only-throw-error': 'off',
       'typescript/require-array-sort-compare': 'off',
       'typescript/return-await': 'off',

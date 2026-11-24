@@ -50,13 +50,17 @@ export function runPty(
         return;
       }
       try {
-        process.kill(-child.pid, 'SIGTERM');
+        if (child.pid !== undefined) {
+          process.kill(-child.pid, 'SIGTERM');
+        }
       } catch {
         /* already exited */
       }
       force = setTimeout(() => {
         try {
-          process.kill(-child.pid, 'SIGKILL');
+          if (child.pid !== undefined) {
+            process.kill(-child.pid, 'SIGKILL');
+          }
         } catch {
           /* already exited */
         }
