@@ -180,6 +180,7 @@ it.each([1, 0])(
           createHyperdrive: provision,
           getHyperdriveConfig: provision,
           disableHyperdriveCaching: provision,
+          setHyperdriveOriginConnectionLimit: provision,
           createKvNamespace: provision,
           createQueue: provision,
           createR2Bucket: provision,

@@ -395,6 +395,25 @@ type PlatformDatabaseMigrationRow = Readonly<{
   id: unknown;
 }>;
 
+/**
+ * Connections the server accepts from roles without SUPERUSER. PostgreSQL 16 added
+ * reserved_connections; older servers report it as missing, which counts as zero.
+ */
+export async function readPlatformDatabaseConnectionSlotsConnection(
+  client: QueryConnection,
+): Promise<number> {
+  const result = await client.query<{ max: number; superuser: number; reserved: number }>(
+    `SELECT current_setting('max_connections')::int AS "max",
+            current_setting('superuser_reserved_connections')::int AS "superuser",
+            COALESCE(current_setting('reserved_connections', true), '0')::int AS "reserved"`,
+  );
+  const row = result.rows[0];
+  if (!row || ![row.max, row.superuser, row.reserved].every(Number.isInteger)) {
+    throw new Error('platform: Could not read the PostgreSQL connection limit.');
+  }
+  return Math.max(0, row.max - row.superuser - row.reserved);
+}
+
 export async function inspectPlatformDatabaseStateConnection(
   client: QueryConnection,
   database: PlatformRuntimeDatabaseManifest,
@@ -669,6 +688,7 @@ export async function acquirePlatformDatabaseLifecycleLockConnection(
   release.readAdministratorSetup = () => readPlatformAdministratorSetupConnection(client);
   release.readProjectZeroTrust = () => readPlatformProjectZeroTrustStateConnection(client);
   release.readProjects = () => readPlatformProjectSlugsConnection(client);
+  release.readConnectionSlots = () => readPlatformDatabaseConnectionSlotsConnection(client);
   release.publishAiLogging = (kv, onProgress) =>
     projectPlatformAiLoggingConnection(client, kv, { onProgress });
   release.lockProjectZeroTrust = () => lockPlatformProjectZeroTrustConnection(client);

@@ -271,6 +271,7 @@ async function createFakeCloudflare() {
       kv.delete(`${namespace}/${key}`);
     },
     disableHyperdriveCaching: async () => {},
+    setHyperdriveOriginConnectionLimit: async () => {},
     getHyperdriveConfig: async (_account: string, id: string) => ({
       cachingDisabled: true,
       id,
