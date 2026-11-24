@@ -579,6 +579,7 @@ const config = defineConfig({
       'typescript/return-await': 'off',
       // Several adapters expose closure-backed operations and stable references. Review receiver binding and function identity before changing them.
       'typescript/unbound-method': 'off',
+      // Promise rejection handlers need boundary-specific narrowing for logging, provider retry classification, and test assertions.
       'typescript/use-unknown-in-catch-callback-variable': 'off',
       'unicorn/catch-error-name': 'off',
       'unicorn/consistent-function-scoping': 'off',
