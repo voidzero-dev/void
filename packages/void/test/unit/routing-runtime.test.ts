@@ -851,6 +851,36 @@ describe('typed asset fallthrough', () => {
     expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
     expect(load).toHaveBeenCalledTimes(2);
   });
+  it('keeps the first resolved manifest when cold requests overlap', async () => {
+    let resolveHit!: (manifest: ClientManifest | null) => void;
+    let resolveMiss!: (manifest: ClientManifest | null) => void;
+    const hit = new Promise<ClientManifest | null>((resolve) => (resolveHit = resolve));
+    const miss = new Promise<ClientManifest | null>((resolve) => (resolveMiss = resolve));
+    const load = vi.fn<ManifestLoader>((request) =>
+      new URL(request.url).pathname.includes('/hit-') ? hit : miss,
+    );
+    const policy = createAssetCachePolicy('assets', load);
+    const asset = () =>
+      new Response('asset', { headers: { 'cache-control': 'public, max-age=0, must-revalidate' } });
+    const ranHit = policy(new Request('https://app.test/assets/hit-11111111.js'), {}, asset());
+    const ranMiss = policy(new Request('https://app.test/assets/miss-22222222.js'), {}, asset());
+    // The successful load resolves first, then the overlapping request finds no manifest.
+    resolveHit({
+      client: {
+        file: 'assets/client-abcdefgh.js',
+        immutableFiles: ['assets/client-abcdefgh.js'],
+      },
+    });
+    await ranHit;
+    resolveMiss(null);
+    await ranMiss;
+    const response = await policy(
+      new Request('https://app.test/assets/client-abcdefgh.js'),
+      {},
+      asset(),
+    );
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+  });
   it('preserves non-success, redirects and mutation responses', () => {
     for (const source of [
       new Response('missing', { status: 404 }),

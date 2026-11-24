@@ -87,11 +87,12 @@ export function createAssetCachePolicy(
       return applyAssetCachePolicy(request, asset, assetsDir);
     }
     if (!files) {
-      // A failed lookup must not break a served asset. The in-flight request is not
-      // held here: if it never settles it would stall every later asset request in
-      // this isolate.
+      // A failed lookup must not break a served asset, and the in-flight request is not
+      // held here: if it never settles it would stall every later asset request in this
+      // isolate. Overlapping cold requests both get past this guard, so keep the first
+      // resolved set instead of letting the last response win.
       const manifest = await loadManifest(request, env).catch(() => null);
-      files = new Set(
+      files ??= new Set(
         Object.values(manifest ?? {}).flatMap((entry) =>
           Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
         ),
