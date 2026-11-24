@@ -500,13 +500,19 @@ export function scanStatusCopy(data: SecurityPageData): string | null {
 }
 
 function lastScanRow(data: SecurityPageData, full: boolean): string {
-  const scan = data.status.lastSuccessfulScan ?? data.status.lastScan;
+  // The newest scan, as in `void project security status`: the note below describes it.
+  const { lastScan: scan, lastSuccessfulScan: good, policy } = data.status;
   if (!scan) {
+    // The first-scan promise holds only when the policy applies, as in the CLI.
     return esc(
-      'No scan yet. The first scan runs after your next deploy and reviews the whole app.',
+      policy.applies && policy.mode !== 'disabled'
+        ? 'No scan yet. The first scan runs after your next deploy and reviews the whole app.'
+        : 'No scan yet.',
     );
   }
-  const parts: Array<string> = [scan.status];
+  const parts: Array<string> = [
+    scan.statusReason ? `${scan.status} (${scan.statusReason})` : scan.status,
+  ];
   if (scan.deploymentId) {
     parts.push(scan.deploymentId);
   }
@@ -519,6 +525,9 @@ function lastScanRow(data: SecurityPageData, full: boolean): string {
   const lines = [esc(parts.join(' · '))];
   if (scan.coverageLabel) {
     lines.push(esc(scan.coverageLabel));
+  }
+  if (good && good.id !== scan.id && good.deploymentId) {
+    lines.push(esc(`Last successful scan: ${good.deploymentId}`));
   }
   const copy = scanStatusCopy(data);
   if (copy) {

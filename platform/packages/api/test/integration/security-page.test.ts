@@ -457,6 +457,35 @@ describe('what each role sees', () => {
       '✓ No open findings. Last scan:',
     );
   });
+
+  it('promises no first scan when the policy does not apply', async () => {
+    await savePolicy({ mode: 'disabled' });
+    const { project, people } = await setup();
+    const html = await view(await signIn(people.owner.id, project.id));
+    expect(html).toContain('No scan yet.');
+    expect(html).not.toContain('The first scan runs after your next deploy');
+  });
+
+  it('shows the newest scan, the one its note describes, and the last good one', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    const good = await createTestDeployment(env.db, project.id);
+    await addScan(project.id, good.id);
+    const next = await createTestDeployment(env.db, project.id);
+    await env.db.insert(securityScans).values({
+      id: `scan_${project.id}_budget`,
+      project_id: project.id,
+      deployment_id: next.id,
+      status: 'skipped',
+      status_reason: 'budget',
+      trigger: 'deploy',
+      created_at: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const html = await view(await signIn(people.owner.id, project.id));
+    expect(html).toContain(`skipped (budget) · ${next.id}`);
+    expect(html).toContain(`Last successful scan: ${good.id}`);
+    expect(html).not.toContain(`succeeded · ${good.id}`);
+  });
 });
 
 describe('public request and bypass', () => {
