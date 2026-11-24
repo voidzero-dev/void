@@ -167,6 +167,7 @@ function hookNextTransaction(hook: () => Promise<void>) {
         };
       }
       const value = Reflect.get(target, property);
+      // oxlint-disable-next-line typescript/no-unsafe-call -- The proxy delegates the original method to its receiver with the fixture arguments.
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });

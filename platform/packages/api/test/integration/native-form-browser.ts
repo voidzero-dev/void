@@ -82,7 +82,7 @@ export async function nativeFormSubmission(input: {
       await route.fulfill({
         status: response.status,
         headers: responseHeaders,
-        body: Buffer.from(await response.arrayBuffer()),
+        body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
       });
     });
     await page.goto(`${input.origin}${input.path}`);

@@ -39,9 +39,9 @@ beforeAll(async () => {
     try {
       const parts: Array<Buffer> = [];
       for await (const part of incoming) {
-        parts.push(Buffer.from(part));
+        parts.push((Buffer as BufferConstructor).from(part));
       }
-      const body = Buffer.concat(parts);
+      const body = (Buffer as BufferConstructor).concat(parts);
       const response = await app.fetch(
         new Request(`${origin}${incoming.url}`, {
           method: incoming.method,
@@ -51,7 +51,7 @@ beforeAll(async () => {
         env,
       );
       outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      outgoing.end(Buffer.from(await response.arrayBuffer()));
+      outgoing.end((Buffer as BufferConstructor).from(await response.arrayBuffer()));
     } catch (error) {
       outgoing.writeHead(500, { 'Content-Type': 'application/json' });
       outgoing.end(JSON.stringify({ error: 'fixture_failure', message: String(error) }));

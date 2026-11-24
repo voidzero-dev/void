@@ -7,11 +7,13 @@ const accessJwt =
   Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url') +
   '.signature';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import {
   exchangeGithubOidcForDeployToken,
   isGithubActionsOidcAvailable,
   maskGithubActionsSecret,
 } from '../../src/cli/github-oidc.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 const fetchMock = vi.fn();
 let originalFetch: typeof globalThis.fetch | undefined;
@@ -210,7 +212,7 @@ describe('exchangeGithubOidcForDeployToken', () => {
 });
 
 describe('maskGithubActionsSecret', () => {
-  let writeSpy: ReturnType<typeof vi.spyOn>;
+  let writeSpy: MockInstance;
 
   beforeEach(() => {
     writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);

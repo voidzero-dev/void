@@ -464,25 +464,17 @@ async function cleanupBestEffortResources(
   // (deleteAll + deleteAlarm). KV `hasCrons` is omitted when false and
   // missing on older entries; the PG manifest is the authoritative source,
   // and unconditional clear avoids a stale-KV gate.
-  cleanup.push(cleanupJob(projectId, 'cron', projectId, { projectId }));
-
-  // KV routing entry
   cleanup.push(
+    cleanupJob(projectId, 'cron', projectId, { projectId }),
+    // KV routing entry
     cleanupJob(projectId, 'routing-key', projectRouteKey(project), {
       key: projectRouteKey(project),
     }),
-  );
-  cleanup.push(
     cleanupJob(projectId, 'routing-key', `ai-block:${projectId}`, { key: `ai-block:${projectId}` }),
-  );
-
-  // Retire any account mirror left by the removed tenant-owned Sandbox proxy.
-  cleanup.push(
+    // Retire any account mirror left by the removed tenant-owned Sandbox proxy.
     cleanupJob(projectId, 'routing-key', `project:${projectId}`, { key: `project:${projectId}` }),
-  );
-  // Proxy token accept floor: closed, not deleted. A missing floor accepts
-  // the legacy token, so deleting it would revive every token ever issued.
-  cleanup.push(
+    // Proxy token accept floor: closed, not deleted. A missing floor accepts
+    // the legacy token, so deleting it would revive every token ever issued.
     cleanupJob(projectId, 'routing-put', proxyTokenStateKey(projectId), {
       key: proxyTokenStateKey(projectId),
       value: CLOSED_PROXY_TOKEN_STATE,

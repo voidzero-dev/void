@@ -747,7 +747,7 @@ function hasAncestorPnpmMarkers(start: string): boolean {
   const pkgPath = join(workspaceRoot, 'package.json');
   if (existsSync(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+      const pkg: unknown = JSON.parse(readFileSync(pkgPath, 'utf8'));
       if (parsePackageManagerField(pkg) === 'pnpm') {
         return true;
       }
@@ -1241,7 +1241,7 @@ function setupTsconfig(
       if (typeof extendsValue === 'string') {
         tsconfig.extends = [extendsValue, target];
       } else if (Array.isArray(extendsValue)) {
-        tsconfig.extends = [...extendsValue, target];
+        tsconfig.extends = [...(extendsValue as Array<unknown>), target];
       } else {
         tsconfig.extends = target;
       }
@@ -1300,7 +1300,10 @@ function setupTsconfig(
     let dependencyRemoved = false;
     try {
       const pkgPath = join(root, 'package.json');
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
       let pkgUpdated = false;
       if (pkg.dependencies?.['@cloudflare/workers-types']) {
         delete pkg.dependencies['@cloudflare/workers-types'];

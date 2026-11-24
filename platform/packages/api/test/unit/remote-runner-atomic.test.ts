@@ -17,7 +17,10 @@ describe('managed D1 migration commits', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url, init: RequestInit) => {
-        const { sql, params = [] } = JSON.parse(String(init.body));
+        const { sql, params = [] } = JSON.parse(String(init.body)) as {
+          sql: string;
+          params?: Array<string | number | null>;
+        };
         db.exec('BEGIN');
         try {
           if (sql.startsWith('SELECT')) {

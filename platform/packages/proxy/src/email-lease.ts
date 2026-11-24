@@ -85,7 +85,7 @@ export async function leaseEmailDomainCredential(
     void res.body?.cancel().catch(() => {});
     return null;
   }
-  const reader = res.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = res.body?.getReader();
   if (!reader) {
     return null;
   }

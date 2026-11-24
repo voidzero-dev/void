@@ -33,7 +33,7 @@ export function mergeCloudflareConfig(patch: object, fallback: object): Record<s
     const previous = (result as Record<string, unknown>)[key];
     result[key] =
       Array.isArray(value) && Array.isArray(previous)
-        ? [...value, ...previous]
+        ? [...(value as Array<unknown>), ...(previous as Array<unknown>)]
         : value &&
             previous &&
             typeof value === 'object' &&
@@ -53,7 +53,7 @@ export function mergeCloudflareConfig(patch: object, fallback: object): Record<s
 export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): CloudflareConfig {
   const packagePath = join(root, 'package.json');
   const packageName = existsSync(packagePath)
-    ? JSON.parse(readFileSync(packagePath, 'utf8')).name
+    ? (JSON.parse(readFileSync(packagePath, 'utf8')) as { name?: unknown }).name
     : undefined;
   const name =
     String(packageName ?? basename(root))

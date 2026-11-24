@@ -2308,8 +2308,10 @@ async function runExport(
       for (const sequence of sequences) {
         if (tables.includes(sequence.name)) {
           const name = quoteSqlString(sequence.name);
-          parts.push(`DELETE FROM sqlite_sequence WHERE name = ${name};`);
-          parts.push(`INSERT INTO sqlite_sequence (name, seq) VALUES (${name}, ${sequence.seq});`);
+          parts.push(
+            `DELETE FROM sqlite_sequence WHERE name = ${name};`,
+            `INSERT INTO sqlite_sequence (name, seq) VALUES (${name}, ${sequence.seq});`,
+          );
         }
       }
     }

@@ -264,7 +264,9 @@ async function main(): Promise<void> {
   // 2. Apply Drizzle migrations
   s.start('Applying migrations');
   const journalPath = resolve(drizzleDir, 'meta/_journal.json');
-  const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
+  const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
+    entries: Array<{ tag: string }>;
+  };
   for (const entry of journal.entries) {
     const sqlFile = resolve(drizzleDir, `${entry.tag}.sql`);
     const sql = readFileSync(sqlFile, 'utf8');

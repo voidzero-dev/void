@@ -14,7 +14,7 @@ it('installs the tested Vite+ pair even when newer CLI and core releases are ava
   const root = mkdtempSync(join(tmpdir(), 'void-vite-plus-registry-'));
   const tested = JSON.parse(
     readFileSync(new URL(import.meta.resolve('vite-plus/package.json')), 'utf8'),
-  );
+  ) as { version: string; dependencies: { vite: string } };
   const coreName = '@voidzero-dev/vite-plus-core';
   const coreVersion = tested.dependencies.vite.slice(`npm:${coreName}@`.length);
   const newerCli = `${Number(tested.version.split('.')[0])}.999.0`;

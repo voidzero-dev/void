@@ -24,7 +24,8 @@ app.use('*', async (context, next) => {
     void context.req.raw.body?.cancel().catch(() => {});
     return context.json({ error: 'action request too large' }, 413);
   }
-  const reader = context.req.raw.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined =
+    context.req.raw.body?.getReader();
   if (!reader) {
     return context.json({ error: 'invalid body' }, 400);
   }

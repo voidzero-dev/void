@@ -20,6 +20,7 @@ import {
   createCfResourceVerifier,
   createCfVersionRunner,
 } from '../../src/cli/cf-version-runner.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   cfUserAgent,
   listen,

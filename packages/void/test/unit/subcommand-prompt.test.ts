@@ -9,6 +9,7 @@ import {
   updateSettings,
 } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { promptSubcommand } from '../../src/cli/subcommand-prompt.ts';
 import type { SubcommandDef } from '../../src/cli/subcommand-prompt.ts';
 
@@ -31,7 +32,7 @@ function openPrompt(commands: Array<SubcommandDef>, columns = 80, rows = 24) {
   const output = Object.assign(
     new Writable({
       write(chunk, _encoding, callback) {
-        writes.push(chunk.toString());
+        writes.push((chunk as string | Uint8Array).toString());
         callback();
       },
     }),

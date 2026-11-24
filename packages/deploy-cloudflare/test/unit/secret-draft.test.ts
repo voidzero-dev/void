@@ -38,9 +38,9 @@ describe('immutable SDK secret draft proof', () => {
           {
             name: 'index.js',
             content_type: 'application/javascript+module',
-            content_base64: Buffer.from(
-              'export default { fetch() { return new Response("application"); } };\n',
-            ).toString('base64'),
+            content_base64: (Buffer as BufferConstructor)
+              .from('export default { fetch() { return new Response("application"); } };\n')
+              .toString('base64'),
           },
         ],
       },

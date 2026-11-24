@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { d1ImportUploadTimeoutMs, importD1SqlFile } from '../../src/cli/cf-d1-import.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { temporaryDirectory } from '../helpers/cloudflare-operation-process.ts';
 
 const sql = "INSERT INTO messages VALUES ('synthetic');\n";

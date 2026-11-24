@@ -8,6 +8,7 @@ import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import { recordInstallationStep } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
 import { join } from 'pathslash';
+import { Buffer } from './node-buffer.ts';
 import {
   readActivePlatformWorkerSnapshot,
   readPlatformWorkerOwnershipMarker,
@@ -24,7 +25,7 @@ export function withoutCompletedPlatformWorkerMigrations(
   config: Record<string, unknown>,
   activeMigrationTag: string | null,
 ): Record<string, unknown> {
-  const migrations = Array.isArray(config.migrations) ? config.migrations : [];
+  const migrations = Array.isArray(config.migrations) ? (config.migrations as Array<unknown>) : [];
   const target = migrations.at(-1);
   if (
     activeMigrationTag === null ||

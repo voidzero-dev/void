@@ -17,6 +17,7 @@ import {
 import type { PlatformInstallationManifest } from '@void/platform';
 import { getPlatformRuntimeDirectory, resolvePlatformRuntime } from '@void/platform/installer';
 import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { printSuccess } from '../../src/cli/output.ts';
 
 const state = vi.hoisted(() => ({
@@ -991,6 +992,7 @@ describe('installed platform upgrade', () => {
     await upgrade();
     const onCancel = state.spinner.mock.calls[0]![0].onCancel;
     const emit = vi.spyOn(process, 'emit').mockReturnValueOnce(true);
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Call the cancellation callback captured by the progress mock.
     onCancel();
     expect(emit).toHaveBeenCalledWith('SIGINT');
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => {

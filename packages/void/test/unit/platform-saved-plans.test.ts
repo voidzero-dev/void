@@ -129,7 +129,7 @@ describe('saved platform install choices', () => {
   it('reports a corrupt or mismatched plan with its local path', () => {
     savePlatformInstallChoices(argumentsFor(), 'Account', directory);
     const path = join(directory, readdirSync(directory)[0]!);
-    const value = JSON.parse(readFileSync(path, 'utf8'));
+    const value = JSON.parse(readFileSync(path, 'utf8')) as { arguments: Array<string> };
     value.arguments[value.arguments.indexOf('account')] = 'another-account';
     writeFileSync(path, JSON.stringify(value));
     expect(() => listSavedPlatformInstallPlans(directory)).toThrow(

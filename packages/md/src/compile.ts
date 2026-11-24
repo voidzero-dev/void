@@ -60,7 +60,7 @@ async function getCompiler(options?: CompileOptions): Promise<MarkdownExit> {
 const stashFenceInfo: RuleCore = (state) => {
   for (const token of state.tokens) {
     if (token.type === 'fence') {
-      token.meta = { ...token.meta, rawInfo: token.info };
+      token.meta = { ...(token.meta as Record<string, unknown> | undefined), rawInfo: token.info };
     }
   }
 };

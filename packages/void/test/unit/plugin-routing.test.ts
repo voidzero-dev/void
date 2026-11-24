@@ -1190,6 +1190,7 @@ describe('routingPlugin native asset Worker bypass', () => {
       {},
       clientBundle(),
     );
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
     plugin.api.finalizeCloudflareAssets(normalizePath(join(root, 'dist/client')), 'assets');
   }
 

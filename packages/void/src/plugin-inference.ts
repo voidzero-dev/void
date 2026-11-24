@@ -84,7 +84,7 @@ const FRAMEWORK_PACKAGES: Record<string, DetectedFramework> = {
 export function detectFramework(root: string): DetectedFramework | undefined {
   let pkg: Record<string, unknown>;
   try {
-    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as Record<string, unknown>;
   } catch {
     return undefined;
   }

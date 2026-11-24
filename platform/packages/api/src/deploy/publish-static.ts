@@ -183,7 +183,9 @@ export async function publishStaticDeployment(input: {
   markPhase('routing_switch');
   await withProjectCutoverFence(deployment.id, async (txDb, currentOwner) => {
     const existingRouting = await context.env.ROUTING.get(projectRouteKey(project));
-    const existingEntry = existingRouting ? JSON.parse(existingRouting) : null;
+    const existingEntry = existingRouting
+      ? (JSON.parse(existingRouting) as { suspended?: string })
+      : null;
     const zeroTrust = await resolveProjectZeroTrustRouting(txDb, projectId);
     const routingJson = buildStaticRoutingJson({
       privatePreview: Boolean(project.preview_client_id),

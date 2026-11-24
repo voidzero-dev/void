@@ -81,7 +81,7 @@ export async function* fetchStream<
     let message = 'Generation was interrupted.';
     let limit = null;
     try {
-      const body = JSON.parse(data);
+      const body = JSON.parse(data) as { message?: unknown; error?: unknown };
       if (event === 'void:limit') {
         limit = asUsageLimit(body);
       }

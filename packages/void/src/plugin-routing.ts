@@ -31,6 +31,7 @@ import { writeFileIfChanged } from './codegen/write-if-changed.ts';
 import { readConfig, getDatabaseDialect } from './config.ts';
 import type { VoidConfig } from './config.ts';
 import { collectPages, collectRevalidate, hasRevalidate } from './isr-config.ts';
+import type { VoidMdPlugin } from './pages/islands-plugin.ts';
 import { readProjectPaths } from './project-paths.ts';
 import { readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
 import {
@@ -453,11 +454,11 @@ export function routingPlugin(
       return null;
     }
     const hasIslandPages = scan.pages.pages.some((p) => p.island);
-    const mdPlugin = resolvedConfig?.plugins?.find((p) => p.name === 'void-md');
+    const mdPlugin = resolvedConfig?.plugins?.find((plugin) => plugin.name === 'void-md') as
+      | VoidMdPlugin
+      | undefined;
     const mdClientEntryId =
-      hasIslandPages && mdPlugin?.api?.clientEntryId
-        ? (mdPlugin.api.clientEntryId as string)
-        : undefined;
+      hasIslandPages && mdPlugin?.api?.clientEntryId ? mdPlugin.api.clientEntryId : undefined;
     return {
       pagesDir,
       pagesDirRelative: relative(root, pagesDir).replaceAll('\\', '/'),
@@ -510,7 +511,9 @@ export function routingPlugin(
     try {
       const distDir = resolveDistDir(root);
       wranglerPath = join(distDir, resolveWorkerDirName(distDir), 'wrangler.json');
-      wrangler = JSON.parse(readFileSync(wranglerPath, 'utf8'));
+      wrangler = JSON.parse(readFileSync(wranglerPath, 'utf8')) as {
+        assets?: Record<string, unknown>;
+      };
     } catch {
       return null;
     }

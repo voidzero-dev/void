@@ -1,5 +1,6 @@
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import { PlatformApiError } from '../../src/cli/client.ts';
 import type { PlatformClient } from '../../src/cli/client.ts';
 import { runGithubUpdate } from '../../src/cli/github-cmd.ts';
@@ -43,10 +44,10 @@ function makeClient(over: Partial<FakeClient> = {}): {
   };
 }
 
-let exitSpy: ReturnType<typeof vi.spyOn>;
-let successSpy: ReturnType<typeof vi.spyOn>;
-let infoSpy: ReturnType<typeof vi.spyOn>;
-let errorSpy: ReturnType<typeof vi.spyOn>;
+let exitSpy: MockInstance;
+let successSpy: MockInstance;
+let infoSpy: MockInstance;
+let errorSpy: MockInstance;
 const originalIsTTY = process.stdin.isTTY;
 
 beforeEach(() => {

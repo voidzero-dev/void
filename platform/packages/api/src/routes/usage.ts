@@ -664,7 +664,7 @@ async function queryProjectAiUsage(
     if (requests.length === 0) {
       return { neurons: 0 };
     }
-    const cost = requests[0]?.sum?.cost;
+    const cost = (requests[0] as { sum?: { cost?: unknown } } | undefined)?.sum?.cost;
     if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) {
       throw new Error('AI usage query returned invalid cost data');
     }

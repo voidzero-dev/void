@@ -13,6 +13,7 @@ import {
 } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { hyperdriveOriginFromConnectionString } from '../../src/cli/platform-cloudflare.ts';
 import { verifyPlatformWorkerCutoverVersions } from '../../src/cli/platform-installer-cutover.ts';
 import type {

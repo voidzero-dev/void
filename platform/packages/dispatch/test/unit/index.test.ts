@@ -1,5 +1,6 @@
 import { isrEdgeCacheUrl } from '@void/isr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { Mock } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../../../packages/edge/src/pages-protocol.ts';
 import type { Env } from '../../src/env.ts';
 import app, { rebuildRequest } from '../../src/index.ts';
@@ -120,7 +121,7 @@ function createEnv(options: {
   workerFetchImpl?: () => Promise<Response>;
 }): {
   env: Env;
-  workerFetch: ReturnType<typeof vi.fn>;
+  workerFetch: Mock<(request: Request) => Promise<Response>>;
   dispatchGet: ReturnType<typeof vi.fn>;
   kvStore: Map<
     string,
@@ -132,7 +133,7 @@ function createEnv(options: {
   analyticsWrites: Array<unknown>;
   logWrites: Array<unknown>;
 } {
-  const workerFetch = vi.fn(
+  const workerFetch = vi.fn<(request: Request) => Promise<Response>>(
     async () => options.workerFetchImpl?.() ?? options.workerResponse ?? new Response('worker'),
   );
   const kvStore = new Map<
@@ -5602,7 +5603,7 @@ describe('static asset caching', () => {
     const { env, workerFetch } = createEnv({
       routing,
       workerFetchImpl: async () => {
-        const request = workerFetch.mock.calls.at(-1)?.[0];
+        const request = workerFetch.mock.calls.at(-1)![0];
         return new Response(`<html>${new URL(request.url).searchParams.get('viewer')}</html>`, {
           headers: { 'Content-Type': 'text/html', ETag: '"member-page"' },
         });

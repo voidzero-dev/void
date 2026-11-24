@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { parsePlatformAuthenticationSetup } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
+import { Buffer } from './node-buffer.ts';
 import {
   checkpointPlatformAccessResources,
   isPlatformAuthenticationPreparationKey,

@@ -837,10 +837,14 @@ export async function transferOperatorProjectOwner(
     console.error('[admin] project owner convergence failed', {
       projectId,
       targetUserId,
-      counterError: counterResult.status === 'rejected' ? counterResult.reason : undefined,
+      counterError:
+        counterResult.status === 'rejected' ? (counterResult.reason as unknown) : undefined,
       routingError:
-        finalRoutingResult.status === 'rejected' ? finalRoutingResult.reason : undefined,
-      aiLoggingError: aiLoggingResult.status === 'rejected' ? aiLoggingResult.reason : undefined,
+        finalRoutingResult.status === 'rejected'
+          ? (finalRoutingResult.reason as unknown)
+          : undefined,
+      aiLoggingError:
+        aiLoggingResult.status === 'rejected' ? (aiLoggingResult.reason as unknown) : undefined,
     });
     throw new OperatorError(
       500,
