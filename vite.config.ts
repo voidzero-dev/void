@@ -585,6 +585,7 @@ const config = defineConfig({
       'unicorn/catch-error-name': 'off',
       // Keep helpers beside their call sites where they express local test setup, plugin lifecycle, or runtime initialization.
       'unicorn/consistent-function-scoping': 'off',
+      // Existing indexing narrows values through bounds checks. The rewrite added possibly-undefined results at several checked accesses.
       'unicorn/prefer-at': 'off',
       'unicorn/prefer-import-meta-properties': 'off',
       'unicorn/prefer-single-call': 'off',
