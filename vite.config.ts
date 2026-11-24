@@ -593,6 +593,7 @@ const config = defineConfig({
       'unicorn/prefer-single-call': 'off',
       // Manifest and pack fixtures use JSON round trips for JSON serialization semantics, including dropped undefined keys.
       'unicorn/prefer-structured-clone': 'off',
+      // Several findings are deferred bootstrap and environment probes. Keep their module initialization and error sequencing.
       'unicorn/prefer-top-level-await': 'off',
       '@typescript-eslint/array-type': [
         'error',
