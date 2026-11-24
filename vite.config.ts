@@ -502,7 +502,6 @@ const config = defineConfig({
       'quality/no-reflect-get': 'off',
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
-      'quality/no-widen-then-assert': 'off',
       'react/set-state-in-effect': 'off',
       'typescript/no-misused-spread': 'off',
       'typescript/no-non-null-assertion': 'off',

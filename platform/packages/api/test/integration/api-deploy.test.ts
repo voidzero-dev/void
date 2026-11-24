@@ -178,13 +178,13 @@ async function buildDeployRequest(
 ): Promise<Request> {
   const baseManifest = opts?.manifest ?? { version: 3, bindings: {} };
   // JSON-mode requires assetManifestVersion: 2.
-  const manifest: Record<string, unknown> = {
+  const manifest = {
     assetManifestVersion: 2,
     ...baseManifest,
   };
 
   // Decide whether worker files are appropriate for this manifest type.
-  const manifestType = (manifest as { type?: unknown }).type;
+  const manifestType = 'type' in manifest ? manifest.type : undefined;
   const isStaticManifest = manifestType === 'spa' || manifestType === 'static';
 
   // Default worker file for non-static manifests so callers can use the
