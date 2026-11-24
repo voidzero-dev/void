@@ -10,8 +10,10 @@ import {
   setActiveDeployment,
   setAppliedMigrations,
 } from '../../src/db.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as db from '../../src/db.ts';
 import app from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
 import {
   proxyTokenRotationStuckWarning,
@@ -44,8 +46,8 @@ import {
   mockCfApi,
   cfSuccess,
   cfError,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
 
 let env: TestEnv;
@@ -1054,7 +1056,7 @@ describe('POST /projects/:id/prerender-token', () => {
       const user = await createTestUser(env.db, 'prerender-expiry-boundary');
       const project = await createTestProject(env.db, user.id, 'prerender-expiry-boundary-app');
       const credentialId = crypto.randomUUID();
-      const expiresAt = new Date(startedAt + 2_000);
+      const expiresAt = new Date(startedAt + 2000);
       await env.db.insert(projectDeployCredentials).values({
         id: credentialId,
         project_id: project.id,
@@ -1077,7 +1079,7 @@ describe('POST /projects/:id/prerender-token', () => {
       vi.spyOn(projectAccess, 'requireProjectCapability').mockImplementation(async (...args) => {
         // authMiddleware has already verified the real JWT and credential row;
         // the route capability check crosses the JWT expiry boundary.
-        vi.setSystemTime(startedAt + 2_000);
+        vi.setSystemTime(startedAt + 2000);
         return requireCapability(...args);
       });
       const response = await app.fetch(
@@ -1324,7 +1326,7 @@ describe('PUT /projects/:id/database-url', () => {
             database: 'appdb',
             host: 'db.example.com',
             password: 'p@ss',
-            port: 25060,
+            port: 25_060,
             scheme: 'postgresql',
             user: 'void_user',
           },
@@ -3088,7 +3090,7 @@ describe('POST /projects/:id/rollback', () => {
         return new Response(
           JSON.stringify({
             success: false,
-            errors: [{ code: 10013, message: 'rate limited' }],
+            errors: [{ code: 10_013, message: 'rate limited' }],
           }),
           { status: 429 },
         );
@@ -4077,7 +4079,7 @@ describe('POST /projects — owner email destination auto-add', () => {
         return Response.json(
           {
             success: false,
-            errors: [{ code: 10037, message: 'destination address already exists' }],
+            errors: [{ code: 10_037, message: 'destination address already exists' }],
             messages: [],
             result: null,
           },
@@ -4199,7 +4201,7 @@ describe('POST /projects — owner email destination auto-add', () => {
         return Response.json(
           {
             success: false,
-            errors: [{ code: 10037, message: 'destination address already exists' }],
+            errors: [{ code: 10_037, message: 'destination address already exists' }],
             messages: [],
             result: null,
           },
@@ -4399,7 +4401,7 @@ describe('POST /projects — owner email destination auto-add', () => {
         return Response.json(
           {
             success: false,
-            errors: [{ code: 10037, message: 'destination address already exists' }],
+            errors: [{ code: 10_037, message: 'destination address already exists' }],
             messages: [],
             result: null,
           },

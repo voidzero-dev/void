@@ -13,8 +13,8 @@ import {
   selectPlatformConnection,
   listInstallationManifests,
   platformConnectionSlug,
-  type PlatformConnection,
 } from './platform-registry.ts';
+import type { PlatformConnection } from './platform-registry.ts';
 
 function normalizePlatformInputUrl(input: string): string {
   const value = input.trim();

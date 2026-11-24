@@ -6,27 +6,23 @@ import {
   observeLinkVisible,
   prefetchLink,
   resolveLink,
-  type BaseLinkProps,
-  type LinkActiveMatch,
-  type LinkNavigateEvent,
-  type LinkPrefetchValue,
-  type NavigationState,
-  type VoidRouter,
+} from 'void/pages-client';
+import type {
+  BaseLinkProps,
+  LinkActiveMatch,
+  LinkNavigateEvent,
+  LinkPrefetchValue,
+  NavigationState,
+  VoidRouter,
 } from 'void/pages-client';
 import type { Href } from 'void/routes';
-import {
-  computed,
-  defineComponent,
-  h,
-  inject,
-  onMounted,
-  onUnmounted,
-  ref,
-  type AnchorHTMLAttributes,
-  type ButtonHTMLAttributes,
-  type DefineSetupFnComponent,
-  type ExtractPublicPropTypes,
-  type PropType,
+import { computed, defineComponent, h, inject, onMounted, onUnmounted, ref } from 'vue';
+import type {
+  AnchorHTMLAttributes,
+  ButtonHTMLAttributes,
+  DefineSetupFnComponent,
+  ExtractPublicPropTypes,
+  PropType,
 } from 'vue';
 
 type LinkMethod = NonNullable<BaseLinkProps['method']>;

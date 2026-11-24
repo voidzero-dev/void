@@ -63,7 +63,7 @@ export function inspectPackage(tarball) {
         const pattern = new RegExp(
           `^${path
             .split('*')
-            .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .map((part) => part.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
             .join('.*')}$`,
         );
         assert(

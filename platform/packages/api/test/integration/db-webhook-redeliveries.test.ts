@@ -2,7 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus
 import { getRedeliveredGuids, recordWebhookRedelivery } from '../../src/db.ts';
 import type { Db } from '../../src/db.ts';
 import { githubWebhookRedeliveries } from '../../src/schema.ts';
-import { clearTables, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { clearTables, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 

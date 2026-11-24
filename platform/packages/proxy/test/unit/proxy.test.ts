@@ -16,7 +16,7 @@ function base64urlEncode(data: Uint8Array): string {
   for (const byte of data) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 async function signJwt(
@@ -360,7 +360,7 @@ describe('proxy worker', () => {
       });
 
       try {
-        await vi.advanceTimersByTimeAsync(5_000);
+        await vi.advanceTimersByTimeAsync(5000);
         expect(status).toBe(408);
       } finally {
         if (!cancelled) {
@@ -403,7 +403,7 @@ describe('proxy worker', () => {
         (error: unknown) => error,
       );
 
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       expect(await outcome).toBeInstanceOf(Error);
       expect(String(await outcome)).toContain('timeout');
@@ -424,7 +424,7 @@ describe('proxy worker', () => {
       } as RequestInit);
       const response = worker.fetch(request, createEnv());
 
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       expect((await response).status).toBe(400);
     });
@@ -507,7 +507,7 @@ describe('proxy worker', () => {
       const response = Promise.resolve(worker.fetch(request, createEnv())).then((value) => {
         status = value.status;
       });
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       expect(status).toBe(400);
       expect(cancel).toHaveBeenCalledOnce();
       await response;
@@ -2490,7 +2490,7 @@ describe('proxy worker', () => {
         '//api.openai.com/v1/chat/completions',
         '/../chat/completions',
         '/%2e%2e/chat/completions',
-        '/v1\\chat\\completions',
+        String.raw`/v1\chat\completions`,
         '/%E0%A4%A',
       ]) {
         const res = await worker.fetch(

@@ -10,8 +10,8 @@ import {
   isRecord,
   optionsFromRecord,
   toOutputValue,
-  type UnknownRecord,
 } from './converter-helpers.ts';
+import type { UnknownRecord } from './converter-helpers.ts';
 import {
   CONFIGURATION_DOCS_URL,
   ENVIRONMENTS_DOCS_URL,

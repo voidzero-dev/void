@@ -1,7 +1,9 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { PROJECT_CREDENTIAL_MAX_DAYS, signProjectCredentialToken } from '../auth/deploy-token.ts';
-import { getProject, type DbOrTx } from '../db.ts';
+import { getProject } from '../db.ts';
+import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { PROJECT_PERMISSION_MESSAGES } from '../project-access.ts';
 import { projectDeployCredentials, projects } from '../schema.ts';

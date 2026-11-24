@@ -7,8 +7,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { isGeneratedAssetHeaders } from '../../src/asset-worker-bypass.ts';
 import { renderVoidConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
@@ -55,7 +55,7 @@ let middlewareBackedUp = false;
 let publicDirCreated = false;
 
 function saveVoidConfig(): void {
-  previousVoidConfig = readFileSync(voidConfig, 'utf-8');
+  previousVoidConfig = readFileSync(voidConfig, 'utf8');
 }
 
 function writeStaleCloudflareConfig(): void {
@@ -144,7 +144,7 @@ function readBuiltAssetConfig(): {
   not_found_handling?: string;
   run_worker_first?: boolean | Array<string>;
 } {
-  const emittedWrangler = JSON.parse(readFileSync(join(dist, 'ssr/wrangler.json'), 'utf-8')) as {
+  const emittedWrangler = JSON.parse(readFileSync(join(dist, 'ssr/wrangler.json'), 'utf8')) as {
     assets?: {
       not_found_handling?: string;
       run_worker_first?: boolean | Array<string>;
@@ -157,7 +157,7 @@ function readBuiltAssetConfig(): {
 function expectNoGeneratedAssetHeaders(): void {
   const headers = join(dist, 'client/_headers');
   if (existsSync(headers)) {
-    expect(isGeneratedAssetHeaders(readFileSync(headers, 'utf-8'))).toBe(false);
+    expect(isGeneratedAssetHeaders(readFileSync(headers, 'utf8'))).toBe(false);
   }
 }
 

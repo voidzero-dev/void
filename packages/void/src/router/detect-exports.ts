@@ -2,13 +2,11 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'pathslash';
 import { parseSync } from 'vite';
 import { bindingNames } from '../shared/ast-bindings.ts';
-import {
-  isIdentifier,
-  moduleExportName,
-  type AstExportNamedDeclaration,
-  type AstFunctionDeclaration,
-  type AstProgram,
-  type AstVariableDeclaration,
+import { asAstProgram, isIdentifier, moduleExportName } from '../shared/ast.ts';
+import type {
+  AstExportNamedDeclaration,
+  AstFunctionDeclaration,
+  AstVariableDeclaration,
 } from '../shared/ast.ts';
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']);
@@ -18,7 +16,7 @@ const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'
  * Scans top-level named exports for identifiers matching HTTP methods.
  */
 export function detectHttpExports(absPath: string): Array<string> {
-  const code = readFileSync(absPath, 'utf-8');
+  const code = readFileSync(absPath, 'utf8');
   const filename = basename(absPath);
   let parsed: ReturnType<typeof parseSync>;
   try {
@@ -28,7 +26,7 @@ export function detectHttpExports(absPath: string): Array<string> {
   }
 
   const methods: Array<string> = [];
-  const program = parsed.program as unknown as AstProgram;
+  const program = asAstProgram(parsed.program);
 
   for (const node of program.body ?? []) {
     if (node.type === 'ExportNamedDeclaration') {

@@ -2,7 +2,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createServer, type PluginOption } from 'vite';
+import { createServer } from 'vite';
+import type { PluginOption } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { getMiniflareDatabasePath } from '../../src/migrations/runner.ts';
 import { migrationPlugin } from '../../src/plugin-migration.ts';

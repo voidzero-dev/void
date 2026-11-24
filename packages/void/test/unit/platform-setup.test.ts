@@ -228,7 +228,7 @@ describe('platform credential setup links', () => {
       yes: true,
     });
     const quotedName =
-      process.platform === 'win32' ? "'Team''s Platform'" : "'Team'\\''s Platform'";
+      process.platform === 'win32' ? "'Team''s Platform'" : String.raw`'Team'\''s Platform'`;
     expect(command).toBe(
       `void-dev platform install --name team --account account --display-name ${quotedName} --application-domain apps.example.com --zone example.com --dedicated-zone --custom-domains --control-plane-domain api.example.com --auth-config './auth config.json' --dashboard-url https://dash.example.com:8443 --runtime './build output' --yes`,
     );

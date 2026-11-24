@@ -26,14 +26,17 @@ export async function cfCustomerFetch<T>(
   credential: string,
   init?: RequestInit,
 ): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${credential}`);
+  }
+  if (!(init?.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   const response = await fetch(url, {
     ...init,
     signal: init?.signal ?? AbortSignal.timeout(15_000),
-    headers: {
-      Authorization: `Bearer ${credential}`,
-      ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...init?.headers,
-    },
+    headers,
   });
   const json = (await response.json()) as CfCustomerResult<T>;
   if (!json.success) {

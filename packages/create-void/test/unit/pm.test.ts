@@ -19,7 +19,7 @@ describe('create-void package manager bootstrap', () => {
 
     writePnpmBuildPolicy(root, 'pnpm');
 
-    expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf-8')).toBe(
+    expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).toBe(
       'allowBuilds:\n  better-sqlite3: false\n  esbuild: true\n  sharp: true\n  workerd: true\n',
     );
   });

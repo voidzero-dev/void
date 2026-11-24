@@ -65,7 +65,7 @@ function launch(command, args, cwd, env = environment) {
   for (const stream of [child.stdout, child.stderr]) {
     stream.on('data', (chunk) => {
       log.write(chunk);
-      tail = (tail + chunk.toString()).slice(-16000);
+      tail = (tail + chunk.toString()).slice(-16_000);
     });
   }
   const completion = new Promise((resolve, reject) => {
@@ -88,13 +88,17 @@ function launch(command, args, cwd, env = environment) {
     async stop() {
       if (child.exitCode === null) {
         try {
-          process.kill(-child.pid, 'SIGTERM');
+          if (child.pid !== undefined) {
+            process.kill(-child.pid, 'SIGTERM');
+          }
         } catch {
           /* already exited */
         }
         const force = setTimeout(() => {
           try {
-            process.kill(-child.pid, 'SIGKILL');
+            if (child.pid !== undefined) {
+              process.kill(-child.pid, 'SIGKILL');
+            }
           } catch {
             /* already exited */
           }
@@ -429,7 +433,9 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
                   /* server is starting */
                 }
               }
-              await new Promise((resolve) => setTimeout(resolve, 200));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 200);
+              });
             }
             assert(response?.ok, task.failure());
             assert((await response.text()).includes(`Packed ${label}`));
@@ -523,7 +529,9 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
                 throw new Error(task.failure());
               }
               base = packedServerUrl(task.output());
-              await new Promise((resolve) => setTimeout(resolve, 200));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 200);
+              });
             }
             assert(base, task.failure());
             const response = await fetch(`${base}/form`, {

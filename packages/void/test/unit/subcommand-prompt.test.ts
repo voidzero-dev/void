@@ -9,7 +9,8 @@ import {
   updateSettings,
 } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { promptSubcommand, type SubcommandDef } from '../../src/cli/subcommand-prompt.ts';
+import { promptSubcommand } from '../../src/cli/subcommand-prompt.ts';
+import type { SubcommandDef } from '../../src/cli/subcommand-prompt.ts';
 
 vi.mock('../../src/cli/output.ts', async () => {
   const { default: colors } = await import('picocolors');
@@ -41,7 +42,7 @@ function openPrompt(commands: Array<SubcommandDef>, columns = 80, rows = 24) {
   const result = promptSubcommand('', commands);
   const key = (value: string) => input.emit('data', Buffer.from(value));
   cleanup = async () => {
-    key('\x03');
+    key('\u0003');
     await result;
     input.destroy();
     output.destroy();
@@ -82,15 +83,15 @@ it.each([
       expect(lines.length).toBeLessThan(rows);
       expect(lines.every((line) => line.length < columns)).toBe(true);
       expect(frame).toContain(`${S_RADIO_ACTIVE} ${command.name}`);
-      prompt.key('\x1B[B');
+      prompt.key('\u001B[B');
     }
     expect(prompt.frame()).toContain(`${S_RADIO_ACTIVE} command-0`);
-    prompt.key('\x1B[A');
+    prompt.key('\u001B[A');
     expect(prompt.frame()).toContain(`${S_RADIO_ACTIVE} command-16`);
-    prompt.key('\x1B');
+    prompt.key('\u001B');
     expect(await prompt.result).toBeNull();
-    expect(prompt.writes.join('')).not.toContain('\x1B[?1049');
-    expect(prompt.writes.join('')).not.toContain('\x1B[2J');
+    expect(prompt.writes.join('')).not.toContain('\u001B[?1049');
+    expect(prompt.writes.join('')).not.toContain('\u001B[2J');
     expect(prompt.input.setRawMode).toHaveBeenLastCalledWith(false);
     expect(prompt.output.listenerCount('resize')).toBe(0);
   },
@@ -148,7 +149,7 @@ it('keeps flag selection, typed values, and focus distinct', async () => {
   expect(prompt.frame()).toContain(S_RADIO_ACTIVE + ' ' + S_CHECKBOX_INACTIVE + ' --output');
   prompt.key('data.sql');
   expect(prompt.frame()).toContain(S_RADIO_ACTIVE + ' ' + S_CHECKBOX_SELECTED + ' --output');
-  prompt.key('\x1B[B');
+  prompt.key('\u001B[B');
   prompt.key(' ');
   prompt.key('\r');
   expect(await prompt.result).toEqual({
@@ -178,7 +179,7 @@ it('preserves required multiselect choices and the shared checkbox markers', asy
   prompt.key(' ');
   prompt.key('\r');
   expect(prompt.output.listenerCount('resize')).toBe(1);
-  prompt.key('\x1B[B');
+  prompt.key('\u001B[B');
   prompt.key(' ');
   prompt.key('\r');
   expect(await prompt.result).toEqual({
@@ -197,7 +198,7 @@ it('follows the shared guide setting and shows hints only on the focused command
   expect(prompt.frame()).toContain(S_BAR);
   expect(prompt.frame()).toContain('--react');
   expect(prompt.frame()).not.toContain('--platform');
-  prompt.key('\x1B[B');
+  prompt.key('\u001B[B');
   expect(prompt.frame()).toContain('--platform');
   expect(prompt.frame()).not.toContain('--react');
 });

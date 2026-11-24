@@ -27,6 +27,7 @@ import {
 import type { Db } from '../../src/db.ts';
 // Namespace import so a test can spy the pre-tx `getGitHubInstallation` snapshot
 // (the under-lock re-read inside the handler hits the row directly, not via this).
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as db from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { createGitHubWebhookIngressProof } from '../../src/github/webhook-ingress-auth.ts';
@@ -50,8 +51,8 @@ import {
   recordingBuildManager,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const WEBHOOK_SECRET = 'test-webhook-secret';
 const INGRESS_SECRET = 'test-purpose-separated-ingress-secret';
@@ -146,7 +147,9 @@ vi.mock('../../src/github/installation-token.ts', () => ({
       // immediately and decrements, which would otherwise strand its peers.
       const deadline = Date.now() + 1000;
       while (compareConcurrencyPeak < compareBarrierSize && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 5));
+        await new Promise((r) => {
+          setTimeout(r, 5);
+        });
       }
       compareInFlight--;
     }
@@ -556,7 +559,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'oldsha1',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
@@ -642,7 +645,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'abandonedsha',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
@@ -688,7 +691,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'unverifiable',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
@@ -733,7 +736,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'orphansha',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
@@ -766,7 +769,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/feature',
       after: 'abc1234',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
@@ -792,7 +795,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'def5678',
       installation: { id: 777 },
-      repository: { full_name: 'octo/actions-repo', id: 886845 },
+      repository: { full_name: 'octo/actions-repo', id: 886_845 },
     });
 
     expect(res.status).toBe(200);
@@ -820,7 +823,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: '0000000000000000000000000000000000000000',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
@@ -1230,8 +1233,8 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 321 },
-      repository: { full_name: 'octo/wfr', id: 855536 },
-      workflow_run: { id: 123456, run_attempt: 1, conclusion: 'success', head_sha: 'sha-success' },
+      repository: { full_name: 'octo/wfr', id: 855_536 },
+      workflow_run: { id: 123_456, run_attempt: 1, conclusion: 'success', head_sha: 'sha-success' },
     });
 
     expect(res.status).toBe(200);
@@ -1268,8 +1271,8 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 322 },
-      repository: { full_name: 'octo/wfr-fail', id: 871475 },
-      workflow_run: { id: 654321, run_attempt: 1, conclusion: 'failure', head_sha: 'sha-fail' },
+      repository: { full_name: 'octo/wfr-fail', id: 871_475 },
+      workflow_run: { id: 654_321, run_attempt: 1, conclusion: 'failure', head_sha: 'sha-fail' },
     });
 
     expect(res.status).toBe(200);
@@ -1305,8 +1308,8 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 323 },
-      repository: { full_name: 'octo/wfr-no-attempt', id: 871476 },
-      workflow_run: { id: 654322, conclusion: 'success', head_sha: 'sha-no-attempt' },
+      repository: { full_name: 'octo/wfr-no-attempt', id: 871_476 },
+      workflow_run: { id: 654_322, conclusion: 'success', head_sha: 'sha-no-attempt' },
     });
 
     expect(res.status).toBe(200);
@@ -1354,8 +1357,13 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 331 },
-      repository: { full_name: 'octo/check-ok', id: 766742 },
-      workflow_run: { id: 424250, run_attempt: 1, conclusion: 'success', head_sha: 'sha-check-ok' },
+      repository: { full_name: 'octo/check-ok', id: 766_742 },
+      workflow_run: {
+        id: 424_250,
+        run_attempt: 1,
+        conclusion: 'success',
+        head_sha: 'sha-check-ok',
+      },
     });
 
     expect(res.status).toBe(200);
@@ -1404,9 +1412,9 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 332 },
-      repository: { full_name: 'octo/check-fail', id: 739072 },
+      repository: { full_name: 'octo/check-fail', id: 739_072 },
       workflow_run: {
-        id: 424251,
+        id: 424_251,
         run_attempt: 1,
         conclusion: 'failure',
         head_sha: 'sha-check-fail',
@@ -1458,9 +1466,9 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 333 },
-      repository: { full_name: 'octo/check-none', id: 811598 },
+      repository: { full_name: 'octo/check-none', id: 811_598 },
       workflow_run: {
-        id: 424252,
+        id: 424_252,
         run_attempt: 1,
         conclusion: 'success',
         head_sha: 'sha-check-none',
@@ -1509,9 +1517,9 @@ describe('POST /webhooks/github', () => {
       const res = await post(app, appEnv, 'workflow_run', {
         action: 'completed',
         installation: { id: 334 },
-        repository: { full_name: 'octo/check-throw', id: 870692 },
+        repository: { full_name: 'octo/check-throw', id: 870_692 },
         workflow_run: {
-          id: 424253,
+          id: 424_253,
           run_attempt: 1,
           conclusion: 'success',
           head_sha: 'sha-check-throw',
@@ -1570,9 +1578,9 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 335 },
-      repository: { full_name: 'octo/check-terminal', id: 796140 },
+      repository: { full_name: 'octo/check-terminal', id: 796_140 },
       workflow_run: {
-        id: 424260,
+        id: 424_260,
         run_attempt: 1,
         conclusion: 'cancelled',
         head_sha: 'sha-check-terminal',
@@ -1633,8 +1641,8 @@ describe('POST /webhooks/github', () => {
       const res = await post(app, appEnv, 'workflow_run', {
         action: 'completed',
         installation: { id: 323 },
-        repository: { full_name: 'octo/wfr-throw', id: 823577 },
-        workflow_run: { id: 777777, run_attempt: 1, conclusion: 'success', head_sha: 'sha-throw' },
+        repository: { full_name: 'octo/wfr-throw', id: 823_577 },
+        workflow_run: { id: 777_777, run_attempt: 1, conclusion: 'success', head_sha: 'sha-throw' },
       });
 
       expect(res.status).toBe(200);
@@ -1705,7 +1713,7 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 900 },
-      repository: { full_name: 'octo/x', id: 872525 },
+      repository: { full_name: 'octo/x', id: 872_525 },
       workflow_run: { id: 500, run_attempt: 1, conclusion: 'failure', head_sha: 'sha-x' },
     });
 
@@ -1745,7 +1753,7 @@ describe('POST /webhooks/github', () => {
       branch: 'main',
       buildExecutor: 'github_actions',
     });
-    await seedInstallation(env.db, '960', [{ full_name: 'octo/multi', id: 960960 }]);
+    await seedInstallation(env.db, '960', [{ full_name: 'octo/multi', id: 960_960 }]);
 
     // Each project has its OWN live deployment at the workflow head sha, so each
     // build links to its OWN deployment (resolved per-candidate).
@@ -1786,7 +1794,7 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 960 },
-      repository: { full_name: 'octo/multi', id: 960960 },
+      repository: { full_name: 'octo/multi', id: 960_960 },
       workflow_run: { id: 960, run_attempt: 1, conclusion: 'success', head_sha: 'sha-multi' },
     });
 
@@ -1851,7 +1859,7 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 950 },
-      repository: { full_name: 'octo/rerun', id: 889911 },
+      repository: { full_name: 'octo/rerun', id: 889_911 },
       workflow_run: { id: 800, run_attempt: 2, conclusion: 'success', head_sha: 'sha-new' },
     });
 
@@ -1915,7 +1923,7 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 951 },
-      repository: { full_name: 'octo/redeliver', id: 874787 },
+      repository: { full_name: 'octo/redeliver', id: 874_787 },
       workflow_run: { id: 801, run_attempt: 1, conclusion: 'success', head_sha: 'sha-a1' },
     });
 
@@ -1952,7 +1960,7 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 999 },
-      repository: { full_name: 'octo/unknown', id: 881839 },
+      repository: { full_name: 'octo/unknown', id: 881_839 },
       workflow_run: { id: 600, run_attempt: 1, conclusion: 'success', head_sha: 'sha-z' },
     });
 
@@ -2120,7 +2128,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'leg0001',
       installation: { id: 650 },
-      repository: { full_name: 'octo/legacy', id: 12345 },
+      repository: { full_name: 'octo/legacy', id: 12_345 },
     });
 
     expect(res.status).toBe(200);
@@ -2300,7 +2308,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'abc1234',
       installation: { id: 7301 },
-      repository: { full_name: 'octo/susp', id: 764776 },
+      repository: { full_name: 'octo/susp', id: 764_776 },
     });
 
     expect(res.status).toBe(200);
@@ -2329,7 +2337,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'abc1234',
       installation: { id: 7302 },
-      repository: { full_name: 'octo/del', id: 873576 },
+      repository: { full_name: 'octo/del', id: 873_576 },
     });
 
     expect(res.status).toBe(200);
@@ -3805,8 +3813,8 @@ describe('POST /webhooks/github — CAS workflow_run completion', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 8201 },
-      repository: { full_name: 'octo/cas', id: 791148 },
-      workflow_run: { id: 87001, run_attempt: 1, conclusion: 'success', head_sha: 'sha-cas' },
+      repository: { full_name: 'octo/cas', id: 791_148 },
+      workflow_run: { id: 87_001, run_attempt: 1, conclusion: 'success', head_sha: 'sha-cas' },
     });
 
     expect(res.status).toBe(200);
@@ -4863,7 +4871,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
     installation: { id: 900 },
     repository: { full_name: 'octo/site', id: 9001 },
     check_run: {
-      id: overrides?.id ?? 55001,
+      id: overrides?.id ?? 55_001,
       name: overrides?.name ?? 'Void Build',
       head_sha: overrides?.headSha ?? 'cafe1234',
       external_id: overrides?.externalId ?? 'bld_old',
@@ -5276,7 +5284,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       // Deleting a project cascades its build rows away while GitHub keeps the
       // check for months. Falling back to the branch set here would rebuild —
       // and could deploy — sibling projects owned by other users.
-      const res = await post(app, appEnv, 'check_run', checkRunPayload({ id: 77004 }));
+      const res = await post(app, appEnv, 'check_run', checkRunPayload({ id: 77_004 }));
 
       expect(await res.json()).toEqual({ ok: true, ignored: 'originating build not found' });
       expect(await getProjectBuilds(env.db, project.id)).toHaveLength(0);
@@ -5313,7 +5321,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77005, externalId: failed.id, conclusion: 'failure' }),
+        checkRunPayload({ id: 77_005, externalId: failed.id, conclusion: 'failure' }),
       );
 
       expect(await res.json()).toEqual({ ok: true, enqueued: 0 });
@@ -5341,7 +5349,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77008, externalId: clicked.id, conclusion: 'stale' }),
+        checkRunPayload({ id: 77_008, externalId: clicked.id, conclusion: 'stale' }),
       );
 
       const [, , , , opts] = spy.mock.calls[0]!;
@@ -5371,7 +5379,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77006, externalId: failed.id, conclusion: null }),
+        checkRunPayload({ id: 77_006, externalId: failed.id, conclusion: null }),
       );
 
       const [, , , , opts] = spy.mock.calls[0]!;
@@ -5405,7 +5413,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77007, externalId: queued.id }),
+        checkRunPayload({ id: 77_007, externalId: queued.id }),
       );
 
       // An UNRUN build must never be reported as deployed, and it still needs the
@@ -5445,7 +5453,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77003, externalId: done.id }),
+        checkRunPayload({ id: 77_003, externalId: done.id }),
       );
 
       // Nothing was enqueued, and the scheduler is not woken for work that
@@ -5479,7 +5487,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77001, externalId: clicked.id, conclusion: 'neutral' }),
+        checkRunPayload({ id: 77_001, externalId: clicked.id, conclusion: 'neutral' }),
       );
 
       expect(await res.json()).toEqual({ ok: true, enqueued: 0 });
@@ -5511,7 +5519,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77009, externalId: clicked.id }),
+        checkRunPayload({ id: 77_009, externalId: clicked.id }),
       );
 
       expect(res.status).toBe(200);
@@ -5534,12 +5542,15 @@ describe('POST /webhooks/github — rerun from the check run', () => {
 
     const checkRunModule = await import('../../src/github/check-run.ts');
     let settle: (v: boolean) => void = () => {};
-    const spy = vi
-      .spyOn(checkRunModule, 'completeCheckRun')
-      .mockImplementation(() => new Promise<boolean>((resolve) => (settle = resolve)));
+    const spy = vi.spyOn(checkRunModule, 'completeCheckRun').mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settle = resolve;
+        }),
+    );
     try {
       const { app, appEnv } = makeApp(env);
-      const payload = checkRunPayload({ id: 77010, externalId: clicked.id });
+      const payload = checkRunPayload({ id: 77_010, externalId: clicked.id });
       const body = JSON.stringify(payload);
       const pending: Array<Promise<unknown>> = [];
       const res = await app.fetch(
@@ -5589,7 +5600,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77002, externalId: clicked.id }),
+        checkRunPayload({ id: 77_002, externalId: clicked.id }),
       );
 
       expect(res.status).toBe(200);

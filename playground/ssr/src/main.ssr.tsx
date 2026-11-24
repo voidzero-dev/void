@@ -3,7 +3,8 @@ import { defineRender } from 'void';
 import App from './App.tsx';
 
 async function readBlogPost(slug: string): Promise<string | null> {
-  return (await import(`../blog/${slug}.md?raw`)).default;
+  const post = (await import(`../blog/${slug}.md?raw`)) as { default: string };
+  return post.default;
 }
 
 export default defineRender(async (c, assetTags) => {
@@ -18,7 +19,10 @@ export default defineRender(async (c, assetTags) => {
   const appHtml = renderToString(
     <App url={url.pathname} visitCount={nextCount} blogContent={blogContent} />,
   );
-  const stateJson = JSON.stringify({ visits: nextCount, blogContent }).replace(/</g, '\\u003c');
+  const stateJson = JSON.stringify({ visits: nextCount, blogContent }).replaceAll(
+    '<',
+    String.raw`\u003c`,
+  );
   const html = `<!doctype html>
 <html lang="en">
   <head>

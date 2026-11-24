@@ -152,12 +152,9 @@ export async function* fetchStream<
 /** Workers AI frames carry text in `response`; other JSON with that key (e.g. usage metadata) is skipped. */
 function chunkText(data: string): string | undefined {
   try {
-    const parsed = JSON.parse(data);
-    if (typeof parsed.response === 'string') {
-      return parsed.response;
-    }
-    if ('response' in parsed) {
-      return undefined;
+    const parsed: unknown = JSON.parse(data);
+    if (parsed && typeof parsed === 'object' && 'response' in parsed) {
+      return typeof parsed.response === 'string' ? parsed.response : undefined;
     }
   } catch {
     // Not JSON: plain text frame.

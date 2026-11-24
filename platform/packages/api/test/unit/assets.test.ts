@@ -11,8 +11,8 @@ import {
   resolveAssetContentTypes,
   scanProjectAssetOrphanCandidates,
   uploadAssetBuckets,
-  type AssetEntry,
 } from '../../src/assets.ts';
+import type { AssetEntry } from '../../src/assets.ts';
 
 const enc = new TextEncoder();
 
@@ -22,7 +22,7 @@ describe('asset hash compatibility', () => {
     (size) => {
       const bytes = Uint8Array.from({ length: size }, (_, index) => index % 251);
       for (const path of ['/asset.js', '/nested/file.css', '/extensionless']) {
-        const input = Buffer.from(bytes).toString('base64') + extname(path).substring(1);
+        const input = Buffer.from(bytes).toString('base64') + extname(path).slice(1);
         const expected = Buffer.from(blake3hash(enc.encode(input)))
           .subarray(0, 16)
           .toString('hex');
@@ -643,7 +643,9 @@ describe('uploadAssetBuckets', () => {
       currentConcurrent++;
       maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
       // Yield to let other concurrent tasks start
-      await new Promise((r) => setTimeout(r, 1));
+      await new Promise((r) => {
+        setTimeout(r, 1);
+      });
       currentConcurrent--;
       return Response.json({ result: { jwt: 'completion-jwt' } });
     });

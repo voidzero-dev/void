@@ -1,4 +1,5 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import {
   createOrRefreshProjectInvitation,
   getPendingProjectInvitationsByUserId,

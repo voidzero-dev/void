@@ -10,8 +10,8 @@ import {
   formatPlatformApiError,
   parsePlatformErrorBody,
   platformErrorMessage,
-  type ProjectPermission,
 } from './platform-errors.ts';
+import type { ProjectPermission } from './platform-errors.ts';
 import { normalizePlatformApiUrl } from './platform-registry.ts';
 import type {
   DeployAssetUploadRequest,
@@ -26,7 +26,7 @@ import type {
 function readCliVersion(): string | null {
   try {
     const pkgPath = join(getPackageDir(), 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: unknown };
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: unknown };
     return typeof pkg.version === 'string' ? pkg.version : null;
   } catch {
     return null;
@@ -579,7 +579,7 @@ export type ManifestOnlyDeployPayload = DeployUploadPayload;
 // HTTP response is final. Every attempt sends the same idempotency key, so the
 // platform answers a replay with the earlier deployment's receipt or a 409.
 const DEPLOY_POST_MAX_RETRIES = 3;
-const DEPLOY_POST_BACKOFF_MS = [1000, 5000, 10000];
+const DEPLOY_POST_BACKOFF_MS = [1000, 5000, 10_000];
 /**
  * Every transport failure is retried, so a `TypeError` thrown by the deploy
  * POST always comes after this many attempts.
@@ -1160,6 +1160,7 @@ export class PlatformClient {
         return { needed: Object.keys(assetManifest), total, skipped: 0 };
       }
 
+      // oxlint-disable-next-line typescript/return-await -- A malformed preflight response must propagate instead of triggering an upload of all assets.
       return res.json();
     } catch (error) {
       if (isPreflightRejection(error)) {
@@ -2059,5 +2060,7 @@ export class PlatformClient {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

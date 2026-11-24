@@ -14,8 +14,8 @@ import {
   recoverAuthenticationCredential,
   requireAdministrator,
   transaction,
-  type Connection,
 } from './platform-auth-recovery-core.ts';
+import type { Connection } from './platform-auth-recovery-core.ts';
 import {
   platformOperatorCredentialLabel,
   resolvePlatformCloudflareCredential,

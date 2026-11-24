@@ -14,8 +14,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { createUsageCounterFixture } from './usage-counter-fixture.ts';
 
 let env: TestEnv;
@@ -78,7 +78,7 @@ describe('live plan transitions using the production quota counter', () => {
           billingPeriodStart: priorPeriod,
           billingPeriodInitialized: true,
           totalRequests: 9000,
-          totalNeurons: 120000,
+          totalNeurons: 120_000,
           totalSandboxSeconds: 100,
           requestsSuspended: true,
           aiSuspended: true,

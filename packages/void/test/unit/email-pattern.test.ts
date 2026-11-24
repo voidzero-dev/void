@@ -13,7 +13,7 @@ describe('compileEmailPattern', () => {
   it('compiles static + tag', () => {
     expect(compileEmailPattern('support+[ticket]')).toEqual({
       kind: 'static-tag',
-      regexSource: '^support\\+([^+@]+)$',
+      regexSource: String.raw`^support\+([^+@]+)$`,
       paramNames: ['ticket'],
     });
   });
@@ -29,7 +29,7 @@ describe('compileEmailPattern', () => {
   it('compiles dynamic + tag', () => {
     expect(compileEmailPattern('[user]+[tag]')).toEqual({
       kind: 'dynamic-tag',
-      regexSource: '^([^+@]+)\\+([^+@]+)$',
+      regexSource: String.raw`^([^+@]+)\+([^+@]+)$`,
       paramNames: ['user', 'tag'],
     });
   });
@@ -37,7 +37,7 @@ describe('compileEmailPattern', () => {
   it('escapes literal dots', () => {
     expect(compileEmailPattern('alerts.ops')).toEqual({
       kind: 'static',
-      regexSource: '^alerts\\.ops$',
+      regexSource: String.raw`^alerts\.ops$`,
       paramNames: [],
     });
   });

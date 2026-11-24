@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import {
   DEFAULT_DISPATCH_NAMESPACE,
   MAX_SECRET_NAME_LENGTH,
@@ -10,8 +11,8 @@ import {
   getActiveDeployment,
   listProjectSecretNames,
   upsertProjectSecret,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getProjectDeploymentWorkerName } from '../naming.ts';
 import { deleteWorkerSecret, encryptProjectSecret, putWorkerSecret } from '../project-secrets.ts';

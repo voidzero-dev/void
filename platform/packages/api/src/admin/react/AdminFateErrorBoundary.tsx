@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 
-import { Component, type ReactNode } from 'react';
+import { Component } from 'react';
+import type { ReactNode } from 'react';
 import { AdminErrorPage } from './views/AdminErrorPage.tsx';
 
 function isFateRequestError(error: unknown): error is Error & { status: number } {

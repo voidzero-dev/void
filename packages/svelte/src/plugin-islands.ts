@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname } from 'pathslash';
-import { preprocess, type CompileResult, type PreprocessorGroup } from 'svelte/compiler';
+import { preprocess } from 'svelte/compiler';
+import type { CompileResult, PreprocessorGroup } from 'svelte/compiler';
 import type { Plugin, ResolvedConfig } from 'vite';
 import { generateComponentManifest, scanPages } from 'void/pages';
 import type { PageScanResult } from 'void/pages';
@@ -19,8 +20,8 @@ import {
   ISLANDS_CLIENT_ENTRY_ID,
   findIslandImports,
   editIslandSource,
-  type IslandSourceEdit,
 } from 'void/pages-islands-plugin';
+import type { IslandSourceEdit } from 'void/pages-islands-plugin';
 
 const COMPONENT_EXTENSIONS = ['.svelte', '.ts', '.js'];
 
@@ -117,7 +118,7 @@ export function islandsPlugin(
 
       load: {
         filter: {
-          // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
+          // Vite virtual module null-byte prefix
           id: /^(\0virtual:void-islands-(renderer|client)|\/@void-island-wrap\/)/,
         },
         handler(id) {
@@ -253,7 +254,7 @@ export function islandsPlugin(
             );
           }
           this.addWatchFile(file);
-          let code = readFileSync(file, 'utf-8');
+          let code = readFileSync(file, 'utf8');
           let map: unknown;
           if (api.options.preprocess) {
             const processed = await preprocess(code, api.options.preprocess, { filename: file });

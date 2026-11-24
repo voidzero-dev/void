@@ -12,7 +12,7 @@ import {
 import { signDeployToken } from '../../src/auth/deploy-token.ts';
 import { signJwt } from '../../src/auth/jwt.ts';
 import { createDeployment } from '../../src/db.ts';
-import * as db from '../../src/db.ts';
+import { getProject } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import { builds, deployments } from '../../src/schema.ts';
 import {
@@ -25,8 +25,8 @@ import {
   mockCfApi,
   cfSuccess,
   readAllEvents,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -679,7 +679,7 @@ describe('deploy token scope enforcement', () => {
     expect(liveRows).toHaveLength(0);
 
     // The project must not point at any deployment (publish tx rolled back).
-    const updatedProject = await db.getProject(env.db, project.id);
+    const updatedProject = await getProject(env.db, project.id);
     expect(updatedProject?.active_deployment_id ?? null).toBeNull();
   });
 

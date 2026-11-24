@@ -6,8 +6,8 @@ import {
   formatSseText,
   getLastEventId,
   SseStreamClosedError,
-  type SseStream,
 } from '../../src/runtime/sse/index.ts';
+import type { SseStream } from '../../src/runtime/sse/index.ts';
 import { MockEventSource } from '../helpers/mock-event-source.ts';
 
 const decoder = new TextDecoder();
@@ -65,6 +65,26 @@ describe('formatSseText', () => {
 
   it('uses the same control-field validation as formatSse', () => {
     expect(() => formatSseText({ id: 'bad\nid', data: 'hello' })).toThrow('id must not contain');
+  });
+
+  it('writes the same getter-backed control values it validates', () => {
+    const getId = vi.fn<() => string | undefined>().mockReturnValueOnce('evt_1');
+    const getEvent = vi.fn<() => string | undefined>().mockReturnValueOnce('update');
+    const getRetry = vi.fn<() => number | undefined>().mockReturnValueOnce(0);
+
+    expect(
+      formatSseText({
+        get id() {
+          return getId();
+        },
+        get event() {
+          return getEvent();
+        },
+        get retry() {
+          return getRetry();
+        },
+      }),
+    ).toBe('id: evt_1\nevent: update\nretry: 0\n\n');
   });
 });
 

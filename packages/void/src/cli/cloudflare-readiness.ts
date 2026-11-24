@@ -3,8 +3,8 @@ import {
   extractWorkersDevSubdomain,
   normalizeReadinessAccessOrigin,
   normalizeWorkersDevSubdomain,
-  type CloudflareWorkersDevSubdomainLookup,
 } from '@void/deploy-cloudflare';
+import type { CloudflareWorkersDevSubdomainLookup } from '@void/deploy-cloudflare';
 import { dirname, join } from 'pathslash';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import type { DeployWranglerRun } from './deploy-types.ts';
@@ -157,7 +157,7 @@ function readCloudflareLocalState(root: string): CloudflareLocalState {
     return {};
   }
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf-8')) as unknown;
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
     return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
       ? (parsed as CloudflareLocalState)
       : {};

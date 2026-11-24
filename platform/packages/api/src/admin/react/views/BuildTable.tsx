@@ -50,7 +50,7 @@ function duration(build: Build): string {
   }
   const start = parseUtcDate(build.started_at).getTime();
   const end = build.completed_at ? parseUtcDate(build.completed_at).getTime() : Date.now();
-  if (isNaN(start) || isNaN(end) || end < start) {
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
     return '-';
   }
   const seconds = Math.floor((end - start) / 1000);

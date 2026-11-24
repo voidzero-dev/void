@@ -62,6 +62,6 @@ export function buildPrerenderPath(
     return interpolateRouteParams(pattern, routeParams(pattern, params), true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new TypeError(`${file} getPrerenderPaths()[${index}]: ${message}`);
+    throw new TypeError(`${file} getPrerenderPaths()[${index}]: ${message}`, { cause: error });
   }
 }

@@ -384,7 +384,7 @@ describe('regex-compatible details', () => {
 
   it('still offers the deprecated regex view', () => {
     const { regex } = compilePattern('/u/:id*/files/*');
-    expect(regex.source).toBe('^\\/u\\/(?<id>.*)\\/files\\/(?<splat>.*)$');
+    expect(regex.source).toBe(String.raw`^\/u\/(?<id>.*)\/files\/(?<splat>.*)$`);
     expect(regex.exec('/u/42/extra/files/a/b')?.groups).toEqual({ id: '42/extra', splat: 'a/b' });
   });
 });
@@ -447,7 +447,7 @@ describe('substituteParams', () => {
 
   it('keeps a path destination on the same site when a capture starts with a slash', () => {
     expect(substituteParams('/:splat', { splat: '/evil.com' })).toBe('/evil.com');
-    expect(substituteParams('/:splat', { splat: '\\evil.com' })).toBe('/evil.com');
+    expect(substituteParams('/:splat', { splat: String.raw`\evil.com` })).toBe('/evil.com');
     expect(substituteParams(':splat', { splat: '//evil.com' })).toBe('/evil.com');
     expect(substituteParams('/:path*', { path: '//evil.com/x' })).toBe('/evil.com/x');
   });

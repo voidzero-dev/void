@@ -11,8 +11,8 @@ import {
   isRecord,
   optionsFromRecord,
   toOutputValue,
-  type UnknownRecord,
 } from './converter-helpers.ts';
+import type { UnknownRecord } from './converter-helpers.ts';
 import { inferDurableObjectExports } from './durable-object-exports.ts';
 import { createFollowUp } from './follow-ups.ts';
 import type { MigrationFollowUp, OutputObject, OutputProperty } from './types.ts';

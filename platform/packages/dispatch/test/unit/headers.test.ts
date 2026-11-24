@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vite-plus/test';
-import {
-  applyHeaderRules,
-  parseClearSiteData,
-  sanitizeClearSiteData,
-  type HeaderRule,
-} from '../../src/headers.ts';
+import { applyHeaderRules, parseClearSiteData, sanitizeClearSiteData } from '../../src/headers.ts';
+import type { HeaderRule } from '../../src/headers.ts';
 
 describe('applyHeaderRules', () => {
   it('returns original response when no rules', () => {
@@ -252,7 +248,7 @@ describe('parseClearSiteData', () => {
 
   it('resolves quoted-pair escapes so an escaped form cannot hide a directive', () => {
     // RFC 7230 quoted-pair: \e is the literal "e", so this content IS "cookies".
-    expect(directives('"cooki\\es"')).toEqual(['cookies']);
+    expect(directives(String.raw`"cooki\es"`)).toEqual(['cookies']);
   });
 
   it('marks members that are not well-formed quoted-strings as malformed', () => {
@@ -293,7 +289,7 @@ describe('sanitizeClearSiteData', () => {
 
   it('strips case-variant and escape-obfuscated cookies directives', () => {
     expect(sanitizeClearSiteData('"COOKIES"')).toBeNull();
-    expect(sanitizeClearSiteData('"cooki\\es"')).toBeNull(); // \e resolves to "cookies"
+    expect(sanitizeClearSiteData(String.raw`"cooki\es"`)).toBeNull(); // \e resolves to "cookies"
     expect(sanitizeClearSiteData('"cache", "Cookies"')).toBe('"cache"');
   });
 

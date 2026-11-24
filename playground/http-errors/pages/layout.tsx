@@ -1,5 +1,6 @@
 import { Link } from '@void/react';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef } from 'react';
+import type { ReactNode } from 'react';
 import './styles.css';
 
 export default function Layout({ children }: { children: ReactNode }) {

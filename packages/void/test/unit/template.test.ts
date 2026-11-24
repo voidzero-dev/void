@@ -12,7 +12,7 @@ describe('React starter', () => {
       new URL('../../../react/package.json', import.meta.url),
     );
     expect(pluginReactManifest).toBeDefined();
-    const pluginReact = JSON.parse(readFileSync(pluginReactManifest!, 'utf-8'));
+    const pluginReact = JSON.parse(readFileSync(pluginReactManifest!, 'utf8'));
 
     expect(SCAFFOLD_FRAMEWORKS.react.devDependencies?.['oxc-transform-react']).toBe(
       pluginReact.peerDependencies['oxc-transform-react'],

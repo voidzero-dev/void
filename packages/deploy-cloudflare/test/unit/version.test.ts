@@ -12,9 +12,11 @@ import {
   normalizeWorkersDevSubdomain,
   parseCloudflareVersionMessage,
   readCloudflareTriggerConfig,
-  type CloudflareCommandResult,
-  type CloudflareOperation,
-  type CloudflareTriggerConfig,
+} from '../../src/index.ts';
+import type {
+  CloudflareCommandResult,
+  CloudflareOperation,
+  CloudflareTriggerConfig,
 } from '../../src/index.ts';
 import { operationFixture } from '../operation-fixture.ts';
 import { apiSecretDraftVersion, voidSecretDraftVersion } from '../secret-draft-fixture.ts';
@@ -1210,7 +1212,7 @@ describe('Cloudflare version activation', () => {
     ).resolves.toMatchObject({
       ok: false,
       reason: 'readiness-staging-failed',
-      cloudflareErrorCode: 10210,
+      cloudflareErrorCode: 10_210,
       diagnostic: expect.stringContaining('Durable Object migration fate-live-v1'),
     });
   });
@@ -3611,7 +3613,7 @@ describe('Cloudflare version activation', () => {
             expect(url).toBe('https://app.example.com/__void/ready');
             expect(options?.headers).toEqual({ 'user-agent': 'void-deploy-readiness/1' });
             probes++;
-            time += 2_000;
+            time += 2000;
             if (becomesReady && probes > 30) {
               return Response.json({ ready: true });
             }
@@ -3629,8 +3631,8 @@ describe('Cloudflare version activation', () => {
             diagnostic: expect.stringContaining('retry `void deploy --platform cloudflare`'),
           });
         }
-        expect(time).toBeLessThanOrEqual(timeout + 2_000);
-        expect(probes).toBeLessThanOrEqual(Math.ceil(timeout / 2_000));
+        expect(time).toBeLessThanOrEqual(timeout + 2000);
+        expect(probes).toBeLessThanOrEqual(Math.ceil(timeout / 2000));
       } finally {
         clock.mockRestore();
       }
@@ -4452,7 +4454,7 @@ describe('Cloudflare version activation', () => {
   it('bootstraps first-deploy Durable Object migrations after Cloudflare error 10211', async () => {
     const base = runner({
       status: { stdout: '', stderr: 'The Worker first has no deployments.', status: 1 },
-      upload: { stdout: '', stderr: '', status: 1, errorCode: 10211 },
+      upload: { stdout: '', stderr: '', status: 1, errorCode: 10_211 },
       bootstrap: ok(
         `Current Version ID: ${NEXT}\nVersion Preview URL: https://2e209d56-first.example.workers.dev`,
       ),
@@ -4593,7 +4595,7 @@ describe('Cloudflare version activation', () => {
       ok: false,
       reason: 'upload-failed',
       status: 1,
-      cloudflareErrorCode: 10211,
+      cloudflareErrorCode: 10_211,
       diagnostic: 'Durable Object migrations require deploy. [code: 10211]',
     });
     expect(runWrangler.mock.calls.some(([args]) => args[0] === 'deploy')).toBe(false);
@@ -4619,7 +4621,7 @@ describe('Cloudflare version activation', () => {
     expect(result).toMatchObject({
       ok: false,
       reason: 'upload-failed',
-      cloudflareErrorCode: 10021,
+      cloudflareErrorCode: 10_021,
       diagnostic: expect.stringContaining('Uncaught TypeError:'),
     });
     expect(JSON.stringify(result)).not.toContain('do-not-echo');
@@ -4652,7 +4654,7 @@ describe('Cloudflare version activation', () => {
     ).resolves.toMatchObject({
       ok: false,
       reason: 'bootstrap-failed',
-      cloudflareErrorCode: 10021,
+      cloudflareErrorCode: 10_021,
       diagnostic: 'Script startup exceeded CPU time limit. [code: 10021]',
     });
   });
@@ -4800,7 +4802,7 @@ describe('Cloudflare version activation', () => {
       ok: false,
       reason: 'upload-failed',
       status: 1,
-      cloudflareErrorCode: 10211,
+      cloudflareErrorCode: 10_211,
       diagnostic: 'Durable Object migrations require deploy. [code: 10211]',
     });
     expect(runWrangler.mock.calls.some(([args]) => args[0] === 'deploy')).toBe(false);
@@ -4932,7 +4934,7 @@ describe('Cloudflare version activation', () => {
         verifyUploader: () => true,
         message: encodeCloudflareVersionMessage([]),
       }),
-    ).resolves.toMatchObject({ ok: false, reason: 'upload-failed', cloudflareErrorCode: 10000 });
+    ).resolves.toMatchObject({ ok: false, reason: 'upload-failed', cloudflareErrorCode: 10_000 });
     expect(runWrangler.mock.calls.some(([args]) => args[0] === 'deploy')).toBe(false);
   });
 
@@ -5185,7 +5187,7 @@ describe('Cloudflare trigger synchronization recovery', () => {
       triggers: [TRIGGER_FAILURE],
       deploys: [
         ok(),
-        { stdout: '', stderr: 'Secrets changed. [code: 10220]', status: 1, errorCode: 10220 },
+        { stdout: '', stderr: 'Secrets changed. [code: 10220]', status: 1, errorCode: 10_220 },
         { stdout: '', stderr: '', status: 1, error: 'socket hang up', applied: true },
       ],
     });

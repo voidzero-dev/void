@@ -6,8 +6,8 @@ import {
   cloudflareCredentialOverrides,
   ensureCloudflareAuthentication,
   parseCloudflareAuthSession,
-  type CloudflareAuthSession,
 } from './cloudflare-auth.ts';
+import type { CloudflareAuthSession } from './cloudflare-auth.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import { printSuccess } from './output.ts';
 import { readRootWranglerConfig } from './wrangler.ts';

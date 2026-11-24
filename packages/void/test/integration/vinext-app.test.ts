@@ -7,8 +7,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { collectWorkerFiles } from '../../src/cli/package.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
@@ -44,7 +44,7 @@ describe('playground/vinext-app dev', () => {
 
   it('applies env.ts to server routes', async () => {
     const response = await fetch(`${DEV_BASE}/api/env`);
-    expect(await response.json()).toEqual({ SCHEMA_DEFAULT: 48213 });
+    expect(await response.json()).toEqual({ SCHEMA_DEFAULT: 48_213 });
   });
 
   it('renders home page with SSR', async () => {
@@ -156,13 +156,17 @@ export default defineConfig({
         convertV4MiniflareOptions({
           compatibilityDate: config.compatibility_date,
           compatibilityFlags: config.compatibility_flags,
-          modules: modulePaths
-            .filter((path) => /\.(?:js|mjs)$/.test(path))
-            .map((path) => ({
-              type: 'ESModule',
-              path: join(serverDir, path),
-              contents: files.get(path)!,
-            })),
+          modules: modulePaths.flatMap((path) =>
+            /\.(?:js|mjs)$/.test(path)
+              ? [
+                  {
+                    type: 'ESModule',
+                    path: join(serverDir, path),
+                    contents: files.get(path)!,
+                  },
+                ]
+              : [],
+          ),
           modulesRoot: serverDir,
           d1Databases: ['DB'],
           kvNamespaces: ['KV'],

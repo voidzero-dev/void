@@ -27,6 +27,7 @@
     "uninstall:void-dev": "node scripts/void-dev-link.mjs uninstall"
   },
   "devDependencies": {
+    "@cloudflare/oxlint-config": "catalog:",
     "@cloudflare/workers-types": "catalog:",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",

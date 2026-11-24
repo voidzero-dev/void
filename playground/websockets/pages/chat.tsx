@@ -1,6 +1,7 @@
 import { startTransition, useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { WebSocketRouteMap } from 'void/routes';
-import { connect, type VoidSocket } from 'void/ws';
+import { connect } from 'void/ws';
+import type { VoidSocket } from 'void/ws';
 import type { Props } from './chat.server.ts';
 
 type ChatSocket = VoidSocket<'/ws/chat/:room'>;

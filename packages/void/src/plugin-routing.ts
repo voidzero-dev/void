@@ -3,22 +3,12 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { dirname, join, relative, resolve } from 'pathslash';
-import {
-  createRunnableDevEnvironment,
-  isRunnableDevEnvironment,
-  normalizePath,
-  type Plugin,
-  type ResolvedConfig,
-  type RunnableDevEnvironment,
-} from 'vite';
+import { createRunnableDevEnvironment, isRunnableDevEnvironment, normalizePath } from 'vite';
+import type { Plugin, ResolvedConfig, RunnableDevEnvironment } from 'vite';
 import type { ApplicationAnalysis } from './application-analysis.ts';
 import { completeApplicationAnalysis } from './application-routing.ts';
-import {
-  hasApiRoutes,
-  hasDocumentRoutes,
-  resolveAssetRoutingPolicy,
-  type AssetRoutingPolicy,
-} from './asset-routing.ts';
+import { hasApiRoutes, hasDocumentRoutes, resolveAssetRoutingPolicy } from './asset-routing.ts';
+import type { AssetRoutingPolicy } from './asset-routing.ts';
 import {
   isAssetBypassRule,
   isGeneratedAssetHeaders,
@@ -38,7 +28,8 @@ import { syncAuthTypesInProjectTsconfig } from './codegen/project-tsconfig.ts';
 import { generateQueueTypes } from './codegen/queue-types.ts';
 import { generateRouteTypes } from './codegen/route-types.ts';
 import { writeFileIfChanged } from './codegen/write-if-changed.ts';
-import { readConfig, getDatabaseDialect, type VoidConfig } from './config.ts';
+import { readConfig, getDatabaseDialect } from './config.ts';
+import type { VoidConfig } from './config.ts';
 import { collectPages, collectRevalidate, hasRevalidate } from './isr-config.ts';
 import { readProjectPaths } from './project-paths.ts';
 import { readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
@@ -49,10 +40,12 @@ import {
   compileWorkerClient,
   compileNodeApp,
   compileNodeServer,
-  type CompileOptions,
-  type SsrCompileOptions,
-  type PagesCompileOptions,
-  type WorkerEntryOptions,
+} from './router/compile.ts';
+import type {
+  CompileOptions,
+  SsrCompileOptions,
+  PagesCompileOptions,
+  WorkerEntryOptions,
 } from './router/compile.ts';
 import type { RouteEnvironment } from './router/parse-filename.ts';
 import type { ScanResult } from './router/scan.ts';
@@ -117,6 +110,23 @@ type RoutingPluginOptions = {
    */
   assetWorkerBypass?: boolean;
 };
+
+function resolveAuthClientFramework(config: import('vite').ResolvedConfig) {
+  return (['react', 'vue', 'svelte', 'solid'] as const).find((framework) =>
+    config.plugins.some((plugin) => plugin.name === `void-${framework}:pages`),
+  );
+}
+
+// Pre-resolve all runtime module paths so generated code uses absolute paths.
+// This is necessary because:
+// 1. "void" bare import would pull in the entire plugin
+// 2. "hono" is a dep of void, not the user's project
+// 3. Virtual modules have no filesystem location for relative resolution
+const resolveFile = (specifier: string) => fileURLToPath(import.meta.resolve(specifier));
+
+function isInDirectory(path: string, directory: string): boolean {
+  return path === directory || path.startsWith(directory + '/');
+}
 
 /**
  * Vite plugin that provides file-based routing.
@@ -187,10 +197,6 @@ export function routingPlugin(
     return Boolean(email && (email.addresses.length > 0 || email.defaultHandler));
   }
 
-  function isInDirectory(path: string, directory: string): boolean {
-    return path === directory || path.startsWith(directory + '/');
-  }
-
   function writeRouteTypes() {
     if (!scan) {
       return;
@@ -223,13 +229,6 @@ export function routingPlugin(
         }
       : null;
   }
-
-  // Pre-resolve all runtime module paths so generated code uses absolute paths.
-  // This is necessary because:
-  // 1. "void" bare import would pull in the entire plugin
-  // 2. "hono" is a dep of void, not the user's project
-  // 3. Virtual modules have no filesystem location for relative resolution
-  const resolveFile = (specifier: string) => fileURLToPath(import.meta.resolve(specifier));
 
   const handlerFile = resolveFile('#self/handler');
   const authRuntimeDir = dirname(resolveFile('void/auth'));
@@ -415,12 +414,6 @@ export function routingPlugin(
   let isrRevalidate: number | Record<string, number> | undefined;
   let isrPages: Array<{ pattern: string; revalidate?: number }> | undefined;
   let isrPathRevalidate: Record<string, number> | undefined;
-
-  function resolveAuthClientFramework(config: import('vite').ResolvedConfig) {
-    return (['react', 'vue', 'svelte', 'solid'] as const).find((framework) =>
-      config.plugins.some((plugin) => plugin.name === `void-${framework}:pages`),
-    );
-  }
 
   function getClientAuthPath(id: string): string {
     const framework = VIRTUAL_CLIENT_RE.exec(id)?.[2] as AuthClientFramework | undefined;

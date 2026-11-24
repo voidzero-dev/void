@@ -131,7 +131,7 @@ function captureGroup(segment: string): string | undefined {
     case 'rest':
       return segment === '*' ? '(.*)' : '(.+)';
     case 'param':
-      return '([^\\/]+)';
+      return String.raw`([^\/]+)`;
     case 'static':
       return undefined;
   }
@@ -159,6 +159,6 @@ export function patternToRegex(pattern: string): string {
       }
       return literal;
     })
-    .join('\\/');
-  return `/^${regexSource}${trailingWildcard ? '(?:(.*)\\/)?' : ''}$/`;
+    .join(String.raw`\/`);
+  return `/^${regexSource}${trailingWildcard ? String.raw`(?:(.*)\/)?` : ''}$/`;
 }

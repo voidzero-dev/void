@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { followBuildLogs, isFatalFollowError, runBuildCommand } from '../../src/cli/build-cmd.ts';
-import { PlatformApiError, PlatformClient, type BuildLogsResponse } from '../../src/cli/client.ts';
+import { PlatformApiError, PlatformClient } from '../../src/cli/client.ts';
+import type { BuildLogsResponse } from '../../src/cli/client.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 
 const registries: Array<string> = [];
@@ -131,7 +132,6 @@ describe('followBuildLogs', () => {
       write: (line) => written.push(line),
       sleep: () => Promise.resolve(),
       since: 1,
-      status: 'building',
       pollMs: 0,
     });
 
@@ -167,7 +167,6 @@ describe('followBuildLogs', () => {
       write: (line) => written.push(line),
       sleep: () => Promise.resolve(),
       since: 2,
-      status: 'building',
       pollMs: 0,
       isFatal: () => false,
       onRetry: (err) => retries.push(err),
@@ -189,7 +188,6 @@ describe('followBuildLogs', () => {
         write: () => {},
         sleep: () => Promise.resolve(),
         since: 1,
-        status: 'building',
         pollMs: 0,
         isFatal: () => true,
       }),
@@ -218,7 +216,6 @@ describe('followBuildLogs', () => {
       write: (line) => written.push(line),
       sleep: () => Promise.resolve(),
       since: 2,
-      status: 'complete',
     });
 
     expect(sinceCalls).toEqual([2, 2]);
@@ -242,7 +239,6 @@ describe('followBuildLogs', () => {
         write: (line) => written.push(line),
         sleep: () => Promise.resolve(),
         since: 2,
-        status: 'complete',
       }),
     ).rejects.toThrow('upgrade the platform runtime');
     expect(written).toEqual(['retained tail']);
@@ -264,7 +260,6 @@ describe('followBuildLogs', () => {
           return Promise.resolve();
         },
         since: 0,
-        status: 'complete',
       }),
     ).rejects.toThrow('did not confirm completion');
     expect(fetches).toBe(3);

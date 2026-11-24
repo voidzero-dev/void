@@ -1,10 +1,5 @@
-import {
-  normalizePath,
-  parseSync,
-  type EnvironmentModuleNode,
-  type Plugin,
-  type ViteDevServer,
-} from 'vite';
+import { normalizePath, parseSync } from 'vite';
+import type { EnvironmentModuleNode, Plugin, ViteDevServer } from 'vite';
 import { staticModuleReferences } from '../shared/module-references.ts';
 import type { DevCssAsset } from './types.ts';
 
@@ -118,7 +113,7 @@ type CssOutputNode = {
 };
 
 function parseCssOutput(code: string): { css?: string; id?: string; templateCss?: boolean } {
-  const program = parseSync('void-dev-css.js', code).program as unknown as CssOutputNode;
+  const program = parseSync('void-dev-css.js', code).program as CssOutputNode;
   const result: { css?: string; id?: string; templateCss?: boolean } = {};
   const readCss = (node: CssOutputNode | undefined): void => {
     if (node?.type === 'Literal' && typeof node.value === 'string') {
@@ -367,7 +362,7 @@ async function readJsonBody(req: import('node:http').IncomingMessage): Promise<u
   if (chunks.length === 0) {
     return {};
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 function getInternalDevOrigin(server: ViteDevServer): string {

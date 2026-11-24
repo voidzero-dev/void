@@ -2,11 +2,11 @@ import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'pathslash';
 import { analyzeApplicationSync } from '../application-analysis.ts';
-import { type VoidConfig } from '../config.ts';
+import type { VoidConfig } from '../config.ts';
 import { collectRevalidate } from '../isr-config.ts';
-import { type DetectedFramework } from '../plugin-inference.ts';
+import type { DetectedFramework } from '../plugin-inference.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
-import { PlatformClient } from './client.ts';
+import type { PlatformClient } from './client.ts';
 import { assertDeploySchemaDriftFree } from './deploy-drift.ts';
 import {
   log,
@@ -25,12 +25,13 @@ import {
 } from './deploy-managed-events.ts';
 import { formatDeploySummary, printDeploySuccess } from './deploy-summary.ts';
 import { MANAGED_DEPLOY_BUILD_ENV } from './deploy-transport.ts';
-import { type GitDeployMetadata } from './git-metadata.ts';
-import { type CliLogger } from './log-file.ts';
+import type { GitDeployMetadata } from './git-metadata.ts';
+import type { CliLogger } from './log-file.ts';
 import { createSpinner, formatCount, note } from './output.ts';
 import { collectAndHashAssets, buildFrameworkManifest, collectWorkerFiles } from './package.ts';
-import { formatProjectCommand, resolveProjectCommand, type FrameworkPreset } from './preset.ts';
-import { type ProjectConfig } from './project.ts';
+import { formatProjectCommand, resolveProjectCommand } from './preset.ts';
+import type { FrameworkPreset } from './preset.ts';
+import type { ProjectConfig } from './project.ts';
 import type { WrapperFeatures } from './wrapper.ts';
 import { needsWrapper, bundleEntry, cleanupWrapper } from './wrapper.ts';
 
@@ -127,7 +128,10 @@ export async function runFrameworkDeploy(
   const wrapperFeatures: WrapperFeatures = {
     crons: rawJobs,
     queues: rawQueues,
-    hasMigrations: validatedMigrations != null && validatedMigrations.length > 0,
+    hasMigrations:
+      validatedMigrations !== null &&
+      validatedMigrations !== undefined &&
+      validatedMigrations.length > 0,
     migrationDialect: dialect,
   };
 

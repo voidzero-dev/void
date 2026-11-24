@@ -4,8 +4,8 @@ import {
   PLATFORM_APP_ACCESS_TURN_OFF_PROOF_PREFIX,
   PLATFORM_DISABLED_KEY,
   PLATFORM_DISABLED_VALUE,
-  type PlatformAppAccessSetup,
 } from '@void/platform';
+import type { PlatformAppAccessSetup } from '@void/platform';
 import { sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { Db } from './db.ts';
@@ -13,10 +13,8 @@ import type { ApiEnv } from './env.ts';
 import { getPlatformSetting, setPlatformSetting } from './platform-settings.ts';
 import { users } from './schema.ts';
 import { ZeroTrustCloudflareError } from './zero-trust/cloudflare.ts';
-import {
-  readZeroTrustConfigurationStrict,
-  type ZeroTrustConfiguration,
-} from './zero-trust/configuration.ts';
+import { readZeroTrustConfigurationStrict } from './zero-trust/configuration.ts';
+import type { ZeroTrustConfiguration } from './zero-trust/configuration.ts';
 import { ZeroTrustUnavailableError } from './zero-trust/errors.ts';
 import { configurePlatformZeroTrust, disablePlatformZeroTrust } from './zero-trust/installation.ts';
 import { lockZeroTrustConfiguration } from './zero-trust/lock.ts';

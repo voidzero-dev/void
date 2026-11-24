@@ -6,7 +6,7 @@ import { advanceStackGame, createStackGame, dropStackTile } from './stack-and-sh
 void test('perfect drops preserve the footprint and reward streaks', () => {
   let game = createStackGame(() => 0);
   for (let level = 1; level <= 6; level++) {
-    const top = game.tiles[game.tiles.length - 1]!;
+    const top = game.tiles.at(-1)!;
     game.moving = { ...game.moving!, [game.axis]: top[game.axis] + 3 };
     const result = dropStackTile(game, () => 0);
     game = result.game;
@@ -90,7 +90,7 @@ void test('a new entry direction can change both axis and sign after a drop', ()
 
 void test('each shuffled set includes all nine frameworks before any repeat', () => {
   let seed = 42;
-  const random = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+  const random = () => (seed = (seed * 1_664_525 + 1_013_904_223) >>> 0) / 2 ** 32;
   let game = createStackGame(random);
   let previous = -1;
   const sets: Array<Array<number>> = [];
@@ -101,7 +101,7 @@ void test('each shuffled set includes all nine frameworks before any repeat', ()
       assert.notEqual(current, previous);
       seen.push(current);
       previous = current;
-      const top = game.tiles[game.tiles.length - 1]!;
+      const top = game.tiles.at(-1)!;
       game.moving = { ...game.moving!, [game.axis]: top[game.axis] };
       const remaining = [...game.remainingFrameworks];
       const result = dropStackTile(game, random);

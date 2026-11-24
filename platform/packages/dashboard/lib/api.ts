@@ -1,6 +1,7 @@
 import type { ApiRoutes } from '@voidcloud/api/api';
 import type { Context } from 'hono';
-import { hc, type InferResponseType } from 'hono/client';
+import type { hc } from 'hono/client';
+import type { InferResponseType } from 'hono/client';
 import { getCookie } from 'hono/cookie';
 import { dashboardRequestOrigin, isLocalDashboardHost } from './origin.ts';
 
@@ -198,7 +199,7 @@ export async function readApiJson<T>(res: ApiResponse): Promise<T | null> {
   const contentType = res.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
     const body = await res.text();
-    const preview = body.trim().replace(/\s+/g, ' ').slice(0, 160);
+    const preview = body.trim().replaceAll(/\s+/g, ' ').slice(0, 160);
     console.warn(
       `[dashboard] expected JSON from API, got ${contentType || 'unknown content type'}${preview ? `: ${preview}` : ''}`,
     );

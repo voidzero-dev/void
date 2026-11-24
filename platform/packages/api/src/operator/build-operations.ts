@@ -1,7 +1,8 @@
 import { buildManagerNamespace } from '../build-namespace.ts';
 import { isTerminalBuildStatus } from '../build-status.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
-import { getBuild, type Db } from '../db.ts';
+import { getBuild } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { OperatorError } from './common.ts';
 
@@ -54,7 +55,7 @@ export async function buildLogs(
     throw new OperatorError(502, `Build log service failed (${response.status}).`);
   }
   const body = (await response.json()) as {
-    lines: ReadonlyArray<{ seq: number; line: string; stream: string; ts: number }>;
+    lines: Array<{ seq: number; line: string; stream: string; ts: number }>;
     lastSeq: number;
     status?: string | null;
     terminal?: boolean;

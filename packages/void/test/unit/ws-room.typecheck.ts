@@ -1,6 +1,8 @@
 import { expectTypeOf } from 'vite-plus/test';
-import { defineRoom, type RoomActionContext } from '../../src/runtime/ws/index.ts';
-import { getRoom, type RoomHandle } from '../../src/runtime/ws/room.ts';
+import { defineRoom } from '../../src/runtime/ws/index.ts';
+import type { RoomActionContext } from '../../src/runtime/ws/index.ts';
+import { getRoom } from '../../src/runtime/ws/room.ts';
+import type { RoomHandle } from '../../src/runtime/ws/room.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 declare module 'void/routes' {
@@ -32,18 +34,16 @@ declare const server: StandardSchemaV1<{ type: 'relay.closed'; closed: number }>
 const definition = defineRoom({
   messages: { client, server },
   actions: {
-    revokeSession(context, sessionId: string, code: number) {
+    revokeSession: (context, sessionId: string, code: number) => {
       expectTypeOf(context.id).toEqualTypeOf<string>();
       expectTypeOf(context.params).toEqualTypeOf<Record<string, string>>();
-      expectTypeOf(context.room.getConnections).toBeFunction();
+      expectTypeOf<typeof context.room.getConnections>().toBeFunction();
       for (const connection of context.room.getConnections()) {
         connection.close(code, 'revoked');
       }
       return { closed: 1, sessionId };
     },
-    ping(context) {
-      return context.id;
-    },
+    ping: (context) => context.id,
   },
 });
 

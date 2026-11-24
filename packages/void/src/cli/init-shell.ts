@@ -13,7 +13,9 @@ export function quoteShellArgument(argument: string): string {
   if (/^[A-Za-z0-9_@./:-]+$/.test(argument)) {
     return argument;
   }
-  return process.platform === 'win32' ? `"${argument}"` : `'${argument.replaceAll("'", "'\\''")}'`;
+  return process.platform === 'win32'
+    ? `"${argument}"`
+    : `'${argument.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 /**

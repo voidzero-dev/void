@@ -73,7 +73,7 @@ describe('Cloudflare static deployment', () => {
     expect(writeCloudflareStaticDeployConfig(input)).toBe(true);
     expect(writeCloudflareStaticDeployConfig(input)).toBe(false);
 
-    const raw = readFileSync(configPath, 'utf-8');
+    const raw = readFileSync(configPath, 'utf8');
     expect(raw).toContain('// keep this comment');
     const parsed = parseRootWranglerConfig(configPath);
     expect(parsed).toMatchObject({
@@ -163,7 +163,7 @@ describe('Cloudflare static deployment', () => {
         assetConfig: { not_found_handling: 'none' },
       }),
     ).toThrow(/duplicate key "main"/);
-    expect(readFileSync(configPath, 'utf-8')).toBe('{"main":"first.mjs","main":"last.mjs"}\n');
+    expect(readFileSync(configPath, 'utf8')).toBe('{"main":"first.mjs","main":"last.mjs"}\n');
   });
 
   it('preserves a UTF-8 BOM and fails closed rather than dropping nested comments', () => {
@@ -180,12 +180,12 @@ describe('Cloudflare static deployment', () => {
     };
     writeFileSync(configPath, '\uFEFF{"name":"old"}\n');
     writeCloudflareStaticDeployConfig(input);
-    expect(readFileSync(configPath, 'utf-8').startsWith('\uFEFF')).toBe(true);
+    expect(readFileSync(configPath, 'utf8').startsWith('\uFEFF')).toBe(true);
 
     const commented = '{"queues":{"consumers":[/* keep */{"queue":"jobs"}]}}\n';
     writeFileSync(configPath, commented);
     expect(() => writeCloudflareStaticDeployConfig(input)).toThrow(/without dropping comment/);
-    expect(readFileSync(configPath, 'utf-8')).toBe(commented);
+    expect(readFileSync(configPath, 'utf8')).toBe(commented);
   });
 
   it('stages assets without routing files that the thin Worker already consumed', () => {
@@ -201,9 +201,9 @@ describe('Cloudflare static deployment', () => {
 
     stageCloudflareStaticAssets({ sourceDirectory, destinationDirectory });
 
-    expect(readFileSync(join(destinationDirectory, 'index.html'), 'utf-8')).toBe('<h1>Home</h1>');
-    expect(readFileSync(join(destinationDirectory, '.assetsignore'), 'utf-8')).toBe('private/**\n');
-    expect(readFileSync(join(destinationDirectory, 'nested/_redirects'), 'utf-8')).toBe(
+    expect(readFileSync(join(destinationDirectory, 'index.html'), 'utf8')).toBe('<h1>Home</h1>');
+    expect(readFileSync(join(destinationDirectory, '.assetsignore'), 'utf8')).toBe('private/**\n');
+    expect(readFileSync(join(destinationDirectory, 'nested/_redirects'), 'utf8')).toBe(
       'ordinary nested asset',
     );
     expect(existsSync(join(destinationDirectory, '_headers'))).toBe(false);
@@ -215,7 +215,7 @@ describe('Cloudflare static deployment', () => {
 
     const headers = '/assets/app.js\n  Cache-Control: public, max-age=31536000, immutable\n';
     stageCloudflareStaticAssets({ sourceDirectory, destinationDirectory, headers });
-    expect(readFileSync(join(destinationDirectory, '_headers'), 'utf-8')).toBe(headers);
+    expect(readFileSync(join(destinationDirectory, '_headers'), 'utf8')).toBe(headers);
     expect(existsSync(join(destinationDirectory, '_redirects'))).toBe(false);
   });
 });

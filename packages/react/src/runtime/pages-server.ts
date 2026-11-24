@@ -1,4 +1,5 @@
-import React, { type ComponentType } from 'react';
+import React from 'react';
+import type { ComponentType } from 'react';
 import { renderToReadableStream } from 'react-dom/server';
 import { createSsrRouter, idleNavigationState } from 'void/pages-client';
 import { renderBodyAttrs, renderHeadToString, renderHtmlAttrs } from 'void/pages-head';

@@ -1,12 +1,8 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { hasStandalonePragma } from '@void/deploy-core';
 import { join } from 'pathslash';
-import {
-  readJournal,
-  stripSqlExt,
-  type DrizzleJournal,
-  type DrizzleJournalEntry,
-} from './collect.ts';
+import { readJournal, stripSqlExt } from './collect.ts';
+import type { DrizzleJournal, DrizzleJournalEntry } from './collect.ts';
 import { DESTRUCTIVE_PRAGMA, getExecutableSql } from './plan.ts';
 
 export type MigrationFile = {
@@ -82,7 +78,7 @@ function hasUnboundedWrite(statement: string): boolean {
  * Check if a SQL migration contains destructive operations.
  */
 export function isDestructive(sql: string): boolean {
-  const executable = getExecutableSql(sql.replace(/\r\n?/g, '\n'));
+  const executable = getExecutableSql(sql.replaceAll(/\r\n?/g, '\n'));
   return splitExecutableStatements(executable).some((statement) => {
     return (
       DESTRUCTIVE_PATTERNS.some((pattern) => pattern.test(statement)) ||
@@ -248,7 +244,9 @@ export function assertJournalCoherence(
   for (const entry of journal.entries) {
     tagCounts.set(entry.tag, (tagCounts.get(entry.tag) ?? 0) + 1);
   }
-  const duplicateTags = [...tagCounts.entries()].filter(([, n]) => n > 1).map(([tag]) => tag);
+  const duplicateTags = [...tagCounts.entries()].flatMap(([tag, count]) =>
+    count > 1 ? [tag] : [],
+  );
   if (duplicateTags.length > 0) {
     throw new Error(
       [
@@ -263,9 +261,10 @@ export function assertJournalCoherence(
   const journalTags = new Set(journal.entries.map((e) => e.tag));
   const collectedTags = new Set(collected.map((m) => stripSqlExt(m.name)));
 
-  const orphans = collected
-    .map((m) => m.name)
-    .filter((name) => !journalTags.has(stripSqlExt(name)));
+  const orphans = collected.flatMap((m) => {
+    const name = m.name;
+    return !journalTags.has(stripSqlExt(name)) ? [name] : [];
+  });
   const missing = journal.entries
     .filter((e) => !collectedTags.has(e.tag))
     .map((e) => `${e.tag}.sql`);

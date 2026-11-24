@@ -10,11 +10,8 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import {
-  acquireProvisionLock,
-  WranglerQuarantineError,
-  type RunWrangler,
-} from '../../src/cli/provision.ts';
+import { acquireProvisionLock, WranglerQuarantineError } from '../../src/cli/provision.ts';
+import type { RunWrangler } from '../../src/cli/provision.ts';
 import {
   emptyDesired,
   fail,
@@ -26,10 +23,10 @@ import {
   provisionCloudflareResources,
   provisionOperationFixture,
   silentLog,
-  useProvisionTestDir,
+  setupProvisionTestDir,
 } from './provision-fixtures.ts';
 
-const { tmpDir, wranglerPath, setup, simulateUpdateConfig } = useProvisionTestDir('locking');
+const { tmpDir, wranglerPath, setup, simulateUpdateConfig } = setupProvisionTestDir('locking');
 
 describe('provisionCloudflareResources — whole-provision cross-process lock (proper-lockfile)', () => {
   // proper-lockfile uses a synthetic adjacent identity without creating that pathname;
@@ -38,7 +35,10 @@ describe('provisionCloudflareResources — whole-provision cross-process lock (p
   const recoveryTarget = `${lockTarget}.recovery`;
   const lockMutex = `${lockTarget}.lock`;
   const recoveryMutex = `${recoveryTarget}.lock`;
-  const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+  const delay = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
 
   it('a SECOND in-process provision fails fast with a clear hard error (at most one per process)', async () => {
     setup(
@@ -156,7 +156,7 @@ describe('provisionCloudflareResources — whole-provision cross-process lock (p
           stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stdout = '';
-        child.stdout.setEncoding('utf-8');
+        child.stdout.setEncoding('utf8');
         child.stdout.on('data', (chunk: string) => {
           stdout += chunk;
         });
@@ -322,7 +322,7 @@ describe('provisionCloudflareResources — whole-provision cross-process lock (p
     const result = await prov;
     expect(result.resources[0]).toMatchObject({ kind: 'kv', action: 'adopted', id: hex32('kv') });
     expect(existsSync(lockMutex)).toBe(false);
-  }, 15000);
+  }, 15_000);
 
   it('a genuine unlock failure REJECTS the provision (leaked mutex surfaced, not swallowed)', async () => {
     setup(JSON.stringify({ account_id: 'acct' }));
@@ -392,7 +392,7 @@ describe('provisionCloudflareResources — quarantine retains the whole-provisio
     // A runner whose child could not be confirmed dead — the default runner rejects
     // with a quarantine error in that state; injecting the same rejection exercises the
     // provision-level contract: NO release, mutex retained, error surfaced verbatim.
-    const quarantineError = new WranglerQuarantineError(43210, 'test: child unconfirmed');
+    const quarantineError = new WranglerQuarantineError(43_210, 'test: child unconfirmed');
     const run: RunWrangler = provisionOperationFixture(() => Promise.reject(quarantineError));
     let thrown: unknown;
     try {
@@ -413,8 +413,8 @@ describe('provisionCloudflareResources — quarantine retains the whole-provisio
     // Later acquisitions gate on the recorded group instead of stealing the lock by age.
     const sidecar = `${wranglerPath}.void-provision.lock.quarantine.json`;
     expect(existsSync(sidecar)).toBe(true);
-    const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
-    expect(recorded.pid).toBe(43210);
+    const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
+    expect(recorded.pid).toBe(43_210);
     expect(String(recorded.reason)).toMatch(/pid 43210/);
     // quarantine() detached the lock from proper-lockfile, so removing it fires no callback.
     rmSync(lockMutex, { recursive: true, force: true });

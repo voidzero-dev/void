@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
-import {
-  createApplicationRoutes,
-  recordInstallationResource,
-  type InstallationResource,
-  type PlatformDeploymentManifest,
-  type PlatformInstallationManifest,
+import { createApplicationRoutes, recordInstallationResource } from '@void/platform';
+import type {
+  InstallationResource,
+  PlatformDeploymentManifest,
+  PlatformInstallationManifest,
 } from '@void/platform';
 import type {
   CloudflareWorkerDomain,

@@ -1,4 +1,5 @@
-import { createDefaultPlanCatalog, type PlatformPlanCatalog } from '@void/platform/plans';
+import { createDefaultPlanCatalog } from '@void/platform/plans';
+import type { PlatformPlanCatalog } from '@void/platform/plans';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
 import { signDeployToken } from '../../src/auth/deploy-token.ts';
@@ -19,8 +20,8 @@ import {
   createTestProject,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {

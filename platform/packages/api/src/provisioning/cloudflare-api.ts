@@ -53,14 +53,17 @@ export async function cfFetch<T>(url: string, apiToken: string, init?: RequestIn
   const signal = init?.signal ? AbortSignal.any([init.signal, deadline.signal]) : deadline.signal;
   try {
     signal.throwIfAborted();
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${apiToken}`);
+    }
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
     const response = await fetch(url, {
       ...init,
       signal,
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        'Content-Type': 'application/json',
-        ...init?.headers,
-      },
+      headers,
     });
     // Keep the same deadline through the body read: receiving headers does
     // not prove a stalled provider response has completed. Never replay writes.

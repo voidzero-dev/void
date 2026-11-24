@@ -1,8 +1,5 @@
-import {
-  createPlatformDeploymentManifest,
-  parsePlatformDeploymentManifest,
-  type PlatformDeploymentManifest,
-} from './manifest.ts';
+import { createPlatformDeploymentManifest, parsePlatformDeploymentManifest } from './manifest.ts';
+import type { PlatformDeploymentManifest } from './manifest.ts';
 import {
   assertRecord,
   isSandboxDrainProtocol,
@@ -327,6 +324,7 @@ export function createPlatformInstallationManifest(input: {
     databaseSchemaDigest: null,
     ...(input.deploymentExecution === 1 ? { deploymentExecution: 1 as const } : {}),
     deployment: parsePlatformDeploymentManifest(
+      // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the deployment manifest to its persisted JSON representation.
       JSON.parse(JSON.stringify(input.deployment)) as unknown,
     ),
     desiredState: 'enabled',

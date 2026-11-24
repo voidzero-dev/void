@@ -42,7 +42,7 @@ describe('installedDependencies', () => {
     const files: Record<string, string> = {
       'void/pages-client':
         '/app/node_modules/.pnpm/void@1.6.2/node_modules/void/dist/pages/client.mjs',
-      'void/pages-prefetch': 'C:\\app\\node_modules\\void\\dist\\pages\\prefetch.mjs',
+      'void/pages-prefetch': String.raw`C:\app\node_modules\void\dist\pages\prefetch.mjs`,
       'void/live/client': '/repo/packages/void/dist/runtime/live/client.mjs',
     };
 
@@ -101,7 +101,7 @@ describe('pagesPlugin dev config', () => {
         entries: expect.arrayContaining([
           'pages/index.tsx',
           'pages/layout.tsx',
-          'pages/users/\\[id\\].dev.tsx',
+          String.raw`pages/users/\[id\].dev.tsx`,
           'pages/_layouts/profile.tsx',
         ]),
       },

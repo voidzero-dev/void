@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 
 import { Fragment, useEffect, useState } from 'react';
-import { loadCodeHighlighter, type CodeLanguage, type CodeToken } from '../code-highlighting.ts';
+import { loadCodeHighlighter } from '../code-highlighting.ts';
+import type { CodeLanguage, CodeToken } from '../code-highlighting.ts';
 
 // Keep unusually large output readable without expensive tokenization on the main thread.
 const MAX_HIGHLIGHT_LENGTH = 100_000;

@@ -417,7 +417,7 @@ describe('drizzlePlugin db typing generation', () => {
         : mysqlTable('users', { id: int('id') });
 
     // drizzle reports an error from a running query as "Failed query: ...".
-    await expect(withRuntimeEnv({}, async () => await db.select().from(users))).rejects.toThrow(
+    await expect(withRuntimeEnv({}, async () => db.select().from(users))).rejects.toThrow(
       `db: ${name} is not configured.`,
     );
     expect(clients).toEqual([]);
@@ -611,8 +611,12 @@ createDb(binding, { session: { bookmark: null } });
 
       let releaseFirst!: () => void;
       let releaseSecond!: () => void;
-      const firstGate = new Promise<void>((resolve) => (releaseFirst = resolve));
-      const secondGate = new Promise<void>((resolve) => (releaseSecond = resolve));
+      const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const secondGate = new Promise<void>((resolve) => {
+        releaseSecond = resolve;
+      });
       const firstOverlap = module.withEnv(
         {
           HYPERDRIVE: { connectionString: `${dialect}://hyperdrive` },
@@ -805,7 +809,9 @@ export const requestPoolConfig = (env) =>
         await own.execute(sql`select 1`);
         expect(server.openConnections()).toBe(1);
       } finally {
-        await new Promise<void>((resolve) => own.$client.end(() => resolve()));
+        await new Promise<void>((resolve) => {
+          own.$client.end(() => resolve());
+        });
       }
     } finally {
       vi.useRealTimers();

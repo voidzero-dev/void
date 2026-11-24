@@ -17,8 +17,8 @@ import {
   dispatchToSinks,
   hasActiveSink,
   serializeCapturedMessage,
-  type CapturedMessage,
 } from './dev-inbox.ts';
+import type { CapturedMessage } from './dev-inbox.ts';
 import {
   bytesToReadableStream,
   readEnvString,
@@ -604,7 +604,7 @@ const DEV_INBOX_ERROR_EXCERPT_TIMEOUT_MS = 1000;
 async function readErrorExcerpt(res: Response): Promise<string> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const reader = res.body?.getReader();
+    const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = res.body?.getReader();
     if (!reader) {
       return '';
     }
@@ -706,7 +706,8 @@ function capturedResult(normalized: NormalizedEmail, captureId: string): SendEma
 export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
   if (
     opts.idempotencyKey !== undefined &&
-    (typeof opts.idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(opts.idempotencyKey))
+    (typeof opts.idempotencyKey !== 'string' ||
+      !/^[\u0021-\u007e]{1,128}$/.test(opts.idempotencyKey))
   ) {
     return err(
       'MIME_ERROR',

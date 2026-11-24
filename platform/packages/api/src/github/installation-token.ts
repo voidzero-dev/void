@@ -195,7 +195,9 @@ export async function getBranchHeadComparisonStatus(
         err: errInfo(err),
       });
       if (attempt < COMPARE_RETRY_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, COMPARE_RETRY_DELAY_MS));
+        await new Promise((r) => {
+          setTimeout(r, COMPARE_RETRY_DELAY_MS);
+        });
       }
       continue;
     }
@@ -254,7 +256,9 @@ export async function getBranchHeadComparisonStatus(
       });
     }
     if (attempt < COMPARE_RETRY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, COMPARE_RETRY_DELAY_MS));
+      await new Promise((r) => {
+        setTimeout(r, COMPARE_RETRY_DELAY_MS);
+      });
     }
   }
   logCompareFailure('exhausted', {
@@ -328,7 +332,9 @@ export async function getBranchExistence(
       // Network/transport failure — transient, fall through to retry.
     }
     if (attempt < COMPARE_RETRY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, COMPARE_RETRY_DELAY_MS));
+      await new Promise((r) => {
+        setTimeout(r, COMPARE_RETRY_DELAY_MS);
+      });
     }
   }
   return 'unknown';

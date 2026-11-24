@@ -1,6 +1,5 @@
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite-plus';
 
 // Reuse the existing docs dependencies without making this a workspace or site route.
@@ -9,7 +8,7 @@ const vitepressRequire = createRequire(docsRequire.resolve('vitepress'));
 const { default: vue } = await import(vitepressRequire.resolve('@vitejs/plugin-vue'));
 
 export default defineConfig({
-  root: fileURLToPath(new URL('.', import.meta.url)),
+  root: import.meta.dirname,
   plugins: [vue()],
   resolve: {
     alias: {
@@ -20,6 +19,6 @@ export default defineConfig({
       '@iconify/vue': docsRequire.resolve('@iconify/vue'),
     },
   },
-  server: { host: '127.0.0.1', port: 41742, strictPort: true },
+  server: { host: '127.0.0.1', port: 41_742, strictPort: true },
   build: { outDir: '../../playground-local/terminal-demos-build', emptyOutDir: true },
 });

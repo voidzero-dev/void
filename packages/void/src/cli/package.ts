@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import type { StorageConfig } from '@void/deploy-core';
@@ -25,12 +26,8 @@ import type {
   WebSocketManifestMeta,
 } from './types.ts';
 export type { DeployAssetManifestEntry as AssetManifestEntry } from './types.ts';
-import {
-  DEFAULT_LIVE_BINDING,
-  DEFAULT_LIVE_CLASS,
-  LIVE_MIGRATION_TAG,
-  type LiveBindingConfig,
-} from './wrangler.ts';
+import { DEFAULT_LIVE_BINDING, DEFAULT_LIVE_CLASS, LIVE_MIGRATION_TAG } from './wrangler.ts';
+import type { LiveBindingConfig } from './wrangler.ts';
 
 const textEncoder = new TextEncoder();
 
@@ -143,7 +140,9 @@ async function tickProgress(
     return;
   }
   onProgress(`${label} (${i}/${total})`);
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
 }
 
 /**
@@ -153,8 +152,9 @@ async function tickProgress(
  */
 export function computeAssetHash(content: Buffer, filePath: string): string {
   const base64 = content.toString('base64');
-  const ext = extname(filePath).substring(1);
+  const ext = extname(filePath).slice(1);
   const input = textEncoder.encode(base64 + ext);
+  // oxlint-disable-next-line typescript/no-unsafe-return -- The lint type service loses the Node Buffer method types here.
   return Buffer.from(blake3hash(input)).toString('hex').slice(0, 32);
 }
 
@@ -199,7 +199,7 @@ function createAssetsIgnoreFunction(
   let assetsIgnoreFilePresent = false;
   if (existsSync(assetsIgnorePath)) {
     assetsIgnoreFilePresent = true;
-    const content = readFileSync(assetsIgnorePath, 'utf-8');
+    const content = readFileSync(assetsIgnorePath, 'utf8');
     patterns.push(...content.split('\n'));
   }
   const ig = ignore().add(patterns);
@@ -553,7 +553,7 @@ export function buildVoidManifest(opts: {
 
   manifest.type = framework ? 'framework' : 'void';
 
-  if (revalidate != null && revalidate !== 0) {
+  if (revalidate !== null && revalidate !== undefined && revalidate !== 0) {
     manifest.revalidate = revalidate;
   }
   if (
@@ -793,7 +793,7 @@ export function buildFrameworkManifest(opts: {
   if (opts.queues && opts.queues.length > 0) {
     manifest.queues = opts.queues;
   }
-  if (opts.revalidate != null && opts.revalidate !== 0) {
+  if (opts.revalidate !== null && opts.revalidate !== undefined && opts.revalidate !== 0) {
     manifest.revalidate = opts.revalidate;
   }
   if (opts.revalidateQueryAllowlist && Object.keys(opts.revalidateQueryAllowlist).length > 0) {
@@ -847,7 +847,7 @@ export function buildFrameworkManifest(opts: {
  * Skips build metadata and files with extensions CF Workers can't handle as modules.
  */
 function isWorkerModule(relativePath: string): boolean {
-  const norm = relativePath.replace(/\\/g, '/');
+  const norm = relativePath.replaceAll('\\', '/');
   // Skip build metadata at any depth
   if (norm.includes('/.vite/') || norm.startsWith('.vite/')) {
     return false;
