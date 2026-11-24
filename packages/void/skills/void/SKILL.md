@@ -45,7 +45,7 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | Pages mode, loader/action, forms, layouts  | `docs/guide/pages-routing/*.md`, `docs/guide/type-safety.md`                              |
 | Database and migrations                    | `docs/guide/database.md`, `docs/guide/type-safety.md`                                     |
 | D1 replicas, bookmarks, read-after-write   | `docs/guide/database/d1.md`, `docs/reference/api/database.md`                             |
-| Typed fetch and end-to-end typing          | `docs/guide/typed-fetch.md`, `docs/guide/type-safety.md`                                  |
+| Typed fetch and end-to-end typing          | `docs/guide/typed-fetch.md`, `docs/guide/type-safety.md`, `docs/reference/api/client.md`  |
 | Authentication                             | `docs/guide/auth.md`, `docs/reference/api/auth.md`, `docs/guide/env-vars.md`              |
 | Cloudflare runtime bindings and config     | `docs/integrations/cloudflare.md`, `docs/reference/config.md`, `docs/guide/env-vars.md`   |
 | AI inference (Workers AI, providers)       | `docs/guide/ai.md`                                                                        |
@@ -70,12 +70,19 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | Cache purging                              | `docs/reference/cli/project.md`                                                           |
 | Project logs, runtime errors               | `docs/reference/cli/project.md`                                                           |
 | Secrets management (put/sync/delete)       | `docs/reference/cli/secrets.md`, `docs/guide/env-vars.md`                                 |
-| Typed env vars (`defineEnv`, `env.ts`)     | `docs/guide/env-vars.md`                                                                  |
+| Typed env vars (`defineEnv`, `env.ts`)     | `docs/guide/env-vars.md`, `docs/reference/api/env.md`                                     |
 | Custom domain setup                        | `docs/reference/cli/domains.md`                                                           |
 | Database status, reset, seed, export       | `docs/reference/cli/database.md`, `docs/guide/database.md`                                |
 | Auth login/logout/whoami                   | `docs/reference/cli/auth.md`                                                              |
 | Overview / introduction                    | `docs/guide/index.md`                                                                     |
-| API surface details                        | `docs/reference/api.md`                                                                   |
+| API surface details                        | `docs/reference/api.md`, `docs/reference/api/handlers.md`, `docs/reference/api/types.md`  |
+| Pages adapters and Durable State APIs      | `docs/reference/api/pages.md`, `docs/reference/api/durable.md`                            |
+| Resource clients and rewrite helpers       | `docs/reference/api/resources.md`, `docs/reference/api/rewrites.md`                       |
+| Vite plugin setup and options              | `docs/reference/api/plugin.md`, `docs/reference/config.md`                                |
+| Email recipients and platform email CLI    | `docs/reference/cli/email.md`, `docs/reference/cli/platform-email.md`                     |
+| GitHub push-to-deploy connection           | `docs/reference/cli/github.md`                                                            |
+| Scaffold a Drizzle table and its routes    | `docs/reference/cli/generate.md`                                                          |
+| Platform operations and Zero Trust         | `docs/reference/cli/platform-operations.md`, `docs/reference/cli/platform-zero-trust.md`  |
 | Meta framework integration                 | `docs/integrations/frameworks/*.md`                                                       |
 | Coding agent setup                         | `docs/integrations/agents.md`                                                             |
 | Node.js / Bun / Deno targets               | `docs/integrations/nodejs-bun-deno.md`                                                    |
