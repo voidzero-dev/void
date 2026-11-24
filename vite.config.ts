@@ -277,6 +277,17 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // Proxy traps preserve receiver semantics and tests inspect dynamic members.
+        files: [
+          '**/test/**/*',
+          'packages/void/src/runtime/db/{index,session}.ts',
+          'packages/void/src/runtime/env/runtime.ts',
+          'packages/void/src/runtime/routing/worker.ts',
+          'packages/void/src/runtime/storage/index.ts',
+        ],
+        rules: { 'quality/no-reflect-get': 'off' },
+      },
+      {
         // Tests dispatch methods on partial runtime mocks with explicit receivers.
         files: ['**/test/**/*'],
         rules: { 'quality/no-reflect-apply': 'off' },
@@ -503,7 +514,6 @@ const config = defineConfig({
       'quality/no-conditional-empty-object-spread': 'off',
       'quality/no-known-value-widening': 'off',
       'quality/no-object-parameters': 'off',
-      'quality/no-reflect-get': 'off',
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
       'react/set-state-in-effect': 'off',
