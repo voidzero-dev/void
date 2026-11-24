@@ -510,7 +510,9 @@ export function routingPlugin(
     try {
       const distDir = resolveDistDir(root);
       wranglerPath = join(distDir, resolveWorkerDirName(distDir), 'wrangler.json');
-      wrangler = JSON.parse(readFileSync(wranglerPath, 'utf8'));
+      wrangler = JSON.parse(readFileSync(wranglerPath, 'utf8')) as {
+        assets?: Record<string, unknown>;
+      };
     } catch {
       return null;
     }

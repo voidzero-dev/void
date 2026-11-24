@@ -584,7 +584,7 @@ const app = new Hono<ApiEnv>()
             getDomainsByProjectIds(context.get('db'), projectIds),
             getLatestDeploymentsByProjectIds(context.get('db'), projectIds),
             isDevBypass(context.env)
-              ? Promise.resolve(new Map())
+              ? Promise.resolve(new Map<string, never>())
               : queryProjectRequestOverview(
                   context.env.CF_ACCOUNT_ID,
                   context.env.CF_API_TOKEN,
@@ -592,7 +592,7 @@ const app = new Hono<ApiEnv>()
                   projectIds,
                 ),
           ])
-        : [new Map(), new Map(), new Map()];
+        : ([new Map<string, never>(), new Map<string, never>(), new Map<string, never>()] as const);
 
     const projectsWithSummaries = projects.map(({ project: p, role, owner }): ProjectListItem => {
       const pDomains = domainMap.get(p.id);
@@ -1138,7 +1138,7 @@ const app = new Hono<ApiEnv>()
           }
 
           const targetMigrations: Array<string> = target.applied_migrations
-            ? JSON.parse(target.applied_migrations)
+            ? (JSON.parse(target.applied_migrations) as Array<string>)
             : [];
 
           const projectMigrationNames = await getProjectMigrationNames(tx, projectId);
@@ -1149,7 +1149,7 @@ const app = new Hono<ApiEnv>()
             projectMigrationNames.length > 0
               ? [...projectMigrationNames]
               : currentActive?.applied_migrations
-                ? JSON.parse(currentActive.applied_migrations)
+                ? (JSON.parse(currentActive.applied_migrations) as Array<string>)
                 : [];
           const diff = currentMigrations.filter((m) => !targetMigrations.includes(m));
 
@@ -1195,7 +1195,7 @@ const app = new Hono<ApiEnv>()
 
           // Build routing JSON from the freshly-read target manifest.
           const manifest: DeployManifest | null = target.manifest
-            ? JSON.parse(target.manifest)
+            ? (JSON.parse(target.manifest) as DeployManifest)
             : null;
           const dispatchLimits = computeDispatchLimits(
             await resolvePlanLimits(tx, lockedAccess.owner.plan),
@@ -1209,7 +1209,9 @@ const app = new Hono<ApiEnv>()
           // sweep below for why the union uses `deployed_at IS NOT NULL`.
           const workerName = getProjectDeploymentWorkerName(lockedProject.slug, target.id);
           const existingRouting = await context.env.ROUTING.get(projectRouteKey(lockedProject));
-          const existingEntry = existingRouting ? JSON.parse(existingRouting) : null;
+          const existingEntry = existingRouting
+            ? (JSON.parse(existingRouting) as { suspended?: string })
+            : null;
           const zeroTrust = await resolveProjectZeroTrustRouting(tx, projectId).catch(
             (error: unknown) => {
               const message = zeroTrustNotReadyMessage(error);
@@ -1416,7 +1418,7 @@ const app = new Hono<ApiEnv>()
               }
               let depManifest: DeployManifest | null = null;
               try {
-                depManifest = JSON.parse(d.manifest);
+                depManifest = JSON.parse(d.manifest) as DeployManifest;
               } catch {
                 // Skip deployments with unparseable manifests rather than
                 // blowing up the whole rollback.

@@ -25,7 +25,7 @@ export function withoutCompletedPlatformWorkerMigrations(
   config: Record<string, unknown>,
   activeMigrationTag: string | null,
 ): Record<string, unknown> {
-  const migrations = Array.isArray(config.migrations) ? config.migrations : [];
+  const migrations = Array.isArray(config.migrations) ? (config.migrations as Array<unknown>) : [];
   const target = migrations.at(-1);
   if (
     activeMigrationTag === null ||

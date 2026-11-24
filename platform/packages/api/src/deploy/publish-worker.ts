@@ -368,7 +368,9 @@ export async function publishWorkerDeployment(input: {
       manifest.limits,
     );
     const existingRouting = await context.env.ROUTING.get(projectRouteKey(project));
-    const existingEntry = existingRouting ? JSON.parse(existingRouting) : null;
+    const existingEntry = existingRouting
+      ? (JSON.parse(existingRouting) as { suspended?: string })
+      : null;
     const zeroTrust = await resolveProjectZeroTrustRouting(txDb, projectId);
     const routingJson = buildRoutingJson({
       privatePreview: Boolean(project.preview_client_id),

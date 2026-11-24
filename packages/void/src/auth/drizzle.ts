@@ -120,6 +120,7 @@ function resolveSchemaOptions(
     baseURL: origin,
     basePath: '/api/auth',
     secret: 'void-build-better-auth-secret',
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- Better Auth's database options are resolved by the package typecheck.
     database: {} as NonNullable<BetterAuthOptions['database']>,
     trustedOrigins: [origin],
     ...(emailAndPassword ? { emailAndPassword } : {}),

@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import { renderDefaultErrorPage } from './error-pages/index.ts';
+import type { RuntimeEnvironment } from './worker.ts';
 
 type ErrorPageStatus = 404 | 500;
 
@@ -608,7 +609,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
     error?: unknown,
   ): Promise<Response> {
     try {
-      const assets = c.env?.ASSETS;
+      const assets = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
       if (assets && typeof assets.fetch === 'function') {
         const request = new Request(new URL('/' + status + '.html', c.req.url));
         const response: Response = await assets.fetch(request);

@@ -15,7 +15,7 @@ export function parseRootWranglerConfig(configPath: string): Record<string, unkn
   }
   const content = raw.startsWith('﻿') ? raw.slice(1) : raw;
   const errors: Array<ParseError> = [];
-  const parsed = parseJsoncConfig(content, errors, { allowTrailingComma: true });
+  const parsed: unknown = parseJsoncConfig(content, errors, { allowTrailingComma: true });
   if (errors.length > 0 || typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     return {};
   }
@@ -99,10 +99,10 @@ export function resolveD1MigrateTarget(
   if (validatedIndex === -1) {
     return { ok: false, reason: `no d1_databases entry has binding ${JSON.stringify(binding)}` };
   }
-  const validated = list[validatedIndex];
+  const validated: unknown = list[validatedIndex];
   const token = readConfigEntryString(validated, 'database_name') ?? binding;
   for (let i = 0; i < validatedIndex; i++) {
-    const earlier = list[i];
+    const earlier: unknown = list[i];
     if (
       readConfigEntryString(earlier, 'database_name') === token ||
       readConfigEntryString(earlier, 'binding') === token

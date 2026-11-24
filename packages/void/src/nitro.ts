@@ -158,7 +158,7 @@ const voidNitroModule = {
     // Nitro adds its own resolvers after these, so `void/db` never reaches them.
     rollupConfig.plugins = [
       ...plugins,
-      ...(Array.isArray(existing) ? existing : existing ? [existing] : []),
+      ...(Array.isArray(existing) ? (existing as Array<unknown>) : existing ? [existing] : []),
     ];
   },
 };

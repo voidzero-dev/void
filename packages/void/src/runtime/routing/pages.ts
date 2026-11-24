@@ -272,7 +272,7 @@ export function createPagesFallback(options: {
     ) {
       return c.text('Not Found', 404);
     }
-    const assets = c.env?.ASSETS;
+    const assets = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
     // A loader that called `c.notFound()` already claimed this URL. Serving a
     // static file that happens to share the path would turn its bytes into the
     // loader's return value, so answer from the not-found path instead.
@@ -365,7 +365,7 @@ export function createSsrFallback(options: {
 }): (c: Context) => Promise<Response> {
   const cachePolicy = createAssetCachePolicy(options.assetsDir);
   const fetchAssets = async (c: Context): Promise<Response> => {
-    const binding = c.env?.ASSETS;
+    const binding = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
     if (!binding || typeof binding.fetch !== 'function') {
       return options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }));
     }
@@ -417,7 +417,7 @@ export function createAssetNotFound(options: {
   const cachePolicy = createAssetCachePolicy(options.assetsDir);
   return async (c) => {
     if (!options.nodeTarget) {
-      const assets = c.env?.ASSETS;
+      const assets = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
       if (assets && typeof assets.fetch === 'function') {
         const response: Response = await assets.fetch(c.req.raw);
         if (response.status !== 404) {

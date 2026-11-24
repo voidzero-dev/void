@@ -354,7 +354,7 @@ async function probeDeployedRelay(
   if (!response.body) {
     throw new EmailOperationError('deployed ingress proof body is empty', 503);
   }
-  const reader: ReadableStreamDefaultReader<Uint8Array> = response.body.getReader();
+  const reader = (response.body as ReadableStream<Uint8Array>).getReader();
   const chunks: Array<Uint8Array> = [];
   let length = 0;
   try {
@@ -387,7 +387,7 @@ async function probeDeployedRelay(
     proof?: unknown;
   };
   try {
-    body = JSON.parse(new TextDecoder().decode(bytes));
+    body = JSON.parse(new TextDecoder().decode(bytes)) as typeof body;
   } catch {
     throw new EmailOperationError('deployed ingress proof is invalid', 503);
   }

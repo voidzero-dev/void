@@ -46,9 +46,9 @@ export const CF_ACCOUNT_ID = 'test-account-id';
 export const CF_ZONE_ID = 'test-zone-id';
 export const PROJECT_SECRET_ACTIVE_KEY_VERSION = '1';
 export const PROJECT_SECRET_KEYS_JSON = JSON.stringify({
-  [PROJECT_SECRET_ACTIVE_KEY_VERSION]: Buffer.from('0123456789abcdef0123456789abcdef').toString(
-    'base64',
-  ),
+  [PROJECT_SECRET_ACTIVE_KEY_VERSION]: (Buffer as BufferConstructor)
+    .from('0123456789abcdef0123456789abcdef')
+    .toString('base64'),
 });
 
 export type TestEnv = {
@@ -389,7 +389,7 @@ class MemoryR2Bucket {
       size: entry.body.byteLength,
       etag: entry.etag,
       uploaded: entry.uploaded,
-      body: new Response(entry.body).body!,
+      body: new Response(entry.body).body as ReadableStream<Uint8Array>,
       arrayBuffer: async () => entry.body.slice(0),
       text: async () => new TextDecoder().decode(entry.body),
       json: async <T>() => JSON.parse(new TextDecoder().decode(entry.body)) as T,
@@ -961,14 +961,14 @@ async function parseMultipartMetadata(
     const metaEntry = init.body.get('metadata');
     if (typeof metaEntry === 'string') {
       try {
-        return { metadata: JSON.parse(metaEntry) };
+        return { metadata: JSON.parse(metaEntry) as Record<string, unknown> };
       } catch {
         return null;
       }
     }
     if (metaEntry instanceof Blob) {
       try {
-        return { metadata: JSON.parse(await metaEntry.text()) };
+        return { metadata: JSON.parse(await metaEntry.text()) as Record<string, unknown> };
       } catch {
         return null;
       }
@@ -1180,11 +1180,14 @@ const baseDefaultMocks: Omit<CfApiMocks, 'uploadWorker' | 'listWorkerBindings' |
     // Echo the manifest hashes so the mock bucket matches what the deploy
     // route computed.
     try {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+      const body =
+        typeof init?.body === 'string'
+          ? (JSON.parse(init.body) as { manifest?: Record<string, unknown> })
+          : null;
       if (body?.manifest) {
         const hashes = [
           ...new Set(
-            Object.values(body.manifest as Record<string, unknown>).flatMap((entry) => {
+            Object.values(body.manifest).flatMap((entry) => {
               if (typeof entry === 'object' && entry !== null && 'hash' in entry) {
                 const hash = (entry as { hash?: unknown }).hash;
                 return typeof hash === 'string' ? [hash] : [];
@@ -1261,7 +1264,8 @@ const baseDefaultMocks: Omit<CfApiMocks, 'uploadWorker' | 'listWorkerBindings' |
   // is derived from the address so a test can predict it without capturing
   // the response.
   addEmailDestination: (_url: string, init?: RequestInit) => {
-    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+    const body =
+      typeof init?.body === 'string' ? (JSON.parse(init.body) as { email?: unknown }) : {};
     const email = typeof body.email === 'string' ? body.email : 'test@example.com';
     return cfSuccess({
       tag: `cf-tag-${email}`,
@@ -1735,7 +1739,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return (
         mocks.prepareContainerImage?.(url, init) ??
         cfSuccess({
-          image: JSON.parse(String(init?.body)).image,
+          image: (JSON.parse(String(init?.body)) as { image: string }).image,
           status: 'ready',
         })
       );

@@ -127,7 +127,7 @@ export function isVoidSecretOnlyDraft(entry: Record<string, unknown>): boolean {
   ) {
     return false;
   }
-  const module = entry.modules[0];
+  const module: unknown = entry.modules[0];
   if (
     !isRecord(module) ||
     Object.keys(module).length !== 3 ||

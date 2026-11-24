@@ -814,7 +814,7 @@ export class PlatformCloudflareClient {
           const certificates =
             kind === 'ssl/certificate_packs'
               ? Array.isArray(entry.certificates)
-                ? entry.certificates
+                ? (entry.certificates as Array<unknown>)
                 : []
               : [entry];
           if (certificates.some(covers)) {

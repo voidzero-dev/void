@@ -581,8 +581,6 @@ const config = defineConfig({
       'typescript/no-non-null-assertion': 'off',
       // Hundreds of remaining findings require changing inferred generic arguments. Review inference and declaration output in a separate type-focused pass.
       'typescript/no-unnecessary-type-assertion': 'off',
-      // Several SDK and tool APIs expose any, including response JSON and mixed Node and Worker globals. Narrow at each owning boundary.
-      'typescript/no-unsafe-assignment': 'off',
       // Runtime adapter calls and mixed Node and Worker declarations need typed entry points before broad enforcement.
       'typescript/no-unsafe-call': 'off',
       // Provider response schemas and dynamic module interfaces need coverage before enforcing typed member access everywhere.

@@ -194,9 +194,9 @@ export function cloudflare(options: {
         writeFileAtomic(join(destination, 'wrangler.json'), `${JSON.stringify(config, null, 2)}\n`);
         if (options.finalizeAssets) {
           options.finalizeAssets(client, builder.environments.client);
-          const finalized: WorkerConfig = JSON.parse(
+          const finalized = JSON.parse(
             readFileSync(join(destination, 'wrangler.json'), 'utf8'),
-          );
+          ) as WorkerConfig;
           // Preview and prebuilt uploads must use the same asset routing and cache
           // headers as the validated dist output, including free static requests.
           if (worker.config.assets && finalized.assets) {

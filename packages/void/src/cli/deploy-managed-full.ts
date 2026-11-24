@@ -127,9 +127,10 @@ export async function runFullDeploy(
   let assetsPrefix = 'assets';
   const clientManifestPath = join(distDir, 'client', '.vite', 'manifest.json');
   if (existsSync(clientManifestPath)) {
-    const manifest: Record<string, { file?: string }> = JSON.parse(
-      readFileSync(clientManifestPath, 'utf8'),
-    );
+    const manifest = JSON.parse(readFileSync(clientManifestPath, 'utf8')) as Record<
+      string,
+      { file?: string }
+    >;
     for (const entry of Object.values(manifest)) {
       if (entry.file?.includes('/')) {
         const dir = entry.file.slice(0, entry.file.indexOf('/'));

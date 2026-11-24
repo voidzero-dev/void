@@ -32,7 +32,7 @@ function mergeStyle(style: JSX.CSSProperties | string | undefined): JSX.CSSPrope
 
 function callHandler(handler: unknown, event: Event): void {
   if (Array.isArray(handler)) {
-    const [fn, data] = handler;
+    const [fn, data] = handler as Array<unknown>;
     if (typeof fn === 'function') {
       fn(data, event);
     }

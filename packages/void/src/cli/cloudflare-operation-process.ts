@@ -286,7 +286,7 @@ function updateBinding(section: string, binding: string, values: Json): void {
   const previous = Array.isArray(current[section]) ? current[section] : [];
   const existing = previous.map(object).find((entry) => entry.binding === binding);
   current[section] = [
-    ...previous.filter((entry) => object(entry).binding !== binding),
+    ...(previous as Array<unknown>).filter((entry) => object(entry).binding !== binding),
     { ...existing, binding, ...values },
   ];
   writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
@@ -821,7 +821,7 @@ async function resources(): Promise<Result> {
       if (!Array.isArray(list)) {
         throw new Error('D1 list was malformed.');
       }
-      const value = list.find((item) => object(item).name === operation.name);
+      const value = (list as Array<unknown>).find((item) => object(item).name === operation.name);
       return value === undefined
         ? { ...result(1, '', 'D1 database does not exist.'), failure: 'not-found' }
         : result(0, '', '', value);

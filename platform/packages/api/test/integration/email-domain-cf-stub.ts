@@ -294,13 +294,13 @@ export function stubCustomerCf(
     }
 
     if (path.endsWith('/email/sending/subdomains/preview') && method === 'POST') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       await record({ tag: 'sendingPreview', method, url, body });
       return fail('sendingPreview') ?? cfSuccess({ errors: config.sendingPreviewErrors ?? [] });
     }
 
     if (path.includes('/email/sending/subdomains') && method === 'POST') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       await record({ tag: 'onboardSending', method, url, body });
       return fail('onboardSending') ?? cfSuccess({});
     }
@@ -326,7 +326,7 @@ export function stubCustomerCf(
     }
 
     if (/\/zones\/[^/]+\/email\/routing$/.test(path) && method === 'PATCH') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       await record({ tag: 'subaddressing', method, url, body });
       if (config.failBeforeEffect?.includes('subaddressing')) {
         return fail('subaddressing') ?? cfSuccess({});
@@ -402,7 +402,7 @@ export function stubCustomerCf(
     }
 
     if (catchAllMatch && method === 'PUT') {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       await record({ tag: 'catchAll', method, url, body });
       const failure = fail('catchAll');
       if (failure) {

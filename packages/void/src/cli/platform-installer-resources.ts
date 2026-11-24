@@ -414,7 +414,7 @@ export function mergePlatformWorkerTrafficConfig(
   return {
     ...config,
     routes: uniqueTriggerRoutes([
-      ...(Array.isArray(config.routes) ? config.routes : []),
+      ...(Array.isArray(config.routes) ? (config.routes as Array<unknown>) : []),
       ...preservedRoutes,
     ]),
   };

@@ -836,7 +836,7 @@ export function createCfVersionRunner(options: {
           return failed('The Cloudflare trigger snapshot was not convertible.');
         }
         const next = migrated.triggers ?? [];
-        const previous = Array.isArray(worker.triggers) ? worker.triggers : [];
+        const previous = Array.isArray(worker.triggers) ? (worker.triggers as Array<unknown>) : [];
         const preserveRoutes = raw.routes === undefined && raw.route === undefined;
         const preserveEmail = raw.addresses === undefined;
         worker.triggers = [
@@ -938,7 +938,9 @@ export function createCfVersionRunner(options: {
       if (!Array.isArray(allQueues)) {
         return failed('The Cloudflare Queue list was not readable.');
       }
-      const queue = allQueues.find((item) => record(item) && item.queue_name === queueName);
+      const queue = (allQueues as Array<unknown>).find(
+        (item) => record(item) && item.queue_name === queueName,
+      );
       if (!record(queue) || typeof queue.queue_id !== 'string') {
         return failed(`Cloudflare Queue ${queueName} was not found.`);
       }

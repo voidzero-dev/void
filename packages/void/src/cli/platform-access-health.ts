@@ -115,7 +115,7 @@ export async function ensurePlatformAccessHealthChecks(input: {
     .digest('hex')
     .slice(0, 32);
   const state: PlatformAccessCheckpoint = input.checkpoint.accessHealthProvisioningJson
-    ? JSON.parse(input.checkpoint.accessHealthProvisioningJson)
+    ? (JSON.parse(input.checkpoint.accessHealthProvisioningJson) as PlatformAccessCheckpoint)
     : { version: 1, accountId, installationId: input.manifest.id, nonce, resources: {} };
   if (
     !state ||

@@ -266,7 +266,11 @@ function bindingsFromOutput(
                 outbound: {
                   worker: { service: requiredString(outbound.worker, name) },
                   ...(Array.isArray(outbound.parameters)
-                    ? { params: outbound.parameters.map((parameter) => ({ name: parameter })) }
+                    ? {
+                        params: (outbound.parameters as Array<unknown>).map((parameter) => ({
+                          name: parameter,
+                        })),
+                      }
                     : {}),
                 },
               }
@@ -589,7 +593,13 @@ function assertContainerApplicationSettings(application: Json, plan: ContainerPl
     }
     if (key === 'experimental_flags' && Array.isArray(value)) {
       const flags = current.experimental_flags ?? [];
-      return !Array.isArray(flags) || !isDeepStrictEqual([...flags].sort(), [...value].sort());
+      return (
+        !Array.isArray(flags) ||
+        !isDeepStrictEqual(
+          [...(flags as Array<unknown>)].sort(),
+          [...(value as Array<unknown>)].sort(),
+        )
+      );
     }
     return !isDeepStrictEqual(current[key] ?? [], value);
   });

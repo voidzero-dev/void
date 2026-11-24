@@ -22,7 +22,9 @@ function clone(value: unknown, seen: WeakMap<object, unknown>): unknown {
     return seen.get(value);
   }
 
-  const result: object = Array.isArray(value) ? new Array(value.length) : Object.create(prototype);
+  const result = Array.isArray(value)
+    ? new Array<unknown>(value.length)
+    : (Object.create(prototype) as object);
   seen.set(value, result);
   for (const key of Object.keys(value)) {
     Object.defineProperty(result, key, {

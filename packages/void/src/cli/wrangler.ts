@@ -522,7 +522,7 @@ function ensureVoidCompatibilityDate(root: string, rootWrangler: boolean): strin
 
   let nextConfig: VoidConfig;
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>;
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       throw new Error(`config: ${VOID_CONFIG_FILE} must be a JSON object.`);
     }
@@ -1215,7 +1215,7 @@ export function writeProvisionedWranglerConfig(
     const rawList = currentConfig[field];
     // The owner collector below excludes this field, so validate its shape here.
     bindingNamesForField(field, rawList);
-    const currentList = Array.isArray(rawList) ? [...rawList] : [];
+    const currentList = Array.isArray(rawList) ? [...(rawList as Array<unknown>)] : [];
     const matches: Array<{ index: number; entry: Record<string, unknown> }> = [];
     for (let i = 0; i < currentList.length; i++) {
       const entry = currentList[i];
@@ -1752,7 +1752,7 @@ function parseCustomDomains(value: unknown, configPath: string): Array<WranglerC
   }
   const domains: Array<WranglerCustomDomain> = [];
   for (let index = 0; index < value.length; index++) {
-    const route = value[index];
+    const route: unknown = value[index];
     if (typeof route === 'string') {
       continue;
     }
@@ -2038,7 +2038,7 @@ export function assertNoDuplicateMembers(text: string, configPath: string): void
       const seen = new Set<string>();
       for (const property of node.children) {
         const keyNode = property.children?.[0];
-        const key = keyNode?.value;
+        const key: unknown = keyNode?.value;
         if (typeof key !== 'string') {
           continue;
         }

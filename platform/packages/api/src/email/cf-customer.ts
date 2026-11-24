@@ -292,8 +292,8 @@ export function createCfCustomerClient(credential: string): CfCustomerClient {
         { method: 'POST', body: JSON.stringify({ name }) },
       );
       const issues: Array<CfSendingIssue> = [];
-      for (const row of Array.isArray(preview?.errors) ? preview.errors : []) {
-        if (!row || typeof row !== 'object' || typeof row.code !== 'string') {
+      for (const row of Array.isArray(preview?.errors) ? (preview.errors as Array<unknown>) : []) {
+        if (!row || typeof row !== 'object' || !('code' in row) || typeof row.code !== 'string') {
           continue;
         }
         const existing = (row as { existing?: { name?: unknown } }).existing;
@@ -417,7 +417,7 @@ export function createCfCustomerClient(credential: string): CfCustomerClient {
         return null;
       }
       const actions = (rule as { actions?: unknown }).actions;
-      const first = Array.isArray(actions) && actions.length > 0 ? actions[0] : null;
+      const first: unknown = Array.isArray(actions) && actions.length > 0 ? actions[0] : null;
       const workerName =
         first !== null &&
         typeof first === 'object' &&

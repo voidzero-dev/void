@@ -196,7 +196,7 @@ export async function readCloudflareWorkerMigrationTag(
       `Could not verify Durable Object migration state for Cloudflare Worker "${options.workerName}".`,
     );
   }
-  const worker = body.result.find(
+  const worker = (body.result as Array<unknown>).find(
     (candidate) => isRecord(candidate) && candidate.id === options.workerName,
   );
   if (!isRecord(worker)) {
@@ -622,7 +622,9 @@ export function assertExistingCloudflareConfig(
     const [field, localId, remoteId] = mapping;
     const entries = config[field];
     const matches = Array.isArray(entries)
-      ? entries.filter((entry) => isRecord(entry) && entry.binding === binding.name)
+      ? (entries as Array<unknown>).filter(
+          (entry) => isRecord(entry) && entry.binding === binding.name,
+        )
       : [];
     const entry = matches[0];
     if (

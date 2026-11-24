@@ -277,7 +277,7 @@ function parseHeaders(raw: Uint8Array): Record<string, string> {
     throw new MimeHeaderError('MIME headers too large', 413);
   }
   const lines = decoder.decode(raw.subarray(0, end)).split('\r\n');
-  const headers: Record<string, string> = Object.create(null);
+  const headers = Object.create(null) as Record<string, string>;
   let current = '';
   let physicalLines = 0;
   for (const line of lines) {

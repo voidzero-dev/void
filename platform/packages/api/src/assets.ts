@@ -391,7 +391,7 @@ function isJwtExpired(jwt: string): boolean {
   try {
     // CF JWTs use base64url encoding — normalize to standard base64 before decoding
     const raw = jwt.split('.')[1].replaceAll('-', '+').replaceAll('_', '/');
-    const payload = JSON.parse(atob(raw));
+    const payload = JSON.parse(atob(raw)) as { exp?: unknown };
     return typeof payload.exp === 'number' && payload.exp < Date.now() / 1000;
   } catch {
     return false;

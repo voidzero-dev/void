@@ -2044,7 +2044,7 @@ async function readRecentCloudflareVersionIds(
   return versions.map((version) => ({
     id: version.id as string,
     number: version.number as number,
-    inspection: version,
+    inspection: version as Record<string, unknown>,
   }));
 }
 

@@ -723,6 +723,7 @@ export function createVoidAuthRuntime(
       baseURL: origin,
       basePath: '/api/auth',
       secret: resolveSecret(env, runtime.dev === true),
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- The package typecheck resolves Better Auth's database options.
       database,
       ...(emailAndPassword ? { emailAndPassword } : {}),
       ...(socialProviders ? { socialProviders } : {}),

@@ -94,7 +94,7 @@ function honoMiddleware(
       res.setHeader('set-cookie', response.headers.getSetCookie());
 
       if (response.body) {
-        const reader = response.body.getReader();
+        const reader = (response.body as ReadableStream<Uint8Array>).getReader();
         while (true) {
           const { done, value } = await reader.read();
           if (done) {

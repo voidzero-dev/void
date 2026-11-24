@@ -1357,7 +1357,7 @@ export class PlatformClient {
       yield* this.followDeploymentEvents(projectId, receipt, cursor, observationDeadline);
       return;
     }
-    const reader: ReadableStreamDefaultReader<Uint8Array> = res.body.getReader();
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let bytesRead = 0;
