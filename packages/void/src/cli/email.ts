@@ -949,6 +949,8 @@ async function runEmailDomainCommand(
   args: EmailArgs,
 ): Promise<void> {
   switch (args.domainVerb) {
+    case undefined:
+      return;
     case 'add':
       return emailDomainAdd(client, projectId, args.domain!);
     case 'status':

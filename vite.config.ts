@@ -484,7 +484,6 @@ const config = defineConfig({
       'typescript/only-throw-error': 'off',
       'typescript/require-array-sort-compare': 'off',
       'typescript/return-await': 'off',
-      'typescript/switch-exhaustiveness-check': 'off',
       'typescript/unbound-method': 'off',
       'typescript/use-unknown-in-catch-callback-variable': 'off',
       'unicorn/catch-error-name': 'off',

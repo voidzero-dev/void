@@ -30,6 +30,11 @@ import type { DeployEvent, DeployManifest, DeployWorkerInput } from './types.ts'
  */
 export function applyDeployEvent(event: DeployEvent, s: SpinnerResult): ApplyDeployEventResult {
   switch (event.event) {
+    case 'asset_upload_done':
+    case 'prerender_done':
+    case 'provisioning_done':
+    case 'worker_upload_done':
+      return { kind: 'continue' };
     case 'start':
       s.message('Deploying...');
       return { kind: 'start', deploymentId: event.deploymentId };
