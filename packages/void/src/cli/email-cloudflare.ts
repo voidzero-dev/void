@@ -1370,6 +1370,17 @@ export interface EmailApplyResult {
   ready: boolean;
 }
 
+const describeFailure = (response: SessionBearerResponse | null): string => {
+  if (!response) {
+    // `auth token --json` failed, so no bearer could be borrowed.
+    return 'could not borrow the Cloudflare session (session-bearer step failed)';
+  }
+  const first = response.errors[0];
+  const code = first?.code ? ` [code: ${first.code}]` : '';
+  const known = first?.code ? CF_EMAIL_ERROR_CODES[first.code] : undefined;
+  return `Cloudflare answered ${response.status}${code}${known ? ` — ${known}` : first?.message ? ` — ${first.message}` : ''}`;
+};
+
 /**
  * Run only the rows preflight found not ready:
  *
@@ -1455,16 +1466,6 @@ export async function applyEmailSetup(
       bearerFailed = true;
     }
     return response;
-  };
-  const describeFailure = (response: SessionBearerResponse | null): string => {
-    if (!response) {
-      // `auth token --json` failed, so no bearer could be borrowed.
-      return 'could not borrow the Cloudflare session (session-bearer step failed)';
-    }
-    const first = response.errors[0];
-    const code = first?.code ? ` [code: ${first.code}]` : '';
-    const known = first?.code ? CF_EMAIL_ERROR_CODES[first.code] : undefined;
-    return `Cloudflare answered ${response.status}${code}${known ? ` — ${known}` : first?.message ? ` — ${first.message}` : ''}`;
   };
 
   // 1. Routing.

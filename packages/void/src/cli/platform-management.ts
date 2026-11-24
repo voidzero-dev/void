@@ -1779,6 +1779,9 @@ function purgeResourcesPlanText(manifest: PlatformInstallationManifest): string 
   ].join('\n');
 }
 
+const isTraffic = (resource: InstallationResource) =>
+  KEPT_RESOURCE_ORDER.indexOf(resource.kind) < KEPT_RESOURCE_ORDER.indexOf('queue');
+
 function describeKeptResources(
   manifest: PlatformInstallationManifest,
   resources: ReadonlyArray<InstallationResource>,
@@ -1790,8 +1793,6 @@ function describeKeptResources(
   const sorted = [...resources].sort(
     (left, right) => keptResourceRank(manifest, left) - keptResourceRank(manifest, right),
   );
-  const isTraffic = (resource: InstallationResource) =>
-    KEPT_RESOURCE_ORDER.indexOf(resource.kind) < KEPT_RESOURCE_ORDER.indexOf('queue');
   const why = (key: string) => {
     const reason = purgeResourcesKeptReason(manifest, key);
     return reason === null ? '' : `, kept because ${reason}`;

@@ -136,6 +136,9 @@ export function removeDeployPointer(root: string): void {
   rmSync(deployPointerPath(root), { force: true });
 }
 
+const byName = (left: Record<string, unknown>, right: Record<string, unknown>) =>
+  String(left.name).localeCompare(String(right.name));
+
 /**
  * Check the generated deploy config before upload: the pinned account and Worker name, required
  * secrets, and every binding, container, migration, queue and cron against the pre-build pins,
@@ -426,8 +429,6 @@ export function verifyGeneratedDeployConfig(
         reason: 'generated config durable_objects bindings could not be verified.',
       };
     }
-    const byName = (left: Record<string, unknown>, right: Record<string, unknown>) =>
-      String(left.name).localeCompare(String(right.name));
     if (
       !deepEqual(
         [...emittedBindings].sort(byName),

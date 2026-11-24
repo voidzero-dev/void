@@ -706,6 +706,39 @@ async function readSandboxDrainTable(
   return { hasAdmissionColumn: admissionColumn.rows[0]?.present === true };
 }
 
+const classify = (
+  row: SandboxDrainCheckpointRow | undefined,
+): PlatformSandboxDrainPreparation | null => {
+  if (!row) {
+    return null;
+  }
+  const cursor = row.cursor as Record<string, unknown> | null;
+  if (
+    !row.generation ||
+    (row.admission_protocol !== 0 &&
+      row.admission_protocol !== 2 &&
+      row.admission_protocol !== 3) ||
+    !row.started_at ||
+    !row.updated_at ||
+    (row.state !== 'draining' && row.state !== 'complete') ||
+    (row.phase !== 'deployments' && row.phase !== 'resources') ||
+    !cursor ||
+    (cursor.pass !== '1' && cursor.pass !== '2') ||
+    (row.state === 'complete' &&
+      (!row.completed_at || row.phase !== 'resources' || cursor.pass !== '2')) ||
+    (row.state === 'draining' && row.completed_at !== null)
+  ) {
+    throw new Error(
+      'platform: The authoritative sandbox-drain database checkpoint is invalid. Traffic remains disabled.',
+    );
+  }
+  return {
+    admissionProtocol: row.admission_protocol,
+    generation: row.generation,
+    state: row.state === 'complete' ? 'complete' : 'pending',
+  };
+};
+
 export async function preparePlatformSandboxDrainConnection(
   client: QueryConnection,
   requiredAdmissionProtocol: 0 | 2 | 3 = 0,
@@ -728,38 +761,6 @@ export async function preparePlatformSandboxDrainConnection(
        FROM "sandbox_drain_checkpoints"
        WHERE "singleton" = true`,
     );
-  const classify = (
-    row: SandboxDrainCheckpointRow | undefined,
-  ): PlatformSandboxDrainPreparation | null => {
-    if (!row) {
-      return null;
-    }
-    const cursor = row.cursor as Record<string, unknown> | null;
-    if (
-      !row.generation ||
-      (row.admission_protocol !== 0 &&
-        row.admission_protocol !== 2 &&
-        row.admission_protocol !== 3) ||
-      !row.started_at ||
-      !row.updated_at ||
-      (row.state !== 'draining' && row.state !== 'complete') ||
-      (row.phase !== 'deployments' && row.phase !== 'resources') ||
-      !cursor ||
-      (cursor.pass !== '1' && cursor.pass !== '2') ||
-      (row.state === 'complete' &&
-        (!row.completed_at || row.phase !== 'resources' || cursor.pass !== '2')) ||
-      (row.state === 'draining' && row.completed_at !== null)
-    ) {
-      throw new Error(
-        'platform: The authoritative sandbox-drain database checkpoint is invalid. Traffic remains disabled.',
-      );
-    }
-    return {
-      admissionProtocol: row.admission_protocol,
-      generation: row.generation,
-      state: row.state === 'complete' ? 'complete' : 'pending',
-    };
-  };
   const existing = await readCheckpoint();
   const existingState = classify(existing.rows[0]);
   if (

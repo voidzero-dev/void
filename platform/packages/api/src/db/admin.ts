@@ -488,6 +488,17 @@ export async function getUsersWithProjectsBatch(db: Db, limit: number, offset: n
   });
 }
 
+function emailMatchesEntry(email: string, entry: AllowlistEntry): boolean {
+  if (entry.type !== 'email') {
+    return false;
+  }
+  const normalizedEmail = email.toLowerCase();
+  const pattern = entry.pattern.toLowerCase();
+  return pattern.startsWith('*@')
+    ? normalizedEmail.endsWith(pattern.slice(1))
+    : normalizedEmail === pattern;
+}
+
 export async function getAllowlistEntryStatuses(
   db: Db,
   entries: ReadonlyArray<AllowlistEntry>,
@@ -594,17 +605,6 @@ export async function getAllowlistEntryStatuses(
           .where(and(inArray(users.id, matchingUserIds), isNotNull(deployments.deployed_at)))
       : [];
   const deployedUserIds = new Set(deployedUserRows.map((row) => row.id));
-
-  function emailMatchesEntry(email: string, entry: AllowlistEntry): boolean {
-    if (entry.type !== 'email') {
-      return false;
-    }
-    const normalizedEmail = email.toLowerCase();
-    const pattern = entry.pattern.toLowerCase();
-    return pattern.startsWith('*@')
-      ? normalizedEmail.endsWith(pattern.slice(1))
-      : normalizedEmail === pattern;
-  }
 
   function userMatchesEntry(user: (typeof matchingUsers)[number], entry: AllowlistEntry): boolean {
     if (entry.type === 'github') {

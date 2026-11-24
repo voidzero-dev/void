@@ -8,6 +8,8 @@ import type { FormModel, FormMethod, VoidActionError } from 'void/pages-client';
 import { defineComponent, h, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { Component, PropType, VNodeChild } from 'vue';
 
+function noop(): void {}
+
 export const Form: Component = defineComponent({
   name: 'VoidForm',
   inheritAttrs: false,
@@ -18,7 +20,7 @@ export const Form: Component = defineComponent({
   },
   setup(props, { attrs, slots }) {
     const now = ref(Date.now());
-    let cancel = () => {};
+    let cancel = noop;
     onMounted(() =>
       watch(
         () => props.form.error,

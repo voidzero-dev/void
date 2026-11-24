@@ -30,6 +30,20 @@ const ENV_BINDING_RE = /\benv\b|\\(?:u|x|[0-7\r\n\u2028\u2029])/;
 const RESOURCE_BINDING_RE =
   /\b(?:DB\b|KV\b|STORAGE\b|AI\b|SANDBOX\b|QUEUE_)|\\(?:u|x|[0-7A-Z_\r\n\u2028\u2029])/;
 
+function propertyName(node: AstNode): string | undefined {
+  const key = (node.property ?? node.key) as AstNode | undefined;
+  const name = !node.computed && isIdentifier(key) ? key.name : staticLiteral(key);
+  return typeof name === 'string' ? name : undefined;
+}
+
+function isEnv(node: AstNode | undefined): boolean {
+  node = unwrapStaticExpression(node);
+  return (
+    (isIdentifier(node) && node.name === 'env') ||
+    (isMemberExpression(node) && propertyName(node) === 'env')
+  );
+}
+
 /**
  * Infer which Cloudflare bindings a source file uses.
  *
@@ -117,20 +131,6 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
 
   if (!ENV_BINDING_RE.test(code) || !RESOURCE_BINDING_RE.test(code)) {
     return result;
-  }
-
-  function propertyName(node: AstNode): string | undefined {
-    const key = (node.property ?? node.key) as AstNode | undefined;
-    const name = !node.computed && isIdentifier(key) ? key.name : staticLiteral(key);
-    return typeof name === 'string' ? name : undefined;
-  }
-
-  function isEnv(node: AstNode | undefined): boolean {
-    node = unwrapStaticExpression(node);
-    return (
-      (isIdentifier(node) && node.name === 'env') ||
-      (isMemberExpression(node) && propertyName(node) === 'env')
-    );
   }
 
   function recordBinding(name: string | undefined): void {

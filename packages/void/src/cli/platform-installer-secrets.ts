@@ -15,6 +15,13 @@ import type {
 } from './platform-installer-types.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
 
+const required = (value: string, name: string): string => {
+  if (!value) {
+    throw new Error(`platform: ${name} is required to install the platform.`);
+  }
+  return value;
+};
+
 export function createPlatformInstallationSecrets(input: {
   configurableAuthentication?: boolean;
   authenticationSetupJson?: string;
@@ -55,12 +62,6 @@ export function createPlatformInstallationSecrets(input: {
         'even if only the secret changed.',
     );
   }
-  const required = (value: string, name: string): string => {
-    if (!value) {
-      throw new Error(`platform: ${name} is required to install the platform.`);
-    }
-    return value;
-  };
   // Runtime signing/encryption keys are installation identity, not ordinary
   // configuration. A checkpoint wins over the legacy single-key inputs. The
   // explicit complete-keyring pair is the only supported way to supersede a

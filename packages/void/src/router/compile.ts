@@ -987,6 +987,8 @@ function compilePrerenderCollector(
   lines.push('');
 }
 
+const virtualDevUrl = (id: string): string => '/@id/__x00__' + id;
+
 function compilePageRoutes(
   lines: Array<string>,
   scan: ScanResult,
@@ -1017,7 +1019,6 @@ function compilePageRoutes(
   const projectRoot = options.projectRoot;
   const toDevRootUrl = (absolutePath: string): string =>
     '/' + absolutePath.replaceAll('\\', '/').slice(projectRoot.replaceAll('\\', '/').length + 1);
-  const virtualDevUrl = (id: string): string => '/@id/__x00__' + id;
   for (const page of scan.pages.pages) {
     const keys: Array<string> = [];
     const routeRootPhases: Array<Array<string>> = [

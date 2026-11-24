@@ -926,6 +926,9 @@ type ManagedQueueProvenance = {
   pendingConsumerRemovals: Array<string>;
 };
 
+const strings = (value: unknown): Array<string> =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
 function readManagedQueueProvenance(text: string): ManagedQueueProvenance {
   const none: ManagedQueueProvenance = {
     producerBindings: [],
@@ -937,8 +940,6 @@ function readManagedQueueProvenance(text: string): ManagedQueueProvenance {
   if (!encoded) {
     return none;
   }
-  const strings = (value: unknown): Array<string> =>
-    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
   try {
     const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as unknown;
     if (!isRecord(parsed)) {
@@ -1900,6 +1901,12 @@ function applyMemberEdit(
   return relocated;
 }
 
+const isTrivia = (kind: SyntaxKind): boolean =>
+  kind === SyntaxKind.Trivia ||
+  kind === SyntaxKind.LineBreakTrivia ||
+  kind === SyntaxKind.LineCommentTrivia ||
+  kind === SyntaxKind.BlockCommentTrivia;
+
 /**
  * Remove the object member at `path`, keeping every comment. `modify(…, undefined)` also
  * deletes the comments between the previous member and this one, so splice out the
@@ -1926,11 +1933,6 @@ function removeMember(
   for (let kind = scanner.scan(); kind !== SyntaxKind.EOF; kind = scanner.scan()) {
     tokens.push({ kind, offset: scanner.getTokenOffset(), length: scanner.getTokenLength() });
   }
-  const isTrivia = (kind: SyntaxKind): boolean =>
-    kind === SyntaxKind.Trivia ||
-    kind === SyntaxKind.LineBreakTrivia ||
-    kind === SyntaxKind.LineCommentTrivia ||
-    kind === SyntaxKind.BlockCommentTrivia;
   const following = tokens.find((token) => token.offset >= end && !isTrivia(token.kind));
   const preceding = [...tokens]
     .reverse()

@@ -56,6 +56,20 @@ const isEnterKey = (key: string) => key === '\r' || key === '\n';
 const isBackspaceKey = (key: string) => key === '\u007F' || key === '\b';
 const isPrintableKey = (key: string) => key.length === 1 && key >= ' ';
 
+function checkboxMarker(selected: boolean, focused: boolean): string {
+  const checkbox = selected
+    ? pc.blue(S_CHECKBOX_SELECTED)
+    : focused
+      ? pc.blue(S_CHECKBOX_INACTIVE)
+      : pc.dim(S_CHECKBOX_INACTIVE);
+  const pointer = focused ? pc.blue(S_RADIO_ACTIVE) : S_RADIO_INACTIVE;
+  return pointer + ' ' + checkbox;
+}
+
+function guidePrefix(): string {
+  return getGuide() ? pc.gray(S_BAR) + ' ' : '  ';
+}
+
 export function promptSubcommand(
   command: string,
   subcommands: Array<SubcommandDef>,
@@ -111,10 +125,6 @@ export function promptSubcommand(
       return `${lines[0]}…`;
     }
 
-    function guidePrefix(): string {
-      return getGuide() ? pc.gray(S_BAR) + ' ' : '  ';
-    }
-
     function renderOption(marker: string, label: string, focused: boolean, suffix = ''): string {
       return (
         guidePrefix() +
@@ -126,16 +136,6 @@ export function promptSubcommand(
           suffix,
         )
       );
-    }
-
-    function checkboxMarker(selected: boolean, focused: boolean): string {
-      const checkbox = selected
-        ? pc.blue(S_CHECKBOX_SELECTED)
-        : focused
-          ? pc.blue(S_CHECKBOX_INACTIVE)
-          : pc.dim(S_CHECKBOX_INACTIVE);
-      const pointer = focused ? pc.blue(S_RADIO_ACTIVE) : S_RADIO_INACTIVE;
-      return pointer + ' ' + checkbox;
     }
 
     function instructions(items: Array<string>): Array<string> {

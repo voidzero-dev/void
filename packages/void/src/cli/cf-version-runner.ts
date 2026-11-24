@@ -392,6 +392,26 @@ export function createCfCommand(options: {
   };
 }
 
+const uploadedResult = (result: CloudflareCommandResult): CloudflareCommandResult => {
+  if (!isCleanCloudflareExit(result)) {
+    return result;
+  }
+  if (record(result.data) && typeof result.data.versionId === 'string') {
+    return result;
+  }
+  const { versionId, previewUrl, workersDevUrl } = readCfUploadOutput(result);
+  return {
+    ...result,
+    data: versionId
+      ? {
+          versionId,
+          ...(previewUrl ? { previewUrl } : {}),
+          ...(workersDevUrl ? { workersDevUrl } : {}),
+        }
+      : undefined,
+  };
+};
+
 /**
  * Adapt the stable activation protocol to cf's prebuilt and API commands.
  * The protocol keeps the existing preview, inheritance, traffic and rollback checks.
@@ -412,25 +432,6 @@ export function createCfVersionRunner(options: {
   const run = async (args: Array<string>, capture: boolean, cwd = output.directory) => {
     const result = await runCf(args, { cwd, capture });
     return { ...result, data: result.data ?? parseJson(result.stdout) };
-  };
-  const uploadedResult = (result: CloudflareCommandResult): CloudflareCommandResult => {
-    if (!isCleanCloudflareExit(result)) {
-      return result;
-    }
-    if (record(result.data) && typeof result.data.versionId === 'string') {
-      return result;
-    }
-    const { versionId, previewUrl, workersDevUrl } = readCfUploadOutput(result);
-    return {
-      ...result,
-      data: versionId
-        ? {
-            versionId,
-            ...(previewUrl ? { previewUrl } : {}),
-            ...(workersDevUrl ? { workersDevUrl } : {}),
-          }
-        : undefined,
-    };
   };
   // Session bearer read before upload, so a deploy that cannot get one (Global API Key session,
   // broken helper child) stops while traffic is unchanged. The pinned upload reuses it. The

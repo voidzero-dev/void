@@ -1,6 +1,14 @@
 import { useForm, action } from '@void/react';
 import type { Props } from './index.server.ts';
 
+async function deletePost(id: number) {
+  await action('/?delete-post', { data: { id } });
+}
+
+async function deleteUser(id: number) {
+  await action('/?delete-user', { data: { id } });
+}
+
 export default function DbPage({ users, posts }: Props) {
   const userForm = useForm('/?create-user', {
     name: '',
@@ -12,14 +20,6 @@ export default function DbPage({ users, posts }: Props) {
     body: '',
     authorId: 0,
   });
-
-  async function deleteUser(id: number) {
-    await action('/?delete-user', { data: { id } });
-  }
-
-  async function deletePost(id: number) {
-    await action('/?delete-post', { data: { id } });
-  }
 
   return (
     <div>

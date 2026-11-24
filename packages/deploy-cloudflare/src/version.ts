@@ -479,23 +479,24 @@ function triggerRepairOutcome(
   return result.reason === 'metadata-unavailable' ? 'unavailable' : 'failed';
 }
 
+const unique = (values: ReadonlyArray<unknown>): Array<unknown> => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = JSON.stringify(value);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
 function mergeTriggerCleanupBaselines(
   ...configs: Array<CloudflareTriggerConfig | undefined>
 ): CloudflareTriggerConfig {
   const present = configs.filter(
     (config): config is CloudflareTriggerConfig => config !== undefined,
   );
-  const unique = (values: ReadonlyArray<unknown>): Array<unknown> => {
-    const seen = new Set<string>();
-    return values.filter((value) => {
-      const key = JSON.stringify(value);
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
-  };
   // Keep `addresses` absent when no config carried a plan (see CloudflareTriggerConfig).
   const withAddresses = present.filter((config) => config.addresses !== undefined);
   return {

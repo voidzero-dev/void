@@ -86,6 +86,9 @@ export function platformCredentialAccount(apiUrl: string): string {
   return `platform:${createHash('sha256').update(normalizePlatformApiUrl(apiUrl)).digest('hex')}`;
 }
 
+const optionalString = (input: unknown): string | null =>
+  typeof input === 'string' && input !== '' ? input : null;
+
 function parseConnection(value: unknown): PlatformConnection {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('platform: Invalid connection entry in the local registry.');
@@ -103,8 +106,6 @@ function parseConnection(value: unknown): PlatformConnection {
   if (!Number.isFinite(Date.parse(lastUsedAt))) {
     throw new Error('platform: Invalid connection timestamp in the local registry.');
   }
-  const optionalString = (input: unknown): string | null =>
-    typeof input === 'string' && input !== '' ? input : null;
   const proxyUrl = optionalString(entry.proxyUrl);
   return {
     accountId: optionalString(entry.accountId),

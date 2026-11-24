@@ -216,6 +216,11 @@ function emailRoutingZone(manifest: PlatformInstallationManifest): string | null
     : null;
 }
 
+const rank = (resource: InstallationResource) => {
+  const index = WORKER_ORDER.indexOf(resource.key);
+  return index < 0 ? WORKER_ORDER.length : index;
+};
+
 /** Everything --purge-resources will delete, in deletion order. */
 function purgeResourcesTargets(manifest: PlatformInstallationManifest): Array<Target> {
   const resources = manifest.resources;
@@ -272,10 +277,6 @@ function purgeResourcesTargets(manifest: PlatformInstallationManifest): Array<Ta
       targets.push({ phase: 'queue-consumers', resource });
     }
   }
-  const rank = (resource: InstallationResource) => {
-    const index = WORKER_ORDER.indexOf(resource.key);
-    return index < 0 ? WORKER_ORDER.length : index;
-  };
   for (const resource of workers
     .filter((worker) => !isPlatformTailWorker(manifest, worker))
     .sort((left, right) => rank(left) - rank(right) || left.key.localeCompare(right.key))) {

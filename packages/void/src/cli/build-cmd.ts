@@ -110,6 +110,13 @@ export async function runBuildCommand(root: string, args: BuildArgs): Promise<vo
   }
 }
 
+// `isFatalFollowError` decides fatal vs transient (see its doc). The SAME
+// policy governs both the first-page fetch below and the follow loop.
+const onRetry = (err: unknown): void =>
+  log.warn(
+    `build: transient error while following (${err instanceof Error ? err.message : String(err)}); retrying…`,
+  );
+
 async function runBuildLogsCommand(
   root: string,
   args: Extract<BuildArgs, { subcommand: 'logs' }>,
@@ -161,13 +168,6 @@ async function runBuildLogsCommand(
   const write = args.output
     ? (line: string): void => appendFileSync(args.output!, `${line}\n`)
     : (line: string): void => console.log(line);
-
-  // `isFatalFollowError` decides fatal vs transient (see its doc). The SAME
-  // policy governs both the first-page fetch below and the follow loop.
-  const onRetry = (err: unknown): void =>
-    log.warn(
-      `build: transient error while following (${err instanceof Error ? err.message : String(err)}); retrying…`,
-    );
 
   // First page (since=0). A transient failure on the FIRST poll must not kill
   // `--follow` either: on a fatal error we exit with a friendly message, on a

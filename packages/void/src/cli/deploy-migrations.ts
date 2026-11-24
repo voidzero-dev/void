@@ -21,6 +21,13 @@ import { formatCount, getErrorMessage } from './output.ts';
 import type { ProvisionDriftEntry } from './provision.ts';
 import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 
+// SQLite matches identifiers case-insensitively, but PRAGMAs echo the declared casing.
+const foldIdentifier = (identifier: string): string => identifier.toLowerCase();
+
+const quote = (identifier: string): string => `"${identifier.replaceAll('"', '""')}"`;
+
+const sameIdentifier = (a: string, b: string): boolean => foldIdentifier(a) === foldIdentifier(b);
+
 /**
  * Apply the checked-in migrations to an in-memory SQLite database and assert the resulting
  * schema has every required auth table and column, with its primary key, NOT NULL, UNIQUE and
@@ -36,10 +43,6 @@ export async function assertMigrationsProduceAuthSchema(
   required: Array<RequiredAuthTable>,
 ): Promise<void> {
   const db = await openMigrationValidationDatabase(migrations);
-  const quote = (identifier: string): string => `"${identifier.replaceAll('"', '""')}"`;
-  // SQLite matches identifiers case-insensitively, but PRAGMAs echo the declared casing.
-  const foldIdentifier = (identifier: string): string => identifier.toLowerCase();
-  const sameIdentifier = (a: string, b: string): boolean => foldIdentifier(a) === foldIdentifier(b);
   // Foreign keys need the parent table's info too. A table no migration created yields `[]`.
   const tableInfoCache = new Map<string, Array<TableInfoRow>>();
   const tableInfoFor = (table: string): Array<TableInfoRow> => {

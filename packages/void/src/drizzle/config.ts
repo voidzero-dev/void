@@ -67,6 +67,8 @@ export function writeDrizzleConfig(
   return configPath;
 }
 
+const noop = () => {};
+
 /**
  * Run `run` with a drizzle-kit config that holds a real database URL, kept
  * out of the project directory (the dev server can serve files under it).
@@ -87,7 +89,6 @@ export function withPrivateDrizzleConfig<T>(
 ): T {
   removeProjectDrizzleConfigWithUrl(root);
   const dir = mkdtempSync(join(tmpdir(), 'void-drizzle-'));
-  const noop = () => {};
   process.on('SIGINT', noop);
   try {
     const configPath = writeDrizzleConfig(root, dbUrl, dialect, { outDir: dir });

@@ -27,14 +27,15 @@ export function platformSetupLink(page: Pick<PlatformSetupPage, 'title' | 'url'>
   return formatLink(pc.underline(page.title), page.url);
 }
 
+const docs = (page: string, section: string, title: string) =>
+  platformSetupLink({
+    title,
+    url: `https://void.cloud/guide/platform/installation/${page}#${section}`,
+  });
+
 export function platformSetupFieldHelp(
   key: string,
 ): Readonly<{ description: string; placeholder?: string }> | undefined {
-  const docs = (page: string, section: string, title: string) =>
-    platformSetupLink({
-      title,
-      url: `https://void.cloud/guide/platform/installation/${page}#${section}`,
-    });
   switch (key) {
     case 'databaseUrl':
       return {

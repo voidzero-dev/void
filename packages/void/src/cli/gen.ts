@@ -48,8 +48,9 @@ function writeIfNotExists(filePath: string, content: string): boolean {
   return true;
 }
 
+const pad = (n: number) => String(n).padStart(2, '0');
+
 export function formatTimestamp(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
   return (
     String(date.getUTCFullYear()) +
     pad(date.getUTCMonth() + 1) +

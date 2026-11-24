@@ -1639,6 +1639,9 @@ async function hasDeployedCloudflareDatabase(root: string): Promise<boolean> {
   );
 }
 
+// Drizzle-kit finds a snapshot by the part of the journal tag before the first underscore.
+const snapshotPrefix = (tag: string): string => tag.split('_')[0];
+
 async function runRenameMigrations(root: string, dialect: DatabaseDialect): Promise<void> {
   const paths = readProjectPaths(root);
   const migrationsDir = paths.migrationsDir;
@@ -1740,8 +1743,6 @@ async function runRenameMigrations(root: string, dialect: DatabaseDialect): Prom
     ? readFileSync(journalPath)
     : null;
   const journal = readJournal(migrationsDir, paths.sourceRelative);
-  // Drizzle-kit finds a snapshot by the part of the journal tag before the first underscore.
-  const snapshotPrefix = (tag: string): string => tag.split('_')[0];
   const snapshotPathFor = (tag: string): string =>
     join(metaDir, `${snapshotPrefix(tag)}_snapshot.json`);
 

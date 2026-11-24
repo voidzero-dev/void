@@ -327,6 +327,16 @@ const config = defineConfig({
         rules: { 'quality/no-reflect-apply': 'off' },
       },
       {
+        // Keep mock implementations and fixture builders next to the cases that use them.
+        files: [
+          '**/test/**/*',
+          '**/*.test.*',
+          '**/*.typecheck.*',
+          'platform/scripts/fixtures/**/*',
+        ],
+        rules: { 'unicorn/consistent-function-scoping': 'off' },
+      },
+      {
         // These string scans test for substrings and delimiters.
         files: ['packages/edge/src/pattern.ts', 'platform/packages/api/container/build-agent.mjs'],
         rules: { 'unicorn/prefer-set-has': 'off' },
@@ -567,8 +577,6 @@ const config = defineConfig({
       'typescript/no-unsafe-type-assertion': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.
       'unicorn/catch-error-name': 'off',
-      // Keep helpers beside their call sites where they express local test setup, plugin lifecycle, or runtime initialization.
-      'unicorn/consistent-function-scoping': 'off',
       // Code generators and CLI output accumulate lines across distinct steps. Preserve staging and evaluation order before merging pushes.
       'unicorn/prefer-single-call': 'off',
       '@typescript-eslint/array-type': [

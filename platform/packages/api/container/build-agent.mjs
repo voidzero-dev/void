@@ -2063,6 +2063,18 @@ export function resolveSourceVoidCli(root = WORK_DIR) {
   return cli;
 }
 
+// Whether the repo DECLARES `void` as a dependency — the accurate "is void
+// locally resolvable" signal under PnP, where `node_modules/.bin/void` never
+// exists. Falls back to `false` on any read/parse error (→ fetch the CLI).
+const repoDeclaresVoid = () => {
+  try {
+    const pkg = JSON.parse(readFileSync(`${WORK_DIR}/package.json`, 'utf8'));
+    return Boolean(pkg.dependencies?.void || pkg.devDependencies?.void);
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Run the build pipeline and resolve to the process exit code (0 = success,
  * non-zero = failure). This function NEVER calls `process.exit` and NEVER
@@ -2108,17 +2120,6 @@ export async function runBuild(deps = {}) {
   // `hasLocalVoid` and the runner selection both read it lazily (after install),
   // so a reassignable `let` is correct.
   let pnpPresent = false;
-  // Whether the repo DECLARES `void` as a dependency — the accurate "is void
-  // locally resolvable" signal under PnP, where `node_modules/.bin/void` never
-  // exists. Falls back to `false` on any read/parse error (→ fetch the CLI).
-  const repoDeclaresVoid = () => {
-    try {
-      const pkg = JSON.parse(readFileSync(`${WORK_DIR}/package.json`, 'utf8'));
-      return Boolean(pkg.dependencies?.void || pkg.devDependencies?.void);
-    } catch {
-      return false;
-    }
-  };
   const hasLocalVoid =
     deps.hasLocalVoid ??
     (() => existsSync(`${WORK_DIR}/node_modules/.bin/void`) || (pnpPresent && repoDeclaresVoid()));

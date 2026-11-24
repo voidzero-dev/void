@@ -312,6 +312,11 @@ async function ensurePgIndexes(
   await createMissingIndexes(runner, 'postgresql', table, existingIndexes);
 }
 
+const describe = (fieldNames: Array<string>) => ({
+  names: fieldNames.map((fieldName) => JSON.stringify(fieldName)).join(', '),
+  noun: fieldNames.length === 1 ? 'field' : 'fields',
+});
+
 /**
  * Name the fields that a table with rows cannot take, and the fix, before the table changes.
  * SQLite and PostgreSQL cannot add a NOT NULL column with no default to a table that has rows;
@@ -337,10 +342,6 @@ async function assertRequiredColumnsCanBeAdded(
   const rows = await runner.all(
     `SELECT 1 AS present FROM ${quoteIdentifier(table.name, dialect)} LIMIT 2`,
   );
-  const describe = (fieldNames: Array<string>) => ({
-    names: fieldNames.map((fieldName) => JSON.stringify(fieldName)).join(', '),
-    noun: fieldNames.length === 1 ? 'field' : 'fields',
-  });
   if (rows.length >= 2 && unique.length > 0) {
     const { names, noun } = describe(unique);
     throw new Error(

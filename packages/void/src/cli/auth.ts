@@ -293,10 +293,11 @@ function page(title: string, message: string): string {
   });
 }
 
+// Launch via argv (execFile), never a shell: the URL is passed as a single
+// argument so shell metacharacters in it can't be interpreted as commands.
+const ignore = (): void => {};
+
 export function openBrowser(url: string, run: typeof execFile = execFile): void {
-  // Launch via argv (execFile), never a shell: the URL is passed as a single
-  // argument so shell metacharacters in it can't be interpreted as commands.
-  const ignore = (): void => {};
   if (process.platform === 'win32') {
     // Avoid cmd.exe interpreting URL query separators such as & as shell commands.
     run('rundll32.exe', ['url.dll,FileProtocolHandler', url], ignore);

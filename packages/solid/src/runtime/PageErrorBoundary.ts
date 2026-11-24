@@ -13,9 +13,11 @@ type Props = {
   dev?: boolean;
   children?: JSX.Element;
 };
+function noop(): void {}
+
 export function PageErrorBoundary(props: Props): JSX.Element {
   let previous = props.generation;
-  let resetBoundary = () => {};
+  let resetBoundary = noop;
   createEffect(() => {
     if (previous !== props.generation) {
       previous = props.generation;

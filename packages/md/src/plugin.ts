@@ -81,6 +81,17 @@ async function hasMdClientCode(pagesDir: string, environment: 'dev' | 'prod'): P
   return false;
 }
 
+function createVirtualModuleId(
+  prefix: string,
+  importerId: string,
+  source: string,
+  extension: string,
+): string {
+  const encoded = Buffer.from(importerId).toString('base64url');
+  const hash = createHash('sha1').update(source).digest('hex').slice(0, 8);
+  return `${prefix}${encoded}.${hash}.${extension}`;
+}
+
 export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
   let adapter: FrameworkAdapter | null = null;
   let mdPages: ReadonlyArray<MdPage> = [];
@@ -94,17 +105,6 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
   const clientScripts = new Map<string, string>();
   // The last error logged per page, so that rescans don't repeat it.
   const loggedPageErrors = new Map<string, string>();
-
-  function createVirtualModuleId(
-    prefix: string,
-    importerId: string,
-    source: string,
-    extension: string,
-  ): string {
-    const encoded = Buffer.from(importerId).toString('base64url');
-    const hash = createHash('sha1').update(source).digest('hex').slice(0, 8);
-    return `${prefix}${encoded}.${hash}.${extension}`;
-  }
 
   // The name has to be in the message: Vite's error metadata does not cross the
   // worker boundary, so the dev error page and the worker log would not show it.

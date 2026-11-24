@@ -192,6 +192,21 @@ export type WranglerAuthTokenResult =
   | { ok: true; token: string }
   | { ok: false; failure: CloudflareCommandResult };
 
+const fail = (
+  status: number,
+  signal: NodeJS.Signals | null | undefined,
+  stderr: string,
+): WranglerAuthTokenResult => ({
+  ok: false,
+  // A clean status here would read as a successful upload.
+  failure: {
+    status: status === 0 ? 1 : status,
+    ...(signal ? { signal } : {}),
+    stdout: '',
+    stderr,
+  },
+});
+
 /**
  * Read the current Cloudflare session bearer through the pinned deploy runner, for API calls
  * Void makes itself. The token goes only to the caller. A failure is built fresh from the
@@ -202,20 +217,6 @@ export async function readWranglerAuthToken(
   runWrangler: DeployWranglerRun,
   configPath: string,
 ): Promise<WranglerAuthTokenResult> {
-  const fail = (
-    status: number,
-    signal: NodeJS.Signals | null | undefined,
-    stderr: string,
-  ): WranglerAuthTokenResult => ({
-    ok: false,
-    // A clean status here would read as a successful upload.
-    failure: {
-      status: status === 0 ? 1 : status,
-      ...(signal ? { signal } : {}),
-      stdout: '',
-      stderr,
-    },
-  });
   let result: DeployWranglerRunResult;
   try {
     result = await Promise.resolve(

@@ -1919,6 +1919,9 @@ export function resolveProperLockfileKey(
   return platform === 'win32' ? resolveWindowsPath(file) : resolvePosixPath(file);
 }
 
+const isElocked = (error: unknown): boolean =>
+  (error as { code?: string } | null)?.code === 'ELOCKED';
+
 /**
  * Acquire the provision lock (`<configPath>.void-provision.lock.lock`). The lock targets are
  * synthetic paths, so `realpath: false` avoids creating marker files; the config path is
@@ -1936,8 +1939,6 @@ export async function acquireProvisionLock(
   const recoveryTarget = `${lockTarget}.recovery`;
   const staleMs = lockOptions?.stale ?? LOCK_STALE_MS;
   const retryCfg = normalizeLockRetries(lockOptions?.retries);
-  const isElocked = (error: unknown): boolean =>
-    (error as { code?: string } | null)?.code === 'ELOCKED';
   const backoffDelay = (attempt: number): Promise<void> =>
     new Promise((resolveSleep) => {
       setTimeout(

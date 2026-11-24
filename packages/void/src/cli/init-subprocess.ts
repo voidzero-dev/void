@@ -173,6 +173,10 @@ async function replayOutput(path: string): Promise<void> {
   }
 }
 
+const onSignal = (signal: NodeJS.Signals): void => {
+  process.exit(128 + constants.signals[signal]);
+};
+
 /** Run a command behind a spinner and print its output if it fails. */
 export async function runBehindSpinner(
   message: string,
@@ -208,9 +212,6 @@ export async function runBehindSpinner(
       }
     }
     cleanup();
-  };
-  const onSignal = (signal: NodeJS.Signals): void => {
-    process.exit(128 + constants.signals[signal]);
   };
 
   try {

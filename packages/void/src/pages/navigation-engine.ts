@@ -230,6 +230,10 @@ function parsePageDataFromHtml(html: string): PageData | null {
   }
 }
 
+async function skipCommit(): Promise<boolean> {
+  return false;
+}
+
 function abortError(): DOMException {
   return new DOMException('Navigation aborted', 'AbortError');
 }
@@ -255,6 +259,27 @@ async function fetchPageResponse(
     }
     return null;
   }
+}
+
+function restoreScroll(scrollPosition: VisitOptions['_scrollPosition'], hash: string): void {
+  if (scrollPosition) {
+    window.scrollTo(scrollPosition.x, scrollPosition.y);
+    return;
+  }
+  if (hash) {
+    const el = document.getElementById(hash.slice(1));
+    if (el) {
+      el.scrollIntoView();
+      return;
+    }
+  }
+  window.scrollTo(0, 0);
+}
+
+function getStaticPageDataUrl(url: string): string {
+  const { pathname } = new URL(url || '/', window.location.origin);
+  const filePath = pathname === '/' ? 'index' : pathname.replace(/^\/+/, '');
+  return `${STATIC_PAGE_DATA_PREFIX}/${filePath}${pathname !== '/' && pathname.endsWith('/') ? 'index' : ''}.json`;
 }
 
 export async function createPageNavigationEngine(
@@ -331,12 +356,6 @@ export async function createPageNavigationEngine(
       }
     }
     throw error;
-  }
-
-  function getStaticPageDataUrl(url: string): string {
-    const { pathname } = new URL(url || '/', window.location.origin);
-    const filePath = pathname === '/' ? 'index' : pathname.replace(/^\/+/, '');
-    return `${STATIC_PAGE_DATA_PREFIX}/${filePath}${pathname !== '/' && pathname.endsWith('/') ? 'index' : ''}.json`;
   }
 
   function isUsablePageData(pageData: unknown, matchedId: string): pageData is PageData {
@@ -633,21 +652,6 @@ export async function createPageNavigationEngine(
         return data;
       });
     });
-  }
-
-  function restoreScroll(scrollPosition: VisitOptions['_scrollPosition'], hash: string): void {
-    if (scrollPosition) {
-      window.scrollTo(scrollPosition.x, scrollPosition.y);
-      return;
-    }
-    if (hash) {
-      const el = document.getElementById(hash.slice(1));
-      if (el) {
-        el.scrollIntoView();
-        return;
-      }
-    }
-    window.scrollTo(0, 0);
   }
 
   const deferredWindow = window as DeferredWindow;
@@ -1201,7 +1205,7 @@ export async function createPageNavigationEngine(
         deferredRegistry,
       );
 
-      let commitResource: () => Promise<boolean> = async () => false;
+      let commitResource = skipCommit;
       const stop = () => {
         controller.abort(abortError());
         deferredRegistry.dispose();

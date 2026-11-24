@@ -801,6 +801,22 @@ function App({
   );
 }
 
+const onRecoverableError = (error: unknown) => {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'digest' in error &&
+    error.digest === DEFERRED_SHELL_DIGEST
+  ) {
+    return;
+  }
+  if (typeof globalThis.reportError === 'function') {
+    globalThis.reportError(error);
+  } else {
+    console.error(error);
+  }
+};
+
 export async function startReactPages(config: ReactPagesConfig): Promise<ReactPagesClient> {
   terminalResource = null;
   viewTransitionWaiters.clear();
@@ -855,21 +871,6 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     navigationFallback: config.navigationFallback,
   });
   startTransition(() => {
-    const onRecoverableError = (error: unknown) => {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'digest' in error &&
-        error.digest === DEFERRED_SHELL_DIGEST
-      ) {
-        return;
-      }
-      if (typeof globalThis.reportError === 'function') {
-        globalThis.reportError(error);
-      } else {
-        console.error(error);
-      }
-    };
     const rootOptions =
       config.boundaryManifest && Object.keys(config.boundaryManifest.plans).length
         ? {

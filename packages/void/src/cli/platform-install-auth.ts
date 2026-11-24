@@ -445,6 +445,14 @@ export function authenticationSetupRequestHash(setupJson: string): string {
   return createHash('sha256').update(JSON.stringify(configuration)).digest('hex');
 }
 
+const connections = (entries: ReadonlyArray<{ configuration: { id?: unknown; kind?: unknown } }>) =>
+  entries
+    .map(({ configuration: { id, kind } }) =>
+      JSON.stringify([id || defaultConnectionId(kind as PlatformLoginKind), kind]),
+    )
+    .sort()
+    .join('\n');
+
 /**
  * Read a repair login file. It may change login settings, not methods or Access
  * protection: it lists the same connection IDs and kinds as the saved setup.
@@ -456,15 +464,6 @@ export async function readLoginReplacementFile(
 ): Promise<AuthFile> {
   const selection = await selectInstallationAuthentication(file);
   const installed = parsePlatformAuthenticationSetup(JSON.parse(setupJson)).connections;
-  const connections = (
-    entries: ReadonlyArray<{ configuration: { id?: unknown; kind?: unknown } }>,
-  ) =>
-    entries
-      .map(({ configuration: { id, kind } }) =>
-        JSON.stringify([id || defaultConnectionId(kind as PlatformLoginKind), kind]),
-      )
-      .sort()
-      .join('\n');
   if (
     connections(selection.file!.connections) !== connections(installed) ||
     !!selection.authentication.accessProtection !== !!authentication.accessProtection

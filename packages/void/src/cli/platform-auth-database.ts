@@ -28,10 +28,11 @@ export function readPlatformHyperdriveSelection(
   return parsePlatformHyperdriveSelection(value);
 }
 
+const nonempty = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim() !== '';
+
 export function parsePlatformHyperdriveSelection(value: unknown): PlatformExternalHyperdrive {
   const selected = value as Partial<PlatformExternalHyperdrive> | null;
-  const nonempty = (value: unknown): value is string =>
-    typeof value === 'string' && value.trim() !== '';
   if (
     !selected ||
     typeof selected !== 'object' ||

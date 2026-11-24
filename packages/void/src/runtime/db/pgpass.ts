@@ -1,3 +1,4 @@
+const noPassword = async () => undefined;
 /**
  * `pg` falls back to `pgpass` when no password is present in the connection
  * config and the server requests one. Workers have no pgpass file, and the
@@ -10,7 +11,6 @@ export function disablePgPassFallback(client: unknown): void {
   };
   const { password } = pgClient;
   if (password === null || password === undefined) {
-    const noPassword = async () => undefined;
     pgClient.password = noPassword;
     if (pgClient.connectionParameters) {
       pgClient.connectionParameters.password = noPassword;

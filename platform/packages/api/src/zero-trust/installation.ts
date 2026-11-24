@@ -195,6 +195,9 @@ export function assertExistingProjectsChoice(
   }
 }
 
+const sameIds = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
+  left.length === right.length && left.every((id) => right.includes(id));
+
 export async function configurePlatformZeroTrust(
   env: ApiEnv['Bindings'],
   db: Db,
@@ -257,8 +260,6 @@ export async function configurePlatformZeroTrust(
     }
     assertExistingProjectsChoice(current, input);
     if (current?.operation) {
-      const sameIds = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
-        left.length === right.length && left.every((id) => right.includes(id));
       if (
         current.accountId !== accountId ||
         !!current.publicAccess !== !!input.publicAccess ||

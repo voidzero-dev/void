@@ -529,6 +529,15 @@ app.post('/approve', async (context) => {
   return context.redirect(redirect.href);
 });
 
+const revoke = (tx: DbOrTx, grantId: string) =>
+  tx
+    .update(oauthGrants)
+    .set({ revoked_at: new Date().toISOString() })
+    .where(eq(oauthGrants.id, grantId));
+
+const invalid = () =>
+  new OAuthError('invalid_grant', 'The refresh token is invalid, expired, or was already used.');
+
 // Redeem and rotate a refresh token. Locks follow the documented order and take
 // the grant FOR UPDATE before the token row, the same order as the cascade when
 // a grant is deleted. A request rejected by a later check (scope, grant,
@@ -543,13 +552,6 @@ async function refreshAccessToken(
     throw new OAuthError('invalid_request', 'A refresh token is required.');
   }
   const db = context.get('db');
-  const invalid = () =>
-    new OAuthError('invalid_grant', 'The refresh token is invalid, expired, or was already used.');
-  const revoke = (tx: DbOrTx, grantId: string) =>
-    tx
-      .update(oauthGrants)
-      .set({ revoked_at: new Date().toISOString() })
-      .where(eq(oauthGrants.id, grantId));
   // A token's grant, hash and expiry never change, and used_at is set once.
   const [found] = await db
     .select({ token: oauthRefreshTokens, clientId: oauthGrants.client_id })

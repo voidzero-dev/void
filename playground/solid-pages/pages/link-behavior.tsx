@@ -10,17 +10,17 @@ type LinkBehaviorWindow = Window & {
   __preventedNavigate?: boolean;
 };
 
+function setBoundClicked(label: string, event: MouseEvent) {
+  event.preventDefault();
+  const linkWindow = window as LinkBehaviorWindow;
+  linkWindow.__boundClickData = label;
+  linkWindow.__boundClickEventType = event.type;
+}
+
 export default function LinkBehaviorPage(props: Props) {
   const router = useRouter();
   const [prefetchMethod, setPrefetchMethod] = createSignal<'GET' | 'POST'>('GET');
   const [reloadMethod, setReloadMethod] = createSignal<'GET' | 'POST'>('GET');
-
-  function setBoundClicked(label: string, event: MouseEvent) {
-    event.preventDefault();
-    const linkWindow = window as LinkBehaviorWindow;
-    linkWindow.__boundClickData = label;
-    linkWindow.__boundClickEventType = event.type;
-  }
 
   return (
     <div>

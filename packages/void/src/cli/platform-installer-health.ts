@@ -292,6 +292,9 @@ const sharedEmailStepPermissions: ReadonlyMap<string, string> = new Map([
   ['sending_onboard', 'Account → Email Sending → Edit'],
 ]);
 
+const code = (value: unknown) =>
+  typeof value === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(value) ? value : null;
+
 export async function bootstrapPlatformSharedEmail(
   apiUrl: string,
   healthProbeToken: string,
@@ -396,8 +399,6 @@ export async function bootstrapPlatformSharedEmail(
       status.operationStatus !== 'completed') ||
     (status.failureCode !== null && status.failureCode !== undefined)
   ) {
-    const code = (value: unknown) =>
-      typeof value === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(value) ? value : null;
     const operationStatus = code(status?.operationStatus);
     const operationId =
       typeof status?.operationId === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(status.operationId)

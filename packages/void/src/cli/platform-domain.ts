@@ -90,6 +90,8 @@ export function platformDomainTarget(
   }).application;
 }
 
+const now = () => new Date().toISOString();
+
 export async function applyPlatformDomain(
   client: PlatformCloudflareClient,
   original: PlatformInstallationManifest,
@@ -107,7 +109,6 @@ export async function applyPlatformDomain(
   },
 ): Promise<DomainResult> {
   let manifest = original;
-  const now = () => new Date().toISOString();
   const save = async (next: PlatformInstallationManifest) => {
     await dependencies.checkpoint(next);
     manifest = next;

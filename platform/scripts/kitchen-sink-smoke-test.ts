@@ -134,6 +134,13 @@ async function deleteRowContaining(page: Page, needle: string) {
   }, needle);
 }
 
+/** Create an isolated browser context + page. Caller must close ctx when done. */
+async function freshPage(): Promise<{ ctx: BrowserContext; page: Page }> {
+  const ctx = await browser.newContext({ extraHTTPHeaders: CF_ACCESS });
+  const page = await ctx.newPage();
+  return { ctx, page };
+}
+
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
@@ -147,13 +154,6 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
   after(async () => {
     await browser?.close();
   });
-
-  /** Create an isolated browser context + page. Caller must close ctx when done. */
-  async function freshPage(): Promise<{ ctx: BrowserContext; page: Page }> {
-    const ctx = await browser.newContext({ extraHTTPHeaders: CF_ACCESS });
-    const page = await ctx.newPage();
-    return { ctx, page };
-  }
 
   void it('1 — home SSR + asset caching', async () => {
     const { ctx, page } = await freshPage();

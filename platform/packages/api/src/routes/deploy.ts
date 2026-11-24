@@ -98,6 +98,12 @@ function validateUploadUrlsAsset(asset: unknown, index: number): string | null {
 // `PROJECT_DELETING_ERROR_MESSAGE` pattern used by `handleManifestOnlyDeploy`.
 const UPLOAD_URLS_PROJECT_DELETING = 'upload_urls:project_deleting';
 
+// JSON preserves tuple boundaries and field types, including malformed
+// approval metadata that must not match a valid upload through coercion.
+function assetApprovalKey(asset: Pick<UploadUrlsRequestAsset, 'blake3' | 'md5' | 'size'>): string {
+  return JSON.stringify([asset.blake3, asset.md5, asset.size]);
+}
+
 /**
  * Issue presigned R2 PUT URLs for a batch of declared assets.
  *
@@ -166,13 +172,6 @@ app.post('/:id/deploy/upload-urls', async (context) => {
           context.get('companyIdentity'),
           true,
         );
-        // JSON preserves tuple boundaries and field types, including malformed
-        // approval metadata that must not match a valid upload through coercion.
-        function assetApprovalKey(
-          asset: Pick<UploadUrlsRequestAsset, 'blake3' | 'md5' | 'size'>,
-        ): string {
-          return JSON.stringify([asset.blake3, asset.md5, asset.size]);
-        }
         const approved = new Set(
           Object.values(approval.data.artifact!.assetManifest).map(assetApprovalKey),
         );

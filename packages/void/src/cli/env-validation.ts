@@ -523,12 +523,13 @@ function reconcileSelfHostWorkerName(
 /** Shown instead of validator messages, which can embed the rejected value. */
 const SELF_HOST_INVALID_REASON = 'failed schema validation';
 
+const sortNames = (names: Array<string>): Array<string> =>
+  [...names].sort((a, b) => a.localeCompare(b));
+
 function selfHostEnvError(
   missingKeys: Array<string>,
   invalidKeys: Array<string>,
 ): SelfHostEnvValidationError {
-  const sortNames = (names: Array<string>): Array<string> =>
-    [...names].sort((a, b) => a.localeCompare(b));
   const missing = sortNames(missingKeys);
   const invalid = sortNames(invalidKeys);
 

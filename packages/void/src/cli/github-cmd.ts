@@ -131,12 +131,13 @@ export function formatInstallations(installations: Array<GithubInstallation>): s
     .join('\n\n');
 }
 
+const row = (label: string, value: string): string => `  ${label.padEnd(16)}${value}`;
+
 /**
  * Render a GitHub connection for `void github status`. Container builds never
  * read the workflow file, so it is marked unused for them.
  */
 export function formatConnection(connection: GithubConnection): string {
-  const row = (label: string, value: string): string => `  ${label.padEnd(16)}${value}`;
   const workflow =
     connection.build_executor === 'github_actions'
       ? connection.workflow_path
