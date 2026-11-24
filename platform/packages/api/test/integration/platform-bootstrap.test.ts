@@ -728,7 +728,7 @@ describe('provider-independent first administrator setup', () => {
           await route.fulfill({
             status: response.status,
             headers: responseHeaders,
-            body: Buffer.from(await response.arrayBuffer()),
+            body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
           });
         });
         // A no-referrer setup page makes the browser send `Origin: null`, which the

@@ -74,7 +74,7 @@ vi.mock('../../src/cli/client', () => ({
       throw new Error('deploy unexpectedly loaded the full project list');
     }
     async findProjectBySlug(slug: string) {
-      const projects = await mockProjectLookup();
+      const projects = (await mockProjectLookup()) as Array<{ slug: string }>;
       return projects.find((project: { slug: string }) => project.slug === slug) ?? null;
     }
     preflight(...args: Array<unknown>) {

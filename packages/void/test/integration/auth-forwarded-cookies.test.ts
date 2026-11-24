@@ -5,6 +5,7 @@ import { getCookieCache } from 'better-auth/cookies';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { createVoidAuthRuntime } from '../../src/runtime/auth/better-auth-shared.ts';
 import type { VoidAuthRuntimeOptions } from '../../src/runtime/auth/better-auth-shared.ts';
 import { getAuth, getSession, getUser } from '../../src/runtime/auth/index.ts';

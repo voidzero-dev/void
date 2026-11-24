@@ -504,9 +504,9 @@ describe('existing Worker preservation', () => {
       const source =
         scenario === 'api-placeholder' ? apiSecretDraftVersion() : voidSecretDraftVersion();
       if (scenario === 'real-code') {
-        source.modules[0]!.content_base64 = Buffer.from(
-          'export default { fetch() { return new Response("app"); } };',
-        ).toString('base64');
+        source.modules[0]!.content_base64 = (Buffer as BufferConstructor)
+          .from('export default { fetch() { return new Response("app"); } };')
+          .toString('base64');
       }
       let owner = source.id;
       const runWrangler = vi.fn(

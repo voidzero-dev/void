@@ -395,6 +395,7 @@ describe('void/nitro', () => {
         return [first, getRuntimeRequestResource(key, () => ({}))];
       },
     };
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
     requestScope(nitroApp);
     (globalThis as { __env__?: unknown }).__env__ = Promise.resolve({ DATABASE_URL: 'x' });
     const [a, b] = await Promise.all(

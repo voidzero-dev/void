@@ -1046,11 +1046,11 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
         const { raw, lines } = foldedToTheCap('a@b', fold);
         expect(lines).toBe(expectedLines);
         expect(raw.byteLength).toBeLessThanOrEqual(MAX_MIME_BYTES);
-        const heapBefore = process.memoryUsage().heapUsed;
+        const heapBefore = (process as NodeJS.Process).memoryUsage().heapUsed;
         const started = performance.now();
         const parsed = readMimeFromAddrSpec(raw);
         const elapsed = performance.now() - started;
-        const heapGrowth = process.memoryUsage().heapUsed - heapBefore;
+        const heapGrowth = (process as NodeJS.Process).memoryUsage().heapUsed - heapBefore;
         expect(parsed).toEqual({ ok: true, addrSpec: 'a@b' });
         expect(elapsed).toBeLessThan(2000);
         expect(heapGrowth).toBeLessThan(64 * 1024 * 1024);
@@ -1071,7 +1071,7 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
       const started = performance.now();
       const res = await postSend(
         env,
-        await sendBody({ mimeBase64: Buffer.from(raw).toString('base64') }),
+        await sendBody({ mimeBase64: (Buffer as BufferConstructor).from(raw).toString('base64') }),
       );
       expect(performance.now() - started).toBeLessThan(5000);
       const body = await readSend(res);

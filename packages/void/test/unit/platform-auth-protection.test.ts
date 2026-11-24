@@ -180,6 +180,7 @@ beforeEach(() => {
   state.raceArmed = false;
   state.revision = 1;
   state.prepareAccess.mockReset().mockImplementation(async (input) => {
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Call the persistence callback captured by the setup mock.
     input.save({ accessProvisioningJson: '{"version":1}' });
     process.env.VOID_ACCESS_CREDENTIALS = JSON.stringify({
       [origins[0]!]: {

@@ -979,7 +979,11 @@ describe('void db rename-migrations', () => {
     expect(files[0]).toMatch(/^\d{14}_a\.sql$/);
     expect(files[1]).toMatch(/^\d{14}_b\.sql$/);
 
-    const journal = JSON.parse(readFileSync(join(metaDir, '_journal.json'), 'utf8'));
+    const journal = JSON.parse(readFileSync(join(metaDir, '_journal.json'), 'utf8')) as {
+      entries: Array<{ tag: string; idx: number; when: number }>;
+      version: string;
+      dialect: string;
+    };
     expect(journal.version).toBe('7');
     expect(journal.dialect).toBe('sqlite');
     expect(journal.entries).toHaveLength(2);

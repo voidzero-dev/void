@@ -469,7 +469,7 @@ describe('auth middleware', () => {
         await route.fulfill({
           status: response.status,
           headers: Object.fromEntries(response.headers),
-          body: Buffer.from(await response.arrayBuffer()),
+          body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
         });
       });
       await page.goto(`http://localhost/admin/deployments/${deployment.id}`);
@@ -569,7 +569,7 @@ describe('auth middleware', () => {
           await route.fulfill({
             status: response.status,
             headers: Object.fromEntries(response.headers),
-            body: Buffer.from(await response.arrayBuffer()),
+            body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
           });
         });
         await page.goto('http://localhost/admin/');
@@ -1338,7 +1338,7 @@ describe('GET /admin/ (dashboard)', () => {
           await route.fulfill({
             status: response.status,
             headers: Object.fromEntries(response.headers),
-            body: Buffer.from(await response.arrayBuffer()),
+            body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
           });
         });
         for (const path of [
@@ -2995,7 +2995,7 @@ describe('GET /admin/deployments/:id', () => {
           await route.fulfill({
             status: response.status,
             headers: Object.fromEntries(response.headers),
-            body: Buffer.from(await response.arrayBuffer()),
+            body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
           });
         });
         await page.goto(`http://localhost/admin/deployments/${id}`);

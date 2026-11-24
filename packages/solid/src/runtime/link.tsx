@@ -34,10 +34,10 @@ function callHandler(handler: unknown, event: Event): void {
   if (Array.isArray(handler)) {
     const [fn, data] = handler as Array<unknown>;
     if (typeof fn === 'function') {
-      fn(data, event);
+      (fn as (data: unknown, event: Event) => void)(data, event);
     }
   } else if (typeof handler === 'function') {
-    handler(event);
+    (handler as (event: Event) => void)(event);
   }
 }
 

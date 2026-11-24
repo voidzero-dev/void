@@ -282,6 +282,7 @@ function buildEmailDispatcher(
     .replace('export async function __emailHandler', 'async function __emailHandler')
     .replaceAll(/\(\) => import\((".*?")\)/g, '() => __modules[$1]');
 
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function('__modules', `${body}\nreturn __emailHandler;`)(modules) as never;
 }
 
@@ -691,6 +692,7 @@ describe('compileWorkerEntry (email)', () => {
     const method = code.match(/ {2}async email\(message\) \{[\s\S]*?\n {2}\}/)?.[0];
     expect(method).toBeDefined();
     const handleEmail = vi.fn(async () => [{ type: 'reject', reason: 'test' }]);
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
     const entryEmail = new Function(
       '__isForwardableEmailMessage',
       'handleEmail',

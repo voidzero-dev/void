@@ -10,6 +10,7 @@ import {
 } from '@void/platform';
 import { log, note, outro } from '@voidzero-dev/vite-plus-prompts';
 import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { pc } from '../../src/cli/output.ts';
 // oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as terminalOutput from '../../src/cli/output.ts';

@@ -399,6 +399,18 @@ const config = defineConfig({
         rules: { 'react/purity': 'off' },
       },
       {
+        // These setup suites use partial substitutes for prompts, credentials, and provider adapters.
+        files: [
+          'packages/void/test/unit/{platform-access-setup,platform-install-prompts,platform-setup-flow}.test.ts',
+        ],
+        rules: { 'typescript/no-unsafe-call': 'off' },
+      },
+      {
+        // TypeScript checks these compile-only fixtures, including deliberate invalid calls.
+        files: ['**/*.typecheck.ts'],
+        rules: { 'typescript/no-unsafe-call': 'off' },
+      },
+      {
         // These compile-only fixtures call hooks to exercise their type signatures.
         files: ['**/*.typecheck.ts'],
         rules: { 'react/rules-of-hooks': 'off' },
@@ -581,8 +593,6 @@ const config = defineConfig({
       'typescript/no-non-null-assertion': 'off',
       // Hundreds of remaining findings require changing inferred generic arguments. Review inference and declaration output in a separate type-focused pass.
       'typescript/no-unnecessary-type-assertion': 'off',
-      // Runtime adapter calls and mixed Node and Worker declarations need typed entry points before broad enforcement.
-      'typescript/no-unsafe-call': 'off',
       // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.

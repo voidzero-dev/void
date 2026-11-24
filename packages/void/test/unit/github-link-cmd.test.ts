@@ -1,5 +1,6 @@
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import { PlatformApiError } from '../../src/cli/client.ts';
 import type { PlatformClient } from '../../src/cli/client.ts';
 import { runGithubLink } from '../../src/cli/github-cmd.ts';
@@ -10,7 +11,7 @@ vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
 
 type FakeClient = Pick<PlatformClient, 'getGithubLinkUrl' | 'completeGithubLink'>;
 
-let exitSpy: ReturnType<typeof vi.spyOn>;
+let exitSpy: MockInstance;
 
 beforeEach(() => {
   exitSpy = throwOnProcessExit();

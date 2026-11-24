@@ -41,6 +41,7 @@ import {
 import type { CfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { resolveGeneratedDeployConfigPathDefault } from '../../src/cli/deploy-artifact-validation.ts';
 import { deployPointerPath } from '../../src/cli/deploy-binding-snapshot.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { writeWranglerPublishedTrafficSnapshot } from '../../src/cli/wrangler.ts';
 import { materializeCloudflareConfig } from '../../src/cloudflare-config.ts';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';

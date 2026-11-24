@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vite-plus/test';
+import { Buffer } from '../../../src/cli/node-buffer.ts';
 import { createBindingHandler } from '../../../src/runtime/remote/binding-handler.ts';
 import { ProxyClient } from '../../../src/runtime/remote/client.ts';
 import { ProxyR2Bucket } from '../../../src/runtime/remote/r2.ts';

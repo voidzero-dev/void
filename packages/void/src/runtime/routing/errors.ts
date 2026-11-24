@@ -648,7 +648,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
         'getResponse' in error &&
         typeof error.getResponse === 'function'
       ) {
-        return error.getResponse() as Response;
+        return (error.getResponse as () => Response)();
       }
       console.error(error);
       return serveCustomPage(c, 500, 'Internal Server Error', error);
