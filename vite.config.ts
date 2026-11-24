@@ -551,6 +551,7 @@ const config = defineConfig({
       'quality/no-chained-type-assertions': 'off',
       // Conditional spreads are used to omit optional config and manifest keys. Preserve omission and property order in follow-up refactors.
       'quality/no-conditional-empty-object-spread': 'off',
+      // Validation helpers deliberately accept unknown, including when tests pass values whose concrete types are known.
       'quality/no-known-value-widening': 'off',
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
