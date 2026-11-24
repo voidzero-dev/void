@@ -277,6 +277,17 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // These wrappers propagate original rejection values through cleanup and retries.
+        files: [
+          'packages/void/src/cli/{direct-r2-upload,platform-install-workers}.ts',
+          'packages/void/src/runtime/live/index.ts',
+          'platform/packages/api/src/{ai-logging-plans,build-manager,routing,worker-upload}.ts',
+          'platform/packages/api/src/routes/projects.ts',
+          'platform/packages/api/src/zero-trust/lock.ts',
+        ],
+        rules: { 'typescript/only-throw-error': 'off' },
+      },
+      {
         // Hosted admin views synchronize streamed logs and externally loaded data in effects.
         files: ['platform/packages/api/src/admin/react/views/**/*'],
         rules: { 'react/set-state-in-effect': 'off' },
@@ -384,11 +395,6 @@ const config = defineConfig({
           'packages/void/src/pages/navigation-engine.ts',
         ],
         rules: { 'unicorn/prefer-dom-node-append': 'off' },
-      },
-      {
-        // Temporarily override the preset's TypeScript-specific rule setting.
-        files: ['**/*.{ts,tsx,mts,cts}'],
-        rules: { 'typescript/only-throw-error': 'off' },
       },
       {
         // Fate may emit unused imports; still lint and typecheck the generated client.
@@ -538,7 +544,6 @@ const config = defineConfig({
       'typescript/no-unsafe-member-access': 'off',
       'typescript/no-unsafe-return': 'off',
       'typescript/no-unsafe-type-assertion': 'off',
-      'typescript/only-throw-error': 'off',
       'typescript/require-array-sort-compare': 'off',
       'typescript/return-await': 'off',
       'typescript/unbound-method': 'off',
