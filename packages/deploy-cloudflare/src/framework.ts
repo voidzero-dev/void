@@ -47,7 +47,10 @@ export function writeCloudflareFrameworkDeployConfig(
   upsert(['account_id'], options.accountId);
   upsert(['main'], options.main);
   upsert(['compatibility_date'], options.compatibilityDate);
-  if (options.versionMetadataBinding && parse(content).version_metadata === undefined) {
+  if (
+    options.versionMetadataBinding &&
+    (parse(content) as { version_metadata?: unknown }).version_metadata === undefined
+  ) {
     upsert(['version_metadata'], { binding: options.versionMetadataBinding });
   }
   if (options.compatibilityFlags && options.compatibilityFlags.length > 0) {

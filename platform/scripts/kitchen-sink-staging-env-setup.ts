@@ -23,7 +23,11 @@ function isStoredSecretError(error: unknown, name: string): boolean {
     return false;
   }
   try {
-    const body = JSON.parse(error.body);
+    const body = JSON.parse(error.body) as {
+      error?: unknown;
+      name?: unknown;
+      liveUpdated?: unknown;
+    };
     return (
       body?.error === 'secret stored but live propagation failed' &&
       body.name === name &&

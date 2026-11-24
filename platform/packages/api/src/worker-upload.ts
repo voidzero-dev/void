@@ -124,7 +124,12 @@ export function r2WorkerModule(
       if (!object) {
         throw new WorkerModuleIntegrityError(errors.missing);
       }
-      return verifiedStream(object.body, module.size, module.sha256, errors.changed);
+      return verifiedStream(
+        object.body as ReadableStream<Uint8Array>,
+        module.size,
+        module.sha256,
+        errors.changed,
+      );
     },
   };
 }

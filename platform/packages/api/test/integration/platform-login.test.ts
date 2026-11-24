@@ -318,7 +318,7 @@ describe('configured platform login routes', () => {
           await route.fulfill({
             status: response.status,
             headers: responseHeaders,
-            body: Buffer.from(await response.arrayBuffer()),
+            body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
           });
         });
         async function confirmInBrowser() {

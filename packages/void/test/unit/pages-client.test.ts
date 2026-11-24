@@ -351,6 +351,7 @@ describe('createVoidRouter', () => {
         { pages: [page], layouts: [], namedLayouts: [] },
         '/project/pages',
       );
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
       const manifest = new Function(`${source}\nreturn { routeMeta, matchRoute };`)() as Pick<
         VoidRouterConfig,
         'routeMeta' | 'matchRoute'

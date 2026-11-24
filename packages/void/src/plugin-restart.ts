@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { TLSSocket } from 'node:tls';
 import type { Plugin } from 'vite';
+import { Buffer } from './cli/node-buffer.ts';
 import { safeJsonStringify } from './pages/protocol.ts';
 
 const BINDING_HINT_VIRTUAL = 'virtual:void/binding-hint';

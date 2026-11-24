@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { dirname, join } from 'pathslash';
 import { normalizePath } from 'vite';
 import type { Plugin } from 'vite';
+import { Buffer } from './cli/node-buffer.ts';
 import { readRootWranglerConfig } from './cli/wrangler.ts';
 import { scanJobsSync } from './crons/scan.ts';
 import type { JobDefinition } from './crons/scan.ts';

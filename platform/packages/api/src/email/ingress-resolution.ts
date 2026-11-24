@@ -287,7 +287,9 @@ app.post('/resolve-ingress', async (context) => {
   )[0];
   let manifest: Pick<DeployManifest, 'emailProtocolVersion' | 'limits'> | null;
   try {
-    manifest = deployment?.manifest ? JSON.parse(deployment.manifest) : null;
+    manifest = deployment?.manifest
+      ? (JSON.parse(deployment.manifest) as NonNullable<typeof manifest>)
+      : null;
   } catch {
     manifest = null;
   }

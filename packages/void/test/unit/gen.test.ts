@@ -7,6 +7,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vite-plus/test'
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import type { GenArgs } from '../../src/cli/gen-args.ts';
 import { runGenCommand, formatTimestamp, detectValidator } from '../../src/cli/gen.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { createPagesStarterTemplate } from '../../src/cli/template.ts';
 import { collectMigrations } from '../../src/migrations/collect.ts';
 import { assertJournalCoherence } from '../../src/migrations/validate.ts';

@@ -308,7 +308,7 @@ export async function prepareInstallationAuthentication(input: {
     state.plan.deployment.authentication.accessProtection ||
     (appAccessSetupRequired &&
       state.secrets.appAccessSetupJson &&
-      JSON.parse(state.secrets.appAccessSetupJson).managed === true)
+      (JSON.parse(state.secrets.appAccessSetupJson) as { managed?: unknown }).managed === true)
   ) {
     dependencies.onProgress?.('Preparing Access for authenticated platform health checks');
     try {
@@ -331,7 +331,7 @@ export async function prepareInstallationAuthentication(input: {
       if (
         appAccessSetupRequired &&
         state.secrets.appAccessSetupJson &&
-        JSON.parse(state.secrets.appAccessSetupJson).managed &&
+        (JSON.parse(state.secrets.appAccessSetupJson) as { managed?: unknown }).managed &&
         error instanceof PlatformCloudflareApiError &&
         [401, 403].includes(error.status)
       ) {

@@ -177,7 +177,9 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
       return eventStream(
         async (stream) => {
           const subscriptions =
-            previous?.owner === message.owner ? previous.subscriptions : new Map();
+            previous?.owner === message.owner
+              ? previous.subscriptions
+              : new Map<string, ActiveSubscription>();
           for (const subscription of subscriptions.values()) {
             subscription.active = false;
           }

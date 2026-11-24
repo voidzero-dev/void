@@ -810,11 +810,11 @@ export class PlatformCloudflareClient {
         if (!Array.isArray(result)) {
           throw new Error('platform: Cloudflare returned an invalid certificate inventory.');
         }
-        for (const entry of result) {
+        for (const entry of result as ReadonlyArray<Record<string, unknown>>) {
           const certificates =
             kind === 'ssl/certificate_packs'
               ? Array.isArray(entry.certificates)
-                ? entry.certificates
+                ? (entry.certificates as Array<unknown>)
                 : []
               : [entry];
           if (certificates.some(covers)) {
@@ -897,7 +897,7 @@ export class PlatformCloudflareClient {
         | ReadonlyArray<{ creation_date?: unknown; name?: unknown }>
       >(`/accounts/${encodeURIComponent(accountId)}/r2/buckets?${query}`);
       const page = Array.isArray(result)
-        ? result
+        ? (result as ReadonlyArray<{ creation_date?: unknown; name?: unknown }>)
         : 'buckets' in result
           ? (result.buckets ?? [])
           : [];
@@ -1095,7 +1095,7 @@ export class PlatformCloudflareClient {
       if (!Array.isArray(result)) {
         throw new Error('platform: Cloudflare returned an invalid KV key list.');
       }
-      for (const entry of result) {
+      for (const entry of result as ReadonlyArray<{ name?: unknown; metadata?: unknown }>) {
         const name = requiredString(entry.name, 'KV key name');
         keys.push(entry.metadata === undefined ? { name } : { name, metadata: entry.metadata });
       }
@@ -1312,7 +1312,7 @@ export class PlatformCloudflareClient {
           path,
         );
       }
-      const keys = envelope.result
+      const keys = (envelope.result as ReadonlyArray<{ key?: unknown }>)
         .map((object) => requiredString(object.key, 'R2 object key'))
         .filter((key) => !preservedKeys.has(key));
       if (keys.length > 0) {

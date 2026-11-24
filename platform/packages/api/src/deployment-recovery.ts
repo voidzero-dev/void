@@ -33,7 +33,9 @@ async function committedEvent(
     deployment: deployment.id,
     url: urls[0]!,
     urls,
-    assets: deployment.asset_hashes ? Object.keys(JSON.parse(deployment.asset_hashes)).length : 0,
+    assets: deployment.asset_hashes
+      ? Object.keys(JSON.parse(deployment.asset_hashes) as Record<string, unknown>).length
+      : 0,
     // The operation journal retains the original module count. This describes
     // the serving target when a crash happened before its result was recorded.
     workers: manifest?.type === 'static' || manifest?.type === 'spa' ? 0 : 1,

@@ -261,6 +261,7 @@ describe('islandsPlugin — island style loader', () => {
             };
           }
           const value = Reflect.get(target, key, target);
+          // oxlint-disable-next-line typescript/no-unsafe-call -- The proxy delegates the original method to its receiver with the fixture arguments.
           return typeof value === 'function' ? value.bind(target) : value;
         },
       });

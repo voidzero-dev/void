@@ -381,7 +381,7 @@ test('records sanitized action targets and change arguments', async () => {
   expect(
     events
       .filter((event) => event.action === 'signup/remove')
-      .map((event) => JSON.parse(event.target))
+      .map((event) => JSON.parse(event.target) as { type: string; pattern: string })
       .sort((a, b) => a.pattern.localeCompare(b.pattern)),
   ).toEqual([
     { type: 'email', pattern: 'alice@example.com' },

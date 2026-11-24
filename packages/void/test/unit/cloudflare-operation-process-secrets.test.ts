@@ -6,6 +6,7 @@ import { VOID_SECRET_DRAFT_MESSAGE, VOID_SECRET_DRAFT_SOURCE } from '@void/deplo
 import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { expect, it } from 'vite-plus/test';
 import { decodeCloudflareOperationResult } from '../../src/cli/cloudflare-process.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   listen,
   runOperation,

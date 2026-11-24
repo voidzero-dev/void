@@ -2122,7 +2122,7 @@ function readRootConfig(configPath: string): Record<string, unknown> {
   const raw = readFileSync(configPath, 'utf8');
   const content = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
   const errors: Array<ParseError> = [];
-  const parsed = parse(content, errors, { allowTrailingComma: true });
+  const parsed: unknown = parse(content, errors, { allowTrailingComma: true });
   if (errors.length > 0) {
     throw new Error(
       `provision: cannot read "${configPath}" — it is not valid JSON/JSONC. Fix the file and retry.`,

@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getWorkerBundleDir } from '@cloudflare/build-output-utils';
+import type { PluginOption } from 'vite';
 import { createBuilder, createServer, normalizePath, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { voidPlugin } from '../../src/index.ts';
@@ -214,9 +215,11 @@ describe('voidPlugin Vite environments', () => {
         pathToFileURL(astroRequire.resolve('@astrojs/cloudflare')),
       )!;
       const { exports: pluginExports } = JSON.parse(readFileSync(pluginManifest, 'utf8'));
-      const { cloudflare: astroCloudflare } = await import(
+      const { cloudflare: astroCloudflare } = (await import(
         new URL(pluginExports['.'].import, pathToFileURL(pluginManifest)).href
-      );
+      )) as {
+        cloudflare(config: { configPath: string; viteEnvironment: { name: string } }): PluginOption;
+      };
       const adapter = astroCloudflare({
         configPath: join(root, '.void-wrangler.jsonc'),
         viteEnvironment: { name: 'ssr' },

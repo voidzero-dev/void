@@ -445,7 +445,7 @@ export function matchPatternCaptures(
     return null;
   }
   // Every name gets a value, in source order; one dropped by `prepare` matched ''.
-  const params: Record<string, string> = Object.create(null);
+  const params = Object.create(null) as Record<string, string>;
   for (const name of compiled.paramNames) {
     params[name] = '';
   }

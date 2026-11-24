@@ -63,7 +63,7 @@ export async function resolveCommandProjectId(
 
 export function inferDefaultSlug(root: string): string {
   const pkgPath = join(root, 'package.json');
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { name?: string };
   const name: string = pkg.name ?? 'my-app';
   return name.replace(/^@[^/]+\//, '').replaceAll(/[^a-z0-9-]/g, '-');
 }

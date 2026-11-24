@@ -140,7 +140,7 @@ describe('platform authentication storage', () => {
       ...env,
       PROJECT_SECRET_KEYS_JSON: JSON.stringify({
         ...JSON.parse(env.PROJECT_SECRET_KEYS_JSON),
-        next: Buffer.alloc(32, 9).toString('base64'),
+        next: (Buffer as BufferConstructor).alloc(32, 9).toString('base64'),
       }),
       PROJECT_SECRET_ACTIVE_KEY_VERSION: 'next',
     };

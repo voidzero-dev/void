@@ -64,7 +64,7 @@ export function gitHubAlertsPlugin(md: MarkdownExit): void {
   md.core.ruler.after('block', 'github-alerts', rule);
 
   md.renderer.rules.github_alert_open = function (tokens: ReadonlyArray<AlertToken>, idx: number) {
-    const { title, type } = tokens[idx].meta!;
+    const { title, type } = tokens[idx].meta as { title: string; type: string };
     return `<div class="${type} custom-block github-alert"><p class="custom-block-title">${title}</p>\n`;
   };
 }

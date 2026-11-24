@@ -1332,8 +1332,7 @@ export function buildMime(email: NormalizedEmail): { raw: Uint8Array; messageId:
   if (email.replyTo) {
     topHeaders.push(['Reply-To', formatAddress(email.replyTo)]);
   }
-  topHeaders.push(['Subject', encodeWord(email.subject)]);
-  topHeaders.push(['Message-ID', messageId]);
+  topHeaders.push(['Subject', encodeWord(email.subject)], ['Message-ID', messageId]);
   // Reserved against user-supplied `headers` (RESERVED_HEADERS), so these
   // land in the wire MIME only through the checked `email.threading`.
   if (email.threading?.inReplyTo) {

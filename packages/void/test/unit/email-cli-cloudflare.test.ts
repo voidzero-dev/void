@@ -5,6 +5,7 @@ import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import { SENDING_FREE_PLAN_HINT } from '../../src/cli/email-cloudflare.ts';
 import type { EmailDns, EmailWranglerRunResult } from '../../src/cli/email-cloudflare.ts';
 import { runEmailCloudflareCommand, runEmailCommand } from '../../src/cli/email.ts';
@@ -1069,7 +1070,7 @@ describe('void email status --platform cloudflare', () => {
 });
 
 describe('void email setup|status without --platform cloudflare', () => {
-  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let exitSpy: MockInstance;
   beforeEach(() => {
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
       throw new ExitSignal(code);

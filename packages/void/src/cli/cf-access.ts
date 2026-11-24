@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { readKeyringPassword, writeKeyringPassword } from './keyring.ts';
+import { Buffer } from './node-buffer.ts';
 import { normalizePlatformApiUrl, platformCredentialAccount } from './platform-registry.ts';
 
 const ACCESS_KEYRING_SERVICE = 'dev.void.cli.access';
