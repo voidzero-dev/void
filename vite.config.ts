@@ -539,6 +539,7 @@ const config = defineConfig({
       '@nkzw/no-instanceof': 'off',
       // Several Vite, filesystem, and test integrations use namespace objects for forwarding, mocking, or optional exports.
       'import/no-namespace': 'off',
+      // CLI output, platform Worker logging, and output-capture fixtures intentionally use the console across the workspace.
       'no-console': 'off',
       'no-useless-assignment': 'off',
       'preserve-caught-error': 'off',
