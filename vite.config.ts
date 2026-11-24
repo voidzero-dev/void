@@ -535,6 +535,7 @@ const config = defineConfig({
       // Keep type queries for ambient declarations and inferred mock module types.
       'typescript/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
       // Temporarily disabled during the shared preset migration.
+      // Keep runtime dispatch and error classification based on native and framework class identity. Review cross-realm cases separately.
       '@nkzw/no-instanceof': 'off',
       'import/no-namespace': 'off',
       'no-console': 'off',
