@@ -569,6 +569,7 @@ const config = defineConfig({
       'typescript/no-unsafe-assignment': 'off',
       // Runtime adapter calls and mixed Node and Worker declarations need typed entry points before broad enforcement.
       'typescript/no-unsafe-call': 'off',
+      // Provider response schemas and dynamic module interfaces need coverage before enforcing typed member access everywhere.
       'typescript/no-unsafe-member-access': 'off',
       'typescript/no-unsafe-return': 'off',
       'typescript/no-unsafe-type-assertion': 'off',
