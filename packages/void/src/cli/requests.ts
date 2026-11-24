@@ -56,7 +56,7 @@ function printRequest(entry: RequestEntry): void {
   const method = (entry.method || '-').padEnd(4);
   const status = entry.status || '-';
 
-  const statusNum = parseInt(status, 10);
+  const statusNum = Number.parseInt(status, 10);
   const coloredStatus =
     statusNum >= 500 ? pc.red(status) : statusNum >= 400 ? pc.yellow(status) : status;
 

@@ -37,7 +37,7 @@ export async function verifyProtectionAuthority(input: {
   expiresAt: unknown;
   signature: unknown;
 }): Promise<void> {
-  const expiry = typeof input.expiresAt === 'string' ? Date.parse(input.expiresAt) : NaN;
+  const expiry = typeof input.expiresAt === 'string' ? Date.parse(input.expiresAt) : Number.NaN;
   if (
     !input.installationId ||
     !input.secret ||

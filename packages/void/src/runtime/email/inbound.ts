@@ -773,7 +773,7 @@ function quotedPrintableDecode(qp: string): Uint8Array {
       // stays literal.
       const hex = qp.slice(i + 1, i + 3);
       if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
-        out[kept++] = parseInt(hex, 16);
+        out[kept++] = Number.parseInt(hex, 16);
         i += 2;
       } else {
         out[kept++] = ch;

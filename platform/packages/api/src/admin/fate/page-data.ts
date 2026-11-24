@@ -74,7 +74,7 @@ export function requestTimezone(context: AdminContext): string | undefined {
 }
 
 function pageNumber(url: URL) {
-  return Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+  return Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
 }
 
 export async function loadUsersPage(context: AdminContext, path: string) {

@@ -49,7 +49,7 @@ function shiftDow(value: string): string {
   if (!match) {
     return value;
   } // abbreviation like MON, SUN
-  const shiftedDayOfWeek = Math.max(0, parseInt(match[1], 10) - 1);
+  const shiftedDayOfWeek = Math.max(0, Number.parseInt(match[1], 10) - 1);
   return `${shiftedDayOfWeek}${match[2]}`;
 }
 

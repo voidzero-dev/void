@@ -82,7 +82,7 @@ export function waitForFreshHeartbeat(
   return pollObservation(
     read,
     (value, now) => {
-      const timestamp = value === null ? NaN : Date.parse(value);
+      const timestamp = value === null ? Number.NaN : Date.parse(value);
       const age = now - timestamp;
       return (
         Number.isFinite(timestamp) &&

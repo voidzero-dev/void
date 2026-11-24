@@ -15,7 +15,7 @@ export function formatAbsoluteDate(iso: string): string {
 
 export function formatDateTime(iso: string, tz?: string) {
   const d = parseUtcDate(iso);
-  if (isNaN(d.getTime())) {
+  if (Number.isNaN(d.getTime())) {
     return createElement('span', { suppressHydrationWarning: true }, iso);
   }
   const formatted = d.toLocaleString('en-US', {

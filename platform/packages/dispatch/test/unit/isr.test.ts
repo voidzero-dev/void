@@ -740,7 +740,7 @@ describe('writeIsrCache — variant cap', () => {
             .filter((k) => k.startsWith(opts.prefix))
             .sort();
           const limit = opts.limit ?? 1000;
-          const start = opts.cursor ? parseInt(opts.cursor, 10) : 0;
+          const start = opts.cursor ? Number.parseInt(opts.cursor, 10) : 0;
           const slice = all.slice(start, start + limit);
           const list_complete = start + limit >= all.length;
           return {

@@ -1900,7 +1900,7 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
         ? null
         : typeof record.port === 'number' || typeof record.port === 'string'
           ? Number(record.port)
-          : NaN;
+          : Number.NaN;
     if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
       throw new Error('platform: Cloudflare Hyperdrive config has an invalid origin port.');
     }

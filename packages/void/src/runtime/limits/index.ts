@@ -54,7 +54,7 @@ export async function limitFromResponse(
   const retry = response.headers.get('retry-after');
   const retryTime =
     retry === null
-      ? NaN
+      ? Number.NaN
       : /^\d+$/.test(retry)
         ? Date.now() + Number(retry) * 1000
         : Date.parse(retry);

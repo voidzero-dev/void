@@ -518,7 +518,7 @@ describe('dischargeSelfHostEnvContext — ground-truth secret gate', () => {
       },
     );
 
-    it.each([null, NaN, Infinity, -1])(
+    it.each([null, Number.NaN, Infinity, -1])(
       'does not infer a first deploy from invalid exit status %s',
       async (status) => {
         const root = createTempProject({ withEnvTs: false });

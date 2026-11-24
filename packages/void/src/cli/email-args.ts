@@ -123,7 +123,7 @@ export function parseEmailArgs(args: Array<string>): EmailArgs {
       if (raw === undefined) {
         throw new Error('email: --limit requires a value (a positive integer).');
       }
-      const n = parseInt(raw, 10);
+      const n = Number.parseInt(raw, 10);
       if (!Number.isFinite(n) || n <= 0) {
         throw new Error(`email: --limit must be a positive integer (got '${raw}').`);
       }

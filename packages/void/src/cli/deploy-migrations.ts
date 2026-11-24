@@ -410,7 +410,7 @@ export function assertRemoteMigrationsDeployable(
  */
 function leadingWranglerMigrationNumber(relativePath: string): number {
   const firstSegment = relativePath.split('/')[0] ?? '';
-  return parseInt(firstSegment.split('_')[0] ?? '', 10);
+  return Number.parseInt(firstSegment.split('_')[0] ?? '', 10);
 }
 
 function compareWranglerMigrationSegments(a: string, b: string): number {

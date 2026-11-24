@@ -202,7 +202,7 @@ const corruptCases: Array<{ name: string; seed: () => KvRecord }> = [
     name: 'createdAt NaN',
     seed: () => ({
       value: packEntry({}, 'x'),
-      metadata: { s: 200, c: NaN, t: 60, p: SHARED_CACHE_POLICY_VERSION },
+      metadata: { s: 200, c: Number.NaN, t: 60, p: SHARED_CACHE_POLICY_VERSION },
     }),
   },
   {
@@ -223,7 +223,7 @@ const corruptCases: Array<{ name: string; seed: () => KvRecord }> = [
     name: 'ttl NaN',
     seed: () => ({
       value: packEntry({}, 'x'),
-      metadata: { s: 200, c: BASE, t: NaN, p: SHARED_CACHE_POLICY_VERSION },
+      metadata: { s: 200, c: BASE, t: Number.NaN, p: SHARED_CACHE_POLICY_VERSION },
     }),
   },
   {

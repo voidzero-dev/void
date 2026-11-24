@@ -795,7 +795,7 @@ export function parseCounter(raw: string | null): number {
   if (!raw) {
     return 0;
   }
-  const n = parseInt(raw, 10);
+  const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 

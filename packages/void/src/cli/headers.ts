@@ -173,14 +173,14 @@ export function parseRedirectsFile(dir: string): ParsedRedirects | undefined {
     if (statusStr) {
       if (statusStr.endsWith('!')) {
         const numericPart = statusStr.slice(0, -1);
-        status = parseInt(numericPart, 10);
+        status = Number.parseInt(numericPart, 10);
         if (status === 200) {
           force = true;
         } else if (status >= 300 && status < 400) {
           redundantForceOn3xx++;
         }
       } else {
-        status = parseInt(statusStr, 10);
+        status = Number.parseInt(statusStr, 10);
       }
     } else {
       status = 302;

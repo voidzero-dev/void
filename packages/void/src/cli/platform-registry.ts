@@ -220,7 +220,8 @@ export function acquirePlatformLifecycleLock(
             stale = (ownerError as NodeJS.ErrnoException).code === 'ESRCH';
           }
         } else {
-          const startedAt = typeof owner.startedAt === 'string' ? Date.parse(owner.startedAt) : NaN;
+          const startedAt =
+            typeof owner.startedAt === 'string' ? Date.parse(owner.startedAt) : Number.NaN;
           stale = Number.isFinite(startedAt) && Date.now() - startedAt > 2 * 60 * 60 * 1000;
         }
       } catch {

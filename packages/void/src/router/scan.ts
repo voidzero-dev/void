@@ -41,7 +41,7 @@ function parseMiddlewareDefinitions(files: Array<string>): Array<MiddlewareDefin
       const basename = f.split('/').pop()!;
       const match = basename.match(/^(\d+)\./);
       return {
-        order: match ? parseInt(match[1], 10) : Infinity,
+        order: match ? Number.parseInt(match[1], 10) : Infinity,
         filePath: f,
       };
     })

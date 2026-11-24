@@ -3786,7 +3786,7 @@ export async function resolveUnknownEmailOperation(
     }
     if (input.outcome === 'applied' && step.kind === 'ingress_deploy') {
       const match = /\/relay\/(\d+)$/.exec(step.resource_identity);
-      const relayVersion = match ? Number(match[1]) : NaN;
+      const relayVersion = match ? Number(match[1]) : Number.NaN;
       if (!Number.isSafeInteger(relayVersion) || relayVersion < 1) {
         throw new EmailOperationError('email relay recovery identity is invalid', 409);
       }

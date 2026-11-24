@@ -45,7 +45,7 @@ describe('queue concurrency', () => {
     ).toBeNull();
   });
 
-  it.each([0, -1, 251, 1.5, Infinity, NaN, '2', null])(
+  it.each([0, -1, 251, 1.5, Infinity, Number.NaN, '2', null])(
     'rejects invalid maxConcurrency = %s',
     (maxConcurrency) => {
       expect(

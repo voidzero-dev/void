@@ -85,7 +85,7 @@ function metaHighlightedRanges(meta: string): ReadonlyArray<LineRange> | null {
   }
   const ranges: Array<LineRange> = [];
   for (const part of match[1].split(',')) {
-    const [from, to] = part.split('-').map((value) => parseInt(value, 10));
+    const [from, to] = part.split('-').map((value) => Number.parseInt(value, 10));
     if (!Number.isNaN(from)) {
       ranges.push({ from, to: to === undefined || Number.isNaN(to) ? from : to });
     }
@@ -115,7 +115,10 @@ function takeNotations(
     const content = token.content.replaceAll(
       NOTATION_RE,
       (_match, name: string, count: string | undefined) => {
-        notations.push({ ...NOTATIONS[name], count: count ? Math.max(1, parseInt(count, 10)) : 1 });
+        notations.push({
+          ...NOTATIONS[name],
+          count: count ? Math.max(1, Number.parseInt(count, 10)) : 1,
+        });
         return '';
       },
     );

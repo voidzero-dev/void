@@ -38,7 +38,7 @@ export function getCurrentBillingPeriodStart(billingCycleStart: string | null | 
     ? billingCycleStart
     : billingCycleStart.replace(' ', 'T') + 'Z';
   const signup = new Date(normalized);
-  if (isNaN(signup.getTime())) {
+  if (Number.isNaN(signup.getTime())) {
     return new Date();
   }
   const anchorDay = signup.getUTCDate();

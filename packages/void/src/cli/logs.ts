@@ -96,7 +96,7 @@ function printEntry(entry: LogEntry, minimal: boolean): void {
   const url = minimal ? '' : sanitizeTerminalLogText(entry.url || '-');
   const status = sanitizeTerminalLogText(entry.status || '-');
 
-  const statusNum = parseInt(status, 10);
+  const statusNum = Number.parseInt(status, 10);
   const coloredStatus =
     entry.outcome === 'exception' || statusNum >= 500
       ? pc.red(status)
@@ -199,7 +199,7 @@ export function filterLogEntries(
         }
         // A 5xx response is an error even when the worker neither threw nor
         // logged (mirrors the server-side `blob6 LIKE '5%'` predicate).
-        if (parseInt(entry.status, 10) >= 500) {
+        if (Number.parseInt(entry.status, 10) >= 500) {
           return true;
         }
         for (const l of entry.logs) {

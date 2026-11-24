@@ -3084,7 +3084,7 @@ function parseDuration(input: string): number | null {
   if (!match) {
     return null;
   }
-  const value = parseInt(match[1], 10);
+  const value = Number.parseInt(match[1], 10);
   const unit = match[2];
   const multipliers: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
   const ms = value * multipliers[unit];
