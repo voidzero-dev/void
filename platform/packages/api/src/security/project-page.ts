@@ -12,6 +12,7 @@
  * touches the database, and only to read.
  */
 import { escapeBrowserHtml } from '@void/platform/browser-page';
+import { securityPickProblemNote } from '@void/platform/security-models';
 import { parseSecurityFindingLabel } from '@void/platform/security-policy';
 import { desc, eq } from 'drizzle-orm';
 import type { Db } from '../db.ts';
@@ -513,8 +514,13 @@ function bypassLine(data: SecurityPageData): string | null {
   return `${times}: ${day(latest.at)}, by ${roleLabel(latest.actorRole)} ("${latest.reason}")`;
 }
 
-function modelLine(data: SecurityPageData): string | null {
+/** The page's Model row: a blocked or unknown pick, a third-party model, or a pending default. */
+export function modelLine(data: SecurityPageData): string | null {
   const { model } = data.status;
+  if (model.pickProblem) {
+    // Spec §8.2: `Model @cf/… (your pick openai/gpt-6.1-sol is blocked by the platform admin)`.
+    return `${model.id ?? 'none'} (${securityPickProblemNote(model.requested, model.pickProblem)})`;
+  }
   if (model.thirdParty && model.id) {
     return `Scans run on ${model.id}, a third-party model: its provider's usage policy applies and it may refuse. See: void project security model`;
   }

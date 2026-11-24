@@ -10,6 +10,7 @@ import {
   isThirdPartySecurityModel,
   SECURITY_PROVIDER_NOTICE_VERSION,
   type SecurityModelId,
+  type SecurityPickProblem,
 } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { and, asc, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
@@ -29,7 +30,7 @@ import {
   type SecurityProjectCapSettings,
 } from './budget.ts';
 import { securityCoverageLabel } from './input/tier.ts';
-import { resolveSecurityScanModel } from './models.ts';
+import { resolveSecurityScanModel, securityPickProblem } from './models.ts';
 import { readSecurityPlanCap } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import {
@@ -236,7 +237,10 @@ export type SecurityProjectModelView = Readonly<{
   id: SecurityModelId | null;
   /** What the project asked for: its own pick, else the installation default. */
   requested: string;
+  /** `fallback` whenever the project's own pick does not run, even when the default does. */
   source: 'project' | 'default' | 'fallback' | null;
+  /** Why the project's own pick does not run; `null` when it runs or there is none. */
+  pickProblem: SecurityPickProblem | null;
   thirdParty: boolean;
   /** This project accepted the current provider notice. */
   noticeAccepted: boolean;
@@ -264,11 +268,14 @@ export function securityProjectModelView(
     source:
       used === null
         ? null
-        : settings.model !== null && used === settings.model
-          ? 'project'
+        : settings.model !== null
+          ? used === settings.model
+            ? 'project'
+            : 'fallback'
           : used === policy.defaultModel
             ? 'default'
             : 'fallback',
+    pickProblem: securityPickProblem(policy, settings, used),
     thirdParty: used !== null && isThirdPartySecurityModel(used),
     noticeAccepted,
     pendingDefault: pending,

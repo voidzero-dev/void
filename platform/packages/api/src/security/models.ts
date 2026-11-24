@@ -21,6 +21,7 @@ import {
   securityModelThirdPartyHost,
   type SecurityEngine,
   type SecurityModelId,
+  type SecurityPickProblem,
 } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { securityFallbackModel } from './policy.ts';
@@ -90,4 +91,39 @@ export function resolveSecurityScanModel(
     return null;
   }
   return { requested, used, engine: getSecurityModel(used).engine };
+}
+
+/**
+ * Why a scan does not run on the project's own pick (spec §8.2 page notice, edge #23):
+ * `blocked` by the platform admin, `unknown` (not in the model list, for example retired),
+ * `notice` (a third-party pick waits for this project to accept the current provider
+ * notice) or `unavailable` (no price yet, its host is not ready, or no platform notice).
+ * `null` when the project follows the default or its pick runs.
+ */
+export function securityPickProblem(
+  policy: SecurityPolicy,
+  project: SecurityProjectModelSettings,
+  used: SecurityModelId | null,
+): SecurityPickProblem | null {
+  const pick = project.model;
+  if (pick === null || pick === used) {
+    return null;
+  }
+  if (!isSecurityModelId(pick)) {
+    return 'unknown';
+  }
+  if (policy.blockedModels.includes(pick)) {
+    return 'blocked';
+  }
+  const host = securityModelThirdPartyHost(pick);
+  if (
+    isSecurityModelPriced(pick) &&
+    host !== null &&
+    policy.entitlement?.hosts[host] === true &&
+    policy.thirdPartyNotice?.version === SECURITY_PROVIDER_NOTICE_VERSION &&
+    project.noticeVersion !== SECURITY_PROVIDER_NOTICE_VERSION
+  ) {
+    return 'notice';
+  }
+  return 'unavailable';
 }

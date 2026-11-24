@@ -338,7 +338,20 @@ async function runRescan(
     body: args.body,
     timeoutMs: args.timeoutMs,
   });
-  io.outputMutation(result, args);
+  io.output(result, args.json);
+  if (args.json) {
+    return;
+  }
+  // The scan is only queued here: it waits its turn like any scan.
+  const scanId = typeof result.scanId === 'string' ? ` (${result.scanId})` : '';
+  // The path is `/projects/<id>/security/scans`.
+  const project =
+    typeof result.project === 'string'
+      ? result.project
+      : decodeURIComponent(args.path.split('/')[2] ?? '');
+  printSuccess(
+    `Rescan queued${scanId}. Check it: void platform security scans --project ${project}`,
+  );
 }
 
 async function runBackfill(

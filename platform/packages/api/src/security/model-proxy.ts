@@ -530,13 +530,17 @@ export function clampCallOutput(
 /**
  * `input` is every input token (the token caps count it). `cacheWrite5m` and
  * `cacheWrite1h` are the part of it written to the Anthropic prompt cache, which is
- * priced at 1.25× and 2× input. Cache reads stay at 1× input, above their real price.
+ * priced at 1.25× and 2× input. `cachedInput` is the part of it read from the prompt
+ * cache in the chat completions / Responses shape (`cached_tokens`), priced at the
+ * model's cached-input price. Anthropic cache reads stay at 1× input, above their real
+ * price.
  */
 export type ModelUsage = {
   input: number;
   output: number;
   cacheWrite5m: number;
   cacheWrite1h: number;
+  cachedInput: number;
 };
 
 /** Input tokens at the plain input price that cost what `usage` input costs. */
@@ -586,11 +590,16 @@ export function readModelUsage(value: unknown): ModelUsage | null {
       (count(usage.cache_creation_input_tokens) ?? 0) - cacheWrite1h,
     );
     const cacheRead = count(usage.cache_read_input_tokens) ?? 0;
+    // Chat completions and Workers AI: `prompt_tokens_details`; Responses:
+    // `input_tokens_details`. Both count cached tokens inside the input total.
+    const details = asObject(usage.prompt_tokens_details) ?? asObject(usage.input_tokens_details);
+    const total = (input ?? 0) + cacheWrite5m + cacheWrite1h + cacheRead;
     found = mergeUsage(found, {
-      input: (input ?? 0) + cacheWrite5m + cacheWrite1h + cacheRead,
+      input: total,
       output: output ?? 0,
       cacheWrite5m,
       cacheWrite1h,
+      cachedInput: Math.min(count(details?.cached_tokens) ?? 0, input ?? 0),
     });
   }
   return found;
@@ -606,6 +615,7 @@ function mergeUsage(a: ModelUsage | null, b: ModelUsage | null): ModelUsage | nu
     output: Math.max(a.output, b.output),
     cacheWrite5m: Math.max(a.cacheWrite5m, b.cacheWrite5m),
     cacheWrite1h: Math.max(a.cacheWrite1h, b.cacheWrite1h),
+    cachedInput: Math.max(a.cachedInput, b.cachedInput),
   };
 }
 
@@ -1185,7 +1195,12 @@ export async function handleSecurityModelRequest(
     const tokens =
       usage ?? (paid ? { input: worstInput, output: callOutput } : { input: 0, output: 0 });
     const actualNano = usage
-      ? (securityModelCostNanoUsd(model, billedInputTokens(usage), usage.output) ?? 0)
+      ? (securityModelCostNanoUsd(
+          model,
+          billedInputTokens(usage),
+          usage.output,
+          usage.cachedInput,
+        ) ?? 0)
       : paid
         ? hold.holdNano
         : 0;

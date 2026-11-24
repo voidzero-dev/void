@@ -98,7 +98,8 @@ const status: ProjectSecurityStatus = {
     capSource: 'own',
     ceilingUsd: 100,
     spentUsd: 12.4,
-    month: '2026-11',
+    // The API sends the first day of the month.
+    month: '2026-11-01',
     resetsAt: '2026-12-01T00:00:00.000Z',
   },
   lastScan: scan,
@@ -161,6 +162,48 @@ describe('project security command', () => {
     expect(text).toContain('$12.40 of $100.00 this month (project cap) · resets Dec 1');
     expect(text).toContain('succeeded · dpl_8f2c · 9 min');
     expect(text).toContain('2 urgent · 1 other · 3 leads');
+  });
+
+  it('names a blocked pick on the model line instead of "platform default" (edge #23)', async () => {
+    const root = linked();
+    route({
+      'GET /projects/project_1/security': () =>
+        Response.json({
+          ...status,
+          model: {
+            ...status.model,
+            id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+            requested: '@cf/zai-org/glm-5.3',
+            source: 'fallback',
+            pickProblem: 'blocked',
+          },
+        }),
+    });
+    const out = capture();
+    await run(root, ['security', 'status']);
+    const text = out.join('\n');
+    expect(text).toContain(
+      '@cf/deepseek-ai/deepseek-v4.1-flash-1017 (your pick @cf/zai-org/glm-5.3 is blocked by the platform admin)',
+    );
+    expect(text).not.toContain('platform default');
+  });
+
+  it('promises no first scan on a project the policy does not apply to', async () => {
+    const root = linked();
+    route({
+      'GET /projects/project_1/security': () =>
+        Response.json({
+          ...status,
+          policy: { ...status.policy, applies: false, reason: 'preview projects are not scanned' },
+          lastScan: null,
+          lastSuccessfulScan: null,
+        }),
+    });
+    const out = capture();
+    await run(root, ['security', 'status']);
+    const text = out.join('\n');
+    expect(text).toContain('does not apply: preview projects are not scanned');
+    expect(text).not.toContain('The first scan runs after your next deploy');
   });
 
   it('prints a held public request on the status', async () => {
@@ -810,7 +853,8 @@ describe('project security command paths', () => {
     });
     const out = capture();
     await run(root, ['security', 'model']);
-    expect(out.join('\n')).toContain('provider notice not accepted');
+    // The provider notice is only about third-party models.
+    expect(out.join('\n')).not.toContain('provider notice');
     out.length = 0;
     await run(root, ['security', 'model', '@cf/y']);
     expect(out.join('\n')).toContain('scans now use @cf/y');
@@ -830,6 +874,7 @@ describe('project security command paths', () => {
     });
     const out = capture();
     await run(root, ['security', 'budget']);
+    expect(out.join('\n')).toContain('acme-web · scan budget (November, UTC; resets Dec 1)');
     expect(out.join('\n')).toContain('$100.00 / month (set for this project)');
     out.length = 0;
     await run(root, ['security', 'budget', '--usd', '40']);

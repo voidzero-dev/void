@@ -1,4 +1,5 @@
 import { stripVTControlCharacters } from 'node:util';
+import { securityPickProblemNote } from '@void/platform/security-models';
 import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { isCI } from 'ci-info';
 import { getToken, openBrowser } from './auth.ts';
@@ -237,6 +238,20 @@ export function budgetSkipCopy(
 const row = (label: string, text: string) => `  ${label.padEnd(10)} ${text}`;
 const cont = (text: string) => `  ${' '.repeat(10)} ${text}`;
 
+/** Where the model in use comes from; names the pick and why it does not run (spec §8.2). */
+function modelSource(model: ProjectSecurityStatus['model']): string {
+  if (model.pickProblem) {
+    return cleanLine(securityPickProblemNote(model.requested, model.pickProblem));
+  }
+  return model.source === 'project'
+    ? "your project's pick"
+    : model.source === 'default'
+      ? 'platform default'
+      : model.source === 'fallback'
+        ? 'fallback: the model you asked for cannot run now'
+        : 'no model can run now';
+}
+
 /** Spec §11.4 status copy for the last scan; `null` when the scan needs no explanation. */
 export function scanStatusCopy(status: ProjectSecurityStatus, projectId?: string): string | null {
   const { lastScan, lastSuccessfulScan, budget } = status;
@@ -445,15 +460,7 @@ export function formatStatus(
   } else {
     lines.push(row('Policy', `does not apply: ${reason}`));
   }
-  const source =
-    model.source === 'project'
-      ? "your project's pick"
-      : model.source === 'default'
-        ? 'platform default'
-        : model.source === 'fallback'
-          ? 'fallback: the model you asked for cannot run now'
-          : 'no model can run now';
-  lines.push(row('Model', `${cleanLine(model.id ?? 'none')} (${source})`));
+  lines.push(row('Model', `${cleanLine(model.id ?? 'none')} (${modelSource(model)})`));
   if (model.thirdParty && model.id) {
     lines.push(
       cont(
@@ -480,10 +487,13 @@ export function formatStatus(
     );
   }
   if (!lastScan) {
+    // The "first scan runs after your next deploy" promise holds only when the policy applies.
     lines.push(
       row(
         'Last scan',
-        'none yet. The first scan runs after your next deploy and reviews the whole app.',
+        policy.applies && policy.mode !== 'disabled'
+          ? 'none yet. The first scan runs after your next deploy and reviews the whole app.'
+          : 'none',
       ),
     );
   } else {
@@ -994,14 +1004,17 @@ export async function runProjectSecurityCommand(
       const { model } = await client.getProjectSecurity(projectId);
       const lines = [
         `${slug} · security model`,
-        row('Model', `${cleanLine(model.id ?? 'none')}${model.source ? ` (${model.source})` : ''}`),
+        row('Model', `${cleanLine(model.id ?? 'none')} (${modelSource(model)})`),
         row('Asked for', cleanLine(model.requested)),
-        row(
-          'Notice',
-          model.noticeAccepted ? 'provider notice accepted' : 'provider notice not accepted',
-        ),
+        // The provider notice is only about third-party models.
+        model.thirdParty || model.pendingDefault || model.pickProblem === 'notice'
+          ? row(
+              'Notice',
+              model.noticeAccepted ? 'provider notice accepted' : 'provider notice not accepted',
+            )
+          : null,
         'Change: void project security model <id>   or   void project security model --default',
-      ];
+      ].filter((line) => line !== null);
       print(args, { model }, lines);
       return;
     }
@@ -1045,7 +1058,9 @@ export async function runProjectSecurityCommand(
     );
     if (result.model?.source === 'fallback') {
       lines.push(
-        '  The next scan still falls back to a Cloudflare model until the provider notice is accepted on the platform.',
+        result.model.pickProblem
+          ? `  The next scan runs on ${cleanLine(result.model.id ?? 'no model')}: ${cleanLine(securityPickProblemNote(result.model.requested, result.model.pickProblem))}.`
+          : '  The next scan still falls back to a Cloudflare model until the provider notice is accepted on the platform.',
       );
     }
     print(args, result, lines);
@@ -1061,10 +1076,13 @@ export async function runProjectSecurityCommand(
         ]);
         return;
       }
-      const month = new Date(`${budget.month}-01T00:00:00Z`).toLocaleDateString('en-US', {
-        month: 'long',
-        timeZone: 'UTC',
-      });
+      const month = new Date(`${budget.month.slice(0, 7)}-01T00:00:00Z`).toLocaleDateString(
+        'en-US',
+        {
+          month: 'long',
+          timeZone: 'UTC',
+        },
+      );
       const cap =
         budget.capUsd === null
           ? 'no cap'

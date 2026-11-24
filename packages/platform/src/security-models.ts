@@ -37,6 +37,11 @@ export type SecurityModelPrice = Readonly<{
   inputUsdPerMillion: number;
   /** USD per million output tokens. */
   outputUsdPerMillion: number;
+  /**
+   * USD per million input tokens read from the prompt cache, when the model lists a
+   * cached-input price. Without it, cached input costs the plain input price.
+   */
+  cachedInputUsdPerMillion?: number;
 }>;
 
 export type SecurityModel = Readonly<{
@@ -58,7 +63,8 @@ export const SECURITY_MODELS: ReadonlyArray<SecurityModel> = [
     engine: 'void_loop',
     zeroDataRetention: true,
     refusalRisk: 'low',
-    price: { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2 },
+    // Workers AI catalog (ai/models/search), 2026-11-18.
+    price: { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, cachedInputUsdPerMillion: 0.006 },
   },
   {
     id: '@cf/zai-org/glm-5.3',
@@ -66,7 +72,8 @@ export const SECURITY_MODELS: ReadonlyArray<SecurityModel> = [
     engine: 'void_loop',
     zeroDataRetention: true,
     refusalRisk: 'low',
-    price: { inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4 },
+    // Workers AI catalog (ai/models/search), 2026-11-18.
+    price: { inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4, cachedInputUsdPerMillion: 0.26 },
   },
   {
     id: 'openai/gpt-6.1-terra',
@@ -184,21 +191,27 @@ function assertTokenCount(value: number, label: string): void {
 
 /**
  * Cost of `inputTokens` and `outputTokens` at the model's list price, in whole
- * nano-dollars. `null` when the model has no price.
+ * nano-dollars. `cachedInputTokens` is the part of `inputTokens` read from the
+ * prompt cache, priced at the model's cached-input price when it has one. `null` when
+ * the model has no price.
  */
 export function securityModelCostNanoUsd(
   id: SecurityModelId,
   inputTokens: number,
   outputTokens: number,
+  cachedInputTokens = 0,
 ): number | null {
   assertTokenCount(inputTokens, 'inputTokens');
   assertTokenCount(outputTokens, 'outputTokens');
+  assertTokenCount(cachedInputTokens, 'cachedInputTokens');
   const price = getSecurityModel(id).price;
   if (!price) {
     return null;
   }
+  const cached = Math.min(cachedInputTokens, inputTokens);
   return (
-    inputTokens * nanoUsdPerToken(price.inputUsdPerMillion) +
+    (inputTokens - cached) * nanoUsdPerToken(price.inputUsdPerMillion) +
+    cached * nanoUsdPerToken(price.cachedInputUsdPerMillion ?? price.inputUsdPerMillion) +
     outputTokens * nanoUsdPerToken(price.outputUsdPerMillion)
   );
 }
@@ -252,4 +265,24 @@ export function securityProviderNoticeShort(id: SecurityModelId): string | null 
     return null;
   }
   return `Model ${id} is run by ${SECURITY_PROVIDER_NAMES[host]}. Its usage policy applies and it may refuse.`;
+}
+
+/** Why a scan does not run on the project's own pick (the platform API sends it as `pickProblem`). */
+export type SecurityPickProblem = 'blocked' | 'unknown' | 'notice' | 'unavailable';
+
+/**
+ * The model line note when the project's pick does not run (spec §8.2), shared by the
+ * project page and the CLI: `your pick openai/gpt-6.1-sol is blocked by the platform admin`.
+ */
+export function securityPickProblemNote(pick: string, problem: SecurityPickProblem): string {
+  switch (problem) {
+    case 'blocked':
+      return `your pick ${pick} is blocked by the platform admin`;
+    case 'unknown':
+      return `your pick ${pick} is not offered on this platform any more`;
+    case 'notice':
+      return `your pick ${pick} waits for the provider notice: void project security model ${pick} --accept-provider-notice`;
+    case 'unavailable':
+      return `your pick ${pick} cannot run on this platform now`;
+  }
 }

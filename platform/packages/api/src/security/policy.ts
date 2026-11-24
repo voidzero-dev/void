@@ -940,12 +940,14 @@ const QUEUED_STATUSES = [
   'queued',
 ] as const satisfies ReadonlyArray<SecurityScanStatus>;
 
-/** Scans that count toward the 24-hour failure rate. */
+/**
+ * Scans that count toward the 24-hour failure rate. An `incomplete` scan hit a cap and
+ * kept its confirmed findings: it is counted apart, as on the Scans screen.
+ */
 const FAILED_STATUSES = [
   'failed',
   'refused',
   'timed_out',
-  'incomplete',
 ] as const satisfies ReadonlyArray<SecurityScanStatus>;
 
 type ProjectScope = 'all' | 'protected';
@@ -1498,7 +1500,7 @@ export async function securityStatus(db: DbOrTx, capability: boolean, now = Date
       .from(securityScans)
       .where(
         and(
-          inArray(securityScans.status, ['succeeded', ...FAILED_STATUSES]),
+          inArray(securityScans.status, ['succeeded', 'incomplete', ...FAILED_STATUSES]),
           gte(securityScans.finished_at, since),
         ),
       )
@@ -1543,9 +1545,12 @@ export async function securityStatus(db: DbOrTx, capability: boolean, now = Date
       platformCapOn: policy.budgets.platformCapOn,
       platformCapUsd: policy.budgets.platformMonthlyUsd,
     },
+    // `failed` and `refused` mean what the Scans screen's month totals mean.
     last24h: {
       finished: finishedCount,
-      failed: failedCount,
+      failed: total(finished, 'failed') + total(finished, 'timed_out'),
+      refused: total(finished, 'refused'),
+      incomplete: total(finished, 'incomplete'),
       failureRate: finishedCount === 0 ? 0 : failedCount / finishedCount,
     },
   };

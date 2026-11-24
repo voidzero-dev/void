@@ -15,6 +15,7 @@ import {
 } from '../../src/security/call-ledger.ts';
 import { securityProbeDue } from '../../src/security/maintenance.ts';
 import { resolveSecurityScanModel } from '../../src/security/models.ts';
+import { securityProjectModelView } from '../../src/security/project-view.ts';
 import type {
   SecurityClaimOutcome,
   SecurityScanCandidate,
@@ -593,6 +594,46 @@ describe('which model runs', () => {
         used: CF,
       });
     }
+  });
+
+  it('names a blocked or unknown pick even when the default runs in its place (edge #23)', () => {
+    // The fallback is the platform default itself: still a fallback, with the reason.
+    const blocked = securityProjectModelView(onPolicy({ blockedModels: [FLASH] }), {
+      model: FLASH,
+      noticeVersion: null,
+    });
+    expect(blocked).toMatchObject({
+      id: CF,
+      requested: FLASH,
+      source: 'fallback',
+      pickProblem: 'blocked',
+    });
+    expect(
+      securityProjectModelView(onPolicy(), { model: 'retired/model', noticeVersion: null }),
+    ).toMatchObject({ id: CF, source: 'fallback', pickProblem: 'unknown' });
+    expect(
+      securityProjectModelView(onPolicy(), {
+        model: 'anthropic/claude-sonnet-5.5',
+        noticeVersion: 1,
+      }),
+    ).toMatchObject({ id: CF, source: 'fallback', pickProblem: 'unavailable' });
+    expect(
+      securityProjectModelView(onPolicy({ thirdPartyNotice: notice }), {
+        model: OPUS,
+        noticeVersion: null,
+      }),
+    ).toMatchObject({ id: FLASH, source: 'fallback', pickProblem: 'notice' });
+    // A pick that runs, and the default, have no problem.
+    expect(
+      securityProjectModelView(onPolicy(), { model: FLASH, noticeVersion: null }),
+    ).toMatchObject({ id: FLASH, source: 'project', pickProblem: null });
+    expect(
+      securityProjectModelView(onPolicy(), { model: null, noticeVersion: null }),
+    ).toMatchObject({
+      id: CF,
+      source: 'default',
+      pickProblem: null,
+    });
   });
 
   it('keeps code on @cf until the project accepts the notice (edges #44, #84)', () => {

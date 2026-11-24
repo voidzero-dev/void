@@ -1,3 +1,4 @@
+import type { SecurityPickProblem } from '@void/platform/security-models';
 /** Replies of the project security routes (spec §13.5), as the CLI reads them. */
 
 /** `*_cap`: that cap is used up; `*_reserve`: one scan's worst case does not fit in what is left. */
@@ -68,6 +69,8 @@ export type ProjectSecurityStatus = {
     id: string | null;
     requested: string;
     source: 'project' | 'default' | 'fallback' | null;
+    /** Why the project's own pick does not run; older platforms do not send it. */
+    pickProblem?: SecurityPickProblem | null;
     thirdParty: boolean;
     noticeAccepted: boolean;
     pendingDefault: string | null;

@@ -2554,6 +2554,11 @@ describe('platform security commands', () => {
       'Live deployment dpl_9a1d was already scanned. Run a full scan with anthropic/claude-opus-5.5? This reviews the whole app. It can cost up to $12.00.',
     );
     expect(calls[1]).toMatchObject({ path: '/projects/p1/security/scans', body: {} });
+    // The scan is only queued, never "completed".
+    expect(out.terminal()).toContain(
+      '✓ Rescan queued (scan-1). Check it: void platform security scans --project p1',
+    );
+    expect(out.terminal()).not.toContain('completed');
   });
 
   it('asks before a backfill and says how many and the most it can cost', async () => {

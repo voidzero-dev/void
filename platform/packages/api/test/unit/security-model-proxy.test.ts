@@ -244,6 +244,24 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     expect(securityModelCostNanoUsd(CF, 1000, 200)).toBe(1000 * 1400 + 200 * 4400);
   });
 
+  it('meters cached prompt tokens at the Workers AI cached rate', async () => {
+    h.aiRun.mockResolvedValue({
+      response: 'ok',
+      usage: {
+        prompt_tokens: 1000,
+        completion_tokens: 200,
+        prompt_tokens_details: { cached_tokens: 800 },
+      },
+    });
+    await call(h, '/v1/chat/completions', chatBody());
+    // 200 at $1.40 / M, 800 cached at $0.26 / M, 200 out at $4.40 / M. Tokens stay whole.
+    expect(h.settles[0]).toMatchObject({
+      actualNano: 200 * 1400 + 800 * 260 + 200 * 4400,
+      inputTokens: 1000,
+      outputTokens: 200,
+    });
+  });
+
   it('hands the month totals and caps to the cap alert after a settle, and survives its failure', async () => {
     const notices: Array<unknown> = [];
     let fail = false;
@@ -978,7 +996,7 @@ describe('refusals before a call is sent', () => {
 
 describe('helpers', () => {
   it('reads usage in all three shapes, cache tokens as input', () => {
-    const plain = { cacheWrite5m: 0, cacheWrite1h: 0 };
+    const plain = { cacheWrite5m: 0, cacheWrite1h: 0, cachedInput: 0 };
     expect(readModelUsage({ usage: { prompt_tokens: 3, completion_tokens: 4 } })).toEqual({
       input: 3,
       output: 4,
@@ -996,16 +1014,51 @@ describe('helpers', () => {
           },
         },
       }),
-    ).toEqual({ input: 17, output: 1, cacheWrite5m: 5, cacheWrite1h: 0 });
+    ).toEqual({ input: 17, output: 1, cacheWrite5m: 5, cacheWrite1h: 0, cachedInput: 0 });
     expect(readModelUsage({ response: { usage: { input_tokens: 8, output_tokens: 9 } } })).toEqual({
       input: 8,
       output: 9,
       ...plain,
     });
-    expect(billedInputTokens({ input: 10, output: 0, cacheWrite5m: 5, cacheWrite1h: 3 })).toBe(
-      10 + 2 + 3,
-    );
+    expect(
+      billedInputTokens({ input: 10, output: 0, cacheWrite5m: 5, cacheWrite1h: 3, cachedInput: 0 }),
+    ).toBe(10 + 2 + 3);
     expect(readModelUsage({ usage: {} })).toBeNull();
+  });
+
+  it('keeps cached prompt tokens apart so they are priced at the cached rate', () => {
+    // Workers AI / chat completions count cached tokens inside prompt_tokens.
+    expect(
+      readModelUsage({
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 10,
+          prompt_tokens_details: { cached_tokens: 900 },
+        },
+      }),
+    ).toEqual({ input: 1000, output: 10, cacheWrite5m: 0, cacheWrite1h: 0, cachedInput: 900 });
+    // Responses: input_tokens_details.
+    expect(
+      readModelUsage({
+        response: {
+          usage: {
+            input_tokens: 50,
+            output_tokens: 5,
+            input_tokens_details: { cached_tokens: 40 },
+          },
+        },
+      }),
+    ).toEqual({ input: 50, output: 5, cacheWrite5m: 0, cacheWrite1h: 0, cachedInput: 40 });
+    // More cached than input never counts past the input.
+    expect(
+      readModelUsage({
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 1,
+          prompt_tokens_details: { cached_tokens: 9 },
+        },
+      })?.cachedInput,
+    ).toBe(5);
   });
 
   it('keeps the highest cumulative counts across an Anthropic stream', () => {
@@ -1014,7 +1067,13 @@ describe('helpers', () => {
     reader.push('{"input_tokens":120,"output_tokens":1}}}\r\n\r\n');
     reader.push('data: {"type":"message_delta","usage":{"output_tokens":450}}\n\ndata: [DONE]');
     reader.end();
-    expect(reader.usage).toEqual({ input: 120, output: 450, cacheWrite5m: 0, cacheWrite1h: 0 });
+    expect(reader.usage).toEqual({
+      input: 120,
+      output: 450,
+      cacheWrite5m: 0,
+      cacheWrite1h: 0,
+      cachedInput: 0,
+    });
   });
 
   it('clamps the output limit per route', () => {

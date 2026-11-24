@@ -745,6 +745,8 @@ describe('operator security status', () => {
         scan('g', 'timed_out', recent),
         scan('h', 'failed', old),
         scan('i', 'canceled', recent),
+        scan('j', 'refused', recent),
+        scan('k', 'incomplete', recent),
       ]);
     await env.db.insert(securityPlatformSpend).values({
       month: securitySpendMonth(Date.now()),
@@ -760,7 +762,8 @@ describe('operator security status', () => {
       probe: { ok: true, fresh: true },
       queue: { pendingInput: 1, queued: 1, running: 1 },
       month: { spentUsd: 41.2, reservedUsd: 1.1, platformCapOn: true, platformCapUsd: 500 },
-      last24h: { finished: 4, failed: 2, failureRate: 0.5 },
+      // An incomplete scan is finished but not failed, as in the Scans month totals.
+      last24h: { finished: 6, failed: 2, refused: 1, incomplete: 1, failureRate: 0.5 },
     });
     const off = await request('/status', undefined, env);
     expect(await off.json()).toMatchObject({ capability: false });

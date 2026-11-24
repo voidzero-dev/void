@@ -148,6 +148,23 @@ describe('security model prices', () => {
     expect(securityModelCostUsd('openai/gpt-6.1-sol', 0, 0)).toBe(0);
   });
 
+  it('prices cached input at the Workers AI cached rate, and the rest at list', () => {
+    // 1.2M in (1.1M cached) + 15.6k out on deepseek: about what the gateway charges.
+    expect(
+      securityModelCostNanoUsd(
+        '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+        1_200_000,
+        15_600,
+        1_100_000,
+      ),
+    ).toBe(100_000 * 300 + 1_100_000 * 6 + 15_600 * 1200);
+    expect(securityModelCostNanoUsd('@cf/zai-org/glm-5.3', 100, 0, 60)).toBe(40 * 1400 + 60 * 260);
+    // No cached price listed: cached input costs the plain input price.
+    expect(securityModelCostNanoUsd('openai/gpt-6.1-sol', 100, 0, 60)).toBe(100 * 2000);
+    // The reserve stays at list price.
+    expect(securityScanReserveUsd('@cf/deepseek-ai/deepseek-v4.1-flash-1017')).toBe(0.504);
+  });
+
   it('refuses token counts that are not whole and nonnegative', () => {
     for (const tokens of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => securityModelCostNanoUsd('@cf/zai-org/glm-5.3', tokens, 0)).toThrow(
