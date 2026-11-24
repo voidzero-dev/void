@@ -1012,7 +1012,7 @@ export async function requestSendRaw(
     void response.body?.cancel().catch(() => {});
     throw new Error('email sending API response too large');
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     throw new Error('email sending API response unreadable');
   }

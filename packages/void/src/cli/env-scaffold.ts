@@ -84,17 +84,18 @@ export function renderEnvTs(entries: Array<InferredEntry>): string {
   );
 
   const lines: Array<string> = [];
-  lines.push(`import { defineEnv, ${importList.join(', ')} } from 'void/env';`);
-  lines.push('');
-  lines.push(`// Scaffolded from .env. Inference is conservative — review each`);
-  lines.push(`// entry and tighten types as needed (e.g. oneOf([...]), url(), .optional(),`);
-  lines.push(`// .default(value), or a Standard Schema validator from valibot/zod/arktype).`);
-  lines.push(`export default defineEnv({`);
+  lines.push(
+    `import { defineEnv, ${importList.join(', ')} } from 'void/env';`,
+    '',
+    `// Scaffolded from .env. Inference is conservative — review each`,
+    `// entry and tighten types as needed (e.g. oneOf([...]), url(), .optional(),`,
+    `// .default(value), or a Standard Schema validator from valibot/zod/arktype).`,
+    `export default defineEnv({`,
+  );
   for (const entry of entries) {
     lines.push(`  ${entry.key}: ${entry.helper}(),`);
   }
-  lines.push(`});`);
-  lines.push('');
+  lines.push(`});`, '');
   return lines.join('\n');
 }
 

@@ -343,7 +343,7 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
       await fileChooser.setFiles({
         name: 'smoke-test.txt',
         mimeType: 'text/plain',
-        buffer: Buffer.from('hello world'),
+        buffer: (Buffer as BufferConstructor).from('hello world'),
       });
 
       await page.click('button:has-text("Upload")');
@@ -548,7 +548,13 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
         await page.click('button:has-text("Run in Sandbox")');
         const response = await completed;
         assert.equal(response.status(), 200, `Sandbox request succeeds (got ${response.status()})`);
-        const body = await response.json();
+        const body = (await response.json()) as {
+          ok: boolean;
+          exitCode: number;
+          output: { value: { marker: string; count: number } };
+          stdout: string;
+          stderr: string;
+        };
         assert.equal(body.ok, true, JSON.stringify(body));
         assert.equal(body.exitCode, 0);
         assert.equal(body.output.value.marker, uid);

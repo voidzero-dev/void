@@ -501,7 +501,7 @@ ai.post('/provider', async (context) => {
       const text = await response.text();
       let error: string;
       try {
-        const json = JSON.parse(text);
+        const json = JSON.parse(text) as { error?: { message?: string } };
         error = json.error?.message ?? text;
       } catch {
         error = text;

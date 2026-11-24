@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { cleanups, temporaryDirectory } from '../helpers/cloudflare-operation-process.ts';
 
 // Record what the CLI hands to each child process, without changing what runs.

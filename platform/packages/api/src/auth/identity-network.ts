@@ -28,7 +28,7 @@ export async function boundedIdentityResponse(response: Response): Promise<Respo
     await response.body?.cancel();
     throw new Error('The identity provider response is too large.');
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   const chunks: Array<Uint8Array> = [];
   let length = 0;
   if (reader) {

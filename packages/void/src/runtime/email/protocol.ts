@@ -66,7 +66,7 @@ export async function readBoundedJson(
     void response.body?.cancel().catch(() => {});
     throw new Error('email response refused before reading');
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     throw new Error('email response is empty');
   }

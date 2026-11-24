@@ -235,7 +235,7 @@ export function warnIfPackageJsonIsNotEsm(root: string): void {
   }
   let pkg: { type?: unknown };
   try {
-    pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { type?: unknown };
   } catch {
     return;
   }

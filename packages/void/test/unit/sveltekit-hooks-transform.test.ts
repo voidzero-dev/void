@@ -58,6 +58,7 @@ export async function get_hooks ( ) {
     }`;
     const result = injectSvelteKitHooks(source, 'internal.js', '/trigger.js')!;
     // Execute the production transform while supplying its module imports.
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
     const getHooks = new Function(
       'load',
       'originalHandle',
@@ -120,6 +121,7 @@ export async function get_hooks ( ) {
     }`;
       const result = injectSvelteKitBuildHooks(source, 'server.js', '/void/env.mjs')!;
       expect(() => parseSync('server.js', result.code)).not.toThrow();
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
       const getHooks = new Function(
         'load',
         'originalHandle',

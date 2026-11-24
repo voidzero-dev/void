@@ -103,7 +103,12 @@ describe('playground/websockets', () => {
   });
 
   it('builds WebSocket routes as SQLite-backed Durable Objects', () => {
-    const config = JSON.parse(readFileSync(join(fixture.root, 'dist/ssr/wrangler.json'), 'utf8'));
+    const config = JSON.parse(
+      readFileSync(join(fixture.root, 'dist/ssr/wrangler.json'), 'utf8'),
+    ) as {
+      migrations: Array<Record<string, unknown>>;
+      durable_objects: { bindings: Array<{ name: string; class_name: string }> };
+    };
     expect(config.durable_objects.bindings).toEqual(
       expect.arrayContaining([
         { name: 'WsChatRoomWs', class_name: 'WsChatRoomWs' },

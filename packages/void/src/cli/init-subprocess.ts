@@ -160,7 +160,7 @@ async function replayOutput(path: string): Promise<void> {
     return;
   }
   // Stop at the size on exit even if a background child is still writing.
-  const output = createReadStream(path, { encoding: 'utf8', end: size - 1 });
+  const output: AsyncIterable<string> = createReadStream(path, { encoding: 'utf8', end: size - 1 });
   let endsWithNewline = true;
   for await (const chunk of output) {
     endsWithNewline = chunk.endsWith('\n');

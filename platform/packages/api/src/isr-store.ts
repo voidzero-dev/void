@@ -31,14 +31,14 @@ export interface IsrStore {
  */
 export function createIsrStore(bucket: R2Bucket, legacy?: KVNamespace): IsrStore {
   return {
-    async getWithMetadata(key) {
+    async getWithMetadata<Metadata = IsrCacheMetadata>(key: string) {
       const object = await bucket.get(PREFIX + key);
       if (!object) {
         return { value: null, metadata: null };
       }
       return {
         value: await object.arrayBuffer(),
-        metadata: JSON.parse(object.customMetadata?.isr ?? 'null'),
+        metadata: JSON.parse(object.customMetadata?.isr ?? 'null') as Metadata | null,
       };
     },
     async put(key, value, { metadata }) {

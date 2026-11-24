@@ -13,6 +13,7 @@ import {
   startServer,
 } from '../../../../test/integration-helpers.ts';
 import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 declare global {
   interface Window {

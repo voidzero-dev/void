@@ -272,7 +272,7 @@ export async function prepareManagedDurableObjects(
   deploymentId: string,
   manifest: DeployManifest,
 ): Promise<DeployManifest['durableObjects']> {
-  const namespaces: Record<string, string> = Object.create(null);
+  const namespaces = Object.create(null) as Record<string, string>;
   for (const binding of manifest.durableObjects?.bindings ?? []) {
     const worker = await durableObjectWorkerName(projectId, binding.className);
     await db.transaction(async (tx) => {

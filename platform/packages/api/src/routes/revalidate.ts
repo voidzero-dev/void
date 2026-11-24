@@ -13,7 +13,7 @@ app.post('/:id/revalidate', async (context) => {
     return access;
   }
 
-  const body = await context.req.json<{ paths?: ReadonlyArray<string>; all?: boolean }>();
+  const body = await context.req.json<{ paths?: Array<string>; all?: boolean }>();
   return context.get('db').transaction(async (tx) => {
     // Membership and ownership changes use the same project lock. Holding it
     // through the R2/KV/edge purge gives revalidation one live authorization

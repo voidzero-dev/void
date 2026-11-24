@@ -87,7 +87,7 @@ async function call<T>(
     }
     throw new Error(`EMAIL_ADMISSION_${response.status}`);
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     throw new Error('EMAIL_ADMISSION_EMPTY_RESPONSE');
   }

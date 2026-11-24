@@ -18,6 +18,7 @@ import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, vi } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { operationFixture } from '../../../deploy-cloudflare/test/operation-fixture.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import type {
   DesiredResourceSet,
   ProvisionLogger,

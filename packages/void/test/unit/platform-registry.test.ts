@@ -7,6 +7,7 @@ import {
   setInstallationEndpoints,
 } from '@void/platform';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   acquirePlatformLifecycleLock,
   assertPlatformInstallationSlugAvailable,

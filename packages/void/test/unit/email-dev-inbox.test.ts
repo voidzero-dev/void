@@ -1,11 +1,12 @@
+import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 /**
  * In `void dev`, `sendEmail` runs in workerd while the inbox lives in the Vite
  * (Node) process, so these tests drive the wire boundary: the capture POST reaches
  * the real dev-inbox middleware through a fake `ASSETS` fetcher.
  */
-import { EventEmitter } from 'node:events';
-import { Readable } from 'node:stream';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { shouldInjectEmailDevInboxVar } from '../../src/plugin-binding-utils.ts';
 import { emailDevInboxPlugin } from '../../src/plugin-email-dev-inbox.ts';
 import {

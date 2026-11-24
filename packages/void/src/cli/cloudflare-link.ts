@@ -36,34 +36,35 @@ export function readCloudflareLink(root: string): CloudflareLink | null {
     return null;
   }
   try {
-    const value = JSON.parse(readFileSync(path, 'utf8'));
-    const receipt = value.candidateReceipt;
-    const validReceipt =
-      receipt === undefined ||
-      (typeof receipt === 'object' &&
-        receipt !== null &&
-        typeof receipt.parentVersionId === 'string' &&
-        receipt.parentVersionId.length > 0 &&
-        isVersionIdChain(receipt.versionIds));
+    const value = JSON.parse(readFileSync(path, 'utf8')) as {
+      accountId?: unknown;
+      workerName?: unknown;
+      candidateReceipt?: { parentVersionId?: unknown; versionIds?: unknown };
+    };
     if (
       typeof value.accountId === 'string' &&
       value.accountId &&
       typeof value.workerName === 'string' &&
-      value.workerName &&
-      validReceipt
+      value.workerName
     ) {
-      return {
-        accountId: value.accountId,
-        workerName: value.workerName,
-        ...(receipt === undefined
-          ? {}
-          : {
-              candidateReceipt: {
-                parentVersionId: receipt.parentVersionId,
-                versionIds: [...receipt.versionIds],
-              },
-            }),
-      };
+      const link: CloudflareLink = { accountId: value.accountId, workerName: value.workerName };
+      const receipt = value.candidateReceipt;
+      if (receipt === undefined) {
+        return link;
+      }
+      if (
+        typeof receipt === 'object' &&
+        receipt !== null &&
+        typeof receipt.parentVersionId === 'string' &&
+        receipt.parentVersionId.length > 0 &&
+        isVersionIdChain(receipt.versionIds)
+      ) {
+        link.candidateReceipt = {
+          parentVersionId: receipt.parentVersionId,
+          versionIds: [...receipt.versionIds],
+        };
+        return link;
+      }
     }
   } catch {
     /* Invalid state must never turn into an ordinary provisioning deploy. */
@@ -137,7 +138,7 @@ export async function prepareExistingCloudflareDeploy(options: {
     return null;
   }
   const text = readFileSync(options.configPath, 'utf8');
-  const config = parse(text);
+  const config = parse(text) as Record<string, unknown> | null | undefined;
   if (
     typeof config?.name !== 'string' ||
     !config.name ||
@@ -230,7 +231,7 @@ export async function maybeLinkCloudflareDeploy(
   const configPath = files.length ? join(root, name) : materializeCloudflareConfig(root);
   const config = parse(readFileSync(configPath, 'utf8').replace(/^\uFEFF/, ''), errors, {
     allowTrailingComma: true,
-  });
+  }) as Record<string, unknown> | null | undefined;
   if (!files.length && (!config || typeof config.name !== 'string' || !config.name.trim())) {
     return null;
   }

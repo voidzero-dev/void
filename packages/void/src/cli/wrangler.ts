@@ -27,6 +27,7 @@ import type { VoidConfig } from '../config.ts';
 import type { DurableObjectModule } from '../durable/scan.ts';
 import type { InferredBindings } from '../inference/walk.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
+import { Buffer } from './node-buffer.ts';
 
 const COMPAT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** UTF-8 byte-order mark. Node's utf-8 read preserves a leading one. */
@@ -433,7 +434,7 @@ function readWranglerCompatFields(
   if (buildOutputDir) {
     try {
       const buildRaw = readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf8');
-      const buildParsed = JSON.parse(buildRaw);
+      const buildParsed = JSON.parse(buildRaw) as Record<string, unknown>;
       if (typeof buildParsed.compatibility_date === 'string') {
         validateCompatDate(buildParsed.compatibility_date, 'build output wrangler.json');
         buildDate = buildParsed.compatibility_date;
@@ -521,7 +522,7 @@ function ensureVoidCompatibilityDate(root: string, rootWrangler: boolean): strin
 
   let nextConfig: VoidConfig;
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>;
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       throw new Error(`config: ${VOID_CONFIG_FILE} must be a JSON object.`);
     }
@@ -1214,7 +1215,7 @@ export function writeProvisionedWranglerConfig(
     const rawList = currentConfig[field];
     // The owner collector below excludes this field, so validate its shape here.
     bindingNamesForField(field, rawList);
-    const currentList = Array.isArray(rawList) ? [...rawList] : [];
+    const currentList = Array.isArray(rawList) ? [...(rawList as Array<unknown>)] : [];
     const matches: Array<{ index: number; entry: Record<string, unknown> }> = [];
     for (let i = 0; i < currentList.length; i++) {
       const entry = currentList[i];
@@ -1751,7 +1752,7 @@ function parseCustomDomains(value: unknown, configPath: string): Array<WranglerC
   }
   const domains: Array<WranglerCustomDomain> = [];
   for (let index = 0; index < value.length; index++) {
-    const route = value[index];
+    const route: unknown = value[index];
     if (typeof route === 'string') {
       continue;
     }
@@ -2037,7 +2038,7 @@ export function assertNoDuplicateMembers(text: string, configPath: string): void
       const seen = new Set<string>();
       for (const property of node.children) {
         const keyNode = property.children?.[0];
-        const key = keyNode?.value;
+        const key: unknown = keyNode?.value;
         if (typeof key !== 'string') {
           continue;
         }

@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   analogDevTriggerInjectPlugin,
   astroDevTriggerInjectPlugin,
@@ -37,8 +38,7 @@ function callConfigResolved(plugin: ReturnType<typeof frameworkTriggersPlugin>) 
   if (typeof fn !== 'function') {
     throw new Error('configResolved not callable');
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (fn as any)({} as never);
+  (fn as (config: object) => void)({});
 }
 
 type DevTrigger = (
@@ -83,8 +83,7 @@ function callConfigureServer(
   if (typeof fn !== 'function') {
     throw new Error('configureServer not callable');
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (fn as any)({
+  (fn as (server: object) => void)({
     httpServer: { once() {} },
     middlewares: { use() {} },
     ...serverOverrides,

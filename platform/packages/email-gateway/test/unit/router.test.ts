@@ -1,6 +1,7 @@
 /** Inbound router validation and action execution with gateway-resolved routes. */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 // This suite exercises router validation against a fake tenant. The gateway
 // wire framing has its own tests; preserve direct access to malformed action
 // fixtures that the production decoder now rejects before the router.
@@ -306,9 +307,9 @@ function apiBodies(
 // Console spies + frozen clock. Every test runs under these.
 // -----------------------------------------------------------------------
 
-let errorSpy: ReturnType<typeof vi.spyOn>;
-let warnSpy: ReturnType<typeof vi.spyOn>;
-let logSpy: ReturnType<typeof vi.spyOn>;
+let errorSpy: MockInstance;
+let warnSpy: MockInstance;
+let logSpy: MockInstance;
 
 beforeEach(() => {
   // Only `Date` is faked — setTimeout/queueMicrotask stay real so stream
@@ -690,11 +691,11 @@ describe('routeInbound — inbound header count cap', () => {
     });
     const { ctx } = createCtx();
     (globalThis as { gc?: () => void }).gc?.();
-    const before = process.memoryUsage().heapUsed;
+    const before = (process as NodeJS.Process).memoryUsage().heapUsed;
     const t0 = performance.now();
     await routeInbound(message, env, ctx);
     const elapsed = performance.now() - t0;
-    const grew = (process.memoryUsage().heapUsed - before) / (1024 * 1024);
+    const grew = ((process as NodeJS.Process).memoryUsage().heapUsed - before) / (1024 * 1024);
     expect(rejectCalls).toHaveLength(1);
     expect(rejectCalls[0]).toContain('too many headers');
     expect(emailFn).not.toHaveBeenCalled();

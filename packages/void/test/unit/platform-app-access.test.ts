@@ -121,6 +121,7 @@ describe('guided installation app access', () => {
     prompts.select.mockResolvedValue('public');
     await selectInstallationAppAccess({ authentication: { providers: ['github'] } });
     expect(
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       prompts.select.mock.calls[1]?.[0].options.map((v: { value: string }) => v.value),
     ).toEqual(['public', 'custom']);
   });

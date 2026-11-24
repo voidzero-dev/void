@@ -5,6 +5,7 @@ import { createPlatformInstallationManifest } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
 import { resolvePlatformRuntime } from '@void/platform/installer';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { verifyPlatformDeploymentExecutionDrain } from '../../src/cli/platform-installer-health.ts';
 import {
   installPlatform,

@@ -165,7 +165,14 @@ export default defineDurableState({ initialState: { count: 0 }, methods: { incre
             },
           });
           expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
-          return JSON.parse(readFileSync(join(root, 'dist/ssr/wrangler.json'), 'utf8'));
+          return JSON.parse(readFileSync(join(root, 'dist/ssr/wrangler.json'), 'utf8')) as {
+            compatibility_flags?: Array<string>;
+            durable_objects: { bindings: Array<{ name: string }> };
+            migrations: Array<unknown>;
+            containers?: Array<unknown>;
+            hyperdrive?: Array<unknown>;
+            ai?: unknown;
+          };
         };
         const emitted = build();
         // Exercise worker/cloudflare overlap through the actual provider plugin,

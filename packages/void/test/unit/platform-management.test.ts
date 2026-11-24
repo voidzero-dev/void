@@ -22,6 +22,7 @@ import type {
 } from '@void/platform';
 import { note } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { printSuccess } from '../../src/cli/output.ts';
 import {
   disablePlatform,

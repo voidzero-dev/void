@@ -276,9 +276,12 @@ async function assertMigrated(id: string, projectId: string, entries: Array<Asse
     const object = await env.STATIC_ASSETS_R2.get(`assets/${projectId}/${entry.hash}`);
     // Compare every byte without Vitest walking millions of typed-array keys
     // in the historical 2 MiB boundary case on a shared CI runner.
-    expect(Buffer.compare(Buffer.from(await object!.arrayBuffer()), Buffer.from(entry.bytes))).toBe(
-      0,
-    );
+    expect(
+      (Buffer as BufferConstructor).compare(
+        (Buffer as BufferConstructor).from(await object!.arrayBuffer()),
+        (Buffer as BufferConstructor).from(entry.bytes),
+      ),
+    ).toBe(0);
   }
 }
 

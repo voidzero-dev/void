@@ -2729,10 +2729,14 @@ describe('isScaffoldableEmptyProject', () => {
       );
       const folderPrompt = mockText.mock.calls[0]![0];
       expect(folderPrompt).not.toHaveProperty('initialValue');
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(folderPrompt.validate('')).toBeUndefined();
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(folderPrompt.validate(' ')).toBe('Enter a folder name.');
       mkdirSync(join(root, 'my-void-app'));
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(folderPrompt.validate('')).toBe('That folder already exists.');
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       expect(folderPrompt.validate('another-app')).toBeUndefined();
       expect(mockSpawnSync).toHaveBeenCalledWith(
         'vp',

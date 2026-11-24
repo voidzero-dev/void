@@ -108,9 +108,10 @@ export class SandboxControl extends WorkerEntrypoint<
     ) {
       return { ok: false, reason: 'unavailable' };
     }
-    let manifest: { sandbox?: { runtime?: { protocol?: unknown } } };
+    type SandboxManifest = { sandbox?: { runtime?: { protocol?: unknown } } };
+    let manifest: SandboxManifest | null;
     try {
-      manifest = JSON.parse(deployment.manifest ?? 'null');
+      manifest = JSON.parse(deployment.manifest ?? 'null') as SandboxManifest | null;
     } catch {
       return { ok: false, reason: 'unavailable' };
     }
