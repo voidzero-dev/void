@@ -84,15 +84,16 @@ zeroTrustOperatorRoutes.post('/zero-trust/configure', async (context) => {
     operationError(error);
   }
   if (dryRun(body)) {
-    // A preview must fail wherever the real configure would reject the choice.
+    // A preview must fail wherever, and with the same code as, the real configure.
+    // The gate refusal comes first there (#64), so it does here too.
     try {
+      if (input.publicAccess) {
+        await assertPublicGateOff(context.get('db'), context.env);
+      }
       assertExistingProjectsChoice(
         await readZeroTrustConfigurationStrict(context.get('db')),
         input,
       );
-      if (input.publicAccess) {
-        await assertPublicGateOff(context.get('db'), context.env);
-      }
     } catch (error) {
       operationError(error);
     }

@@ -472,6 +472,27 @@ describe('Zero Trust surfaces with the public gate on', () => {
     });
   });
 
+  it('refuses a public-only configure preview with the gate code first (#64)', async () => {
+    await setupGate(env);
+    const response = await operator(
+      '/zero-trust/configure',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          apiToken: 'access-management-token',
+          identityProviderIds: [],
+          policyIds: [],
+          protectNewProjects: false,
+          publicAccess: true,
+          dryRun: true,
+        }),
+      },
+      gateBindings(env),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: 'security public gate on' });
+  });
+
   it('previews a plain change without the gate', async () => {
     const owner = await createTestUser(env.db, 'surface-preview-owner');
     const project = await createTestProject(env.db, owner.id, 'surface-preview');
