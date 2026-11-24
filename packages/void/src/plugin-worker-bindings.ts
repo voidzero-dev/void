@@ -285,11 +285,14 @@ export function mergeWorkerBindings(
       })),
       consumers: queues.map((q) => ({
         queue: cloudflareQueueName(q.name, cloudflareNames),
-        ...(q.maxBatchSize != null && { max_batch_size: q.maxBatchSize }),
-        ...(q.maxBatchTimeout != null && { max_batch_timeout: q.maxBatchTimeout }),
-        ...(q.maxConcurrency != null && { max_concurrency: q.maxConcurrency }),
-        ...(q.maxRetries != null && { max_retries: q.maxRetries }),
-        ...(q.retryDelay != null && { retry_delay: q.retryDelay }),
+        ...(q.maxBatchSize !== null &&
+          q.maxBatchSize !== undefined && { max_batch_size: q.maxBatchSize }),
+        ...(q.maxBatchTimeout !== null &&
+          q.maxBatchTimeout !== undefined && { max_batch_timeout: q.maxBatchTimeout }),
+        ...(q.maxConcurrency !== null &&
+          q.maxConcurrency !== undefined && { max_concurrency: q.maxConcurrency }),
+        ...(q.maxRetries !== null && q.maxRetries !== undefined && { max_retries: q.maxRetries }),
+        ...(q.retryDelay !== null && q.retryDelay !== undefined && { retry_delay: q.retryDelay }),
       })),
     };
   }

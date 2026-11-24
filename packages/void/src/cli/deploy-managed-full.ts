@@ -142,7 +142,7 @@ export async function runFullDeploy(
   }
 
   // Class A framework mode, detected by runDeploy.
-  const isFrameworkMode = detected != null;
+  const isFrameworkMode = detected !== null && detected !== undefined;
 
   // Managed static prerender is deliberately outside the Vite subprocess. The
   // build runs arbitrary project plugins with every platform credential
@@ -456,7 +456,10 @@ export async function runFullDeploy(
     const wrapperFeatures: WrapperFeatures = {
       crons: rawJobs,
       queues: rawQueues,
-      hasMigrations: validatedMigrations != null && validatedMigrations.length > 0,
+      hasMigrations:
+        validatedMigrations !== null &&
+        validatedMigrations !== undefined &&
+        validatedMigrations.length > 0,
       migrationDialect: dialect,
     };
     if (needsWrapper(wrapperFeatures)) {

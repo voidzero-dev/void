@@ -23,7 +23,7 @@ export function cfCronToUnix(expr: string): string {
     .map((part) => {
       // Handle range with optional step: "2-6/2" → "1-5/2"
       const [rangeOrValue, step] = part.split('/');
-      const stepSuffix = step != null ? `/${step}` : '';
+      const stepSuffix = step !== null && step !== undefined ? `/${step}` : '';
 
       if (rangeOrValue === '*') {
         return `*${stepSuffix}`;
@@ -327,7 +327,7 @@ export class CronScheduler extends DurableObject<ApiEnv['Bindings']> {
     }
 
     const next = getNextFireTime(state.schedules, Date.now());
-    if (next != null) {
+    if (next !== null && next !== undefined) {
       await this.ctx.storage.setAlarm(next);
     }
   }

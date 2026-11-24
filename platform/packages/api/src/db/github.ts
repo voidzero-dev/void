@@ -740,7 +740,7 @@ export async function getDbNowMs(db: Db): Promise<number> {
     rows: ReadonlyArray<{ now_ms: number | string }>;
   };
   const value = result.rows[0]?.now_ms;
-  return value == null ? 0 : Number(value);
+  return value === null || value === undefined ? 0 : Number(value);
 }
 
 /**
@@ -862,7 +862,7 @@ export async function getInstallationRevocationAt(
     )
     .limit(1);
   const value = rows[0]?.revokedAtMs;
-  return value == null ? null : Number(value);
+  return value === null || value === undefined ? null : Number(value);
 }
 
 /**

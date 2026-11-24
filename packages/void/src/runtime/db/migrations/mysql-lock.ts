@@ -106,7 +106,7 @@ export async function acquireMySqlMigrationLease(
       // Taken before this check, so a CLI run that starts later sees the lease and stops.
       const [lock] = rowsOf(await query('SELECT IS_USED_LOCK(?)', [lockName]));
       // Vitess names the column after the call and ignores any alias.
-      if (Object.values(lock ?? {})[0] == null) {
+      if ((Object.values(lock ?? {})[0] ?? null) === null) {
         return lease;
       }
       await lease.release();

@@ -8,7 +8,8 @@ export function disablePgPassFallback(client: unknown): void {
     connectionParameters?: { password?: unknown };
     password?: unknown;
   };
-  if (pgClient.password == null) {
+  const { password } = pgClient;
+  if (password === null || password === undefined) {
     const noPassword = async () => undefined;
     pgClient.password = noPassword;
     if (pgClient.connectionParameters) {

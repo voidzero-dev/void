@@ -1296,7 +1296,12 @@ export async function handleVerifiedGitHubWebhook(
       }
       const orgId = data.organization?.id;
       const removedGithubUserId = data.membership?.user?.id;
-      if (orgId == null || removedGithubUserId == null) {
+      if (
+        orgId === null ||
+        orgId === undefined ||
+        removedGithubUserId === null ||
+        removedGithubUserId === undefined
+      ) {
         return context.json({ ok: true, ignored: 'organization: missing ids' });
       }
 

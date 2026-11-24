@@ -60,7 +60,7 @@ export function BuildLogs({ build }: { build: Build }) {
         clearInterval(timer);
         return;
       }
-      if (page.logsComplete == null) {
+      if (page.logsComplete === null || page.logsComplete === undefined) {
         clearInterval(timer);
         setError(
           'Final log completion is unavailable. Upgrade the platform runtime to follow the complete log tail.',

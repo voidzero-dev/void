@@ -78,7 +78,11 @@ it.each(
   const before = structuredClone(raw);
   const migrated = migrateBuiltWranglerConfig(raw, named ? 'staging' : 'production');
   expect(migrated.worker?.triggers).toEqual([
-    { type: 'queue', name: 'jobs', ...(maxConcurrency == null ? {} : { maxConcurrency }) },
+    {
+      type: 'queue',
+      name: 'jobs',
+      ...(maxConcurrency === null || maxConcurrency === undefined ? {} : { maxConcurrency }),
+    },
   ]);
   expect(raw).toEqual(before);
 });

@@ -549,7 +549,7 @@ export function buildVoidManifest(opts: {
 
   manifest.type = framework ? 'framework' : 'void';
 
-  if (revalidate != null && revalidate !== 0) {
+  if (revalidate !== null && revalidate !== undefined && revalidate !== 0) {
     manifest.revalidate = revalidate;
   }
   if (
@@ -789,7 +789,7 @@ export function buildFrameworkManifest(opts: {
   if (opts.queues && opts.queues.length > 0) {
     manifest.queues = opts.queues;
   }
-  if (opts.revalidate != null && opts.revalidate !== 0) {
+  if (opts.revalidate !== null && opts.revalidate !== undefined && opts.revalidate !== 0) {
     manifest.revalidate = opts.revalidate;
   }
   if (opts.revalidateQueryAllowlist && Object.keys(opts.revalidateQueryAllowlist).length > 0) {

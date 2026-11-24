@@ -46,7 +46,8 @@ async function verifyHealthException(
           (value: { type?: unknown; uri?: unknown }) =>
             !value || value.type !== 'public' || value.uri !== destination,
         ))) ||
-    (app.target_criteria != null &&
+    (app.target_criteria !== null &&
+      app.target_criteria !== undefined &&
       (!Array.isArray(app.target_criteria) || app.target_criteria.length > 0))
   ) {
     throw new Error(`platform: The Access health exception must cover only ${destination}.`);

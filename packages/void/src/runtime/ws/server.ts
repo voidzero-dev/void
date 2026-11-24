@@ -91,7 +91,7 @@ function matchRoute(
       return { matched: true, params };
     }
 
-    if (pathSegment == null) {
+    if (pathSegment === null || pathSegment === undefined) {
       return { matched: false, params: {} };
     }
 

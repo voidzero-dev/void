@@ -430,7 +430,6 @@ const config = defineConfig({
     rules: {
       // Temporarily disabled during the shared preset migration.
       '@nkzw/no-instanceof': 'off',
-      eqeqeq: 'off',
       'import/no-namespace': 'off',
       'no-console': 'off',
       'no-promise-executor-return': 'off',

@@ -93,7 +93,10 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
 
   const schema = discoverSchema(root, paths);
   // Matches the Vite plugin, which serves its own `void/db` for `database.casing`.
-  const hasDbRuntime = schema != null || authEnabled || getDatabaseCasing(config) !== undefined;
+  const hasDbRuntime =
+    (schema !== null && schema !== undefined) ||
+    authEnabled ||
+    getDatabaseCasing(config) !== undefined;
   if (hasDbRuntime) {
     if (generateDbDts(outDir, schema, dialect)) {
       written.push(join('.void', 'db.d.ts'));
@@ -103,7 +106,15 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
   }
 
   // Vite follows the project's tsconfig extends chain when loading auth.ts.
-  if (ensureProjectTsconfig(root, hasRouteTypes, hasDbRuntime, schema != null, { paths })) {
+  if (
+    ensureProjectTsconfig(
+      root,
+      hasRouteTypes,
+      hasDbRuntime,
+      schema !== null && schema !== undefined,
+      { paths },
+    )
+  ) {
     written.push(join('.void', 'tsconfig.json'));
   }
 

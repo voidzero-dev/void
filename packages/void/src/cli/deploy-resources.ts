@@ -231,7 +231,7 @@ export async function computeDesiredCloudflareResources(
       (entry) => entry.binding === binding,
     )?.database_name;
     const name =
-      storedName != null && isRealD1Id(storedId)
+      storedName !== null && storedName !== undefined && isRealD1Id(storedId)
         ? storedName
         : authoredName?.trim() ||
           (basename(configPath) !== MATERIALIZED_CLOUDFLARE_FILE && storedName !== 'default'

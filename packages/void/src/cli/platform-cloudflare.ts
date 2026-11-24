@@ -1884,9 +1884,13 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
     user: typeof record.user === 'string' && record.user ? record.user : null,
   };
   let parsedOrigin: CloudflareHyperdriveOrigin;
-  if (record.service_id != null) {
+  if (record.service_id !== null && record.service_id !== undefined) {
     const serviceId = requiredString(record.service_id, 'Hyperdrive origin service ID');
-    if (record.host != null || record.port != null || record.access_client_id != null) {
+    if (
+      (record.host !== null && record.host !== undefined) ||
+      (record.port !== null && record.port !== undefined) ||
+      (record.access_client_id !== null && record.access_client_id !== undefined)
+    ) {
       throw new Error(
         'platform: Cloudflare Hyperdrive config mixes Workers VPC and host origin fields.',
       );
@@ -1898,7 +1902,7 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
         ? record.access_client_id
         : undefined;
     const port =
-      accessClientId && record.port == null
+      accessClientId && (record.port === null || record.port === undefined)
         ? null
         : typeof record.port === 'number' || typeof record.port === 'string'
           ? Number(record.port)

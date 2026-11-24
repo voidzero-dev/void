@@ -650,13 +650,18 @@ export async function preflightCloudflareWorker(input: {
               })),
               consumers: frameworkQueues.map((queue) => ({
                 queue: cloudflareQueueName(queue.name, desired.queueNames),
-                ...(queue.maxBatchSize != null && { max_batch_size: queue.maxBatchSize }),
-                ...(queue.maxBatchTimeout != null && {
-                  max_batch_timeout: queue.maxBatchTimeout,
-                }),
-                ...(queue.maxRetries != null && { max_retries: queue.maxRetries }),
-                ...(queue.maxConcurrency != null && { max_concurrency: queue.maxConcurrency }),
-                ...(queue.retryDelay != null && { retry_delay: queue.retryDelay }),
+                ...(queue.maxBatchSize !== null &&
+                  queue.maxBatchSize !== undefined && { max_batch_size: queue.maxBatchSize }),
+                ...(queue.maxBatchTimeout !== null &&
+                  queue.maxBatchTimeout !== undefined && {
+                    max_batch_timeout: queue.maxBatchTimeout,
+                  }),
+                ...(queue.maxRetries !== null &&
+                  queue.maxRetries !== undefined && { max_retries: queue.maxRetries }),
+                ...(queue.maxConcurrency !== null &&
+                  queue.maxConcurrency !== undefined && { max_concurrency: queue.maxConcurrency }),
+                ...(queue.retryDelay !== null &&
+                  queue.retryDelay !== undefined && { retry_delay: queue.retryDelay }),
               })),
               reconcileVoidOwned: true,
             },

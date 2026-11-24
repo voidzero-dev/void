@@ -274,7 +274,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
     const seen = new Set();
     let current = error;
     let depth = 0;
-    while (current != null && depth < 8 && !seen.has(current)) {
+    while (current !== null && current !== undefined && depth < 8 && !seen.has(current)) {
       seen.add(current);
       const entry = describeThrownValue(current);
       chain.push({
@@ -284,7 +284,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
       current = current instanceof Error ? current.cause : undefined;
       depth += 1;
     }
-    if (current != null) {
+    if (current !== null && current !== undefined) {
       chain.push({
         label: 'Cause ' + depth,
         name: 'Truncated',

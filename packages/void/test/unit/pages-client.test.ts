@@ -2433,7 +2433,7 @@ describe('superseded navigation commits (#507)', () => {
     const documentStub = stubClientGlobals();
     Object.assign(documentStub, { title: 'Home' });
     const writeHistory = (_state: unknown, _title: string, url?: string | URL | null) => {
-      if (url != null) {
+      if (url !== null && url !== undefined) {
         const target = new URL(url, window.location.origin);
         Object.assign(window.location, {
           pathname: target.pathname,

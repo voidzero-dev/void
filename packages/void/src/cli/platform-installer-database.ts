@@ -910,7 +910,11 @@ async function readRequiredPlatformSafetyProtocols(
                          WHERE "singleton" = true) AS "protocol"`,
     );
     if (admission.rows[0]?.required === true) {
-      if (admission.rows[0].protocol != null && admission.rows[0].protocol > 3) {
+      if (
+        admission.rows[0].protocol !== null &&
+        admission.rows[0].protocol !== undefined &&
+        admission.rows[0].protocol > 3
+      ) {
         throw new Error('platform: The database requires a newer Sandbox controller protocol.');
       }
       return { sandboxDrain: admission.rows[0].protocol === 3 ? 3 : 2 };

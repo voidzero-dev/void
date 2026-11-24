@@ -200,7 +200,7 @@ export function defineLiveStream(options: LiveStreamOptions): LiveStream {
         ? connectOptions.owner
         : await options.identifyConnection?.(hookContext);
     const owner = identified ?? defaultOwner(resolvedUser);
-    if (owner == null && !options.allowAnonymousControl) {
+    if ((owner === null || owner === undefined) && !options.allowAnonymousControl) {
       throw liveResponseError('FORBIDDEN', 'live: anonymous control is not enabled.', 403);
     }
     assertOwner(owner);
@@ -435,11 +435,11 @@ function parseOperation(value: unknown, index: number): ParsedControlOperation {
   const record = value as Record<string, unknown>;
   if (record.kind === 'subscribe') {
     const id = parseBoundedString(record.id, 1, 256);
-    if (id == null) {
+    if (id === null || id === undefined) {
       return invalidOperation(index, 'subscribe', record.id, 'INVALID_SUBSCRIPTION_ID');
     }
     const topic = parseBoundedString(record.topic, 1, 512);
-    if (topic == null) {
+    if (topic === null || topic === undefined) {
       return invalidOperation(index, 'subscribe', id, 'INVALID_TOPIC');
     }
     let lastEventId: string | undefined;
@@ -462,7 +462,7 @@ function parseOperation(value: unknown, index: number): ParsedControlOperation {
   }
   if (record.kind === 'unsubscribe') {
     const id = parseBoundedString(record.id, 1, 256);
-    if (id == null) {
+    if (id === null || id === undefined) {
       return invalidOperation(index, 'unsubscribe', record.id, 'INVALID_SUBSCRIPTION_ID');
     }
     return { ok: true, index, operation: { kind: 'unsubscribe', id } };
@@ -564,7 +564,7 @@ function resolveLiveLimits(input: Partial<LiveLimits> | undefined): LiveLimits {
 
 function assertBoundedString(name: string, value: unknown, min: number, max: number): string {
   const parsed = parseBoundedString(value, min, max);
-  if (parsed == null) {
+  if (parsed === null || parsed === undefined) {
     throw liveResponseError('BAD_REQUEST', `live: invalid ${name}.`, 400);
   }
   return parsed;

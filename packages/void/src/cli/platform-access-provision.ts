@@ -74,7 +74,7 @@ export function platformAccessIdentityProvider(provider: ObjectValue): {
   return {
     id,
     name:
-      name == null || (typeof name === 'string' && !name.trim())
+      name === null || name === undefined || (typeof name === 'string' && !name.trim())
         ? id
         : text(name, 'identity provider name'),
   };

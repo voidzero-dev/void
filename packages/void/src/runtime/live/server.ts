@@ -406,7 +406,12 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
         return Response.json({ ok: true });
       }
       const key =
-        row.connectionId && row.subscriptionId && row.generation != null && row.revision != null
+        row.connectionId &&
+        row.subscriptionId &&
+        row.generation !== null &&
+        row.generation !== undefined &&
+        row.revision !== null &&
+        row.revision !== undefined
           ? subscriberKey(row as SubscriberRow)
           : undefined;
       if (key) {

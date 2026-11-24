@@ -128,7 +128,10 @@ export async function runFrameworkDeploy(
   const wrapperFeatures: WrapperFeatures = {
     crons: rawJobs,
     queues: rawQueues,
-    hasMigrations: validatedMigrations != null && validatedMigrations.length > 0,
+    hasMigrations:
+      validatedMigrations !== null &&
+      validatedMigrations !== undefined &&
+      validatedMigrations.length > 0,
     migrationDialect: dialect,
   };
 

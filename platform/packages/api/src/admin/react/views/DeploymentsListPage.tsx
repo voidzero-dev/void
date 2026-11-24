@@ -36,7 +36,7 @@ export function DeploymentsListPage({ path, platformName, username }: AdminPageP
           initialSelection={selectedDeployment}
         />
         <DeploymentTable deployments={deployments} showProject tz={tz} />
-        {page != null && totalPages != null && (
+        {page !== null && page !== undefined && totalPages !== null && totalPages !== undefined && (
           <Pagination page={page} totalPages={totalPages} baseUrl="/admin/deployments" />
         )}
       </SectionStack>

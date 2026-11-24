@@ -642,7 +642,7 @@ async function queryProjectAiUsage(
     throw error;
   }
 
-  if (failOnError && result?.errors != null) {
+  if (failOnError && result?.errors !== null && result?.errors !== undefined) {
     if (!Array.isArray(result.errors)) {
       throw new Error('AI usage query returned invalid GraphQL errors');
     }

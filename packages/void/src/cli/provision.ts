@@ -1374,17 +1374,20 @@ export function normalizeRunWranglerResult(result: {
 }): RunWranglerResult {
   const stdout = result.stdout ?? '';
   const notes: Array<string> = [];
-  if (result.signal != null) {
+  if (result.signal !== null && result.signal !== undefined) {
     notes.push(
       `provision: the Cloudflare operation process was terminated by signal ${result.signal}`,
     );
   }
-  if (result.error != null) {
+  if (result.error !== null && result.error !== undefined) {
     notes.push(
       `provision: the Cloudflare operation process could not be spawned: ${result.error.message}`,
     );
   }
-  const failed = typeof result.status !== 'number' || result.signal != null || result.error != null;
+  const failed =
+    typeof result.status !== 'number' ||
+    (result.signal !== null && result.signal !== undefined) ||
+    (result.error !== null && result.error !== undefined);
   // A failure must be non-zero. Keep a genuine non-zero exit code when present;
   // otherwise synthesize `1` (a null/absent status under a signal/spawn error).
   const status = failed
@@ -1400,13 +1403,16 @@ export function normalizeRunWranglerResult(result: {
     stderr,
     status,
     signal: result.signal ?? null,
-    error: result.error != null ? result.error.message : null,
+    error: result.error !== null && result.error !== undefined ? result.error.message : null,
   };
 }
 
 /** A signal-killed or unspawned child: its output is never read as success or absence. */
 function isHardFailure(result: RunWranglerResult): boolean {
-  return result.signal != null || result.error != null;
+  return (
+    (result.signal !== null && result.signal !== undefined) ||
+    (result.error !== null && result.error !== undefined)
+  );
 }
 
 /** The child ran to completion and reported SUCCESS (a clean numeric exit 0). */
@@ -3227,7 +3233,10 @@ async function provisionCloudflareResourcesLocked(
     ...result,
     stdout: redactSecrets(result.stdout),
     stderr: redactSecrets(result.stderr),
-    error: result.error != null ? redactSecrets(result.error) : result.error,
+    error:
+      result.error !== null && result.error !== undefined
+        ? redactSecrets(result.error)
+        : result.error,
   });
   // Every call gets the pinned account and API base.
   const runWrangler = (

@@ -548,7 +548,9 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         await page.waitForFunction(() =>
           document.querySelector('h1')?.textContent?.includes('Users'),
         );
-        await page.waitForFunction(() => window.__visitAwaitObserved != null);
+        await page.waitForFunction(
+          () => window.__visitAwaitObserved !== null && window.__visitAwaitObserved !== undefined,
+        );
 
         const observedHeading = await page.evaluate(() => window.__visitAwaitObserved);
         expect(observedHeading).toBe('Users');

@@ -374,7 +374,7 @@ export async function bootstrapPlatformSharedEmail(
       status.state === 'incomplete' &&
       observedOperationId &&
       (status.operationStatus === 'pending' || status.operationStatus === 'running') &&
-      status.failureCode == null
+      (status.failureCode === null || status.failureCode === undefined)
     ) {
       await waitForProgress();
       continue;
@@ -387,8 +387,10 @@ export async function bootstrapPlatformSharedEmail(
     status.state !== 'ready' ||
     operationId === null ||
     status.operationId !== operationId ||
-    (status.operationStatus != null && status.operationStatus !== 'completed') ||
-    status.failureCode != null
+    (status.operationStatus !== null &&
+      status.operationStatus !== undefined &&
+      status.operationStatus !== 'completed') ||
+    (status.failureCode !== null && status.failureCode !== undefined)
   ) {
     const code = (value: unknown) =>
       typeof value === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(value) ? value : null;

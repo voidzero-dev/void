@@ -119,7 +119,7 @@ function escapeHtml(s: string): string {
 
 function serializeAttrs(attrs: Record<string, string | undefined>): string {
   return Object.entries(attrs)
-    .filter(([, value]) => value != null)
+    .filter(([, value]) => value !== null && value !== undefined)
     .map(([key, value]) => `${key}="${escapeHtml(value!)}"`)
     .join(' ');
 }

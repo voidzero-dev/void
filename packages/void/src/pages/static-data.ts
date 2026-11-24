@@ -39,7 +39,7 @@ export function resolveStaticPageDataBuildOptions(
 
   const hasRedirectsFile = redirectDirs.some((dir) => {
     const parsed = parseRedirectsFile(dir);
-    return parsed != null && parsed.rules.length > 0;
+    return parsed !== null && parsed !== undefined && parsed.rules.length > 0;
   });
 
   return {

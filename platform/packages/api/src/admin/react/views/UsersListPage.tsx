@@ -105,7 +105,7 @@ export function UsersListPage({ path, platformName, username }: AdminPageProps) 
             <em>No users found.</em>
           </p>
         )}
-        {page != null && totalPages != null && (
+        {page !== null && page !== undefined && totalPages !== null && totalPages !== undefined && (
           <Pagination page={page} totalPages={totalPages} baseUrl="/admin/users" />
         )}
       </SectionStack>

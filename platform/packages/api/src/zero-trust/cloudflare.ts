@@ -497,7 +497,8 @@ export class ZeroTrustCloudflareClient {
             const value = object(entry, 'Access application destination');
             return value.type !== 'public' || value.uri !== destination;
           }))) ||
-      (application.target_criteria != null &&
+      (application.target_criteria !== null &&
+        application.target_criteria !== undefined &&
         (!Array.isArray(application.target_criteria) || application.target_criteria.length > 0))
     ) {
       throw new Error(

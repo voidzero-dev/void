@@ -69,7 +69,7 @@ const PRESIGN_BATCH_CONCURRENCY = 50;
  * platform boundary rather than inside `presignAssetPut`.
  */
 function validateUploadUrlsAsset(asset: unknown, index: number): string | null {
-  if (asset == null || typeof asset !== 'object' || Array.isArray(asset)) {
+  if (asset === null || asset === undefined || typeof asset !== 'object' || Array.isArray(asset)) {
     return `invalid assets[${index}]: must be an object`;
   }
   const assetObject = asset as Record<string, unknown>;
@@ -411,7 +411,12 @@ async function beginUploadUrlsRequest(context: Context<ApiEnv>): Promise<
       400,
     );
   }
-  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (
+    parsed === null ||
+    parsed === undefined ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed)
+  ) {
     return context.json({ error: 'request body must be a JSON object' }, 400);
   }
   const body = parsed as Record<string, unknown>;

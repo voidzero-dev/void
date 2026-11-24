@@ -128,9 +128,12 @@ function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): st
       const parameters = call.typeParameters ?? call.typeArguments;
       if (
         parameters?.type !== 'TSTypeParameterInstantiation' ||
-        parameters.start == null ||
-        parameters.end == null ||
-        call.end == null
+        parameters.start === null ||
+        parameters.start === undefined ||
+        parameters.end === null ||
+        parameters.end === undefined ||
+        call.end === null ||
+        call.end === undefined
       ) {
         continue;
       }

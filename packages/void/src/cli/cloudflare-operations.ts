@@ -783,7 +783,7 @@ async function run(
   );
   if (
     result.status !== 0 ||
-    result.signal != null ||
+    (result.signal !== null && result.signal !== undefined) ||
     (result.error !== undefined && result.error !== null && result.error !== '')
   ) {
     const detail = result.stderr.trim() || result.stdout.trim() || result.error || 'unknown error';

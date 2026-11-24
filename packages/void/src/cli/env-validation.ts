@@ -316,7 +316,7 @@ export type SelfHostSchemaFacts = {
 /** Imports the user's env.ts, so callers run it in the env-schema probe child. */
 export async function deriveSelfHostSchemaFacts(root: string): Promise<SelfHostSchemaFacts> {
   const envFile = findEnvFile(root);
-  if (envFile == null) {
+  if (envFile === null || envFile === undefined) {
     return { hasSchema: false, serverKeys: [], requiredKeys: [] };
   }
   const mod = await withSchemaBoundary('schema-load-failed', () => loadSchema(envFile));
@@ -424,7 +424,7 @@ export async function computeInvalidEmittedKeys(
   emittedVars: Record<string, unknown>,
 ): Promise<Array<string>> {
   const envFile = findEnvFile(root);
-  if (envFile == null) {
+  if (envFile === null || envFile === undefined) {
     return [];
   }
   const mod = await withSchemaBoundary('schema-load-failed', () => loadSchema(envFile));
@@ -623,10 +623,10 @@ async function fetchSelfHostSecretNames(
   } catch {
     throw secretListError('spawn-error');
   }
-  if (result.error != null && result.error !== '') {
+  if (result.error !== null && result.error !== undefined && result.error !== '') {
     throw secretListError('spawn-error');
   }
-  if (result.signal != null) {
+  if (result.signal !== null && result.signal !== undefined) {
     throw secretListError('signal', { signal: String(result.signal) });
   }
   if (typeof result.status !== 'number' || result.status !== 0) {

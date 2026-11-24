@@ -57,7 +57,7 @@ const defaultSpawn: EnvSchemaProbeSpawn = (command, args, options) => {
   const fd3 = result.output?.[RESULT_FD];
   return {
     status: result.status,
-    fd3: typeof fd3 === 'string' ? fd3 : fd3 == null ? null : String(fd3),
+    fd3: typeof fd3 === 'string' ? fd3 : fd3 === null || fd3 === undefined ? null : String(fd3),
     error: result.error ?? null,
     signal: result.signal ?? null,
   };

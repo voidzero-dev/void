@@ -2137,7 +2137,9 @@ const dispatcher = {
           cfMessage.ack();
         } else if (decision.action === 'retry') {
           cfMessage.retry(
-            decision.delaySeconds != null ? { delaySeconds: decision.delaySeconds } : undefined,
+            decision.delaySeconds !== null && decision.delaySeconds !== undefined
+              ? { delaySeconds: decision.delaySeconds }
+              : undefined,
           );
         }
       }

@@ -240,7 +240,7 @@ export async function assertMigrationsProduceAuthSchema(
         // whether SQLite accepts the parent key. A null `to` (`REFERENCES "user"`) means the
         // parent's single-column PRIMARY KEY.
         const satisfied = matching.some((fk) => {
-          if (fk.to != null) {
+          if (fk.to !== null && fk.to !== undefined) {
             return sameIdentifier(String(fk.to), reference.column);
           }
           const parentPrimaryKey = singleColumnPrimaryKey(fk.table);
@@ -255,7 +255,7 @@ export async function assertMigrationsProduceAuthSchema(
                   `child columns is NULL, so a row naming a "${reference.table}" that does not ` +
                   `exist is still accepted. This reference needs its own single-column foreign ` +
                   `key on "${required.column}"`
-              : matching.some((fk) => fk.to == null)
+              : matching.some((fk) => fk.to === null || fk.to === undefined)
                 ? `table "${req.table}" column "${required.column}" references "${reference.table}" ` +
                   `without naming a target column, but "${reference.table}"."${reference.column}" ` +
                   `is not that table's single-column PRIMARY KEY — SQLite resolves an omitted ` +

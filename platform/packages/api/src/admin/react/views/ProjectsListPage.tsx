@@ -36,7 +36,7 @@ export function ProjectsListPage({ path, platformName, username }: AdminPageProp
           initialSelection={selectedProject}
         />
         <ProjectsTable projects={projects} siteDomain={siteDomain} tz={tz} />
-        {page != null && totalPages != null && (
+        {page !== null && page !== undefined && totalPages !== null && totalPages !== undefined && (
           <Pagination page={page} totalPages={totalPages} baseUrl="/admin/projects" />
         )}
       </SectionStack>

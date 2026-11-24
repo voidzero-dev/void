@@ -97,7 +97,7 @@ export function connectLiveStream(
       return Promise.reject(new Error('live: stream is closed.'));
     }
     const shouldResubscribe = resubscribeOnNextOpen;
-    if (reconnectTimer != null) {
+    if (reconnectTimer !== null && reconnectTimer !== undefined) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
@@ -163,7 +163,7 @@ export function connectLiveStream(
   }
 
   function scheduleReconnect(current: EventSourceLike): void {
-    if (closed || reconnectTimer != null) {
+    if (closed || (reconnectTimer !== null && reconnectTimer !== undefined)) {
       return;
     }
     current.close();
@@ -178,7 +178,11 @@ export function connectLiveStream(
   }
 
   function scheduleReconnectTimer(): void {
-    if (closed || reconnectTimer != null || (!options.keepOpen && subscriptions.size === 0)) {
+    if (
+      closed ||
+      (reconnectTimer !== null && reconnectTimer !== undefined) ||
+      (!options.keepOpen && subscriptions.size === 0)
+    ) {
       return;
     }
     resubscribeOnNextOpen = true;
@@ -320,7 +324,7 @@ export function connectLiveStream(
 
   function closeIfIdle(): void {
     if (!options.keepOpen && subscriptions.size === 0) {
-      if (reconnectTimer != null) {
+      if (reconnectTimer !== null && reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
@@ -353,7 +357,7 @@ export function connectLiveStream(
         if (subscriptionVersions.get(subscription.id) === version) {
           if (previousSubscription) {
             subscriptions.set(subscription.id, previousSubscription);
-            if (previousVersion != null) {
+            if (previousVersion !== null && previousVersion !== undefined) {
               subscriptionVersions.set(subscription.id, previousVersion);
             } else {
               subscriptionVersions.delete(subscription.id);
@@ -394,7 +398,7 @@ export function connectLiveStream(
       closed = true;
       subscriptions.clear();
       subscriptionVersions.clear();
-      if (reconnectTimer != null) {
+      if (reconnectTimer !== null && reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }

@@ -1116,7 +1116,11 @@ function harness(overrides: Partial<CloudflareDeployDeps> = {}): {
           { capture: false },
         ),
       );
-      if (result.status !== 0 || result.signal != null || result.error) {
+      if (
+        result.status !== 0 ||
+        (result.signal !== null && result.signal !== undefined) ||
+        result.error
+      ) {
         return { ok: false, reason: 'upload-failed', status: result.status };
       }
       return {

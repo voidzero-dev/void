@@ -235,7 +235,12 @@ export function workerUploadModulesProblem(
   for (let index = 0; index < value.length; index++) {
     const entry: unknown = value[index];
     const at = `${label}[${index}]`;
-    if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) {
+    if (
+      entry === null ||
+      entry === undefined ||
+      typeof entry !== 'object' ||
+      Array.isArray(entry)
+    ) {
       return { status: 400, message: `${at} must be an object` };
     }
     const { name, size, sha256 } = entry as Record<string, unknown>;
@@ -272,7 +277,7 @@ export function workerUploadModulesProblem(
 
 /** Explain why a deploy body's `workerInput` cannot be accepted, or return null. */
 export function workerInputProblem(value: unknown): WorkerUploadProblem | null {
-  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+  if (value === null || value === undefined || typeof value !== 'object' || Array.isArray(value)) {
     return { status: 400, message: 'workerInput must be an object with id and modules' };
   }
   const { id, modules } = value as Record<string, unknown>;

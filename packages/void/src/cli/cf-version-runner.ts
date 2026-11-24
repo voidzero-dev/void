@@ -355,7 +355,10 @@ export function createCfCommand(options: {
         }
         const output = Buffer.concat(stdout).toString('utf8');
         const diagnostic = Buffer.concat(stderr).toString('utf8');
-        const completed = typeof status === 'number' && signal == null && error == null;
+        const completed =
+          typeof status === 'number' &&
+          (signal === null || signal === undefined) &&
+          (error === null || error === undefined);
         const code = completed
           ? (output + '\n' + diagnostic).match(/\[(?:code:\s*)?(\d{4,})\]/)?.[1]
           : undefined;

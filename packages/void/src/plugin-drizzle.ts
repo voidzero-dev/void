@@ -89,7 +89,7 @@ function createVoidDbModule(
   // It cannot apply `database.casing` either, which also names the columns of tables that an
   // app keeps outside its schema.
   const hasDbRuntime =
-    schema != null ||
+    (schema !== null && schema !== undefined) ||
     options.forceVirtualDb === true ||
     options.casing !== undefined ||
     dialect !== 'sqlite';
@@ -383,10 +383,16 @@ export function drizzlePlugin(
   const { schema, hasDbRuntime } = dbModule;
 
   // Always write tsconfig (for routes.d.ts, queues.d.ts, etc.)
-  ensureProjectTsconfig(root, hasRouteTypes, hasDbRuntime, schema != null, {
-    redirectDbModule: options.redirectDbTypePaths,
-    paths,
-  });
+  ensureProjectTsconfig(
+    root,
+    hasRouteTypes,
+    hasDbRuntime,
+    schema !== null && schema !== undefined,
+    {
+      redirectDbModule: options.redirectDbTypePaths,
+      paths,
+    },
+  );
 
   // Generate db.d.ts when void/db is available, even without a user schema.
   if (hasDbRuntime) {

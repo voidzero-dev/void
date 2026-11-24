@@ -7,7 +7,7 @@ import type { PageDefinition, PageScanResult } from './pages/types.ts';
  * non-empty path map is treated as "ISR on".
  */
 export function hasRevalidate(r: unknown): boolean {
-  if (r == null) {
+  if (r === null || r === undefined) {
     return false;
   }
   if (typeof r === 'number') {
@@ -34,13 +34,13 @@ export function collectRevalidate(
   }
   const vcRevalidate = config.routing?.revalidate;
   let revalidate: number | Record<string, number> | undefined;
-  if (vcRevalidate != null) {
+  if (vcRevalidate !== null && vcRevalidate !== undefined) {
     revalidate = vcRevalidate;
   }
   if (pageScan) {
     const perPageRules: Record<string, number> = {};
     for (const page of pageScan.pages) {
-      if (page.revalidate != null) {
+      if (page.revalidate !== null && page.revalidate !== undefined) {
         // Catch-alls become '*' (a splat across '/'); `:slug` stays one segment.
         // Only scanned page patterns are rewritten; config keys pass through.
         const key = page.pattern.replaceAll(/:[A-Za-z0-9_]+\{[^}]*\}/g, '*');
@@ -75,7 +75,7 @@ function resolvePageBuildTtl(
   page: PageDefinition,
   revalidateConfig: number | Record<string, number> | undefined,
 ): number | undefined {
-  if (page.revalidate != null) {
+  if (page.revalidate !== null && page.revalidate !== undefined) {
     return page.revalidate > 0 ? page.revalidate : 0;
   }
   if (typeof revalidateConfig === 'number') {

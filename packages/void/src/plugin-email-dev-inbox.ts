@@ -68,7 +68,7 @@ export function emailDevInboxPlugin(options: EmailDevInboxPluginOptions): Plugin
       const printInboxUrl = () => {
         const address = server.httpServer?.address();
         const port = typeof address === 'object' && address ? address.port : null;
-        if (port == null) {
+        if (port === null || port === undefined) {
           return;
         }
         voidLog(`Email inbox: http://localhost:${port}${inboxHref('')}`);

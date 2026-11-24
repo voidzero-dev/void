@@ -19,7 +19,8 @@ export const INTERNAL_BINDING_EXACT_NAMES = ['ISR_CACHE'] as const;
 
 /** Only ISR builds stamp the `__VOID_ISR_DEPLOYMENT_ID` binding onto the raw env. */
 export function isIsrActive(rawEnv: RuntimeEnv): boolean {
-  return rawEnv.__VOID_ISR_DEPLOYMENT_ID != null;
+  const deploymentId = rawEnv.__VOID_ISR_DEPLOYMENT_ID;
+  return deploymentId !== null && deploymentId !== undefined;
 }
 
 /**

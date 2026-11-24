@@ -300,7 +300,7 @@ export function createRoutingRuntime(
     }
     if (options.managedDispatch && !originalUrls.has(c.req.raw)) {
       const original = c.req.raw.headers.get('X-Void-Original-URL');
-      if (original != null) {
+      if (original !== null && original !== undefined) {
         try {
           originalUrls.set(c.req.raw, new URL(original));
         } catch {

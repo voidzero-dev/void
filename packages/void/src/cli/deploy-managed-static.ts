@@ -52,7 +52,8 @@ export function assembleVoidManifest(
     pathRevalidate:
       !isrEnabled ||
       isFrameworkMode ||
-      revalidateConfig == null ||
+      revalidateConfig === null ||
+      revalidateConfig === undefined ||
       typeof revalidateConfig !== 'object'
         ? undefined
         : revalidateConfig,

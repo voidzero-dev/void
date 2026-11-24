@@ -2881,7 +2881,8 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
     // generation and cannot resume into an unconditional container launch.
     this.abortActiveLaunch();
     const config = await this.getConfig();
-    const shouldTerminalize = config != null && !TERMINAL_STATUSES.includes(config.status);
+    const shouldTerminalize =
+      config !== null && config !== undefined && !TERMINAL_STATUSES.includes(config.status);
     // Claimed HERE, synchronously, not at the `forceStopContainer` call below: the
     // revocation await between them is long enough for a peer teardown to run to
     // completion, and whoever holds the claim must be decided before yielding.
@@ -2942,7 +2943,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       } catch (err) {
         terminalError = err;
       }
-    } else if (config != null) {
+    } else if (config !== null && config !== undefined) {
       // A terminal DO-local status is not proof that Postgres revoked the deploy
       // token: enforceTimeout writes local state before awaiting its CAS, and a
       // concurrent cancel can enter during that await. Verify the authoritative
@@ -2988,7 +2989,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
         ownsMarker,
         terminalError === undefined && authoritativeRowIsTerminal,
       );
-      if (authoritativeTerminalRow && config != null) {
+      if (authoritativeTerminalRow && config !== null && config !== undefined) {
         // This bounded read already found the outcome a lost prior invocation failed
         // to publish. Reuse the row and check-run id instead of waiting for a retry
         // path that only scans active builds.
@@ -3019,7 +3020,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
         } else {
           await this.finalizeCheckRunToRecordedOutcome(terminal.config);
         }
-      } else if (terminalError !== undefined && config != null) {
+      } else if (terminalError !== undefined && config !== null && config !== undefined) {
         // A terminal write that MISSED ITS DEADLINE may still commit afterwards, and
         // the rejection left `terminal` null so nothing above finalizes. Reconcile
         // once now — which catches a commit that beat this line — and let the

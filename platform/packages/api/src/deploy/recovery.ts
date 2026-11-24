@@ -362,11 +362,18 @@ export async function replayDeploymentCutover(
       resource.cf_id,
       dispatchWorkerName,
       {
-        ...(queue.maxBatchSize != null && { batch_size: queue.maxBatchSize }),
-        ...(queue.maxBatchTimeout != null && { max_wait_time_ms: queue.maxBatchTimeout * 1000 }),
-        ...(queue.maxRetries != null && { max_retries: queue.maxRetries }),
-        ...(queue.maxConcurrency != null && { max_concurrency: queue.maxConcurrency }),
-        ...(queue.retryDelay != null && { retry_delay: queue.retryDelay }),
+        ...(queue.maxBatchSize !== null &&
+          queue.maxBatchSize !== undefined && { batch_size: queue.maxBatchSize }),
+        ...(queue.maxBatchTimeout !== null &&
+          queue.maxBatchTimeout !== undefined && {
+            max_wait_time_ms: queue.maxBatchTimeout * 1000,
+          }),
+        ...(queue.maxRetries !== null &&
+          queue.maxRetries !== undefined && { max_retries: queue.maxRetries }),
+        ...(queue.maxConcurrency !== null &&
+          queue.maxConcurrency !== undefined && { max_concurrency: queue.maxConcurrency }),
+        ...(queue.retryDelay !== null &&
+          queue.retryDelay !== undefined && { retry_delay: queue.retryDelay }),
       },
     );
     if (consumer.status === 'conflict') {

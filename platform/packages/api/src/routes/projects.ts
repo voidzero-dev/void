@@ -1471,21 +1471,26 @@ const app = new Hono<ApiEnv>()
                   resource.cf_id,
                   dispatchWorkerName,
                   {
-                    ...(targetQueue.maxBatchSize != null && {
-                      batch_size: targetQueue.maxBatchSize,
-                    }),
-                    ...(targetQueue.maxBatchTimeout != null && {
-                      max_wait_time_ms: targetQueue.maxBatchTimeout * 1000,
-                    }),
-                    ...(targetQueue.maxRetries != null && {
-                      max_retries: targetQueue.maxRetries,
-                    }),
-                    ...(targetQueue.maxConcurrency != null && {
-                      max_concurrency: targetQueue.maxConcurrency,
-                    }),
-                    ...(targetQueue.retryDelay != null && {
-                      retry_delay: targetQueue.retryDelay,
-                    }),
+                    ...(targetQueue.maxBatchSize !== null &&
+                      targetQueue.maxBatchSize !== undefined && {
+                        batch_size: targetQueue.maxBatchSize,
+                      }),
+                    ...(targetQueue.maxBatchTimeout !== null &&
+                      targetQueue.maxBatchTimeout !== undefined && {
+                        max_wait_time_ms: targetQueue.maxBatchTimeout * 1000,
+                      }),
+                    ...(targetQueue.maxRetries !== null &&
+                      targetQueue.maxRetries !== undefined && {
+                        max_retries: targetQueue.maxRetries,
+                      }),
+                    ...(targetQueue.maxConcurrency !== null &&
+                      targetQueue.maxConcurrency !== undefined && {
+                        max_concurrency: targetQueue.maxConcurrency,
+                      }),
+                    ...(targetQueue.retryDelay !== null &&
+                      targetQueue.retryDelay !== undefined && {
+                        retry_delay: targetQueue.retryDelay,
+                      }),
                   },
                 );
                 if (consumer.status === 'conflict') {

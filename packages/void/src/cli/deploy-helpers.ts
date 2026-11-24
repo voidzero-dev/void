@@ -524,11 +524,14 @@ export function toManifestSchedulesAndQueues(
     queues: queues.map((q) => ({
       name: q.name,
       bindingName: q.bindingName,
-      ...(q.maxBatchSize != null && { maxBatchSize: q.maxBatchSize }),
-      ...(q.maxBatchTimeout != null && { maxBatchTimeout: q.maxBatchTimeout }),
-      ...(q.maxConcurrency != null && { maxConcurrency: q.maxConcurrency }),
-      ...(q.maxRetries != null && { maxRetries: q.maxRetries }),
-      ...(q.retryDelay != null && { retryDelay: q.retryDelay }),
+      ...(q.maxBatchSize !== null &&
+        q.maxBatchSize !== undefined && { maxBatchSize: q.maxBatchSize }),
+      ...(q.maxBatchTimeout !== null &&
+        q.maxBatchTimeout !== undefined && { maxBatchTimeout: q.maxBatchTimeout }),
+      ...(q.maxConcurrency !== null &&
+        q.maxConcurrency !== undefined && { maxConcurrency: q.maxConcurrency }),
+      ...(q.maxRetries !== null && q.maxRetries !== undefined && { maxRetries: q.maxRetries }),
+      ...(q.retryDelay !== null && q.retryDelay !== undefined && { retryDelay: q.retryDelay }),
     })),
   };
 }
@@ -545,7 +548,7 @@ export async function assertEnvSchemaValid(
   workerVars: Record<string, string> | undefined,
 ): Promise<void> {
   // Skip the remote secret round-trip when the project has no typed env schema.
-  if (findEnvFile(root) == null) {
+  if (findEnvFile(root) === null) {
     return;
   }
 

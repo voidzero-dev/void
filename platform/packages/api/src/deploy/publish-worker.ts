@@ -198,13 +198,18 @@ export async function publishWorkerDeployment(input: {
           queueBinding.queue_id,
           dispatchWorkerName,
           {
-            ...(q.maxBatchSize != null && { batch_size: q.maxBatchSize }),
-            ...(q.maxBatchTimeout != null && {
-              max_wait_time_ms: q.maxBatchTimeout * 1000,
-            }),
-            ...(q.maxRetries != null && { max_retries: q.maxRetries }),
-            ...(q.maxConcurrency != null && { max_concurrency: q.maxConcurrency }),
-            ...(q.retryDelay != null && { retry_delay: q.retryDelay }),
+            ...(q.maxBatchSize !== null &&
+              q.maxBatchSize !== undefined && { batch_size: q.maxBatchSize }),
+            ...(q.maxBatchTimeout !== null &&
+              q.maxBatchTimeout !== undefined && {
+                max_wait_time_ms: q.maxBatchTimeout * 1000,
+              }),
+            ...(q.maxRetries !== null &&
+              q.maxRetries !== undefined && { max_retries: q.maxRetries }),
+            ...(q.maxConcurrency !== null &&
+              q.maxConcurrency !== undefined && { max_concurrency: q.maxConcurrency }),
+            ...(q.retryDelay !== null &&
+              q.retryDelay !== undefined && { retry_delay: q.retryDelay }),
           },
         );
         if (consumerResult.status === 'conflict') {

@@ -9,7 +9,7 @@ function createMockKV(initial: Record<string, string> = {}) {
     store,
     get: vi.fn(async (key: string, type?: 'json' | 'text') => {
       const raw = store.get(key);
-      if (raw == null) {
+      if (raw === null || raw === undefined) {
         return null;
       }
       if (type === 'json') {

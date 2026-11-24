@@ -95,8 +95,9 @@ function requireD1(): D1Database {
   // an installed package only when the package is an ES module that depends on void and the
   // app lists it or reaches it through such packages.
   if (
-    getRuntimeBinding(DEFAULT_BINDING) == null &&
-    (getRuntimeBinding('HYPERDRIVE') != null || getRuntimeBinding('DATABASE_URL') != null)
+    (getRuntimeBinding(DEFAULT_BINDING) ?? null) === null &&
+    ((getRuntimeBinding('HYPERDRIVE') ?? null) !== null ||
+      (getRuntimeBinding('DATABASE_URL') ?? null) !== null)
   ) {
     throw new Error(
       `db: Missing Cloudflare binding '${DEFAULT_BINDING}'. This app connects through HYPERDRIVE or DATABASE_URL, but its server bundle loaded the D1 client. In Nuxt or Analog, add 'void/nitro' to the Nitro modules. An installed package that imports void/db must be an ES module that lists void in its dependencies or peerDependencies, and the app must list it or reach it through such packages.`,

@@ -244,7 +244,12 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
       400,
     );
   }
-  if (parsedBody == null || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+  if (
+    parsedBody === null ||
+    parsedBody === undefined ||
+    typeof parsedBody !== 'object' ||
+    Array.isArray(parsedBody)
+  ) {
     return context.json({ error: 'request body must be a JSON object' }, 400);
   }
   const body = parsedBody as Record<string, unknown>;
@@ -253,7 +258,12 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   // truth for what's accepted; the `assetManifestVersion === 2` check below
   // requires the v2 wire shape (blake3 + md5 + size per asset) that
   // direct-to-R2 deploys depend on.
-  if (body.manifest == null || typeof body.manifest !== 'object' || Array.isArray(body.manifest)) {
+  if (
+    body.manifest === null ||
+    body.manifest === undefined ||
+    typeof body.manifest !== 'object' ||
+    Array.isArray(body.manifest)
+  ) {
     return context.json(
       { event: 'error', message: 'manifest is required and must be an object' },
       400,
@@ -440,7 +450,8 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     }
   }
   if (
-    incomingManifest.version == null ||
+    incomingManifest.version === null ||
+    incomingManifest.version === undefined ||
     !SUPPORTED_MANIFEST_VERSIONS.includes(incomingManifest.version)
   ) {
     return context.json(
@@ -467,7 +478,8 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   // BLAKE3 is the storage-key identifier and md5 is purely a write-time
   // R2 integrity primitive.
   if (
-    body.assetManifest == null ||
+    body.assetManifest === null ||
+    body.assetManifest === undefined ||
     typeof body.assetManifest !== 'object' ||
     Array.isArray(body.assetManifest)
   ) {
@@ -489,7 +501,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   }
   const incomingAssetManifest: Record<string, AssetManifestEntry> = {};
   for (const [path, raw] of assetEntries) {
-    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
       return context.json(
         { event: 'error', message: `invalid assetManifest entry for ${path}: must be an object` },
         400,
@@ -580,7 +592,8 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   }
   if (!execution && body.workerFiles !== undefined) {
     if (
-      body.workerFiles == null ||
+      body.workerFiles === null ||
+      body.workerFiles === undefined ||
       typeof body.workerFiles !== 'object' ||
       Array.isArray(body.workerFiles)
     ) {

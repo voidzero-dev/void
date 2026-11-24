@@ -26,7 +26,7 @@ export function devTriggersHintPlugin(root: string, devTriggerToken: string): Pl
       afterServerReady(server, () => {
         const address = server.httpServer?.address();
         const port = typeof address === 'object' && address ? address.port : null;
-        if (port == null) {
+        if (port === null || port === undefined) {
           return;
         }
         const baseUrl = `http://localhost:${port}`;

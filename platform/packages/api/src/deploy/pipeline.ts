@@ -647,7 +647,7 @@ export async function runDeploymentPipeline(input: {
             throw new Error('Approved asset is missing.');
           }
           const size = declaredSizeByHash.get(hash);
-          if (size == null) {
+          if (size === null || size === undefined) {
             throw new Error('Approved asset has conflicting sizes.');
           }
           const verified = await computeAssetStreamHashes(object.body, paths, size);
