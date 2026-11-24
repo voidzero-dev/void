@@ -92,6 +92,9 @@ export function chooseSecurityTier(
 }
 
 /** Coverage notes that name why a full scan ran; `securityCoverageLabel` reads them. */
+/** Prefix of the coverage note for a wanted runtime copy that was not made. */
+export const SECURITY_RUNTIME_COPY_NOT_MADE_NOTE = 'runtime-copy-not-made';
+
 export const SECURITY_FULL_REASON_NOTES = {
   first_scan: 'first-scan',
   no_usable_base: 'no-usable-base',
@@ -144,6 +147,9 @@ export function securityCoverageLabel(row: SecurityCoverageRow): string | null {
     label += ` · partial (backlog ${plural(row.backlogFiles, 'file')})`;
   } else if (row.coverage === 'partial') {
     label += ' · partial';
+  }
+  if (row.coverageNotes.some((note) => note.startsWith(SECURITY_RUNTIME_COPY_NOT_MADE_NOTE))) {
+    label += ' · static only (runtime copy not made)';
   }
   return label;
 }

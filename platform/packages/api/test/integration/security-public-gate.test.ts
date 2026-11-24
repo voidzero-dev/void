@@ -1,3 +1,4 @@
+import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from '@void/platform';
 import {
   defaultSecurityPolicy,
   SECURITY_POLICY_SETTINGS_KEY,
@@ -31,6 +32,7 @@ import {
   bypassPublicRequest,
   reconcilePendingPublicRequests,
   recheckPublicRequest,
+  recheckPublicRequestForScan,
 } from '../../src/security/public-gate-flow.ts';
 import { projectSecuritySettings } from '../../src/security/schema.ts';
 import {
@@ -431,6 +433,61 @@ describe('public gate', () => {
     // Protect closes the request: nothing holds the input any more.
     await ask(s, true);
     expect(await securityScanHoldsInput(env.db, prefix)).toBe(false);
+  });
+
+  it('keeps the input of a deploy scan the request took over, so asking again works', async () => {
+    const s = await setup();
+    const prefix = await stagedInput(s);
+    // The deploy scan still waits when the owner asks: the request takes it over.
+    await endedScan(s, 'ss_deploy', {
+      trigger: 'deploy',
+      status: 'queued',
+      finished_at: null,
+      input_prefix: prefix,
+    });
+    const asked = await ask(s);
+    expect(asked.publicRequest?.state).toBe('waiting_scan');
+    const [row] = await env.db
+      .select({ gate: securityPublicRequests.gate_scan_id })
+      .from(securityPublicRequests)
+      .where(eq(securityPublicRequests.id, asked.publicRequest!.id));
+    expect(row.gate).toBe('ss_deploy');
+
+    // It ends before it copied the input (budget used up): the input stays held.
+    await env.db
+      .update(securityScans)
+      .set({ status: 'skipped', status_reason: 'budget', finished_at: new Date().toISOString() })
+      .where(eq(securityScans.id, 'ss_deploy'));
+    expect(await securityScanHoldsInput(env.db, prefix)).toBe(true);
+    const held = await recheckPublicRequest(s.platform, env.db, s.project.id);
+    expect(held).toMatchObject({ state: 'held_no_result', held_reason: 'skipped_budget' });
+
+    const again = await ask(s);
+    expect(again.publicRequest?.state).toBe('waiting_scan');
+    const queued = (await gateScans(s)).filter((scan) => scan.status === 'queued');
+    expect(queued).toMatchObject([{ trigger: 'gate', input_prefix: prefix }]);
+  });
+
+  it('a scan that ends while the platform is disabled changes no Access', async () => {
+    const s = await setup();
+    const asked = await ask(s);
+    expect(asked.publicRequest?.state).toBe('needs_deploy');
+    await succeededScan(s);
+    await env.ROUTING.put(PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE);
+    try {
+      await recheckPublicRequestForScan(s.platform, env.db, 'ss_ok');
+      const [row] = await env.db
+        .select({ state: securityPublicRequests.state })
+        .from(securityPublicRequests)
+        .where(eq(securityPublicRequests.id, asked.publicRequest!.id));
+      expect(row.state).toBe('needs_deploy');
+      expect((await ztRow(s.project.id)).desired_protected).toBe(true);
+    } finally {
+      await env.ROUTING.delete(PLATFORM_DISABLED_KEY);
+    }
+    // Enabled again: the same re-check lets it go public.
+    await recheckPublicRequestForScan(s.platform, env.db, 'ss_ok');
+    expect((await ztRow(s.project.id)).desired_protected).toBe(false);
   });
 
   it('protecting again cancels the open request and keeps the project protected', async () => {

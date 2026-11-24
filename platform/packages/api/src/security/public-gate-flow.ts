@@ -23,6 +23,7 @@ import { MAX_ROUTING_KEYS_PER_RUN } from '../zero-trust/routing.ts';
 import type { RoutingBudget } from '../zero-trust/routing.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
 import { SecurityApiError } from './errors.ts';
+import { securityWorkPaused } from './paused.ts';
 import { parseBypassReason, readOpenPublicRequest } from './public-gate.ts';
 import type { GateActor, PublicRequestRow } from './public-gate.ts';
 import {
@@ -102,7 +103,9 @@ export async function recheckPublicRequestForScan(
   db: Db,
   scanId: string,
 ): Promise<void> {
-  if (!capabilityOn(env)) {
+  // A scan that was running when the platform was disabled still ends. Its request
+  // stays open, with no Access change, until the platform is enabled again.
+  if (!capabilityOn(env) || (await securityWorkPaused(env))) {
     return;
   }
   const [scan] = await db

@@ -1,4 +1,3 @@
-import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from '@void/platform';
 import { isSecurityModelId } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { DurableObject } from 'cloudflare:workers';
@@ -28,6 +27,7 @@ import type {
 import { resolveSecurityScanModel } from './models.ts';
 import type { SecurityScanModel } from './models.ts';
 import { enqueueSecurityCapRefused, runSecurityNotifications } from './notifications.ts';
+import { securityWorkPaused } from './paused.ts';
 import { readSecurityPolicyLenient, securitySpendMonth } from './policy.ts';
 import { recheckPublicRequestForScan } from './public-gate-flow.ts';
 import {
@@ -625,14 +625,8 @@ export class SecurityScanScheduler extends DurableObject<ApiEnv['Bindings']> {
       return;
     }
     const passStart = Date.now();
-    // The same stop as the cron (`index.ts`): a disabled or staged platform starts no
-    // scan, spends nothing and changes no Access. Queued work waits until it is enabled.
-    if (
-      this.env.PLATFORM_TRAFFIC_STATE === 'staging' ||
-      this.env.PLATFORM_TRAFFIC_STATE === 'sandbox-drain' ||
-      (this.env.PLATFORM_INSTALLATION_ID &&
-        (await this.env.ROUTING.get(PLATFORM_DISABLED_KEY)) === PLATFORM_DISABLED_VALUE)
-    ) {
+    // A disabled or staged platform starts no scan. Queued work waits until it is enabled.
+    if (await securityWorkPaused(this.env)) {
       await armSecurityScheduler(
         this.ctx.storage,
         passStart + SECURITY_SCHEDULER_PAUSED_RECHECK_MS,

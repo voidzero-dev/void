@@ -45,6 +45,8 @@ export const SECURITY_SCAN_INPUT_HOLD_STATUSES = ['pending_input', 'queued', 'ru
  * The `security_scans` row still holds the staged deploy input its `input_prefix`
  * names: it waits or runs (above), or it is a scan of an open public request's live
  * deployment that ended before it copied the input (`skipped:budget`, `canceled`, …).
+ * That scan is the request's own gate scan, or a deploy scan the request took over
+ * while it waited (then only `gate_scan_id` links them).
  * While the gate is on, the live code of a protected project is kept, so asking again
  * can scan it (spec §7.2); the hold ends when the request closes or moves on.
  */
@@ -53,7 +55,7 @@ export function securityScanHoldsInputSql(): SQL {
     SECURITY_PUBLIC_REQUEST_OPEN_STATES.map((state) => sql`${state}`),
     sql`, `,
   );
-  return sql`(${inArray(securityScans.status, [...SECURITY_SCAN_INPUT_HOLD_STATUSES])} OR EXISTS (SELECT 1 FROM security_public_requests r WHERE r.id = ${securityScans.public_request_id} AND r.target_deployment_id = ${securityScans.deployment_id} AND r.state IN (${open})))`;
+  return sql`(${inArray(securityScans.status, [...SECURITY_SCAN_INPUT_HOLD_STATUSES])} OR EXISTS (SELECT 1 FROM security_public_requests r WHERE (r.id = ${securityScans.public_request_id} OR r.gate_scan_id = ${securityScans.id}) AND r.target_deployment_id = ${securityScans.deployment_id} AND r.state IN (${open})))`;
 }
 
 /** Inline modules copied after the commit: at most this many bytes … */

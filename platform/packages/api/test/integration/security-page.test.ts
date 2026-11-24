@@ -527,6 +527,50 @@ describe('public request and bypass', () => {
     expect(collaborator).not.toContain('zero-trust bypass');
   });
 
+  it('names the cap and the way on for a request the budget held', async () => {
+    await savePolicy({ mode: 'public', publicGate: true });
+    const { project, people } = await setup();
+    const deployment = await request(project.id, people.owner.id, 'held_no_result');
+    const scanId = `scan_${project.id}_gate`;
+    await env.db.insert(securityScans).values({
+      id: scanId,
+      project_id: project.id,
+      deployment_id: deployment.id,
+      status: 'skipped',
+      status_reason: 'budget',
+      error_class: 'project_cap',
+      trigger: 'gate',
+    });
+    await env.db
+      .update(securityPublicRequests)
+      .set({ held_reason: 'skipped_budget', gate_scan_id: scanId })
+      .where(eq(securityPublicRequests.project_id, project.id));
+    const cap = (cents: number) =>
+      env.db
+        .insert(projectSecuritySettings)
+        .values({ project_id: project.id, monthly_cap_cents: cents })
+        .onConflictDoUpdate({
+          target: projectSecuritySettings.project_id,
+          set: { monthly_cap_cents: cents },
+        });
+
+    await cap(0);
+    const used = await view(await signIn(people.admin.id, project.id));
+    expect(used).toContain('Stays protected until the scan can run.');
+    expect(used).toContain('($0.00 of $0.00)');
+    expect(used).toContain('raise the cap (void project security budget), or bypass the scan');
+    expect(used).not.toContain('Ask again');
+
+    await cap(500);
+    const raised = await view(await signIn(people.admin.id, project.id));
+    expect(raised).toContain('It was raised since; ask again with void project zero-trust public');
+    expect(raised).not.toContain('is used up');
+
+    // Readers get no amounts.
+    const reader = await view(await signIn(people.reader.id, project.id));
+    expect(reader).not.toContain('$5.00');
+  });
+
   it('never offers a bypass while urgent findings hold the request', async () => {
     await savePolicy({ mode: 'public', publicGate: true });
     const { project, people } = await setup();

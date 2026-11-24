@@ -531,20 +531,59 @@ function lastScanRow(data: SecurityPageData, full: boolean): string {
   return lines.join('<br>');
 }
 
+/**
+ * A request held because its gate scan was skipped for budget: the cap numbers and the way
+ * on, as in `void project zero-trust status`. `null` for readers and for other states.
+ */
+function heldBudgetCopy(data: SecurityPageData): string | null {
+  const { request } = data;
+  const { budget, lastScan } = data.status;
+  if (
+    !request ||
+    request.state !== 'held_no_result' ||
+    request.heldReason !== 'skipped_budget' ||
+    data.role === 'reader' ||
+    !budget
+  ) {
+    return null;
+  }
+  const gate = lastScan && lastScan.id === request.gateScanId ? lastScan : null;
+  const cause =
+    gate?.budgetCause ??
+    (budget.capUsd !== null && budget.spentUsd >= budget.capUsd ? 'project_cap' : 'platform_cap');
+  const left = budget.capUsd === null ? null : budget.capUsd - budget.spentUsd;
+  const reserve = budget.scanReserveUsd;
+  const raised =
+    (cause === 'project_cap' || cause === 'project_reserve') &&
+    (left === null || (cause === 'project_cap' ? left > 0 : reserve !== null && reserve <= left));
+  if (raised) {
+    return `Stays protected: the scan was skipped because this project's monthly scan budget ran out. It was raised since; ask again with void project zero-trust public, or bypass the scan with a reason.`;
+  }
+  const skipped = budgetSkipCopy(cause, budget, data.status.model.id);
+  const way =
+    cause === 'project_cap'
+      ? 'A project admin or owner can raise the cap (void project security budget), or bypass the scan with a reason.'
+      : 'A project admin or owner can bypass the scan with a reason.';
+  return `Stays protected until the scan can run. ${skipped} ${way}`;
+}
+
 function requestBlock(data: SecurityPageData, settings: boolean): string {
   const { request, slug } = data;
   if (!request) {
     return '';
   }
-  const copy = publicRequestCopy({
-    slug,
-    state: request.state,
-    // Readers get the state and F-ids only, no reasons.
-    reason: data.role === 'reader' ? null : request.heldReason,
-    blockerIds: request.blockers.ids,
-    deploymentId: request.targetDeploymentId,
-    backlogFiles: data.status.backlogFiles,
-  });
+  const budgetCopy = heldBudgetCopy(data);
+  const copy =
+    budgetCopy ??
+    publicRequestCopy({
+      slug,
+      state: request.state,
+      // Readers get the state and F-ids only, no reasons.
+      reason: data.role === 'reader' ? null : request.heldReason,
+      blockerIds: request.blockers.ids,
+      deploymentId: request.targetDeploymentId,
+      backlogFiles: data.status.backlogFiles,
+    });
   const lines = [
     esc(copy),
     esc(`Asked by ${roleLabel(request.requestedByRole)} on ${day(request.requestedAt)}.`),
@@ -553,7 +592,10 @@ function requestBlock(data: SecurityPageData, settings: boolean): string {
     // A collaborator gets this line once, from the page help.
     if (request.state === 'held_findings' && data.role === 'reader') {
       lines.push('A project admin or owner can resolve these.');
-    } else if (request.state === 'held_no_result' || request.state === 'needs_deploy') {
+    } else if (
+      budgetCopy === null &&
+      (request.state === 'held_no_result' || request.state === 'needs_deploy')
+    ) {
       lines.push('A project admin or owner can bypass the scan.');
     }
   }

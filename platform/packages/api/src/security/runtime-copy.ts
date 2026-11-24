@@ -32,6 +32,7 @@ import { checkScanFence } from './fence.ts';
 import { modulesKey, parseSnapshotModules } from './input/prepare.ts';
 import { createSecurityRedactor } from './input/redact.ts';
 import type { SecuritySecret } from './input/redact.ts';
+import { SECURITY_RUNTIME_COPY_NOT_MADE_NOTE } from './input/tier.ts';
 import { runtimeCopyScriptName } from './runtime-copy-names.ts';
 import {
   planSecurityRuntimeCopy,
@@ -577,7 +578,7 @@ export function securityRuntimeCopyNote(outcome: SecurityCopyOutcome): string | 
   if (outcome.ok || COPY_NOT_WANTED.has(outcome.reason)) {
     return null;
   }
-  return `runtime-copy-not-made (${outcome.reason})`;
+  return `${SECURITY_RUNTIME_COPY_NOT_MADE_NOTE} (${outcome.reason})`;
 }
 
 /**

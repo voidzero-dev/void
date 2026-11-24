@@ -89,6 +89,16 @@ describe('securityCoverageLabel', () => {
     );
   });
 
+  it('says when the scan ran static-only (no runtime copy)', () => {
+    expect(
+      securityCoverageLabel({
+        ...row,
+        coverage: 'partial',
+        coverageNotes: ['runtime-copy-not-made (secret_in_bundle)'],
+      }),
+    ).toBe('built-output diff · 12 files · partial · static only (runtime copy not made)');
+  });
+
   it('has no label before the input is built', () => {
     expect(securityCoverageLabel({ ...row, tier: null })).toBeNull();
   });
