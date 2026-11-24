@@ -583,6 +583,7 @@ const config = defineConfig({
       'typescript/use-unknown-in-catch-callback-variable': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.
       'unicorn/catch-error-name': 'off',
+      // Keep helpers beside their call sites where they express local test setup, plugin lifecycle, or runtime initialization.
       'unicorn/consistent-function-scoping': 'off',
       'unicorn/prefer-at': 'off',
       'unicorn/prefer-import-meta-properties': 'off',
