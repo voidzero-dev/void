@@ -745,7 +745,7 @@ function decodeRfc2047(value: string): string {
       // TextDecoder rejects.
       let decoder: TextDecoder;
       try {
-        decoder = new TextDecoder(charset || 'utf-8', { fatal: false });
+        decoder = new TextDecoder(charset || 'utf8', { fatal: false });
       } catch {
         decoder = new TextDecoder('utf-8', { fatal: false });
       }

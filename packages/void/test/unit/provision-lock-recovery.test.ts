@@ -31,7 +31,7 @@ describe('acquireProvisionLock — quarantine sidecar gate', () => {
       const lock = await acquireProvisionLock(wranglerPath);
       lock.quarantine({ pid: child.pid, reason: 'test quarantine (child unconfirmed)' });
       // The sidecar is written atomically, with no temp-file leftovers.
-      const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
+      const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
       expect(recorded).toMatchObject({
         pid: child.pid,
         // Windows has no process groups, so `writeQuarantineSidecar` records `null` there by
@@ -261,7 +261,7 @@ describe('acquireProvisionLock — recovery decisions are serialized + generatio
         }),
       ).rejects.toThrow(/changed while this recovery decision was being made/);
       // S1 survives the stale decision.
-      const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
+      const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
       expect(recorded.generation).toBe('gen-second');
       expect(recorded.pid).toBe(live.pid);
       // The next acquisition gates on S1's live group instead of reclaiming A's mutex.

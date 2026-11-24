@@ -367,7 +367,7 @@ async function readJsonBody(req: import('node:http').IncomingMessage): Promise<u
   if (chunks.length === 0) {
     return {};
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 function getInternalDevOrigin(server: ViteDevServer): string {

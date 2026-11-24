@@ -373,7 +373,7 @@ function readGeneratedWranglerConfig(
   }
   let redirectedPath: string;
   try {
-    const parsed = JSON.parse(readFileSync(deployConfigPath, 'utf-8')) as { configPath?: unknown };
+    const parsed = JSON.parse(readFileSync(deployConfigPath, 'utf8')) as { configPath?: unknown };
     if (typeof parsed.configPath !== 'string' || parsed.configPath.length === 0) {
       return { ok: false, reason: `${deployConfigPath} has no "configPath" pointer.` };
     }
@@ -716,8 +716,8 @@ export function createDefaultSecretListRunner(
       let settled = false;
       let timedOut = false;
       let killFallbackTimer: ReturnType<typeof setTimeout> | undefined;
-      child.stdout?.setEncoding('utf-8');
-      child.stderr?.setEncoding('utf-8');
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
       child.stdout?.on('data', (chunk: string) => {
         stdout += chunk;
       });

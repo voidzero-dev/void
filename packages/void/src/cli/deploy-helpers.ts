@@ -206,7 +206,7 @@ export function resolveDeployWorkerMain(
     return undefined;
   }
   try {
-    const wrangler = JSON.parse(readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf-8')) as {
+    const wrangler = JSON.parse(readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf8')) as {
       main?: unknown;
     };
     return typeof wrangler.main === 'string' && wrangler.main.length > 0
@@ -440,13 +440,13 @@ export function getGitCommit(root: string): string | null {
     execSync('git rev-parse --is-inside-work-tree', { cwd: root, stdio: 'ignore', env: gitEnv });
     const status = execSync('git status --porcelain', {
       cwd: root,
-      encoding: 'utf-8',
+      encoding: 'utf8',
       env: gitEnv,
     }).trim();
     if (status !== '') {
       return null;
     }
-    return execSync('git rev-parse HEAD', { cwd: root, encoding: 'utf-8', env: gitEnv }).trim();
+    return execSync('git rev-parse HEAD', { cwd: root, encoding: 'utf8', env: gitEnv }).trim();
   } catch {
     return null;
   }

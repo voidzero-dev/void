@@ -218,7 +218,7 @@ export function buildDeployLogSummary(path: string | null | undefined): string |
   }
   let text: string;
   try {
-    text = readFileSync(path, 'utf-8');
+    text = readFileSync(path, 'utf8');
   } catch {
     return null;
   }

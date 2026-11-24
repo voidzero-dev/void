@@ -41,7 +41,7 @@ export function findVoidAuthConfig(
     if (!existsSync(absPath)) {
       continue;
     }
-    const code = readFileSync(absPath, 'utf-8');
+    const code = readFileSync(absPath, 'utf8');
     if (isVoidAuthConfigSource(code, absPath)) {
       return absPath;
     }

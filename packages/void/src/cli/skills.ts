@@ -30,7 +30,7 @@ function parseSkills(skillsDir: string): Array<SkillInfo> {
     if (!existsSync(skillMd)) {
       continue;
     }
-    const content = readFileSync(skillMd, 'utf-8');
+    const content = readFileSync(skillMd, 'utf8');
     const frontmatter = content.match(/^---\n([\s\S]*?)\n---/);
     if (!frontmatter) {
       continue;

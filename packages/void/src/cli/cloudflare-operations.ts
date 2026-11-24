@@ -638,7 +638,7 @@ export async function changeCloudflareDomain(
 ): Promise<{ modified: boolean; domains: Array<WranglerCustomDomain> }> {
   const context = resolveCloudflareOperationContext(root, runner);
   const before = readWranglerCustomDomains(root);
-  const original = readFileSync(before.configPath, 'utf-8');
+  const original = readFileSync(before.configPath, 'utf8');
   const update = updateWranglerCustomDomain(root, hostname, action);
   if (!update.modified) {
     return update;

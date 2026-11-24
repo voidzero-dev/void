@@ -111,7 +111,7 @@ function suffixedResourceName(workerName: string, suffix: string): string {
 export function deriveWorkerName(root: string): string {
   let pkgName: string | undefined;
   try {
-    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')) as { name?: unknown };
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { name?: unknown };
     if (typeof pkg.name === 'string' && pkg.name.length > 0) {
       pkgName = pkg.name;
     }

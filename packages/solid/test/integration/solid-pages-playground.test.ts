@@ -242,7 +242,7 @@ describe('solid-pages client (dev)', () => {
     const metadataPath = join(workerDepsDir, '_metadata.json');
 
     expect(existsSync(metadataPath)).toBe(true);
-    const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8')) as {
+    const metadata = JSON.parse(readFileSync(metadataPath, 'utf8')) as {
       optimized?: Record<string, unknown>;
     };
 

@@ -376,7 +376,7 @@ export async function runCloudflareStaticDeploy(
   const rootConfig = parseRootWranglerConfig(configPath);
   const workerName = readWranglerTopLevelString(rootConfig, 'name') ?? deriveWorkerName(root);
   printDeployContext(workerName, 'Cloudflare');
-  const rootConfigBeforeBuild = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
+  const rootConfigBeforeBuild = existsSync(configPath) ? readFileSync(configPath, 'utf8') : null;
   if (preset.buildCommand && !options.skipBuild) {
     log.step('Building...');
     const buildChildEnv = scrubManagedDeployBuildMarkers(
@@ -404,7 +404,7 @@ export async function runCloudflareStaticDeploy(
   if (!assertUploaderStillPinned()) {
     return exit(1);
   }
-  const rootConfigAfterBuild = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
+  const rootConfigAfterBuild = existsSync(configPath) ? readFileSync(configPath, 'utf8') : null;
   if (rootConfigAfterBuild !== rootConfigBeforeBuild) {
     log.error(
       [

@@ -582,7 +582,7 @@ export function voidPlugin(options?: {
           return;
         }
         try {
-          const code = readFileSync(path, 'utf-8');
+          const code = readFileSync(path, 'utf8');
           const fileBindings = applyBindingOverrides(
             inferBindingsFromSource(code, path.split('/').pop()!),
             config.inference?.bindings,

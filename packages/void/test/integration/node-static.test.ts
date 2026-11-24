@@ -173,7 +173,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
     const indexPath = join(DIST, 'client/index.html');
     expect(existsSync(indexPath)).toBe(true);
 
-    const html = readFileSync(indexPath, 'utf-8');
+    const html = readFileSync(indexPath, 'utf8');
     expect(html).toContain('<!doctype html>');
     expect(html).toContain('data-testid="home-title"');
     expect(html).toContain('Home');
@@ -185,7 +185,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
   });
 
   it('proves rendering happened in Node.js via process.versions.node', () => {
-    const html = readFileSync(join(DIST, 'client/index.html'), 'utf-8');
+    const html = readFileSync(join(DIST, 'client/index.html'), 'utf8');
     const match = html.match(/data-testid="runtime"[^>]*>([^<]+)</);
     expect(match).not.toBeNull();
     // Node.js version string like "24.13.1"
@@ -196,7 +196,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
     const aboutPath = join(DIST, 'client/about.html');
     expect(existsSync(aboutPath)).toBe(true);
 
-    const html = readFileSync(aboutPath, 'utf-8');
+    const html = readFileSync(aboutPath, 'utf8');
     expect(html).toContain('<!doctype html>');
     expect(html).toContain('data-testid="about-title"');
     expect(html).toContain('About');
@@ -209,13 +209,13 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
   it('emits static page data for prerendered routes', () => {
     const indexData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf-8'),
+      readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf8'),
     ) as { component: string; props: Record<string, unknown>; url: string };
     const aboutData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf-8'),
+      readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf8'),
     ) as { component: string; props: Record<string, unknown>; url: string };
     const legacyData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/legacy.json'), 'utf-8'),
+      readFileSync(join(DIST, 'client/_void/pages/legacy.json'), 'utf8'),
     ) as { component: string; props: Record<string, unknown>; url: string };
 
     expect(indexData.component).toBe('index');
@@ -357,7 +357,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
       // The page HTML and its static page data were rendered for the path, without a query.
       const pageData = deserializePageData(
-        readFileSync(join(DIST, 'client/_void/pages/router-url/plain.json'), 'utf-8'),
+        readFileSync(join(DIST, 'client/_void/pages/router-url/plain.json'), 'utf8'),
       ) as { url: string };
       expect(pageData.url).toBe('/router-url/plain');
       await page.goto(`${staticBase}/router-url/plain?foo=bar#baz`);
@@ -431,7 +431,7 @@ describe('playground/node-static redirects (target: node, output: static)', () =
   let originalConfig: string | undefined;
 
   beforeAll(async () => {
-    originalConfig = readFileSync(VOID_CONFIG, 'utf-8');
+    originalConfig = readFileSync(VOID_CONFIG, 'utf8');
     writeFileSync(
       VOID_CONFIG,
       renderVoidConfig({

@@ -28,7 +28,7 @@ afterAll(() => {
 
 function clientEntryFile(): string {
   const manifest = JSON.parse(
-    readFileSync(join(fixture.root, 'dist/client/.vite/manifest.json'), 'utf-8'),
+    readFileSync(join(fixture.root, 'dist/client/.vite/manifest.json'), 'utf8'),
   ) as Record<string, { file: string; isEntry?: boolean }>;
   return Object.values(manifest).find((entry) => entry.isEntry)!.file;
 }
@@ -99,13 +99,13 @@ describe('playground/ssr build + preview', () => {
     expect(existsSync(clientManifest)).toBe(true);
     expect(existsSync(join(fixture.root, 'cloudflare.config.ts'))).toBe(false);
 
-    const code = readFileSync(workerEntry, 'utf-8');
+    const code = readFileSync(workerEntry, 'utf8');
     // String literals survive minification; function names may be mangled
     expect(code).toContain('/.vite/manifest.json');
     expect(code).toContain('src/main.client.tsx');
 
     const wranglerConfig = JSON.parse(
-      readFileSync(join(fixture.root, 'dist/ssr/wrangler.json'), 'utf-8'),
+      readFileSync(join(fixture.root, 'dist/ssr/wrangler.json'), 'utf8'),
     ) as {
       assets?: {
         not_found_handling?: string;
@@ -120,7 +120,7 @@ describe('playground/ssr build + preview', () => {
     expect(wranglerConfig.assets?.not_found_handling).toBe('none');
     expect(wranglerConfig.kv_namespaces?.some((b) => b.binding === 'KV')).toBe(true);
 
-    const headers = readFileSync(join(fixture.root, 'dist/client/_headers'), 'utf-8');
+    const headers = readFileSync(join(fixture.root, 'dist/client/_headers'), 'utf8');
     expect(headers.split('\n')[0]).toBe(GENERATED_ASSET_HEADERS_MARKER);
     expect(headers).toContain(
       `/${clientEntryFile()}\n  Cache-Control: public, max-age=31536000, immutable\n`,

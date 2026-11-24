@@ -138,7 +138,7 @@ describe('envSchemaPlugin auto-discovery', () => {
     const dtsPath = join(root, '.void', 'env.d.ts');
     expect(existsSync(dtsPath)).toBe(true);
 
-    const dts = readFileSync(dtsPath, 'utf-8');
+    const dts = readFileSync(dtsPath, 'utf8');
     // `export {}` makes the file an augmentation instead of an ambient module.
     expect(dts).toContain('export {}');
     expect(dts).toContain('declare module "void/env"');
@@ -160,7 +160,7 @@ describe('envSchemaPlugin auto-discovery', () => {
     const plugin = envSchemaPlugin(root);
     await runConfig(plugin);
 
-    const dts = readFileSync(join(root, '.void', 'env.d.ts'), 'utf-8');
+    const dts = readFileSync(join(root, '.void', 'env.d.ts'), 'utf8');
     // Relative path from .void/ to src/env.ts.
     expect(dts).toContain('typeof import("../src/env.ts")');
   });

@@ -48,7 +48,7 @@ export function parseHeadersFile(dir: string): Array<HeaderRule> | undefined {
     return undefined;
   }
 
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, 'utf8');
   const rules: Array<HeaderRule> = [];
   let current: HeaderRule | null = null;
 
@@ -109,7 +109,7 @@ export function readGeneratedAssetHeadersFile(dir: string): string | undefined {
   if (!existsSync(filePath)) {
     return undefined;
   }
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, 'utf8');
   return isGeneratedAssetHeaders(content) ? content : undefined;
 }
 
@@ -129,7 +129,7 @@ export function parseRedirectsFile(dir: string): ParsedRedirects | undefined {
     return undefined;
   }
 
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, 'utf8');
   const rules: Array<DevRedirectRule> = [];
   let redundantForceOn3xx = 0;
 

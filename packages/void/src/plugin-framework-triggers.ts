@@ -263,7 +263,7 @@ function removeGitignoreLines(root: string, lines: ReadonlyArray<string>): void 
   if (lines.length === 0 || !existsSync(gitignorePath)) {
     return;
   }
-  const contents = readFileSync(gitignorePath, 'utf-8');
+  const contents = readFileSync(gitignorePath, 'utf8');
   const remove = new Set(lines);
   const next = contents
     .split('\n')

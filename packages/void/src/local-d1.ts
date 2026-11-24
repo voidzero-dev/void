@@ -136,7 +136,7 @@ function readLocalD1PersistState(root: string): LocalD1PersistState | undefined 
 
   let state: LocalD1PersistState;
   try {
-    state = JSON.parse(readFileSync(path, 'utf-8')) as LocalD1PersistState;
+    state = JSON.parse(readFileSync(path, 'utf8')) as LocalD1PersistState;
   } catch {
     throw new Error(
       `db: local D1 state in ${path} is invalid. Start the dev server to refresh it.`,

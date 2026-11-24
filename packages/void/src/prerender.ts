@@ -92,7 +92,7 @@ export function collectPrerenderWorkerModules(
 
       const file = readFileSync(filePath);
       const contents: PrerenderWorkerModule['contents'] =
-        type === 'CompiledWasm' || type === 'Data' ? new Uint8Array(file) : file.toString('utf-8');
+        type === 'CompiledWasm' || type === 'Data' ? new Uint8Array(file) : file.toString('utf8');
 
       return [{ path: filePath, relativePath, type, contents }];
     },
@@ -168,7 +168,7 @@ async function createCloudflarePrerenderRunner(options: {
   if (!existsSync(wranglerPath)) {
     throw new Error(`prerender: wrangler.json not found in '${workerDir}'.`);
   }
-  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf-8'));
+  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf8'));
   const wranglerCompat = ensureWranglerCompat(root, readConfig(root), workerDir);
   const workerMain = wranglerConfig.main ?? 'index.js';
 

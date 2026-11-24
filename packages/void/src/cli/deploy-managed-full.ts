@@ -126,7 +126,7 @@ export async function runFullDeploy(
   const clientManifestPath = join(distDir, 'client', '.vite', 'manifest.json');
   if (existsSync(clientManifestPath)) {
     const manifest: Record<string, { file?: string }> = JSON.parse(
-      readFileSync(clientManifestPath, 'utf-8'),
+      readFileSync(clientManifestPath, 'utf8'),
     );
     for (const entry of Object.values(manifest)) {
       if (entry.file?.includes('/')) {

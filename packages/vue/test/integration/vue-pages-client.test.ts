@@ -259,7 +259,7 @@ describe('vue-pages client (dev)', () => {
     { retry: 2 },
     async () => {
       const pageFile = join(fixture.root, 'pages/deferred.vue');
-      const original = readFileSync(pageFile, 'utf-8');
+      const original = readFileSync(pageFile, 'utf8');
 
       const context = await browser.newContext();
       const page = await context.newPage();

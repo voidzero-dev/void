@@ -137,7 +137,7 @@ export default function Home() { return <Counter />; }`,
       await buildStart();
       const clientEntry = loadClientEntry();
       const transformed = transform(
-        readFileSync(join(PAGES_DIR, 'index.island.tsx'), 'utf-8'),
+        readFileSync(join(PAGES_DIR, 'index.island.tsx'), 'utf8'),
         join(PAGES_DIR, 'index.island.tsx'),
       );
 

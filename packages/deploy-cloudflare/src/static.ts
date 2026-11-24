@@ -98,7 +98,7 @@ export function stageCloudflareStaticAssets(options: {
  */
 export function writeCloudflareStaticDeployConfig(options: CloudflareStaticDeployConfig): boolean {
   const initial = existsSync(options.configPath)
-    ? readFileSync(options.configPath, 'utf-8')
+    ? readFileSync(options.configPath, 'utf8')
     : '{}\n';
   const hasBom = initial.startsWith('\uFEFF');
   const source = hasBom ? initial.slice(1) : initial;

@@ -41,10 +41,7 @@ describe('playground/pg-test', () => {
     await pglite.waitReady;
 
     // Run migrations
-    const migrationSql = readFileSync(
-      join(fixture.root, 'db/migrations/0000_initial.sql'),
-      'utf-8',
-    );
+    const migrationSql = readFileSync(join(fixture.root, 'db/migrations/0000_initial.sql'), 'utf8');
     await pglite.exec(migrationSql);
 
     pgServer = createServer(pglite);

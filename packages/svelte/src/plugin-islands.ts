@@ -253,7 +253,7 @@ export function islandsPlugin(
             );
           }
           this.addWatchFile(file);
-          let code = readFileSync(file, 'utf-8');
+          let code = readFileSync(file, 'utf8');
           let map: unknown;
           if (api.options.preprocess) {
             const processed = await preprocess(code, api.options.preprocess, { filename: file });

@@ -101,7 +101,7 @@ function createNodeProjectRoot(): string {
 
 function useDatabase(root: string, database: 'pg' | 'mysql'): string {
   const configPath = join(root, 'void.json');
-  const config = JSON.parse(readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
+  const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
   writeFileSync(configPath, JSON.stringify({ ...config, database }));
   return root;
 }

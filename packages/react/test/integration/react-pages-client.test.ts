@@ -1001,7 +1001,7 @@ describe('react-pages client (dev)', () => {
 
   beforeAll(
     async () => {
-      originalLayout = readFileSync(REACT_PAGES_LAYOUT, 'utf-8');
+      originalLayout = readFileSync(REACT_PAGES_LAYOUT, 'utf8');
       installLateWorkerDeps();
       writeFileSync(REACT_PAGES_LAYOUT, lateWorkerDepLayout());
 

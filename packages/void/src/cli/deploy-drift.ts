@@ -94,7 +94,7 @@ export function hasDeploySchemaDrift(root: string, dialect: DatabaseDialect): bo
 function runDrizzleKitGenerate(root: string, configPath: string): string {
   const result = spawnSync(process.execPath, [drizzleKitBin, 'generate', '--config', configPath], {
     cwd: root,
-    encoding: 'utf-8',
+    encoding: 'utf8',
     // drizzle-kit runs project code, so it gets no credentials.
     env: buildEnv(),
   });
@@ -216,7 +216,7 @@ function collectSnapshotFiles(
       collectSnapshotFiles(fullPath, root, snapshot);
       continue;
     }
-    snapshot[relative(root, fullPath)] = readFileSync(fullPath, 'utf-8');
+    snapshot[relative(root, fullPath)] = readFileSync(fullPath, 'utf8');
   }
 }
 

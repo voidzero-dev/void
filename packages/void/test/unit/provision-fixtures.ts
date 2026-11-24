@@ -78,10 +78,10 @@ export function useProvisionTestDir(name: string): ProvisionTestDir {
       writeFileSync(wranglerPath, content);
     },
     readConfig() {
-      return parseJsoncRaw(readFileSync(wranglerPath, 'utf-8')) as Record<string, unknown>;
+      return parseJsoncRaw(readFileSync(wranglerPath, 'utf8')) as Record<string, unknown>;
     },
     simulateUpdateConfig(field, entry, path = wranglerPath) {
-      const cfg = parseJsoncRaw(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+      const cfg = parseJsoncRaw(readFileSync(path, 'utf8')) as Record<string, unknown>;
       const list = Array.isArray(cfg[field]) ? (cfg[field] as Array<Record<string, unknown>>) : [];
       const index = list.findIndex((e) => e.binding === entry.binding);
       if (index >= 0) {

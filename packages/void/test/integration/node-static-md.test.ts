@@ -36,7 +36,7 @@ describe('playground/node-static-md build (Markdown-only, target: node, output: 
     expect(existsSync(index)).toBe(true);
     expect(existsSync(post)).toBe(true);
 
-    const postHtml = readFileSync(post, 'utf-8');
+    const postHtml = readFileSync(post, 'utf8');
     expect(postHtml).toContain('<!doctype html>');
     // The Markdown body and its syntax-highlighted code block were rendered.
     expect(postHtml).toContain('Hello');
@@ -44,7 +44,7 @@ describe('playground/node-static-md build (Markdown-only, target: node, output: 
   });
 
   it('keeps prerendered Markdown pages free of client JS bundles', () => {
-    const postHtml = readFileSync(join(DIST, 'client/posts/hello.html'), 'utf-8');
+    const postHtml = readFileSync(join(DIST, 'client/posts/hello.html'), 'utf8');
     // No framework hydration/entry bundle is referenced by a zero-JS page.
     expect(postHtml).not.toContain('type="module"');
     expect(postHtml).not.toContain('src="/assets/');

@@ -48,7 +48,7 @@ function parseErrors(text: string): number {
 }
 
 function readRaw(filename: string): string {
-  return readFileSync(join(tmpDir, filename), 'utf-8');
+  return readFileSync(join(tmpDir, filename), 'utf8');
 }
 
 function parseRaw(filename: string): Record<string, unknown> {
@@ -364,7 +364,7 @@ describe('ensureWranglerCompat', () => {
       compatibilityDate: LATEST_KNOWN_COMPAT_DATE,
       compatibilityFlags: ['nodejs_compat'],
     });
-    expect(JSON.parse(readFileSync(join(tmpDir, 'void.json'), 'utf-8'))).toEqual({
+    expect(JSON.parse(readFileSync(join(tmpDir, 'void.json'), 'utf8'))).toEqual({
       $schema: './node_modules/void/schema.json',
       database: 'pg',
       worker: {
@@ -381,14 +381,14 @@ describe('ensureWranglerCompatibilityDate', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     mkdirSync(tmpDir, { recursive: true });
     expect(ensureWranglerCompatibilityDate(tmpDir, '2026-02-24')).toBe(true);
-    const created = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const created = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(created.compatibility_date).toBe('2026-02-24');
   });
 
   it('updates existing wrangler config compatibility_date', () => {
     setup('wrangler.jsonc', '{ "name": "test" }');
     expect(ensureWranglerCompatibilityDate(tmpDir, '2026-02-24')).toBe(true);
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.compatibility_date).toBe('2026-02-24');
   });
 
@@ -413,7 +413,7 @@ describe('ensureWranglerNodejsAlsFlag', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     mkdirSync(tmpDir, { recursive: true });
     expect(ensureWranglerNodejsAlsFlag(tmpDir)).toBe(true);
-    const created = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const created = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(created.compatibility_flags).toEqual(['nodejs_als']);
   });
 
@@ -421,7 +421,7 @@ describe('ensureWranglerNodejsAlsFlag', () => {
     setup('wrangler.jsonc', '{ "name": "test" }');
     const result = ensureWranglerNodejsAlsFlag(tmpDir);
     expect(result).toBe(true);
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.compatibility_flags).toEqual(['nodejs_als']);
   });
 
@@ -437,7 +437,7 @@ describe('syncWranglerBindings', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     mkdirSync(tmpDir, { recursive: true });
     expect(syncWranglerBindings(tmpDir, noBindings)).toBe(true);
-    const created = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const created = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(created).toEqual({});
   });
 
@@ -445,7 +445,7 @@ describe('syncWranglerBindings', () => {
     setup('wrangler.jsonc', '{ "name": "test" }');
     const result = syncWranglerBindings(tmpDir, { ...noBindings, needsD1: true });
     expect(result).toBe(true);
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.d1_databases).toEqual([
       { binding: 'DB', database_name: 'default', database_id: 'local' },
     ]);
@@ -455,7 +455,7 @@ describe('syncWranglerBindings', () => {
     setup('wrangler.json', '{ "name": "test" }');
     const result = syncWranglerBindings(tmpDir, { ...noBindings, needsKV: true, needsR2: true });
     expect(result).toBe(true);
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.json'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.json'), 'utf8'));
     expect(parsed.kv_namespaces).toEqual([{ binding: 'KV', id: 'local' }]);
     expect(parsed.r2_buckets).toEqual([{ binding: 'STORAGE', bucket_name: 'default' }]);
   });
@@ -467,7 +467,7 @@ describe('syncWranglerBindings', () => {
       { ...noBindings, needsD1: true, needsKV: true },
       { bindingNames: { d1: 'MY_DB', kv: 'MY_KV' } },
     );
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.d1_databases[0].binding).toBe('MY_DB');
     expect(parsed.kv_namespaces[0].binding).toBe('MY_KV');
   });
@@ -510,7 +510,7 @@ describe('syncWranglerBindings', () => {
 
     syncWranglerWebSockets(tmpDir, [route('LegacyRoom', 'LEGACY'), route('ChatRoom', 'CHAT')]);
 
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.migrations).toEqual([
       { tag: 'void-ws-v1', new_classes: ['LegacyRoom'] },
       { tag: 'void-ws-v1-2', new_sqlite_classes: ['ChatRoom'] },
@@ -536,7 +536,7 @@ describe('syncWranglerBindings', () => {
 
     expect(syncWranglerWebSockets(tmpDir, [])).toBe(false);
 
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.durable_objects.bindings).toEqual([
       { name: 'OLD_CHAT', class_name: 'OldChatWs' },
       { name: 'CART', class_name: 'ShoppingCartDurableObject' },
@@ -572,7 +572,7 @@ describe('syncWranglerBindings', () => {
       },
     ]);
 
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.durable_objects.bindings).toEqual([
       { name: 'OLD_CHAT', class_name: 'OldChatWs' },
       { name: 'CHAT', class_name: 'ChatWs' },
@@ -616,7 +616,7 @@ describe('syncWranglerBindings', () => {
 
     expect(syncWranglerDurableObjects(tmpDir, [zeta])).toBe(true);
     expect(syncWranglerDurableObjects(tmpDir, [alpha, zeta])).toBe(true);
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
 
     expect(parsed.migrations).toEqual([
       { tag: 'void-durable-zeta-v1', new_sqlite_classes: ['ZetaDurableObject'] },
@@ -644,7 +644,7 @@ describe('syncWranglerBindings', () => {
       migrationTag: 'void-durable-counter-v1',
     };
     expect(syncWranglerDurableObjects(tmpDir, [counter])).toBe(true);
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
 
     expect(parsed).toMatchObject({
       name: 'existing',
@@ -661,7 +661,7 @@ describe('syncWranglerBindings', () => {
     setup('wrangler.jsonc', '{ "name": "test" }');
     const result = syncWranglerBindings(tmpDir, { ...noBindings, needsLive: true });
     expect(result).toBe(true);
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.durable_objects.bindings).toEqual([
       { name: 'VOID_LIVE', class_name: 'VoidLiveStreamDurableObject' },
     ]);
@@ -697,7 +697,7 @@ describe('syncWranglerBindings', () => {
     );
     const result = syncWranglerBindings(tmpDir, { ...noBindings, needsLive: true });
     expect(result).toBe(true);
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.migrations).toEqual([
       { tag: 'live-v1', new_sqlite_classes: ['OtherDurableObject'] },
       { tag: 'live-v1-2', new_sqlite_classes: ['VoidLiveStreamDurableObject'] },
@@ -718,7 +718,7 @@ describe('syncWranglerBindings', () => {
     expect(result).toBe(true);
     expect(live.bindingName).toMatch(/^VOID_LIVE_[0-9a-f]{8}$/);
     expect(live.className).toBe('VoidLiveStreamDurableObject');
-    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    const parsed = JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf8'));
     expect(parsed.durable_objects.bindings).toEqual([
       { name: 'VOID_LIVE', class_name: 'UserLiveDurableObject' },
       { name: live.bindingName, class_name: live.className },

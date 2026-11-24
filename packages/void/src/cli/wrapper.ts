@@ -431,7 +431,7 @@ function patchWorkerRequireBundle(
       continue;
     }
     const path = join(outDir, file);
-    const code = readFileSync(path, 'utf-8');
+    const code = readFileSync(path, 'utf8');
     const transformed = transformWorkerRequireBundle(
       code,
       file,

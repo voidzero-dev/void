@@ -472,7 +472,6 @@ const config = defineConfig({
       'unicorn/prefer-string-slice': 'off',
       'unicorn/prefer-structured-clone': 'off',
       'unicorn/prefer-top-level-await': 'off',
-      'unicorn/text-encoding-identifier-case': 'off',
       '@typescript-eslint/array-type': [
         'error',
         {

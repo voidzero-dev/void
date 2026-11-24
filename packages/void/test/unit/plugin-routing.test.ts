@@ -154,7 +154,7 @@ describe('routingPlugin', () => {
     resolveConfig(plugin, 'build');
     await runBuildStart(plugin);
 
-    const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf-8');
+    const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf8');
     expect(entry).toContain('app, assets: serveWithAssets');
     expect(entry).toContain(
       'const serveWithAssets = __createAssetFallback({"assetsDir":"assets","serveSpaFallback":true,"notFound":"none"});',
@@ -169,7 +169,7 @@ describe('routingPlugin', () => {
     resolveConfig(plugin, 'build');
     await runBuildStart(plugin);
 
-    const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf-8');
+    const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf8');
     expect(entry).toContain(
       'const serveWithAssets = __createAssetFallback({"assetsDir":"assets","serveSpaFallback":false,"notFound":"single-page-application"});',
     );
@@ -581,7 +581,7 @@ describe('routingPlugin', () => {
     await runBuildStart(plugin);
 
     const typesPath = join(root, '.void', 'routes.d.ts');
-    const previousTypes = readFileSync(typesPath, 'utf-8');
+    const previousTypes = readFileSync(typesPath, 'utf8');
     const { server, emit, invalidated, logError } = await startDevServer(plugin, [
       'virtual:void-routes',
     ]);
@@ -625,7 +625,7 @@ describe('routingPlugin', () => {
     await emit('change', routePath);
 
     expect(invalidated).toEqual(['virtual:void-routes']);
-    expect(readFileSync(typesPath, 'utf-8').includes('POST: {')).toBe(changesExports);
+    expect(readFileSync(typesPath, 'utf8').includes('POST: {')).toBe(changesExports);
 
     writeFileSync(
       routePath,
@@ -1001,7 +1001,7 @@ describe('routingPlugin', () => {
 
     expect(onPolicyChange).toHaveBeenCalled();
     expect(invalidated).toEqual(['virtual:void-routes']);
-    expect(readFileSync(join(root, '.void', 'routes.d.ts'), 'utf-8')).toContain(
+    expect(readFileSync(join(root, '.void', 'routes.d.ts'), 'utf8')).toContain(
       '../src/routes/api.ts',
     );
   });
@@ -1068,13 +1068,13 @@ describe('routingPlugin', () => {
         live: { bindingName: 'VOID_LIVE', className: 'VoidLiveStreamDurableObject' },
       });
       const entryPath = join(root, '.void', 'entry.ts');
-      expect(readFileSync(entryPath, 'utf-8')).not.toContain('__setLiveDev');
+      expect(readFileSync(entryPath, 'utf8')).not.toContain('__setLiveDev');
 
       runConfig(plugin, { command, mode: 'development', isPreview });
       resolveConfig(plugin, command);
       await runBuildStart(plugin);
 
-      const entry = readFileSync(entryPath, 'utf-8');
+      const entry = readFileSync(entryPath, 'utf8');
       expect(entry).toContain('__setLiveBindingName("VOID_LIVE")');
       if (dev) {
         expect(entry).toContain('__setLiveDev(true);');
@@ -1104,7 +1104,7 @@ describe('routingPlugin', () => {
       resolveConfig(plugin, command);
       await runBuildStart(plugin);
 
-      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf-8');
+      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf8');
       expect(entry.includes('alwaysUseHttps: true')).toBe(emitted);
       // The app itself never redirects, so in-process `fetch` stays on HTTP.
       const load = getHookHandler(plugin.load) as (id: string) => Promise<string | undefined>;

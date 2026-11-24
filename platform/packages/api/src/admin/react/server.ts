@@ -34,6 +34,7 @@ export async function renderAdminPage(
       title: formatPlatformPageTitle(title, platformName),
       htmlAttrs: { lang: 'en', 'data-astryx-theme': 'neutral' },
       meta: [
+        // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       ],

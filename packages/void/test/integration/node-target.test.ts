@@ -113,7 +113,7 @@ describe('playground/node-app build + production', () => {
     expect(existsSync(join(playground.root, 'dist/ssr/index.js'))).toBe(true);
     expect(existsSync(join(playground.root, 'dist/client'))).toBe(true);
 
-    const index = readFileSync(join(playground.root, 'dist/ssr/index.js'), 'utf-8');
+    const index = readFileSync(join(playground.root, 'dist/ssr/index.js'), 'utf8');
     expect(index).toContain('@hono/node-server');
   });
 

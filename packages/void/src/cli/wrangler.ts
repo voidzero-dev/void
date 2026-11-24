@@ -71,7 +71,7 @@ function readOrCreateProjectWranglerConfig(root: string): {
   if (configPath) {
     let parsed: Record<string, unknown> | undefined;
     try {
-      parsed = parseJsonc(readFileSync(configPath, 'utf-8'));
+      parsed = parseJsonc(readFileSync(configPath, 'utf8'));
     } catch {
       // Can't read, replace with the generated config below.
     }
@@ -128,7 +128,7 @@ export function readRootWranglerConfig(root: string): RootWranglerConfig | undef
     if (!existsSync(configPath)) {
       continue;
     }
-    const parsed = parseJsonc(readFileSync(configPath, 'utf-8'));
+    const parsed = parseJsonc(readFileSync(configPath, 'utf8'));
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new SyntaxError(`Failed to parse ${configPath}: expected a JSON object.`);
     }
@@ -144,7 +144,7 @@ export function readWranglerPublishedTrafficSnapshot(
   if (!existsSync(configPath)) {
     return undefined;
   }
-  const encoded = PUBLISHED_TRAFFIC_MARKER.exec(readFileSync(configPath, 'utf-8'))?.[1];
+  const encoded = PUBLISHED_TRAFFIC_MARKER.exec(readFileSync(configPath, 'utf8'))?.[1];
   if (!encoded) {
     return undefined;
   }
@@ -177,7 +177,7 @@ export function writeWranglerPublishedTrafficSnapshot(
   if (!existsSync(configPath)) {
     return;
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const encoded = Buffer.from(JSON.stringify(snapshot), 'utf8').toString('base64url');
   const marker = `// void:published-traffic:v1:${encoded}`;
   const existing = PUBLISHED_TRAFFIC_MARKER.exec(raw);
@@ -301,7 +301,7 @@ function readWranglerDurableObjectBindings(
 ): Array<{ name: string; class_name: string }> {
   for (const path of projectWranglerPaths(root)) {
     try {
-      const parsed = parseJsonc(readFileSync(path, 'utf-8'));
+      const parsed = parseJsonc(readFileSync(path, 'utf8'));
       const bindings = (
         parsed.durable_objects as
           | { bindings?: Array<{ name?: unknown; class_name?: unknown }> }
@@ -403,7 +403,7 @@ function readWranglerCompatFields(
   let raw: string | undefined;
   for (const path of projectWranglerPaths(root)) {
     try {
-      raw = readFileSync(path, 'utf-8');
+      raw = readFileSync(path, 'utf8');
       break;
     } catch {
       // try next
@@ -431,7 +431,7 @@ function readWranglerCompatFields(
   let buildFlags: Array<string> | undefined;
   if (buildOutputDir) {
     try {
-      const buildRaw = readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf-8');
+      const buildRaw = readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf8');
       const buildParsed = JSON.parse(buildRaw);
       if (typeof buildParsed.compatibility_date === 'string') {
         validateCompatDate(buildParsed.compatibility_date, 'build output wrangler.json');
@@ -520,7 +520,7 @@ function ensureVoidCompatibilityDate(root: string, rootWrangler: boolean): strin
 
   let nextConfig: VoidConfig;
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       throw new Error(`config: ${VOID_CONFIG_FILE} must be a JSON object.`);
     }
@@ -793,7 +793,7 @@ export function readWranglerWebSocketTombstones(
   if (!configPath) {
     return [];
   }
-  const parsed = parseJsonc(readFileSync(configPath, 'utf-8'));
+  const parsed = parseJsonc(readFileSync(configPath, 'utf8'));
   const migrations = Array.isArray(parsed.migrations)
     ? (parsed.migrations as Array<DurableObjectMigration>)
     : [];
@@ -990,7 +990,7 @@ export function readWranglerManagedQueueCleanupCandidates(configPath: string): A
   if (!existsSync(configPath)) {
     return [];
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const text = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
   const provenance = readManagedQueueProvenance(text);
   return [...new Set([...provenance.consumerQueues, ...provenance.pendingConsumerRemovals])].sort();
@@ -1004,7 +1004,7 @@ export function acknowledgeWranglerManagedQueueRemovals(
   if (!existsSync(configPath) || removedQueues.length === 0) {
     return;
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const hasBom = raw.startsWith(UTF8_BOM);
   const text = hasBom ? raw.slice(UTF8_BOM.length) : raw;
   const provenance = readManagedQueueProvenance(text);
@@ -1042,7 +1042,7 @@ export function writeProvisionedWranglerConfig(
   const configPath = options?.configPath ?? discoverWranglerConfigPath(root);
 
   // Wrangler strips a leading BOM before parsing. Strip it for editing and restore it on write.
-  const rawContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : '{}';
+  const rawContent = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '{}';
   const hasBom = rawContent.startsWith(UTF8_BOM);
   const original = hasBom ? rawContent.slice(UTF8_BOM.length) : rawContent;
 
@@ -1625,7 +1625,7 @@ export function writeProvisionedWranglerConfig(
 /** Read the custom-domain routes owned by the root Wrangler config. */
 export function readWranglerCustomDomains(root: string): WranglerCustomDomainUpdate {
   const configPath = discoverWranglerConfigPath(root);
-  const raw = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : '{}';
+  const raw = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '{}';
   const text = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
   const parsed = parseJsonc(text);
   assertNoDuplicateMembers(text, configPath);
@@ -1652,7 +1652,7 @@ export function updateWranglerCustomDomain(
       `domain: No Wrangler config found at "${configPath}". Run \`void init\` first.`,
     );
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const hasBom = raw.startsWith(UTF8_BOM);
   const original = hasBom ? raw.slice(UTF8_BOM.length) : raw;
   const parsed = parseJsonc(original);

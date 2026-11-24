@@ -200,7 +200,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
         await new Promise((r) => setTimeout(r, 50));
       }
       expect(existsSync(sidecar)).toBe(true);
-      const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
+      const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
       expect(recorded.pid).toBe(live.pid);
       expect(existsSync(lockMutex)).toBe(true); // retained, now safely detached
       // The retained mutex is guarded by the sidecar: an acquirer fails closed on the
@@ -263,7 +263,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stderr = '';
-    parent.stderr.setEncoding('utf-8');
+    parent.stderr.setEncoding('utf8');
     parent.stderr.on('data', (chunk: string) => {
       stderr += chunk;
     });
@@ -275,9 +275,9 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
       clearTimeout(killTimer);
       expect(signal).toBeNull();
       expect(code).toBe(0);
-      expect(readFileSync(join(appRoot, 'outcome.txt'), 'utf-8')).toContain('REJECTED:');
+      expect(readFileSync(join(appRoot, 'outcome.txt'), 'utf8')).toContain('REJECTED:');
       // The watchdog held the process open past the child's 700ms lifetime.
-      const exitState = JSON.parse(readFileSync(join(appRoot, 'exit.txt'), 'utf-8')) as {
+      const exitState = JSON.parse(readFileSync(join(appRoot, 'exit.txt'), 'utf8')) as {
         elapsed: number;
         childAlive: boolean;
       };

@@ -122,7 +122,7 @@ describe('playground/kitchen-sink --platform cloudflare real-build deploy guard'
     expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
 
     pristineEmitted = JSON.parse(
-      readFileSync(join(pg, 'dist', 'ssr', 'wrangler.json'), 'utf-8'),
+      readFileSync(join(pg, 'dist', 'ssr', 'wrangler.json'), 'utf8'),
     ) as Record<string, unknown>;
   });
 
@@ -132,7 +132,7 @@ describe('playground/kitchen-sink --platform cloudflare real-build deploy guard'
 
   it('emits the CF-plugin deploy pointer the guard follows', () => {
     const pointer = JSON.parse(
-      readFileSync(join(pg, '.wrangler', 'deploy', 'config.json'), 'utf-8'),
+      readFileSync(join(pg, '.wrangler', 'deploy', 'config.json'), 'utf8'),
     ) as { configPath?: string };
     // The pointer uses the platform's path separator.
     expect(toSlash(normalize(pointer.configPath ?? ''))).toBe('../../dist/ssr/wrangler.json');

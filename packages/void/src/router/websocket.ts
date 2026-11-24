@@ -96,7 +96,7 @@ function getPropertyName(node: AstNode | undefined): string | null {
 const WEBSOCKET_HELPERS = new Set(['defineRoom', 'defineWebSocket']);
 
 export function detectWebSocketDefinition(absPath: string): WebSocketSourceInfo | null {
-  const code = readFileSync(absPath, 'utf-8');
+  const code = readFileSync(absPath, 'utf8');
   const definition = readResourceDefinition(absPath, code, WEBSOCKET_HELPERS);
   if (!definition) {
     return null;

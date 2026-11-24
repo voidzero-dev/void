@@ -156,7 +156,7 @@ describe('provisionCloudflareResources — whole-provision cross-process lock (p
           stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stdout = '';
-        child.stdout.setEncoding('utf-8');
+        child.stdout.setEncoding('utf8');
         child.stdout.on('data', (chunk: string) => {
           stdout += chunk;
         });
@@ -413,7 +413,7 @@ describe('provisionCloudflareResources — quarantine retains the whole-provisio
     // Later acquisitions gate on the recorded group instead of stealing the lock by age.
     const sidecar = `${wranglerPath}.void-provision.lock.quarantine.json`;
     expect(existsSync(sidecar)).toBe(true);
-    const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
+    const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
     expect(recorded.pid).toBe(43_210);
     expect(String(recorded.reason)).toMatch(/pid 43210/);
     // quarantine() detached the lock from proper-lockfile, so removing it fires no callback.

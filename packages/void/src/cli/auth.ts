@@ -38,7 +38,7 @@ type Config = {
 
 function readConfig(): Config {
   try {
-    return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+    return JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
     return {};
   }

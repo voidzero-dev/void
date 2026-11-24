@@ -1059,8 +1059,8 @@ export function createDefaultRunWrangler(
       child.once('spawn', () => {
         spawned = true;
       });
-      child.stdout?.setEncoding('utf-8');
-      child.stderr?.setEncoding('utf-8');
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
       child.stdout?.on('data', (chunk: string) => {
         stdout += chunk;
       });
@@ -1686,7 +1686,7 @@ function writeQuarantineSidecar(
     // Platform-unsupported directory fsync — the read-back below is still required.
   }
   // VERIFY: the durable marker must be present and carry the recorded owner.
-  const readBack: unknown = JSON.parse(readFileSync(sidecarPath, 'utf-8'));
+  const readBack: unknown = JSON.parse(readFileSync(sidecarPath, 'utf8'));
   if (
     !isRecord(readBack) ||
     readBack.pid !== (info.pid ?? null) ||
@@ -1714,7 +1714,7 @@ function assertQuarantineClearedOrClear(lockTarget: string, onBeforeClear?: () =
   }
   let recorded: Record<string, unknown> | undefined;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(sidecarPath, 'utf-8'));
+    const parsed: unknown = JSON.parse(readFileSync(sidecarPath, 'utf8'));
     recorded = isRecord(parsed) ? parsed : undefined;
   } catch {
     recorded = undefined;
@@ -1760,7 +1760,7 @@ function assertQuarantineClearedOrClear(lockTarget: string, onBeforeClear?: () =
   onBeforeClear?.();
   let current: Record<string, unknown> | undefined;
   try {
-    const reread: unknown = JSON.parse(readFileSync(sidecarPath, 'utf-8'));
+    const reread: unknown = JSON.parse(readFileSync(sidecarPath, 'utf8'));
     current = isRecord(reread) ? reread : undefined;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -2107,7 +2107,7 @@ function readRootConfig(configPath: string): Record<string, unknown> {
   if (!existsSync(configPath)) {
     return {};
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const content = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
   const errors: Array<ParseError> = [];
   const parsed = parse(content, errors, { allowTrailingComma: true });
@@ -3080,7 +3080,7 @@ async function provisionCloudflareResourcesLocked(
 ): Promise<ProvisionResult> {
   // jsonc-parser accepts duplicate members, so reject them before any remote work.
   if (existsSync(configPath)) {
-    const raw = readFileSync(configPath, 'utf-8');
+    const raw = readFileSync(configPath, 'utf8');
     const content = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
     assertNoDuplicateMembers(content, configPath);
   }

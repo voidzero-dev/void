@@ -75,7 +75,7 @@ export function hasSsrEntry(root: string, paths: ProjectPaths = readProjectPaths
 function validateServerRenderExport(entry: ResolvedEntry): void {
   const { absolutePath, relativePath } = entry;
 
-  const source = readFileSync(absolutePath, 'utf-8');
+  const source = readFileSync(absolutePath, 'utf8');
   let parsed: ReturnType<typeof parseSync>;
   try {
     parsed = parseSync(relativePath, source);

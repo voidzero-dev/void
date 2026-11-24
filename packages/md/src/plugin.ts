@@ -79,7 +79,7 @@ async function listMdFiles(pagesDir: string, environment: 'dev' | 'prod'): Promi
 /** Whether any page has client code. Without it, pages would load an empty client entry. */
 async function hasMdClientCode(pagesDir: string, environment: 'dev' | 'prod'): Promise<boolean> {
   for (const file of await listMdFiles(pagesDir, environment)) {
-    if (extractScript(readFileSync(join(pagesDir, file), 'utf-8')).clientCode) {
+    if (extractScript(readFileSync(join(pagesDir, file), 'utf8')).clientCode) {
       return true;
     }
   }
@@ -129,7 +129,7 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
         const path = '/' + mdRouteName(file, pageFileEnvironment(file));
         const filePath = join(pagesDir, file);
         try {
-          const content = readFileSync(filePath, 'utf-8');
+          const content = readFileSync(filePath, 'utf8');
           const { body, clientCode } = extractScript(content);
           const result = extractMetadata(body);
 

@@ -435,7 +435,7 @@ describe('playground/kitchen-sink', () => {
 // is remote-only, so turn both off. kitchen-sink-build.test.ts covers them.
 function preparePreviewWranglerConfig(pg: string): string {
   const wranglerPath = join(pg, 'dist', 'ssr', 'wrangler.json');
-  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf-8')) as {
+  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf8')) as {
     dev?: Record<string, unknown>;
     ai?: unknown;
     d1_databases?: Array<{ binding?: unknown; database_id?: unknown }>;

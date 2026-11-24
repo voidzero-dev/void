@@ -403,7 +403,7 @@ describe('resolveProjectCommand shell safety (project root with spaces)', () => 
     () => {
       const { root } = setupSpacedProject('vitepress');
       const cmd = resolveProjectCommand(root, 'vitepress build docs');
-      const out = execSync(cmd, { encoding: 'utf-8' });
+      const out = execSync(cmd, { encoding: 'utf8' });
       expect(out).toContain('VOID_BIN_OK');
       expect(out).toContain('args=build docs');
     },
@@ -420,7 +420,7 @@ describe('resolveProjectCommand shell safety (project root with spaces)', () => 
       );
       const cmd = resolveProjectCommand(SPACED_TMP, 'vite build');
       expect(cmd).toBe(`'${binPath.replace(/'/g, "'\\''")}' build`);
-      const out = execSync(cmd, { encoding: 'utf-8' });
+      const out = execSync(cmd, { encoding: 'utf8' });
       expect(out).toContain('VOID_BIN_OK');
       expect(out).toContain('args=build');
     },

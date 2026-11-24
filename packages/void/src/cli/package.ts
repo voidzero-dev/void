@@ -199,7 +199,7 @@ function createAssetsIgnoreFunction(
   let assetsIgnoreFilePresent = false;
   if (existsSync(assetsIgnorePath)) {
     assetsIgnoreFilePresent = true;
-    const content = readFileSync(assetsIgnorePath, 'utf-8');
+    const content = readFileSync(assetsIgnorePath, 'utf8');
     patterns.push(...content.split('\n'));
   }
   const ig = ignore().add(patterns);

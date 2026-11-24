@@ -108,6 +108,7 @@ describe('resolveHead', () => {
 
   it('appends non-conflicting meta entries', () => {
     const config: HeadConfig = {
+      // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
       meta: [{ charset: 'utf-8' }],
     };
     const page: HeadDescriptor = {
@@ -115,6 +116,7 @@ describe('resolveHead', () => {
     };
     const result = resolveHead(config, undefined, page);
     expect(result?.meta).toHaveLength(2);
+    // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
     expect(result?.meta![0]).toEqual({ charset: 'utf-8' });
     expect(result?.meta![1]).toEqual({ name: 'description', content: 'Hello' });
   });
@@ -242,6 +244,7 @@ describe('renderHeadToString', () => {
   it('renders meta tags', () => {
     const html = renderHeadToString({
       meta: [
+        // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
         { charset: 'utf-8' },
         { name: 'description', content: 'A page' },
         { property: 'og:title', content: 'Title' },

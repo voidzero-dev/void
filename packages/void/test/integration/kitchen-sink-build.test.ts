@@ -88,7 +88,7 @@ describe('playground/kitchen-sink build', () => {
   });
 
   it('does not leak __VOID_* credentials into dist/ssr/wrangler.json', () => {
-    const wranglerConfig = JSON.parse(readFileSync(join(dist, 'ssr', 'wrangler.json'), 'utf-8'));
+    const wranglerConfig = JSON.parse(readFileSync(join(dist, 'ssr', 'wrangler.json'), 'utf8'));
     const vars = (wranglerConfig.vars ?? {}) as Record<string, unknown>;
     // These are legitimate, non-credential runtime routing vars for a custom Workers AI
     // binding / AI Gateway. Exclude them from the credential leak filter.
@@ -100,7 +100,7 @@ describe('playground/kitchen-sink build', () => {
   });
 
   it('binds Workers AI and emits the AI Gateway var for self-host deploys', () => {
-    const wranglerConfig = JSON.parse(readFileSync(join(dist, 'ssr', 'wrangler.json'), 'utf-8'));
+    const wranglerConfig = JSON.parse(readFileSync(join(dist, 'ssr', 'wrangler.json'), 'utf8'));
     // kitchen-sink imports `void/ai` at request time, so the build infers
     // `needsAI` and injects the Workers AI binding on `command === 'build'`.
     expect(wranglerConfig.ai).toEqual({ binding: 'AI' });
@@ -111,7 +111,7 @@ describe('playground/kitchen-sink build', () => {
   });
 
   it('does not ship local .env values and declares required server secrets', () => {
-    const wranglerConfig = JSON.parse(readFileSync(join(dist, 'ssr', 'wrangler.json'), 'utf-8'));
+    const wranglerConfig = JSON.parse(readFileSync(join(dist, 'ssr', 'wrangler.json'), 'utf8'));
     const vars = (wranglerConfig.vars ?? {}) as Record<string, unknown>;
     expect(vars.APP_NAME).toBeUndefined();
     expect(vars.SECRET_KEY).toBeUndefined();
@@ -127,7 +127,7 @@ describe('playground/kitchen-sink build', () => {
   });
 
   it('includes sandbox bindings and container metadata', () => {
-    const wranglerConfig = JSON.parse(readFileSync(join(dist, 'ssr', 'wrangler.json'), 'utf-8'));
+    const wranglerConfig = JSON.parse(readFileSync(join(dist, 'ssr', 'wrangler.json'), 'utf8'));
     expect(wranglerConfig.compatibility_flags).toContain('nodejs_compat');
     expect(wranglerConfig.durable_objects.bindings).toContainEqual({
       name: 'SANDBOX',

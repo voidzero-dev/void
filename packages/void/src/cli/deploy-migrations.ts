@@ -320,7 +320,7 @@ function readEmittedAuthMigrationSchema(root: string): Array<RequiredAuthTable> 
       `the build did not emit ${schemaPath}, so the generated auth schema could not be read from the build output.`,
     );
   }
-  const content = readFileSync(schemaPath, 'utf-8');
+  const content = readFileSync(schemaPath, 'utf8');
   const marker = 'export const migrationSchema = ';
   const start = content.indexOf(marker);
   if (start === -1) {
@@ -549,7 +549,7 @@ export async function checkWranglerMigrationApplySet(
   }
   const wranglerNames = listWranglerMigrationFiles(absDir, resolvedPattern.pattern);
   const wranglerContent = new Map(
-    wranglerNames.map((name) => [name, readFileSync(join(absDir, name), 'utf-8')]),
+    wranglerNames.map((name) => [name, readFileSync(join(absDir, name), 'utf8')]),
   );
   const gatedNames = gated.map((m) => m.name.replace(/\\/g, '/'));
   const gatedContent = new Map(gatedNames.map((name, i) => [name, gated[i]!.sql]));

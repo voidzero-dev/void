@@ -107,7 +107,7 @@ describe('createDefaultRunWrangler — hard timeout kills the REAL process', () 
     expect(result.signal).toBe('SIGKILL');
     expect(result.status).not.toBe(0);
     // The process-group kill reaped the grandchild too.
-    const gcPid = Number(readFileSync(gcPidFile, 'utf-8'));
+    const gcPid = Number(readFileSync(gcPidFile, 'utf8'));
     expect(Number.isInteger(gcPid)).toBe(true);
     expect(await waitForDead(gcPid, 10_000)).toBe(true);
   }, 25_000);
@@ -158,7 +158,7 @@ describe('withListerDeadline — the deadline holds in a real process', () => {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
-    child.stdout.setEncoding('utf-8');
+    child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       stdout += chunk;
     });
@@ -228,7 +228,7 @@ describe('createDefaultRunWrangler — confirmed child termination + kill classi
       const left = existsSync(killClassifyTmp) ? readdirSync(killClassifyTmp) : [];
       const live = left
         .filter((entry) => entry.endsWith('.pid'))
-        .map((entry) => Number(readFileSync(join(killClassifyTmp, entry), 'utf-8').trim()))
+        .map((entry) => Number(readFileSync(join(killClassifyTmp, entry), 'utf8').trim()))
         .filter((pid) => {
           try {
             process.kill(pid, 0);

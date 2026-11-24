@@ -294,7 +294,7 @@ function asRecord(value: unknown): JsonObject | null {
 
 function parseJsoncFile(path: string): JsonObject | null {
   const errors: Array<ParseError> = [];
-  const parsed = asRecord(parse(readFileSync(path, 'utf-8'), errors));
+  const parsed = asRecord(parse(readFileSync(path, 'utf8'), errors));
   return errors.length === 0 ? parsed : null;
 }
 
@@ -517,7 +517,7 @@ function hasTopLevelYamlKey(yaml: string, key: string): boolean {
 
 function isEmptyProjectAllowedPnpmWorkspaceFile(root: string): boolean {
   try {
-    const yaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf-8');
+    const yaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
     return !hasTopLevelYamlKey(yaml, 'packages');
   } catch {
     return false;
@@ -568,7 +568,7 @@ export function isScaffoldableEmptyProject(root: string): boolean {
 
   let pkgRaw: unknown;
   try {
-    pkgRaw = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+    pkgRaw = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
   } catch {
     return false;
   }
@@ -752,7 +752,7 @@ function hasAncestorPnpmMarkers(start: string): boolean {
   const pkgPath = join(workspaceRoot, 'package.json');
   if (existsSync(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
       if (parsePackageManagerField(pkg) === 'pnpm') {
         return true;
       }
@@ -807,7 +807,7 @@ function findWorkspaceRoot(start: string): string | undefined {
     const pkgPath = join(dir, 'package.json');
     if (existsSync(pkgPath)) {
       try {
-        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as Record<string, unknown>;
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>;
         if (pkg && typeof pkg === 'object' && 'workspaces' in pkg) {
           return dir;
         }
@@ -834,7 +834,7 @@ function readWorkspacePatterns(workspaceRoot: string): Array<string> {
   const pnpmWorkspacePath = join(workspaceRoot, 'pnpm-workspace.yaml');
   if (existsSync(pnpmWorkspacePath)) {
     try {
-      const yaml = readFileSync(pnpmWorkspacePath, 'utf-8');
+      const yaml = readFileSync(pnpmWorkspacePath, 'utf8');
       return extractPnpmWorkspacePackages(yaml);
     } catch {
       return [];
@@ -843,7 +843,7 @@ function readWorkspacePatterns(workspaceRoot: string): Array<string> {
   const pkgPath = join(workspaceRoot, 'package.json');
   if (existsSync(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as Record<string, unknown>;
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>;
       const workspaces = (pkg as { workspaces?: unknown }).workspaces;
       if (Array.isArray(workspaces)) {
         return workspaces.filter((x): x is string => typeof x === 'string');
@@ -1108,7 +1108,7 @@ export function detectProjectState(root: string): ProjectState {
   let hasTypescript = false;
   let pkg: unknown;
   try {
-    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
     const pkgRecord = (pkg ?? {}) as { dependencies?: unknown; devDependencies?: unknown };
     const allDeps = {
       ...(asRecord(pkgRecord.dependencies) ?? {}),
@@ -1305,7 +1305,7 @@ function setupTsconfig(
     let dependencyRemoved = false;
     try {
       const pkgPath = join(root, 'package.json');
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
       let pkgUpdated = false;
       if (pkg.dependencies?.['@cloudflare/workers-types']) {
         delete pkg.dependencies['@cloudflare/workers-types'];
@@ -1959,7 +1959,7 @@ function patchWorkflowProjectSlug(root: string, slug: string, report: InitReport
   if (!existsSync(workflowPath)) {
     return false;
   }
-  const yaml = readFileSync(workflowPath, 'utf-8');
+  const yaml = readFileSync(workflowPath, 'utf8');
   // The placeholder block that `getWorkflowYaml` emits.
   const placeholderBlock =
     '  # Set a VOID_PROJECT repository variable to your project slug\n' +
@@ -2102,7 +2102,7 @@ function ensurePnpmAllowBuilds(root: string, pkg: JsonObject, report: InitReport
   const workspacePath = join(configRoot, 'pnpm-workspace.yaml');
   const displayPath = configRoot === root ? 'pnpm-workspace.yaml' : relative(root, workspacePath);
   const existed = existsSync(workspacePath);
-  const before = existed ? readFileSync(workspacePath, 'utf-8') : '';
+  const before = existed ? readFileSync(workspacePath, 'utf8') : '';
   // A same-line value such as `allowBuilds: {...}` cannot be merged line by
   // line, and a second `allowBuilds:` key would make the file invalid.
   const inline = /^allowBuilds:[ \t]*([^\s#].*)$/m.exec(before)?.[1];
@@ -2294,7 +2294,7 @@ function scaffoldPagesApp(
 
   if (packageJsonExisted) {
     try {
-      pkg = asRecord(JSON.parse(readFileSync(packageJsonPath, 'utf-8'))) ?? {};
+      pkg = asRecord(JSON.parse(readFileSync(packageJsonPath, 'utf8'))) ?? {};
     } catch {
       throw new Error('Could not parse package.json in empty project');
     }
@@ -2423,7 +2423,7 @@ function ensureExistingProjectPackage(
   if (existsSync(packageJsonPath)) {
     existedBefore = true;
     try {
-      pkg = asRecord(JSON.parse(readFileSync(packageJsonPath, 'utf-8'))) ?? {};
+      pkg = asRecord(JSON.parse(readFileSync(packageJsonPath, 'utf8'))) ?? {};
     } catch {
       throw new Error('Could not parse package.json while configuring Void');
     }
@@ -2608,7 +2608,7 @@ function ensureExistingProjectViteConfig(
   }
 
   const fullPath = join(root, configPath);
-  const original = readFileSync(fullPath, 'utf-8');
+  const original = readFileSync(fullPath, 'utf8');
   const updated = patchViteConfigWithVoidPlugin(configPath, original);
   if (updated === undefined) {
     noteManualViteConfigSetup(configPath);
@@ -2755,10 +2755,10 @@ async function injectAgentBlock(
   const filePath = 'AGENTS.md';
   const fullPath = join(root, filePath);
   const version = getOwnVersion();
-  const template = readFileSync(join(getPackageDir(), 'AGENTS_TEMPLATE.md'), 'utf-8');
+  const template = readFileSync(join(getPackageDir(), 'AGENTS_TEMPLATE.md'), 'utf8');
   const openMarker = `<!--injected-by-void-v${version}-->`;
   const block = `${openMarker}\n${template}\n${MARKER_CLOSE}`;
-  const existing = existsSync(fullPath) ? readFileSync(fullPath, 'utf-8') : null;
+  const existing = existsSync(fullPath) ? readFileSync(fullPath, 'utf8') : null;
   const managedBlock = existing?.match(MARKER_BLOCK_RE);
   if (managedBlock?.[0] === block) {
     return;

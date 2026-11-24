@@ -265,7 +265,7 @@ function transcriptDeps(
 
 function readJsonc(path: string): Record<string, unknown> {
   // The writer preserves the comment; strip it for the structural assertion.
-  const text = readFileSync(path, 'utf-8')
+  const text = readFileSync(path, 'utf8')
     .split('\n')
     .filter((line) => !line.trim().startsWith('//'))
     .join('\n')
@@ -448,7 +448,7 @@ describe('sending-only email setup and status', () => {
     const { root, configPath, deps, calls, fetchCalls, printed } = savedSendingOnly({
       fetchTable: { [`POST ${SENDING_SUBDOMAINS}`]: sendingRefusedByApi },
     });
-    const before = readFileSync(configPath, 'utf-8');
+    const before = readFileSync(configPath, 'utf8');
     const confirms: Array<string> = [];
     const logged = captureLog();
     let code: number;
@@ -483,7 +483,7 @@ describe('sending-only email setup and status', () => {
     expect(output).not.toContain('verified destinations only');
     expect(logged.lines.join('\n')).toContain('Follow the Workers Paid steps above.');
     // The saved binding and sender stay as they were.
-    expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    expect(readFileSync(configPath, 'utf8')).toBe(before);
   });
 });
 
@@ -538,7 +538,7 @@ describe('void email setup --platform cloudflare', () => {
     }
 
     // The root config: binding + addresses + sender var, comment and siblings intact.
-    const written = readFileSync(configPath, 'utf-8');
+    const written = readFileSync(configPath, 'utf8');
     expect(written).toContain('// the pinned account');
     expect(readJsonc(configPath)).toEqual({
       account_id: ACCOUNT,
@@ -571,7 +571,7 @@ describe('void email setup --platform cloudflare', () => {
   it('declined: nothing is written or called after the checklist', async () => {
     const root = makeProject();
     roots.push(root);
-    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
     const { deps, calls, fetchCalls } = transcriptDeps();
 
     const code = await run(root, 'setup', {
@@ -581,7 +581,7 @@ describe('void email setup --platform cloudflare', () => {
     });
 
     expect(code).toBe(0);
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(before);
     expect(calls.map((c) => c.args[0])).toEqual(['whoami', 'email', 'email', 'email', 'email']);
     expect(calls.some((c) => c.args.includes('enable'))).toBe(false);
     expect(fetchCalls.every((c) => c.method === 'GET')).toBe(true);
@@ -590,7 +590,7 @@ describe('void email setup --platform cloudflare', () => {
   it('non-interactive and not ready: checklist, exit 1, no writes (CI cannot press Enter)', async () => {
     const root = makeProject();
     roots.push(root);
-    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
     const { deps, calls, fetchCalls, printed } = transcriptDeps();
     const confirm = vi.fn(async () => true);
 
@@ -601,7 +601,7 @@ describe('void email setup --platform cloudflare', () => {
     expect(printed[0]).toContain(
       'This changes YOUR Cloudflare account. acme.com itself is not touched.',
     );
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(before);
     expect(calls.some((c) => c.args.includes('enable'))).toBe(false);
     expect(fetchCalls.every((c) => c.method === 'GET')).toBe(true);
   });
@@ -743,7 +743,7 @@ describe('void email setup --platform cloudflare', () => {
     const { root, configPath, deps, calls, fetchCalls, printed } = freeAfterSetup({
       runnerTable: { 'email sending enable mail.acme.com': sendingRefused },
     });
-    const before = readFileSync(configPath, 'utf-8');
+    const before = readFileSync(configPath, 'utf8');
     const confirms: Array<string> = [];
     const logged = captureLog();
     let code: number;
@@ -782,7 +782,7 @@ describe('void email setup --platform cloudflare', () => {
     expect(printed.at(-1)).toContain(
       'outbound  sendEmail() from noreply@mail.acme.com   (verified destinations only)',
     );
-    expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    expect(readFileSync(configPath, 'utf8')).toBe(before);
     expect(logged.lines.join('\n')).toContain('Email set up on mail.acme.com.');
   });
 
@@ -790,7 +790,7 @@ describe('void email setup --platform cloudflare', () => {
     const { root, configPath, deps, calls, printed } = freeAfterSetup({
       runnerTable: { 'email sending enable mail.acme.com': sendingEnabled('mail.acme.com') },
     });
-    const before = readFileSync(configPath, 'utf-8');
+    const before = readFileSync(configPath, 'utf8');
     const logged = captureLog();
     let code: number;
     try {
@@ -808,13 +808,13 @@ describe('void email setup --platform cloudflare', () => {
         '    outbound  sendEmail() from noreply@mail.acme.com',
       ].join('\n'),
     );
-    expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    expect(readFileSync(configPath, 'utf8')).toBe(before);
     expect(logged.lines.join('\n')).toContain('Email set up on mail.acme.com.');
   });
 
   it('Workers Free after `setup`, retry declined: nothing changed, no `enable` call, no write', async () => {
     const { root, configPath, deps, calls, fetchCalls } = freeAfterSetup();
-    const before = readFileSync(configPath, 'utf-8');
+    const before = readFileSync(configPath, 'utf8');
     const confirms: Array<string> = [];
     const logged = captureLog();
     let code: number;
@@ -836,12 +836,12 @@ describe('void email setup --platform cloudflare', () => {
     expect(logged.lines).toContain('Nothing changed.');
     expect(calls.some((c) => c.args.includes('enable'))).toBe(false);
     expect(fetchCalls.every((c) => c.method === 'GET')).toBe(true);
-    expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    expect(readFileSync(configPath, 'utf8')).toBe(before);
   });
 
   it('Workers Free after `setup`, non-interactive: the retry is never run unasked — exit 1, no `enable` call', async () => {
     const { root, configPath, deps, calls } = freeAfterSetup();
-    const before = readFileSync(configPath, 'utf-8');
+    const before = readFileSync(configPath, 'utf8');
     const confirm = vi.fn(async () => true);
 
     const code = await run(root, 'setup', { ...deps, isInteractive: false, confirm });
@@ -849,14 +849,14 @@ describe('void email setup --platform cloudflare', () => {
     expect(code).toBe(1);
     expect(confirm).not.toHaveBeenCalled();
     expect(calls.some((c) => c.args.includes('enable'))).toBe(false);
-    expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    expect(readFileSync(configPath, 'utf8')).toBe(before);
   });
 
   it('second run, everything ready: no prompt, zero writes, config unchanged, exit 0', async () => {
     const { root, configPath, deps, calls, fetchCalls, printed } = freeAfterSetup({
       runnerTable: { 'email sending settings mail.acme.com': sendingOnboarded },
     });
-    const before = readFileSync(configPath, 'utf-8');
+    const before = readFileSync(configPath, 'utf8');
     const confirm = vi.fn(async () => true);
 
     const code = await run(root, 'setup', { ...deps, isInteractive: false, confirm });
@@ -865,7 +865,7 @@ describe('void email setup --platform cloudflare', () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(calls.some((c) => c.args.includes('enable'))).toBe(false);
     expect(fetchCalls.every((c) => c.method === 'GET')).toBe(true);
-    expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    expect(readFileSync(configPath, 'utf8')).toBe(before);
     // Every row reads ready; the only remaining line is the `!` for the refused catch-all.
     expect(printed[0]).toContain('    rules     support@mail.acme.com → acme-support   (ready)');
     expect(printed[0]).not.toContain('\n    + ');
@@ -971,7 +971,7 @@ describe('void email status --platform cloudflare', () => {
   it('not ready: status rows + address map, exit 1, read-only', async () => {
     const root = makeProject();
     roots.push(root);
-    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
     const { deps, calls, fetchCalls, printed } = transcriptDeps();
     const confirm = vi.fn(async () => true);
 
@@ -981,7 +981,7 @@ describe('void email status --platform cloudflare', () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(calls.some((c) => c.args.includes('enable'))).toBe(false);
     expect(fetchCalls.every((c) => c.method === 'GET')).toBe(true);
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(before);
 
     expect(printed).toHaveLength(2);
     expect(printed[0]).toContain('    routing   mail.acme.com  not enabled · subaddressing off');
@@ -996,7 +996,7 @@ describe('void email status --platform cloudflare', () => {
 
   it('Workers Free after `setup` (binding committed, sending still not onboarded): exit 0, the row says what works and how to retry', async () => {
     const { root, configPath, deps, calls, fetchCalls, printed } = freeAfterSetup();
-    const before = readFileSync(configPath, 'utf-8');
+    const before = readFileSync(configPath, 'utf8');
     const confirm = vi.fn(async () => true);
     const logged = captureLog();
     let code: number;
@@ -1010,7 +1010,7 @@ describe('void email status --platform cloudflare', () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(calls.some((c) => c.args.includes('enable'))).toBe(false);
     expect(fetchCalls.every((c) => c.method === 'GET')).toBe(true);
-    expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    expect(readFileSync(configPath, 'utf8')).toBe(before);
     expect(printed[0]).toContain(
       '    sending   mail.acme.com  not onboarded — verified destinations only; after upgrading to Workers Paid run void email setup --platform cloudflare',
     );

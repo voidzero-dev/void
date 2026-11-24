@@ -73,7 +73,7 @@ async function validateEmittedVarsDefault(
 
 export function resolveGeneratedDeployConfigPathDefault(root: string): string {
   const pointerPath = deployPointerPath(root);
-  const pointer = JSON.parse(readFileSync(pointerPath, 'utf-8')) as { configPath?: unknown };
+  const pointer = JSON.parse(readFileSync(pointerPath, 'utf8')) as { configPath?: unknown };
   if (typeof pointer.configPath !== 'string' || pointer.configPath.length === 0) {
     throw new Error(`Generated Cloudflare deploy pointer ${pointerPath} has no configPath.`);
   }
@@ -178,7 +178,7 @@ export function verifyGeneratedDeployConfig(
   }
   let redirectedPath: string;
   try {
-    const parsed = JSON.parse(readFileSync(deployConfigPath, 'utf-8')) as { configPath?: unknown };
+    const parsed = JSON.parse(readFileSync(deployConfigPath, 'utf8')) as { configPath?: unknown };
     if (typeof parsed.configPath !== 'string' || parsed.configPath.length === 0) {
       return { ok: false, reason: `${deployConfigPath} has no "configPath" pointer.` };
     }

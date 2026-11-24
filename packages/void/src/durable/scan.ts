@@ -48,7 +48,7 @@ export function scanDurableObjectModules(root: string): Array<DurableObjectModul
       const filePath = join(directory, entry.name);
       const definition = readResourceDefinition(
         filePath,
-        readFileSync(filePath, 'utf-8'),
+        readFileSync(filePath, 'utf8'),
         DURABLE_HELPERS,
       );
       const name = definition?.name;

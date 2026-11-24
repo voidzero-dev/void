@@ -226,7 +226,7 @@ export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
 
 export function writeLocalDatabaseUrl(root: string, connectionString: string): void {
   const envPath = join(root, '.env');
-  const original = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : '';
+  const original = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
   const lines = original ? original.replace(/\r\n/g, '\n').split('\n') : [];
   const assignment = `DATABASE_URL=${JSON.stringify(connectionString)}`;
   const index = lines.findIndex((line) => /^\s*(?:export\s+)?DATABASE_URL\s*=/.test(line));
@@ -775,7 +775,7 @@ async function runSeed(
   // Load the seed before the reset, so a wrong path or a broken module stops the command
   // before any data is dropped. Importing a module runs its code, so ask about the database first.
   const seed = resolveSeedTarget(root, file);
-  const sql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf-8') : undefined;
+  const sql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf8') : undefined;
   await confirmReset(root, dialect, yes);
   const seedFn = sql === undefined ? await loadSeedFunction(seed.path) : undefined;
 
@@ -958,7 +958,7 @@ async function runExecute(
 ): Promise<void> {
   if (remote) {
     const directCloudflare = readDeploymentPlatform(root) === 'cloudflare';
-    const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+    const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
 
     if (directCloudflare) {
       const bulkImport =
@@ -1102,7 +1102,7 @@ async function runExecute(
   }
 
   if (dialect === 'postgresql') {
-    const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+    const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
     await withPgClient(root, async (client) => {
       const result = await client.query(sql);
       if (result.rows && result.rows.length > 0) {
@@ -1114,7 +1114,7 @@ async function runExecute(
   }
 
   if (dialect === 'mysql') {
-    const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+    const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
     await withMySqlClient(root, async (client) => {
       const rows = await client.query(sql);
       if (rows.length > 0) {
@@ -1133,7 +1133,7 @@ async function runExecute(
     process.exit(1);
   }
 
-  const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+  const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
 
   const db = await openSqliteDatabase(dbPath);
   try {

@@ -390,7 +390,7 @@ describe('provisionCloudflareResources — config discovery (fail closed, single
     expect(calls.some((c) => c[0] === 'd1')).toBe(false);
     expect(result.resources[0]).toMatchObject({ kind: 'd1', action: 'reused', id: uuid('db1') });
     // BOM survives the writer's migrations_dir fill.
-    expect(readFileSync(wranglerPath, 'utf-8').charCodeAt(0)).toBe(0xfe_ff);
+    expect(readFileSync(wranglerPath, 'utf8').charCodeAt(0)).toBe(0xfe_ff);
   });
 
   it('fails closed on a malformed root config — throws, no wrangler calls, no write', async () => {
@@ -406,7 +406,7 @@ describe('provisionCloudflareResources — config discovery (fail closed, single
       ),
     ).rejects.toThrow(/not valid JSON/);
     expect(calls).toEqual([]);
-    expect(readFileSync(wranglerPath, 'utf-8')).toBe(malformed);
+    expect(readFileSync(wranglerPath, 'utf8')).toBe(malformed);
   });
 
   it('reads and writes the SAME single resolved file when both wrangler.json and wrangler.jsonc exist', async () => {
@@ -431,10 +431,10 @@ describe('provisionCloudflareResources — config discovery (fail closed, single
     );
     expect(result.configPath).toBe(toSlash(jsonPath));
     // The adopted id landed in the passed file (wrangler.json) — NOT split into .jsonc.
-    const jsonAfter = parseJsoncRaw(readFileSync(jsonPath, 'utf-8')) as Record<string, unknown>;
+    const jsonAfter = parseJsoncRaw(readFileSync(jsonPath, 'utf8')) as Record<string, unknown>;
     expect((jsonAfter.kv_namespaces as Array<Record<string, unknown>>)[0].id).toBe(hex32('kv'));
     // wrangler.jsonc is untouched (still the placeholder).
-    const jsoncAfter = parseJsoncRaw(readFileSync(jsoncPath, 'utf-8')) as Record<string, unknown>;
+    const jsoncAfter = parseJsoncRaw(readFileSync(jsoncPath, 'utf8')) as Record<string, unknown>;
     expect((jsoncAfter.kv_namespaces as Array<Record<string, unknown>>)[0].id).toBe('local');
   });
 });
@@ -936,7 +936,7 @@ describe('provisionCloudflareResources — idempotent re-run', () => {
       runWrangler: first.run,
       log: silentLog,
     });
-    const afterFirst = readFileSync(wranglerPath, 'utf-8');
+    const afterFirst = readFileSync(wranglerPath, 'utf8');
 
     const second = makeRunner([]);
     const result = await provisionCloudflareResources(tmpDir, wranglerPath, desired, {
@@ -947,7 +947,7 @@ describe('provisionCloudflareResources — idempotent re-run', () => {
     expect(result.resources).toEqual([
       { kind: 'kv', binding: 'KV', name: 'myapp-kv', action: 'reused', id: hex32('kv') },
     ]);
-    expect(readFileSync(wranglerPath, 'utf-8')).toBe(afterFirst);
+    expect(readFileSync(wranglerPath, 'utf8')).toBe(afterFirst);
   });
 });
 
@@ -2588,7 +2588,7 @@ describe('provisionCloudflareResources — absolute config path', () => {
       expect(argv[i + 1]).toBe(toSlash(abs)); // wrangler `-c` is the SAME absolute file
     }
     // The adopted id landed in root/wrangler.jsonc — the file Node read from too.
-    const after = parseJsoncRaw(readFileSync(abs, 'utf-8')) as Record<string, unknown>;
+    const after = parseJsoncRaw(readFileSync(abs, 'utf8')) as Record<string, unknown>;
     expect((after.kv_namespaces as Array<Record<string, unknown>>)[0].id).toBe(hex32('kv'));
   });
 });

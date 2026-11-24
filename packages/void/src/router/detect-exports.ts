@@ -18,7 +18,7 @@ const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'
  * Scans top-level named exports for identifiers matching HTTP methods.
  */
 export function detectHttpExports(absPath: string): Array<string> {
-  const code = readFileSync(absPath, 'utf-8');
+  const code = readFileSync(absPath, 'utf8');
   const filename = basename(absPath);
   let parsed: ReturnType<typeof parseSync>;
   try {

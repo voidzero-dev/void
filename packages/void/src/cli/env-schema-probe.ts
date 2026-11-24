@@ -52,7 +52,7 @@ const defaultSpawn: EnvSchemaProbeSpawn = (command, args, options) => {
     cwd: options.cwd,
     env: options.env,
     stdio: ['ignore', 'ignore', 'ignore', 'pipe'],
-    encoding: 'utf-8',
+    encoding: 'utf8',
   });
   const fd3 = result.output?.[RESULT_FD];
   return {

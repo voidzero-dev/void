@@ -6,7 +6,7 @@ export function getPackageDir(): string {
   let dir = join(fileURLToPath(import.meta.url), '..');
   for (let i = 0; i < 5; i++) {
     if (existsSync(join(dir, 'package.json'))) {
-      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
       if (pkg.name === 'void') {
         return dir;
       }
@@ -17,7 +17,7 @@ export function getPackageDir(): string {
 }
 
 export function getOwnVersion(): string {
-  return JSON.parse(readFileSync(join(getPackageDir(), 'package.json'), 'utf-8')).version;
+  return JSON.parse(readFileSync(join(getPackageDir(), 'package.json'), 'utf8')).version;
 }
 
 // Agent configs: project-local skillsDir and how to detect presence in the project root.

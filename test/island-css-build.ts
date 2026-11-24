@@ -71,18 +71,18 @@ export default defineConfig({ output: 'static', worker: { compatibility_date: '2
   return {
     root,
     page(file) {
-      const html = readFileSync(join(client, file), 'utf-8');
+      const html = readFileSync(join(client, file), 'utf8');
       const css = stylesheetHrefs(html)
-        .map((href) => readFileSync(join(client, href), 'utf-8'))
+        .map((href) => readFileSync(join(client, href), 'utf8'))
         .join('\n');
       return { html, css };
     },
     output(dir) {
       const out = join(root, 'dist', dir);
       const files = new Map<string, string>();
-      for (const file of readdirSync(out, { recursive: true, encoding: 'utf-8' })) {
+      for (const file of readdirSync(out, { recursive: true, encoding: 'utf8' })) {
         if (file.endsWith('.js') || file.endsWith('.css') || file.endsWith('.html')) {
-          files.set(file, readFileSync(join(out, file), 'utf-8'));
+          files.set(file, readFileSync(join(out, file), 'utf8'));
         }
       }
       return files;

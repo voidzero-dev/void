@@ -64,7 +64,7 @@ async function waitForPid(pidFile: string, timeoutMs: number): Promise<number | 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (existsSync(pidFile)) {
-      const raw = readFileSync(pidFile, 'utf-8');
+      const raw = readFileSync(pidFile, 'utf8');
       if (raw.length > 0) {
         return Number(raw);
       }
@@ -116,7 +116,7 @@ describe('createDefaultRunWrangler — normal close confirms the whole GROUP', (
     // The clean exit is reported only after the grandchild was reaped.
     expect(result.status).toBe(0);
     expect(result.signal).toBeNull();
-    const gcPid = Number(readFileSync(gcPidFile, 'utf-8'));
+    const gcPid = Number(readFileSync(gcPidFile, 'utf8'));
     expect(Number.isInteger(gcPid)).toBe(true);
     let alive = true;
     try {
@@ -202,7 +202,7 @@ describe('createDefaultRunWrangler — signal-path kill failure quarantines the 
       const sidecar = `${cfgReal}.void-provision.lock.quarantine.json`;
       expect(existsSync(lockMutex)).toBe(true);
       expect(existsSync(sidecar)).toBe(true);
-      const recorded = JSON.parse(readFileSync(sidecar, 'utf-8')) as Record<string, unknown>;
+      const recorded = JSON.parse(readFileSync(sidecar, 'utf8')) as Record<string, unknown>;
       expect(recorded.pid).toBe(childPid);
       expect(String(recorded.reason)).toMatch(/SIGTERM/);
       // The child is still alive, so the gate fails closed even on a stale mutex.
@@ -478,7 +478,7 @@ describe('createDefaultRunWrangler — ONE signal coordinator: repeated signals 
         parent.on('exit', (code, sig) => res([code, sig]));
       });
       expect(signal).toBe('SIGTERM');
-      const outcome = readFileSync(outcomeFile, 'utf-8');
+      const outcome = readFileSync(outcomeFile, 'utf8');
       expect(outcome).toContain('LATE-SPAWN-REJECTED:');
       expect(outcome).toMatch(
         /refusing to spawn a Cloudflare operation process.*fatal SIGTERM.*terminating/s,
@@ -608,7 +608,7 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     if (!existsSync(pidFile)) {
       return undefined;
     }
-    const pid = Number(readFileSync(pidFile, 'utf-8'));
+    const pid = Number(readFileSync(pidFile, 'utf8'));
     try {
       process.kill(-pid, 'SIGKILL');
     } catch {
@@ -691,7 +691,7 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
       expect(result.stderr).toMatch(/EPIPE|broken pipe/i);
       expect(result.stdout).toContain('"operationResult":1');
       expect(result.data).toBeUndefined();
-      const pid = Number(readFileSync(pidFile, 'utf-8'));
+      const pid = Number(readFileSync(pidFile, 'utf8'));
       expect(() => process.kill(pid, 0)).toThrow();
     } finally {
       reapPidFile(pidFile);
@@ -755,7 +755,7 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     }
     expect(observedOutput).toContain('"operationResult":1');
     await childClosed;
-    const pid = Number(readFileSync(pidFile, 'utf-8'));
+    const pid = Number(readFileSync(pidFile, 'utf8'));
     expect(() => process.kill(pid, 0)).toThrow();
   }, 15_000);
 
@@ -848,7 +848,7 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     expect(result.stderr).toContain('write EPIPE');
     expect(result.stdout).toContain('"operationResult":1');
     expect(result.data).toBeUndefined();
-    const pid = Number(readFileSync(pidFile, 'utf-8'));
+    const pid = Number(readFileSync(pidFile, 'utf8'));
     expect(() => process.kill(pid, 0)).toThrow();
   }, 15_000);
 
@@ -868,7 +868,7 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     expect(result.signal).toBe('SIGKILL');
     expect(result.stderr).toContain('injected kill-delivery failure');
     // The hung child was reaped before the promise settled.
-    const pid = Number(readFileSync(pidFile, 'utf-8'));
+    const pid = Number(readFileSync(pidFile, 'utf8'));
     let alive = true;
     try {
       process.kill(pid, 0);

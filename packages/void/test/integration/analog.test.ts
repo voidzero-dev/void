@@ -56,7 +56,7 @@ describe('playground/analog dev', () => {
 
   it('syncs the generated Cloudflare config with bindings from void.config.ts', () => {
     const wranglerConfig = parse(
-      readFileSync(join(fixture.root, '.void-wrangler.jsonc'), 'utf-8'),
+      readFileSync(join(fixture.root, '.void-wrangler.jsonc'), 'utf8'),
     ) as {
       d1_databases?: Array<{ binding: string }>;
       kv_namespaces?: Array<{ binding: string }>;

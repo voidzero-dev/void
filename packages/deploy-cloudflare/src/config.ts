@@ -8,7 +8,7 @@ export function parseRootWranglerConfig(configPath: string): Record<string, unkn
   }
   let raw: string;
   try {
-    raw = readFileSync(configPath, 'utf-8');
+    raw = readFileSync(configPath, 'utf8');
   } catch {
     return {};
   }

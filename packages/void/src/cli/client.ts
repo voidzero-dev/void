@@ -26,7 +26,7 @@ import type {
 function readCliVersion(): string | null {
   try {
     const pkgPath = join(getPackageDir(), 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: unknown };
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: unknown };
     return typeof pkg.version === 'string' ? pkg.version : null;
   } catch {
     return null;

@@ -123,7 +123,7 @@ export function createIsolatedPlayground(
 
   // Avoid duplicate workspace package names when multiple copies exist concurrently.
   const packagePath = join(root, 'package.json');
-  const packageJson = JSON.parse(readFileSync(packagePath, 'utf-8')) as { name?: string };
+  const packageJson = JSON.parse(readFileSync(packagePath, 'utf8')) as { name?: string };
   packageJson.name = `${packageJson.name ?? basename(sourceWorkspacePath)}-${basename(root)}`;
   writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
 
