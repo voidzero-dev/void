@@ -581,6 +581,7 @@ const config = defineConfig({
       'typescript/unbound-method': 'off',
       // Promise rejection handlers need boundary-specific narrowing for logging, provider retry classification, and test assertions.
       'typescript/use-unknown-in-catch-callback-variable': 'off',
+      // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.
       'unicorn/catch-error-name': 'off',
       'unicorn/consistent-function-scoping': 'off',
       'unicorn/prefer-at': 'off',
