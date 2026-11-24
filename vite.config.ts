@@ -277,6 +277,15 @@ const config = defineConfig({
     ],
     overrides: [
       {
+        // These adapters and test helpers accept opaque objects for identity and weak keys.
+        files: [
+          '**/test/**/*',
+          'packages/void/src/plugin-cloudflare-config.ts',
+          'packages/void/src/runtime/env/{runtime,public}.ts',
+        ],
+        rules: { 'quality/no-object-parameters': 'off' },
+      },
+      {
         // Proxy traps preserve receiver semantics and tests inspect dynamic members.
         files: [
           '**/test/**/*',
@@ -513,7 +522,6 @@ const config = defineConfig({
       'quality/no-chained-type-assertions': 'off',
       'quality/no-conditional-empty-object-spread': 'off',
       'quality/no-known-value-widening': 'off',
-      'quality/no-object-parameters': 'off',
       'quality/no-unknown-returns': 'off',
       'quality/no-unsafe-dictionary-type': 'off',
       'react/set-state-in-effect': 'off',
