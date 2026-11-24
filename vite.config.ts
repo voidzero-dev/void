@@ -561,6 +561,7 @@ const config = defineConfig({
       'typescript/no-misused-spread': 'off',
       // Generated routing and registry access rely on invariants enforced by code generation and preceding validation. Replace assertions with local checks as those paths change.
       'typescript/no-non-null-assertion': 'off',
+      // Hundreds of remaining findings require changing inferred generic arguments. Review inference and declaration output in a separate type-focused pass.
       'typescript/no-unnecessary-type-assertion': 'off',
       'typescript/no-unsafe-argument': 'off',
       'typescript/no-unsafe-assignment': 'off',
