@@ -63,9 +63,8 @@ async function pollObservation(
         setTimeout(resolve, milliseconds);
       }));
   const deadline = now() + options.timeoutMs;
-  let latest: string | null = null;
   for (;;) {
-    latest = await read();
+    const latest = await read();
     if (accepts(latest, now())) {
       return latest!;
     }

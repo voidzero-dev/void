@@ -79,7 +79,7 @@ app.post('/probe-ingress', async (context) => {
   if (!connection) {
     return context.json({ error: 'ingress unavailable' }, 404);
   }
-  let accepted = false;
+  let accepted: boolean;
   try {
     accepted = constantTimeEqual(
       await readConnectionSecret(context.env, connection),

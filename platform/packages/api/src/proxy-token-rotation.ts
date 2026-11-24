@@ -469,7 +469,7 @@ async function activeWorker(tx: DbOrTx, project: Project): Promise<ActiveWorker 
     .from(deployments)
     .where(eq(deployments.id, project.active_deployment_id))
     .limit(1);
-  let manifest: DeployManifest | null = null;
+  let manifest: DeployManifest | null;
   try {
     manifest = row?.manifest ? (JSON.parse(row.manifest) as DeployManifest) : null;
   } catch {

@@ -1385,7 +1385,7 @@ export class PlatformCloudflareClient {
     if (response.status === 404) {
       return;
     }
-    let envelope: CloudflareEnvelope<unknown> = {};
+    let envelope: CloudflareEnvelope<unknown>;
     try {
       envelope = (await response.json()) as CloudflareEnvelope<unknown>;
     } catch {

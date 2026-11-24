@@ -189,7 +189,6 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   const cliVersion = context.req.header('x-void-cli-version') ?? null;
 
   const actor = context.get('user');
-  let owner = access.owner;
 
   const logger: DeployLogger = createDeployLogger({
     projectId,
@@ -755,7 +754,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
         deployment: Awaited<ReturnType<typeof createDeployment>>;
         currentLiveDeployment: Awaited<ReturnType<typeof getDeployment>>;
         project: Project;
-        owner: typeof owner;
+        owner: typeof access.owner;
         reconciledMarkerKeys?: ReadonlyArray<string>;
       }
     | { receipt: string }
@@ -1201,7 +1200,6 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   const preDeployment = precheckResult.deployment;
   const currentLiveDeployment = precheckResult.currentLiveDeployment;
   project = precheckResult.project;
-  owner = precheckResult.owner;
   const originalActiveDeploymentId = currentLiveDeployment?.id ?? null;
 
   if (durable) {
@@ -1215,7 +1213,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   }
   return await runDeploymentPipeline({
     context,
-    owner,
+    owner: precheckResult.owner,
     preDeployment,
     logger,
     execution,

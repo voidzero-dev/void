@@ -770,10 +770,8 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
   //    Email Routing settings (Zone Settings Read), which a sending-only token lacks.
   //    A `null` bearer leaves these rows `unknown`.
   let sendingRead: SessionBearerResponse | null = null;
-  let bearer: string | null = null;
-  if (pre.session.state === 'ok') {
-    bearer = await inputs.getSessionBearer().catch(() => null);
-  }
+  const bearer =
+    pre.session.state === 'ok' ? await inputs.getSessionBearer().catch(() => null) : null;
   if (bearer) {
     if (!receivesEmail) {
       pre.zone.state = 'not-found';
@@ -852,7 +850,6 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
       );
     }
   }
-  bearer = null;
   if (!receivesEmail && pre.session.state === 'ok' && pre.zone.state === 'unknown') {
     block(
       'all',
@@ -1327,7 +1324,7 @@ export async function fetchWithSessionBearer(
     success?: boolean;
     result?: unknown;
     errors?: Array<{ code?: number; message?: string }>;
-  } = {};
+  };
   try {
     payload = (await response.json()) as typeof payload;
   } catch {

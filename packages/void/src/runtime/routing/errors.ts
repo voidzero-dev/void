@@ -235,7 +235,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
     if (typeof value === 'string') {
       return { name: 'Thrown value', message: value, stack: '', frames: [] };
     }
-    let message = '';
+    let message: string;
     try {
       if (typeof value === 'object' && value !== null) {
         message = JSON.stringify(value, null, 2) ?? String(value);

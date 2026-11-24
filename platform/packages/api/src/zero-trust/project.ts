@@ -245,7 +245,7 @@ async function reconcileProjectZeroTrustLocked(
   );
 
   return recordErrors(async () => {
-    let row = existing;
+    const row = existing;
     if (!row.desired_protected) {
       return reconcilePublicProjectLocked(
         env,
@@ -274,14 +274,14 @@ async function reconcileProjectZeroTrustLocked(
         },
         projectApplicationReference(row, 'protected'),
       );
-      row = await updateProjectState(lockedDb, projectId, {
+      await updateProjectState(lockedDb, projectId, {
         protected_application_id: protectedApplication.id,
         protected_application_name: protectedApplication.name,
         protected_application_audience: protectedApplication.audience,
       });
     } else if (row.protected_application_id || row.protected_application_name) {
       await client.deleteApplication(row.protected_application_id, row.protected_application_name);
-      row = await updateProjectState(lockedDb, projectId, {
+      await updateProjectState(lockedDb, projectId, {
         protected_application_id: null,
         protected_application_name: null,
         protected_application_audience: null,
@@ -300,8 +300,8 @@ async function reconcileProjectZeroTrustLocked(
       // exception and stay reconciling until every route carries it.
       return (await getProjectZeroTrustState(lockedDb, projectId))!;
     }
-    row = await updateProjectState(lockedDb, projectId, { effective_protected: true });
-    await client.deleteApplication(row.bypass_application_id, row.bypass_application_name);
+    const updated = await updateProjectState(lockedDb, projectId, { effective_protected: true });
+    await client.deleteApplication(updated.bypass_application_id, updated.bypass_application_name);
     return updateProjectState(lockedDb, projectId, {
       effective_protected: true,
       status: 'ready',

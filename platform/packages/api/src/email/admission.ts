@@ -384,7 +384,7 @@ export async function admitEmailAction(
     if (input.transport !== expectedTransport && !nativeCustomTransport && !sharedBindingReply) {
       throw new EmailAdmissionError('INVALID_REQUEST', 'invalid email transport');
     }
-    let senderAllowed = false;
+    let senderAllowed: boolean;
     let verifiedOnlyTransport = input.transport === 'native_forward';
     if (shared) {
       const name = input.from.toLowerCase().split('@')[0]!.split('+')[0]!;

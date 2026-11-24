@@ -1427,7 +1427,7 @@ export async function uninstallPlatform(
     }
     await releaseProjectZeroTrust();
   };
-  let next = manifest;
+  let next: PlatformInstallationManifest;
   try {
     await assertProjectZeroTrustAllowsUninstall(dependencies.readProjectZeroTrust);
     if (purgeResources) {
@@ -2032,7 +2032,7 @@ async function verifyPlatformMutationOwnership(
     inventory;
 
   for (const resource of targetResources) {
-    let exists = true;
+    let exists: boolean;
     if (resource.kind === 'ai-gateway') {
       exists = hasNamedResource(aiGateways, resource);
     } else if (resource.kind === 'dispatch-namespace') {

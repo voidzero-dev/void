@@ -132,7 +132,6 @@ describe('followBuildLogs', () => {
       write: (line) => written.push(line),
       sleep: () => Promise.resolve(),
       since: 1,
-      status: 'building',
       pollMs: 0,
     });
 
@@ -168,7 +167,6 @@ describe('followBuildLogs', () => {
       write: (line) => written.push(line),
       sleep: () => Promise.resolve(),
       since: 2,
-      status: 'building',
       pollMs: 0,
       isFatal: () => false,
       onRetry: (err) => retries.push(err),
@@ -190,7 +188,6 @@ describe('followBuildLogs', () => {
         write: () => {},
         sleep: () => Promise.resolve(),
         since: 1,
-        status: 'building',
         pollMs: 0,
         isFatal: () => true,
       }),
@@ -219,7 +216,6 @@ describe('followBuildLogs', () => {
       write: (line) => written.push(line),
       sleep: () => Promise.resolve(),
       since: 2,
-      status: 'complete',
     });
 
     expect(sinceCalls).toEqual([2, 2]);
@@ -243,7 +239,6 @@ describe('followBuildLogs', () => {
         write: (line) => written.push(line),
         sleep: () => Promise.resolve(),
         since: 2,
-        status: 'complete',
       }),
     ).rejects.toThrow('upgrade the platform runtime');
     expect(written).toEqual(['retained tail']);
@@ -265,7 +260,6 @@ describe('followBuildLogs', () => {
           return Promise.resolve();
         },
         since: 0,
-        status: 'complete',
       }),
     ).rejects.toThrow('did not confirm completion');
     expect(fetches).toBe(3);

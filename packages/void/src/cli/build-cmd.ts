@@ -62,13 +62,11 @@ export async function followBuildLogs(opts: {
   write: (line: string) => void;
   sleep: (ms: number) => Promise<void>;
   since: number;
-  status: string;
   pollMs?: number;
   isFatal?: (err: unknown) => boolean;
   onRetry?: (err: unknown) => void;
 }): Promise<{ status: string; terminal: boolean }> {
   let cursor = opts.since;
-  let status = opts.status;
   let terminalSince: number | null = null;
   const pollMs = opts.pollMs ?? POLL_MS;
   for (;;) {
@@ -88,7 +86,7 @@ export async function followBuildLogs(opts: {
       opts.write(l.line);
     }
     cursor = pageResult.lastSeq;
-    status = pageResult.status;
+    const status = pageResult.status;
     if (isBuildLogComplete(pageResult)) {
       return { status, terminal: true };
     }
@@ -225,7 +223,6 @@ async function runBuildLogsCommand(
       write,
       sleep,
       since: first.lastSeq,
-      status,
       isFatal: isFatalFollowError,
       onRetry,
     }));

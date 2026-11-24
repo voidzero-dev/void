@@ -260,7 +260,7 @@ const app = new Hono<ApiEnv>()
     // Malformed JSON is user input, not a server fault — 400 it here rather
     // than letting the throw reach the app-level `onError` 500 (same shape
     // the secrets/domains routes use).
-    let body: { address?: unknown } = {};
+    let body: { address?: unknown };
     try {
       body = await context.req.json<{ address?: unknown }>();
     } catch {
@@ -691,7 +691,7 @@ const app = new Hono<ApiEnv>()
       refreshToken?: unknown;
       apiToken?: unknown;
       attemptId?: unknown;
-    } = {};
+    };
     try {
       body = await context.req.json();
     } catch {
