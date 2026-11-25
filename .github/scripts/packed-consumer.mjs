@@ -477,7 +477,11 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
               await page.getByRole('link', { name: 'Next page', exact: true }).click();
               await page.getByRole('heading', { name: `Next ${label}`, exact: true }).waitFor();
               assert.equal(
-                await page.evaluate(() => window.__packedNavigation),
+                await page.evaluate(
+                  () =>
+                    /** @type {Window & { __packedNavigation?: string }} */ (window)
+                      .__packedNavigation,
+                ),
                 'preserved',
                 'Link navigation must preserve the document',
               );

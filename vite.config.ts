@@ -404,6 +404,10 @@ const config = defineConfig({
         },
       },
       {
+        files: ['**/*.{js,jsx,mjs,cjs}'],
+        rules: { 'typescript/no-unsafe-return': 'error' },
+      },
+      {
         files: [
           'packages/void/src/runtime/routing/error-pages/script.js',
           'platform/packages/api/container/build-agent.mjs',
@@ -413,7 +417,6 @@ const config = defineConfig({
           'typescript/no-unsafe-assignment': 'error',
           'typescript/no-unsafe-call': 'error',
           'typescript/no-unsafe-member-access': 'error',
-          'typescript/no-unsafe-return': 'error',
         },
       },
       // Enforce the staged type rules where the SDK and platform have typed contracts.

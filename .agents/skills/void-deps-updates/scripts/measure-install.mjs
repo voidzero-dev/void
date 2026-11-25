@@ -59,6 +59,7 @@ async function measure() {
   );
   const registryModule = join(repository, '.github/scripts/packed-registry.mjs');
   assert(existsSync(registryModule), 'Not a Void checkout: packed registry helper missing.');
+  /** @type {typeof import('../../../../.github/scripts/packed-registry.mjs')} */
   const { inspectPackage, startPackedRegistry } = await import(pathToFileURL(registryModule));
   const publicPackages = readdirSync(join(repository, 'packages'), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())

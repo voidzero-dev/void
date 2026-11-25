@@ -30,11 +30,15 @@ export function selectPackedSuite(paths) {
     : 'smoke';
 }
 
+/** @param {unknown} files */
 function pathsFromFiles(files) {
   if (!Array.isArray(files) || files.some((file) => typeof file.filename !== 'string')) {
     throw new Error('Invalid changed-file response');
   }
-  return files.flatMap((file) =>
+  const changedFiles = /** @type {Array<{ filename: string, previous_filename?: string }>} */ (
+    files
+  );
+  return changedFiles.flatMap((file) =>
     file.previous_filename ? [file.filename, file.previous_filename] : [file.filename],
   );
 }
@@ -113,7 +117,9 @@ if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
       if (!response.ok) {
         throw new Error('Could not read changed files');
       }
-      return response.json();
+      /** @type {Promise<unknown>} */
+      const payload = response.json();
+      return payload;
     },
   });
   appendFileSync(process.env.GITHUB_OUTPUT, `suite=${suite}\n`);
