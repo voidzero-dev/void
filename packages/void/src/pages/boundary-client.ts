@@ -2,17 +2,17 @@ import { isVoidActionError } from './action-result.ts';
 import type { BoundaryManifest } from './boundary-plans.ts';
 import type { PageError } from './types.ts';
 
-export type ClientPageBoundary = {
+export type ClientPageBoundary<Component = unknown> = {
   id: string;
   key: string;
   depth: number;
-  load: () => Promise<{ default: unknown }>;
+  load: () => Promise<{ default: Component }>;
 };
-export function pageBoundarySlots(
+export function pageBoundarySlots<Component>(
   manifest: BoundaryManifest | undefined,
   component: string,
-  components: Record<string, () => Promise<{ default: unknown }>>,
-): Array<ClientPageBoundary> {
+  components: Record<string, () => Promise<{ default: Component }>>,
+): Array<ClientPageBoundary<Component>> {
   if (!manifest) {
     return [];
   }

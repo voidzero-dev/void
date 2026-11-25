@@ -1,3 +1,5 @@
+import { isRecord } from './validate.ts';
+
 export const PLATFORM_APP_ACCESS_SETUP_PROOF_PREFIX = 'void-platform-app-access-v1';
 /** Uninstall handoff that turns off installer-managed project Zero Trust before any user exists. */
 export const PLATFORM_APP_ACCESS_TURN_OFF_PROOF_PREFIX = 'void-platform-app-access-turn-off-v1';
@@ -13,14 +15,13 @@ export type PlatformAppAccessSetup = Readonly<{
   policyIds: ReadonlyArray<string>;
 }>;
 
-export function parsePlatformAppAccessSetup(value: unknown): PlatformAppAccessSetup {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+export function parsePlatformAppAccessSetup(input: unknown): PlatformAppAccessSetup {
+  if (!isRecord(input)) {
     throw new Error('Invalid app access setup.');
   }
-  const input = value as Record<string, unknown>;
   if (
     input.version !== 1 ||
-    !['public', 'protected'].includes(String(input.mode)) ||
+    (input.mode !== 'public' && input.mode !== 'protected') ||
     typeof input.managed !== 'boolean' ||
     typeof input.accountId !== 'string' ||
     !input.accountId
@@ -69,9 +70,9 @@ export function parsePlatformAppAccessSetup(value: unknown): PlatformAppAccessSe
   return {
     version: 1,
     accountId: input.accountId,
-    mode: input.mode as PlatformAppAccessSetup['mode'],
+    mode: input.mode,
     managed: input.managed,
-    ...(input.managed ? { apiToken: input.apiToken as string } : {}),
+    ...(typeof input.apiToken === 'string' ? { apiToken: input.apiToken } : {}),
     identityProviderIds,
     policyIds,
   };

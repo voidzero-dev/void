@@ -12,6 +12,12 @@ import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
 
+type MarkedWindow = Window & { __HTTP_ERRORS_DOCUMENT__?: true };
+
+function readDocumentMarker() {
+  return (window as MarkedWindow).__HTTP_ERRORS_DOCUMENT__;
+}
+
 const repository = join(import.meta.dirname, '../../../..');
 const pagesHeaders = {
   'X-VoidPages': 'true',
@@ -253,7 +259,9 @@ function httpErrorsSuite(mode: HttpErrorsMode): void {
     async function openHome() {
       await page.goto(base);
       await waitForToastToOpen();
-      await page.evaluate(() => Reflect.set(globalThis, '__HTTP_ERRORS_DOCUMENT__', true));
+      await page.evaluate(() => {
+        (window as MarkedWindow).__HTTP_ERRORS_DOCUMENT__ = true;
+      });
       await page
         .locator('header')
         .evaluate((element) => element.setAttribute('data-retained', 'yes'));
@@ -310,9 +318,7 @@ function httpErrorsSuite(mode: HttpErrorsMode): void {
             ).toBe(0);
           }
           const retained = navigation === 'Client navigation';
-          expect(
-            await page.evaluate(() => Reflect.get(globalThis, '__HTTP_ERRORS_DOCUMENT__')),
-          ).toBe(retained ? true : undefined);
+          expect(await page.evaluate(readDocumentMarker)).toBe(retained ? true : undefined);
           expect(await page.locator('header').getAttribute('data-retained')).toBe(
             retained ? 'yes' : null,
           );
@@ -326,7 +332,7 @@ function httpErrorsSuite(mode: HttpErrorsMode): void {
       for (const name of ['Document load', 'Client navigation']) {
         const links = await page.getByRole('link', { name, exact: true }).all();
         const targets = await Promise.all(links.map((link) => link.getAttribute('href')));
-        expect(targets.sort()).toEqual(paths);
+        expect(targets.sort((a, b) => String(a).localeCompare(String(b)))).toEqual(paths);
       }
     });
 
@@ -349,9 +355,7 @@ function httpErrorsSuite(mode: HttpErrorsMode): void {
         await page.goForward();
         await expect.poll(() => page.locator('main h1').textContent()).toBe('HTTP Errors Example');
         expect(await page.locator('header').getAttribute('data-retained')).toBe('yes');
-        expect(await page.evaluate(() => Reflect.get(globalThis, '__HTTP_ERRORS_DOCUMENT__'))).toBe(
-          true,
-        );
+        expect(await page.evaluate(readDocumentMarker)).toBe(true);
       },
     );
 

@@ -7,7 +7,7 @@ function createMockKV(initial: Record<string, string> = {}) {
   const store = new Map<string, string>(Object.entries(initial));
   return {
     store,
-    get: vi.fn(async (key: string, type?: 'json' | 'text') => {
+    get: vi.fn(async (key: string, type?: 'json' | 'text'): Promise<unknown> => {
       const raw = store.get(key);
       if (raw === null || raw === undefined) {
         return null;

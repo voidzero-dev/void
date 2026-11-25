@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { PlatformClient } from '../../src/cli/client.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 
-const fetchMock = vi.fn();
+const fetchMock = vi.fn<typeof fetch>();
 let originalFetch: typeof globalThis.fetch;
 
 beforeEach(() => {

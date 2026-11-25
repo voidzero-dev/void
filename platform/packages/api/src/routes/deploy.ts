@@ -165,16 +165,27 @@ app.post('/:id/deploy/upload-urls', async (context) => {
     logger,
     { step: 'upload_urls', assetCount: assets.length },
     async (tx, signingKeyCache) => {
-      if (context.get('oauthApproval')) {
+      const oauthApproval = context.get('oauthApproval');
+      const expiresAt = context.get('deployTokenExpiresAt');
+      if (oauthApproval) {
+        if (expiresAt === undefined) {
+          throw new OAuthError('invalid_token', 'Deployment approval has no token expiry.', 401);
+        }
         const { approval } = await activeOAuthApproval(
           tx,
-          context.get('oauthApproval')!,
+          oauthApproval,
           context.get('companyIdentity'),
           true,
         );
-        const approved = new Set(
-          Object.values(approval.data.artifact!.assetManifest).map(assetApprovalKey),
-        );
+        const { artifact } = approval.data;
+        if (!artifact) {
+          throw new OAuthError(
+            'invalid_token',
+            'The approved deployment artifact is unavailable.',
+            401,
+          );
+        }
+        const approved = new Set(Object.values(artifact.assetManifest).map(assetApprovalKey));
         if (
           approval.data.projectId !== projectId ||
           assets.some((asset) => !approved.has(assetApprovalKey(asset)))
@@ -196,18 +207,11 @@ app.post('/:id/deploy/upload-urls', async (context) => {
             key: `assets/${projectId}/${asset.blake3}`,
             md5: asset.md5,
             contentType: asset.contentType,
-            ttlSeconds: context.get('oauthApproval')
-              ? Math.max(
-                  1,
-                  Math.min(
-                    900,
-                    context.get('deployTokenExpiresAt')! - Math.floor(Date.now() / 1000),
-                  ),
-                )
-              : UPLOAD_URL_TTL_SECONDS,
-            ...(context.get('oauthApproval')
-              ? { ifNoneMatch: '*' as const, contentLength: asset.size }
-              : {}),
+            ttlSeconds:
+              oauthApproval && expiresAt !== undefined
+                ? Math.max(1, Math.min(900, expiresAt - Math.floor(Date.now() / 1000)))
+                : UPLOAD_URL_TTL_SECONDS,
+            ...(oauthApproval ? { ifNoneMatch: '*' as const, contentLength: asset.size } : {}),
           },
           signingKeyCache,
         );
@@ -550,6 +554,10 @@ export async function executeQueuedDeployment(
   operation: DeploymentOperation,
   deadline: number,
 ): Promise<void> {
+  const ownerId = operation.owner_id;
+  if (!ownerId) {
+    throw new Error('Queued deployment has no recorded owner.');
+  }
   const actor = await getUser(db, operation.actor_id);
   if (!actor) {
     await updateDeploymentStatus(
@@ -559,7 +567,7 @@ export async function executeQueuedDeployment(
       'Deployment actor is no longer active',
       { force: true },
     );
-    await appendDeploymentEvent(db, operation.id, operation.owner_id!, {
+    await appendDeploymentEvent(db, operation.id, ownerId, {
       event: 'error',
       message: 'Deployment actor is no longer active',
       step: 'authorization',
@@ -569,7 +577,7 @@ export async function executeQueuedDeployment(
   const initial = await getDeployment(db, operation.id);
   if (initial?.status === 'canceling' || initial?.status === 'canceled') {
     await updateDeploymentStatus(db, operation.id, 'canceled', undefined, { force: true });
-    await appendDeploymentEvent(db, operation.id, operation.owner_id!, {
+    await appendDeploymentEvent(db, operation.id, ownerId, {
       event: 'error',
       message: initial.error_message ?? 'Deployment was canceled',
       step: 'canceled',
@@ -586,7 +594,7 @@ export async function executeQueuedDeployment(
       'Deployment actor or credential is no longer active',
       { force: true },
     );
-    await appendDeploymentEvent(db, operation.id, operation.owner_id!, {
+    await appendDeploymentEvent(db, operation.id, ownerId, {
       event: 'error',
       message: 'Deployment actor or credential is no longer active',
       step: 'authorization',
@@ -657,7 +665,7 @@ export async function executeQueuedDeployment(
       }
       await updateDeploymentStatus(tx, operation.id, 'failed', reason, { force: true });
     });
-    await appendDeploymentEvent(db, operation.id, operation.owner_id!, {
+    await appendDeploymentEvent(db, operation.id, ownerId, {
       event: 'error',
       message: reason,
       step: 'authorization',

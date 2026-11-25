@@ -493,7 +493,7 @@ function differences(
   securityCap: Readonly<{ before: SecurityPlanCap | undefined; after: SecurityPlanCap }> | null,
 ) {
   if (!after) {
-    return [{ label: 'Plan', before: before!.name, after: 'Removed' }];
+    return [{ label: 'Plan', before: before?.name ?? '—', after: 'Removed' }];
   }
   const rows = [
     { label: 'Display name', before: before?.name ?? '—', after: after.name },
@@ -681,6 +681,7 @@ export function PlanProgressPage({
   const [counts, setCounts] = useState({ accounts: initial.accounts, projects: initial.projects });
   const [running, setRunning] = useState(false);
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- Reset the visible progress when restarting the server sync session.
     setState(initial);
     setCounts({ accounts: initial.accounts, projects: initial.projects });
     setRunning(!initial.complete && !initial.error);

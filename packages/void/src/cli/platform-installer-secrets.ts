@@ -243,6 +243,8 @@ export function createPlatformInstallationSecrets(input: {
   };
 }
 
+type ProjectSecretKeyring = Readonly<{ activeVersion: string; keysJson: string; v1Key: string }>;
+
 function resolveProjectSecretKeyring(input: {
   checkpoint: Record<string, string>;
   existingInstallation: boolean;
@@ -251,7 +253,7 @@ function resolveProjectSecretKeyring(input: {
   projectSecretKey: string;
   projectSecretKeysJson: string;
   required: (value: string, name: string) => string;
-}): Readonly<{ activeVersion: string; keysJson: string; v1Key: string }> {
+}): ProjectSecretKeyring {
   const explicitFullKeyring =
     input.projectSecretKeysJson !== '' || input.projectSecretActiveKeyVersion !== '';
   if (
@@ -321,7 +323,7 @@ function normalizeProjectSecretKeyring(
   activeVersion: string,
   keysName: string,
   activeVersionName: string,
-): Readonly<{ activeVersion: string; keysJson: string; v1Key: string }> {
+): ProjectSecretKeyring {
   let parsed: unknown;
   try {
     parsed = JSON.parse(keysJson);
@@ -367,10 +369,13 @@ function assertCanonicalProjectSecretKey(
   }
 }
 
+type SecretCheckpoint = Record<string, string> &
+  Pick<PlatformInstallationSecrets, 'databaseUrl' | 'cloudflareApiToken' | 'jwtSecret'>;
+
 export function secretCheckpoint(
   secrets: PlatformInstallationSecrets,
   workerSecretUpdateIntent?: PlatformWorkerSecretUpdateIntent | null,
-): Record<string, string> {
+): SecretCheckpoint {
   return {
     ...(secrets.appAccessSetupToken ? { appAccessSetupToken: secrets.appAccessSetupToken } : {}),
     ...(secrets.appAccessSetupJson ? { appAccessSetupJson: secrets.appAccessSetupJson } : {}),

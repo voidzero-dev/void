@@ -195,7 +195,7 @@ function cleanupDeployDriftCheckRoot(root: string): void {
   }
 }
 
-function snapshotDir(root: string): Record<string, string> {
+function snapshotDir(root: string) {
   if (!existsSync(root)) {
     return {};
   }

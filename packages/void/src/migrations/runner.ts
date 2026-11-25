@@ -11,7 +11,7 @@ export type SqliteStatement<T = unknown> = {
   readonly reader: boolean;
   get(...params: Array<unknown>): T | undefined;
   all(...params: Array<unknown>): Array<T>;
-  run(...params: Array<unknown>): unknown;
+  run(...params: Array<unknown>): void;
 };
 
 type SqliteTransaction<T = unknown> = {

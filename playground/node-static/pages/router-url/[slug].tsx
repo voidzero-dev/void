@@ -23,11 +23,15 @@ export default function RouterUrlPage({ title }: Props) {
   // The server never sees the hash, so write the whole URL only after hydration.
   const urlRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
-    urlRef.current!.textContent = href;
+    if (urlRef.current) {
+      urlRef.current.textContent = href;
+    }
   }, [href]);
   const mountRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
-    mountRef.current!.textContent = router.url.search;
+    if (mountRef.current) {
+      mountRef.current.textContent = router.url.search;
+    }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reads the router once, on mount
   }, []);
 

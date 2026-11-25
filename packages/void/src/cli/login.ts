@@ -57,7 +57,11 @@ export async function selectPlatformLoginMethod(
     cancel('Login cancelled.');
     process.exit(0);
   }
-  return methods.find((method) => method.id === provider)!;
+  const method = methods.find((entry) => entry.id === provider);
+  if (!method) {
+    throw new Error('Selected login method is unavailable.');
+  }
+  return method;
 }
 
 export async function promptForLoginToken(

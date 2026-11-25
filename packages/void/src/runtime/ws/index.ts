@@ -123,7 +123,7 @@ export interface RoomDefinitionInput<
 export interface RoomDefinition<
   ClientSchema extends StandardSchemaV1 = StandardSchemaV1,
   ServerSchema extends StandardSchemaV1 = StandardSchemaV1,
-  Actions extends RoomActions = {},
+  Actions extends RoomActions = Record<never, never>,
 > extends RoomHooks<ClientSchema, ServerSchema> {
   readonly __kind: 'room';
   readonly actions?: Actions;

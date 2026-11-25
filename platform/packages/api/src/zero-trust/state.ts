@@ -118,6 +118,10 @@ type PublicProjectZeroTrustState = Readonly<
   > & { state: ProjectZeroTrustState }
 >;
 
+export function publicProjectZeroTrustState(row: ProjectZeroTrust): PublicProjectZeroTrustState;
+export function publicProjectZeroTrustState(
+  row: ProjectZeroTrust | null,
+): PublicProjectZeroTrustState | null;
 export function publicProjectZeroTrustState(
   row: ProjectZeroTrust | null,
 ): PublicProjectZeroTrustState | null {
@@ -140,7 +144,7 @@ export function operatorProjectZeroTrustState(row: ProjectZeroTrust | null) {
     return null;
   }
   return {
-    ...publicProjectZeroTrustState(row)!,
+    ...publicProjectZeroTrustState(row),
     bypass_application_id: row.bypass_application_id,
     bypass_application_name: row.bypass_application_name,
     protected_application_id: row.protected_application_id,

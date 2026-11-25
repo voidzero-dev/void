@@ -85,6 +85,7 @@ export type UploadProgress = Readonly<{
 /** A stream that remembers the first failure of the sources it reads. */
 export type TrackedStream = Readonly<{
   stream: ReadableStream<Uint8Array>;
+  // oxlint-disable-next-line quality/no-unknown-returns -- Keep the source rejection unchanged for the upload's error handling.
   failure(): unknown;
   /**
    * Stop reading and cancel every open source, including those opened ahead.
@@ -298,6 +299,7 @@ function sequence(
         try {
           for (;;) {
             if (canceled) {
+              // oxlint-disable-next-line typescript/only-throw-error -- Streams propagate the original cancellation reason, which may be any value.
               throw released();
             }
             if (reader) {
@@ -321,8 +323,9 @@ function sequence(
               }
               sourcesStarted++;
               let opened: Promise<ReadableStream<Uint8Array>>;
-              if (ahead[0]?.index === at) {
-                const entry = ahead.shift()!;
+              const entry = ahead[0];
+              if (entry?.index === at) {
+                ahead.shift();
                 aheadBytes -= entry.size;
                 opened = entry.opened;
               } else {
@@ -333,6 +336,7 @@ function sequence(
               if (canceled) {
                 // Released while it opened: nothing else will cancel it.
                 stream.cancel(releaseReason).catch(noop);
+                // oxlint-disable-next-line typescript/only-throw-error -- Streams propagate the original cancellation reason, which may be any value.
                 throw released();
               }
               reader = stream.getReader();
@@ -445,9 +449,10 @@ export function uploadWatchdog(
     const state = progress();
     let kind: UploadTimeout = 'deadline';
     let at = limits.deadline;
-    const limit: [UploadTimeout, number] = state.done
-      ? ['response', state.doneAt! + limits.responseMs]
-      : ['idle', state.lastProgressAt + limits.idleMs];
+    const limit: [UploadTimeout, number] =
+      state.done && state.doneAt !== undefined
+        ? ['response', state.doneAt + limits.responseMs]
+        : ['idle', state.lastProgressAt + limits.idleMs];
     if (limit[1] < at) {
       [kind, at] = limit;
     }

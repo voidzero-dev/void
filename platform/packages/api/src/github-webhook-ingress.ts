@@ -55,7 +55,7 @@ export async function githubWebhookIngressFetch(
   try {
     const headers = readGitHubWebhookHeaders(request.headers, { requireDelivery: true });
     event = headers.event;
-    deliveryId = headers.deliveryId!;
+    deliveryId = headers.deliveryId;
     signature = headers.signature;
     raw = await readBoundedGitHubWebhookBody(request);
   } catch (error) {

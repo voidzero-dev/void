@@ -665,7 +665,7 @@ function writeEncryptedRecoveryMaterial(
   values: Record<string, string>,
   directory: string,
 ): void {
-  const key = platformRecoveryKey(directory, true)!;
+  const key = platformRecoveryKey(directory, true);
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   cipher.setAAD(recoveryAad(manifest, kind));
@@ -689,6 +689,8 @@ function recoveryAad(manifest: PlatformInstallationManifest, kind: 'pending' | '
   );
 }
 
+function platformRecoveryKey(directory: string, create: true): Buffer;
+function platformRecoveryKey(directory: string, create: false): Buffer | null;
 function platformRecoveryKey(directory: string, create: boolean): Buffer | null {
   const fromEnvironment = process.env.VOID_PLATFORM_RECOVERY_KEY;
   if (fromEnvironment) {

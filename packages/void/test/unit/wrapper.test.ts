@@ -39,10 +39,18 @@ const base: WrapperFeatures = {
 
 // Wrappers in these tests use plain objects for bindings and execution context.
 type FixtureWorker = {
-  fetch(request: Request, env: object, context: object): Promise<Response>;
+  fetch(
+    request: Request,
+    env: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): Promise<Response>;
   scheduled(): unknown;
   email(): unknown;
-  queue(batch: object, env: object, context: object): Promise<void>;
+  queue(
+    batch: Record<string, unknown>,
+    env: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): Promise<void>;
 };
 
 async function loadWrappedWorker(root: string): Promise<FixtureWorker> {

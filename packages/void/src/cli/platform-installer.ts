@@ -93,8 +93,8 @@ export { PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY as REMOTE_INSTALLATION_MANIFE
 
 // Preserve the routing gate first; rollback and manifest failure checkpoints
 // follow while the database lifecycle lock is still held by the caller.
-async function recoverFailedPlatformInstallation(
-  error: unknown,
+async function recoverFailedPlatformInstallation<Failure>(
+  error: Failure,
   state: Readonly<{
     manifest: PlatformInstallationManifest;
     plan: PlatformInstallPlan;
@@ -111,7 +111,7 @@ async function recoverFailedPlatformInstallation(
     now: () => string;
     writeRemoteInstallationCheckpoint: InstallationCheckpointWriter;
   }>,
-): Promise<unknown> {
+): Promise<Failure | Error> {
   const {
     plan,
     dependencies,
@@ -127,7 +127,7 @@ async function recoverFailedPlatformInstallation(
     writeRemoteInstallationCheckpoint,
   } = state;
   let { manifest } = state;
-  let failure: unknown = error;
+  let failure: Failure | Error = error;
   const currentWorkerRecoveryIncomplete = error instanceof PlatformWorkerRecoveryIncompleteError;
   if (workerTrafficGuarded) {
     try {
@@ -905,14 +905,18 @@ export async function installPlatform(
       state.plan.deployment.appAccess &&
       !state.manifest.steps.some((step) => step.key === 'app-access-initialized:v1')
     ) {
+      const { appAccessSetupJson, appAccessSetupToken } = state.secrets;
+      if (!appAccessSetupJson || !appAccessSetupToken) {
+        throw new Error('platform: The deployed-app access setup material is missing.');
+      }
       dependencies.onProgress?.('Configuring and verifying deployed-app access');
       try {
         await (dependencies.initializeAppAccess ?? initializeInstalledAppAccess)({
           apiUrl: state.plan.apiUrl,
           installationId: state.manifest.id,
           probeToken: createPlatformHealthProbeToken(state.manifest.ownershipNonce),
-          setupJson: state.secrets.appAccessSetupJson!,
-          setupToken: state.secrets.appAccessSetupToken!,
+          setupJson: appAccessSetupJson,
+          setupToken: appAccessSetupToken,
         });
       } catch (error) {
         if (error instanceof PlatformAppAccessCredentialError) {
@@ -935,7 +939,7 @@ export async function installPlatform(
         {
           key: 'app-access-initialized:v1',
           completedAt: now(),
-          resultHash: hash(state.secrets.appAccessSetupJson!),
+          resultHash: hash(appAccessSetupJson),
         },
         now(),
       );
@@ -1017,7 +1021,10 @@ export async function installPlatform(
           zoneNameServers: zone?.nameServers ?? [],
         };
       }
-      const completedDrain = await prepareSandboxDrain!();
+      if (!prepareSandboxDrain) {
+        throw new Error('platform: No sandbox drain checkpoint. Traffic remains disabled.');
+      }
+      const completedDrain = await prepareSandboxDrain();
       if (completedDrain.state !== 'complete') {
         throw new Error(
           'platform: Sandbox drain completion changed while it was being verified. Traffic remains disabled.',

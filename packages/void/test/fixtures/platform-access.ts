@@ -68,12 +68,18 @@ export function platformAccessFixture(): {
         }
         result = app;
       } else if (target.startsWith('apps/') && target.endsWith('/policies')) {
-        const app = apps.get(target.split('/')[1])!;
+        const app = apps.get(target.split('/')[1]);
+        if (!app) {
+          throw new Error(`Unknown Access application: ${target}`);
+        }
         result = (app.policies as Array<RecordValue>).map((entry, index) =>
           entry.id === 'employees' ? policy : { id: `inline-${index}`, ...entry },
         );
       } else if (target.startsWith('apps/')) {
-        const app = structuredClone(apps.get(target.slice(5))!);
+        const app = structuredClone(apps.get(target.slice(5)));
+        if (!app) {
+          throw new Error(`Unknown Access application: ${target}`);
+        }
         if (app.saas_app) {
           delete (app.saas_app as RecordValue).client_secret;
         }

@@ -33,6 +33,7 @@ import { modulesKey, parseSnapshotModules } from './input/prepare.ts';
 import { createSecurityRedactor } from './input/redact.ts';
 import type { SecuritySecret } from './input/redact.ts';
 import { SECURITY_RUNTIME_COPY_NOT_MADE_NOTE } from './input/tier.ts';
+import { readSecurityManifest } from './manifest.ts';
 import { runtimeCopyScriptName } from './runtime-copy-names.ts';
 import {
   planSecurityRuntimeCopy,
@@ -388,17 +389,6 @@ function secretCheck(secrets: ReadonlyArray<SecuritySecret>): (text: string) => 
   return (text) => redactor.redact(text) !== text;
 }
 
-function parseManifest(raw: string | null): DeployManifest | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw) as DeployManifest;
-  } catch {
-    return null;
-  }
-}
-
 async function readModules(
   r2: R2Bucket,
   prefix: string,
@@ -461,7 +451,7 @@ export async function prepareSecurityRuntimeCopy(
   }
   const target = await securityCopyTarget(securityScannerTarget(env));
   const secretRows = await getProjectSecrets(db, row.projectId);
-  const plan = planSecurityRuntimeCopy(parseManifest(row.manifest ?? null), {
+  const plan = planSecurityRuntimeCopy(readSecurityManifest(row.manifest), {
     engine: row.engine,
     script: runtimeCopyScriptName(target.prefix, scanId, attempt),
     secretNames: secretRows.map((secret) => secret.name),

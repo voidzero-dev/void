@@ -98,12 +98,15 @@ export async function verifyPlatformHealth(
   // Project Zero Trust leaves only this application-domain hostname outside Access.
   const dispatchUrl =
     dispatchOrigin ?? `https://${PLATFORM_HEALTH_HOSTNAME_LABEL}.${applicationBaseDomain}`;
+  const emailGatewayHealthUrl = context?.emailGatewayUrl
+    ? context.emailGatewayUrl + '/health'
+    : undefined;
   const [health, discovery, proxy, dispatch, emailGateway] = await Promise.all([
     request(`${apiUrl}/health`),
     request(`${apiUrl}/.well-known/void-platform`),
     request(`${proxyUrl}/health`),
     request(`${dispatchUrl}/health`),
-    context?.emailGatewayUrl ? request(`${context.emailGatewayUrl}/health`) : undefined,
+    emailGatewayHealthUrl ? request(emailGatewayHealthUrl) : undefined,
   ]);
   if (!health.ok) {
     throw await platformProbeFailure('Health check', `${apiUrl}/health`, health, context);
@@ -143,11 +146,11 @@ export async function verifyPlatformHealth(
       context,
     );
   }
-  if (emailGateway) {
+  if (emailGateway && emailGatewayHealthUrl) {
     if (!emailGateway.ok) {
       throw await platformProbeFailure(
         'Email gateway health check',
-        `${context!.emailGatewayUrl!}/health`,
+        emailGatewayHealthUrl,
         emailGateway,
         context,
       );

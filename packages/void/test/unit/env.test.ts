@@ -69,7 +69,7 @@ describe('runtime env resolution', () => {
 
 describe('internal binding filtering — ISR_CACHE (exact-name)', () => {
   it('checks a getter-backed ISR deployment ID once per binding lookup', () => {
-    const getDeploymentId = vi.fn().mockReturnValueOnce('dep_1');
+    const getDeploymentId = vi.fn<() => string>().mockReturnValueOnce('dep_1');
     const env = {
       ISR_CACHE: { tag: 'isr-kv' },
       get __VOID_ISR_DEPLOYMENT_ID() {

@@ -67,6 +67,14 @@ export function formatErrorNodeInline(
  * Walk `err.cause` up to 6 levels and return a plain JSON-friendly chain.
  * Skips stack traces deliberately — keeps output line-oriented and readable.
  */
+type LogRecord = {
+  ts: number;
+  elapsedMs: number;
+  lvl: string;
+  msg: string;
+  err?: ErrChainNode | string;
+} & Record<string, unknown>;
+
 function describeErrorChain(err: unknown, depth = 0): ErrChainNode | string {
   if (depth > 5 || err === null || err === undefined) {
     return String(err);
@@ -186,7 +194,7 @@ export function openDeployLog(opts?: { mirrorToStderr?: boolean }): CliLogger {
       return;
     }
     const now = Date.now();
-    const record: Record<string, unknown> = {
+    const record: LogRecord = {
       ts: now,
       elapsedMs: now - startedAt,
       lvl: level,

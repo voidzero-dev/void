@@ -468,13 +468,14 @@ export async function turnOffInstalledProjectZeroTrust(
     redirect: 'manual',
     signal: AbortSignal.timeout(60_000),
   });
-  let result: {
+  type TurnOffResponse = {
     turnedOff?: boolean;
     usersExist?: boolean;
     installationId?: string;
     error?: string;
     code?: string;
-  } = {};
+  };
+  let result: TurnOffResponse = {};
   try {
     result = await response.json<typeof result>();
   } catch {

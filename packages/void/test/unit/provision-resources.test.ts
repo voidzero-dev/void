@@ -886,7 +886,10 @@ describe('provisionCloudflareResources — KV', () => {
     );
     expect(result.resources.map((r) => r.action)).toEqual(['created', 'created']);
     const kv = readConfig().kv_namespaces as Array<Record<string, unknown>>;
-    expect(kv.map((e) => e.binding).sort()).toEqual(['ISR_CACHE', 'KV']);
+    expect(kv.map((e) => e.binding).sort((a, b) => String(a).localeCompare(String(b)))).toEqual([
+      'ISR_CACHE',
+      'KV',
+    ]);
     expect(calls.filter((c) => isCall(c, 'kv', 'namespace', 'create'))).toHaveLength(2);
   });
 });
@@ -3433,6 +3436,7 @@ describe('provisionCloudflareResources — Hyperdrive password never reaches wra
     setup(JSON.stringify({ account_id: 'acct', name: 'app' }));
     const conn = 'postgres://dbuser:sup3r-secret@db.example.com:5432/app';
     const run: RunWrangler = provisionOperationFixture(() =>
+      // oxlint-disable-next-line prefer-promise-reject-errors -- Exercise redaction of a raw provider rejection.
       Promise.reject(`hyperdrive create failed for ${conn}`),
     );
     let thrown: unknown;
@@ -3510,6 +3514,7 @@ describe('provisionCloudflareResources — Hyperdrive password never reaches wra
           runWrangler: run,
           log: { info: () => {}, warn: (msg) => warns.push(msg) },
           listHyperdriveConfigs: () =>
+            // oxlint-disable-next-line prefer-promise-reject-errors -- Exercise redaction of a raw provider rejection.
             Promise.reject('fetch failed for postgres://u:leaky-pass@h/db'),
         },
       ),

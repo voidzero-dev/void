@@ -9,6 +9,7 @@ import { snapshotDrizzleOutputs } from '../drizzle/generate.ts';
 import { collectMigrations, readJournal } from '../migrations/collect.ts';
 import { assertJournalCoherence } from '../migrations/validate.ts';
 import { readProjectPaths } from '../project-paths.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import type { GenArgs } from './gen-args.ts';
 import { printSuccess } from './output.ts';
 import { buildDrizzleKitSpawnEnv, drizzleKitBin } from './yarn-pnp.ts';
@@ -249,16 +250,16 @@ const VALIDATOR_TYPES: Record<SchemaValidator, ValidatorTypes> = {
 };
 
 // Column types not listed here (`string`, `text`, `datetime`) validate as strings.
-const VALUE_KINDS: Partial<Record<string, 'number' | 'boolean' | 'blob'>> = {
+const VALUE_KINDS = {
   integer: 'number',
   real: 'number',
   boolean: 'boolean',
   blob: 'blob',
-};
+} satisfies Partial<Record<string, 'number' | 'boolean' | 'blob'>>;
 
 function validatorType(validator: SchemaValidator, col: ColumnSpec): string {
   const types = VALIDATOR_TYPES[validator];
-  const base = types[VALUE_KINDS[col.type] ?? 'string'];
+  const base = types[hasOwnKey(VALUE_KINDS, col.type) ? VALUE_KINDS[col.type] : 'string'];
   return col.nullable ? types.optional(base) : base;
 }
 
@@ -373,7 +374,10 @@ export const GET = defineHandler(async (c) => {
 `;
   }
 
-  const importLine = getImportLine(validator)!;
+  const importLine = getImportLine(validator);
+  if (!importLine) {
+    throw new Error(`No import available for the ${validator} validator.`);
+  }
   const paramsSchema = getParamsSchema(validator);
 
   return `${importLine}

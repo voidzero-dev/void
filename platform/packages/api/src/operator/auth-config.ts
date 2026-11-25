@@ -50,6 +50,8 @@ export function authenticationActor(context: Context<ApiEnv>): AuthenticationAct
   };
 }
 
+function revisionField(value: unknown): number;
+function revisionField(value: unknown, nullable: true): number | null;
 function revisionField(value: unknown, nullable = false): number | null {
   if (value === null && nullable) {
     return null;
@@ -183,7 +185,7 @@ export async function changeAuthenticationConnection(
   body: Record<string, unknown>,
 ) {
   const actor = authenticationActor(context);
-  const revision = revisionField(body.revision)!;
+  const revision = revisionField(body.revision);
   const input = {
     connectionId: id,
     revision,
@@ -252,7 +254,7 @@ authenticationConfigRoutes.get('/config/auth/protection', async (context) => {
 authenticationConfigRoutes.post('/config/auth/protection', async (context) => {
   const body = await readBody(context);
   const actor = authenticationActor(context);
-  const revision = revisionField(body.revision)!;
+  const revision = revisionField(body.revision);
   let protection;
   try {
     // Missing protection must never accidentally mean disable.
@@ -334,7 +336,7 @@ export async function configureAuthenticationAdmission(
     context.get('db'),
     authenticationActor(context),
     {
-      revision: revisionField(body.revision)!,
+      revision: revisionField(body.revision),
       admission: body.admission,
     },
     dryRun(body),

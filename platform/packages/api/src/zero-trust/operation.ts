@@ -279,11 +279,11 @@ async function skipFailedProject(
 }
 
 /** Run one project's work inside an installation batch; only operation-wide failures escape. */
-async function runOperationProjectStep(
+async function runOperationProjectStep<Result>(
   db: Db,
   configuration: ZeroTrustConfiguration,
   projectId: string,
-  step: () => Promise<unknown>,
+  step: () => Promise<Result>,
 ): Promise<void> {
   try {
     await step();
@@ -501,9 +501,13 @@ export async function runConfigureOperation(
                   configuration.healthApplication,
                 )
               : configuration.healthApplication;
+          const guardDestination = configuration.publicAccessGuardDestination;
+          if (configuration.publicAccess && !guardDestination) {
+            throw new ZeroTrustUnavailableError('Public app management destination is missing.');
+          }
           const wildcard = await client.ensureApplication(
-            configuration.publicAccess
-              ? publicAppManagementApplication(name, configuration.publicAccessGuardDestination!)
+            configuration.publicAccess && guardDestination
+              ? publicAppManagementApplication(name, guardDestination)
               : {
                   name,
                   destinations: zeroTrustWildcardDestinations(readPlatformApplication(env)),

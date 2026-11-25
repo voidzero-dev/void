@@ -20,6 +20,7 @@ export function applicationTargetEnvironment(
   if (
     !current.workersDev ||
     !target.workersDev ||
+    !target.zoneId ||
     current.workersDev.installationId !== target.workersDev.installationId ||
     current.workersDev.subdomain !== target.workersDev.subdomain ||
     target.workersDev.installationId !== env.PLATFORM_INSTALLATION_ID ||
@@ -31,7 +32,7 @@ export function applicationTargetEnvironment(
     ...env,
     PLATFORM_APPLICATION: JSON.stringify(target),
     SITE_DOMAIN: target.baseDomain,
-    CF_ZONE_ID: target.zoneId!,
+    CF_ZONE_ID: target.zoneId,
   };
 }
 

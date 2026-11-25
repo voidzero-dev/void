@@ -10,8 +10,13 @@ declare global {
   }
 }
 
+const root = document.getElementById('root');
+if (!root) {
+  throw new Error('Missing application root.');
+}
+
 hydrateRoot(
-  document.getElementById('root')!,
+  root,
   <App
     url={window.location.pathname}
     visitCount={window.__STATE__.visits}

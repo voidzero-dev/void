@@ -45,7 +45,7 @@ function writePage(relativePath: string, source: string): void {
   writeFileSync(full, source);
 }
 
-type PatchProps = (comp: object, props: Record<string, unknown>) => void;
+type PatchProps = (comp: Vue.Component, props: Record<string, unknown>) => void;
 
 function compilePage(source: string): Vue.Component & Record<string, unknown> {
   const transform = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages-transform') as

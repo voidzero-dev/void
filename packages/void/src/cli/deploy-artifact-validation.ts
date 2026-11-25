@@ -30,7 +30,11 @@ import {
 import { log } from './deploy-helpers.ts';
 import { BETTER_AUTH_SECRET_NAME } from './deploy-resources.ts';
 import { buildSchemaProbeEnv } from './deploy-transport.ts';
-import type { BindingIdentitySnapshot, CloudflareDeployDeps } from './deploy-types.ts';
+import type {
+  BindingIdentitySnapshot,
+  CloudflareDeployDeps,
+  DeployVerification,
+} from './deploy-types.ts';
 import type {
   EnvSchemaProbeInput,
   EnvSchemaProbeResult,
@@ -82,10 +86,12 @@ export function resolveGeneratedDeployConfigPathDefault(root: string): string {
   return resolve(dirname(pointerPath), pointer.configPath);
 }
 
-export function readGeneratedDeployConfig(root: string): {
+type GeneratedDeployConfig = {
   path: string;
-  config: Record<string, unknown>;
-} {
+  config: ReturnType<typeof readGeneratedWranglerConfigFile>;
+};
+
+export function readGeneratedDeployConfig(root: string): GeneratedDeployConfig {
   const redirectedPath = resolveGeneratedDeployConfigPathDefault(root);
   try {
     return { path: redirectedPath, config: readGeneratedWranglerConfigFile(redirectedPath) };
@@ -173,7 +179,7 @@ export function verifyGeneratedDeployConfig(
     /** Cron schedules the build should emit, derived from the source before the build. */
     expectedCrons?: Array<string>;
   },
-): { ok: boolean; reason?: string } {
+): DeployVerification {
   const deployConfigPath = deployPointerPath(root);
   if (!existsSync(deployConfigPath)) {
     return {

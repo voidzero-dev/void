@@ -63,11 +63,14 @@ export function platformSetupFieldHelp(
   }
 }
 
-/** Dashboard keys use permission-catalog labels, which can differ from product names. */
+const confirmWorkersAdmin = 'Confirm Workers → Admin is selected for the account.';
+
+/** Account-token links accept canonical permission group IDs as well as short keys. */
 function platformAccountTokenPermissions(includeAiGateway: boolean) {
   return [
     { key: 'account_settings', type: 'read' },
-    { key: 'workers_scripts', type: 'edit' },
+    // Workers Admin lets Void create account Workers and deploy Workers into dispatch namespaces.
+    { key: '98d78cd2433d4c3687191bc0244ef948', type: 'edit' },
     { key: 'workers_kv_storage', type: 'edit' },
     { key: 'workers_r2', type: 'edit' },
     { key: 'd1', type: 'edit' },
@@ -151,6 +154,7 @@ export function platformManagementSetupPage(
     instructions: [
       'This token lets the Void CLI install your platform. Void will now open a pre-configured token creation site. Please review the permissions and then paste the token here.',
       `Scope it to ${plan.account.name}.`,
+      confirmWorkersAdmin,
       ...(createsZone
         ? [`Keep the zone policy on All Domains so Void can create ${zoneName}.`]
         : zones.length
@@ -160,11 +164,13 @@ export function platformManagementSetupPage(
   };
 }
 
-export function platformSetupPages(plan: PlatformInstallPlan): {
+type PlatformSetupPages = {
   runtime: PlatformSetupPage;
   github: PlatformSetupPage;
   r2: PlatformSetupPage;
-} {
+};
+
+export function platformSetupPages(plan: PlatformInstallPlan): PlatformSetupPages {
   const needsGateway = plan.actions.some(
     (action) => action.kind === 'ai-gateway' && action.action === 'inspect',
   );
@@ -205,6 +211,7 @@ export function platformSetupPages(plan: PlatformInstallPlan): {
       url: 'https://dash.cloudflare.com/?' + query,
       instructions: [
         'Create a Cloudflare runtime token that Void can use to manage the platform. Please review the permissions and then paste the token here.',
+        confirmWorkersAdmin,
         // A zone that Void creates later cannot be selected yet; All Domains
         // lets Cache Purge reach it once it exists.
         ...(zoneName && plansZoneCreation(plan)

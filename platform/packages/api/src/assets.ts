@@ -1,4 +1,4 @@
-import { extname } from 'node:path';
+import { extname } from 'node:path/posix';
 import { createHasher } from 'blake3-jit';
 import mime from 'mime';
 import { retryWithBackoff } from './cf-api.ts';
@@ -667,7 +667,7 @@ export async function deleteUnreferencedAssets(
  */
 async function runUntilFirstError<T>(
   items: ReadonlyArray<T>,
-  fn: (item: T) => Promise<unknown>,
+  fn: (item: T) => Promise<void>,
 ): Promise<void> {
   let index = 0;
   let failed = false;

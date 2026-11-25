@@ -23,6 +23,8 @@ const R2_SERVICE = 's3';
 const EMPTY_BODY_SHA256 = createHash('sha256').update('').digest('hex');
 const R2_PROBE_TIMEOUT_MS = 15_000;
 
+type R2ListObjectsRequest = Readonly<{ url: string; headers: Record<string, string> }>;
+
 /**
  * Build one SigV4-signed S3 ListObjectsV2 request (at most one key) for the
  * bucket. The platform API signs upload links with the same pair, region and
@@ -34,7 +36,7 @@ export function createR2ListObjectsRequest(
     'accountId' | 'bucket' | 'accessKeyId' | 'secretAccessKey'
   >,
   now: Date,
-): Readonly<{ url: string; headers: Record<string, string> }> {
+): R2ListObjectsRequest {
   const host = `${input.accountId}.r2.cloudflarestorage.com`;
   const path = `/${encodeURIComponent(input.bucket)}`;
   // Keys are already in sorted order, as SigV4 requires.

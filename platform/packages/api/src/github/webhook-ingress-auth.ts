@@ -35,6 +35,14 @@ type GitHubWebhookHeaders = { event: string; deliveryId: string | null; signatur
 
 export function readGitHubWebhookHeaders(
   headers: Headers,
+  options: { requireDelivery: true },
+): GitHubWebhookHeaders & { deliveryId: string };
+export function readGitHubWebhookHeaders(
+  headers: Headers,
+  options: { requireDelivery: boolean },
+): GitHubWebhookHeaders;
+export function readGitHubWebhookHeaders(
+  headers: Headers,
   options: { requireDelivery: boolean },
 ): GitHubWebhookHeaders {
   const contentType = headers.get('Content-Type');

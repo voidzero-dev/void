@@ -78,11 +78,19 @@ export function createStackGame(random: () => number = Math.random): StackGame {
   };
 }
 
+export function topStackTile(game: StackGame): Tile {
+  const tile = game.tiles.at(-1);
+  if (!tile) {
+    throw new Error('Stack game must have a base tile.');
+  }
+  return tile;
+}
+
 export function advanceStackGame(game: StackGame, seconds: number): StackGame {
   if (!game.moving) {
     return game;
   }
-  const top = game.tiles.at(-1)!;
+  const top = topStackTile(game);
   const speed = Math.min(320, 150 + top.level * 9);
   const travel = game.travel + Math.max(0, seconds) * speed;
   const position = travel % (RANGE * 4);
@@ -98,7 +106,7 @@ export function dropStackTile(game: StackGame, random: () => number = Math.rando
   if (!game.moving) {
     return { game, fragment: null, perfect: false };
   }
-  const top = game.tiles.at(-1)!;
+  const top = topStackTile(game);
   const tile = game.moving;
   const size = game.axis === 'x' ? 'width' : 'depth';
   const delta = tile[game.axis] - top[game.axis];

@@ -8,7 +8,9 @@ vi.mock('../../src/cli/keyring.ts', () => ({
   writeKeyringPassword: () => true,
 }));
 vi.mock('node:child_process', () => ({
-  execFile: (...args: Array<unknown>) => mockExecFile(...args),
+  execFile: (...args: Array<unknown>) => {
+    mockExecFile(...args);
+  },
 }));
 
 const accessJwt =

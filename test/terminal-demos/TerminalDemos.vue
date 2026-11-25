@@ -129,8 +129,8 @@ onMounted(() => {
   if (props.studio) {
     const params = new URLSearchParams(window.location.search);
     const requested = params.get('demo');
-    if (terminalDemos.some((item) => item.id === requested)) {
-      selected.value = requested!;
+    if (requested !== null && terminalDemos.some((item) => item.id === requested)) {
+      selected.value = requested;
     }
     const rate = Number(params.get('speed'));
     if (playbackSpeeds.some((allowed) => allowed === rate)) {

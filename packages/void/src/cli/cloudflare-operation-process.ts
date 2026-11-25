@@ -38,9 +38,10 @@ import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 type Json = Record<string, unknown>;
 
 const cf = join(dirname(fileURLToPath(import.meta.resolve('cf/package.json'))), 'bin', 'cf');
-const operation = ((): unknown => {
+const operation = (() => {
   try {
-    return JSON.parse(process.argv[2] ?? 'null');
+    const parsed: unknown = JSON.parse(process.argv[2] ?? 'null');
+    return parsed;
   } catch {
     return null;
   }
@@ -248,6 +249,7 @@ async function withBuildOutput(
   }
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Each command validates the JSON fields it reads.
 function parsedJson(value: string): unknown {
   return JSON.parse(value) as unknown;
 }
@@ -292,7 +294,7 @@ function updateBinding(section: string, binding: string, values: Json): void {
   writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
 }
 
-function d1Database(token: string): { id: string; dir: string; table: string; pattern?: string } {
+function d1Database(token: string) {
   const entries = config().d1_databases;
   if (!Array.isArray(entries)) {
     throw new Error('D1 database binding is unavailable.');
@@ -326,7 +328,7 @@ function previousD1Bookmark(stdout: string): string | undefined {
   }
 }
 
-function cleanJson(command: Array<string>, transform?: (value: unknown) => unknown): Result {
+function cleanJson<Output>(command: Array<string>, transform?: (value: unknown) => Output): Result {
   const called = runCf(command);
   if (called.status !== 0 || !transform) {
     return called;
@@ -1304,7 +1306,10 @@ async function workerChanges(): Promise<Result> {
     return deployed;
   }
   if (operation.type === 'versions.upload' || operation.type === 'worker.deploy') {
-    const path = configPath()!;
+    const path = configPath();
+    if (!path) {
+      throw new Error('Cloudflare Worker upload requires a configuration path.');
+    }
     if (typeof raw.main !== 'string' || !raw.main || raw.no_bundle !== true) {
       throw new Error('Cloudflare Worker upload requires a prebuilt platform Worker.');
     }
@@ -1411,9 +1416,10 @@ async function tail(): Promise<Result> {
     await new Promise<void>((resolve, reject) => {
       finish = resolve;
       let pendingMessages = Promise.resolve();
-      socket = new WebSocket(tailUrl, 'trace-v1');
-      socket.addEventListener('open', () => {
-        socket!.send(JSON.stringify({ debug: false }));
+      const connection = new WebSocket(tailUrl, 'trace-v1');
+      socket = connection;
+      connection.addEventListener('open', () => {
+        connection.send(JSON.stringify({ debug: false }));
       });
       socket.addEventListener('message', (event) => {
         pendingMessages = pendingMessages

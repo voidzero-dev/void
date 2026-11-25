@@ -12,7 +12,6 @@ import {
   vi,
 } from 'vite-plus/test';
 import { deleteRollbackLease } from '../../src/db.ts';
-import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
 // oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
@@ -35,6 +34,7 @@ import {
   mockCfApi,
   cfSuccess,
   cfError,
+  withTestTransaction,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
@@ -4642,20 +4642,12 @@ describe('POST /projects/:id/migrations/rename', () => {
       releaseB = r;
     });
     let bHoldFired = false;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(target, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return async (fn: any) => {
-            if (!bHoldFired) {
-              bHoldFired = true;
-              await bHold;
-            }
-            return realTransaction(fn);
-          };
-        }
-        return Reflect.get(target, prop, receiver);
-      },
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      if (!bHoldFired) {
+        bHoldFired = true;
+        await bHold;
+      }
+      return realTransaction(fn);
     });
     setTestDb(wrappedDb);
 
@@ -4762,23 +4754,15 @@ describe('POST /projects/:id/migrations/rename', () => {
       beforeTxReached = r;
     });
     let beforeTxHoldFired = false;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(target, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return async (fn: any) => {
-            if (!beforeTxHoldFired) {
-              beforeTxHoldFired = true;
-              beforeTxReached?.();
-              await new Promise<void>((r) => {
-                beforeTxResolver = r;
-              });
-            }
-            return realTransaction(fn);
-          };
-        }
-        return Reflect.get(target, prop, receiver);
-      },
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      if (!beforeTxHoldFired) {
+        beforeTxHoldFired = true;
+        beforeTxReached?.();
+        await new Promise<void>((r) => {
+          beforeTxResolver = r;
+        });
+      }
+      return realTransaction(fn);
     });
     setTestDb(wrappedDb);
 
@@ -4872,50 +4856,41 @@ describe('POST /projects/:id/migrations/rename', () => {
     let transactionCount = 0;
     const lateHostname = 'late-rollback-domain.example.com';
     const commitRejection = new Error('injected commit rejection');
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(targetDb, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return async (fn: any) => {
-            transactionCount++;
-            const rejectsCutover = transactionCount === 2;
-            try {
-              return await realTransaction(async (tx) => {
-                // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the transaction callback provided to this partial database mock.
-                const result = await fn(tx);
-                if (rejectsCutover) {
-                  // The cutover callback completed and wrote external state,
-                  // but PostgreSQL rejects before committing its project flip.
-                  throw commitRejection;
-                }
-                return result;
-              });
-            } catch (error) {
-              if (error === commitRejection) {
-                // Model domain activation winning the gap between the failed
-                // rollback tx releasing the project lock and outer
-                // compensation reacquiring it. It copies target routing that
-                // the rollback wrote externally even though PostgreSQL stayed
-                // on current.
-                await realTransaction(async (tx) => {
-                  await tx.insert(domains).values({
-                    id: 'dom_late_rollback_compensation',
-                    project_id: project.id,
-                    hostname: lateHostname,
-                    cf_hostname_id: 'ch-late-rollback-compensation',
-                    status: 'active',
-                  });
-                  const temporaryTargetRouting = await env.ROUTING.get(project.slug);
-                  expect(temporaryTargetRouting).toContain(target.id);
-                  await env.ROUTING.put(`domain:${lateHostname}`, temporaryTargetRouting!);
-                });
-              }
-              throw error;
-            }
-          };
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      transactionCount++;
+      const rejectsCutover = transactionCount === 2;
+      try {
+        return await realTransaction(async (tx) => {
+          const result = await fn(tx);
+          if (rejectsCutover) {
+            // The cutover callback completed and wrote external state,
+            // but PostgreSQL rejects before committing its project flip.
+            throw commitRejection;
+          }
+          return result;
+        });
+      } catch (error) {
+        if (error === commitRejection) {
+          // Model domain activation winning the gap between the failed
+          // rollback tx releasing the project lock and outer
+          // compensation reacquiring it. It copies target routing that
+          // the rollback wrote externally even though PostgreSQL stayed
+          // on current.
+          await realTransaction(async (tx) => {
+            await tx.insert(domains).values({
+              id: 'dom_late_rollback_compensation',
+              project_id: project.id,
+              hostname: lateHostname,
+              cf_hostname_id: 'ch-late-rollback-compensation',
+              status: 'active',
+            });
+            const temporaryTargetRouting = await env.ROUTING.get(project.slug);
+            expect(temporaryTargetRouting).toContain(target.id);
+            await env.ROUTING.put(`domain:${lateHostname}`, temporaryTargetRouting!);
+          });
         }
-        return Reflect.get(targetDb, prop, receiver);
-      },
+        throw error;
+      }
     });
     setTestDb(wrappedDb);
 
@@ -4967,29 +4942,20 @@ describe('POST /projects/:id/migrations/rename', () => {
     const realDb = env.db;
     const realTransaction = realDb.transaction.bind(realDb);
     let transactionCount = 0;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(targetDb, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return async (fn: any) => {
-            transactionCount++;
-            if (transactionCount === 3) {
-              // Lease creation is #1, rollback cutover is #2, and the guarded
-              // outer compensation lock is #3.
-              throw new Error('injected compensation transaction failure');
-            }
-            return realTransaction(async (tx) => {
-              // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the transaction callback provided to this partial database mock.
-              const result = await fn(tx);
-              if (transactionCount === 2) {
-                throw new Error('injected rollback commit rejection');
-              }
-              return result;
-            });
-          };
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      transactionCount++;
+      if (transactionCount === 3) {
+        // Lease creation is #1, rollback cutover is #2, and the guarded
+        // outer compensation lock is #3.
+        throw new Error('injected compensation transaction failure');
+      }
+      return realTransaction(async (tx) => {
+        const result = await fn(tx);
+        if (transactionCount === 2) {
+          throw new Error('injected rollback commit rejection');
         }
-        return Reflect.get(targetDb, prop, receiver);
-      },
+        return result;
+      });
     });
     setTestDb(wrappedDb);
 
@@ -5049,21 +5015,13 @@ describe('POST /projects/:id/migrations/rename', () => {
     const realDb = env.db;
     const realTransaction = realDb.transaction.bind(realDb);
     let transactionCount = 0;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(targetDb, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return async (fn: any) => {
-            transactionCount++;
-            const result = await realTransaction(fn);
-            if (transactionCount === 2) {
-              throw new Error('database connection lost after COMMIT');
-            }
-            return result;
-          };
-        }
-        return Reflect.get(targetDb, prop, receiver);
-      },
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      transactionCount++;
+      const result = await realTransaction(fn);
+      if (transactionCount === 2) {
+        throw new Error('database connection lost after COMMIT');
+      }
+      return result;
     });
     setTestDb(wrappedDb);
 

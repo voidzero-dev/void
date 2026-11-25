@@ -1,19 +1,34 @@
 import { describe, it, expect, vi, beforeEach } from 'vite-plus/test';
 
 // Mock db.ts (createDb is called inside processUsageEventBatch).
-const getUserMock = vi.fn();
-const getProjectsByIdsMock = vi.fn();
-const getProjectOwnershipPeriodsByProjectIdsMock = vi.fn();
+type UsageQueries = typeof import('../../src/db.ts');
+type TestUser = Pick<NonNullable<Awaited<ReturnType<UsageQueries['getUser']>>>, 'id' | 'plan'>;
+type TestProject = Pick<
+  Awaited<ReturnType<UsageQueries['getProjectsByIds']>>[number],
+  'id' | 'user_id' | 'slug'
+> &
+  Partial<
+    Pick<Awaited<ReturnType<UsageQueries['getProjectsByIds']>>[number], 'created_at' | 'status'>
+  >;
+
+const getUserMock =
+  vi.fn<(...args: Parameters<UsageQueries['getUser']>) => Promise<TestUser | null>>();
+const getProjectsByIdsMock =
+  vi.fn<(...args: Parameters<UsageQueries['getProjectsByIds']>) => Promise<Array<TestProject>>>();
+const getProjectOwnershipPeriodsByProjectIdsMock =
+  vi.fn<UsageQueries['getProjectOwnershipPeriodsByProjectIds']>();
 vi.mock('../../src/db.ts', () => ({
   createDb: () => ({ __mock: 'db' }),
-  getUser: async (...args: Array<unknown>) => {
+  getUser: async (...args: Parameters<typeof getUserMock>) => {
     const user = await getUserMock(...args);
     return user ? { created_at: '2020-01-01T00:00:00.000Z', ...user } : user;
   },
-  getProjectsByIds: (...args: Array<unknown>) => getProjectsByIdsMock(...args),
-  getProjectOwnershipPeriodsByProjectIds: (...args: Array<unknown>) =>
-    getProjectOwnershipPeriodsByProjectIdsMock(...args),
-  getProjectUsageOwnershipSnapshot: async (...args: Array<unknown>) => ({
+  getProjectsByIds: (...args: Parameters<typeof getProjectsByIdsMock>) =>
+    getProjectsByIdsMock(...args),
+  getProjectOwnershipPeriodsByProjectIds: (
+    ...args: Parameters<typeof getProjectOwnershipPeriodsByProjectIdsMock>
+  ) => getProjectOwnershipPeriodsByProjectIdsMock(...args),
+  getProjectUsageOwnershipSnapshot: async (...args: Parameters<typeof getProjectsByIdsMock>) => ({
     projects: await getProjectsByIdsMock(...args),
     ownershipPeriods: await getProjectOwnershipPeriodsByProjectIdsMock(...args),
   }),

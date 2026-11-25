@@ -17,7 +17,7 @@ describe('withValidator + zod', () => {
       // @ts-expect-error - 'age' does not exist on { name: string; email: string }
       void body.age;
       // @ts-expect-error - name is string, toFixed exists only on number
-      void body.name.toFixed();
+      void body.name.toFixed;
       return body;
     });
 
@@ -43,7 +43,7 @@ describe('withValidator + valibot', () => {
       // @ts-expect-error - 'age' does not exist on { name: string; email: string }
       void body.age;
       // @ts-expect-error - name is string, toFixed exists only on number
-      void body.name.toFixed();
+      void body.name.toFixed;
       return body;
     });
 
@@ -70,7 +70,7 @@ describe('withValidator + arktype', () => {
       // @ts-expect-error - 'age' does not exist on { name: string; email: string }
       void body.age;
       // @ts-expect-error - name is string, toFixed exists only on number
-      void body.name.toFixed();
+      void body.name.toFixed;
       return body;
     });
 

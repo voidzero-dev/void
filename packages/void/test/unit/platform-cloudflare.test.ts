@@ -2182,7 +2182,7 @@ describe('naming the Cloudflare credential in errors', () => {
     });
     const error = await failure(client.getWorkersSubdomain('account'));
     expect(error.message).toBe(
-      'platform: Could not read the workers.dev subdomain for account account (HTTP 403). Void used the management token saved on this machine. HTTP 403 means the token works but is missing Account → Workers Scripts → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has it, then retry.',
+      'platform: Could not read the workers.dev subdomain for account account (HTTP 403). Void used the management token saved on this machine. HTTP 403 means the token works but is missing Account → Workers → Admin, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has it, then retry.',
     );
     expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
   });
@@ -2198,7 +2198,7 @@ describe('naming the Cloudflare credential in errors', () => {
       'deletes a resource',
       (client: PlatformCloudflareClient) => client.deleteWorkerRoute('zone', 'route'),
       '/zones/zone/workers/routes/route',
-      'Zone → Workers Routes → Edit',
+      'Zone → Workers Routes → Write',
     ],
   ])(
     'names the credential when Cloudflare denies a request that %s',

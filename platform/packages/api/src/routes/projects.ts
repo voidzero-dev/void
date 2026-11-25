@@ -62,6 +62,7 @@ import {
   ACTIVE_BUILD_STATUSES,
 } from '../db.ts';
 import { databaseTimestampMs } from '../deploy/recovery.ts';
+import { parseAssetManifest } from '../deploy/serving-assets.ts';
 import { isDevBypass } from '../env.ts';
 import type { ApiEnv } from '../env.ts';
 import { validateSubmittedExecutionPlans } from '../migrations/execution-plan.ts';
@@ -1041,6 +1042,10 @@ const app = new Hono<ApiEnv>()
       }
 
       if (!rollbackCommitted) {
+        const leaseId = rollbackLeaseId;
+        if (!leaseId) {
+          throw new Error('Rollback publication requires an owned lease.');
+        }
         rollbackResult = await context.get('db').transaction(async (tx) => {
           // Lock the project row via `SELECT … FOR UPDATE` — per-project,
           // collision-free, released automatically at tx end. MUST be the
@@ -1237,15 +1242,11 @@ const app = new Hono<ApiEnv>()
           const isStaticDeployment = targetType === 'static' || targetType === 'spa';
           let targetHasAssets = false;
           if (target.asset_hashes) {
-            try {
-              const assetHashes = JSON.parse(target.asset_hashes) as unknown;
-              targetHasAssets =
-                typeof assetHashes === 'object' &&
-                assetHashes !== null &&
-                Object.keys(assetHashes).length > 0;
-            } catch {
+            const assetManifest = parseAssetManifest(target.asset_hashes);
+            if (!assetManifest) {
               throw new RollbackError(400, 'target deployment has invalid asset metadata');
             }
+            targetHasAssets = Object.keys(assetManifest).length > 0;
           }
 
           let routingJson: string;
@@ -1296,12 +1297,13 @@ const app = new Hono<ApiEnv>()
             const previous = await context.env.ROUTING.get(key);
             snapshottedRoutingKeys.add(key);
             externalUndo.push(async (currentZeroTrust) => {
-              if (!routingValuesWritten.has(key)) {
+              const written = routingValuesWritten.get(key);
+              if (written === undefined) {
                 return;
               }
               const undo = resolveRoutingUndo(
                 await context.env.ROUTING.get(key),
-                routingValuesWritten.get(key)!,
+                written,
                 previous,
               );
               if (!undo.restore) {
@@ -1374,10 +1376,13 @@ const app = new Hono<ApiEnv>()
               restoreCronScheduler(context.env, projectId, previousCronState),
             );
             if (manifest?.schedules?.length) {
+              if (!targetProxyToken) {
+                throw new Error('Rollback requires the Worker proxy token for schedules.');
+              }
               await syncCronScheduler(context.env, projectId, {
                 workerName,
                 schedules: manifest.schedules,
-                proxyToken: targetProxyToken!,
+                proxyToken: targetProxyToken,
               });
             } else {
               await clearCronScheduler(context.env, projectId);
@@ -1511,6 +1516,9 @@ const app = new Hono<ApiEnv>()
               }
             }
             if (manifest?.queues?.length) {
+              if (!targetProxyToken) {
+                throw new Error('Rollback requires the Worker proxy token for queues.');
+              }
               for (const q of manifest.queues) {
                 await putRouting(
                   `queue:${getProjectQueueName(projectId, q.name)}`,
@@ -1518,7 +1526,7 @@ const app = new Hono<ApiEnv>()
                     workerName,
                     projectId,
                     queueName: q.name,
-                    proxyToken: targetProxyToken!,
+                    proxyToken: targetProxyToken,
                   }),
                 );
               }
@@ -1555,7 +1563,7 @@ const app = new Hono<ApiEnv>()
           // rollback target was already active before this transaction began.
           const witnessed = await updateRollbackLeaseState(
             tx,
-            rollbackLeaseId!,
+            leaseId,
             deploymentId,
             'applied',
             rollbackOwnerId,
@@ -1796,6 +1804,7 @@ const app = new Hono<ApiEnv>()
       return rollbackErrorResponse;
     }
     if (rollbackErrorToThrow !== undefined) {
+      // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured rollback failure after releasing the lock.
       throw rollbackErrorToThrow;
     }
     if (!rollbackResult) {

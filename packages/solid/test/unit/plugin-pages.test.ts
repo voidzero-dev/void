@@ -16,7 +16,7 @@ it('names the Solid entries for the client and the Worker in dev', async () => {
   mkdirSync(pagesDir, { recursive: true });
   writeFileSync(join(pagesDir, 'index.tsx'), 'export default () => <h1>Home</h1>;');
   try {
-    type ConfigHook = (config: object, env: { command: 'serve' }) => Promise<UserConfig | void>;
+    type ConfigHook = (config: UserConfig, env: { command: 'serve' }) => Promise<UserConfig | void>;
     const hook = (pagesPlugin(pagesDir) as { config?: unknown }).config as
       | ConfigHook
       | { handler: ConfigHook };

@@ -33,7 +33,6 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
 import type { Db } from '../../db.ts';
-import { parseManifest } from '../../deploy/serving-assets.ts';
 import type { ApiEnv } from '../../env.ts';
 import { loadStoredWorkerModules } from '../../provisioning/durable-objects.ts';
 import { deploymentOperations, deployments } from '../../schema.ts';
@@ -46,6 +45,7 @@ import {
 } from '../enqueue.ts';
 import { ingestSecurityScanResult, serializeSecurityScanScope } from '../ingest.ts';
 import { securityRawOutputPrefix } from '../maintenance.ts';
+import { readSecurityManifest } from '../manifest.ts';
 import { endSecurityScanAttempt } from '../queue.ts';
 import { securityRuntimeCopyWanted } from '../runtime-copy-plan.ts';
 import { securityScans } from '../schema.ts';
@@ -943,7 +943,7 @@ export async function prepareSecurityScanInputFiles(
     .map((finding) => finding.file!);
 
   // T1 when GitHub can show the change (hosted only); otherwise T2 stays, with a note.
-  const manifest = parseManifest(scan.manifest);
+  const manifest = readSecurityManifest(scan.manifest);
   const main = manifest?.workerMain ?? null;
   let sourceDiff: SecuritySourceDiffInput | null = null;
   const notes: Array<string> = [];

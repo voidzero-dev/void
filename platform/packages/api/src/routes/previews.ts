@@ -58,7 +58,8 @@ async function ownedPreview(
     project.status !== 'active' ||
     project.preview_client_id !== grant.client_id ||
     project.user_id !== grant.user_id ||
-    Date.parse(project.preview_expires_at!) <= Date.now()
+    !project.preview_expires_at ||
+    Date.parse(project.preview_expires_at) <= Date.now()
   ) {
     throw new OAuthError('access_denied', 'Preview unavailable.', 404);
   }

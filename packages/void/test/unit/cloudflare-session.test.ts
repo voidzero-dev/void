@@ -39,7 +39,8 @@ let root: string;
 let output: Array<string>;
 let stdinTty: PropertyDescriptor | undefined;
 let stdoutTty: PropertyDescriptor | undefined;
-const read = (): State => JSON.parse(readFileSync(join(root, 'auth-fixture.json'), 'utf8'));
+const read = (): State =>
+  JSON.parse(readFileSync(join(root, 'auth-fixture.json'), 'utf8')) as State;
 const write = (state: State) =>
   writeFileSync(join(root, 'auth-fixture.json'), JSON.stringify(state));
 const pin =

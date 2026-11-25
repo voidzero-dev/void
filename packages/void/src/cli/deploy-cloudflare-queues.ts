@@ -109,7 +109,7 @@ export async function chooseCloudflareQueueNames(input: {
       tooLong.push(`  • ${choice.name} (${choice.name.length} characters)`);
       continue;
     }
-    const state = choice.kept ? plain! : scoped;
+    const state = choice.kept ? (plain ?? null) : scoped;
     if (state === null) {
       absent.push(choice.name);
     }

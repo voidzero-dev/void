@@ -7,5 +7,6 @@ export function useShared<T = CloudContextVariables['shared']>(): T {
   if (!shared) {
     throw new Error('useShared(): must be used inside a Void page.');
   }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- A caller can supply the app-specific shared context type.
   return shared as T;
 }

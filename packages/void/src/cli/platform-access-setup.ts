@@ -117,7 +117,10 @@ export async function selectCompanyAccessPolicies(
                 : 'Enter up to 10 email domains, such as example.com.',
           }),
         ),
-      )!;
+      );
+      if (!domains) {
+        throw new Error('platform: Enter up to 10 email domains, such as example.com.');
+      }
       const name = `Emails ending in @${domains[0]}${domains.length > 1 ? ` and ${domains.length - 1} more` : ''}`;
       try {
         // A lost response can lead to a second policy with the same name on retry. It

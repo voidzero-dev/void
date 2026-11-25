@@ -76,8 +76,15 @@ export async function openIslandPage(
     await server.listen();
     const page = await browser.newPage();
     const diagnostics = collectBrowserDiagnostics(page);
-    const response = await page.goto(server.resolvedUrls!.local[0]);
-    return { html: await response!.text(), page, diagnostics, close };
+    const url = server.resolvedUrls?.local[0];
+    if (!url) {
+      throw new Error('Expected a local Vite server URL.');
+    }
+    const response = await page.goto(url);
+    if (!response) {
+      throw new Error(`Expected an HTML response from ${url}.`);
+    }
+    return { html: await response.text(), page, diagnostics, close };
   } catch (error) {
     await close();
     throw error;

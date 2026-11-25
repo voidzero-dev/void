@@ -568,9 +568,10 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
     });
 
     void it('13 — Sandbox runtime acceptance', { skip: !acceptanceToken }, async () => {
+      assert.ok(acceptanceToken);
       const response = await fetch(`${BASE}/api/acceptance/sandbox`, {
         method: 'POST',
-        headers: { ...CF_ACCESS, 'x-void-e2e-token': acceptanceToken! },
+        headers: { ...CF_ACCESS, 'x-void-e2e-token': acceptanceToken },
         signal: AbortSignal.timeout(180_000),
       });
       const body = await response.json();

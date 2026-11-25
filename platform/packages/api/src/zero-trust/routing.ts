@@ -39,15 +39,16 @@ export function routingProtection(
   configuration: ZeroTrustConfiguration,
   protectedApplication: ManagedAccessApplication | null,
 ): ProjectZeroTrustRouting {
-  if (!configuration.wildcardApplication) {
+  const { wildcardApplication } = configuration;
+  if (!wildcardApplication) {
     throw new ZeroTrustUnavailableError('The platform Access application is unavailable.');
   }
   return {
     teamDomain: configuration.teamDomain,
     audiences: [
-      ...configuration.wildcardApplication.destinations.map((hostname) => ({
+      ...wildcardApplication.destinations.map((hostname) => ({
         hostname,
-        audience: configuration.wildcardApplication!.audience,
+        audience: wildcardApplication.audience,
       })),
       ...(protectedApplication
         ? protectedApplication.destinations.map((hostname) => ({

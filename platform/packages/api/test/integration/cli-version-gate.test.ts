@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm';
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vite-plus/test';
-import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import { MIN_CLI_VERSION } from '../../src/middleware/cli-version.ts';
 import { projects } from '../../src/schema.ts';
@@ -10,6 +9,7 @@ import {
   clearTables,
   createTestUser,
   createTestProject,
+  withTestTransaction,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
@@ -322,23 +322,15 @@ describe('cliVersionGate — defers to project authorization', () => {
       beforeTxReached = r;
     });
     let beforeTxHoldFired = false;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(target, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return async (fn: any) => {
-            if (!beforeTxHoldFired) {
-              beforeTxHoldFired = true;
-              beforeTxReached?.();
-              await new Promise<void>((r) => {
-                beforeTxResolver = r;
-              });
-            }
-            return realTransaction(fn);
-          };
-        }
-        return Reflect.get(target, prop, receiver);
-      },
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      if (!beforeTxHoldFired) {
+        beforeTxHoldFired = true;
+        beforeTxReached?.();
+        await new Promise<void>((r) => {
+          beforeTxResolver = r;
+        });
+      }
+      return realTransaction(fn);
     });
     setTestDb(wrappedDb);
 

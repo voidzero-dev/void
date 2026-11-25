@@ -233,6 +233,7 @@ function buildDatabaseManifest() {
 }
 
 function parseObjectJson(contents, path) {
+  /** @type {unknown} */
   let value;
   try {
     value = JSON.parse(contents.toString('utf8'));
@@ -245,7 +246,7 @@ function parseObjectJson(contents, path) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`Void Platform metadata at ${path} must be an object.`);
   }
-  return value;
+  return /** @type {Record<string, unknown>} */ (value);
 }
 
 function sha256(value) {

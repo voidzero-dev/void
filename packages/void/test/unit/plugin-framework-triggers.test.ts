@@ -38,7 +38,7 @@ function callConfigResolved(plugin: ReturnType<typeof frameworkTriggersPlugin>) 
   if (typeof fn !== 'function') {
     throw new Error('configResolved not callable');
   }
-  (fn as (config: object) => void)({});
+  void fn.call({} as ThisParameterType<typeof fn>, {} as Parameters<typeof fn>[0]);
 }
 
 type DevTrigger = (
@@ -63,7 +63,11 @@ async function loadDevTrigger(root: string): Promise<DevTrigger> {
       rollupOptions: { output: { entryFileNames: 'dev-triggers.mjs' } },
     },
   });
-  return (await import(pathToFileURL(join(outDir, 'dev-triggers.mjs')).href)).handleDevTrigger;
+  return (
+    (await import(pathToFileURL(join(outDir, 'dev-triggers.mjs')).href)) as {
+      handleDevTrigger: DevTrigger;
+    }
+  ).handleDevTrigger;
 }
 
 function triggerRequest(kind: 'scheduled' | 'queue', payload: unknown): Request {
@@ -83,11 +87,12 @@ function callConfigureServer(
   if (typeof fn !== 'function') {
     throw new Error('configureServer not callable');
   }
-  (fn as (server: object) => void)({
+  const server = {
     httpServer: { once() {} },
     middlewares: { use() {} },
     ...serverOverrides,
-  });
+  };
+  void fn.call({} as ThisParameterType<typeof fn>, server as unknown as Parameters<typeof fn>[0]);
 }
 
 afterEach(() => {

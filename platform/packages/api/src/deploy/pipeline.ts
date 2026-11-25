@@ -64,10 +64,11 @@ import {
   assertDeploymentCanProceed,
 } from './guards.ts';
 import { migrateDeploymentWorker } from './migrate-worker.ts';
+import { readPreviousDeployManifest } from './persisted-manifest.ts';
 import { publishStaticDeployment } from './publish-static.ts';
 import { publishWorkerDeployment } from './publish-worker.ts';
 import { requireActiveDeployAccess, cutoverIntentKey, parseCutoverMarker } from './recovery.ts';
-import { parseManifest, equalAssetManifests, parseAssetManifest } from './serving-assets.ts';
+import { equalAssetManifests, parseAssetManifest } from './serving-assets.ts';
 import {
   ASSET_GC_MAX_HASHES_PER_DEPLOY,
   ASSET_GC_LOCK_BATCH,
@@ -321,12 +322,13 @@ export async function runDeploymentPipeline(input: {
         throw new Error(PROJECT_DELETING_ERROR_MESSAGE);
       }
       const currentAccess = await requireActiveDeployAccess(tx, projectId, actor.id);
+      const oauthApproval = context.get('oauthApproval');
       if (execution) {
         await assertDeploymentExecutionAuthority(tx, execution.operation);
-      } else if (context.get('oauthApproval')) {
+      } else if (oauthApproval) {
         const { approval, user } = await activeOAuthApproval(
           tx,
-          context.get('oauthApproval')!,
+          oauthApproval,
           context.get('companyIdentity'),
           true,
         );
@@ -457,14 +459,11 @@ export async function runDeploymentPipeline(input: {
         const errors: Array<unknown> = [];
         for (const [key, previous] of [...routingValuesBeforeWrite].reverse()) {
           try {
-            if (!routingValuesWritten.has(key)) {
+            const written = routingValuesWritten.get(key);
+            if (written === undefined) {
               continue;
             }
-            const undo = resolveRoutingUndo(
-              await context.env.ROUTING.get(key),
-              routingValuesWritten.get(key)!,
-              previous,
-            );
+            const undo = resolveRoutingUndo(await context.env.ROUTING.get(key), written, previous);
             if (!undo.restore) {
               continue;
             }
@@ -503,8 +502,9 @@ export async function runDeploymentPipeline(input: {
     };
     const restoreTrackedCronState = async (): Promise<void> => {
       if (cronSchedulerWriteAttempted && cronStateBeforeWrite !== undefined) {
+        const cronState = cronStateBeforeWrite;
         await withProjectCompensationFence(() =>
-          restoreCronScheduler(context.env, projectId, cronStateBeforeWrite!),
+          restoreCronScheduler(context.env, projectId, cronState),
         );
       }
     };
@@ -675,7 +675,7 @@ export async function runDeploymentPipeline(input: {
       currentStep = 'validating';
       markPhase('manifest_validate');
 
-      const previousManifest = parseManifest(currentLiveDeployment?.manifest);
+      const previousManifest = readPreviousDeployManifest(currentLiveDeployment?.manifest);
       const websocketManifestResult = enrichWebSocketManifest(
         incomingManifest,
         previousManifest,
@@ -934,7 +934,7 @@ export async function runDeploymentPipeline(input: {
             deleteAssetHashesWithProjectFence,
             evictStoredWorkerBundle,
             get orphanSweepAfterResponse() {
-              return orphanSweepAfterResponse!;
+              return orphanSweepAfterResponse;
             },
             set orphanSweepAfterResponse(value: (() => Promise<void>) | null) {
               orphanSweepAfterResponse = value;
@@ -975,7 +975,7 @@ export async function runDeploymentPipeline(input: {
           assetsByHash,
           incomingAssetManifest,
           get wfpMirroredManifestDeploymentId() {
-            return wfpMirroredManifestDeploymentId!;
+            return wfpMirroredManifestDeploymentId;
           },
           set wfpMirroredManifestDeploymentId(value: string | null) {
             wfpMirroredManifestDeploymentId = value;
@@ -989,7 +989,7 @@ export async function runDeploymentPipeline(input: {
           },
           owner,
           get workerUploadUrl() {
-            return workerUploadUrl!;
+            return workerUploadUrl;
           },
           set workerUploadUrl(value: string | undefined) {
             workerUploadUrl = value;
@@ -1106,7 +1106,7 @@ export async function runDeploymentPipeline(input: {
           deleteAssetHashesWithProjectFence,
           evictStoredWorkerBundle,
           get orphanSweepAfterResponse() {
-            return orphanSweepAfterResponse!;
+            return orphanSweepAfterResponse;
           },
           set orphanSweepAfterResponse(value: (() => Promise<void>) | null) {
             orphanSweepAfterResponse = value;
@@ -1122,20 +1122,20 @@ export async function runDeploymentPipeline(input: {
         return await recoverFailedDeployment({
           err,
           logger,
-          workerName,
+          workerName: pipelineWorkerName,
           currentStep,
           routingSwitched,
           workerUploaded,
           get wfpMirroredManifestDeploymentId() {
-            return wfpMirroredManifestDeploymentId!;
+            return wfpMirroredManifestDeploymentId;
           },
           set wfpMirroredManifestDeploymentId(value: string | null) {
             wfpMirroredManifestDeploymentId = value;
           },
           context,
-          deployment,
-          manifest,
-          dispatchNamespace,
+          deployment: pipelineDeployment,
+          manifest: pipelineManifest,
+          dispatchNamespace: pipelineDispatchNamespace,
           cutoverCommitted,
           projectId,
           cutoverOwnerId,
@@ -1225,11 +1225,11 @@ export async function runDeploymentPipeline(input: {
 
   if (execution) {
     await pipeline;
-    if (terminalEvent) {
+    const event = terminalEvent;
+    if (event) {
       await context.get('db').transaction(async (tx) => {
         await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
         const candidate = await getDeployment(tx, preDeployment.id);
-        const event = terminalEvent!;
         if (event.event === 'done') {
           const completed = await getDeployment(tx, event.deployment);
           if (completed?.status === 'live') {

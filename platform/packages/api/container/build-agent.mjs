@@ -618,7 +618,7 @@ export function pipeStream(source, stream) {
   };
 
   source.setEncoding('utf8');
-  source.on('data', (chunk) => {
+  source.on('data', (/** @type {string} */ chunk) => {
     const n = chunk.length;
     let i = 0;
     // A CR at a chunk seam is the one ambiguous case: wait for the next byte so
@@ -1236,7 +1236,7 @@ function formatRate(bytes, elapsedMs) {
  *
  * Exported so the retry loop above it is unit-testable without spawning `tar`.
  *
- * @param {unknown} body web ReadableStream from `fetch`
+ * @param {NonNullable<Response['body']>} body response body from `fetch`
  * @param {{ onBytes?: (length: number) => void, signal?: AbortSignal, spawnImpl?: typeof spawn, killGraceMs?: number }} [options]
  * @returns {Promise<void>}
  */
@@ -1360,8 +1360,10 @@ export function extractTarball(body, options = {}) {
     // `activeChild` out from under the new attempt. Waiting for 'close' makes
     // "attempt finished" mean the child is actually reaped.
     pipeline(
-      Readable.fromWeb(/** @type {any} */ (body)),
-      async function* meter(source) {
+      Readable.fromWeb(
+        /** @type {import('node:stream/web').ReadableStream<Uint8Array<ArrayBuffer>>} */ (body),
+      ),
+      async function* meter(/** @type {AsyncIterable<Uint8Array>} */ source) {
         for await (const chunk of source) {
           onBytes(chunk.length);
           yield chunk;
@@ -1402,10 +1404,7 @@ export function extractTarball(body, options = {}) {
  *
  * @param {{
  *   fetchImpl?: typeof fetch,
- *   extract?: (
- *     body: unknown,
- *     options?: { onBytes?: (length: number) => void, signal?: AbortSignal },
- *   ) => Promise<void>,
+ *   extract?: typeof extractTarball,
  *   resetWorkDir?: () => void | Promise<void>,
  *   sleep?: (ms: number) => Promise<void>,
  *   isCancelled?: () => boolean,
@@ -1515,10 +1514,7 @@ export async function downloadSource(options = {}) {
  *   tarballUrl: string,
  *   sourceToken: string,
  *   fetchImpl: typeof fetch,
- *   extract: (
- *     body: unknown,
- *     options?: { onBytes?: (length: number) => void, signal?: AbortSignal },
- *   ) => Promise<void>,
+ *   extract: typeof extractTarball,
  *   isCancelled: () => boolean,
  *   stallTimeoutMs: number,
  *   phaseDeadline: number,
@@ -1649,7 +1645,7 @@ async function downloadSourceAttempt(args) {
     }
     // Anything already classified (an HTTP status, a non-zero `tar`) keeps its
     // verdict.
-    if (err instanceof Error && typeof (/** @type {any} */ (err).retryable) === 'boolean') {
+    if (err instanceof Error && 'retryable' in err && typeof err.retryable === 'boolean') {
       throw err;
     }
     // Everything else reaching here came off the wire: `fetch` rejecting with
@@ -1664,19 +1660,30 @@ async function downloadSourceAttempt(args) {
 
 // --- dependency install ------------------------------------------------------
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** @param {string} path */
+function readPackageManifest(path) {
+  try {
+    /** @type {unknown} */
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Read the repo's `package.json#packageManager` pin (e.g. "pnpm@9.1.0"). Returns
- * the raw string, or '' if the file is missing/unreadable/has no pin. Wrapped in
- * try/catch so a malformed package.json can't crash install resolution.
+ * the raw string, or '' if the manifest can't be read or has no pin.
  * @returns {string}
  */
 function readPackageManagerPin() {
-  try {
-    const pkg = JSON.parse(readFileSync(`${WORK_DIR}/package.json`, 'utf8'));
-    return typeof pkg.packageManager === 'string' ? pkg.packageManager : '';
-  } catch {
-    return '';
-  }
+  const pkg = readPackageManifest(`${WORK_DIR}/package.json`);
+  return typeof pkg?.packageManager === 'string' ? pkg.packageManager : '';
 }
 
 /**
@@ -1690,10 +1697,10 @@ function readPackageManagerPin() {
 function readYarnLockKind() {
   try {
     const head = readFileSync(`${WORK_DIR}/yarn.lock`, 'utf8').slice(0, 200);
-    if (head.includes('# yarn lockfile v1')) {
+    if (/# yarn lockfile v1/.test(head)) {
       return 'classic';
     }
-    if (head.includes('__metadata:')) {
+    if (/__metadata:/.test(head)) {
       return 'berry';
     }
     return 'unknown';
@@ -2043,13 +2050,12 @@ function redactUrl(raw) {
 /** Resolve the CLI when deploying the Void source repository or a fork. */
 export function resolveSourceVoidCli(root = WORK_DIR) {
   const packageRoot = `${root}/packages/void`;
-  let manifest;
-  try {
-    manifest = JSON.parse(readFileSync(`${packageRoot}/package.json`, 'utf8'));
-  } catch {
-    return null;
-  }
-  if (manifest.name !== 'void' || typeof manifest.bin?.void !== 'string') {
+  const manifest = readPackageManifest(`${packageRoot}/package.json`);
+  if (
+    manifest?.name !== 'void' ||
+    !isRecord(manifest.bin) ||
+    typeof manifest.bin.void !== 'string'
+  ) {
     return null;
   }
   const cli = `${packageRoot}/${manifest.bin.void}`;
@@ -2065,12 +2071,11 @@ export function resolveSourceVoidCli(root = WORK_DIR) {
 // locally resolvable" signal under PnP, where `node_modules/.bin/void` never
 // exists. Falls back to `false` on any read/parse error (→ fetch the CLI).
 const repoDeclaresVoid = () => {
-  try {
-    const pkg = JSON.parse(readFileSync(`${WORK_DIR}/package.json`, 'utf8'));
-    return Boolean(pkg.dependencies?.void || pkg.devDependencies?.void);
-  } catch {
-    return false;
-  }
+  const pkg = readPackageManifest(`${WORK_DIR}/package.json`);
+  return (
+    (isRecord(pkg?.dependencies) && Boolean(pkg.dependencies.void)) ||
+    (isRecord(pkg?.devDependencies) && Boolean(pkg.devDependencies.void))
+  );
 };
 
 /**

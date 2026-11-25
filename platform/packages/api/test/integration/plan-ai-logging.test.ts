@@ -158,7 +158,7 @@ async function planDefaults() {
 function hookNextTransaction(hook: () => Promise<void>) {
   let armed = false;
   const db = new Proxy(env.db, {
-    get(target, property) {
+    get(target, property): unknown {
       if (property === 'transaction') {
         return async (...args: Parameters<typeof target.transaction>) => {
           if (armed) {
@@ -168,6 +168,7 @@ function hookNextTransaction(hook: () => Promise<void>) {
           return target.transaction(...args);
         };
       }
+      // oxlint-disable-next-line quality/no-reflect-get -- Bind forwarded database methods to the original database.
       const value = Reflect.get(target, property);
       // oxlint-disable-next-line typescript/no-unsafe-call -- The proxy delegates the original method to its receiver with the fixture arguments.
       return typeof value === 'function' ? value.bind(target) : value;

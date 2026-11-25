@@ -15,7 +15,7 @@ The shared sender uses the platform's configured mail domain. To send — and re
 void email domain add acme.com
 ```
 
-`add` opens a Cloudflare API-token template. Restrict the token to the selected account and mail zone before creating it; Workers Scripts permission applies across that account. The CLI accepts a masked paste or a newly copied token and asks you to confirm those restrictions. The platform encrypts the credential for the zone connection, so projects sharing that zone do not need separate ingress Workers.
+`add` opens a Cloudflare API token template with the email and zone permissions selected. Add **Workers → Admin** for the account so Void can create and remove the mail ingress Worker. Restrict the token to the account and mail zone before creating it. The CLI accepts a masked paste or a newly copied token and asks you to confirm those restrictions. The platform encrypts the credential for the zone connection, so projects sharing that zone do not need separate ingress Workers.
 
 For inbound mail, use a Cloudflare zone apex with no existing mail service, such as `example.com`. Each apex belongs to one project, and a project can register several. Existing MX records or a catch-all pointing elsewhere block registration to protect your current mail service.
 

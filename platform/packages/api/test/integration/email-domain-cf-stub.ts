@@ -96,15 +96,17 @@ export function stubCustomerCf(
   const routingSettingsStates = new Map<string, Record<string, unknown>>();
   const routingRuleStates = new Map<string, Map<string, Record<string, unknown>>>();
   const rulesFor = (zoneId: string) => {
-    if (!routingRuleStates.has(zoneId)) {
-      routingRuleStates.set(zoneId, new Map());
+    let rules = routingRuleStates.get(zoneId);
+    if (!rules) {
+      rules = new Map();
+      routingRuleStates.set(zoneId, rules);
     }
     // Seeds configured rules on first access; status tests may also add a
     // foreign rule after setup to model drift.
     for (const [index, rule] of (config.routingRules ?? []).entries()) {
       const id = rule.id ?? `foreign-rule-${index}`;
-      if (!routingRuleStates.get(zoneId)!.has(id)) {
-        routingRuleStates.get(zoneId)!.set(id, {
+      if (!rules.has(id)) {
+        rules.set(id, {
           id,
           name: rule.name ?? null,
           enabled: rule.enabled,
@@ -113,30 +115,33 @@ export function stubCustomerCf(
         });
       }
     }
-    return routingRuleStates.get(zoneId)!;
+    return rules;
   };
   const settingsFor = (zoneId: string) => {
-    if (!routingSettingsStates.has(zoneId)) {
-      routingSettingsStates.set(zoneId, {
-        enabled: true,
-        support_subaddress: false,
-        ...config.routingSettings,
-      });
+    const existing = routingSettingsStates.get(zoneId);
+    if (existing) {
+      return existing;
     }
-    return routingSettingsStates.get(zoneId)!;
+    const settings: Record<string, unknown> = {
+      enabled: true,
+      support_subaddress: false,
+      ...config.routingSettings,
+    };
+    routingSettingsStates.set(zoneId, settings);
+    return settings;
   };
   const catchAllStateFor = (zoneId: string) => {
-    if (!catchAllStates.has(zoneId)) {
-      catchAllStates.set(
-        zoneId,
-        config.catchAllRule === undefined || config.catchAllRule === null
-          ? config.catchAllRule === null
-            ? null
-            : { enabled: false, workerName: null }
-          : { ...config.catchAllRule },
-      );
+    const existing = catchAllStates.get(zoneId);
+    if (existing !== undefined) {
+      return existing;
     }
-    return catchAllStates.get(zoneId)!;
+    const configured = config.catchAllRule;
+    const state =
+      configured === undefined
+        ? { enabled: false, workerName: null }
+        : configured && { ...configured };
+    catchAllStates.set(zoneId, state);
+    return state;
   };
 
   const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {

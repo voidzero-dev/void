@@ -85,7 +85,17 @@ export async function lockAuthSettings(db: Db): Promise<AuthSettings | null> {
 }
 
 export function loginIdentityIssuer(config: PlatformLoginConfiguration): string {
-  return config.kind === 'github' ? 'https://github.com' : config.issuer!;
+  if (config.kind === 'github') {
+    return 'https://github.com';
+  }
+  if (!config.issuer) {
+    throw new AuthenticationConfigurationError(
+      'The login provider has no issuer.',
+      'invalid_argument',
+      400,
+    );
+  }
+  return config.issuer;
 }
 
 export async function readLoginRevision(

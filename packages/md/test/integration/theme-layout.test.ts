@@ -73,7 +73,10 @@ it.each(['ltr', 'rtl'])('positions heading anchors and copy buttons in %s', asyn
     await page.setContent(`<html dir="${direction}"><body>${html}</body></html>`);
     const layout = await page.evaluate(() => {
       const rect = (selector: string) =>
-        document.querySelector(selector)!.getBoundingClientRect().toJSON();
+        document.querySelector(selector)!.getBoundingClientRect().toJSON() as Pick<
+          DOMRect,
+          'left' | 'right'
+        >;
       return {
         heading: rect('#code h2'),
         anchor: rect('#code .header-anchor'),

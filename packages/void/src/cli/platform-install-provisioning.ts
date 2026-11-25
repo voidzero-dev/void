@@ -66,7 +66,10 @@ export async function provisionInstallationServices(input: {
   } = input;
   const { plan, secrets } = state;
 
-  const routingAction = plan.actions.find((action) => action.key === 'routing-kv')!;
+  const routingAction = plan.actions.find((action) => action.key === 'routing-kv');
+  if (!routingAction) {
+    throw new Error('platform: The plan is missing the routing checkpoint action.');
+  }
   if (routingAction.action === 'adopt') {
     throw new Error('platform: The routing checkpoint cannot be adopted.');
   }
@@ -217,8 +220,8 @@ export async function provisionInstallationServices(input: {
     );
   }
   const sandboxDrainPreparation =
-    targetSandboxDrainProtocol >= 1
-      ? await prepareSandboxDrain!(
+    targetSandboxDrainProtocol >= 1 && prepareSandboxDrain
+      ? await prepareSandboxDrain(
           targetSandboxDrainProtocol >= 3 ? 3 : targetSandboxDrainProtocol >= 2 ? 2 : 0,
         )
       : null;

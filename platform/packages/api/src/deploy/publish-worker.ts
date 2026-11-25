@@ -54,6 +54,7 @@ import type { WorkerModule } from '../worker-upload.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import { clearIsrCache, serializePrerenderHeaders, packIsrValue } from './cache.ts';
 import { assertDeploymentCanProceed } from './guards.ts';
+import type { PreviousDeployManifest } from './persisted-manifest.ts';
 import { commitCutoverLive, cutoverIntentKey, cutoverReadyKey } from './recovery.ts';
 import type { CutoverMarker, requireActiveDeployAccess } from './recovery.ts';
 import { projectPublicUrls } from './shared.ts';
@@ -81,7 +82,7 @@ export async function publishWorkerDeployment(input: {
   readonly snapshotTrackedQueueConsumer: (queueId: string, scriptName: string) => Promise<void>;
   readonly putTrackedRouting: (key: string, value: string) => Promise<void>;
   readonly workerName: string;
-  readonly previousManifest: DeployManifest | null;
+  readonly previousManifest: Pick<PreviousDeployManifest, 'queues'> | null;
   readonly deleteTrackedRouting: (key: string) => Promise<void>;
   logger: DeployLogger;
   readonly project: Project;
@@ -220,9 +221,12 @@ export async function publishWorkerDeployment(input: {
         return { q, queueBinding, status: consumerResult.status };
       }),
     );
-    const consumerErrors = settledConsumerOutcomes
-      .filter((outcome) => outcome.status === 'rejected')
-      .map((outcome): unknown => outcome.reason);
+    const consumerErrors: Array<unknown> = [];
+    for (const outcome of settledConsumerOutcomes) {
+      if (outcome.status === 'rejected') {
+        consumerErrors.push(outcome.reason);
+      }
+    }
     if (consumerErrors.length > 0) {
       throw new AggregateError(consumerErrors, 'one or more queue consumers failed to sync');
     }
@@ -271,7 +275,8 @@ export async function publishWorkerDeployment(input: {
   });
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
 
-  const hasCrons = manifest.schedules && manifest.schedules.length > 0;
+  const { schedules } = manifest;
+  const hasCrons = schedules && schedules.length > 0;
 
   await clearIsrCache(
     createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
@@ -420,7 +425,7 @@ export async function publishWorkerDeployment(input: {
     if (hasCrons) {
       await syncCronScheduler(context.env, projectId, {
         workerName,
-        schedules: manifest.schedules!,
+        schedules,
         proxyToken,
       });
     } else {

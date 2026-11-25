@@ -16,12 +16,17 @@ import type { UnknownRecord } from './converter-helpers.ts';
 import { createFollowUp } from './follow-ups.ts';
 import type { MigrationFollowUp, OutputProperty, OutputValue } from './types.ts';
 
+interface ConvertedTriggers {
+  domains?: Array<string>;
+  triggers?: Array<OutputValue>;
+}
+
 export function convertTriggers(
   source: UnknownRecord,
   sourcePrefix: string,
   imports: Set<string>,
   report: (followUp: MigrationFollowUp) => void,
-): { domains?: Array<string>; triggers?: Array<OutputValue> } {
+): ConvertedTriggers {
   const domains: Array<string> = [];
   const converted: Array<OutputValue> = [];
   const routes: Array<unknown> = [

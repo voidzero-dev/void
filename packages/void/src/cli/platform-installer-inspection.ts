@@ -8,6 +8,7 @@ import {
   parsePlatformResourceOwnershipMarker,
 } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
+import type { ReadCloudflare } from './platform-cloudflare.ts';
 import { assertCleanPlatformWrangler } from './platform-installer-errors.ts';
 import { runPlatformWrangler } from './platform-installer-process.ts';
 import type {
@@ -104,7 +105,7 @@ export function readActivePlatformWorkerDeployment(
  * for example a version deployed outside Void.
  */
 export async function platformWorkerVersionHasTriggerRecord(
-  readCloudflare: (path: string) => Promise<unknown>,
+  readCloudflare: ReadCloudflare,
   accountId: string,
   workerName: string,
   versionId: string,

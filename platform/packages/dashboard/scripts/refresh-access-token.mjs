@@ -69,6 +69,10 @@ function runCloudflared(args, options = {}) {
   return out ? out : null;
 }
 
+/**
+ * @param {string} contents
+ * @param {string} key
+ */
 function removeDevVar(contents, key) {
   return contents.replaceAll(new RegExp(`^[\\t ]*${key}[\\t ]*=.*(?:\\r?\\n|$)`, 'gm'), '');
 }

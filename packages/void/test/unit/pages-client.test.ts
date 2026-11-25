@@ -937,7 +937,7 @@ describe('createVoidRouter', () => {
     stubClientGlobals();
     const prefetched = controlledPromise<Response>();
     const applyUpdate = vi.fn();
-    const resolveDeferred = vi.fn((_ref, value) => value);
+    const resolveDeferred = vi.fn((_ref: unknown, value: unknown) => value);
     const encoder = new TextEncoder();
     let stream!: ReadableStreamDefaultController<Uint8Array>;
     const pageData = {
@@ -1966,13 +1966,14 @@ describe('createVoidRouter', () => {
       return null;
     });
 
-    const initialRef = { loading: true, value: null, error: null };
-    const resolveDeferred = vi.fn((ref, value) => {
+    type DeferredRef = { loading: boolean; value: unknown; error: Error | null };
+    const initialRef: DeferredRef = { loading: true, value: null, error: null };
+    const resolveDeferred = vi.fn((ref: DeferredRef, value: unknown) => {
       ref.loading = false;
       ref.value = value;
       return ref;
     });
-    const rejectDeferred = vi.fn((ref, error) => {
+    const rejectDeferred = vi.fn((ref: DeferredRef, error: string) => {
       ref.loading = false;
       ref.error = new Error(error);
       return ref;
@@ -2495,7 +2496,7 @@ describe('superseded navigation commits (#507)', () => {
       rendered.push(pageData.url ?? '');
       return updateGates.get(pageData.url ?? '');
     });
-    const rejectDeferred = vi.fn((_ref, error) => error);
+    const rejectDeferred = vi.fn((_ref: unknown, error: unknown) => error);
     return { documentStub, fetchGates, updateGates, rendered, applyUpdate, rejectDeferred };
   }
 

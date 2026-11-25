@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { isRecord } from '@void/deploy-core';
 import { applyEdits, modify, parse as parseJsoncConfig } from 'jsonc-parser';
 import type { ParseError } from 'jsonc-parser';
 
@@ -16,10 +17,10 @@ export function parseRootWranglerConfig(configPath: string): Record<string, unkn
   const content = raw.startsWith('﻿') ? raw.slice(1) : raw;
   const errors: Array<ParseError> = [];
   const parsed: unknown = parseJsoncConfig(content, errors, { allowTrailingComma: true });
-  if (errors.length > 0 || typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+  if (errors.length > 0 || !isRecord(parsed)) {
     return {};
   }
-  return parsed as Record<string, unknown>;
+  return parsed;
 }
 
 /** Set one value in JSONC text, keeping comments and formatting elsewhere. */
@@ -78,10 +79,7 @@ export function readBindingFieldPresence(
 }
 
 export function readConfigEntryString(entry: unknown, field: string): string | undefined {
-  if (!entry || typeof entry !== 'object') {
-    return undefined;
-  }
-  const value = (entry as Record<string, unknown>)[field];
+  const value = isRecord(entry) ? entry[field] : undefined;
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 

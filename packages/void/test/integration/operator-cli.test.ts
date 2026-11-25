@@ -411,7 +411,7 @@ describe('operator CLI (real subprocess and HTTP)', () => {
       result.stdout
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line)),
+        .map((line): unknown => JSON.parse(line)),
     ).toEqual([expect.objectContaining({ lastSeq: 1, terminal: true, logsComplete: true })]);
     expect(requests).toEqual([
       expect.objectContaining({ path: '/operator/v1/builds/build-1/logs?since=0' }),

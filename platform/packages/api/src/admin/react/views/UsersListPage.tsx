@@ -5,11 +5,11 @@ import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import type { TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
 import { Link } from '@void/react';
-import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import type { AdminUsersPage } from '../../fate/server.ts';
 import { UsersPageView, usersPageRequest } from '../../fate/views.ts';
 import type { AdminPageProps } from '../page-utils.ts';
+import { useResettableState } from '../use-resettable-state.ts';
 import { formatDateTime } from './format.ts';
 import { Layout } from './Layout.tsx';
 import { Pagination } from './Pagination.tsx';
@@ -25,8 +25,7 @@ export function UsersListPage({ path, platformName, username }: AdminPageProps) 
     throw new Error('Users page data is unavailable.');
   }
   const { users, search, page, totalPages, tz } = pageData;
-  const [filter, setFilter] = useState(search ?? '');
-  useEffect(() => setFilter(search ?? ''), [search]);
+  const [filter, setFilter] = useResettableState(search);
   const selectedUser = pageData.suggestions.find((item) => item.id === search);
   const columns: Array<TableColumn<UserRow>> = [
     {
@@ -87,7 +86,7 @@ export function UsersListPage({ path, platformName, username }: AdminPageProps) 
           action="/admin/users"
           kind="users"
           label="Search users"
-          value={filter}
+          value={filter ?? ''}
           onChange={setFilter}
           initialValue={search}
           initialSelection={selectedUser}

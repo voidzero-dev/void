@@ -106,14 +106,13 @@ function neverEnter(): Promise<never> {
 }
 
 describe('buildCfApiTokenTemplateUrl', () => {
-  it('carries the five pinned permission groups, wildcard resources and the domain name', () => {
+  it('prefills email and zone permissions for the user token form', () => {
     const url = new URL(buildCfApiTokenTemplateUrl('acme.com'));
     expect(url.origin + url.pathname).toBe('https://dash.cloudflare.com/profile/api-tokens');
     expect(JSON.parse(url.searchParams.get('permissionGroupKeys')!)).toEqual([
       { key: 'zone', type: 'read' },
       { key: 'email_routing_rule', type: 'edit' },
       { key: 'email_sending', type: 'edit' },
-      { key: 'workers_scripts', type: 'edit' },
       { key: 'zone_settings', type: 'edit' },
     ]);
     expect(url.searchParams.get('accountId')).toBe('*');
@@ -257,6 +256,7 @@ describe('emailDomainAdd', () => {
     expect(deps.openUrl).toHaveBeenCalledWith(expect.stringContaining('/profile/api-tokens?'));
     expect(deps.confirmScope).toHaveBeenCalledWith('acme.com');
     expect(printed(infoSpy)).toContain('replace All accounts and All zones');
+    expect(printed(infoSpy)).toContain('Add Workers → Admin');
     expect(printed(infoSpy)).toContain('zone connection');
     expect([printed(infoSpy), printed(successSpy), notedBlocks()].join('')).not.toContain(
       LEGACY_TOKEN,

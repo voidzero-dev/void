@@ -35,7 +35,7 @@ beforeEach(() => {
 
 describe('uploadAssetsToR2', () => {
   it('PUTs each item once when all succeed', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
     const items = [makeItem('/a.html', 'h1'), makeItem('/b.css', 'h2'), makeItem('/c.js', 'h3')];
 
     await uploadAssetsToR2(items, cliLog, fetchMock);
@@ -233,7 +233,7 @@ describe('uploadAssetsToR2', () => {
   });
 
   it('returns immediately when items is empty', async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>();
     await uploadAssetsToR2([], cliLog, fetchMock);
     expect(fetchMock).not.toHaveBeenCalled();
   });

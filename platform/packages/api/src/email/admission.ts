@@ -640,11 +640,15 @@ export async function transitionEmailRecipients(
       .select()
       .from(emailActionRecipients)
       .where(eq(emailActionRecipients.action_id, actionId));
-    if (normalized.some((r) => !rows.some((row) => row.recipient === r))) {
+    const rowsByRecipient = new Map(rows.map((row) => [row.recipient, row]));
+    if (normalized.some((recipient) => !rowsByRecipient.has(recipient))) {
       throw new EmailAdmissionError('INVALID_REQUEST', 'recipient is not in action');
     }
     for (const recipient of normalized) {
-      const current = rows.find((row) => row.recipient === recipient)!;
+      const current = rowsByRecipient.get(recipient);
+      if (!current) {
+        throw new EmailAdmissionError('INVALID_REQUEST', 'recipient is not in action');
+      }
       const expected =
         next === 'attempt_started' || next === 'cancelled' ? 'reserved' : 'attempt_started';
       if (current.state !== expected) {
@@ -854,8 +858,9 @@ function validReceiptRouteFence(value: unknown): value is EmailReceiptRouteFence
     typeof route.routeId === 'string' &&
     route.routeId.length > 0 &&
     route.routeId.length <= 128 &&
+    typeof route.routeGeneration === 'number' &&
     Number.isSafeInteger(route.routeGeneration) &&
-    route.routeGeneration! >= 1 &&
+    route.routeGeneration >= 1 &&
     typeof route.connectionId === 'string' &&
     route.connectionId.length > 0 &&
     route.connectionId.length <= 128 &&

@@ -30,6 +30,8 @@ import type { DeploymentPlatform } from './project.ts';
 import type { provisionCloudflareResources } from './provision.ts';
 import type { DeployEvent, DeployTargetAdapter } from './types.ts';
 
+export type DeployVerification = { ok: true; reason?: never } | { ok: false; reason: string };
+
 export type RunDeployOptions = {
   /** Accepted the existing-Worker handoff in this invocation. */
   reuseExistingWorker?: boolean;

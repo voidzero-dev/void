@@ -5,31 +5,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import type { PlatformClient } from '../../src/cli/client.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 
-const mockSelect = vi.fn();
-const mockText = vi.fn();
-const mockConfirm = vi.fn();
-const mockStep = vi.fn();
-const mockSuccess = vi.fn();
-const mockWarn = vi.fn();
+const mockSelect = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').select<string>>();
+const mockText = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').text>();
+const mockConfirm = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').confirm>();
+const mockStep = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.step>();
+const mockSuccess = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.success>();
+const mockWarn = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.warn>();
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   cancel: vi.fn(),
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
   intro: vi.fn(),
   isCancel: () => false,
   isCI: () => false,
   log: {
     error: vi.fn(),
     info: vi.fn(),
-    step: (...args: Array<unknown>) => mockStep(...args),
-    success: (...args: Array<unknown>) => mockSuccess(...args),
-    warn: (...args: Array<unknown>) => mockWarn(...args),
+    step: (...args: Parameters<typeof mockStep>) => mockStep(...args),
+    success: (...args: Parameters<typeof mockSuccess>) => mockSuccess(...args),
+    warn: (...args: Parameters<typeof mockWarn>) => mockWarn(...args),
   },
   note: vi.fn(),
   outro: vi.fn(),
-  select: (...args: Array<unknown>) => mockSelect(...args),
+  select: (...args: Parameters<typeof mockSelect>) => mockSelect(...args),
   spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
-  text: (...args: Array<unknown>) => mockText(...args),
+  text: (...args: Parameters<typeof mockText>) => mockText(...args),
 }));
 
 function createClient() {
@@ -147,19 +147,21 @@ describe('promptDeployProjectConfig', () => {
 
     await expect(promptProjectSlug('demo-app')).resolves.toBe('valid-app');
 
-    const promptConfig = mockText.mock.calls[0]?.[0] as {
-      validate: (value: string) => string | undefined;
-    };
+    const promptConfig = mockText.mock.calls[0]?.[0];
+    const validate = promptConfig?.validate;
+    if (typeof validate !== 'function') {
+      throw new Error('Expected a project slug validator.');
+    }
     expect(promptConfig).toMatchObject({ placeholder: 'demo-app', defaultValue: 'demo-app' });
     expect(promptConfig).not.toHaveProperty('initialValue');
     // Short slugs no longer rejected client-side — plan is checked server-side.
-    expect(promptConfig.validate('abc')).toBeUndefined();
-    expect(promptConfig.validate('abcde')).toBeUndefined();
-    expect(promptConfig.validate('abcdef')).toBeUndefined();
+    expect(validate('abc')).toBeUndefined();
+    expect(validate('abcde')).toBeUndefined();
+    expect(validate('abcdef')).toBeUndefined();
     // Format check still runs locally.
-    expect(promptConfig.validate('ABC')).toBe('Slug must be lowercase alphanumeric with dashes.');
-    expect(promptConfig.validate('')).toBeUndefined();
-    expect(promptConfig.validate(' ')).toBe('Project slug is required.');
+    expect(validate('ABC')).toBe('Slug must be lowercase alphanumeric with dashes.');
+    expect(validate('')).toBeUndefined();
+    expect(validate(' ')).toBe('Project slug is required.');
   });
 
   it('does not retry on non-slug 403 errors (e.g. account suspended)', async () => {

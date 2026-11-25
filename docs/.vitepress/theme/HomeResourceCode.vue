@@ -64,11 +64,12 @@ function highlight(source: string) {
   const tokens: Array<{ text: string; tone?: string }> = [];
   let position = 0;
   for (const match of source.matchAll(pattern)) {
+    const groups = match.groups ?? {};
     tokens.push(
       { text: source.slice(position, match.index) },
       {
         text: match[0],
-        tone: Object.keys(match.groups!).find((group) => match.groups![group] !== undefined),
+        tone: Object.keys(groups).find((group) => groups[group] !== undefined),
       },
     );
     position = match.index + match[0].length;

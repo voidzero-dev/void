@@ -1894,12 +1894,7 @@ const LOCK_RETRIES = { retries: 100, factor: 1.5, minTimeout: 200, maxTimeout: 2
 const RECOVERY_LOCK_STALE_MS = 6000;
 
 /** Backoff schedule for our own retry loop (proper-lockfile runs with `retries: 0`). */
-function normalizeLockRetries(retries: ProvisionLockOptions['retries']): {
-  retries: number;
-  factor: number;
-  minTimeout: number;
-  maxTimeout: number;
-} {
+function normalizeLockRetries(retries: ProvisionLockOptions['retries']) {
   if (typeof retries === 'number') {
     return { ...LOCK_RETRIES, retries };
   }
@@ -1994,7 +1989,7 @@ export async function acquireProvisionLock(
           throw error;
         }
       }
-      if (!mainHeldByOther) {
+      if (release) {
         // (3) Revalidate under ownership: the previous holder may have quarantined after
         // the gate ran.
         try {
@@ -2002,7 +1997,7 @@ export async function acquireProvisionLock(
         } catch (gateError) {
           let revalidateReleaseError: unknown;
           try {
-            await release!();
+            await release();
           } catch (error) {
             revalidateReleaseError = error;
           }
@@ -2034,7 +2029,10 @@ export async function acquireProvisionLock(
   }
   // One shared release promise. A real unlock failure is surfaced, because the mutex
   // directory may remain; ERELEASED means it was already dropped and counts as success.
-  const acquiredRelease = release!;
+  const acquiredRelease = release;
+  if (!acquiredRelease) {
+    throw new Error('provision: failed to acquire the provision lock.');
+  }
   let releasePromise: Promise<void> | undefined;
   const doRelease = async (): Promise<void> => {
     try {
@@ -3224,8 +3222,11 @@ async function provisionCloudflareResourcesLocked(
     accountIdWritten = true;
   }
 
-  // The account fence above guarantees a value whenever a runner is called.
-  const transportAccountId = effectiveAccountId!;
+  // With no pinned account the fence above allowed only a local config update.
+  if (!effectiveAccountId) {
+    return { resources, configPath, accountIdWritten };
+  }
+  const transportAccountId = effectiveAccountId;
   // One API base for the runner and the Hyperdrive REST lister.
   const transportApiBaseUrl = resolvePinnedApiBaseUrl(process.env, configComplianceRegion);
 

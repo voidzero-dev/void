@@ -24,7 +24,7 @@ export type AstIdentifier = AstNode & {
 
 export type AstLiteral = AstNode & {
   type: 'Literal';
-  value: unknown;
+  value: string | number | boolean | bigint | RegExp | null;
 };
 
 export type AstMemberExpression = AstNode & {

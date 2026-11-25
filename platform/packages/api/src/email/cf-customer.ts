@@ -1,5 +1,6 @@
 /** Customer Cloudflare API client for email routing and sending. */
 
+import { isRecord } from '@void/deploy-core';
 import { CloudflareApiError } from '../provisioning/cloudflare-api.ts';
 import {
   RELAY_ACCOUNT_BINDING,
@@ -203,10 +204,9 @@ export type CfCustomerClient = Readonly<{
   /** PUT catch-all with wrangler's reset shape: one drop action, disabled. */
   resetCatchAll: (zoneId: string) => Promise<void>;
   /**
-   * GET /zones/{z}/email/routing — raw result. The subdomain-readiness
-   * fields are probe-pinned, so callers parse defensively.
+   * GET /zones/{z}/email/routing. Callers check provider flags by exact value.
    */
-  getRoutingSettings: (zoneId: string) => Promise<unknown>;
+  getRoutingSettings: (zoneId: string) => Promise<Record<string, unknown> | null>;
   /** DELETE the relay script. 404 is success — the customer may have deleted it themselves. */
   deleteRelayScript: (accountId: string, scriptName: string) => Promise<void>;
 }>;
@@ -507,7 +507,10 @@ export function createCfCustomerClient(credential: string): CfCustomerClient {
       });
     },
 
-    getRoutingSettings: (zoneId) => call<unknown>(`/zones/${zoneId}/email/routing`),
+    getRoutingSettings: async (zoneId) => {
+      const result = await call<unknown>(`/zones/${zoneId}/email/routing`);
+      return isRecord(result) ? result : null;
+    },
 
     deleteRelayScript: async (accountId, scriptName) => {
       try {

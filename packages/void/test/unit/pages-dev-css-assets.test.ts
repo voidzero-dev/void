@@ -69,18 +69,22 @@ function loadDevAssetModule(plugin: ReturnType<typeof createConfiguredPlugin>): 
   return load.call({}, `\0${DEV_CSS_ASSET_MODULE_ID}`);
 }
 
-async function importDevAssetModule(plugin: ReturnType<typeof createConfiguredPlugin>): Promise<{
+type DevAssetModule = {
   getVoidPagesDevCss(
     request: Request,
     env: { ASSETS?: { fetch(request: Request): Promise<Response> } },
     payload: unknown,
   ): Promise<Array<{ css: string; id: string; url: string }>>;
-}> {
+};
+
+async function importDevAssetModule(
+  plugin: ReturnType<typeof createConfiguredPlugin>,
+): Promise<DevAssetModule> {
   const code = loadDevAssetModule(plugin);
   const encoded = Buffer.from(`${code}\n//# sourceURL=void-pages-dev-assets-test.mjs`).toString(
     'base64',
   );
-  return import(`data:text/javascript;base64,${encoded}`);
+  return import(`data:text/javascript;base64,${encoded}`) as Promise<DevAssetModule>;
 }
 
 function createResponse() {
@@ -167,7 +171,7 @@ function createCollector({
       transform.call({ environment: { name: 'client' }, resolve }, code, id),
     async collect(rootPhases: Array<Array<string>>): Promise<{ assets: unknown }> {
       const response = await postCollector(middleware!, { rootPhases });
-      return JSON.parse(response.body);
+      return JSON.parse(response.body) as { assets: unknown };
     },
   };
 }

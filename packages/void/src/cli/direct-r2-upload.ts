@@ -165,6 +165,7 @@ export async function uploadAssetsToR2(
     return;
   }
 
+  // oxlint-disable-next-line quality/no-known-value-widening -- Retain any rejected value from the first failed upload.
   let firstError: unknown = null;
   let nextIndex = 0;
 
@@ -201,6 +202,7 @@ export async function uploadAssetsToR2(
   }
   await Promise.all(workers);
   if (firstError !== null) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured upload failure after all workers finish.
     throw firstError;
   }
 }

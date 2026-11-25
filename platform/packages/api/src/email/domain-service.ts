@@ -308,7 +308,7 @@ export async function getEmailDomainStatusForProject(
           .where(
             and(
               eq(emailDomainRoutes.id, snapshot.route.id),
-              eq(emailDomainRoutes.project_id, snapshot.route.project_id!),
+              eq(emailDomainRoutes.project_id, project.id),
               eq(emailDomainRoutes.connection_id, snapshot.connection.id),
               eq(emailDomainRoutes.desired_generation, snapshot.route.desired_generation),
               eq(emailDomainRoutes.desired_state, 'active'),

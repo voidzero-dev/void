@@ -314,8 +314,12 @@ export async function prepareManagedDurableObjects(
       }
       const resource = (await getProjectResources(tx, projectId)).find(
         (value) => value.type === 'durable-object' && value.binding_name === binding.className,
-      )!;
-      if (resource.cf_id !== worker || resource.metadata.dispatchNamespace !== namespace(env)) {
+      );
+      if (
+        !resource ||
+        resource.cf_id !== worker ||
+        resource.metadata.dispatchNamespace !== namespace(env)
+      ) {
         throw new Error('Custom Durable Object resource identity differs from this installation.');
       }
       let bindings = await readBindings(env, worker);
@@ -632,7 +636,7 @@ async function restoreObject(
         }
         bytesByHash.set(hash, {
           bytes: new Uint8Array(await object.arrayBuffer()),
-          contentType: contentTypes.get(hash)!,
+          contentType: contentTypes.get(hash) ?? 'application/octet-stream',
         });
       }
       const jwt = await uploadAssetBuckets(

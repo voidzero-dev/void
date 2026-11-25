@@ -17,7 +17,7 @@ app.post('/', async (context) => {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-void-internal': body.aiToken as string,
+      'x-void-internal': String(body.aiToken),
     },
     body: JSON.stringify({
       paths: body.paths,

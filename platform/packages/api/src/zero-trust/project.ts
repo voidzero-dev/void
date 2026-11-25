@@ -311,7 +311,11 @@ async function reconcilePublicProjectLocked(
     });
   }
   if (!(await publishProjectZeroTrustRoutingLocked(env, lockedDb, project, null, routingBudget))) {
-    return (await getProjectZeroTrustState(lockedDb, project.id))!;
+    const pending = await getProjectZeroTrustState(lockedDb, project.id);
+    if (!pending) {
+      throw new Error('Project Zero Trust reconciliation state is missing.');
+    }
+    return pending;
   }
   const row = await updateProjectState(lockedDb, project.id, { effective_protected: false });
   if (!publicCustom) {
@@ -419,7 +423,11 @@ async function reconcileProjectZeroTrustLocked(
     ) {
       // Unpublished keys still lack the audience set. Keep the public
       // exception and stay reconciling until every route carries it.
-      return (await getProjectZeroTrustState(lockedDb, projectId))!;
+      const pending = await getProjectZeroTrustState(lockedDb, projectId);
+      if (!pending) {
+        throw new Error('Project Zero Trust reconciliation state is missing.');
+      }
+      return pending;
     }
     const updated = await updateProjectState(lockedDb, projectId, { effective_protected: true });
     await client.deleteApplication(updated.bypass_application_id, updated.bypass_application_name);

@@ -124,7 +124,6 @@ type SeedTarget = {
 };
 
 type PgClient = {
-  connect(): Promise<unknown>;
   end(): Promise<void>;
   query<T extends Record<string, unknown> = Record<string, unknown>>(
     sql: string,
@@ -145,7 +144,7 @@ function getLocalDatabaseUrl(root: string, dialect: 'postgresql' | 'mysql'): str
 async function withPgClient<T>(root: string, fn: (client: PgClient) => Promise<T>): Promise<T> {
   const url = getLocalDatabaseUrl(root, 'postgresql');
   const { Client } = await import('pg');
-  const client: PgClient = new Client({ connectionString: url });
+  const client = new Client({ connectionString: url });
   await client.connect();
   try {
     return await fn(client);
@@ -775,15 +774,19 @@ async function runSeed(
   // Load the seed before the reset, so a wrong path or a broken module stops the command
   // before any data is dropped. Importing a module runs its code, so ask about the database first.
   const seed = resolveSeedTarget(root, file);
-  const sql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf8') : undefined;
+  const seedSql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf8') : undefined;
   await confirmReset(root, dialect, yes);
-  const seedFn = sql === undefined ? await loadSeedFunction(seed.path) : undefined;
+  const preparedSeed =
+    seedSql === undefined
+      ? { kind: 'module' as const, run: await loadSeedFunction(seed.path) }
+      : { kind: 'sql' as const, sql: seedSql };
 
   // Reset first (drop + re-run migrations). The drop is confirmed above, so do not ask again.
   const migrationCount = await resetDatabase(root, dialect, true);
   log.step(`Reset database. Applied ${formatCount(migrationCount, 'migration')}.`);
 
-  if (sql !== undefined) {
+  if (preparedSeed.kind === 'sql') {
+    const { sql } = preparedSeed;
     if (dialect === 'postgresql') {
       await withPgClient(root, async (client) => {
         await client.query(sql);
@@ -811,7 +814,7 @@ async function runSeed(
       db.close();
     }
   } else {
-    await runSeedModule(root, seedFn!, dialect);
+    await runSeedModule(root, preparedSeed.run, dialect);
   }
 
   log.info(dim("Restart your dev server if it's running."));
@@ -896,10 +899,10 @@ async function executeExternalRemoteSql(
 ): Promise<void> {
   if (dialect === 'postgresql') {
     const { Client } = await import('pg');
-    const pgClient: PgClient = new Client({ connectionString: dbUrl });
+    const pgClient = new Client({ connectionString: dbUrl });
     await pgClient.connect();
     try {
-      const result = await pgClient.query(sql);
+      const result = await pgClient.query<Record<string, unknown>>(sql);
       if (result.rows && result.rows.length > 0) {
         printTable(result.rows);
       }
@@ -956,9 +959,18 @@ async function runExecute(
   remote?: boolean,
   yes?: boolean,
 ): Promise<void> {
+  const readSql = () => {
+    if (file) {
+      return readFileSync(resolve(root, file), 'utf8');
+    }
+    if (command === undefined) {
+      throw new Error('db execute requires a SQL command or file.');
+    }
+    return command;
+  };
   if (remote) {
     const directCloudflare = readDeploymentPlatform(root) === 'cloudflare';
-    const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
+    const sql = readSql();
 
     if (directCloudflare) {
       const bulkImport =
@@ -1040,7 +1052,7 @@ async function runExecute(
       // The configured binding wins. A renamed binding leaves its old resource
       // behind, so only a single D1 resource is a safe fallback.
       if (!d1Bindings.includes(configuredBinding) && d1Bindings.length === 1) {
-        binding = d1Bindings[0]!;
+        binding = d1Bindings[0];
       }
     } catch {
       // Keep the configured binding name (or 'DB' by default) if resource discovery fails.
@@ -1102,7 +1114,7 @@ async function runExecute(
   }
 
   if (dialect === 'postgresql') {
-    const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
+    const sql = readSql();
     await withPgClient(root, async (client) => {
       const result = await client.query(sql);
       if (result.rows && result.rows.length > 0) {
@@ -1114,7 +1126,7 @@ async function runExecute(
   }
 
   if (dialect === 'mysql') {
-    const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
+    const sql = readSql();
     await withMySqlClient(root, async (client) => {
       const rows = await client.query(sql);
       if (rows.length > 0) {
@@ -1133,7 +1145,7 @@ async function runExecute(
     process.exit(1);
   }
 
-  const sql = file ? readFileSync(resolve(root, file), 'utf8') : command!;
+  const sql = readSql();
 
   const db = await openSqliteDatabase(dbPath);
   try {

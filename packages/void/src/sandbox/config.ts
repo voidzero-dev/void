@@ -116,7 +116,14 @@ function resolveSandboxImage(image: string, root: string): string {
   return join(root, image);
 }
 
-export function sandboxContainerConfig(sandbox: ResolvedSandboxConfig): Record<string, unknown> {
+type SandboxContainerConfig = {
+  name: string;
+  class_name: string;
+  scheduling_policy: 'durable_object';
+  images: { default: { dockerfile: string; build_context?: string } | { image: string } };
+};
+
+export function sandboxContainerConfig(sandbox: ResolvedSandboxConfig): SandboxContainerConfig {
   return {
     name: sandbox.containerName,
     class_name: sandbox.className,

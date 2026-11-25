@@ -34,7 +34,12 @@ export function platformWorkerAction(
   workerActions: ReadonlyArray<PlatformInstallPlanAction>,
   key: PlatformWorkerKey,
 ): PlatformInstallPlanAction {
-  return workerActions.find((entry) => entry.key === platformWorkerResourceKey(key))!;
+  const resourceKey = platformWorkerResourceKey(key);
+  const action = workerActions.find((entry) => entry.key === resourceKey);
+  if (!action) {
+    throw new Error(`platform: The plan is missing the ${resourceKey} Worker action.`);
+  }
+  return action;
 }
 
 /** Deploy callbacks shared by the upload and enable phases for one platform Worker. */
@@ -227,6 +232,7 @@ export async function uploadInstallationWorkers(input: {
   }> = [];
   const acquireUploadSlot = async (): Promise<(failure?: unknown) => void> => {
     if (uploadFailure !== undefined) {
+      // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured upload failure to the next waiter.
       throw uploadFailure;
     }
     if (availableUploadSlots === 0) {
@@ -364,6 +370,7 @@ export async function uploadInstallationWorkers(input: {
         ready.resolve();
         const batch = await uploadBatch;
         if (batch.error !== null) {
+          // oxlint-disable-next-line typescript/only-throw-error -- Forward the original rejection into the completion promise.
           throw batch.error;
         }
       });

@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { int, mysqlTable } from 'drizzle-orm/mysql-core';
 import { pgTable, serial } from 'drizzle-orm/pg-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { getHookHandler } from '../helpers/vite-hooks.ts';
+import { getHookHandler, loadVirtualModule } from '../helpers/vite-hooks.ts';
 
 vi.mock('../../src/log', () => ({
   voidLog: vi.fn(),
@@ -65,8 +65,7 @@ async function loadExecutableDbModule(
 ): Promise<{ module: ExecutableDbModule; state: FakeDatabaseState }> {
   const root = createProjectRoot({ schema: dialect !== 'sqlite' });
   const plugin = drizzlePlugin(root, false, dialect, { forceVirtualDb: true });
-  const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-  let code = load.call({}, '\0virtual:void-db');
+  let code = loadVirtualModule(plugin.load, '\0virtual:void-db');
   const stateKey = `__void_db_scope_${dialect}_${crypto.randomUUID().replaceAll('-', '')}`;
   const state: FakeDatabaseState = { nextId: 0, pools: [], instances: [], clients: [] };
   (globalThis as Record<string, unknown>)[stateKey] = state;
@@ -213,14 +212,12 @@ async function loadDriverDbModule(dialect: 'postgresql' | 'mysql'): Promise<{
 }> {
   const root = createProjectRoot({ schema: false });
   const plugin = drizzlePlugin(root, false, dialect, { forceVirtualDb: true });
-  const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
   const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
   const clientsKey = `__void_db_clients_${dialect}_${crypto.randomUUID().replaceAll('-', '')}`;
   const clients: Array<{ end(): unknown }> = [];
   (globalThis as Record<string, unknown>)[clientsKey] = clients;
   fakeStateKeys.push(clientsKey);
-  const code = load
-    .call({}, '\0virtual:void-db')
+  const code = loadVirtualModule(plugin.load, '\0virtual:void-db')
     .replace(
       /^import \{ drizzle \} from (.*);$/m,
       (_match, driver: string) => `import { drizzle as createDrizzle } from ${driver};
@@ -247,23 +244,24 @@ type MySqlDb = {
 };
 
 /** Load the MySQL void/db module with drizzle's own driver and mysql2. */
-async function loadMySqlDbModule(): Promise<{
+type MySqlDbModule = {
   db: MySqlDb;
   createDb(connectionString: string): MySqlDb;
   sql(strings: TemplateStringsArray): unknown;
-}> {
+};
+
+async function loadMySqlDbModule(): Promise<MySqlDbModule> {
   const root = createProjectRoot();
   const plugin = drizzlePlugin(root, false, 'mysql', { forceVirtualDb: true });
-  const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
   const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
-  const code = load
-    .call({}, '\0virtual:void-db')
-    .replace(
-      /^import \{ (getRuntimeBinding, getRuntimeRequestResource) \} from .*;$/m,
-      (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
-    );
+  const code = loadVirtualModule(plugin.load, '\0virtual:void-db').replace(
+    /^import \{ (getRuntimeBinding, getRuntimeRequestResource) \} from .*;$/m,
+    (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
+  );
   writeFileSync(join(root, 'virtual-db.mjs'), code);
-  return import(`${pathToFileURL(join(root, 'virtual-db.mjs')).href}?test=${crypto.randomUUID()}`);
+  return import(
+    `${pathToFileURL(join(root, 'virtual-db.mjs')).href}?test=${crypto.randomUUID()}`
+  ) as Promise<MySqlDbModule>;
 }
 
 afterEach(() => {
@@ -701,9 +699,8 @@ createDb(binding, { session: { bookmark: null } });
   ] as const)('leaves the %s driver import to drizzle', (dialect, driver) => {
     const root = createProjectRoot();
     const plugin = drizzlePlugin(root, false, dialect);
-    const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
 
-    const code = load.call({}, '\0virtual:void-db');
+    const code = loadVirtualModule(plugin.load, '\0virtual:void-db');
     const specifiers = Array.from(
       code.matchAll(/\b(?:from|import)\s*\(?\s*("[^"]+")/g),
       (match) => JSON.parse(match[1]) as string,
@@ -724,14 +721,11 @@ createDb(binding, { session: { bookmark: null } });
     async (hasSchema) => {
       const root = createProjectRoot({ schema: hasSchema });
       const plugin = drizzlePlugin(root, false, 'mysql', { forceVirtualDb: true });
-      const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
       const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
-      const code = load
-        .call({}, '\0virtual:void-db')
-        .replace(
-          /^import \{ (getRuntimeBinding, getRuntimeRequestResource) \} from .*;$/m,
-          (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
-        );
+      const code = loadVirtualModule(plugin.load, '\0virtual:void-db').replace(
+        /^import \{ (getRuntimeBinding, getRuntimeRequestResource) \} from .*;$/m,
+        (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
+      );
       writeFileSync(join(root, 'virtual-db.mjs'), code);
       writeFileSync(
         join(root, 'harness.mjs'),
@@ -829,14 +823,11 @@ export const requestPoolConfig = (env) =>
     async (hasSchema) => {
       const root = createProjectRoot({ schema: hasSchema });
       const plugin = drizzlePlugin(root, false, 'postgresql', { forceVirtualDb: true });
-      const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
       const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
-      const code = load
-        .call({}, '\0virtual:void-db')
-        .replace(
-          /^import \{ (getRuntimeBinding, getRuntimeRequestResource) \} from .*;$/m,
-          (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
-        );
+      const code = loadVirtualModule(plugin.load, '\0virtual:void-db').replace(
+        /^import \{ (getRuntimeBinding, getRuntimeRequestResource) \} from .*;$/m,
+        (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
+      );
       writeFileSync(join(root, 'virtual-db.mjs'), code);
       writeFileSync(
         join(root, 'harness.mjs'),
@@ -876,14 +867,13 @@ export const requestPoolOptions = (env) =>
       importer: string | undefined,
       options: { isEntry: boolean },
     ) => string | undefined;
-    const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
     const resolved = resolveId.call({ environment: { name: 'ssr' } }, 'void/db', schemaPath, {
       isEntry: false,
     });
 
     expect(resolved).toBe('\0virtual:void-db-schema');
 
-    const code = load.call({}, '\0virtual:void-db-schema');
+    const code = loadVirtualModule(plugin.load, '\0virtual:void-db-schema');
     expect(code).toContain('export const db = {};');
     expect(code).toContain(
       'export { sql, eq, ne, gt, gte, lt, lte, and, or, not, desc, asc, like, ilike, notLike, inArray, notInArray, isNull, isNotNull, between, notBetween, exists, notExists, count, sum, avg, min, max }',
@@ -898,9 +888,8 @@ export const requestPoolOptions = (env) =>
       // it loads the schema. Vite SSR runs imports in source order (#472).
       const root = createProjectRoot();
       const plugin = drizzlePlugin(root, false, dialect);
-      const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
 
-      const code = load.call({}, '\0virtual:void-db').trim();
+      const code = loadVirtualModule(plugin.load, '\0virtual:void-db').trim();
 
       expect(code.startsWith('export { sql, eq, ')).toBe(true);
       expect(code).toContain('import * as schema');
@@ -934,7 +923,6 @@ export const requestPoolOptions = (env) =>
       importer: string | undefined,
       options: { isEntry: boolean },
     ) => string | undefined;
-    const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
     const resolved = resolveId.call({ environment: { name: 'ssr' } }, 'void/db', undefined, {
       isEntry: false,
     });
@@ -949,7 +937,7 @@ export const requestPoolOptions = (env) =>
     expect(tsconfig.compilerOptions.paths['void/db']).toEqual(['./db.d.ts']);
     expect(tsconfig.compilerOptions.paths['@schema']).toBeUndefined();
 
-    const code = load.call({}, '\0virtual:void-db');
+    const code = loadVirtualModule(plugin.load, '\0virtual:void-db');
     expect(code).toContain('import { drizzle } from "');
     expect(code).not.toMatch(/\bschema\b/);
   });
@@ -1014,14 +1002,13 @@ export const requestPoolOptions = (env) =>
       importer: string | undefined,
       options: { isEntry: boolean },
     ) => string | undefined;
-    const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
     const resolved = resolveId.call({ environment: { name: 'ssr' } }, 'void/db', undefined, {
       isEntry: false,
     });
 
     expect(resolved).toBe('\0virtual:void-db');
 
-    const code = load.call({}, '\0virtual:void-db');
+    const code = loadVirtualModule(plugin.load, '\0virtual:void-db');
     expect(code).toContain('createD1SessionAccess("myapp_db")');
     expect(code).not.toContain('createD1SessionAccess("DB")');
   });

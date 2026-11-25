@@ -12,13 +12,18 @@ import { createPagesStarterTemplate } from '../../src/cli/template.ts';
 import { collectMigrations } from '../../src/migrations/collect.ts';
 import { assertJournalCoherence } from '../../src/migrations/validate.ts';
 
-const mockSelect = vi.fn();
+const mockSelect =
+  vi.fn<
+    (
+      options: import('@voidzero-dev/vite-plus-prompts').SelectOptions<string>,
+    ) => Promise<string | symbol>
+  >();
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   intro: vi.fn(),
   outro: vi.fn(),
   log: { success: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn(), step: vi.fn() },
-  select: (...args: Array<unknown>) => mockSelect(...args),
+  select: (...args: Parameters<typeof mockSelect>) => mockSelect(...args),
   isCancel: (v: unknown) => v === Symbol.for('cancel'),
   cancel: vi.fn(),
 }));

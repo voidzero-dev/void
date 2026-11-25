@@ -27,12 +27,16 @@ const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/astro';
 let DEV_BASE: string;
 
-function readWranglerConfig(root: string): {
+type WranglerFixtureConfig = {
   compatibility_flags?: Array<string>;
   d1_databases?: Array<{ binding: string }>;
   kv_namespaces?: Array<{ binding: string }>;
-} {
-  return JSON.parse(readFileSync(join(root, '.void-wrangler.jsonc'), 'utf8'));
+};
+
+function readWranglerConfig(root: string): WranglerFixtureConfig {
+  return JSON.parse(
+    readFileSync(join(root, '.void-wrangler.jsonc'), 'utf8'),
+  ) as WranglerFixtureConfig;
 }
 
 describe('playground/astro dev', () => {

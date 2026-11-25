@@ -687,7 +687,7 @@ describe('platform installation planning', () => {
     expect(inspected).toEqual(['routing-kv-id']);
     expect(resumed.actions.filter((action) => action.kind === 'kv-namespace')).toEqual(
       expect.arrayContaining(
-        manifest.resources.map((resource) =>
+        manifest.resources.map((resource): unknown =>
           expect.objectContaining({
             action: 'reuse',
             id: resource.id,

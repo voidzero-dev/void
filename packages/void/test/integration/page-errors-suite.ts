@@ -433,9 +433,7 @@ export const loader = defineHandler(c => {
 
         await page.goto(base);
         await page.waitForSelector('#app[data-hydrated="true"]');
-        await page.evaluate(() =>
-          document.querySelector('nav')!.setAttribute('data-retained', 'yes'),
-        );
+        await page.locator('nav').evaluate((nav) => nav.setAttribute('data-retained', 'yes'));
         const navigation = page.waitForResponse(
           (response) =>
             response.url() === base + path &&
@@ -468,8 +466,8 @@ export const loader = defineHandler(c => {
       await page.waitForSelector('#app[data-hydrated="true"]');
       await page.evaluate(() => {
         (window as unknown as { marker: boolean }).marker = true;
-        document.querySelector('nav')!.setAttribute('data-retained', 'yes');
       });
+      await page.locator('nav').evaluate((nav) => nav.setAttribute('data-retained', 'yes'));
       for (const name of ['Returned', 'Thrown', 'Unexpected', 'Crash']) {
         await page.getByRole('link', { name, exact: true }).click();
         await expect
@@ -506,9 +504,7 @@ export const loader = defineHandler(c => {
     try {
       await page.goto(base);
       await page.waitForSelector('#app[data-hydrated="true"]');
-      await page.evaluate(() =>
-        document.querySelector('nav')!.setAttribute('data-retained', 'yes'),
-      );
+      await page.locator('nav').evaluate((nav) => nav.setAttribute('data-retained', 'yes'));
       for (const [link, expected] of [
         ['Nested', 'Nested error'],
         ['Deep', 'Nested error'],

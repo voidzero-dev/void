@@ -27,6 +27,7 @@ import type { VoidConfig } from '../config.ts';
 import type { DurableObjectModule } from '../durable/scan.ts';
 import type { InferredBindings } from '../inference/walk.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { Buffer } from './node-buffer.ts';
 
 const COMPAT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -59,11 +60,7 @@ function writeProjectWranglerFile(configPath: string, text: string): void {
  * Read the first existing project Wrangler config. A missing or unparseable one is
  * replaced by the generated config, starting from an empty object.
  */
-function readOrCreateProjectWranglerConfig(root: string): {
-  configPath: string;
-  parsed: Record<string, unknown>;
-  created: boolean;
-} {
+function readOrCreateProjectWranglerConfig(root: string) {
   const configPath = projectWranglerPaths(root).find((path) => existsSync(path));
   if (configPath) {
     let parsed: Record<string, unknown> | undefined;
@@ -1281,7 +1278,8 @@ export function writeProvisionedWranglerConfig(
   }
 
   let d1MigrationsDirSkipped = false;
-  if (patch.d1MigrationsDir) {
+  const { d1MigrationsDir } = patch;
+  if (d1MigrationsDir) {
     const currentD1 = parseJsonc(text).d1_databases;
     const d1Entries = Array.isArray(currentD1)
       ? (currentD1 as Array<{
@@ -1292,14 +1290,14 @@ export function writeProvisionedWranglerConfig(
       : [];
     const matchIndices: Array<number> = [];
     d1Entries.forEach((entry, i) => {
-      if (entry.binding === patch.d1MigrationsDir!.binding) {
+      if (entry.binding === d1MigrationsDir.binding) {
         matchIndices.push(i);
       }
     });
     if (matchIndices.length > 1) {
       throw new Error(
         `deploy: cannot update "${configPath}" — binding ` +
-          `${JSON.stringify(patch.d1MigrationsDir.binding)} is declared ${matchIndices.length} times ` +
+          `${JSON.stringify(d1MigrationsDir.binding)} is declared ${matchIndices.length} times ` +
           `in "d1_databases". A binding name must be unique across the worker (wrangler rejects the ` +
           `config otherwise), so migrations_dir cannot be attached unambiguously. Remove the ` +
           `duplicate D1 entry and retry.`,
@@ -1311,7 +1309,7 @@ export function writeProvisionedWranglerConfig(
       if (existingPattern !== undefined && typeof existingPattern !== 'string') {
         throw new Error(
           `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-            `${JSON.stringify(patch.d1MigrationsDir.binding)} has a non-string ` +
+            `${JSON.stringify(d1MigrationsDir.binding)} has a non-string ` +
             `"migrations_pattern" value; expected a string. Wrangler rejects such a config, so ` +
             `filling "migrations_dir" beside it would commit an invalid file. Fix the config ` +
             `and retry.`,
@@ -1322,19 +1320,19 @@ export function writeProvisionedWranglerConfig(
       if (existingDir !== undefined && typeof existingDir !== 'string') {
         throw new Error(
           `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-            `${JSON.stringify(patch.d1MigrationsDir.binding)} has a non-string ` +
+            `${JSON.stringify(d1MigrationsDir.binding)} has a non-string ` +
             `"migrations_dir" value; expected a string. Fix the config and retry.`,
         );
       }
       if (typeof existingDir === 'string') {
-        if (!sameMigrationsDir(configPath, existingDir, patch.d1MigrationsDir.dir)) {
+        if (!sameMigrationsDir(configPath, existingDir, d1MigrationsDir.dir)) {
           throw new Error(
             `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-              `${JSON.stringify(patch.d1MigrationsDir.binding)} already sets "migrations_dir": ` +
+              `${JSON.stringify(d1MigrationsDir.binding)} already sets "migrations_dir": ` +
               `${JSON.stringify(existingDir)}, but Void keeps this database's migrations in ` +
-              `${JSON.stringify(patch.d1MigrationsDir.dir)}. Refusing to overwrite an explicit ` +
+              `${JSON.stringify(d1MigrationsDir.dir)}. Refusing to overwrite an explicit ` +
               `different migrations directory. Either remove "migrations_dir" from the entry (or ` +
-              `set it to ${JSON.stringify(patch.d1MigrationsDir.dir)}) to let Void manage it, or ` +
+              `set it to ${JSON.stringify(d1MigrationsDir.dir)}) to let Void manage it, or ` +
               `move the migrations and keep your directory, then retry.`,
           );
         }
@@ -1343,18 +1341,18 @@ export function writeProvisionedWranglerConfig(
       } else {
         if (
           existingPattern !== undefined &&
-          !migrationsPatternMatchesDir(existingPattern, patch.d1MigrationsDir.dir)
+          !migrationsPatternMatchesDir(existingPattern, d1MigrationsDir.dir)
         ) {
           throw new Error(
             `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-              `${JSON.stringify(patch.d1MigrationsDir.binding)} has "migrations_pattern": ` +
+              `${JSON.stringify(d1MigrationsDir.binding)} has "migrations_pattern": ` +
               `${JSON.stringify(existingPattern)}, which is not under the requested ` +
-              `"migrations_dir": ${JSON.stringify(patch.d1MigrationsDir.dir)}. Wrangler requires the ` +
+              `"migrations_dir": ${JSON.stringify(d1MigrationsDir.dir)}. Wrangler requires the ` +
               `pattern to start with the migrations dir, so this change would break ` +
               `\`wrangler d1 migrations\`. Align "migrations_pattern" with the dir (or remove it) and retry.`,
           );
         }
-        set(['d1_databases', index, 'migrations_dir'], patch.d1MigrationsDir.dir);
+        set(['d1_databases', index, 'migrations_dir'], d1MigrationsDir.dir);
       }
     } else {
       d1MigrationsDirSkipped = true;
@@ -2039,11 +2037,11 @@ export function assertNoDuplicateMembers(text: string, configPath: string): void
       for (const property of node.children) {
         const keyNode = property.children?.[0];
         const key: unknown = keyNode?.value;
-        if (typeof key !== 'string') {
+        if (!keyNode || typeof key !== 'string') {
           continue;
         }
         if (seen.has(key)) {
-          const { line, column } = offsetToLineColumn(text, keyNode!.offset);
+          const { line, column } = offsetToLineColumn(text, keyNode.offset);
           throw new Error(
             `deploy: cannot update "${configPath}" — duplicate key ${JSON.stringify(key)} ` +
               `at line ${line}, column ${column}. Wrangler reads the last of two duplicate ` +
@@ -2064,7 +2062,7 @@ export function assertNoDuplicateMembers(text: string, configPath: string): void
 }
 
 /** 1-based line and column of an offset. */
-function offsetToLineColumn(text: string, offset: number): { line: number; column: number } {
+function offsetToLineColumn(text: string, offset: number) {
   let line = 1;
   let column = 1;
   const limit = Math.min(offset, text.length);
@@ -2153,7 +2151,7 @@ function validateDurableObjectMigrations(
  * their labels. `queues` is left out because the producer upsert matches its own entries;
  * including it would make a producer collide with itself.
  */
-export const FRIENDLY_BINDING_NAMES: Record<string, string> = {
+export const FRIENDLY_BINDING_NAMES = {
   data_blobs: 'Data Blob',
   durable_objects: 'Durable Object',
   kv_namespaces: 'KV Namespace',
@@ -2365,7 +2363,7 @@ type BindingFieldShape =
   | { kind: 'whole-object' };
 
 /** Fields that are not a `namespace-array`. */
-const BINDING_FIELD_SHAPES: Record<string, BindingFieldShape> = {
+const BINDING_FIELD_SHAPES = {
   vars: { kind: 'key-map' },
   wasm_modules: { kind: 'key-map' },
   text_blobs: { kind: 'key-map' },
@@ -2386,14 +2384,14 @@ const BINDING_FIELD_SHAPES: Record<string, BindingFieldShape> = {
   logfwdr: { kind: 'binding-list', bindingsRequired: true },
   // `unsafe` may carry only `metadata`.
   unsafe: { kind: 'binding-list', bindingsRequired: false },
-};
+} satisfies Record<string, BindingFieldShape>;
 
 /**
  * Binding names in one config field, read by the field's known shape. Throws on a wrong
  * shape or a missing required name, which Wrangler would drop silently.
  */
 export function bindingNamesForField(field: string, value: unknown): Array<string> {
-  if (BINDING_FIELD_SHAPES[field]?.kind === 'key-map') {
+  if (hasOwnKey(BINDING_FIELD_SHAPES, field) && BINDING_FIELD_SHAPES[field].kind === 'key-map') {
     return keyMapBindingNames(field, value);
   }
   return bindingEntriesForField(field, value).map((entry) => entry.name);
@@ -2407,7 +2405,9 @@ export function bindingEntriesForField(
   field: string,
   value: unknown,
 ): Array<{ name: string; entry: Record<string, unknown> }> {
-  const shape: BindingFieldShape = BINDING_FIELD_SHAPES[field] ?? { kind: 'namespace-array' };
+  const shape: BindingFieldShape = hasOwnKey(BINDING_FIELD_SHAPES, field)
+    ? BINDING_FIELD_SHAPES[field]
+    : { kind: 'namespace-array' };
   switch (shape.kind) {
     case 'key-map':
       return keyMapBindingEntries(field);

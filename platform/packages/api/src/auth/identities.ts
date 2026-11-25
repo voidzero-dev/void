@@ -189,8 +189,8 @@ export async function resolvePlatformLogin(
         403,
       );
     }
-    if (settings.protection) {
-      await bindCompanyIdentity(transaction, user.id, companyIdentity!);
+    if (settings.protection && companyIdentity) {
+      await bindCompanyIdentity(transaction, user.id, companyIdentity);
     }
     await transaction
       .update(platformLoginIdentities)

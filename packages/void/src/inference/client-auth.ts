@@ -12,11 +12,11 @@ export const CLIENT_MODULES: ReadonlySet<string> = new Set([
   'void/client/solid',
 ]);
 
-function name(node: AstNode | undefined): unknown {
+function name(node: AstNode | undefined) {
   return isIdentifier(node) ? node.name : staticLiteral(node);
 }
 
-function propertyName(node: AstNode): unknown {
+function propertyName(node: AstNode) {
   const key = (node.property ?? node.key) as AstNode | undefined;
   return node.computed ? staticLiteral(key) : name(key);
 }

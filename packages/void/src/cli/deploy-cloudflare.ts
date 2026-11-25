@@ -1,5 +1,6 @@
 import { readConfig, isNodeTarget } from '../config.ts';
 import { detectFramework } from '../plugin-inference.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { readCloudflareCandidate } from './cloudflare-candidate.ts';
 import { createCloudflareChildReporter } from './cloudflare-child-report.ts';
 import { readCloudflareLink } from './cloudflare-link.ts';
@@ -64,7 +65,10 @@ export async function runCloudflareDeploy(
     return exit(1);
   }
   const detectedFramework = detectFramework(root);
-  const frameworkPreset = detectedFramework ? FRAMEWORK_PRESETS[detectedFramework.name] : undefined;
+  const frameworkPreset =
+    detectedFramework && hasOwnKey(FRAMEWORK_PRESETS, detectedFramework.name)
+      ? FRAMEWORK_PRESETS[detectedFramework.name]
+      : undefined;
   cliLog.info('cloudflare_deploy_start', {
     provision: options.provision === true ? true : undefined,
   });

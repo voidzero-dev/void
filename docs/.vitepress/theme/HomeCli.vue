@@ -12,7 +12,9 @@ const autoAdvance = ref(true);
 const stage = ref<HTMLElement | null>(null);
 const player = ref<InstanceType<typeof TerminalPlayer> | null>(null);
 const state = ref({ time: 0, playing: false });
-const demo = computed(() => terminalDemos.find((item) => item.id === selected.value)!);
+const demo = computed(
+  () => terminalDemos.find((item) => item.id === selected.value) ?? terminalDemos[0],
+);
 const tabs = [
   { id: 'deploy', label: 'deploy' },
   { id: 'install', label: 'platform' },

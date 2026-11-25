@@ -4,6 +4,7 @@ import { join } from 'pathslash';
 import { stashCloudflareDeployPointer } from '../cloudflare-config.ts';
 import { readConfig } from '../config.ts';
 import { detectFramework } from '../plugin-inference.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
 import { getApiUrl, getToken, getTokenSource } from './auth.ts';
 import { isExpiredTokenError, PlatformClient } from './client.ts';
@@ -38,6 +39,7 @@ import { promptForLoginToken } from './login.ts';
 import { migrateLegacyVoidConfig } from './migrate.ts';
 import { listPlatformConnections } from './platform-registry.ts';
 import { detectPreset, FRAMEWORK_PRESETS } from './preset.ts';
+import type { FrameworkPreset } from './preset.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';
 import type { DeploymentPlatform, ProjectConfig } from './project.ts';
 import { getRequestedProjectSlug } from './resolve-project.ts';
@@ -326,7 +328,9 @@ async function runManagedDeploy(
           name: detected.name,
           class: detected.class,
         });
-        const fwPreset = FRAMEWORK_PRESETS[detected.name];
+        const fwPreset: FrameworkPreset | undefined = hasOwnKey(FRAMEWORK_PRESETS, detected.name)
+          ? FRAMEWORK_PRESETS[detected.name]
+          : undefined;
         if (detected.class === 'b' || detected.class === 'c') {
           if (!fwPreset) {
             log.error(`No deploy preset found for framework "${detected.name}".`);

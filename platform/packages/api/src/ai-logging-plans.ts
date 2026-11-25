@@ -398,12 +398,16 @@ export async function publishProjectsAiLogging(
 }
 
 function accountCandidates(userId: string, cursor: string | null): SQL {
-  return and(
+  const predicate = and(
     eq(projects.user_id, userId),
     eq(projects.status, 'active'),
     isNull(projectAiLogging.project_id),
     cursor ? gt(projects.id, cursor) : undefined,
-  )!;
+  );
+  if (!predicate) {
+    throw new Error('AI logging publish requires an account filter.');
+  }
+  return predicate;
 }
 
 /**
@@ -545,6 +549,7 @@ export async function runUserAiLoggingPublishPage(
     return { cursor };
   });
   if (failure !== undefined) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured failure after recording the reconciliation state.
     throw failure;
   }
   const expectedBy = lastAt === null ? null : new Date(lastAt + AI_LOGGING_SETTLE_MS).toISOString();

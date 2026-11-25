@@ -32,6 +32,7 @@ import {
   createTestDeployment,
   createTestProject,
   createTestUser,
+  mockKvRead,
   setupEnv,
   teardownEnv,
 } from './helpers.ts';
@@ -391,13 +392,7 @@ describe('Zero Trust routing read retries', () => {
         await configurePlatformZeroTrust(platform, env.db, configurationInput());
         const protectedRoute = (await env.ROUTING.get(missingKey))!;
         expect(JSON.parse(protectedRoute).zeroTrust).toBeTruthy();
-        const originalGet = env.ROUTING.get.bind(env.ROUTING);
-        const getSpy = vi
-          .spyOn(env.ROUTING, 'get')
-          .mockImplementation((async (key: string | Array<string>, ...args: Array<unknown>) =>
-            key === missingKey
-              ? null
-              : Reflect.apply(originalGet, env.ROUTING, [key, ...args])) as typeof env.ROUTING.get);
+        const getSpy = mockKvRead(env.ROUTING, (key) => (key === missingKey ? null : undefined));
         try {
           const cleanup =
             operation === 'public'
@@ -463,13 +458,7 @@ describe('Zero Trust routing read retries', () => {
     vi.stubGlobal('fetch', accessApi().fetcher);
     const platform = bindings();
     await configurePlatformZeroTrust(platform, env.db, configurationInput('public'));
-    const originalGet = env.ROUTING.get.bind(env.ROUTING);
-    const getSpy = vi
-      .spyOn(env.ROUTING, 'get')
-      .mockImplementation((async (key: string | Array<string>, ...args: Array<unknown>) =>
-        key === project.slug
-          ? null
-          : Reflect.apply(originalGet, env.ROUTING, [key, ...args])) as typeof env.ROUTING.get);
+    const getSpy = mockKvRead(env.ROUTING, (key) => (key === project.slug ? null : undefined));
     try {
       await expect(
         setProjectZeroTrustProtection(platform, env.db, project.id, true),
@@ -569,13 +558,9 @@ describe('Zero Trust routing read retries', () => {
       });
       if (state === 'error') {
         // A failed subsequent page retains the same durable bypass and cursor.
-        const originalGet = env.ROUTING.get.bind(env.ROUTING);
-        const getSpy = vi
-          .spyOn(env.ROUTING, 'get')
-          .mockImplementation((async (key: string | Array<string>, ...args: Array<unknown>) =>
-            key === `domain:${domainRows[299].hostname}`
-              ? null
-              : Reflect.apply(originalGet, env.ROUTING, [key, ...args])) as typeof env.ROUTING.get);
+        const getSpy = mockKvRead(env.ROUTING, (key) =>
+          key === `domain:${domainRows[299].hostname}` ? null : undefined,
+        );
         await reconcilePendingProjectZeroTrust(platform, env.db);
         getSpy.mockRestore();
         expect(await getProjectZeroTrustState(env.db, project.id)).toMatchObject({ status: state });

@@ -147,7 +147,7 @@ export async function validateProdEnv(
   const shell = options.productionOnly
     ? Object.fromEntries(Object.entries(process.env).filter(([key]) => isClientEnvKey(key)))
     : process.env;
-  const merged: Record<string, unknown> = { ...local, ...shell };
+  const merged = { ...local, ...shell };
 
   const report = await mod.validateAllEnv(merged);
   // Remote secret values are unreadable here, so a missing server key that exists

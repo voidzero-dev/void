@@ -11,6 +11,9 @@ import type {
 } from './platform-credential-label.ts';
 import { resolvePinnedApiBaseUrl } from './provision.ts';
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Endpoint-specific readers validate the fields they need.
+export type ReadCloudflare = (path: string) => Promise<unknown>;
+
 type CloudflareEnvelope<T> = Readonly<{
   errors?: ReadonlyArray<{ code?: number; message?: string }>;
   result?: T;
@@ -230,7 +233,7 @@ export async function verifyPlatformRuntimeTokenPermissions(
           `platform: ${formatPlatformCredentialDenials(credential, [...denials, ...(emailDenial?.denials ?? [])])}`,
           { cause: denials[0].error },
         );
-  const check = async (permission: string, action: () => Promise<unknown>) => {
+  const check = async <Result>(permission: string, action: () => Promise<Result>) => {
     try {
       await action();
     } catch (error) {
@@ -1738,7 +1741,7 @@ function encodeR2ObjectKey(key: string): string {
  * An AI Gateway creation time as ISO 8601 UTC. Cloudflare reports it without a
  * zone ("2026-10-05 18:29:14"), which JavaScript would read as local time.
  */
-function withCreatedAt(value: unknown): { createdAt?: string } {
+function withCreatedAt(value: unknown) {
   if (typeof value !== 'string') {
     return {};
   }
@@ -1788,14 +1791,16 @@ function parseDnsRecord(value: Record<string, unknown>): CloudflareDnsRecord {
   };
 }
 
-export function parsePostgresConnectionString(value: string): {
+type PostgresConnectionSettings = {
   database: string;
   host: string;
   mtls?: Readonly<{ sslmode: 'require' }>;
   password: string;
   port: number;
   user: string;
-} {
+};
+
+export function parsePostgresConnectionString(value: string): PostgresConnectionSettings {
   let url: URL;
   try {
     url = new URL(value);

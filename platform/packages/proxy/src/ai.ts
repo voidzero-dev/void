@@ -7,9 +7,9 @@ import { asRecord, asString } from './body.ts';
 import type { ProxyEnv } from './types.ts';
 
 const DEFAULT_GATEWAY_ID = 'void';
-const PROVIDER_AUTH_DEFAULTS: Record<string, { header: string; prefix: string }> = {
-  'google-ai-studio': { header: 'x-goog-api-key', prefix: '' },
-};
+const PROVIDER_AUTH_DEFAULTS = new Map([
+  ['google-ai-studio', { header: 'x-goog-api-key', prefix: '' }],
+]);
 const VOID_FILE_MARKER = '__voidFile';
 
 type SerializedFileInput = Readonly<{
@@ -41,18 +41,15 @@ function isBinaryView(value: unknown): value is ArrayBufferView {
 
 function isSerializedFileInput(value: unknown): value is SerializedFileInput {
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as Record<string, unknown>)[VOID_FILE_MARKER] === true &&
-    typeof (value as Record<string, unknown>).data === 'string' &&
-    ((value as Record<string, unknown>).name === undefined ||
-      typeof (value as Record<string, unknown>).name === 'string') &&
-    ((value as Record<string, unknown>).type === undefined ||
-      typeof (value as Record<string, unknown>).type === 'string')
+    isRecord(value) &&
+    value[VOID_FILE_MARKER] === true &&
+    typeof value.data === 'string' &&
+    (value.name === undefined || typeof value.name === 'string') &&
+    (value.type === undefined || typeof value.type === 'string')
   );
 }
 
-function base64ToBytes(base64: string): Uint8Array {
+function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   let binary: string;
   try {
     binary = atob(base64);
@@ -93,17 +90,36 @@ function isUnsafeProviderPath(path: string): boolean {
 
 function providerBody(value: unknown): SerializedProviderBody {
   const record = asRecord(value);
-  const type = asString(record.type);
-  if (
-    type === 'none' ||
-    type === 'json' ||
-    type === 'text' ||
-    type === 'base64' ||
-    type === 'form'
-  ) {
-    return record as SerializedProviderBody;
+  const { type, data, contentType, entries } = record;
+  if (type === 'json') {
+    return { type, value: record.value };
+  }
+  if (type === 'text' || type === 'base64') {
+    if (
+      typeof data !== 'string' ||
+      (contentType !== undefined && typeof contentType !== 'string')
+    ) {
+      throw new BadRequestError('invalid provider body');
+    }
+    return { type, data, contentType };
+  }
+  if (type === 'form') {
+    if (!Array.isArray(entries) || !entries.every(isSerializedFormEntry)) {
+      throw new BadRequestError('invalid provider form data');
+    }
+    return { type, entries };
   }
   return { type: 'none' };
+}
+
+function isSerializedFormEntry(
+  entry: unknown,
+): entry is { name: string; value: string | SerializedFileInput } {
+  return (
+    isRecord(entry) &&
+    typeof entry.name === 'string' &&
+    (typeof entry.value === 'string' || isSerializedFileInput(entry.value))
+  );
 }
 
 function appendSerializedFormValue(
@@ -111,7 +127,7 @@ function appendSerializedFormValue(
   name: string,
   value: string | SerializedFileInput,
 ): void {
-  if (isSerializedFileInput(value)) {
+  if (typeof value !== 'string') {
     const blob = new Blob([base64ToBytes(value.data)], {
       type: value.type ?? 'application/octet-stream',
     });
@@ -121,10 +137,12 @@ function appendSerializedFormValue(
   form.append(name, value);
 }
 
-function providerRequestBody(body: SerializedProviderBody): {
+interface ProviderRequestBody {
   body?: BodyInit;
   contentType?: string;
-} {
+}
+
+function providerRequestBody(body: SerializedProviderBody): ProviderRequestBody {
   if (body.type === 'none') {
     return {};
   }
@@ -139,7 +157,7 @@ function providerRequestBody(body: SerializedProviderBody): {
 
   if (body.type === 'base64') {
     return {
-      body: base64ToBytes(body.data).buffer as ArrayBuffer,
+      body: base64ToBytes(body.data).buffer,
       contentType: body.contentType,
     };
   }
@@ -162,7 +180,7 @@ function headersFromRecord(value: unknown): Headers {
 }
 
 function providerAuthDefaults(provider: string): { header: string; prefix: string } {
-  return PROVIDER_AUTH_DEFAULTS[provider] ?? { header: 'authorization', prefix: 'Bearer ' };
+  return PROVIDER_AUTH_DEFAULTS.get(provider) ?? { header: 'authorization', prefix: 'Bearer ' };
 }
 
 // AI usage is counted from the platform gateway's analytics by their
@@ -200,6 +218,17 @@ function withoutKeys(
   return Object.fromEntries(Object.entries(record).filter(([key]) => !drop(key)));
 }
 
+interface GatewayOptions {
+  [key: string]: unknown;
+  gateway: {
+    id: string;
+    metadata: { projectId: string };
+    collectLog?: boolean;
+  };
+  extraHeaders?: Record<string, unknown>;
+  sessionOptions?: Record<string, unknown>;
+}
+
 /** Options for an AI binding call that goes through the project-tagged platform gateway. */
 function gatewayOptions(
   value: unknown,
@@ -207,7 +236,7 @@ function gatewayOptions(
   usageTag: string,
   gatewayId: string,
   loggingMode: AiLoggingMode,
-): Record<string, unknown> {
+): GatewayOptions {
   // JSON cannot carry cancellation state. Never pass a serialized signal to
   // a native binding, including when an older SDK still sends the field.
   const options = withoutKeys(asRecord(value), (key) => key === 'signal');
@@ -217,7 +246,7 @@ function gatewayOptions(
   }
 
   const logging = bindingAiLogging(loggingMode);
-  const result: Record<string, unknown> = {
+  const result: GatewayOptions = {
     ...options,
     gateway: {
       ...gateway,
@@ -499,14 +528,16 @@ ai.post('/provider', async (context) => {
 
     if (!response.ok) {
       const text = await response.text();
-      let error: string;
+      let error = text;
       try {
-        const json = JSON.parse(text) as { error?: { message?: string } };
-        error = json.error?.message ?? text;
+        const json: unknown = JSON.parse(text);
+        if (isRecord(json) && isRecord(json.error) && typeof json.error.message === 'string') {
+          error = json.error.message;
+        }
       } catch {
-        error = text;
+        // The provider may return a plain-text error.
       }
-      return context.json({ error }, response.status as 400);
+      return Response.json({ error }, { status: response.status });
     }
 
     return await responseFromGateway(response, false);

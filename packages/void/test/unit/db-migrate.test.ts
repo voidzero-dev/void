@@ -7,23 +7,58 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 // oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as output from '../../src/cli/output.ts';
 
-const mockIntro = vi.fn();
-const mockConfirm = vi.fn();
-const mockOutro = vi.fn();
+const mockIntro = vi.fn<(...args: Array<unknown>) => void>();
+const mockConfirm = vi.fn<(...args: Array<unknown>) => Promise<boolean | symbol>>();
+const mockOutro = vi.fn<(...args: Array<unknown>) => void>();
 const mockLog = {
-  error: vi.fn(),
-  info: vi.fn(),
-  step: vi.fn(),
-  success: vi.fn(),
-  warn: vi.fn(),
+  error: vi.fn<(...args: Array<unknown>) => void>(),
+  info: vi.fn<(...args: Array<unknown>) => void>(),
+  step: vi.fn<(...args: Array<unknown>) => void>(),
+  success: vi.fn<(...args: Array<unknown>) => void>(),
+  warn: vi.fn<(...args: Array<unknown>) => void>(),
 };
-const mockGetMiniflareDatabasePath = vi.fn();
-const mockGetAppliedMigrations = vi.fn();
-const mockRunMigrations = vi.fn();
-const mockGetPgAppliedMigrations = vi.fn();
-const mockRunPgMigrations = vi.fn();
-const mockGetMySqlAppliedMigrations = vi.fn();
-const mockRunMySqlMigrations = vi.fn();
+const mockGetMiniflareDatabasePath =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => ReturnType<typeof import('../../src/migrations/runner.ts').getMiniflareDatabasePath>
+  >();
+const mockGetAppliedMigrations =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => ReturnType<typeof import('../../src/migrations/runner.ts').getAppliedMigrations>
+  >();
+const mockRunMigrations =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => ReturnType<typeof import('../../src/migrations/runner.ts').runMigrations>
+  >();
+const mockGetPgAppliedMigrations =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => ReturnType<typeof import('../../src/migrations/runner-pg.ts').getPgAppliedMigrations>
+  >();
+const mockRunPgMigrations =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => ReturnType<typeof import('../../src/migrations/runner-pg.ts').runPgMigrations>
+  >();
+const mockGetMySqlAppliedMigrations =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => ReturnType<typeof import('../../src/migrations/runner-mysql.ts').getMySqlAppliedMigrations>
+  >();
+const mockRunMySqlMigrations =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => ReturnType<typeof import('../../src/migrations/runner-mysql.ts').runMySqlMigrations>
+  >();
 
 vi.mock('../../src/cli/auth.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/cli/auth.ts')>()),
@@ -149,9 +184,23 @@ function selectCloudflare(root: string): void {
   );
 }
 
-const mockReadCloudflareD1Migrations = vi.fn();
-const mockApplyCloudflareD1Migrations = vi.fn();
-const mockRestoreCloudflareD1Database = vi.fn();
+const mockReadCloudflareD1Migrations =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => ReturnType<
+      typeof import('../../src/cli/cloudflare-operations.ts').readCloudflareD1Migrations
+    >
+  >();
+const mockApplyCloudflareD1Migrations = vi.fn<(...args: Array<unknown>) => Promise<void>>();
+const mockRestoreCloudflareD1Database =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => ReturnType<
+      typeof import('../../src/cli/cloudflare-operations.ts').restoreCloudflareD1Database
+    >
+  >();
 
 // The D1 context still comes from the real config reader; only the Cloudflare calls are fake.
 vi.mock('../../src/cli/cloudflare-operations.ts', async (importOriginal) => ({

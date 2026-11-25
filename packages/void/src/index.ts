@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'pathslash';
 import pc from 'picocolors';
 import type { Plugin } from 'vite';
-import { analyzeApplicationSync } from './application-analysis.ts';
+import { analyzeApplicationSync, getNativeWorkerSourceFiles } from './application-analysis.ts';
 import type { ApplicationAnalysis } from './application-analysis.ts';
 import { applyBindingOverrides } from './application-features.ts';
 import {
@@ -245,6 +245,9 @@ export function voidPlugin(options?: {
     dialect,
     () => readWranglerCompat(root, config),
     framework ? null : getSsrServerEntryPath(root),
+    detected || isNodeTarget(config.target)
+      ? undefined
+      : { root, scan: () => getNativeWorkerSourceFiles(application) },
   );
   // Scan queues/websocket routes early so both framework-mode and default-mode
   // branches can safely close over these bindings.
@@ -589,7 +592,7 @@ export function voidPlugin(options?: {
         try {
           const code = readFileSync(path, 'utf8');
           const fileBindings = applyBindingOverrides(
-            inferBindingsFromSource(code, path.split('/').pop()!),
+            inferBindingsFromSource(code, path.slice(path.lastIndexOf('/') + 1)),
             config.inference?.bindings,
           );
           const newBindings: Array<string> = [];
@@ -1047,12 +1050,15 @@ export function voidPlugin(options?: {
       finalizeAssets(clientDir, environment) {
         // Vite can create a separate plugin instance for each environment. Use
         // the client instance that recorded this build's immutable asset files.
-        const clientRoutes = environment?.config.plugins.find(
+        if (!environment) {
+          return;
+        }
+        const clientRoutes = environment.config.plugins.find(
           (plugin) => plugin.name === routes.name,
         ) as
           | { api: { finalizeCloudflareAssets(clientDir: string, assetsDir: string): void } }
           | undefined;
-        clientRoutes?.api.finalizeCloudflareAssets(clientDir, environment!.config.build.assetsDir);
+        clientRoutes?.api.finalizeCloudflareAssets(clientDir, environment.config.build.assetsDir);
       },
     }),
     prerenderPlugin(root, config),

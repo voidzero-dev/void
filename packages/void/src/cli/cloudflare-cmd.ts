@@ -75,8 +75,8 @@ function formatSession(root: string, session: CloudflareAuthSession): string {
     const accountId = typeof configured === 'string' && configured ? configured : environment;
     if (accountId) {
       const source =
-        accountId === configured
-          ? basename(rootConfig!.configPath)
+        rootConfig && accountId === configured
+          ? basename(rootConfig.configPath)
           : process.env.CLOUDFLARE_ACCOUNT_ID
             ? 'CLOUDFLARE_ACCOUNT_ID'
             : 'CF_ACCOUNT_ID';

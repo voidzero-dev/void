@@ -32,8 +32,8 @@ function withoutActionKey(fetchUrl: string, pageUrl: string): string {
     : fetchUrl;
 }
 
-export type PageComponentModule = {
-  default: unknown;
+export type PageComponentModule<Component = unknown> = {
+  default: Component;
 };
 
 export type PageData = PageObject;
@@ -84,11 +84,11 @@ export type VoidRouterAdapter = {
   onDeferredUpdate?(props: Record<string, unknown>): void;
 };
 
-export type PageNavigationEngineConfig = {
+export type PageNavigationEngineConfig<Component = unknown> = {
   boundaryManifest?: BoundaryManifest;
   dev?: boolean;
   adapter: VoidRouterAdapter;
-  components: Record<string, () => Promise<PageComponentModule>>;
+  components: Record<string, () => Promise<PageComponentModule<Component>>>;
   layoutTree: Record<string, Array<string>>;
   routeMeta: Record<string, { island?: boolean; prerender?: boolean; boundary?: boolean }>;
   /** Page id for a decoded pathname (see `decodePagePath`). */
@@ -104,13 +104,13 @@ export type PageNavigationEngineConfig = {
   cacheVisitedPageData?: boolean;
 };
 
-export type PageNavigationResult = {
+export type PageNavigationResult<Component = unknown> = {
   pageData: PageData;
-  component: unknown;
-  layouts: Array<unknown>;
+  component: Component;
+  layouts: Array<Component>;
 };
 
-export type PageNavigationResource = {
+export type PageNavigationResource<Component = unknown> = {
   id: number;
   url: string;
   fetchUrl: string;
@@ -120,20 +120,20 @@ export type PageNavigationResource = {
   method: string;
   options: VisitOptions;
   immediate: boolean;
-  shell: Promise<PageNavigationResult | undefined>;
+  shell: Promise<PageNavigationResult<Component> | undefined>;
   abort(): void;
   /** Resolves false when a newer visit has already set the URL, so nothing was committed. */
   commit(): Promise<boolean>;
   dispose(): void;
 };
 
-export type PageNavigationEngine = {
+export type PageNavigationEngine<Component = unknown> = {
   _hoverDelay: number;
   _prefetchDefaultStrategy: LinkPrefetchValue;
   initialPageData: PageData;
-  initialComponent: unknown;
-  initialLayouts: Array<unknown>;
-  prepareVisit(url: string, options?: VisitOptions): PageNavigationResource;
+  initialComponent: Component;
+  initialLayouts: Array<Component>;
+  prepareVisit(url: string, options?: VisitOptions): PageNavigationResource<Component>;
   prefetch(url: string, options?: PrefetchOptions): Promise<unknown>;
   flush(url: string, method?: string): void;
   flushAll(): void;
@@ -281,9 +281,9 @@ function getStaticPageDataUrl(url: string): string {
   return `${STATIC_PAGE_DATA_PREFIX}/${filePath}${pathname !== '/' && pathname.endsWith('/') ? 'index' : ''}.json`;
 }
 
-export async function createPageNavigationEngine(
-  config: PageNavigationEngineConfig,
-): Promise<PageNavigationEngine> {
+export async function createPageNavigationEngine<Component>(
+  config: PageNavigationEngineConfig<Component>,
+): Promise<PageNavigationEngine<Component>> {
   const {
     adapter,
     components,
@@ -307,8 +307,8 @@ export async function createPageNavigationEngine(
   // The newest visit whose URL is in the address bar: the last commit, or a back/forward
   // visit, which the browser has already moved to. An older visit must not commit over it.
   let _urlNavigationId = 0;
-  let _pendingResource: PageNavigationResource | null = null;
-  let _committedResource: PageNavigationResource | null = null;
+  let _pendingResource: PageNavigationResource<Component> | null = null;
+  let _committedResource: PageNavigationResource<Component> | null = null;
   let _committedDeferredRegistry: DeferredRegistry | null = null;
   let _htmlDeferredRegistry: DeferredRegistry | null = null;
   let _currentFetchUrl = window.location.pathname + window.location.search;
@@ -317,7 +317,7 @@ export async function createPageNavigationEngine(
   const initialUrl = window.location.pathname + window.location.search + window.location.hash;
   const scrollRestoration = createScrollRestoration();
 
-  async function resolveComponent(id: string): Promise<unknown> {
+  async function resolveComponent(id: string): Promise<Component> {
     const loader = components[id];
     if (!loader) {
       throw new Error(`pages: Unknown page component '${id}'.`);
@@ -325,7 +325,7 @@ export async function createPageNavigationEngine(
     return (await loader()).default;
   }
 
-  async function resolveLayouts(componentId: string): Promise<Array<unknown>> {
+  async function resolveLayouts(componentId: string): Promise<Array<Component>> {
     const ids = layoutTree[componentId] || [];
     return Promise.all(ids.map(async (id: string) => (await components[id]()).default));
   }
@@ -333,7 +333,7 @@ export async function createPageNavigationEngine(
   async function recoverImportFailure(
     page: PageData,
     error: unknown,
-  ): Promise<PageNavigationResult> {
+  ): Promise<PageNavigationResult<Component>> {
     for (const boundary of pageBoundarySlots(config.boundaryManifest, page.component, components)) {
       const pageData: PageData = {
         ...page,
@@ -531,8 +531,14 @@ export async function createPageNavigationEngine(
     }
   }
 
-  const _resourceDeferredRegistries = new WeakMap<PageNavigationResource, DeferredRegistry>();
-  const _preservedDeferredResources = new WeakMap<DeferredRegistry, PageNavigationResource>();
+  const _resourceDeferredRegistries = new WeakMap<
+    PageNavigationResource<Component>,
+    DeferredRegistry
+  >();
+  const _preservedDeferredResources = new WeakMap<
+    DeferredRegistry,
+    PageNavigationResource<Component>
+  >();
 
   /** Route id for a non-island page that static page data can serve, or null. */
   function matchStaticPageId(fetchUrl: string): string | null {
@@ -684,7 +690,7 @@ export async function createPageNavigationEngine(
     signal: AbortSignal,
     commitTarget: NavigationCommitTarget,
     deferredRegistry: DeferredRegistry,
-  ): Promise<PageNavigationResult | undefined> {
+  ): Promise<PageNavigationResult<Component> | undefined> {
     // Page data only comes from this origin. Other http(s) URLs get a full page
     // load. Capacitor's iOS WebView uses capacitor: for local pages.
     // Unsafe schemes (javascript:, data:, ...) must never reach location.href.
@@ -952,8 +958,8 @@ export async function createPageNavigationEngine(
       window.location.href = url;
       return undefined;
     }
-    let component: unknown;
-    let layouts: Array<unknown>;
+    let component: Component;
+    let layouts: Array<Component>;
     try {
       [component, layouts] = await Promise.race([
         matchedComponentId === pageData.component && preloadComponentPromise
@@ -991,10 +997,10 @@ export async function createPageNavigationEngine(
   function makeCommit(
     commitTarget: NavigationCommitTarget,
     options: VisitOptions,
-    shell: Promise<PageNavigationResult | undefined>,
+    shell: Promise<PageNavigationResult<Component> | undefined>,
     deferredRegistry: DeferredRegistry,
     resourceId: number,
-    getResource: () => PageNavigationResource,
+    getResource: () => PageNavigationResource<Component>,
   ): () => Promise<boolean> {
     let committed = false;
     return async () => {
@@ -1095,8 +1101,8 @@ export async function createPageNavigationEngine(
   }
 
   let initialPageData = readInitialPageData();
-  let initialComponent: unknown;
-  let initialLayouts: Array<unknown>;
+  let initialComponent: Component;
+  let initialLayouts: Array<Component>;
   try {
     [initialComponent, initialLayouts] = await Promise.all([
       resolveComponent(initialPageData.component),
@@ -1135,7 +1141,7 @@ export async function createPageNavigationEngine(
   _committedDeferredRegistry = initialDeferredRegistry;
   _htmlDeferredRegistry = initialDeferredRegistry;
 
-  const engine: PageNavigationEngine = {
+  const engine: PageNavigationEngine<Component> = {
     _hoverDelay: PREFETCH_HOVER_DELAY,
     _prefetchDefaultStrategy: PREFETCH_DEFAULT_STRATEGY,
     initialPageData,
@@ -1218,7 +1224,7 @@ export async function createPageNavigationEngine(
         controller.abort(abortError());
         deferredRegistry.dispose();
       };
-      const resource: PageNavigationResource = {
+      const resource: PageNavigationResource<Component> = {
         id,
         url,
         fetchUrl: effectiveFetchUrl,

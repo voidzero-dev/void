@@ -1,4 +1,4 @@
-import { extname } from 'node:path';
+import { extname } from 'node:path/posix';
 import { count, eq, or, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import {
@@ -186,7 +186,11 @@ function batchFor(assets: Array<Asset>, entries: Record<string, unknown>, cursor
     bytes += asset.size;
   }
   const complete = batch.length === pending.length;
-  return { batch, bytes, complete, nextCursor: complete ? null : batch.at(-1)!.hash };
+  const lastAsset = batch.at(-1);
+  if (!complete && !lastAsset) {
+    throw new Error('Asset migration batch did not advance.');
+  }
+  return { batch, bytes, complete, nextCursor: complete ? null : (lastAsset?.hash ?? null) };
 }
 
 function verify(bytes: ArrayBuffer, asset: Asset) {

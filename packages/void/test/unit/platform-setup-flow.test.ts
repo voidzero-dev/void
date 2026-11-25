@@ -8,7 +8,7 @@ import {
   recordInstallationResource,
   transitionInstallation,
 } from '@void/platform';
-import { log, note, outro } from '@voidzero-dev/vite-plus-prompts';
+import { CANCEL_SYMBOL, log, note, outro } from '@voidzero-dev/vite-plus-prompts';
 import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { Buffer } from '../../src/cli/node-buffer.ts';
 import { pc } from '../../src/cli/output.ts';
@@ -39,21 +39,27 @@ import {
 } from '../../src/cli/platform-setup-draft.ts';
 import { platformAccessFixture } from '../fixtures/platform-access.ts';
 
+type Prompts = typeof import('@voidzero-dev/vite-plus-prompts');
+type InstallPlatform = typeof import('../../src/cli/platform-installer.ts').installPlatform;
+type PlanPlatform = typeof import('../../src/cli/platform-plan.ts').createPlatformInstallPlan;
+
 const mocks = vi.hoisted(() => ({
-  confirm: vi.fn(),
-  multiselect: vi.fn(),
-  select: vi.fn(),
-  text: vi.fn(),
-  password: vi.fn(),
+  confirm: vi.fn<Prompts['confirm']>(),
+  multiselect: vi.fn<Prompts['multiselect']>(),
+  select: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').select<string>>(),
+  text: vi.fn<Prompts['text']>(),
+  password: vi.fn<Prompts['password']>(),
   operatorCredential: vi.fn(),
   open: vi.fn(),
   claim: vi.fn(),
-  install: vi.fn(),
+  install: vi.fn<(...input: Parameters<InstallPlatform>) => Promise<unknown>>(),
   preflight: vi.fn(),
-  plan: vi.fn(),
+  plan: vi.fn<PlanPlatform>(),
   database: vi.fn(),
-  spinner: vi.fn(),
+  spinner: vi.fn<typeof terminalOutput.createSpinner>(),
   progress: {
+    cancel: vi.fn(),
+    isCancelled: false,
     start: vi.fn(),
     stop: vi.fn(),
     message: vi.fn(),
@@ -72,7 +78,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', async (original) => ({
       ? Promise.resolve(false)
       : mocks.confirm(input),
   multiselect: mocks.multiselect,
-  select: (input: { message: string; options: Array<{ value: string }> }) =>
+  select: (input: Parameters<typeof mocks.select>[0]) =>
     input.message === 'Who should be able to access deployed apps?'
       ? Promise.resolve('public')
       : input.message === 'How should Void set up Hyperdrive?'
@@ -259,8 +265,16 @@ afterEach(() => {
 
 async function savedSetup(name = 'test-setup') {
   const plan = await mocks.plan(
-    null,
-    { installationSlug: name, displayName: `${name} Void` },
+    new PlatformCloudflareClient('test-token'),
+    {
+      accountId: 'account',
+      applicationDomain: 'account.workers.dev',
+      controlPlaneDomain: 'account.workers.dev',
+      dedicatedZone: false,
+      displayName: `${name} Void`,
+      installationSlug: name,
+      zoneName: '',
+    },
     null,
   );
   const draft = savePlatformSetupDraft(plan, '1.0.0');
@@ -434,11 +448,13 @@ describe('platform credential onboarding', () => {
     mocks.select.mockImplementation(async ({ options }) => options[0].value);
     mocks.multiselect.mockImplementation(async ({ options }) =>
       options
-        .map(({ value }: { value: string }) => value)
-        .filter((value: string) => ['company-idp', 'employees'].includes(value)),
+        .map(({ value }) => value)
+        .filter((value) => value === 'company-idp' || value === 'employees'),
     );
-    mocks.install.mockImplementation(async (_plan, _secrets, manifest, dependencies) => {
-      await dependencies.prepareAuthentication(manifest);
+    mocks.install.mockImplementation(async (_plan, secrets, manifest, dependencies) => {
+      assert(manifest);
+      assert(dependencies.prepareAuthentication);
+      await dependencies.prepareAuthentication(manifest, secrets);
       return { manifest, waitingForDns: false, waitingForSandboxDrain: false };
     });
     await runPlatformLifecycleCommand(parsePlatformArgs(installArgs));
@@ -589,7 +605,7 @@ describe('platform credential onboarding', () => {
       expect(mocks.install.mock.calls[0][0].actions).toContainEqual(
         expect.objectContaining({ key: 'hyperdrive', action: 'adopt', id: selected.id }),
       );
-      expect(mocks.install.mock.calls[0][2].id).toBe(manifest.id);
+      expect(mocks.install.mock.calls[0][2]?.id).toBe(manifest.id);
       expect(mocks.password).not.toHaveBeenCalled();
       expect(JSON.parse(readPendingInstallationSecrets(manifest)!.externalHyperdriveJson)).toEqual(
         selected,
@@ -599,7 +615,7 @@ describe('platform credential onboarding', () => {
 
   it('keeps the selected Hyperdrive when credential collection is cancelled', async () => {
     const { selected, getConfig } = await externalHyperdrivePlanner();
-    mocks.password.mockResolvedValueOnce(Symbol('cancel'));
+    mocks.password.mockResolvedValueOnce(CANCEL_SYMBOL);
     await expect(
       runPlatformLifecycleCommand(parsePlatformArgs([...args, '--hyperdrive', selected.id])),
     ).rejects.toThrow('Cancelled');
@@ -819,9 +835,7 @@ describe('platform credential onboarding', () => {
 
   it('retains a verified management token if the next credential prompt is cancelled', async () => {
     requireManagementToken();
-    mocks.password
-      .mockResolvedValueOnce('management-secret')
-      .mockResolvedValueOnce(Symbol('cancel'));
+    mocks.password.mockResolvedValueOnce('management-secret').mockResolvedValueOnce(CANCEL_SYMBOL);
     await expect(runPlatformLifecycleCommand(parsePlatformArgs(args))).rejects.toThrow('Cancelled');
     const manifest = listInstallationManifests()[0];
     expect(isPlatformSetupDraft(manifest)).toBe(true);
@@ -887,7 +901,7 @@ describe('platform credential onboarding', () => {
     vi.mocked(PlatformCloudflareClient.prototype.listAccounts)
       .mockResolvedValueOnce([{ id: 'account', name: 'Account' }])
       .mockRejectedValueOnce(new PlatformCloudflareApiError('expired', 401));
-    mocks.password.mockResolvedValueOnce(Symbol('cancel'));
+    mocks.password.mockResolvedValueOnce(CANCEL_SYMBOL);
     await expect(
       runPlatformLifecycleCommand(
         parsePlatformArgs(['install', '--resume', '--name', manifest.id]),
@@ -966,6 +980,7 @@ describe('platform credential onboarding', () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
     const original = mocks.plan.getMockImplementation()!;
     mocks.plan.mockImplementationOnce(original).mockImplementationOnce(async (client) => {
+      assert(client instanceof PlatformCloudflareClient);
       try {
         await client.request('/zones/zone/dns_records?private=query-value');
       } catch (cause) {
@@ -973,6 +988,7 @@ describe('platform credential onboarding', () => {
           cause,
         });
       }
+      throw new Error('Expected the management read to fail.');
     });
     vi.stubGlobal(
       'fetch',
@@ -986,7 +1002,7 @@ describe('platform credential onboarding', () => {
         ),
       ),
     );
-    mocks.password.mockResolvedValueOnce('rejected-secret').mockResolvedValueOnce(Symbol('cancel'));
+    mocks.password.mockResolvedValueOnce('rejected-secret').mockResolvedValueOnce(CANCEL_SYMBOL);
 
     await expect(runPlatformLifecycleCommand(parsePlatformArgs(args))).rejects.toThrow('Cancelled');
 
@@ -1006,6 +1022,7 @@ describe('platform credential onboarding', () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
     const original = mocks.plan.getMockImplementation()!;
     mocks.plan.mockImplementationOnce(original).mockImplementationOnce(async (client) => {
+      assert(client instanceof PlatformCloudflareClient);
       const deny = (path: string) =>
         client
           .request(path)
@@ -1037,7 +1054,7 @@ describe('platform credential onboarding', () => {
         ),
       ),
     );
-    mocks.password.mockResolvedValueOnce('rejected-secret').mockResolvedValueOnce(Symbol('cancel'));
+    mocks.password.mockResolvedValueOnce('rejected-secret').mockResolvedValueOnce(CANCEL_SYMBOL);
 
     await expect(runPlatformLifecycleCommand(parsePlatformArgs(args))).rejects.toThrow('Cancelled');
 
@@ -1053,7 +1070,7 @@ describe('platform credential onboarding', () => {
 
   it('leaves no draft when management token input is cancelled', async () => {
     requireManagementToken();
-    mocks.password.mockResolvedValueOnce(Symbol('cancel'));
+    mocks.password.mockResolvedValueOnce(CANCEL_SYMBOL);
     await expect(runPlatformLifecycleCommand(parsePlatformArgs(args))).rejects.toThrow('Cancelled');
     expect(listInstallationManifests()).toEqual([]);
     expect(mocks.install).not.toHaveBeenCalled();
@@ -1208,7 +1225,7 @@ describe('platform credential onboarding', () => {
     const previous = await interruptedInstall();
     mocks.select.mockResolvedValue('new');
     mocks.text.mockResolvedValueOnce('test-setup');
-    mocks.confirm.mockResolvedValueOnce(Symbol('cancel'));
+    mocks.confirm.mockResolvedValueOnce(CANCEL_SYMBOL);
     await expect(runPlatformLifecycleCommand(parsePlatformArgs(['install']))).rejects.toThrow(
       'Cancelled',
     );
@@ -1290,6 +1307,7 @@ describe('platform credential onboarding', () => {
     const info = vi.spyOn(log, 'info').mockImplementation(() => {});
     mocks.install.mockImplementation(async (_plan, _secrets, manifest, dependencies) => {
       expect(mocks.progress.start).toHaveBeenCalledWith('Installing the platform');
+      assert(dependencies.onProgress);
       dependencies.onProgress('Preparing the platform database');
       return { manifest, waitingForDns: false, waitingForSandboxDrain: false };
     });
@@ -1303,13 +1321,15 @@ describe('platform credential onboarding', () => {
     expect(info).toHaveBeenCalledWith('API URL: https://void-test-setup-api.account.workers.dev');
     // Spinner cancellation must not swallow the CLI's cancellation signal.
     const emit = vi.spyOn(process, 'emit').mockReturnValueOnce(true);
-    mocks.spinner.mock.calls[0][0].onCancel();
+    const onCancel = mocks.spinner.mock.calls[0][0]?.onCancel;
+    assert(onCancel);
+    onCancel();
     expect(emit).toHaveBeenCalledWith('SIGINT');
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('test exit');
     });
     emit.mockReturnValueOnce(false);
-    expect(() => mocks.spinner.mock.calls[0][0].onCancel()).toThrow('test exit');
+    expect(onCancel).toThrow('test exit');
     expect(exit).toHaveBeenCalledWith(130);
   });
 
@@ -1337,6 +1357,7 @@ describe('platform credential onboarding', () => {
     const refused =
       'platform: This PostgreSQL database is already claimed by Void platform installation old-team.';
     mocks.install.mockImplementationOnce(async (_plan, _secrets, manifest) => {
+      assert(manifest);
       writePendingInstallationSecrets(manifest, {
         ...readPendingInstallationSecrets(manifest),
         databaseClaimState: 'failed',
@@ -1397,6 +1418,7 @@ describe('platform credential onboarding', () => {
   it('keeps the database hint out of failures after this run claims the database', async () => {
     const info = vi.spyOn(log, 'info').mockImplementation(() => {});
     mocks.install.mockImplementationOnce(async (_plan, secrets, manifest, dependencies) => {
+      assert(manifest);
       await dependencies.claimDatabase?.(secrets.databaseUrl, manifest.id, manifest.ownershipNonce);
       // Later checkpoints save the values without the claim state.
       writePendingInstallationSecrets(manifest, { databaseUrl: secrets.databaseUrl });
@@ -1419,6 +1441,7 @@ describe('platform credential onboarding', () => {
       process.argv = [process.execPath, `/usr/local/bin/${command}`, ...args];
       try {
         mocks.install.mockImplementationOnce(async (plan, _secrets, manifest, dependencies) => {
+          assert(manifest);
           expect(dependencies.healthCheckResumeCommand).toBe(
             `${command} platform install --resume --name ${manifest.id}`,
           );
@@ -1655,7 +1678,7 @@ describe('platform credential onboarding', () => {
       mocks.preflight.mockRejectedValueOnce(
         new PlatformCloudflareApiError('Authentication error', 401),
       );
-      mocks.password.mockResolvedValueOnce(Symbol('cancel'));
+      mocks.password.mockResolvedValueOnce(CANCEL_SYMBOL);
       await expect(resume(manifest)).rejects.toThrow('Cancelled');
       expect(readPendingInstallationSecrets(manifest)?.cloudflareApiToken).toBe(
         'saved-runtime-token',
@@ -1720,7 +1743,7 @@ describe('platform credential onboarding', () => {
     mocks.preflight.mockRejectedValueOnce(
       new PlatformCloudflareApiError('Authentication error', 401),
     );
-    mocks.password.mockResolvedValueOnce(Symbol('cancel'));
+    mocks.password.mockResolvedValueOnce(CANCEL_SYMBOL);
     await expect(runPlatformLifecycleCommand(parsePlatformArgs(['install']))).rejects.toThrow(
       'Cancelled',
     );
@@ -1855,7 +1878,7 @@ describe('platform credential onboarding', () => {
       const previous = await savedSetup();
       mocks.select.mockResolvedValue('new');
       mocks.text.mockResolvedValue('fresh-install');
-      mocks.password.mockResolvedValueOnce(Symbol('cancel'));
+      mocks.password.mockResolvedValueOnce(CANCEL_SYMBOL);
       await expect(
         runPlatformLifecycleCommand(
           parsePlatformArgs([
@@ -1886,6 +1909,7 @@ describe('platform credential onboarding', () => {
       const namePrompt = mocks.text.mock.calls.find(
         ([prompt]) => prompt.message === 'Installation name:',
       )![0];
+      assert(typeof namePrompt.validate === 'function');
       expect(namePrompt.validate('test-setup')).toBeUndefined();
     },
   );
@@ -1919,7 +1943,7 @@ describe('platform credential onboarding', () => {
 
   it('cancels before planning or collecting credentials when the chooser is cancelled', async () => {
     const draft = await savedSetup();
-    mocks.select.mockResolvedValue(Symbol('cancel'));
+    mocks.select.mockResolvedValue(CANCEL_SYMBOL);
     await expect(runPlatformLifecycleCommand(parsePlatformArgs(['install']))).rejects.toThrow(
       'Cancelled',
     );
@@ -1992,7 +2016,7 @@ describe('platform credential onboarding', () => {
     );
     const normalPassword = mocks.password.getMockImplementation()!;
     mocks.password.mockImplementation(async (input) =>
-      input.message.startsWith('GitHub OAuth') ? Symbol('cancel') : normalPassword(input),
+      input.message.startsWith('GitHub OAuth') ? CANCEL_SYMBOL : normalPassword(input),
     );
     await runPlatformLifecycleCommand(parsePlatformArgs(['install', '--plan']));
     const preview = await mocks.plan.mock.results[0].value;
@@ -2185,7 +2209,7 @@ describe('platform credential onboarding', () => {
   it('opens each missing credential page and preserves encrypted progress and callback identity across cancellation', async () => {
     const normalPassword = mocks.password.getMockImplementation()!;
     mocks.password.mockImplementation(async (input) =>
-      input.message.startsWith('GitHub OAuth') ? Symbol('cancel') : normalPassword(input),
+      input.message.startsWith('GitHub OAuth') ? CANCEL_SYMBOL : normalPassword(input),
     );
     await expect(runPlatformLifecycleCommand(parsePlatformArgs(args))).rejects.toThrow('Cancelled');
     const first = listInstallationManifests()[0];
@@ -2389,6 +2413,7 @@ describe('platform credential onboarding', () => {
     // outside Void with the configs that the run deploys, then pauses traffic.
     mocks.install.mockImplementation(async (_plan, _secrets, existing, dependencies) => {
       events.push('installer-start', 'create:isr-cache-kv');
+      assert(dependencies.uploadOutsideChanges);
       await dependencies.uploadOutsideChanges([
         {
           account_id: 'account',
@@ -2473,6 +2498,7 @@ describe('platform credential onboarding', () => {
       },
     );
     mocks.install.mockImplementation(async (_plan, _secrets, existing, dependencies) => {
+      assert(dependencies.uploadOutsideChanges);
       await dependencies.uploadOutsideChanges([{ account_id: 'account', name: apiWorker }]);
       return { manifest: existing, waitingForDns: false, waitingForSandboxDrain: false };
     });

@@ -7,6 +7,10 @@ import { integrationTestDirs, listIntegrationTestFiles } from './test/integratio
 import { SuiteSequencer } from './test/sequencer.ts';
 import { chunkTestFiles } from './test/test-chunks.ts';
 
+const typeScriptTestFiles = [
+  '**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}',
+  '**/__tests__/**/*.{ts,tsx,mts,cts}',
+];
 const maxWorkers = process.env.CI ? 2 : Math.max(2, Math.floor(availableParallelism() * 0.75));
 const apiTimezoneTests = [
   'platform/packages/api/test/integration/api-delete-accounting.test.ts',
@@ -254,16 +258,7 @@ const config = defineConfig({
   },
   lint: {
     extends: [cloudflare],
-    categories: {
-      correctness: 'off',
-    },
-    env: {
-      ...cloudflare.env,
-      browser: true,
-      builtin: true,
-      es2024: true,
-      node: true,
-    },
+    env: cloudflare.env,
     jsPlugins: [
       {
         name: 'vite-plus',
@@ -274,285 +269,20 @@ const config = defineConfig({
         specifier: 'eslint-plugin-react-hooks',
       },
     ],
-    plugins: ['typescript', 'import', 'react', 'unicorn', 'vitest', 'node', 'jsdoc', 'oxc'],
     ignorePatterns: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/.void/**',
-      '**/.vite-cloud/**',
-      '**/.wrangler/**',
-      '**/.tanstack/**',
-      '**/.vitepress/cache/**',
-      '**/*.tsbuildinfo',
-      '.pnpm-store/**',
-      'playground-local/**',
-      '.worktrees/**',
       // App overlays a spike builds on top of playground apps; planted bugs, not checked code.
       'platform/scripts/fixtures/security-seeded-apps/**',
     ],
     overrides: [
       {
-        // The production comparisons use default JavaScript order for reproducible serialized values.
-        files: [
-          '**/test/**/*',
-          'packages/void/src/cli/cf-version-api.ts',
-          'platform/packages/email-gateway/src/router.ts',
-        ],
-        rules: { 'typescript/require-array-sort-compare': 'off' },
+        // Platform scripts and build config operate on native host paths.
+        files: ['platform/**/scripts/**/*', 'platform/**/vite.config.ts'],
+        rules: { 'no-restricted-imports': 'off' },
       },
       {
-        // These wrappers propagate original rejection values through cleanup and retries.
-        files: [
-          'packages/void/src/cli/{direct-r2-upload,platform-install-workers}.ts',
-          'packages/void/src/runtime/live/index.ts',
-          'platform/packages/api/src/{ai-logging-plans,build-manager,routing,worker-upload}.ts',
-          'platform/packages/api/src/routes/projects.ts',
-          'platform/packages/api/src/zero-trust/lock.ts',
-        ],
-        rules: { 'typescript/only-throw-error': 'off' },
-      },
-      {
-        // Hosted admin views synchronize streamed logs and externally loaded data in effects.
-        files: ['platform/packages/api/src/admin/react/views/**/*'],
-        rules: { 'react/set-state-in-effect': 'off' },
-      },
-      {
-        // These adapters and test helpers accept opaque objects for identity and weak keys.
-        files: [
-          '**/test/**/*',
-          'packages/void/src/plugin-cloudflare-config.ts',
-          'packages/void/src/runtime/env/{runtime,public}.ts',
-        ],
-        rules: { 'quality/no-object-parameters': 'off' },
-      },
-      {
-        // Proxy traps preserve receiver semantics and tests inspect dynamic members.
-        files: [
-          '**/test/**/*',
-          'packages/void/src/runtime/db/{index,session}.ts',
-          'packages/void/src/runtime/env/runtime.ts',
-          'packages/void/src/runtime/routing/worker.ts',
-          'packages/void/src/runtime/storage/index.ts',
-        ],
-        rules: { 'quality/no-reflect-get': 'off' },
-      },
-      {
-        // Tests dispatch methods on partial runtime mocks with explicit receivers.
+        // Filesystem assertions use Node paths independently of the production wrapper.
         files: ['**/test/**/*'],
-        rules: { 'quality/no-reflect-apply': 'off' },
-      },
-      {
-        // Keep mock implementations and fixture builders next to the cases that use them.
-        files: [
-          '**/test/**/*',
-          '**/*.test.*',
-          '**/*.typecheck.*',
-          'platform/scripts/fixtures/**/*',
-        ],
-        rules: { 'unicorn/consistent-function-scoping': 'off' },
-      },
-      {
-        // Tests use partial runtime and provider mocks to exercise specific behavior.
-        files: [
-          '**/test/**/*',
-          '**/*.test.*',
-          '**/*.typecheck.*',
-          'platform/scripts/fixtures/**/*',
-        ],
-        rules: { 'quality/no-chained-type-assertions': 'off' },
-      },
-      {
-        // Test doubles and fixture shims can return partial dependency results.
-        files: [
-          '**/test/**/*',
-          '**/*.test.*',
-          '**/*.typecheck.*',
-          'platform/scripts/fixtures/**/*',
-        ],
-        rules: { 'typescript/no-unsafe-return': 'off' },
-      },
-      {
-        // These string scans test for substrings and delimiters.
-        files: ['packages/edge/src/pattern.ts', 'platform/packages/api/container/build-agent.mjs'],
-        rules: { 'unicorn/prefer-set-has': 'off' },
-      },
-      {
-        // These mocked provider rejections exercise non-Error failure payloads.
-        files: ['packages/void/test/unit/provision-resources.test.ts'],
-        rules: { 'prefer-promise-reject-errors': 'off' },
-      },
-      {
-        // Routing adapters accept component functions with framework-specific signatures.
-        files: ['packages/void/src/runtime/routing/{errors,pages}.ts'],
-        rules: { 'typescript/no-unsafe-function-type': 'off' },
-      },
-      {
-        // Database tests intentionally await proxy and mock values to verify thenable handling.
-        files: ['packages/void/test/unit/{db-session,plugin-drizzle}.test.ts'],
-        rules: { 'typescript/await-thenable': 'off' },
-      },
-      {
-        // Void uses empty defaults in public route and binding types and their test fixtures.
-        files: [
-          'platform/packages/api/src/admin/fate/client.generated.ts',
-          'playground/**/env.d.ts',
-          'packages/void/src/routes-stub.ts',
-          'packages/void/src/runtime/{queues,handler,auth,ws}/index.ts',
-          'packages/void/src/runtime/client/{fetch,fetch-stream}.ts',
-          'packages/void/test/unit/{route-type-extraction,ws-room,fetch,fetch-stream.test,fetch.test,fetch.typecheck,ws-room.typecheck,route-type-extraction.typecheck}.ts',
-        ],
-        rules: { 'typescript/no-empty-object-type': 'off' },
-      },
-      {
-        // The footer uses the current year when rendering the default copyright notice.
-        files: ['platform/packages/dashboard/ui/components/oss/FooterNav.tsx'],
-        rules: { 'react/purity': 'off' },
-      },
-      {
-        // Solid signal initializers run once and may read the clock.
-        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
-        rules: { 'react/purity': 'off' },
-      },
-      {
-        // These setup suites use partial substitutes for prompts, credentials, and provider adapters.
-        files: [
-          'packages/void/test/unit/{platform-access-setup,platform-install-prompts,platform-setup-flow}.test.ts',
-        ],
-        rules: { 'typescript/no-unsafe-call': 'off' },
-      },
-      {
-        // TypeScript checks these compile-only fixtures, including deliberate invalid calls.
-        files: ['**/*.typecheck.ts'],
-        rules: { 'typescript/no-unsafe-call': 'off' },
-      },
-      {
-        // These compile-only fixtures call hooks to exercise their type signatures.
-        files: ['**/*.typecheck.ts'],
-        rules: { 'react/rules-of-hooks': 'off' },
-      },
-      {
-        // Signal and composition helpers do not follow React hook rules.
-        files: ['packages/{svelte,solid,vue}/**/*'],
-        rules: { 'react/rules-of-hooks': 'off' },
-      },
-      {
-        // The resolver reports false positives in these public dependency re-exports.
-        files: [
-          'packages/void/src/runtime/db/schema/{d1,mysql,postgres}.ts',
-          'packages/void/src/runtime/db/validators/drizzle-{arktype,valibot,zod}.ts',
-          'packages/void/src/runtime/sandbox/index.ts',
-        ],
-        rules: { 'import/export': 'off' },
-      },
-      {
-        // Solid JSX uses native DOM attribute names, including label for.
-        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
-        rules: { 'react/no-unknown-property': 'off' },
-      },
-      {
-        // Solid uses mutable refs across reactive updates.
-        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
-        rules: { 'react/immutability': 'off' },
-      },
-      {
-        // Workers types overload DOM append in these shared browser modules.
-        files: [
-          'packages/void/src/pages/boundary-client.ts',
-          'packages/void/src/pages/navigation-engine.ts',
-        ],
-        rules: { 'unicorn/prefer-dom-node-append': 'off' },
-      },
-      {
-        // Fate may emit unused imports; still lint and typecheck the generated client.
-        files: ['platform/packages/api/src/admin/fate/client.generated.ts'],
-        rules: { 'import/consistent-type-specifier-style': 'off', 'no-unused-vars': 'off' },
-      },
-      {
-        files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
         rules: {
-          'constructor-super': 'off',
-          'getter-return': 'off',
-          'no-class-assign': 'off',
-          'no-const-assign': 'off',
-          'no-dupe-class-members': 'off',
-          'no-dupe-keys': 'off',
-          // Continue checking explicit any in TypeScript tests.
-          'typescript/no-explicit-any': 'error',
-          'no-func-assign': 'off',
-          'no-import-assign': 'off',
-          'no-new-native-nonconstructor': 'off',
-          'no-obj-calls': 'off',
-          'no-redeclare': 'off',
-          'no-setter-return': 'off',
-          'no-this-before-super': 'off',
-          'no-undef': 'off',
-          'no-unreachable': 'off',
-          'no-unsafe-negation': 'off',
-          'no-with': 'off',
-          'prefer-rest-params': 'error',
-          'prefer-spread': 'error',
-        },
-      },
-      {
-        files: [
-          'packages/react/**/*',
-          'playground/named-layouts/**/*',
-          'playground/node-app/**/*',
-          'playground/node-static/**/*',
-          'playground/pg-test/**/*',
-          'playground/react-pages/**/*',
-          'playground/react-router/**/*',
-          'playground/spa/**/*',
-          'playground/ssr/**/*',
-          'playground/tanstack-start/**/*',
-          'playground/vinext-app/**/*',
-          'playground/vinext-pages/**/*',
-          'playground/websockets/**/*',
-        ],
-        rules: {
-          'react-hooks-js/component-hook-factories': 'error',
-          'react-hooks-js/config': 'error',
-          'react-hooks-js/error-boundaries': 'error',
-          'react-hooks-js/gating': 'error',
-          'react-hooks-js/globals': 'error',
-          'react-hooks-js/immutability': 'error',
-          'react-hooks-js/incompatible-library': 'error',
-          'react-hooks-js/preserve-manual-memoization': 'error',
-          'react-hooks-js/purity': 'error',
-          'react-hooks-js/refs': 'error',
-          'react-hooks-js/set-state-in-effect': 'error',
-          'react-hooks-js/set-state-in-render': 'error',
-          'react-hooks-js/static-components': 'error',
-          'react-hooks-js/unsupported-syntax': 'error',
-          'react-hooks-js/use-memo': 'error',
-        },
-      },
-      {
-        files: ['**/*.svelte'],
-        rules: {
-          'no-undef': 'off',
-          'prefer-const': 'off',
-        },
-      },
-      {
-        files: ['**/*.vue'],
-        rules: {
-          'no-undef': 'off',
-        },
-      },
-      {
-        files: ['platform/**/*'],
-        rules: {
-          // The hosted platform historically used Node's native path module.
-          // Keep its existing lint contract while shared SDK code uses pathslash.
-          'no-restricted-imports': 'off',
-        },
-      },
-      {
-        files: ['**/test/**/*.{js,jsx,ts,tsx,mjs,cjs}'],
-        rules: {
-          // Tests must derive expected paths independently of production's
-          // forward-slash wrapper, including on Windows.
           'no-restricted-imports': [
             'error',
             {
@@ -577,64 +307,181 @@ const config = defineConfig({
         },
       },
       {
-        // Keep concrete types in the SDK packages with typed adapter and helper contracts.
+        // Keep fixture builders and partial runtime mocks next to their tests.
         files: [
-          'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,md,platform,react,solid,svelte,vue}/**/*',
-          'platform/packages/{dashboard,email-gateway,tail}/**/*',
+          '**/test/**/*',
+          '**/*.test.*',
+          '**/*.typecheck.*',
+          'platform/scripts/fixtures/**/*',
         ],
+        rules: {
+          'quality/no-chained-type-assertions': 'off',
+          'unicorn/consistent-function-scoping': 'off',
+        },
+      },
+      {
+        // Guard explicit any in TypeScript tests as well as production.
+        files: ['**/*.{ts,tsx,mts,cts}'],
+        rules: { 'typescript/no-explicit-any': 'error' },
+      },
+      {
+        files: typeScriptTestFiles,
+        rules: { 'typescript/only-throw-error': 'error' },
+      },
+      {
+        files: typeScriptTestFiles,
+        excludeFiles: ['packages/void/test/**/*', 'platform/packages/api/test/**/*'],
+        rules: { 'typescript/no-unsafe-argument': 'error' },
+      },
+      {
+        // These adapters accept objects as weak keys or opaque identities.
+        files: [
+          'packages/void/src/{plugin-cloudflare-config,runtime/env/runtime,runtime/env/public}.ts',
+        ],
+        rules: { 'quality/no-object-parameters': 'off' },
+      },
+      {
+        // Proxy traps use Reflect.get to preserve the receiver.
+        files: [
+          'packages/void/src/runtime/{db/index,db/session,env/runtime,routing/worker,storage/index}.ts',
+        ],
+        rules: { 'quality/no-reflect-get': 'off' },
+      },
+      {
+        // Code generation augments these interfaces with app-specific types.
+        files: [
+          'packages/void/src/routes-stub.ts',
+          'packages/void/src/runtime/{auth,queues}/index.ts',
+        ],
+        rules: {
+          'typescript/no-empty-object-type': [
+            'error',
+            {
+              allowWithName:
+                '^(RoutePathMap|PagePathMap|EncodedRoutePathMap|RouteTypesConfig|RouteMap|WebSocketRouteMap|PageActionMap|VoidAuthTypes|QueueMap)$',
+            },
+          ],
+        },
+      },
+      {
+        // Fate emits imports and empty route shapes. Keep checking the generated client.
+        files: ['platform/packages/api/src/admin/fate/client.generated.ts'],
+        rules: {
+          'import/consistent-type-specifier-style': 'off',
+          'no-unused-vars': 'off',
+          'typescript/no-empty-object-type': 'off',
+        },
+      },
+      {
+        // The import resolver cannot follow these dependency re-exports.
+        files: [
+          'packages/void/src/runtime/db/{schema/{d1,mysql,postgres},validators/drizzle-{arktype,valibot,zod}}.ts',
+          'packages/void/src/runtime/sandbox/index.ts',
+        ],
+        rules: { 'import/export': 'off' },
+      },
+      {
+        // Workers types give DOM append a different signature in these modules.
+        files: ['packages/void/src/pages/{boundary-client,navigation-engine}.ts'],
+        rules: { 'unicorn/prefer-dom-node-append': 'off' },
+      },
+      {
+        files: ['**/*.{svelte,vue}'],
+        rules: { 'no-undef': 'off' },
+      },
+      {
+        // Signals, composition helpers, and compile-only hook calls follow other conventions.
+        files: ['packages/{svelte,solid,vue}/**/*', '**/*.typecheck.ts'],
+        rules: { 'react/rules-of-hooks': 'off' },
+      },
+      {
+        // Solid uses native DOM names, mutable refs, and one-time initializers.
+        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
+        rules: {
+          'react/immutability': 'off',
+          'react/no-unknown-property': 'off',
+          'react/purity': 'off',
+        },
+      },
+      {
+        files: [
+          'packages/react/**/*',
+          'playground/{named-layouts,node-app,node-static,pg-test,react-pages,react-router,spa,ssr,tanstack-start,vinext-app,vinext-pages,websockets}/**/*',
+        ],
+        rules: {
+          'react-hooks-js/component-hook-factories': 'error',
+          'react-hooks-js/config': 'error',
+          'react-hooks-js/error-boundaries': 'error',
+          'react-hooks-js/gating': 'error',
+          'react-hooks-js/globals': 'error',
+          'react-hooks-js/immutability': 'error',
+          'react-hooks-js/incompatible-library': 'error',
+          'react-hooks-js/preserve-manual-memoization': 'error',
+          'react-hooks-js/purity': 'error',
+          'react-hooks-js/refs': 'error',
+          'react-hooks-js/set-state-in-effect': 'error',
+          'react-hooks-js/set-state-in-render': 'error',
+          'react-hooks-js/static-components': 'error',
+          'react-hooks-js/unsupported-syntax': 'error',
+          'react-hooks-js/use-memo': 'error',
+        },
+      },
+      {
+        files: ['**/*.{js,jsx,mjs,cjs}'],
+        rules: { 'typescript/no-unsafe-return': 'error' },
+      },
+      {
+        files: [
+          'packages/void/src/runtime/routing/error-pages/script.js',
+          'platform/packages/api/container/build-agent.mjs',
+        ],
+        rules: {
+          'typescript/no-unsafe-argument': 'error',
+          'typescript/no-unsafe-assignment': 'error',
+          'typescript/no-unsafe-call': 'error',
+          'typescript/no-unsafe-member-access': 'error',
+        },
+      },
+      // Enforce the staged type rules where the SDK and platform have typed contracts.
+      {
+        files: ['packages/**/*', 'platform/packages/{dashboard,email-gateway,tail}/**/*'],
+        excludeFiles: ['packages/void/**/*'],
         rules: {
           'quality/no-known-value-widening': 'error',
           'quality/no-unknown-returns': 'error',
         },
       },
       {
-        // Routing codegen, Vite hooks, and the dispatch Worker expose typed results.
         files: [
-          'packages/void/src/{codegen,router}/**/*',
-          'packages/void/src/plugin-*.ts',
+          'packages/void/src/**/*',
           'platform/packages/dispatch/**/*',
+          'platform/packages/proxy/src/**/*',
+          'platform/packages/api/src/**/*',
         ],
+        excludeFiles: ['packages/void/src/{pages,runtime}/**/*'],
         rules: { 'quality/no-unknown-returns': 'error' },
       },
       {
-        files: [
-          'packages/void/src/{codegen,pages,router,runtime,shared}/**/*',
-          'platform/packages/api/src/**/*',
-        ],
+        files: ['packages/void/src/**/*', 'platform/packages/*/src/**/*'],
         rules: { 'quality/no-known-value-widening': 'error' },
       },
       {
         files: [
-          'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,md,platform,react,solid,svelte,vue}/src/**/*',
-          'packages/void/src/{codegen,pages,router,runtime,shared}/**/*',
+          'packages/{create-void,deploy-core,edge,isr}/src/**/*',
           'platform/packages/{dashboard,dispatch,email-gateway,tail}/src/**/*',
-          'platform/packages/api/src/{migrations,observability,queues}/**/*',
-          'platform/packages/api/src/{assets,proxy-token-rotation,sandbox-concurrency-counter,usage-counter}.ts',
         ],
-        rules: { 'typescript/no-non-null-assertion': 'error' },
+        rules: { 'quality/no-unsafe-dictionary-type': 'error' },
       },
       {
-        // Version rollout still relies on state carried across asynchronous API calls.
-        files: ['packages/deploy-cloudflare/src/version.ts'],
-        rules: { 'typescript/no-non-null-assertion': 'off' },
-      },
-      {
-        files: ['**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}', '**/__tests__/**'],
-        rules: { 'typescript/no-non-null-assertion': 'off' },
-      },
-      {
-        // These boundaries validate deployment, cache, email, and plan inputs.
         files: [
-          'packages/{deploy-core,isr}/src/**/*',
-          'packages/platform/src/{email-protocol,plans}.ts',
+          'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,platform,react,svelte}/src/**/*',
+          'platform/packages/{dispatch,email-gateway,proxy}/src/**/*',
+          'platform/packages/api/src/deploy/{persisted-manifest,serving-assets}.ts',
+          'platform/packages/api/src/email/ingress-resolution.ts',
+          'platform/packages/api/src/routing-records.ts',
+          'platform/packages/api/test/unit/build-manager.test.ts',
         ],
         rules: { 'typescript/no-unsafe-type-assertion': 'error' },
-      },
-      {
-        files: ['playground/vinext-app/.next/**/*.ts'],
-        rules: {
-          '@typescript-eslint/array-type': 'off',
-        },
       },
     ],
     rules: {
@@ -658,74 +505,12 @@ const config = defineConfig({
       'quality/no-unknown-returns': 'off',
       // Environment dictionaries, manifest parsers, and schema inputs carry unknown values until each entry has been validated.
       'quality/no-unsafe-dictionary-type': 'off',
-      // Enable in SDK and Worker modules above. CLI orchestration and the remaining
-      // platform API modules still need their lifecycle invariants reviewed.
-      'typescript/no-non-null-assertion': 'off',
       // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.
       'unicorn/catch-error-name': 'off',
-      '@typescript-eslint/array-type': [
-        'error',
-        {
-          default: 'generic',
-        },
-      ],
-      '@typescript-eslint/no-duplicate-enum-values': 'error',
-      '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/no-extra-non-null-assertion': 'error',
-      // Enforced across the workspace by both `vp check` and `vp lint`.
-      '@typescript-eslint/no-floating-promises': 'error',
-      '@typescript-eslint/no-misused-new': 'error',
-      '@typescript-eslint/no-non-null-asserted-optional-chain': 'error',
-      '@typescript-eslint/no-require-imports': 'error',
-      '@typescript-eslint/no-unnecessary-type-constraint': 'error',
-      '@typescript-eslint/no-unsafe-declaration-merging': 'error',
-      '@typescript-eslint/no-wrapper-object-types': 'error',
-      '@typescript-eslint/prefer-as-const': 'error',
-      '@typescript-eslint/prefer-namespace-keyword': 'error',
-      '@typescript-eslint/triple-slash-reference': 'error',
-      curly: 'error',
-      'for-direction': 'error',
-      'getter-return': 'error',
       'import/default': 'error',
       'import/namespace': 'error',
-      'no-array-constructor': 'error',
-      'no-async-promise-executor': 'error',
-      'no-case-declarations': 'error',
-      'no-class-assign': 'error',
-      'no-compare-neg-zero': 'error',
-      'no-cond-assign': 'error',
-      'no-const-assign': 'error',
-      'no-constant-binary-expression': 'error',
-      'no-constant-condition': 'error',
-      'no-control-regex': 'error',
-      'no-debugger': 'error',
-      'no-delete-var': 'error',
-      'no-dupe-class-members': 'error',
-      'no-dupe-else-if': 'error',
-      'no-dupe-keys': 'error',
-      'no-duplicate-case': 'error',
-      'no-empty-character-class': 'error',
-      'no-empty-pattern': 'error',
-      'no-empty-static-block': 'error',
-      'no-empty': 'error',
-      'no-ex-assign': 'error',
-      'no-extra-boolean-cast': 'error',
-      'no-fallthrough': 'error',
-      'no-func-assign': 'error',
-      'no-global-assign': 'error',
-      'no-import-assign': 'error',
-      'no-invalid-regexp': 'error',
-      'no-irregular-whitespace': 'error',
-      'no-loss-of-precision': 'error',
-      'no-misleading-character-class': 'error',
-      'no-new-native-nonconstructor': 'error',
-      'no-nonoctal-decimal-escape': 'error',
-      'no-obj-calls': 'error',
-      'no-prototype-builtins': 'error',
-      'no-redeclare': 'error',
-      'no-regex-spaces': 'error',
       'no-restricted-imports': [
         'error',
         {
@@ -743,76 +528,15 @@ const config = defineConfig({
           ],
         },
       ],
-      'no-self-assign': 'error',
-      'no-setter-return': 'error',
-      'no-shadow-restricted-names': 'error',
-      'no-sparse-arrays': 'error',
-      'no-this-before-super': 'error',
-      'no-undef': 'error',
-      'no-unexpected-multiline': 'error',
-      'no-unreachable': 'error',
-      'no-unsafe-finally': 'error',
-      'no-unsafe-negation': 'error',
-      'no-unsafe-optional-chaining': 'error',
-      'no-unused-expressions': 'error',
-      'no-unused-labels': 'error',
-      'no-unused-private-class-members': 'error',
       // Also covers packages without TypeScript's `noUnusedLocals` and plain JS scripts.
       // An options object drops oxlint's default `^_` ignore pattern, so restate it.
       'no-unused-vars': ['error', { args: 'none', varsIgnorePattern: '^_' }],
-      'no-useless-backreference': 'error',
-      'no-useless-catch': 'error',
-      'no-useless-escape': 'error',
-      'no-useless-rename': 'error',
-      'no-var': 'error',
-      'no-warning-comments': [
-        'error',
-        {
-          terms: ['@nocommit'],
-        },
-      ],
-      'no-with': 'error',
-      'oxc/no-accumulating-spread': 'error',
-      'prefer-const': 'error',
-      'react/exhaustive-deps': 'error',
-      'react/jsx-key': 'error',
-      'react/jsx-no-duplicate-props': 'error',
-      'react/jsx-no-target-blank': 'error',
-      'react/jsx-no-undef': 'error',
-      'react/no-children-prop': 'error',
-      'react/no-danger-with-children': 'error',
-      'react/no-direct-mutation-state': 'error',
-      'react/no-find-dom-node': 'error',
-      'react/no-is-mounted': 'error',
-      'react/no-render-return-value': 'error',
-      'react/no-string-refs': 'error',
-      'react/require-render-return': 'error',
-      'require-yield': 'error',
-      'unicorn/consistent-empty-array-spread': 'error',
-      'unicorn/no-abusive-eslint-disable': 'error',
-      'unicorn/no-invalid-fetch-options': 'error',
-      'unicorn/no-typeof-undefined': 'error',
-      'unicorn/no-unnecessary-slice-end': 'error',
-      'unicorn/no-useless-promise-resolve-reject': 'error',
-      'unicorn/no-useless-spread': 'error',
-      'unicorn/prefer-array-flat-map': 'error',
-      'unicorn/prefer-array-index-of': 'error',
-      'unicorn/prefer-array-some': 'error',
-      'unicorn/prefer-native-coercion-functions': 'error',
-      'unicorn/prefer-node-protocol': 'error',
-      'unicorn/prefer-optional-catch-binding': 'error',
-      'unicorn/prefer-set-size': 'error',
-      'use-isnan': 'error',
-      'valid-typeof': 'error',
       // Import test APIs from `vite-plus/test`, not `vitest`.
       'vite-plus/prefer-vite-plus-imports': 'error',
       // Vitest rejects `.only` only in CI; catch it locally and in pre-commit too.
       'vitest/no-focused-tests': 'error',
     },
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
+    options: { typeCheck: true },
   },
   resolve: { alias: platformAlias },
   test: {

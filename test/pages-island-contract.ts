@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { Browser, Page } from 'playwright';
-import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { assert, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { waitForIslandsHydrated } from './browser-helpers.ts';
 import { waitForServer } from './integration-helpers.ts';
 
@@ -48,7 +48,8 @@ function registerIslandTests(
     const page = await newPage();
     try {
       const response = await page.goto(BASE + '/blog');
-      expect(response!.status()).toBe(200);
+      assert(response, 'Expected an HTML response for the blog.');
+      expect(response.status()).toBe(200);
       await waitForIslandsHydrated(page, 2);
       expect(await page.locator('nav a').count()).toBeGreaterThan(0);
       expect(await page.locator('nav a[aria-current], nav a[data-void-active]').count()).toBe(0);

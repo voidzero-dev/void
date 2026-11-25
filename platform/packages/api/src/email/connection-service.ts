@@ -247,12 +247,8 @@ async function findEmailRoute(db: DbOrTx, routeId: string | null) {
   return route ?? null;
 }
 
-function supportsSubaddressing(settings: unknown): boolean {
-  return (
-    !!settings &&
-    typeof settings === 'object' &&
-    (settings as { support_subaddress?: unknown }).support_subaddress === true
-  );
+function supportsSubaddressing(settings: Record<string, unknown> | null): boolean {
+  return settings?.support_subaddress === true;
 }
 
 type EmailStepRoute = Pick<
@@ -703,7 +699,7 @@ async function resumeBlockedEmailOperationTx(
   env: Bindings,
   operationId: string,
   actor: EmailActor,
-  expectedRouteId?: string,
+  expectedRouteId?: string | null,
   expectedProjectId?: string,
 ): Promise<boolean> {
   const snapshot = (
@@ -832,7 +828,7 @@ async function resumeBlockedEmailOperation(
   env: Bindings,
   operationId: string,
   actor: EmailActor,
-  expectedRouteId?: string,
+  expectedRouteId?: string | null,
   expectedProjectId?: string,
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
@@ -1100,6 +1096,7 @@ export async function replaceBlockedSystemEmailCleanupCredential(
     if (
       !currentRoute ||
       currentRoute.connection_id !== route.connection_id ||
+      !currentRoute.project_id ||
       currentRoute.project_id !== route.project_id ||
       currentRoute.addressing !== 'custom' ||
       currentRoute.desired_state !== 'disabled' ||
@@ -1121,6 +1118,7 @@ export async function replaceBlockedSystemEmailCleanupCredential(
       currentConnection.account_id !== connection.account_id ||
       currentConnection.zone_id !== connection.zone_id ||
       currentConnection.zone_name !== connection.zone_name ||
+      !currentConnection.credential_id ||
       currentConnection.credential_id !== connection.credential_id ||
       currentConnection.managed_by !== connection.managed_by ||
       currentConnection.manager_user_id !== connection.manager_user_id ||
@@ -1132,7 +1130,7 @@ export async function replaceBlockedSystemEmailCleanupCredential(
       await tx
         .select({ status: projects.status })
         .from(projects)
-        .where(eq(projects.id, currentRoute.project_id!))
+        .where(eq(projects.id, currentRoute.project_id))
         .limit(1)
     )[0];
     if (currentProject && currentProject.status !== 'deleting') {
@@ -1185,7 +1183,7 @@ export async function replaceBlockedSystemEmailCleanupCredential(
       await tx
         .select()
         .from(emailCredentials)
-        .where(eq(emailCredentials.id, currentConnection.credential_id!))
+        .where(eq(emailCredentials.id, currentConnection.credential_id))
         .for('update')
         .limit(1)
     )[0];
@@ -1228,7 +1226,7 @@ export async function replaceBlockedSystemEmailCleanupCredential(
       currentOperation.id,
       { kind: 'system' },
       currentRoute.id,
-      currentRoute.project_id!,
+      currentRoute.project_id,
     );
     if (!resumed) {
       throw new EmailOperationError('blocked system cleanup operation could not be resumed', 409);
@@ -1301,7 +1299,7 @@ export async function inspectEmailInboundRoute(
     if (!exchanges.length || exchanges.some((exchange) => !isCloudflareEmailRoutingMx(exchange))) {
       return `MX records for ${domain} do not route mail to Cloudflare Email Routing`;
     }
-    if (!supportsSubaddressing(settings) || (settings as { enabled?: unknown }).enabled !== true) {
+    if (!supportsSubaddressing(settings) || settings?.enabled !== true) {
       return 'Cloudflare Email Routing and subaddressing must be enabled for shared email';
     }
     // Domain readiness does not assert recipient coverage. Each project's
@@ -1612,12 +1610,15 @@ export async function requestEmailDomainAdd(
         if (lastRemoval?.status !== 'completed') {
           throw new EmailOperationError('previous email domain cleanup is unresolved', 409);
         }
+        if (!existingRoute.project_id) {
+          throw new EmailOperationError('previous email domain has no project', 409);
+        }
         const [unresolved] = await tx
           .select({ n: count() })
           .from(emailUnresolvedAttempts)
           .where(
             and(
-              eq(emailUnresolvedAttempts.project_id, existingRoute.project_id!),
+              eq(emailUnresolvedAttempts.project_id, existingRoute.project_id),
               eq(emailUnresolvedAttempts.sender_domain, domain),
             ),
           );
@@ -1837,7 +1838,7 @@ export async function requestEmailDomainAdd(
             .from(emailZoneConnections)
             .where(eq(emailZoneConnections.id, connectionId))
             .limit(1)
-        )[0]!;
+        )[0];
       } else if (!connection.credential_id) {
         await insertCredential();
         await tx
@@ -1851,6 +1852,9 @@ export async function requestEmailDomainAdd(
           })
           .where(eq(emailZoneConnections.id, connection.id));
       } else if (input.token) {
+        if (!verifiedToken) {
+          throw new EmailOperationError('Cloudflare API token is not verified', 403);
+        }
         // A sibling assignment supplies the manager's current zone token.
         // The connection, rather than either project, owns its ciphertext.
         const replacement = await encryptPlatformCredential(
@@ -1866,8 +1870,8 @@ export async function requestEmailDomainAdd(
             ciphertext: replacement.ciphertext,
             iv: replacement.iv,
             key_version: replacement.keyVersion,
-            token_id: verifiedToken!.tokenId,
-            expires_on: verifiedToken!.expiresOn,
+            token_id: verifiedToken.tokenId,
+            expires_on: verifiedToken.expiresOn,
             status: 'healthy',
             generation: sql`${emailCredentials.generation} + 1`,
             updated_at: sql`now()`,
@@ -1894,7 +1898,7 @@ export async function requestEmailDomainAdd(
             })
             .where(eq(emailZoneConnections.id, connection.id))
             .returning()
-        )[0]!;
+        )[0];
       }
       await tx.insert(emailDomainRoutes).values({
         id: routeId,
@@ -1971,7 +1975,7 @@ export async function ensureSharedEmailConnection(db: Db, env: Bindings): Promis
   const key = `shared:${domain}:literal-v1`;
   const previous = await findEmailOperationByKey(db, installationId, 'system:shared', key);
   if (previous) {
-    await resumeBlockedEmailOperation(db, env, previous.id, { kind: 'system' }, previous.route_id!);
+    await resumeBlockedEmailOperation(db, env, previous.id, { kind: 'system' }, previous.route_id);
     return previous.id;
   }
   const client = createCfCustomerClient(env.CF_API_TOKEN);
@@ -2083,7 +2087,7 @@ export async function ensureSharedEmailConnection(db: Db, env: Bindings): Promis
           .from(emailZoneConnections)
           .where(eq(emailZoneConnections.id, connectionId))
           .limit(1)
-      )[0]!;
+      )[0];
     }
     if (existingRoute) {
       // A completed legacy catch-all observation says nothing about shared
@@ -2465,7 +2469,7 @@ async function requestExistingOperation(
           .where(eq(emailDomainRoutes.id, routeId))
           .for('update')
           .limit(1)
-      )[0]!;
+      )[0];
     }
     if (kind === 'sync' && route.desired_state !== 'active') {
       throw new EmailOperationError('email domain must be active before reconciliation', 409);
@@ -3637,19 +3641,25 @@ async function unknownEmailOperationRecoveryFence(
   if (
     operation.route_id !== null &&
     !removalId &&
-    (route!.desired_generation !== operation.route_generation ||
+    (!route ||
+      route.desired_generation !== operation.route_generation ||
       ((operation.kind === 'setup' || operation.kind === 'sync') &&
-        route!.desired_state !== 'active'))
+        route.desired_state !== 'active'))
   ) {
     throw new EmailOperationError('email operation recovery fence is unavailable', 409);
   }
-  const intentRoute = route
-    ? {
-        id: route.id,
-        domain: route.domain,
-        desired_generation: operation.route_generation!,
-      }
-    : null;
+  const routeGeneration = operation.route_generation;
+  if (route && routeGeneration === null) {
+    throw new EmailOperationError('email operation recovery fence is unavailable', 409);
+  }
+  const intentRoute =
+    route && routeGeneration !== null
+      ? {
+          id: route.id,
+          domain: route.domain,
+          desired_generation: routeGeneration,
+        }
+      : null;
   const secretGeneration = emailStepSecretGeneration(operation.kind, connection, step.kind);
   const expectedIdentity = emailStepResourceIdentity(
     connection,
@@ -4117,9 +4127,10 @@ export async function reconcileUnknownEmailOperation(
     if (
       currentOperation.route_id !== null &&
       !removalId &&
-      (currentRoute!.desired_generation !== currentOperation.route_generation ||
+      (!currentRoute ||
+        currentRoute.desired_generation !== currentOperation.route_generation ||
         ((currentOperation.kind === 'setup' || currentOperation.kind === 'sync') &&
-          currentRoute!.desired_state !== 'active'))
+          currentRoute.desired_state !== 'active'))
     ) {
       return false;
     }

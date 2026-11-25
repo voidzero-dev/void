@@ -72,11 +72,9 @@ describe('cf browser login', () => {
     ).resolves.toMatchObject({
       accounts: [{ id: 'account-id' }],
     });
-    expect(vi.mocked(spawnSync).mock.calls.map((call) => JSON.parse(call[1]![1]))).toEqual([
-      { type: 'auth.whoami' },
-      { type: 'auth.login' },
-      { type: 'auth.whoami' },
-    ]);
+    expect(vi.mocked(spawnSync).mock.calls.map((call): unknown => JSON.parse(call[1]![1]))).toEqual(
+      [{ type: 'auth.whoami' }, { type: 'auth.login' }, { type: 'auth.whoami' }],
+    );
   });
 
   it('captures and decodes logout even when the caller requests human output', async () => {

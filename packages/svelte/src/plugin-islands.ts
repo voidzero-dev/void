@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
+import type { Options as SvelteOptions } from '@sveltejs/vite-plugin-svelte';
 import { dirname } from 'pathslash';
 import { preprocess } from 'svelte/compiler';
-import type { CompileResult, PreprocessorGroup } from 'svelte/compiler';
+import type { CompileResult } from 'svelte/compiler';
 import type { Plugin, ResolvedConfig } from 'vite';
 import { generateComponentManifest, scanPages } from 'void/pages';
 import type { PageScanResult } from 'void/pages';
@@ -46,7 +47,7 @@ function styleBlockImports(file: string, content: string): Array<string> {
 const WRAPPER_PREFIX = '/@void-island-wrap/';
 /** The shared API of vite-plugin-svelte, set on its `vite-plugin-svelte:config` plugin. */
 type SveltePluginApi = {
-  options: { preprocess?: PreprocessorGroup | Array<PreprocessorGroup> };
+  options: Pick<SvelteOptions, 'preprocess'>;
   // oxlint-disable-next-line quality/no-unknown-returns -- The Svelte plugin owns this request and consumes it directly in compileSvelte.
   idParser: (id: string, ssr: boolean) => unknown;
   compileSvelte: (
@@ -245,6 +246,7 @@ export function islandsPlugin(
           const file = islandStyle
             ? id.slice(0, -'.css?island-style'.length)
             : id.slice(0, id.indexOf('?'));
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Vite erases the plugin API type, and vite-plugin-svelte does not export its compiler contract.
           const api = resolvedConfig?.plugins.find(
             (plugin) => plugin.name === 'vite-plugin-svelte:config',
           )?.api as SveltePluginApi | undefined;

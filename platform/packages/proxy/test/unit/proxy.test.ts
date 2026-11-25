@@ -1,3 +1,4 @@
+import { isRecord } from '@void/deploy-core';
 import { signEmailReceipt } from '@void/platform/email-protocol';
 import { deriveAiUsageTag, deriveProxyToken } from '@voidcloud/api/proxy-token';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite-plus/test';
@@ -1036,7 +1037,7 @@ describe('proxy worker', () => {
 
     it('passes the actual proxy origin and revalidates every R2 download chunk', async () => {
       let ownerValid = true;
-      const ownerChecks: Array<Record<string, unknown>> = [];
+      const ownerChecks: Array<unknown> = [];
       const api = createMockApi(async (input, init) => {
         const url = typeof input === 'string' ? input : input.url;
         if (url.includes('/internal/verify-owner/')) {
@@ -1081,9 +1082,11 @@ describe('proxy worker', () => {
       ownerValid = false;
       await expect(reader.read()).rejects.toThrow('revoked');
       expect(ownerChecks.length).toBeGreaterThanOrEqual(3);
-      expect(ownerChecks.every((body) => body.proxyOrigin === 'https://proxy.void.cloud')).toBe(
-        true,
-      );
+      expect(
+        ownerChecks.every(
+          (body) => isRecord(body) && body.proxyOrigin === 'https://proxy.void.cloud',
+        ),
+      ).toBe(true);
     });
 
     it('HMAC path bypasses ownership check (service binding is trusted)', async () => {
@@ -2645,6 +2648,7 @@ describe('proxy worker', () => {
     it('returns 502 with stringified error when non-Error is thrown', async () => {
       const env = createEnv({
         run: vi.fn(async () => {
+          // oxlint-disable-next-line typescript/only-throw-error -- Exercise the proxy response to a non-Error provider rejection.
           throw 'string error';
         }),
       });
@@ -2666,6 +2670,7 @@ describe('proxy worker', () => {
     it('forwards response-shaped AI binding errors', async () => {
       const env = createEnv({
         run: vi.fn(async () => {
+          // oxlint-disable-next-line typescript/only-throw-error -- Exercise the response-shaped rejection from the AI binding.
           throw {
             response: new Response(
               JSON.stringify({ errors: [{ message: 'Unified Billing off' }] }),

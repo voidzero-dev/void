@@ -107,7 +107,7 @@ function operatorHelpTree(): HelpTree {
   );
 }
 
-const HELP_TREE: HelpTree = {
+const HELP_TREE = {
   connect: {
     summary:
       'Connect this project to Cloudflare or an existing Void platform. Platform hostnames default to HTTPS.',
@@ -1627,7 +1627,7 @@ const HELP_TREE: HelpTree = {
     usage: ['void prepare'],
     examples: [{ command: 'void prepare', description: 'Refresh generated project types' }],
   },
-};
+} satisfies HelpTree;
 
 function basicSubcommand(summary: string, usage: string, example?: string): HelpPage {
   return {

@@ -146,7 +146,9 @@ export async function selectInstallationAuthentication(
     }
     const authentication = {
       providers: [
-        ...new Set(entries.map((entry) => entry.configuration!.kind as PlatformLoginKind)),
+        ...new Set(
+          selected.connections.map((entry) => entry.configuration.kind as PlatformLoginKind),
+        ),
       ],
       configurable: true as const,
       ...(selected.protection ? { accessProtection: true as const } : {}),
@@ -225,7 +227,7 @@ export async function collectInstallationAuthentication(
       authBootstrapCode: checkpoint.authBootstrapCode ?? '',
     };
   }
-  const entries =
+  const entries: NonNullable<PlatformAuthSelection['file']>['connections'] =
     selection.file?.connections ??
     selection.authentication.providers.map((kind) => ({
       configuration: {
@@ -239,20 +241,21 @@ export async function collectInstallationAuthentication(
               : kind === 'oidc'
                 ? 'Company SSO'
                 : 'Cloudflare Access',
-      } as Record<string, unknown>,
+      },
       clientSecretEnv: undefined,
     }));
   const connections = [];
   const accessEntry = entries.find((entry) => entry.configuration.kind === 'cloudflare-access');
-  const prepared =
+  const prepareAccess =
     access &&
     (selection.authentication.accessProtection ||
-      (accessEntry && (!selection.file || selection.file.cloudflareAccess)))
+      (accessEntry && (!selection.file || selection.file.cloudflareAccess)));
+  const dashboardUrl = prepareAccess ? platformDashboardUrl(plan.deployment) : undefined;
+  const prepared =
+    access && prepareAccess
       ? await preparePlatformAccessSetup({
           plan,
-          ...(platformDashboardUrl(plan.deployment)
-            ? { additionalOrigins: [platformDashboardUrl(plan.deployment)!] }
-            : {}),
+          ...(dashboardUrl ? { additionalOrigins: [dashboardUrl] } : {}),
           ownershipNonce: access.ownershipNonce,
           protection: !!selection.authentication.accessProtection,
           ...(accessEntry
@@ -463,16 +466,20 @@ export async function readLoginReplacementFile(
   setupJson: string,
 ): Promise<AuthFile> {
   const selection = await selectInstallationAuthentication(file);
+  const selected = selection.file;
+  if (!selected) {
+    throw new Error('platform: Repair requires a login settings file.');
+  }
   const installed = parsePlatformAuthenticationSetup(JSON.parse(setupJson)).connections;
   if (
-    connections(selection.file!.connections) !== connections(installed) ||
+    connections(selected.connections) !== connections(installed) ||
     !!selection.authentication.accessProtection !== !!authentication.accessProtection
   ) {
     throw new Error(
       `platform: Repair changes login settings, not which login methods or Access protection the platform uses. List each installed connection with its ID: ${installed.map(({ configuration }) => configuration.id).join(', ')}.`,
     );
   }
-  return selection.file!;
+  return selected;
 }
 
 /**

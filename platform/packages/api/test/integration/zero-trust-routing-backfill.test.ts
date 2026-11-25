@@ -23,6 +23,7 @@ import {
   clearTables,
   createTestProject,
   createTestUser,
+  mockKvRead,
   setupEnv,
   teardownEnv,
 } from './helpers.ts';
@@ -205,16 +206,9 @@ describe('legacy routing owner backfill', () => {
           ? { zeroTrust: { teamDomain: 'stale.cloudflareaccess.com', audiences: [] } }
           : {}),
       });
-      const get = env.ROUTING.get.bind(env.ROUTING);
-      const staleRead = vi.spyOn(env.ROUTING, 'get').mockImplementation((async (
-        key: string,
-        ...args: Array<unknown>
-      ) => {
-        if (key === project.slug || key === domainKey) {
-          return stale;
-        }
-        return Reflect.apply(get, env.ROUTING, [key, ...args]);
-      }) as typeof env.ROUTING.get);
+      const staleRead = mockKvRead(env.ROUTING, (key) =>
+        key === project.slug || key === domainKey ? stale : undefined,
+      );
       try {
         if (operation === 'backfill') {
           await runHourly();

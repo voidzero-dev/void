@@ -5,14 +5,15 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, expect, vi } from 'vite-plus/test';
+import { assert, afterAll, afterEach, expect, vi } from 'vite-plus/test';
 import { prepareCfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { createCfCommand } from '../../src/cli/cf-version-runner.ts';
 import { Buffer } from '../../src/cli/node-buffer.ts';
 
 // Vitest's per-file module isolation gives each suite its own roots and hooks.
 const roots: Array<string> = [];
-const outputRoots = new WeakMap<object, string>();
+type PreparedOutput = NonNullable<Awaited<ReturnType<typeof prepareCfBuildOutput>>>;
+const outputRoots = new WeakMap<PreparedOutput, string>();
 const cleanups: Array<() => unknown> = [];
 const pinnedCfVersion: string = (
   JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('cf/package.json')), 'utf8')) as {
@@ -99,7 +100,7 @@ function pinnedCf(
 async function output(
   config: Record<string, unknown> = {},
   additionalAsset = false,
-): Promise<NonNullable<Awaited<ReturnType<typeof prepareCfBuildOutput>>>> {
+): Promise<PreparedOutput> {
   const root = mkdtempSync(join(tmpdir(), 'void-cf-runner-test-'));
   roots.push(root);
   const worker = join(root, 'dist', 'ssr');
@@ -130,13 +131,13 @@ async function output(
     }),
   );
   const prepared = await prepareCfBuildOutput(worker, 'account-id');
-  expect(prepared).not.toBeNull();
-  outputRoots.set(prepared!, root);
-  return prepared!;
+  assert(prepared, 'Expected a prepared build output.');
+  outputRoots.set(prepared, root);
+  return prepared;
 }
 
 /** The project root that `output()` created for this prepared output. */
-function outputRoot(prepared: object): string {
+function outputRoot(prepared: PreparedOutput): string {
   const root = outputRoots.get(prepared);
   if (!root) {
     throw new Error('This output was not created by output().');

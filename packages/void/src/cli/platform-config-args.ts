@@ -118,12 +118,18 @@ export function parsePlatformConfigArgs(args: ReadonlyArray<string>): PlatformCo
   };
 }
 
+type ConfigFlags = {
+  positional: Array<string>;
+  flags: Set<string>;
+  values: Map<string, string>;
+};
+
 /** Parses `config <group>` flags: --json, --plan, --yes, and the given value flags. */
 export function parseConfigFlags(
   args: ReadonlyArray<string>,
   group: 'auth' | 'plans',
   valueFlags: ReadonlyArray<string>,
-): { positional: Array<string>; flags: Set<string>; values: Map<string, string> } {
+): ConfigFlags {
   const positional: Array<string> = [];
   const flags = new Set<string>();
   const values = new Map<string, string>();

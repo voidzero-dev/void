@@ -167,13 +167,18 @@ export async function runPlatformAuthRecovery(args: PlatformConfigArgs): Promise
             revision = existing ? existing.revision + 1 : 1;
             const secret =
               suppliedSecret ??
-              recoverAuthenticationCredential(
-                secrets.projectSecretKeysJson,
-                manifest.id,
-                existing!.id,
-                existing!.revision,
-                existing!.secret,
-              );
+              (existing
+                ? recoverAuthenticationCredential(
+                    secrets.projectSecretKeysJson,
+                    manifest.id,
+                    existing.id,
+                    existing.revision,
+                    existing.secret,
+                  )
+                : undefined);
+            if (secret === undefined) {
+              throw new Error('platform: The login connection requires a client secret.');
+            }
             const encrypted = encryptCredential(
               secrets.projectSecretKeysJson,
               secrets.projectSecretActiveKeyVersion,

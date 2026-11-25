@@ -201,7 +201,7 @@ export function defineLiveStream(options: LiveStreamOptions): LiveStream {
         : await options.identifyConnection?.(hookContext);
     const owner = identified ?? defaultOwner(resolvedUser);
     if ((owner === null || owner === undefined) && !options.allowAnonymousControl) {
-      throw liveResponseError('FORBIDDEN', 'live: anonymous control is not enabled.', 403);
+      throw new LiveResponseError('FORBIDDEN', 'live: anonymous control is not enabled.', 403);
     }
     assertOwner(owner);
     return { owner, user: resolvedUser ?? null };
@@ -407,18 +407,22 @@ async function readControlRequest(
   try {
     body = await request.json();
   } catch {
-    throw liveResponseError('BAD_REQUEST', 'live: control request body must be JSON.', 400);
+    throw new LiveResponseError('BAD_REQUEST', 'live: control request body must be JSON.', 400);
   }
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    throw liveResponseError('BAD_REQUEST', 'live: control request body must be an object.', 400);
+    throw new LiveResponseError(
+      'BAD_REQUEST',
+      'live: control request body must be an object.',
+      400,
+    );
   }
   const record = body as Record<string, unknown>;
   const connectionId = assertConnectionId(record.connectionId);
   if (!Array.isArray(record.operations)) {
-    throw liveResponseError('BAD_REQUEST', 'live: operations must be an array.', 400);
+    throw new LiveResponseError('BAD_REQUEST', 'live: operations must be an array.', 400);
   }
   if (record.operations.length > limits.maxOperationsPerControlRequest) {
-    throw liveResponseError(
+    throw new LiveResponseError(
       'BAD_REQUEST',
       'live: too many operations in one control request.',
       400,
@@ -430,7 +434,7 @@ async function readControlRequest(
 
 function parseOperation(value: unknown, index: number): ParsedControlOperation {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw liveResponseError('BAD_REQUEST', 'live: operation must be an object.', 400);
+    throw new LiveResponseError('BAD_REQUEST', 'live: operation must be an object.', 400);
   }
   const record = value as Record<string, unknown>;
   if (record.kind === 'subscribe') {
@@ -467,7 +471,7 @@ function parseOperation(value: unknown, index: number): ParsedControlOperation {
     }
     return { ok: true, index, operation: { kind: 'unsubscribe', id } };
   }
-  throw liveResponseError('BAD_REQUEST', 'live: operation kind is invalid.', 400);
+  throw new LiveResponseError('BAD_REQUEST', 'live: operation kind is invalid.', 400);
 }
 
 const INVALID_OPERATION_MESSAGES = {
@@ -565,7 +569,7 @@ function resolveLiveLimits(input: Partial<LiveLimits> | undefined): LiveLimits {
 function assertBoundedString(name: string, value: unknown, min: number, max: number): string {
   const parsed = parseBoundedString(value, min, max);
   if (parsed === null || parsed === undefined) {
-    throw liveResponseError('BAD_REQUEST', `live: invalid ${name}.`, 400);
+    throw new LiveResponseError('BAD_REQUEST', `live: invalid ${name}.`, 400);
   }
   return parsed;
 }
@@ -605,10 +609,6 @@ class LiveResponseError extends Error {
   ) {
     super(message);
   }
-}
-
-function liveResponseError(code: LiveControlErrorCode, message: string, status: number): never {
-  throw new LiveResponseError(code, message, status);
 }
 
 function errorToResponse(error: unknown): Response {

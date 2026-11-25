@@ -32,15 +32,12 @@ const nonempty = (value: unknown): value is string =>
   typeof value === 'string' && value.trim() !== '';
 
 export function parsePlatformHyperdriveSelection(value: unknown): PlatformExternalHyperdrive {
-  const selected = value as Partial<PlatformExternalHyperdrive> | null;
+  const selected = value as { [Key in keyof PlatformExternalHyperdrive]?: unknown } | null;
   if (
     !selected ||
     typeof selected !== 'object' ||
     Array.isArray(selected) ||
     !nonempty(selected.id) ||
-    (nonempty(selected.serviceId)
-      ? selected.host !== undefined
-      : selected.serviceId !== undefined || !nonempty(selected.host)) ||
     !nonempty(selected.user) ||
     (selected.name !== undefined && (typeof selected.name !== 'string' || !selected.name)) ||
     (selected.database !== undefined &&
@@ -48,11 +45,19 @@ export function parsePlatformHyperdriveSelection(value: unknown): PlatformExtern
   ) {
     throw new Error('platform: The saved Hyperdrive selection is invalid.');
   }
+  const { host, serviceId } = selected;
+  const origin =
+    serviceId === undefined && typeof host === 'string' && host.trim() !== ''
+      ? { host }
+      : typeof serviceId === 'string' && serviceId.trim() !== '' && host === undefined
+        ? { serviceId }
+        : undefined;
+  if (!origin) {
+    throw new Error('platform: The saved Hyperdrive selection is invalid.');
+  }
   return {
     id: selected.id,
-    ...(selected.serviceId !== undefined
-      ? { serviceId: selected.serviceId }
-      : { host: selected.host! }),
+    ...origin,
     user: selected.user,
     ...(selected.name ? { name: selected.name } : {}),
     ...(selected.database ? { database: selected.database } : {}),

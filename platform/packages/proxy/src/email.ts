@@ -1,7 +1,7 @@
 import { EmailMessage } from 'cloudflare:email';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { asString } from './body.ts';
+import { asRecord, asString } from './body.ts';
 import {
   admitEmail,
   emailPayloadDigest,
@@ -901,7 +901,7 @@ app.post('/send', async (context) => {
     operationId: admission.operationId,
     ids: deliveries.map((d) => ({
       recipient: d.recipient,
-      messageId: (d as { messageId: string }).messageId,
+      messageId: d.messageId,
       state: 'provider_accepted',
     })),
   });
@@ -1290,18 +1290,15 @@ async function sendViaCustomDomain(
           ? 'outcome_unknown'
           : 'failed';
     } else {
-      const data = providerResponse.data;
-      const success =
-        typeof data === 'object' && data !== null
-          ? (data as { success?: unknown }).success
-          : undefined;
+      const data = asRecord(providerResponse.data);
+      const { success } = data;
       if (success === false) {
         failure = { code: 'UPSTREAM_ERROR', message: 'email sending API refused the message' };
       } else if (success !== true) {
         failure = { code: 'OUTCOME_UNKNOWN', message: 'email sending API response invalid' };
         failureState = 'outcome_unknown';
       } else {
-        sendRawResult = parseSendRawResult((data as { result?: unknown }).result);
+        sendRawResult = parseSendRawResult(data.result);
         if (!sendRawResult) {
           failure = { code: 'OUTCOME_UNKNOWN', message: 'email sending API response invalid' };
           failureState = 'outcome_unknown';
@@ -1311,11 +1308,19 @@ async function sendViaCustomDomain(
   }
 
   for (const r of recipients) {
-    if (failure) {
-      deliveries.push({ recipient: r, ok: false, state: failureState, error: failure });
+    if (failure || !sendRawResult) {
+      deliveries.push({
+        recipient: r,
+        ok: false,
+        state: failure ? failureState : 'outcome_unknown',
+        error: failure ?? {
+          code: 'OUTCOME_UNKNOWN',
+          message: 'email sending API response invalid',
+        },
+      });
       continue;
     }
-    const outcome = classifySendRawRecipient(sendRawResult!, r);
+    const outcome = classifySendRawRecipient(sendRawResult, r);
     if (outcome === 'permanent_bounce') {
       deliveries.push({
         recipient: r,
@@ -1351,7 +1356,7 @@ async function sendViaCustomDomain(
         recipient: r,
         ok: true,
         state: 'provider_accepted',
-        messageId: sendRawResult!.messageId,
+        messageId: sendRawResult.messageId,
       });
     }
   }
@@ -1412,7 +1417,7 @@ async function sendViaCustomDomain(
     operationId: admission.operationId,
     ids: deliveries.map((d) => ({
       recipient: d.recipient,
-      messageId: (d as { messageId: string }).messageId,
+      messageId: d.messageId,
       state: 'provider_accepted' as const,
     })),
   });

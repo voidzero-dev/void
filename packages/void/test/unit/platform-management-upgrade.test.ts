@@ -20,9 +20,15 @@ import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-pl
 import { Buffer } from '../../src/cli/node-buffer.ts';
 import { printSuccess } from '../../src/cli/output.ts';
 
+type CreateSecrets =
+  typeof import('../../src/cli/platform-installer-secrets.ts').createPlatformInstallationSecrets;
+type PatchSettings =
+  import('../../src/cli/platform-cloudflare.ts').PlatformCloudflareClient['patchDispatchNamespaceScriptSettings'];
+
 const state = vi.hoisted(() => ({
   cfRunner: vi.fn(),
-  createSecrets: vi.fn(),
+  createSecrets:
+    vi.fn<(input: Parameters<CreateSecrets>[0]) => Partial<ReturnType<CreateSecrets>>>(),
   getWorkerLastDeployedFrom: vi.fn(),
   clientTokens: [] as Array<string>,
   clientCredentials: [] as Array<unknown>,
@@ -34,8 +40,8 @@ const state = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWorkerNames: vi.fn(),
   listNamespaceScripts: vi.fn(),
-  patchScriptSettings: vi.fn(),
-  request: vi.fn(),
+  patchScriptSettings: vi.fn<PatchSettings>(),
+  request: vi.fn<(path: string, init?: RequestInit) => Promise<unknown>>(),
   requiredGatewayToken: '',
   events: [] as Array<string>,
   manifest: undefined as PlatformInstallationManifest | undefined,
@@ -123,7 +129,7 @@ vi.mock('../../src/cli/platform-cloudflare.ts', async (importOriginal) => {
               { status: state.aiGatewayStatus || 401 },
             ),
         }).withAiGatewayToken(token, credential);
-        return Object.assign(Object.create(this), {
+        return Object.assign(Object.create(this) as this, {
           listAiGateways: (accountId: string) => real.listAiGateways(accountId),
         });
       }
@@ -619,7 +625,7 @@ describe('installed platform upgrade', () => {
       const failure = await upgrade().then(expectedRejection, (error: unknown) => error);
       assert.instanceOf(failure, Error);
       expect(failure.message).toContain(
-        'Cloudflare denied the management token from CF_API_TOKEN:\n- Account → Workers Scripts → Edit (HTTP 403; Cloudflare Workers access)\n- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "assets")',
+        'Cloudflare denied the management token from CF_API_TOKEN:\n- Account → Workers → Admin (HTTP 403; Cloudflare Workers access)\n- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "assets")',
       );
       expect(acquirePlatformLifecycleLock).not.toHaveBeenCalled();
       expect(installPlatform).not.toHaveBeenCalled();
@@ -1172,6 +1178,8 @@ describe('installed platform upgrade', () => {
       });
       await repair({ authConfig: authFile });
       const input = replacement();
+      assert(typeof input.authenticationSetupJson === 'string');
+      assert(typeof input.authBootstrapCode === 'string');
       const setup = parsePlatformAuthenticationSetup(JSON.parse(input.authenticationSetupJson));
       expect(setup.resetPending).toBe(true);
       expect(setup.connections[0]).toMatchObject({

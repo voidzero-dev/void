@@ -60,7 +60,7 @@ function publishesWorkerSettings(message: string | undefined): boolean {
   );
 }
 
-function parseJson(value: string): unknown {
+function parseJson(value: string) {
   try {
     return JSON.parse(value) as unknown;
   } catch {

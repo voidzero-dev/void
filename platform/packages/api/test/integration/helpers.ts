@@ -52,6 +52,19 @@ export const PROJECT_SECRET_KEYS_JSON = JSON.stringify({
     .toString('base64'),
 });
 
+/** Override transactions on one database view while forwarding all other reads. */
+export function withTestTransaction(database: Db, transaction: Db['transaction']): Db {
+  return new Proxy(database, {
+    get(target, property, receiver): unknown {
+      if (property === 'transaction') {
+        return transaction;
+      }
+      // oxlint-disable-next-line quality/no-reflect-get -- Preserve the receiver for forwarded database properties.
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
 export type TestEnv = {
   db: Db & { $client: pg.Pool | PGlite };
   HYPERDRIVE: { connectionString: string };
@@ -269,6 +282,22 @@ export class MemoryKVNamespace {
       cursor: complete ? '' : String(offset + limit),
     };
   }
+}
+
+/** Replace reads of selected keys while forwarding other reads to the fixture. */
+export function mockKvRead(
+  namespace: KVNamespace,
+  read: (key: string) => string | null | undefined,
+) {
+  if (!(namespace instanceof MemoryKVNamespace)) {
+    throw new Error('Expected an in-memory KV namespace.');
+  }
+  const memory: MemoryKVNamespace = namespace;
+  const get = memory.get.bind(memory);
+  return vi.spyOn(memory, 'get').mockImplementation(async (...args) => {
+    const replacement = read(args[0]);
+    return replacement === undefined ? get(...args) : replacement;
+  });
 }
 
 type MemoryR2Entry = {
@@ -1509,8 +1538,8 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
   // PUT through the stateful path; otherwise returns a proxy-token binding.
   const defaultListWorkerBindings = (url: string): Response => {
     const scriptName = parseScriptNameFromUrl(url);
-    if (scriptName && state.hostScripts.has(scriptName)) {
-      const script = state.hostScripts.get(scriptName)!;
+    const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
+    if (script) {
       return cfSuccess(script.bindings);
     }
     return cfSuccess([
@@ -1538,7 +1567,8 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
   // `result.script.migration_tag`, not `result.migration_tag`.)
   const defaultGetDispatchScript = (url: string): Response => {
     const scriptName = parseScriptNameFromUrl(url);
-    if (!scriptName || !state.hostScripts.has(scriptName)) {
+    const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
+    if (!script || !scriptName) {
       return Response.json(
         {
           success: false,
@@ -1547,7 +1577,6 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
         { status: 404 },
       );
     }
-    const script = state.hostScripts.get(scriptName)!;
     return cfSuccess({
       script: {
         id: scriptName,
@@ -1688,13 +1717,13 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
 
   const defaultPatchContainerApp = async (url: string, init?: RequestInit): Promise<Response> => {
     const id = parseAppIdFromUrl(url);
-    if (!id || !state.containerApps.has(id)) {
+    const app = id ? state.containerApps.get(id) : undefined;
+    if (!id || !app) {
       return Response.json(
         { success: false, errors: [{ code: 1000, message: 'not found' }] },
         { status: 404 },
       );
     }
-    const app = state.containerApps.get(id)!;
     let body: Record<string, unknown> = {};
     if (typeof init?.body === 'string') {
       try {
@@ -1733,7 +1762,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     return cfSuccess({ id: 'rollout-test-id' });
   };
 
-  const mocks: CfApiMocks = {
+  const mocks = {
     ...baseDefaultMocks,
     uploadWorker: defaultUploadWorker,
     listWorkerBindings: defaultListWorkerBindings,
@@ -1747,7 +1776,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     listContainerApps: defaultListContainerApps,
     postContainerAppRollout: defaultPostContainerAppRollout,
     ...overrides,
-  };
+  } satisfies CfApiMocks;
 
   const dispatchNamespaces = new Set<string>();
 
@@ -1846,22 +1875,22 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       url.includes('/containers/applications/') &&
       url.endsWith('/rollouts')
     ) {
-      return mocks.postContainerAppRollout!(url, init);
+      return mocks.postContainerAppRollout(url, init);
     }
     if (method === 'PATCH' && url.includes('/containers/applications/')) {
-      return mocks.patchContainerApp!(url, init);
+      return mocks.patchContainerApp(url, init);
     }
     if (method === 'DELETE' && url.includes('/containers/applications/')) {
-      return mocks.deleteContainerApp!(url, init);
+      return mocks.deleteContainerApp(url, init);
     }
     if (method === 'GET' && url.includes('/containers/applications/')) {
-      return mocks.getContainerApp!(url, init);
+      return mocks.getContainerApp(url, init);
     }
     if (method === 'GET' && url.includes('/containers/applications')) {
-      return mocks.listContainerApps!(url, init);
+      return mocks.listContainerApps(url, init);
     }
     if (method === 'POST' && url.includes('/containers/applications')) {
-      return mocks.createContainerApp!(url, init);
+      return mocks.createContainerApp(url, init);
     }
 
     // Dispatch namespaces themselves (the security scanner's copy namespace, M30) and
@@ -1962,7 +1991,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return mocks.listWorkerBindings(url, init);
     }
     if (method === 'PATCH' && url.includes('/workers/dispatch/') && url.endsWith('/settings')) {
-      return mocks.patchScriptSettings!(url, init);
+      return mocks.patchScriptSettings(url, init);
     }
     // GET on a dispatch script (no /bindings, no /secrets) — read the
     // script's metadata + migration_tag. Must come AFTER /bindings and
@@ -1971,7 +2000,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       method === 'GET' &&
       /\/workers\/dispatch\/namespaces\/[^/]+\/scripts\/[^/?#]+(?:[?#]|$)/.test(url)
     ) {
-      return mocks.getDispatchScript!(url, init);
+      return mocks.getDispatchScript(url, init);
     }
     if (method === 'DELETE' && url.includes('/workers/dispatch/')) {
       return mocks.deleteWorker(url, init);
@@ -2095,5 +2124,5 @@ export async function readAllEvents(res: Response): Promise<Array<unknown>> {
   return text
     .split('\n')
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line));
+    .map((line): unknown => JSON.parse(line));
 }

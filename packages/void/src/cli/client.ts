@@ -85,9 +85,12 @@ type PlatformVersionProbe =
  */
 export function isOlderPlatformVersion(version: string, minimumVersion: string): boolean | null {
   const actual = RELEASE_VERSION.exec(version);
-  const minimum = RELEASE_VERSION.exec(minimumVersion)!;
+  const minimum = RELEASE_VERSION.exec(minimumVersion);
   if (!actual) {
     return null;
+  }
+  if (!minimum) {
+    throw new Error(`Invalid minimum platform release version: ${minimumVersion}.`);
   }
   for (const part of [1, 2, 3]) {
     const difference = Number(actual[part]) - Number(minimum[part]);
@@ -706,6 +709,8 @@ function parseDeployEvent(value: unknown): SequencedDeployEvent {
 /**
  * HTTP client for the Void platform API.
  */
+type RollbackRequest = { deploymentId: string; allowDestructive?: Array<string> };
+
 export class PlatformClient {
   private readonly baseUrl: string;
   private readonly authHeaders: Record<string, string>;
@@ -1450,7 +1455,7 @@ export class PlatformClient {
     migrationDiff?: Array<string>;
     error?: string;
   }> {
-    const body: { deploymentId: string; allowDestructive?: Array<string> } = {
+    const body: RollbackRequest = {
       deploymentId,
     };
     if (options?.allowDestructive && options.allowDestructive.length > 0) {

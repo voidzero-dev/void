@@ -5,7 +5,10 @@ import type { Build } from '../../src/types.ts';
 const { effects, states, fate } = vi.hoisted(() => ({
   effects: [] as Array<() => (() => void) | void>,
   states: [] as Array<{ value: unknown }>,
-  fate: { request: vi.fn(), readView: vi.fn() },
+  fate: {
+    request: vi.fn<(request: { id: string; since: number }) => Promise<unknown>>(),
+    readView: vi.fn(),
+  },
 }));
 
 // Drive the component's actual effect and timers without mounting a browser.

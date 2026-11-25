@@ -6,10 +6,10 @@ declare module 'void/routes' {
     '/api/users/[id]': RouteMap['/api/users/:id'];
     '/api/files/[...path]': RouteMap['/api/files/:path{.+}'];
     '/api/hello': {
-      GET: { input: {}; output: { ok: boolean } };
+      GET: { input: Record<never, never>; output: { ok: boolean } };
     };
     '/api/users': {
-      GET: { input: {}; output: Array<{ id: string; name: string }> };
+      GET: { input: Record<never, never>; output: Array<{ id: string; name: string }> };
       POST: { input: { body: { name: string } }; output: { created: boolean } };
     };
     '/api/users/:id': {
@@ -19,8 +19,8 @@ declare module 'void/routes' {
       GET: { input: { params: { path: string } }; output: unknown };
     };
     '/api/items/:id': {
-      GET: { input: {}; output: { id: string } };
-      DELETE: { input: {}; output: undefined };
+      GET: { input: Record<never, never>; output: { id: string } };
+      DELETE: { input: Record<never, never>; output: undefined };
     };
   }
 }

@@ -306,7 +306,7 @@ export function isOwnedSharedRecipientRule(
   rule: CfEmailRoutingRule,
   row: Pick<Recipient, 'rule_id' | 'rule_name' | 'recipient'>,
   worker: string,
-) {
+): rule is CfEmailRoutingRule & { id: string } {
   return Boolean(
     rule.id &&
     (!row.rule_id || rule.id === row.rule_id) &&
@@ -682,7 +682,7 @@ async function reconcileProjectRecipient(
       return;
     }
     row = { ...row, rule_id: rule.id };
-    const live = await client.getRoutingRule(shared.connection.zone_id, rule.id!);
+    const live = await client.getRoutingRule(shared.connection.zone_id, rule.id);
     if (
       !live?.enabled ||
       !isOwnedSharedRecipientRule(live, row, shared.connection.ingress_worker_name)
@@ -747,7 +747,8 @@ export async function getSharedEmailRecipientReadiness(
   const shown = `${name ?? projectMailbox(project)}@${shared.route.domain}`;
   return (
     results.find((result) => result.status !== 'ready') ??
-    results.find((result) => result.recipient === shown)!
+    results.find((result) => result.recipient === shown) ??
+    null
   );
 }
 
@@ -906,7 +907,7 @@ export async function removeSharedEmailRecipients(
         );
       }
       if (rule) {
-        const exact = await client.getRoutingRule(connection.zone_id, rule.id!);
+        const exact = await client.getRoutingRule(connection.zone_id, rule.id);
         if (exact && !isOwnedSharedRecipientRule(exact, row, connection.ingress_worker_name)) {
           throw new EmailOperationError('Shared recipient ownership changed before deletion');
         }
@@ -916,9 +917,9 @@ export async function removeSharedEmailRecipients(
               'Shared recipient cleanup was superseded; retry project deletion',
             );
           }
-          await client.deleteRoutingRule(connection.zone_id, exact.id!);
+          await client.deleteRoutingRule(connection.zone_id, exact.id);
         }
-        if (await client.getRoutingRule(connection.zone_id, rule.id!)) {
+        if (await client.getRoutingRule(connection.zone_id, rule.id)) {
           throw new EmailOperationError('Cloudflare did not confirm shared recipient deletion');
         }
       }
@@ -937,6 +938,10 @@ export async function removeSharedEmailRecipients(
 /** Fair bounded repair includes drifted ready rows; provider writes remain identity-fenced. */
 export async function reconcileSharedEmailRecipients(db: Db, env: Bindings, limit = 10) {
   if (!(await sharedRoute(db, env))) {
+    return;
+  }
+  const senderDomain = env.EMAIL_SENDER_DOMAIN;
+  if (!senderDomain) {
     return;
   }
   const rows = await db
@@ -958,7 +963,7 @@ export async function reconcileSharedEmailRecipients(db: Db, env: Bindings, limi
         eq(emailSharedRecipients.project_id, projects.id),
         eq(
           emailSharedRecipients.recipient,
-          sql`coalesce(${projects.email_alias}, ${projects.slug}) || '@' || ${env.EMAIL_SENDER_DOMAIN!.toLowerCase()}`,
+          sql`coalesce(${projects.email_alias}, ${projects.slug}) || '@' || ${senderDomain.toLowerCase()}`,
         ),
       ),
     )

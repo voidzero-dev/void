@@ -74,16 +74,12 @@ app.all('/*', async (context, next) => {
 // The tenant calls this over its internal service binding. EMAIL_SIGNING_SECRET never
 // enters the tenant, so a project token cannot mint a gateway receipt.
 app.post('/email/verify-receipt', async (context) => {
-  let body: unknown;
+  let input: ProxyBody;
   try {
-    body = await readRequestJson(context.req.raw, 2 * 1024);
+    input = await readRequestJson(context.req.raw, 2 * 1024);
   } catch {
     return context.json({ valid: false }, 400);
   }
-  if (!body || typeof body !== 'object') {
-    return context.json({ valid: false }, 400);
-  }
-  const input = body as Record<string, unknown>;
   if (
     typeof input.projectId !== 'string' ||
     input.projectId.length > 128 ||
@@ -160,11 +156,7 @@ app.post('/*', async (context, next) => {
     // Five MiB of MIME expands to about seven MiB of base64, plus JSON metadata.
     const maxBytes =
       path === '/email' || path.startsWith('/email/') ? 8 * 1024 * 1024 : requestBodyMaxBytes(path);
-    const json = await readRequestJson(context.req.raw, maxBytes);
-    if (!isRecord(json)) {
-      return context.json({ error: 'invalid JSON body' }, 400);
-    }
-    body = json;
+    body = await readRequestJson(context.req.raw, maxBytes);
   } catch (error) {
     if (path !== '/email' && !path.startsWith('/email/') && error instanceof RequestBodyError) {
       return context.json({ error: error.message }, error.status);
@@ -275,11 +267,7 @@ app.post('/*', async (context, next) => {
       path === '/r2/get')
   ) {
     context.res = new Response(
-      guardHumanStream(
-        context.res.body as ReadableStream<Uint8Array>,
-        revalidateHuman,
-        context.req.raw.signal,
-      ),
+      guardHumanStream(context.res.body, revalidateHuman, context.req.raw.signal),
       context.res,
     );
   }
@@ -360,7 +348,7 @@ async function getVerifyKey(secret: string): Promise<CryptoKey> {
   return cachedVerifyKey;
 }
 
-function base64urlDecode(str: string): Uint8Array {
+function base64urlDecode(str: string): Uint8Array<ArrayBuffer> {
   const padded = str.replaceAll('-', '+').replaceAll('_', '/');
   const binary = atob(padded);
   return Uint8Array.from(binary, (context) => context.charCodeAt(0));
@@ -380,25 +368,30 @@ async function verifyJwt(token: string, secret: string): Promise<JwtPayload | nu
     const valid = await crypto.subtle.verify(
       'HMAC',
       key,
-      sigBytes.buffer as ArrayBuffer,
+      sigBytes,
       encoder.encode(`${header}.${body}`),
     );
     if (!valid) {
       return null;
     }
 
-    const payload = JSON.parse(decoder.decode(base64urlDecode(body))) as JwtPayload;
-
+    const payload: unknown = JSON.parse(decoder.decode(base64urlDecode(body)));
     const now = Math.floor(Date.now() / 1000);
-    if (payload.exp <= now) {
+    if (
+      !isRecord(payload) ||
+      typeof payload.sub !== 'string' ||
+      typeof payload.exp !== 'number' ||
+      !Number.isFinite(payload.exp) ||
+      payload.exp <= now ||
+      (payload.aud !== 'api' && payload.aud !== 'prerender') ||
+      (payload.project !== undefined && typeof payload.project !== 'string') ||
+      (payload.build !== undefined && typeof payload.build !== 'string') ||
+      (payload.credential !== undefined && typeof payload.credential !== 'string')
+    ) {
       return null;
     }
-
-    if (payload.aud !== 'api' && payload.aud !== 'prerender') {
-      return null;
-    }
-
-    return payload;
+    const { sub, exp, aud, project, build, credential } = payload;
+    return { sub, exp, aud, project, build, credential };
   } catch {
     return null;
   }

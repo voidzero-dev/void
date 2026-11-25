@@ -358,7 +358,10 @@ export async function runInstalledPlatformCommand(
     databaseCheckpointExists = false,
   ): Promise<void> => {
     if (args.subcommand === 'rollback') {
-      assertPlatformRollbackCompatibility(manifest, runtime!, rollbackSourceRuntime!);
+      if (!runtime || !rollbackSourceRuntime) {
+        throw new Error('platform: Both runtimes are required to check rollback compatibility.');
+      }
+      assertPlatformRollbackCompatibility(manifest, runtime, rollbackSourceRuntime);
     }
     const recovery = readInstallationRecoverySecrets(manifest);
     const gatewayToken =
@@ -440,6 +443,10 @@ export async function runInstalledPlatformCommand(
       return;
     }
 
+    if (!runtime) {
+      throw new Error('platform: No runtime loaded for this operation.');
+    }
+
     // repair --auth-config replaces the login settings of a first administrator
     // setup that is still pending. Refuse what no database read can change first.
     const loginFile = args.subcommand === 'repair' ? args.authConfig : undefined;
@@ -497,16 +504,16 @@ export async function runInstalledPlatformCommand(
         authoritativeProvisionIntents: databaseCheckpointExists,
         repairMissing: args.subcommand === 'repair',
         allowUnverifiedAiGateway: args.plan,
-        includeEmailGateway: runtime!.manifest.artifacts.emailGateway !== undefined,
-        enableSandbox: runtime!.manifest.safetyProtocols.sandboxDrain >= 3,
-        deploymentExecution: runtime!.manifest.deploymentExecution === 1,
+        includeEmailGateway: runtime.manifest.artifacts.emailGateway !== undefined,
+        enableSandbox: runtime.manifest.safetyProtocols.sandboxDrain >= 3,
+        deploymentExecution: runtime.manifest.deploymentExecution === 1,
         allowRuntimeLogsChange: args.subcommand === 'upgrade',
         allowStorageLocationChange: args.subcommand === 'upgrade',
       }),
     );
-    assertPlatformRuntimeLogsSupported(plan.deployment, runtime!.manifest);
-    assertPlatformSecurityAuditsSupported(plan.deployment, runtime!.manifest);
-    assertPlatformStorageSupported(plan.deployment, runtime!.manifest);
+    assertPlatformRuntimeLogsSupported(plan.deployment, runtime.manifest);
+    assertPlatformSecurityAuditsSupported(plan.deployment, runtime.manifest);
+    assertPlatformStorageSupported(plan.deployment, runtime.manifest);
     markPhase('plan');
     note(
       formatPlatformInstallPlan(plan, manifest.deployment),
@@ -520,10 +527,10 @@ export async function runInstalledPlatformCommand(
     );
     note(
       [
-        `Version: ${manifest.platformVersion} → ${runtime!.manifest.platformVersion}`,
-        `Source: ${runtime!.source}`,
-        `Revision: ${runtime!.manifest.sourceRevision ?? 'not recorded'}`,
-        `Manifest SHA-256: ${runtime!.manifestSha256}`,
+        `Version: ${manifest.platformVersion} → ${runtime.manifest.platformVersion}`,
+        `Source: ${runtime.source}`,
+        `Revision: ${runtime.manifest.sourceRevision ?? 'not recorded'}`,
+        `Manifest SHA-256: ${runtime.manifestSha256}`,
       ].join('\n'),
       'Platform runtime',
     );
@@ -539,7 +546,7 @@ export async function runInstalledPlatformCommand(
         );
       }
       // A plan holds no lifecycle lock, so it cannot read the database.
-      const outsideChanges = await findPlatformWorkerOutsideChanges(client, plan, runtime!, {
+      const outsideChanges = await findPlatformWorkerOutsideChanges(client, plan, runtime, {
         manifest,
       });
       if (outsideChanges.length > 0) {
@@ -729,7 +736,7 @@ export async function runInstalledPlatformCommand(
     const outsideChanges = await reviewPlatformWorkerOutsideChanges({
       client,
       plan,
-      runtime: runtime!,
+      runtime,
       installation: {
         manifest: installation,
         readAuthenticationState: databaseLock.readAuthenticationState,
@@ -754,7 +761,7 @@ export async function runInstalledPlatformCommand(
     // The platform refuses new login settings once an administrator signed in.
     // Keep the saved settings the platform still has, so later lifecycle
     // commands do not resend the refused ones.
-    const keepAcceptedLogin = async (error: unknown): Promise<unknown> => {
+    const keepAcceptedLogin = async <Failure>(error: Failure): Promise<Failure | Error> => {
       const after = replacedLogin
         ? await databaseLock?.readAdministratorSetup?.().catch(() => undefined)
         : undefined;
@@ -812,7 +819,7 @@ export async function runInstalledPlatformCommand(
         markPhase(message);
         progress?.message(message);
       },
-      runtime: runtime!,
+      runtime,
       operation: args.subcommand,
       replanWorkers: async (recoveryManifest) =>
         (
@@ -820,9 +827,9 @@ export async function runInstalledPlatformCommand(
             allowRuntimeLogsChange: args.subcommand === 'upgrade',
             authoritativeProvisionIntents: true,
             repairMissing: true,
-            includeEmailGateway: runtime!.manifest.artifacts.emailGateway !== undefined,
-            enableSandbox: runtime!.manifest.safetyProtocols.sandboxDrain >= 3,
-            deploymentExecution: runtime!.manifest.deploymentExecution === 1,
+            includeEmailGateway: runtime.manifest.artifacts.emailGateway !== undefined,
+            enableSandbox: runtime.manifest.safetyProtocols.sandboxDrain >= 3,
+            deploymentExecution: runtime.manifest.deploymentExecution === 1,
           })
         ).actions.filter((action) => action.kind === 'worker'),
       revalidateBeforeWorkerDeploy: (manifest, action) =>
@@ -904,7 +911,7 @@ export async function runInstalledPlatformCommand(
         log.warn(runtimeLogsWarning);
       }
       printSuccess(
-        `${deployment.displayName}: runtime ${runtime!.manifest.platformVersion} ${args.subcommand === 'rollback' ? 'restored' : 'ready'}.`,
+        `${deployment.displayName}: runtime ${runtime.manifest.platformVersion} ${args.subcommand === 'rollback' ? 'restored' : 'ready'}.`,
       );
     };
   };
@@ -1439,7 +1446,12 @@ export async function uninstallPlatform(
   // check did not see. A request admitted before the disable may already be
   // waiting on the lock, so the fence makes every later holder refuse. Only
   // enabling the platform again lifts it once the disable write has started.
-  const { fenceProjectZeroTrust, liftProjectZeroTrustFence, lockProjectZeroTrust } = dependencies;
+  const {
+    fenceProjectZeroTrust,
+    liftProjectZeroTrustFence,
+    lockProjectZeroTrust,
+    turnOffProjectZeroTrust,
+  } = dependencies;
   if (!lockProjectZeroTrust || !fenceProjectZeroTrust || !liftProjectZeroTrustFence) {
     throw new Error(
       'platform: Refusing to uninstall because no platform database connection is available to hold off project Zero Trust changes.',
@@ -1448,8 +1460,11 @@ export async function uninstallPlatform(
   if (zeroTrust) {
     // The API takes the Zero Trust lock to turn it off, so this runs before
     // uninstall takes that lock. The final check below then reads the result.
+    if (!turnOffProjectZeroTrust) {
+      throw new Error('platform: Cannot turn off project Zero Trust without setup authority.');
+    }
     log.step('Turning off project Zero Trust');
-    await dependencies.turnOffProjectZeroTrust!();
+    await turnOffProjectZeroTrust();
   }
   const releaseProjectZeroTrust = await lockProjectZeroTrust();
   let fenced = false;
@@ -1533,6 +1548,10 @@ export async function uninstallPlatform(
       }
     }
     if (purgeResources && hasRoutingCheckpoint) {
+      const { readProjects } = dependencies;
+      if (!readProjects) {
+        throw new Error('platform: Cannot purge resources without reading platform projects.');
+      }
       next = await runPurgeResourcesTeardown(
         {
           client,
@@ -1557,13 +1576,12 @@ export async function uninstallPlatform(
               ? 'unknown'
               : r2BucketConfigHash(bucket.name, live.fingerprint);
           },
-          // --purge-resources already refused unless the project list could be read.
-          readProjects: () => dependencies.readProjects!(),
+          readProjects,
         },
         next,
       );
     }
-    const deletionPriority: Record<string, number> = {
+    const deletionPriority = {
       worker: 0,
       queue: 1,
       'ai-gateway': 2,
@@ -1948,7 +1966,7 @@ async function hasLiveInstallationWorker(
 
 function resourceDeletionPriority(
   resource: InstallationResource,
-  priorities: Readonly<Record<string, number>>,
+  priorities: Readonly<Partial<Record<InstallationResource['kind'], number>>>,
 ): number {
   // The routing namespace contains the authoritative ownership checkpoint.
   // Delete it last so interrupted purges can still prove every earlier mutation.
@@ -1992,7 +2010,8 @@ async function verifyPlatformMutationOwnership(
       ) {
         throw ownershipError('the remote installation identity does not match this installation');
       }
-      if (targetResources.every((resource) => hasMatchingResourceProof(remote!, resource))) {
+      const checkpoint = remote;
+      if (targetResources.every((resource) => hasMatchingResourceProof(checkpoint, resource))) {
         break;
       }
     }

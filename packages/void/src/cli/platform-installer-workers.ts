@@ -31,7 +31,7 @@ import {
   PlatformWorkerCustomDomainsChangedError,
   PlatformWorkerRoutesChangedError,
 } from './platform-cloudflare.ts';
-import type { CloudflareWorkerCustomDomainOrigin } from './platform-cloudflare.ts';
+import type { CloudflareWorkerCustomDomainOrigin, ReadCloudflare } from './platform-cloudflare.ts';
 import {
   readTriggerConfigFromObject,
   recordWorkerCutoverResolution,
@@ -176,8 +176,11 @@ export async function recoverInterruptedPlatformWorkerCutover(
       'proxy',
       'api',
     ];
-    for (const key of recoveryOrder.filter((key) => interruptedCutover.staged.has(key))) {
-      const snapshot = interruptedCutover.staged.get(key)!;
+    for (const key of recoveryOrder) {
+      const snapshot = interruptedCutover.staged.get(key);
+      if (!snapshot) {
+        continue;
+      }
       const preservedRoutes = dependencies.recoverWorkerCutover
         ? []
         : await inventoryUnmanagedPlatformWorkerTraffic(
@@ -405,7 +408,10 @@ export function platformWorkerUploadFingerprint(
       return null;
     }
     const mainSha256 = createHash('sha256').update(readFileSync(config.main)).digest('hex');
-    const normalized: Record<string, unknown> = { ...config, main: { sha256: mainSha256 } };
+    const normalized: WorkerUploadSnapshot<{ sha256: string }> = {
+      ...config,
+      main: { sha256: mainSha256 },
+    };
     if (config.assets !== undefined) {
       const assets = config.assets;
       if (!assets || typeof assets !== 'object' || Array.isArray(assets)) {
@@ -432,17 +438,22 @@ export function platformWorkerUploadFingerprint(
   }
 }
 
+type WorkerUploadSnapshot<Main> = {
+  main: Main;
+  assets?: object;
+};
+
 function snapshotPlatformWorkerUploadInputs(
   config: Record<string, unknown>,
   directory: string,
-): Record<string, unknown> {
+): WorkerUploadSnapshot<string> {
   const main = config.main;
   if (typeof main !== 'string') {
     throw new Error('platform: Worker upload has no script artifact.');
   }
   const snapshotMain = join(directory, 'worker-upload.js');
   copyFileSync(main, snapshotMain);
-  const snapshot: Record<string, unknown> = { ...config, main: snapshotMain };
+  const snapshot: WorkerUploadSnapshot<string> = { ...config, main: snapshotMain };
   if (config.assets !== undefined) {
     const assets = config.assets as Record<string, unknown>;
     const sourceDirectory = assets.directory;
@@ -459,7 +470,7 @@ function snapshotPlatformWorkerUploadInputs(
 function platformWorkerApiReadRunner(
   accountId: string,
   workerName: string,
-  readCloudflare: (path: string) => Promise<unknown>,
+  readCloudflare: ReadCloudflare,
   fallback: typeof runPlatformWrangler,
 ): typeof runPlatformWrangler {
   const base = `/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}`;
@@ -705,7 +716,7 @@ export async function deployPlatformWorker(
           `platform: Worker ${workerName} changed concurrently while its deployment lineage was inspected.`,
         );
       }
-      previousDeployment = deployments[0]!;
+      previousDeployment = deployments[0];
       previousDeploymentId = previousDeployment.id;
       if (
         contentHash &&
@@ -945,11 +956,12 @@ export async function deployPlatformWorker(
       await options.publishRoutes(workerName, options.managedRoutes);
     }
     await options.onTrafficPublished();
+    const committedVersionId = uploadedVersionId;
     const rollback = () =>
       rollbackPlatformWorker({
         accountId,
         activatedDeploymentId,
-        activatedVersionId: uploadedVersionId!,
+        activatedVersionId: committedVersionId,
         config,
         nextTriggers,
         previousConfig: options.previousConfig,
@@ -1025,7 +1037,7 @@ export async function deployPlatformWorker(
 export async function uploadPlatformWorkerForReview(
   config: Record<string, unknown>,
   options: Readonly<{
-    readCloudflare: (path: string) => Promise<unknown>;
+    readCloudflare: ReadCloudflare;
     runner: typeof runPlatformWrangler;
   }>,
 ): Promise<CloudflareCommandResult> {

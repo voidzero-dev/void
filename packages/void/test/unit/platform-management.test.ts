@@ -1433,7 +1433,9 @@ describe('platform lifecycle management', () => {
     const fake = client(manifest);
     await uninstallPlatform(fake, manifest, uninstallArgs, uninstallDependencies);
     expect(fake.deleted).toEqual([]);
-    expect(fake.remoteWrites.map((value) => JSON.parse(value).status)).toContain('uninstalled');
+    expect(
+      fake.remoteWrites.map((value) => (JSON.parse(value) as { status?: unknown }).status),
+    ).toContain('uninstalled');
     const result = listInstallationManifests()[0];
     expect(result.status).toBe('uninstalled');
     expect(result.resources.filter((resource) => resource.state === 'retained')).toHaveLength(15);

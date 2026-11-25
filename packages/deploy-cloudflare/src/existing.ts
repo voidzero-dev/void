@@ -365,14 +365,22 @@ function declarativeClassesMatch(
       ['new_classes', 'legacy-kv'],
       ['new_sqlite_classes', 'sqlite'],
     ] as const) {
-      for (const name of (step[field] ?? []) as Array<string>) {
+      const names = step[field] ?? [];
+      if (!Array.isArray(names)) {
+        return false;
+      }
+      for (const name of names) {
         if (typeof name !== 'string') {
           return false;
         }
         desired.set(name, storage);
       }
     }
-    for (const item of (step.renamed_classes ?? []) as Array<unknown>) {
+    const renames = step.renamed_classes ?? [];
+    if (!Array.isArray(renames)) {
+      return false;
+    }
+    for (const item of renames) {
       if (!isRecord(item) || typeof item.from !== 'string' || typeof item.to !== 'string') {
         return false;
       }
@@ -383,7 +391,11 @@ function declarativeClassesMatch(
       desired.set(item.from, 'deleted');
       desired.set(item.to, storage);
     }
-    for (const name of (step.deleted_classes ?? []) as Array<string>) {
+    const deleted = step.deleted_classes ?? [];
+    if (!Array.isArray(deleted)) {
+      return false;
+    }
+    for (const name of deleted) {
       if (typeof name !== 'string') {
         return false;
       }

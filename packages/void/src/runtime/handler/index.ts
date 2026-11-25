@@ -233,12 +233,14 @@ export type TypedQueueHandler<T = unknown> = {
   readonly __payload: T;
 };
 
+type NoValidators = Pick<ValidatorSlots, never>;
+
 /**
  * A typed handler with phantom type carriers for validators and return type.
  * `__validators` and `__output` exist at the type level only —
  * TypeScript's `typeof import(...)` reads them for codegen.
  */
-export type TypedHandler<V extends ValidatorSlots = {}, R = unknown> = {
+export type TypedHandler<V extends ValidatorSlots = NoValidators, R = unknown> = {
   (c: CloudContext): Promise<Response> | Response | unknown | Promise<unknown>;
   readonly __validators: V;
   readonly __output: R;
@@ -252,7 +254,7 @@ export type TypedHandler<V extends ValidatorSlots = {}, R = unknown> = {
  */
 export function defineHandler<R>(
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 // Middleware keeps a typed leaf's validators and output (e.g. withValidator).
 export function defineHandler<V extends ValidatorSlots, R>(
   ...args: [MiddlewareFn, ...Array<MiddlewareFn>, TypedHandler<V, R>]
@@ -260,63 +262,63 @@ export function defineHandler<V extends ValidatorSlots, R>(
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 export function defineHandler<F extends HandlerFn>(
   firstMiddleware: MiddlewareFn,
   handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
+): TypedHandler<NoValidators, LoaderOutput<F>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 export function defineHandler<F extends HandlerFn>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
+): TypedHandler<NoValidators, LoaderOutput<F>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 export function defineHandler<F extends HandlerFn>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
-export function defineHandler<R>(
-  firstMiddleware: MiddlewareFn,
-  secondMiddleware: MiddlewareFn,
-  thirdMiddleware: MiddlewareFn,
-  fourthMiddleware: MiddlewareFn,
-  handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
-export function defineHandler<F extends HandlerFn>(
-  firstMiddleware: MiddlewareFn,
-  secondMiddleware: MiddlewareFn,
-  thirdMiddleware: MiddlewareFn,
-  fourthMiddleware: MiddlewareFn,
-  handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
+): TypedHandler<NoValidators, LoaderOutput<F>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   fourthMiddleware: MiddlewareFn,
-  fifthMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 export function defineHandler<F extends HandlerFn>(
+  firstMiddleware: MiddlewareFn,
+  secondMiddleware: MiddlewareFn,
+  thirdMiddleware: MiddlewareFn,
+  fourthMiddleware: MiddlewareFn,
+  handler: F,
+): TypedHandler<NoValidators, LoaderOutput<F>>;
+export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   fourthMiddleware: MiddlewareFn,
   fifthMiddleware: MiddlewareFn,
+  handler: LoaderFn<R>,
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
+export function defineHandler<F extends HandlerFn>(
+  firstMiddleware: MiddlewareFn,
+  secondMiddleware: MiddlewareFn,
+  thirdMiddleware: MiddlewareFn,
+  fourthMiddleware: MiddlewareFn,
+  fifthMiddleware: MiddlewareFn,
   handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
+): TypedHandler<NoValidators, LoaderOutput<F>>;
 export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHandler {
   if (args.length === 1) {
     return args[0] as TypedHandler;

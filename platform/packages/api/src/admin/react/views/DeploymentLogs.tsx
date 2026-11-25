@@ -218,6 +218,7 @@ export function DeploymentLogs({
   }, [fetchEntries, since, count]);
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- Restart loading when the external log query changes.
     void loadLogs();
   }, [loadLogs]);
 

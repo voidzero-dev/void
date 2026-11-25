@@ -584,7 +584,7 @@ describe('detectFramework', () => {
     }
   });
 
-  it('pins framework default compatibility before syncing wrangler config', () => {
+  it('pins framework default compatibility before syncing wrangler config', async () => {
     const root = createTempRoot();
     writeFileSync(
       join(root, 'package.json'),
@@ -595,16 +595,16 @@ describe('detectFramework', () => {
     try {
       const plugins = voidPlugin();
       const compatPlugin = plugins.find((plugin) => plugin.name === 'void:wrangler-compat');
-      const config = getHookHandler(compatPlugin?.config) as (
-        this: object,
-        config: Record<string, never>,
-        env: import('vite').ConfigEnv,
-      ) => void;
+      const config = getHookHandler(compatPlugin?.config);
 
       expect(compatPlugin).toBeTruthy();
       expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
 
-      config.call({}, {}, { command: 'serve', mode: 'development' });
+      await config.call(
+        {} as ThisParameterType<typeof config>,
+        {},
+        { command: 'serve', mode: 'development' },
+      );
 
       // The adapter reads the root Wrangler file by default, so the date and the dev
       // flags land there, not in a new void.config.ts.
@@ -618,7 +618,11 @@ describe('detectFramework', () => {
 
       // A second run reads the pinned date and leaves the root file alone.
       const written = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
-      config.call({}, {}, { command: 'serve', mode: 'development' });
+      await config.call(
+        {} as ThisParameterType<typeof config>,
+        {},
+        { command: 'serve', mode: 'development' },
+      );
       expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(written);
     } finally {
       cwd.mockRestore();
@@ -659,7 +663,7 @@ describe('detectFramework', () => {
     }
   });
 
-  it('persists default compatibility in void.config.ts during build startup', () => {
+  it('persists default compatibility in void.config.ts during build startup', async () => {
     const root = createTempRoot();
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
@@ -669,10 +673,13 @@ describe('detectFramework', () => {
       const persistPlugin = plugins.find(
         (plugin) => plugin.name === 'void:wrangler-compat-persist',
       );
-      const buildStart = getHookHandler(persistPlugin?.buildStart) as (this: object) => void;
+      const buildStart = getHookHandler(persistPlugin?.buildStart);
 
       expect(persistPlugin).toBeTruthy();
-      buildStart.call({});
+      await buildStart.call(
+        {} as ThisParameterType<typeof buildStart>,
+        {} as Parameters<typeof buildStart>[0],
+      );
       expect(existsSync(join(root, 'void.json'))).toBe(false);
       expect(existsSync(join(root, 'wrangler.jsonc'))).toBe(false);
       expect(readConfig(root)).toEqual({
@@ -691,7 +698,7 @@ describe('detectFramework', () => {
       compat: true,
     },
     { kind: 'class B/C server builds', dependencies: { '@sveltejs/kit': '^2.0.0' }, compat: false },
-  ])('externalizes Cloudflare builtins for $kind', ({ dependencies, compat }) => {
+  ])('externalizes Cloudflare builtins for $kind', async ({ dependencies, compat }) => {
     const root = createTempRoot();
     if (compat) {
       writeCompatConfig(root);
@@ -706,14 +713,14 @@ describe('detectFramework', () => {
       const externalPlugin = plugins.find(
         (plugin) => plugin.name === 'void:cloudflare-builtins-external',
       );
-      const config = getHookHandler(externalPlugin?.config) as (
-        this: object,
-        config: import('vite').UserConfig,
-        env: import('vite').ConfigEnv,
-      ) => import('vite').UserConfig | void;
+      const config = getHookHandler(externalPlugin?.config);
 
       expect(externalPlugin).toBeTruthy();
-      const result = config.call({}, {}, { command: 'build', mode: 'production' });
+      const result = await config.call(
+        {} as ThisParameterType<typeof config>,
+        {},
+        { command: 'build', mode: 'production' },
+      );
       const rootExternal = result?.build?.rollupOptions?.external as Array<unknown>;
       expect(rootExternal).toBeTruthy();
       expect(

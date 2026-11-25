@@ -1,3 +1,4 @@
+import { isRecord } from '@void/deploy-core';
 import { and, eq, or } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -7,7 +8,6 @@ import { getProjectDeploymentWorkerName } from '../naming.ts';
 import { resolvePlanLimits } from '../plans.ts';
 import { computeDispatchLimits } from '../routing.ts';
 import { deployments, projects, users } from '../schema.ts';
-import type { DeployManifest } from '../types.ts';
 import { emailProjectControls } from './admission-schema.ts';
 import { emailZoneConnections } from './connection-schema.ts';
 import {
@@ -37,23 +37,42 @@ async function verifyInternalSignature(context: Context<ApiEnv>, signed: string)
   );
 }
 
-app.post('/probe-ingress', async (context) => {
-  let body: { accountId?: unknown; zoneId?: unknown; ingressName?: unknown; secret?: unknown };
+function isIngressField<Value>(value: Value): value is Value & string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 512;
+}
+
+function readEmailDeploymentLimits(raw: string | null | undefined): { cpuMs?: number } | null {
+  if (!raw) {
+    return null;
+  }
   try {
-    body = (await readBoundedInternalJson(context.req.raw, 2048)) as typeof body;
+    const manifest: unknown = JSON.parse(raw);
+    if (!isRecord(manifest) || manifest.emailProtocolVersion !== 1) {
+      return null;
+    }
+    const limits = manifest.limits;
+    const cpuMs = isRecord(limits) && typeof limits.cpuMs === 'number' ? limits.cpuMs : undefined;
+    return { cpuMs };
+  } catch {
+    return null;
+  }
+}
+
+app.post('/probe-ingress', async (context) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await readBoundedInternalJson(context.req.raw, 2048);
   } catch (error) {
     return error instanceof EmailInternalBodyError
       ? context.json({ error: error.message }, error.status)
       : context.json({ error: 'invalid body' }, 400);
   }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return context.json({ error: 'invalid body' }, 400);
-  }
   const { accountId, zoneId, ingressName, secret } = body;
   if (
-    [accountId, zoneId, ingressName, secret].some(
-      (value) => typeof value !== 'string' || value.length === 0 || value.length > 512,
-    )
+    !isIngressField(accountId) ||
+    !isIngressField(zoneId) ||
+    !isIngressField(ingressName) ||
+    !isIngressField(secret)
   ) {
     return context.json({ error: 'invalid probe' }, 400);
   }
@@ -69,9 +88,9 @@ app.post('/probe-ingress', async (context) => {
       .where(
         and(
           eq(emailZoneConnections.installation_id, emailInstallationId(context.env)),
-          eq(emailZoneConnections.account_id, accountId as string),
-          eq(emailZoneConnections.zone_id, zoneId as string),
-          eq(emailZoneConnections.ingress_worker_name, ingressName as string),
+          eq(emailZoneConnections.account_id, accountId),
+          eq(emailZoneConnections.zone_id, zoneId),
+          eq(emailZoneConnections.ingress_worker_name, ingressName),
         ),
       )
       .limit(1)
@@ -81,14 +100,11 @@ app.post('/probe-ingress', async (context) => {
   }
   let accepted: boolean;
   try {
-    accepted = constantTimeEqual(
-      await readConnectionSecret(context.env, connection),
-      secret as string,
-    );
+    accepted = constantTimeEqual(await readConnectionSecret(context.env, connection), secret);
     if (!accepted && connection.staged_secret_generation !== null) {
       accepted = constantTimeEqual(
         await readStagedConnectionSecret(context.env, connection),
-        secret as string,
+        secret,
       );
     }
   } catch {
@@ -103,36 +119,31 @@ app.post('/probe-ingress', async (context) => {
 /** Gateway-only read. The HMAC authenticates the service call; the zone
  * bearer separately proves the deployed Cloudflare ingress identity. */
 app.post('/resolve-ingress', async (context) => {
-  let body: {
-    accountId?: unknown;
-    zoneId?: unknown;
-    ingressName?: unknown;
-    from?: unknown;
-    to?: unknown;
-    secret?: unknown;
-    native?: unknown;
-  };
+  let body: Record<string, unknown>;
   try {
-    body = (await readBoundedInternalJson(context.req.raw, 4096)) as typeof body;
+    body = await readBoundedInternalJson(context.req.raw, 4096);
   } catch (error) {
     return error instanceof EmailInternalBodyError
       ? context.json({ error: error.message }, error.status)
       : context.json({ error: 'invalid body' }, 400);
   }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return context.json({ error: 'invalid body' }, 400);
-  }
   const { accountId, zoneId, ingressName, to, secret } = body;
-  const native = body.native === true;
+  const credential =
+    body.native === true
+      ? ({ native: true } as const)
+      : isIngressField(secret)
+        ? ({ native: false, secret } as const)
+        : null;
   if (
-    [accountId, zoneId, ingressName, to].some(
-      (x) => typeof x !== 'string' || x.length === 0 || x.length > 512,
-    ) ||
-    (!native && (typeof secret !== 'string' || secret.length === 0 || secret.length > 512))
+    !isIngressField(accountId) ||
+    !isIngressField(zoneId) ||
+    !isIngressField(ingressName) ||
+    !isIngressField(to) ||
+    !credential
   ) {
     return context.json({ error: 'invalid ingress identity' }, 400);
   }
-  const recipient = (to as string).toLowerCase();
+  const recipient = to.toLowerCase();
   const signed = `email-ingress-v1\n${accountId}\n${zoneId}\n${ingressName}\n${recipient}`;
   if (!(await verifyInternalSignature(context, signed))) {
     return context.json({ error: 'forbidden' }, 403);
@@ -140,16 +151,16 @@ app.post('/resolve-ingress', async (context) => {
   const db = context.get('db');
   const resolved = await resolveEmailIngress(db, {
     installationId: emailInstallationId(context.env),
-    accountId: accountId as string,
-    zoneId: zoneId as string,
-    ingressName: ingressName as string,
+    accountId,
+    zoneId,
+    ingressName,
     recipient,
   });
   if (!resolved) {
     return context.json({ error: 'unregistered or disabled email domain' }, 404);
   }
   const route = resolved.route;
-  if (native) {
+  if (credential.native) {
     if (
       resolved.connection.managed_by !== 'admin' ||
       resolved.connection.account_id !== context.env.CF_ACCOUNT_ID ||
@@ -169,18 +180,19 @@ app.post('/resolve-ingress', async (context) => {
       return context.json({ error: 'forbidden' }, 403);
     }
   } else {
+    const { secret: ingressSecret } = credential;
     let expected: string;
     try {
       expected = await readConnectionSecret(context.env, resolved.connection);
     } catch {
       return context.json({ error: 'ingress identity unavailable' }, 503);
     }
-    let authorized = constantTimeEqual(expected, secret as string);
+    let authorized = constantTimeEqual(expected, ingressSecret);
     if (!authorized && resolved.connection.staged_secret_generation !== null) {
       try {
         authorized = constantTimeEqual(
           await readStagedConnectionSecret(context.env, resolved.connection),
-          secret as string,
+          ingressSecret,
         );
       } catch {
         return context.json({ error: 'staged ingress identity unavailable' }, 503);
@@ -194,7 +206,7 @@ app.post('/resolve-ingress', async (context) => {
     ) {
       authorized = constantTimeEqual(
         resolved.connection.previous_secret_hash,
-        await digest(secret),
+        await digest(ingressSecret),
       );
     }
     if (!authorized) {
@@ -239,17 +251,23 @@ app.post('/resolve-ingress', async (context) => {
       return context.json({ error: 'shared recipient routing is not ready' }, 503);
     }
   } else {
+    if (!projectId) {
+      return context.json({ error: 'project unavailable' }, 404);
+    }
     const project = (
       await db
         .select({ id: projects.id, slug: projects.slug, status: projects.status })
         .from(projects)
-        .where(eq(projects.id, projectId!))
+        .where(eq(projects.id, projectId))
         .limit(1)
     )[0];
     if (!project || project.status !== 'active') {
       return context.json({ error: 'project unavailable' }, 404);
     }
     slug = project.slug;
+  }
+  if (!projectId) {
+    return context.json({ error: 'project unavailable' }, 404);
   }
   const authority = (
     await db
@@ -263,7 +281,7 @@ app.post('/resolve-ingress', async (context) => {
       .from(projects)
       .innerJoin(users, eq(projects.user_id, users.id))
       .leftJoin(emailProjectControls, eq(emailProjectControls.project_id, projects.id))
-      .where(eq(projects.id, projectId!))
+      .where(eq(projects.id, projectId))
       .limit(1)
   )[0];
   if (
@@ -282,27 +300,17 @@ app.post('/resolve-ingress', async (context) => {
     await db
       .select({ manifest: deployments.manifest, status: deployments.status })
       .from(deployments)
-      .where(and(eq(deployments.id, deploymentId), eq(deployments.project_id, projectId!)))
+      .where(and(eq(deployments.id, deploymentId), eq(deployments.project_id, projectId)))
       .limit(1)
   )[0];
-  let manifest: Pick<DeployManifest, 'emailProtocolVersion' | 'limits'> | null;
-  try {
-    manifest = deployment?.manifest
-      ? (JSON.parse(deployment.manifest) as NonNullable<typeof manifest>)
-      : null;
-  } catch {
-    manifest = null;
-  }
-  if (deployment?.status !== 'live' || manifest?.emailProtocolVersion !== 1) {
+  const manifestLimits = readEmailDeploymentLimits(deployment?.manifest);
+  if (deployment?.status !== 'live' || !manifestLimits) {
     return context.json(
       { error: 'active deployment does not support email gateway protocol' },
       409,
     );
   }
-  const limits = computeDispatchLimits(
-    await resolvePlanLimits(db, authority.plan),
-    manifest.limits,
-  );
+  const limits = computeDispatchLimits(await resolvePlanLimits(db, authority.plan), manifestLimits);
   return context.json({
     projectId,
     slug,

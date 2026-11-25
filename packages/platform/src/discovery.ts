@@ -166,32 +166,31 @@ export function parsePlatformDiscoveryDocument(value: unknown): PlatformDiscover
     throw new Error('Discovery schema version 2 requires application routing.');
   }
   assertRecord(capabilities, 'capabilities');
-  const capabilityNames: Array<keyof PlatformCapabilities> = [
-    'ai',
-    'customDomains',
-    'email',
-    'githubActions',
-    'githubOAuth',
-    'googleOAuth',
-    'managedBuilds',
-    'sandbox',
-    'securityAudits',
-  ];
-  const parsedCapabilities = {} as Record<keyof PlatformCapabilities, boolean>;
-  for (const name of capabilityNames) {
+  const readCapability = (name: keyof PlatformCapabilities): boolean => {
     const enabled = readPlatformCapability(capabilities, name);
     if (typeof enabled !== 'boolean') {
       throw new Error(`capabilities.${name} must be a boolean.`);
     }
-    parsedCapabilities[name] = enabled;
-  }
+    return enabled;
+  };
+  const parsedCapabilities: PlatformCapabilities = {
+    ai: readCapability('ai'),
+    customDomains: readCapability('customDomains'),
+    email: readCapability('email'),
+    githubActions: readCapability('githubActions'),
+    githubOAuth: readCapability('githubOAuth'),
+    googleOAuth: readCapability('googleOAuth'),
+    managedBuilds: readCapability('managedBuilds'),
+    sandbox: readCapability('sandbox'),
+    securityAudits: readCapability('securityAudits'),
+  };
   const providers = document.authenticationProviders;
   if (
     !Array.isArray(providers) ||
-    providers.some(
-      (provider) =>
-        typeof provider !== 'string' ||
-        (document.schemaVersion !== 3 && provider !== 'github' && provider !== 'google'),
+    !providers.every(
+      (provider: unknown): provider is string =>
+        typeof provider === 'string' &&
+        (document.schemaVersion === 3 || provider === 'github' || provider === 'google'),
     )
   ) {
     throw new Error('authenticationProviders must contain only github or google.');
@@ -225,7 +224,7 @@ export function parsePlatformDiscoveryDocument(value: unknown): PlatformDiscover
           applicationRouting: parsePlatformApplication(document.applicationRouting),
         }
       : {}),
-    authenticationProviders: providers as Array<string>,
+    authenticationProviders: providers,
     ...(authentication ? { authentication } : {}),
     capabilities: parsedCapabilities,
     displayName: string('displayName'),

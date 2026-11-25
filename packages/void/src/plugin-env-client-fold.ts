@@ -30,14 +30,17 @@ function findFoldHits(program: AstProgram, bindings: ImportBindings): Array<Fold
 }
 
 function pushHit(node: AstMemberExpression, hits: Array<FoldHit>): void {
+  if (node.start === undefined || node.end === undefined) {
+    throw new Error('Expected offsets for a parsed environment read.');
+  }
   // Static dot access: `env.FOO`
   if (!node.computed && isIdentifier(node.property)) {
-    hits.push({ start: node.start!, end: node.end!, property: node.property.name });
+    hits.push({ start: node.start, end: node.end, property: node.property.name });
     return;
   }
   // Static bracket access with a string literal: `env["FOO"]`
   if (node.computed && isLiteral(node.property) && typeof node.property.value === 'string') {
-    hits.push({ start: node.start!, end: node.end!, property: node.property.value });
+    hits.push({ start: node.start, end: node.end, property: node.property.value });
     return;
   }
   // Everything else (identifiers, template literals, etc.) falls through

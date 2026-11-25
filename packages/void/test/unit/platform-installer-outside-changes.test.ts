@@ -376,7 +376,7 @@ describe('platform Workers changed outside Void', () => {
         answers: { source: [failure(403)] },
         reads: ['source'],
         waits: [],
-        message: `${notReadable('HTTP 403')} Make sure that the Cloudflare API token has Account → Workers Scripts → Edit for this account. Then run the command again.`,
+        message: `${notReadable('HTTP 403')} Make sure that the Cloudflare API token has Account → Workers → Admin for this account. Then run the command again.`,
       },
       {
         name: 'Cloudflare fails three times',

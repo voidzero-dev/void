@@ -2,6 +2,7 @@ import type { ProjectZeroTrustRouting } from '@void/edge';
 import { sql as drizzleSql } from 'drizzle-orm';
 import { getDomainsByProjectIds, getProject } from './db.ts';
 import type { Db } from './db.ts';
+import type { RoutingEntry } from './routing-records.ts';
 import type { AssetConfig, DeployManifest } from './types.ts';
 import {
   assertRouteBelongsToProject,
@@ -201,6 +202,7 @@ export async function applyRoutingSuspension(
     );
   }
   if (rejected) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the original rejection after all routing writes settle.
     throw rejected;
   }
 }
@@ -277,6 +279,7 @@ export async function setProjectsRoutingSuspension(
       });
   }
   if (failure) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the original failure after the routing writes settle.
     throw failure;
   }
 }
@@ -323,7 +326,7 @@ export function buildRoutingJson(opts: {
     ...(opts.assetManifestId ? { assetManifestId: opts.assetManifestId } : {}),
     ...(opts.assetConfig ? { assetConfig: opts.assetConfig } : {}),
     ...(opts.zeroTrust ? { zeroTrust: opts.zeroTrust } : {}),
-  });
+  } satisfies RoutingEntry);
 }
 
 export function buildStaticRoutingJson(opts: {
@@ -355,5 +358,5 @@ export function buildStaticRoutingJson(opts: {
       : {}),
     ...(opts.suspended ? { suspended: opts.suspended } : {}),
     ...(opts.zeroTrust ? { zeroTrust: opts.zeroTrust } : {}),
-  });
+  } satisfies RoutingEntry);
 }

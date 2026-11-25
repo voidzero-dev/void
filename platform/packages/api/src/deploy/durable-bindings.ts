@@ -1,5 +1,6 @@
 import { planWebSocketMigrations } from '@void/deploy-core';
 import type { DeployManifest, LiveMigrationMeta, WebSocketMigrationMeta } from '../types.ts';
+import type { PreviousDeployManifest } from './persisted-manifest.ts';
 import { sortUnique } from './serving-assets.ts';
 
 export function buildDurableObjectUploadMigrations(
@@ -51,8 +52,12 @@ export function buildDurableObjectUploadMigrations(
 
   const sortedSteps = [...steps].sort(compareDurableObjectMigrationSteps);
 
+  const lastStep = sortedSteps.at(-1);
+  if (!lastStep) {
+    throw new Error('No Durable Object migration steps to upload.');
+  }
   return {
-    new_tag: sortedSteps.at(-1)!.tag,
+    new_tag: lastStep.tag,
     steps: sortedSteps.map(({ tag: _tag, index: _index, ...step }) => step),
   };
 }
@@ -154,7 +159,7 @@ type EnrichedDurableManifest = { manifest: DeployManifest; changed: boolean; nex
 
 export function enrichWebSocketManifest(
   manifest: DeployManifest,
-  previousManifest: DeployManifest | null,
+  previousManifest: Pick<DeployManifest, 'websocket'> | null,
   currentVersion: number,
 ): EnrichedDurableManifest {
   const previousMigrations = previousManifest?.websocket?.migrations ?? [];
@@ -201,7 +206,7 @@ export function enrichWebSocketManifest(
 
 export function enrichLiveManifest(
   manifest: DeployManifest,
-  previousManifest: DeployManifest | null,
+  previousManifest: Pick<PreviousDeployManifest, 'live'> | null,
   currentVersion: number,
 ): EnrichedDurableManifest {
   if (!manifest.live) {

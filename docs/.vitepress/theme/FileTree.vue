@@ -114,12 +114,11 @@ export const selectedAdapter = ref(
 export function syncCodeGroups(title: string) {
   document.querySelectorAll('.vp-code-group').forEach((group) => {
     const label = group.querySelector(`.tabs label[data-title="${title}"]`);
-    if (!label) {
+    const target = label?.getAttribute('for');
+    if (!target) {
       return;
     }
-    const input = group.querySelector(
-      `#${CSS.escape(label.getAttribute('for')!)}`,
-    ) as HTMLInputElement | null;
+    const input = group.querySelector(`#${CSS.escape(target)}`) as HTMLInputElement | null;
     if (!input || input.checked) {
       return;
     }

@@ -10,7 +10,7 @@ type InputOf<P extends keyof RouteMap, M extends MethodsOf<P>> = RouteMap[P][M] 
   input: infer I;
 }
   ? I
-  : {};
+  : Record<never, never>;
 
 type StreamOptions<P extends keyof RouteMap, M extends MethodsOf<P>> = BodyOption<InputOf<P, M>> &
   QueryOption<InputOf<P, M>> &

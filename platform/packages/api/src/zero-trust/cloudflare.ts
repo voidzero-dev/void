@@ -554,7 +554,10 @@ export class ZeroTrustCloudflareClient {
         name,
       });
     }
-    const matches = [...inventory!.values()].filter((entry) =>
+    if (!inventory) {
+      throw new Error('Access application inventory is unavailable.');
+    }
+    const matches = [...inventory.values()].filter((entry) =>
       destinationList(entry).includes(`${hostname}/health`),
     );
     if (matches.length > 1) {

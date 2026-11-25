@@ -3,7 +3,8 @@ import {
   createPlatformInstallationManifest,
 } from '@void/platform';
 import { CANCEL_SYMBOL } from '@voidzero-dev/vite-plus-prompts';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { SelectOptions } from '@voidzero-dev/vite-plus-prompts';
+import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { platformAccessNonce } from '../../src/cli/platform-access-provision.ts';
 import {
   activatePlatformAccessCredentials,
@@ -16,9 +17,11 @@ import { PlatformCloudflareApiError } from '../../src/cli/platform-cloudflare.ts
 import type { PlatformCloudflareClient } from '../../src/cli/platform-cloudflare.ts';
 import { platformAccessFixture } from '../fixtures/platform-access.ts';
 
+type Prompts = typeof import('@voidzero-dev/vite-plus-prompts');
+
 const prompts = vi.hoisted(() => ({
-  select: vi.fn(),
-  multiselect: vi.fn(),
+  select: vi.fn<Prompts['select']>(),
+  multiselect: vi.fn<Prompts['multiselect']>(),
   confirm: vi.fn(),
   text: vi.fn(),
   note: vi.fn(),
@@ -33,6 +36,12 @@ vi.mock('@voidzero-dev/vite-plus-prompts', async (original) => {
     log: { ...actual.log, info: prompts.info, warn: prompts.warn },
   };
 });
+
+function selectOption(options: SelectOptions<unknown>['options'], label: string): unknown {
+  const option = options.find((option) => option.label === label);
+  assert(option, 'Expected a prompt option for ' + label);
+  return option.value;
+}
 
 const plan = {
   account: { id: 'account', name: 'Account' },
@@ -246,9 +255,8 @@ describe('interactive Access policy creation', () => {
 
   it('guides an empty account through manual creation, reloads, and continues without restarting', async () => {
     const fixture = setup();
-    prompts.select.mockImplementation(
-      async ({ options }) =>
-        options.find((option: { label: string }) => option.label === 'Create in Cloudflare').value,
+    prompts.select.mockImplementation(async ({ options }) =>
+      selectOption(options, 'Create in Cloudflare'),
     );
     prompts.confirm.mockImplementation(async () => {
       expect(fixture.env.apps.size).toBe(0);
@@ -308,11 +316,7 @@ describe('interactive Access policy creation', () => {
       }
       if (policyPrompts++ === 0) {
         expect(options).toContainEqual(expect.objectContaining({ value: 'employees' }));
-        return [
-          'employees',
-          options.find((option: { label: string }) => option.label === 'Create in Cloudflare')
-            .value,
-        ];
+        return ['employees', selectOption(options, 'Create in Cloudflare')];
       }
       expect(initialValues).toEqual(['employees']);
       expect(options).toContainEqual(expect.objectContaining({ value: 'managers' }));
@@ -340,7 +344,7 @@ describe('interactive Access policy creation', () => {
     ]);
     let menus = 0;
     prompts.select.mockImplementation(async ({ options }) => {
-      expect(options.map((option: { label: string }) => option.label)).toEqual([
+      expect(options.map((option) => option.label)).toEqual([
         'Allow my company’s email domain',
         'Create in Cloudflare',
         'Refresh list',
@@ -375,11 +379,7 @@ describe('interactive Access policy creation', () => {
         return ['company-idp'];
       }
       if (policyPrompts++ === 0) {
-        return [
-          'employees',
-          options.find((option: { label: string }) => option.label === 'Create in Cloudflare')
-            .value,
-        ];
+        return ['employees', selectOption(options, 'Create in Cloudflare')];
       }
       expect(initialValues).toEqual(['employees']);
       return ['employees'];
@@ -398,10 +398,7 @@ describe('interactive Access policy creation', () => {
     async (stage) => {
       const fixture = setup();
       prompts.select.mockImplementation(async ({ options }) =>
-        stage === 'picker'
-          ? CANCEL_SYMBOL
-          : options.find((option: { label: string }) => option.label === 'Create in Cloudflare')
-              .value,
+        stage === 'picker' ? CANCEL_SYMBOL : selectOption(options, 'Create in Cloudflare'),
       );
       prompts.confirm.mockResolvedValue(CANCEL_SYMBOL);
       await expect(preparePlatformAccessSetup(fixture.input)).rejects.toThrow(
@@ -435,7 +432,7 @@ describe('interactive Access policy creation', () => {
   it('explains how to attach the new policy when connecting existing Access applications', async () => {
     const fixture = setup();
     prompts.select.mockImplementation(async ({ options }) => {
-      expect(options.map((option: { label: string }) => option.label)).toEqual([
+      expect(options.map((option) => option.label)).toEqual([
         'Create in Cloudflare',
         'Refresh list',
       ]);
@@ -471,8 +468,8 @@ describe('interactive Access policy creation', () => {
     );
   const action =
     (label: string) =>
-    async ({ options }: { options: Array<{ label: string; value: string }> }) =>
-      options.find((option) => option.label === label)!.value;
+    async ({ options }: SelectOptions<unknown>) =>
+      selectOption(options, label);
 
   it('creates an Allow policy for the company email domains and preselects it', async () => {
     const fixture = setup();

@@ -119,6 +119,14 @@ export function completeCloudflareLink(root: string): void {
   }
 }
 
+type LinkedWorkerPatch = Partial<
+  Pick<ExistingCloudflareWorker['runtime'], 'compatibility_date' | 'compatibility_flags' | 'limits'>
+> & {
+  account_id: string;
+  keep_vars: boolean;
+  version_metadata?: { binding: string };
+};
+
 export async function prepareExistingCloudflareDeploy(options: {
   root: string;
   configPath: string;
@@ -153,7 +161,7 @@ export async function prepareExistingCloudflareDeploy(options: {
     configPath: options.configPath,
     workerName: config.name,
   });
-  const patch: Record<string, unknown> = { account_id: options.accountId, keep_vars: true };
+  const patch: LinkedWorkerPatch = { account_id: options.accountId, keep_vars: true };
   // Native deploys may add version metadata only to their generated artifact.
   // Reuse the inspected binding when omitted; authored replacements still fail validation.
   const metadataBindings = existing.bindings.filter(
@@ -164,12 +172,13 @@ export async function prepareExistingCloudflareDeploy(options: {
     metadataBindings.length === 1 &&
     typeof metadataBindings[0].name === 'string'
   ) {
-    config.version_metadata = { binding: metadataBindings[0].name };
-    patch.version_metadata = config.version_metadata;
+    const metadata = { binding: metadataBindings[0].name };
+    config.version_metadata = metadata;
+    patch.version_metadata = metadata;
   }
   assertExistingCloudflareConfig(existing, config, false, options.approvedKv);
   let updated = text;
-  for (const key of ['compatibility_date', 'compatibility_flags', 'limits']) {
+  for (const key of ['compatibility_date', 'compatibility_flags', 'limits'] as const) {
     if (config[key] === undefined && existing.runtime[key] !== undefined) {
       patch[key] = existing.runtime[key];
     }

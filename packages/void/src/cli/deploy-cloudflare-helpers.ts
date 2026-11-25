@@ -94,14 +94,7 @@ export function discoverRootWranglerConfig(root: string): string {
  * checks the same baseline, so project code can never swap the executable under the session.
  * Injected test runners (`activateVersion` / `runWrangler`) bypass the pinned cf uploader.
  */
-function createCloudflareUploaderPins(
-  root: string,
-  deps: CloudflareDeployDeps,
-): {
-  usesCf: boolean;
-  cfUploaderIsPinned: () => boolean;
-  assertUploaderStillPinned: () => boolean;
-} {
+function createCloudflareUploaderPins(root: string, deps: CloudflareDeployDeps) {
   const usesCf = !deps.activateVersion && !deps.runWrangler;
   const hashUploader = deps.hashWranglerUploader ?? hashWranglerUploader;
   const wranglerUploaderHashBefore = hashUploader(root);
@@ -393,8 +386,14 @@ export function cloudflareCandidateActivationOptions(options: {
         }
       : undefined,
     recordVerifiedCandidate: existingWorker
-      ? (versionId) =>
-          recordCloudflareCandidate(root, pinnedHandoffLink!, existingWorker.versionId, versionId)
+      ? (versionId) => {
+          if (!pinnedHandoffLink) {
+            throw new Error(
+              'Cannot record a Cloudflare handoff candidate without its pinned link.',
+            );
+          }
+          recordCloudflareCandidate(root, pinnedHandoffLink, existingWorker.versionId, versionId);
+        }
       : (versionId, parentVersionId) => {
           if (parentVersionId) {
             recordCloudflareCandidateUpload(
@@ -446,10 +445,7 @@ function createCloudflareEmptyTriggerPublishers(options: {
   configPath: string;
   workerName: string;
   runWrangler: DeployWranglerRun;
-}): {
-  publishEmptyCustomDomains: ReturnType<typeof createCloudflareEmptyDomainPublisher>;
-  publishEmptyCrons: ReturnType<typeof createCloudflareEmptyCronPublisher>;
-} {
+}) {
   return {
     publishEmptyCustomDomains: createCloudflareEmptyDomainPublisher(options),
     publishEmptyCrons: createCloudflareEmptyCronPublisher(options),

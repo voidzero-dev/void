@@ -1306,9 +1306,13 @@ describe('writeProvisionedWranglerConfig', () => {
       consumers: Array<Record<string, unknown>>;
     };
     expect(q.producers).toHaveLength(2);
-    expect(q.producers.map((p) => p.binding).sort()).toEqual(['QUEUE_EMAILS', 'QUEUE_JOBS']);
+    expect(
+      q.producers.map((p) => p.binding).sort((a, b) => String(a).localeCompare(String(b))),
+    ).toEqual(['QUEUE_EMAILS', 'QUEUE_JOBS']);
     expect(q.consumers).toHaveLength(2);
-    expect(q.consumers.map((c) => c.queue).sort()).toEqual(['emails', 'jobs']);
+    expect(
+      q.consumers.map((c) => c.queue).sort((a, b) => String(a).localeCompare(String(b))),
+    ).toEqual(['emails', 'jobs']);
   });
 
   it('patches a matching queue entry field by field, keeping user fields and comments, and is idempotent', () => {

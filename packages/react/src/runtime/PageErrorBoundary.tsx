@@ -3,8 +3,10 @@ import type { ReactNode } from 'react';
 import { clientPageError } from 'void/pages-client';
 import type { ClientPageBoundary, ErrorPageProps } from 'void/pages-client';
 
+type ReactPageBoundary = ClientPageBoundary<React.ComponentType<ErrorPageProps>>;
+
 type Props = {
-  boundary: ClientPageBoundary;
+  boundary: ReactPageBoundary;
   generation: number;
   dev?: boolean;
   children?: ReactNode;
@@ -21,12 +23,10 @@ type BoundaryState = RecoveryState & {
 };
 
 const fallbacks = new Map<string, React.LazyExoticComponent<React.ComponentType<ErrorPageProps>>>();
-function fallbackFor(boundary: ClientPageBoundary) {
+function fallbackFor(boundary: ReactPageBoundary) {
   let fallback = fallbacks.get(boundary.id);
   if (!fallback) {
-    fallback = lazy(
-      boundary.load as () => Promise<{ default: React.ComponentType<ErrorPageProps> }>,
-    );
+    fallback = lazy(boundary.load);
     fallbacks.set(boundary.id, fallback);
   }
   return fallback;

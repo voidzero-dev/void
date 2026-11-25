@@ -1,4 +1,4 @@
-import { expectTypeOf } from 'vite-plus/test';
+import { assert, expectTypeOf } from 'vite-plus/test';
 import { defineRoom } from '../../src/runtime/ws/index.ts';
 import type { RoomActionContext } from '../../src/runtime/ws/index.ts';
 import { getRoom } from '../../src/runtime/ws/room.ts';
@@ -47,17 +47,18 @@ const definition = defineRoom({
   },
 });
 
-expectTypeOf(definition.actions!.revokeSession).toEqualTypeOf<
+assert(definition.actions);
+expectTypeOf(definition.actions.revokeSession).toEqualTypeOf<
   (
     context: RoomActionContext,
     sessionId: string,
     code: number,
   ) => { closed: number; sessionId: string }
 >();
-expectTypeOf(definition.actions!.ping).toEqualTypeOf<(context: RoomActionContext) => string>();
+expectTypeOf(definition.actions.ping).toEqualTypeOf<(context: RoomActionContext) => string>();
 
 const plain = defineRoom({ messages: { client, server } });
-expectTypeOf(plain.actions).toEqualTypeOf<{} | undefined>();
+expectTypeOf(plain.actions).toEqualTypeOf<Record<never, never> | undefined>();
 
 const room = getRoom('/relay/[accountId]', { params: { accountId: 'acct_1' } });
 expectTypeOf(room).toEqualTypeOf<RoomHandle<'/relay/[accountId]'>>();
@@ -75,6 +76,6 @@ void room.actions.revokeSession(1, 4001);
 // @ts-expect-error Action arguments are required.
 void room.actions.revokeSession('session_1');
 // @ts-expect-error Only declared actions exist.
-room.actions.missing();
+void room.actions.missing;
 // @ts-expect-error defineWebSocket() routes expose no actions.
 getRoom('/feed');

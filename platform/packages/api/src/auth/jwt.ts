@@ -39,8 +39,8 @@ const EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-function base64url(buffer: ArrayBuffer): string {
-  const binary = String.fromCharCode(...new Uint8Array(buffer));
+function base64url(bytes: Uint8Array): string {
+  const binary = String.fromCharCode(...bytes);
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
@@ -63,8 +63,8 @@ export async function signJwt(
     exp: now + ttlSeconds,
   };
 
-  const header = base64url(encoder.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).buffer);
-  const body = base64url(encoder.encode(JSON.stringify(fullPayload)).buffer);
+  const header = base64url(encoder.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+  const body = base64url(encoder.encode(JSON.stringify(fullPayload)));
   const signature = await hmacSignState(`${header}.${body}`, secret);
 
   return `${header}.${body}.${signature}`;

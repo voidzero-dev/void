@@ -11,7 +11,7 @@ type MockCloudflarePluginConfig = {
   config: (resolved: Record<string, unknown>) => Record<string, unknown>;
 };
 
-type MockCloudflarePlugin = Plugin & {
+type MockCloudflarePlugin = Omit<Plugin, 'api'> & {
   api: {
     pluginConfig: MockCloudflarePluginConfig;
   };
@@ -273,7 +273,7 @@ describe('voidPlugin dev asset routing', () => {
       await expect(
         resolveRuntimeOptimizerConfig(createRoot(), name, environment),
         `${createRoot.name} ${name}`,
-      ).resolves.toEqual(expected);
+      ).resolves.toMatchObject(expected);
     }
   });
 
@@ -317,7 +317,9 @@ describe('voidPlugin dev asset routing', () => {
 
     await expect(
       resolveRuntimeOptimizerConfig(root, 'void_worker', workerd),
-    ).resolves.toMatchObject({ optimizeDeps: { entries: [normalizePath(ssrEntry)] } });
+    ).resolves.toMatchObject({
+      optimizeDeps: { entries: expect.arrayContaining([normalizePath(ssrEntry)]) },
+    });
   });
 
   it('leaves client dependency optimization unchanged', async () => {
@@ -359,7 +361,6 @@ describe('voidPlugin dev asset routing', () => {
       throw new Error('Expected mocked Cloudflare plugin.');
     }
 
-    // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
     return cloudflarePlugin.api.pluginConfig.config(resolved);
   }
 

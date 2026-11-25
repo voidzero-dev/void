@@ -331,16 +331,15 @@ export async function replayDeploymentCutover(
   const historicalQueueNames = await persistedQueueNames(db, project.id);
   const desiredQueues = isStatic ? [] : (manifest.queues ?? []);
   const desiredQueueNames = new Set(desiredQueues.map((queue) => queue.name));
-  const desiredQueueResources = new Map<string, (typeof resources)[number]>();
-  for (const queue of desiredQueues) {
+  const desiredQueueResources = desiredQueues.map((queue) => {
     const resource = resources.find(
       (entry) => entry.type === 'queue' && entry.binding_name === queue.name,
     );
     if (!resource) {
       throw new Error(`cutover recovery is missing queue resource ${queue.name}`);
     }
-    desiredQueueResources.set(queue.name, resource);
-  }
+    return { queue, resource };
+  });
   const needsProxyToken = !isStatic && (!!manifest.schedules?.length || desiredQueues.length > 0);
   // The token the replayed Worker holds, which may be older than the issued one.
   const proxyToken = needsProxyToken
@@ -351,18 +350,20 @@ export async function replayDeploymentCutover(
   await env.ROUTING.put(projectRouteKey(project), routingJson);
   await reconcileProjectDomainRoutes(env, domains, routingJson);
   if (!isStatic && manifest.schedules?.length) {
+    if (!proxyToken) {
+      throw new Error('cutover recovery requires the Worker proxy token for schedules');
+    }
     await syncCronScheduler(env, project.id, {
       workerName,
       schedules: manifest.schedules,
-      proxyToken: proxyToken!,
+      proxyToken,
     });
   } else {
     await clearCronScheduler(env, project.id);
   }
 
   const dispatchWorkerName = env.DISPATCH_WORKER_NAME ?? 'void-dispatch';
-  for (const queue of desiredQueues) {
-    const resource = desiredQueueResources.get(queue.name)!;
+  for (const { queue, resource } of desiredQueueResources) {
     const consumer = await addQueueConsumer(
       env.CF_ACCOUNT_ID,
       env.CF_API_TOKEN,

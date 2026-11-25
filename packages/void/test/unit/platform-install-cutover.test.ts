@@ -110,7 +110,9 @@ async function createFakeCloudflare() {
   let failUpload: string | null = null;
 
   const configOf = (operation: CloudflareOperation): Record<string, unknown> | null => {
-    return operation.configPath ? JSON.parse(readFileSync(operation.configPath, 'utf8')) : null;
+    return operation.configPath
+      ? (JSON.parse(readFileSync(operation.configPath, 'utf8')) as Record<string, unknown>)
+      : null;
   };
   const workerOf = (operation: CloudflareOperation) =>
     ('workerName' in operation ? operation.workerName : undefined) ??

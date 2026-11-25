@@ -6,6 +6,13 @@ export const OPERATOR_READ_TIMEOUT_MS: number = 30_000;
 export const OPERATOR_MUTATION_TIMEOUT_MS: number = 5 * 60_000;
 export const OPERATOR_MAX_TIMEOUT_MS: number = 60 * 60_000;
 
+type OperatorErrorPayload = {
+  error: string;
+  message: string;
+  status?: number;
+  details?: unknown;
+};
+
 export class OperatorClientError extends Error {
   constructor(
     message: string,
@@ -16,7 +23,7 @@ export class OperatorClientError extends Error {
     super(message);
     this.name = 'OperatorClientError';
   }
-  toJSON(): Record<string, unknown> {
+  toJSON(): OperatorErrorPayload {
     return {
       error: this.code,
       message: this.message,

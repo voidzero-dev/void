@@ -821,16 +821,15 @@ describe('deployment asset migration', () => {
     await runOperatorCommand(
       parseOperatorArgs(['deployment', 'migrate-assets', target, '--yes', '--json']),
     );
-    expect(fetcher.mock.calls.map(([, init]) => JSON.parse(String(init!.body)))).toEqual([
+    expect(fetcher.mock.calls.map(([, init]): unknown => JSON.parse(String(init!.body)))).toEqual([
       { dryRun: true },
       { expected: 'digest-1' },
       { cursor: 'cursor-1', dryRun: true },
       { cursor: 'cursor-1', expected: 'digest-2' },
     ]);
-    expect(vi.mocked(console.log).mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
-      applied('cursor-1'),
-      applied(null),
-    ]);
+    expect(
+      vi.mocked(console.log).mock.calls.map(([line]): unknown => JSON.parse(String(line))),
+    ).toEqual([applied('cursor-1'), applied(null)]);
     expect(process.stderr.write).not.toHaveBeenCalled();
   });
   it('applies the exact resumed cursor and stops at completed migration', async () => {

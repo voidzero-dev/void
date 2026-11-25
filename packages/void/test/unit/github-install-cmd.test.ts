@@ -8,7 +8,9 @@ import { throwOnProcessExit } from '../helpers/github-cli.ts';
 // Keep openBrowser from launching a real browser.
 const mockExecFile = vi.fn();
 vi.mock('node:child_process', () => ({
-  execFile: (...args: Array<unknown>) => mockExecFile(...args),
+  execFile: (...args: Array<unknown>) => {
+    mockExecFile(...args);
+  },
 }));
 
 let exitSpy: MockInstance;

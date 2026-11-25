@@ -146,6 +146,7 @@ async function fetchWithRetry(
   if (lastResponse) {
     return lastResponse;
   }
+  // oxlint-disable-next-line typescript/only-throw-error -- Report the original fetch rejection after exhausting retries.
   throw lastError ?? new Error(`worker at ${url} never answered`);
 }
 

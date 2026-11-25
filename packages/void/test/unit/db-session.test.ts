@@ -48,7 +48,7 @@ async function loadGeneratedDb(bindingName: string): Promise<typeof runtimeDb> {
         JSON.stringify(new URL('../../src/runtime/db/session.ts', import.meta.url).href),
       ),
   );
-  return import(pathToFileURL(path).href);
+  return import(pathToFileURL(path).href) as Promise<typeof runtimeDb>;
 }
 
 // Miniflare executes real D1 SQL but does not provide controllable replica lag.
@@ -259,6 +259,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     {
       name: 'await',
       read: async (db: typeof runtimeDb.db) => {
+        // oxlint-disable-next-line typescript/await-thenable -- Await must read the proxy's then property without opening a session.
         await db;
       },
     },
@@ -283,6 +284,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     {
       name: 'custom inspection hook',
       read: (db: typeof runtimeDb.db) => {
+        // oxlint-disable-next-line quality/no-reflect-get -- Probe the runtime inspection symbol omitted from Drizzle's public type.
         Reflect.get(db, inspect.custom);
       },
     },
@@ -293,12 +295,12 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     const { withSession, env } = mockBinding();
     await withRuntimeEnv(env, async () => {
       setSession({ bookmark: BEFORE_SAVE });
-      await read(db);
+      await Promise.resolve(read(db));
       expect(withSession).not.toHaveBeenCalled();
       expect(getBookmark()).toBeNull();
       setSession({ bookmark: AFTER_SAVE });
       void db.select;
-      await read(db);
+      await Promise.resolve(read(db));
       expect(getBookmark()).toBe(AFTER_SAVE);
     });
     expect(withSession).toHaveBeenCalledExactlyOnceWith(AFTER_SAVE);
@@ -307,7 +309,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
   it('allows promise and inspection probes without request bindings', async () => {
     const { db } = await loadClient();
     for (const { read } of probes) {
-      await read(db);
+      await Promise.resolve(read(db));
     }
   });
 
@@ -317,6 +319,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
       const { db, setSession } = await loadClient();
       const { withSession, env } = mockBinding();
       withRuntimeEnv(env, () => {
+        // oxlint-disable-next-line quality/no-reflect-get -- Include Drizzle's runtime $client property in the session probe.
         void Reflect.get(db, prop);
         expect(() => setSession({ bookmark: AFTER_SAVE })).toThrow('createDb');
       });
@@ -509,5 +512,5 @@ it('starts each published db access on primary outside a Void request scope', ()
     void runtimeDb.db.select;
   });
   expect(withSession.mock.calls).toEqual([['first-primary'], ['first-primary'], ['first-primary']]);
-  expect(new Set(withSession.mock.results.map((result) => result.value)).size).toBe(3);
+  expect(new Set(withSession.mock.results.map((result): unknown => result.value)).size).toBe(3);
 });

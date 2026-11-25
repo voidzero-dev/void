@@ -44,9 +44,18 @@ async function main() {
 
   // The release publishes the scaffolder and CLI at the same version. Preserve
   // that exact version, including prereleases, instead of switching to latest.
-  const { version: voidVersion } = JSON.parse(
+  const manifest: unknown = JSON.parse(
     readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-  ) as { version: string };
+  );
+  if (
+    !manifest ||
+    typeof manifest !== 'object' ||
+    !('version' in manifest) ||
+    typeof manifest.version !== 'string'
+  ) {
+    throw new Error('create-void: The package manifest is missing its version.');
+  }
+  const voidVersion = manifest.version;
 
   mkdirSync(targetDir, { recursive: true });
 

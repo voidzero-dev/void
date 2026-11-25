@@ -84,7 +84,10 @@ export function ensurePlatformAccessToken(
   const account = platformCredentialAccount(origin);
   if (!keyringTokens.has(origin)) {
     if (keyringTokens.size >= 64) {
-      keyringTokens.delete(keyringTokens.keys().next().value!);
+      const oldest = keyringTokens.keys().next();
+      if (!oldest.done) {
+        keyringTokens.delete(oldest.value);
+      }
     }
     keyringTokens.set(origin, readKeyringPassword(ACCESS_KEYRING_SERVICE, account));
   }

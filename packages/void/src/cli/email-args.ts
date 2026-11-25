@@ -73,11 +73,7 @@ export interface EmailArgs {
  * option — the same rule `parseArgs` applies for `void deploy`, so `--platform --limit 3`
  * is a missing value, not a value of `--limit`.
  */
-function readFlagValue(
-  rest: ReadonlyArray<string>,
-  i: number,
-  flag: string,
-): { value: string | undefined; next: number } {
+function readFlagValue(rest: ReadonlyArray<string>, i: number, flag: string) {
   const token = rest[i];
   if (token.startsWith(`${flag}=`)) {
     return { value: token.slice(flag.length + 1), next: i };

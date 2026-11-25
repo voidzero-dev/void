@@ -965,7 +965,9 @@ describe('POST /webhooks/github', () => {
       repository_selection: 'selected',
     });
     expect(
-      (await getGitHubInstallation(env.db, '9030'))!.repositories.map((r) => r.id).sort(),
+      (await getGitHubInstallation(env.db, '9030'))!.repositories
+        .map((r) => r.id)
+        .sort((a, b) => a - b),
     ).toEqual([1, 2]);
     // Redelivered ORIGINAL created (only [A]) — must NOT roll the cache back to [A].
     const res = await post(app, appEnv, 'installation', {
@@ -979,7 +981,7 @@ describe('POST /webhooks/github', () => {
     });
     expect(res.status).toBe(200);
     const after = await getGitHubInstallation(env.db, '9030');
-    expect(after!.repositories.map((r) => r.id).sort()).toEqual([1, 2]);
+    expect(after!.repositories.map((r) => r.id).sort((a, b) => a - b)).toEqual([1, 2]);
     expect(after!.repository_selection).toBe('selected');
   });
 
@@ -1073,7 +1075,7 @@ describe('POST /webhooks/github', () => {
 
     expect(res.status).toBe(200);
     const installation = await getGitHubInstallation(env.db, '9003');
-    const ids = installation!.repositories.map((r) => r.id).sort();
+    const ids = installation!.repositories.map((r) => r.id).sort((a, b) => a - b);
     expect(ids).toEqual([2, 3]);
     expect(installation!.repository_selection).toBe('selected');
   });

@@ -13,14 +13,29 @@ import {
 import type { PlatformCloudflareClient } from '../../src/cli/platform-cloudflare.ts';
 import { parsePlatformConfigArgs } from '../../src/cli/platform-config-args.ts';
 
+type OperatorRequest = import('../../src/cli/operator-client.ts').OperatorClient['request'];
+type PrepareAccess =
+  typeof import('../../src/cli/platform-access-setup.ts').preparePlatformAccessSetup;
+
 const state = vi.hoisted(() => ({
   currentLifecycleVersion: 'lifecycle-v1',
   databaseReleases: 0,
   events: [] as Array<string>,
   manifest: undefined as unknown,
-  operatorRequest: vi.fn(),
+  operatorRequest:
+    vi.fn<
+      (
+        path: string,
+        options: NonNullable<Parameters<OperatorRequest>[1]>,
+      ) => ReturnType<OperatorRequest>
+    >(),
   originVerificationRuns: 0,
-  prepareAccess: vi.fn(),
+  prepareAccess:
+    vi.fn<
+      (
+        input: Parameters<PrepareAccess>[0],
+      ) => Promise<Pick<NonNullable<Awaited<ReturnType<PrepareAccess>>>, 'protection'>>
+    >(),
   previewOpen: false,
   raceArmed: false,
   revision: 1,
@@ -37,7 +52,7 @@ vi.mock('../../src/cli/operator-auth.ts', () => ({
 
 vi.mock('../../src/cli/operator-client.ts', () => ({
   OperatorClient: class {
-    request(path: string, options?: Record<string, unknown>) {
+    request(path: string, options?: Parameters<OperatorRequest>[1]) {
       return state.operatorRequest(path, options ?? {});
     }
   },
@@ -52,7 +67,7 @@ vi.mock('../../src/cli/platform-access-setup.ts', async (importOriginal) => {
       _encoded: string | undefined,
       updatedAt: string,
     ) => ({ ...current, updatedAt }),
-    preparePlatformAccessSetup: (...args: Array<unknown>) => state.prepareAccess(...args),
+    preparePlatformAccessSetup: (input: Parameters<PrepareAccess>[0]) => state.prepareAccess(input),
   };
 });
 
@@ -180,7 +195,6 @@ beforeEach(() => {
   state.raceArmed = false;
   state.revision = 1;
   state.prepareAccess.mockReset().mockImplementation(async (input) => {
-    // oxlint-disable-next-line typescript/no-unsafe-call -- Call the persistence callback captured by the setup mock.
     input.save({ accessProvisioningJson: '{"version":1}' });
     process.env.VOID_ACCESS_CREDENTIALS = JSON.stringify({
       [origins[0]]: {
@@ -381,7 +395,7 @@ describe('platform protection configuration', () => {
     await verifyProtectionWorkerOrigins(fixture, manifest, origins, true);
     const changes = fixture.calls.mock.calls.filter(([, init]) => init?.method === 'POST');
     expect(changes).toHaveLength(2);
-    expect(changes.map(([, init]) => JSON.parse(init!.body as string))).toEqual([
+    expect(changes.map(([, init]): unknown => JSON.parse(init!.body as string))).toEqual([
       { enabled: false, previews_enabled: false },
       { enabled: false, previews_enabled: false },
     ]);
@@ -397,7 +411,7 @@ describe('platform protection configuration', () => {
     expect(
       fixture.calls.mock.calls
         .filter(([, init]) => init?.method === 'POST')
-        .map(([, init]) => JSON.parse(init!.body as string)),
+        .map(([, init]): unknown => JSON.parse(init!.body as string)),
     ).toEqual([
       { enabled: true, previews_enabled: false },
       { enabled: true, previews_enabled: false },

@@ -1157,7 +1157,9 @@ describe('project team API', () => {
         ),
       ]);
 
-      expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+      expect(responses.map((response) => response.status).sort((a, b) => a - b)).toEqual([
+        200, 409,
+      ]);
       expect(await liveInvitationCount(project.id)).toBe(100);
       expect(await env.db.select().from(projectAccessEvents)).toHaveLength(1);
     });
