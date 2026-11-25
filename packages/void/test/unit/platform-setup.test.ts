@@ -45,7 +45,10 @@ function plan(domain = ''): PlatformInstallPlan {
 }
 
 function permissionGroupKeys(url: string): Array<{ key: string; type: string }> {
-  return JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!);
+  return JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!) as Array<{
+    key: string;
+    type: string;
+  }>;
 }
 
 describe('platform credential setup links', () => {

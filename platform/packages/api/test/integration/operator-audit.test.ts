@@ -426,7 +426,9 @@ test('records the project scope of a proxy token rotation and nothing for its pr
   expect((await request('/system/rotate-proxy-tokens', { all: true })).status).toBe(207);
 
   const events = await env.db.select().from(operatorEvents);
-  expect(events.map((event) => [event.action, JSON.parse(event.target), event.status])).toEqual(
+  expect(
+    events.map((event) => [event.action, JSON.parse(event.target) as unknown, event.status]),
+  ).toEqual(
     expect.arrayContaining([
       ['system/rotate-proxy-tokens', { projects: project.id }, 'success'],
       ['system/rotate-proxy-tokens', { projects: 'all' }, 'success'],

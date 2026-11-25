@@ -295,7 +295,6 @@ const config = defineConfig({
         ],
         rules: {
           'quality/no-chained-type-assertions': 'off',
-          'typescript/no-unsafe-return': 'off',
           'unicorn/consistent-function-scoping': 'off',
         },
       },
@@ -303,15 +302,6 @@ const config = defineConfig({
         // TypeScript checks these compile-only fixtures, including deliberate invalid calls.
         files: ['**/*.typecheck.ts'],
         rules: { 'typescript/no-unsafe-call': 'off' },
-      },
-      {
-        files: [
-          'platform/packages/dispatch/test/**/*',
-          'packages/void/test/unit/{auth-login,deploy-auth,domain-command,github-connect-cmd,github-install-cmd,login-command}.test.ts',
-          'packages/void/test/unit/{db-commands,db-execute-d1-large-file,db-execute-remote,db-migrate,db-seed,gen}.test.ts',
-          'packages/void/test/unit/{create-project,deploy-email-platform-path,deploy-project-setup,init,link,project-lookup-client}.test.ts',
-        ],
-        rules: { 'typescript/no-unsafe-return': 'error' },
       },
       {
         // Guard explicit any in TypeScript tests as well as production.

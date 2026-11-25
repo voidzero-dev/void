@@ -158,7 +158,7 @@ async function planDefaults() {
 function hookNextTransaction(hook: () => Promise<void>) {
   let armed = false;
   const db = new Proxy(env.db, {
-    get(target, property) {
+    get(target, property): unknown {
       if (property === 'transaction') {
         return async (...args: Parameters<typeof target.transaction>) => {
           if (armed) {

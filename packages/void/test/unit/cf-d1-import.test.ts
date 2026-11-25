@@ -29,7 +29,7 @@ it('resumes an already uploaded import without uploading or ingesting twice', as
     .mockResolvedValueOnce(response({ status: 'complete', success: true }));
   vi.stubGlobal('fetch', fetch);
   await importD1SqlFile(fixture());
-  expect(fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+  expect(fetch.mock.calls.map(([, init]): unknown => JSON.parse(String(init?.body)))).toEqual([
     { action: 'init', etag },
     { action: 'poll', current_bookmark: 'current' },
   ]);

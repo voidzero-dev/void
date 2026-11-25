@@ -221,7 +221,7 @@ describe('deployment compensation during Zero Trust changes', () => {
       const deploymentPlatform = {
         ...platform,
         ROUTING: new Proxy(env.ROUTING, {
-          get(target, property, receiver) {
+          get(target, property, receiver): unknown {
             if (property !== 'get') {
               // oxlint-disable-next-line quality/no-reflect-get -- Preserve the KV receiver for forwarded properties.
               return Reflect.get(target, property, receiver);

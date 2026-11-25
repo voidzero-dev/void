@@ -123,10 +123,13 @@ it('installs the tested Vite+ pair even when newer CLI and core releases are ava
       clearTimeout(timeout);
     }
     const installed = (name: string) =>
-      JSON.parse(readFileSync(join(project, 'node_modules', name, 'package.json'), 'utf8'));
+      JSON.parse(readFileSync(join(project, 'node_modules', name, 'package.json'), 'utf8')) as {
+        version: string;
+        dependencies?: Record<string, string>;
+      };
     expect(installed('vite-plus').version).toBe(tested.version);
     expect(installed('vite').version).toBe(coreVersion);
-    expect(installed('vite-plus').dependencies.vite).toBe(
+    expect(installed('vite-plus').dependencies?.vite).toBe(
       `npm:${coreName}@${installed('vite').version}`,
     );
   } finally {

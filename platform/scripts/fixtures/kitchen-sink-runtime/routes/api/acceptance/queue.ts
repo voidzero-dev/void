@@ -33,5 +33,5 @@ export const GET = defineHandler(async (c) => {
   )
     .bind(queueResultKey(run))
     .all<{ value: string }>();
-  return c.json({ run, observations: rows.results.map(({ value }) => JSON.parse(value)) });
+  return c.json({ run, observations: rows.results.map(({ value }): unknown => JSON.parse(value)) });
 });

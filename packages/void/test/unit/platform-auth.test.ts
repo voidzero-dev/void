@@ -1,5 +1,8 @@
 import { assert, afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import type { CloudflareAuthRunResult } from '../../src/cli/cloudflare-auth.ts';
+import type {
+  CloudflareAuthRunResult,
+  CloudflareAuthRunner,
+} from '../../src/cli/cloudflare-auth.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
   readWranglerOAuthCredential,
@@ -456,7 +459,7 @@ describe('platform authentication during input', () => {
   it('waits for the name before opening browser login', async () => {
     const input = deferred<string>();
     const runWrangler = vi
-      .fn()
+      .fn<CloudflareAuthRunner>()
       .mockResolvedValueOnce({ ...success, status: 1 })
       .mockResolvedValueOnce(success)
       .mockResolvedValueOnce(oauth);

@@ -596,6 +596,12 @@ function agentRequest(
   });
 }
 
+type SocketMessage = { type: string; line?: string };
+
+function readSocketMessages(socket: FakeWebSocket): Array<SocketMessage> {
+  return socket.sent.map((message) => JSON.parse(message) as SocketMessage);
+}
+
 // Provide WebSocketPair as a global for the upgrade path.
 class FakeWebSocketPair {
   0 = new FakeWebSocket();
@@ -640,7 +646,7 @@ beforeEach(() => {
       if (init?.status === 101) {
         return new FakeUpgradeResponse(args[0], init);
       }
-      return Reflect.construct(target, args, target);
+      return Reflect.construct(target, args, target) as InstanceType<typeof target>;
     },
   });
 });
@@ -2847,7 +2853,7 @@ describe('BuildManager log ingest + WebSocket replay', () => {
     expect(upgrade.status).toBe(101);
     const server = ctx._sockets[0];
     expect(server).toBeDefined();
-    const messages = server.sent.map((s) => JSON.parse(s));
+    const messages = readSocketMessages(server);
     expect(messages[0]).toMatchObject({ type: 'log', line: 'installing deps' });
     expect(messages[1]).toMatchObject({ type: 'log', line: 'build done' });
     expect(messages[2]).toEqual({ type: 'caught_up' });
@@ -2878,7 +2884,7 @@ describe('BuildManager log ingest + WebSocket replay', () => {
     // WS replay loads the bounded table (not an unbounded set).
     await m.fetch(new Request('https://manager/', { headers: { Upgrade: 'websocket' } }));
     const server = ctx._sockets[0];
-    const logMsgs = server.sent.map((s) => JSON.parse(s)).filter((msg) => msg.type === 'log');
+    const logMsgs = readSocketMessages(server).filter((msg) => msg.type === 'log');
     expect(logMsgs.length).toBe(MAX_STORED_LOG_LINES);
   });
 
@@ -2897,7 +2903,7 @@ describe('BuildManager log ingest + WebSocket replay', () => {
       { line: 'live line', stream: 'stderr', ts: 3 } as unknown as LogRow,
     ]);
 
-    const live = server.sent.map((s) => JSON.parse(s));
+    const live = readSocketMessages(server);
     expect(live.some((msg) => msg.type === 'log' && msg.line === 'live line')).toBe(true);
   });
 
@@ -3278,7 +3284,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
     // Lines ingested into SQLite (seq stripped before insert) + broadcast over WS.
     expect(ctx._logs.map((r) => r.line)).toEqual(['installing deps', 'compiling']);
-    const broadcast = server.sent.map((s) => JSON.parse(s));
+    const broadcast = readSocketMessages(server);
     expect(broadcast.some((m) => m.type === 'log' && m.line === 'installing deps')).toBe(true);
     expect(broadcast.some((m) => m.type === 'log' && m.line === 'compiling')).toBe(true);
 
@@ -5149,7 +5155,7 @@ describe('BuildManager.ingestLines (the pull-loop sink)', () => {
     ]);
 
     expect(ctx._logs.map((r) => r.line)).toEqual(['a', 'b']);
-    const sent = server.sent.map((s) => JSON.parse(s));
+    const sent = readSocketMessages(server);
     expect(sent).toContainEqual({ type: 'log', line: 'a', stream: 'stdout', ts: 1 });
     expect(sent).toContainEqual({ type: 'log', line: 'b', stream: 'stderr', ts: 2 });
   });

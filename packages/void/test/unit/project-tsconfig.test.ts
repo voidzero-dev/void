@@ -23,7 +23,10 @@ describe('ensureProjectTsconfig', () => {
   });
 
   function readTsconfig() {
-    return JSON.parse(readFileSync(join(root, '.void', 'tsconfig.json'), 'utf8'));
+    return JSON.parse(readFileSync(join(root, '.void', 'tsconfig.json'), 'utf8')) as {
+      files: Array<string>;
+      compilerOptions: { paths: Record<string, Array<string>> };
+    };
   }
 
   it('uses sourceDir conventions for route, queue, and schema paths', () => {

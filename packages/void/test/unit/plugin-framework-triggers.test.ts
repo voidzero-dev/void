@@ -63,7 +63,11 @@ async function loadDevTrigger(root: string): Promise<DevTrigger> {
       rollupOptions: { output: { entryFileNames: 'dev-triggers.mjs' } },
     },
   });
-  return (await import(pathToFileURL(join(outDir, 'dev-triggers.mjs')).href)).handleDevTrigger;
+  return (
+    (await import(pathToFileURL(join(outDir, 'dev-triggers.mjs')).href)) as {
+      handleDevTrigger: DevTrigger;
+    }
+  ).handleDevTrigger;
 }
 
 function triggerRequest(kind: 'scheduled' | 'queue', payload: unknown): Request {

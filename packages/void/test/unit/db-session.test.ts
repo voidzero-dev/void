@@ -48,7 +48,7 @@ async function loadGeneratedDb(bindingName: string): Promise<typeof runtimeDb> {
         JSON.stringify(new URL('../../src/runtime/db/session.ts', import.meta.url).href),
       ),
   );
-  return import(pathToFileURL(path).href);
+  return import(pathToFileURL(path).href) as Promise<typeof runtimeDb>;
 }
 
 // Miniflare executes real D1 SQL but does not provide controllable replica lag.
@@ -512,5 +512,5 @@ it('starts each published db access on primary outside a Void request scope', ()
     void runtimeDb.db.select;
   });
   expect(withSession.mock.calls).toEqual([['first-primary'], ['first-primary'], ['first-primary']]);
-  expect(new Set(withSession.mock.results.map((result) => result.value)).size).toBe(3);
+  expect(new Set(withSession.mock.results.map((result): unknown => result.value)).size).toBe(3);
 });

@@ -249,7 +249,7 @@ describe('operator email domain management', () => {
     expect(
       (
         await env.db.select().from(operatorEvents).where(eq(operatorEvents.action, 'email/domains'))
-      ).map((event) => JSON.parse(event.target)),
+      ).map((event): unknown => JSON.parse(event.target)),
     ).toContainEqual({ domain: 'brand.example.com', project: project.slug, outboundOnly: true });
 
     expect((await request('/email/domains/brand.example.com/remove', {})).status).toBe(200);

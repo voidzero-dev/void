@@ -11,7 +11,7 @@ type MockCloudflarePluginConfig = {
   config: (resolved: Record<string, unknown>) => Record<string, unknown>;
 };
 
-type MockCloudflarePlugin = Plugin & {
+type MockCloudflarePlugin = Omit<Plugin, 'api'> & {
   api: {
     pluginConfig: MockCloudflarePluginConfig;
   };
@@ -361,7 +361,6 @@ describe('voidPlugin dev asset routing', () => {
       throw new Error('Expected mocked Cloudflare plugin.');
     }
 
-    // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
     return cloudflarePlugin.api.pluginConfig.config(resolved);
   }
 

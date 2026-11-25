@@ -244,11 +244,13 @@ type MySqlDb = {
 };
 
 /** Load the MySQL void/db module with drizzle's own driver and mysql2. */
-async function loadMySqlDbModule(): Promise<{
+type MySqlDbModule = {
   db: MySqlDb;
   createDb(connectionString: string): MySqlDb;
   sql(strings: TemplateStringsArray): unknown;
-}> {
+};
+
+async function loadMySqlDbModule(): Promise<MySqlDbModule> {
   const root = createProjectRoot();
   const plugin = drizzlePlugin(root, false, 'mysql', { forceVirtualDb: true });
   const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
@@ -257,7 +259,9 @@ async function loadMySqlDbModule(): Promise<{
     (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
   );
   writeFileSync(join(root, 'virtual-db.mjs'), code);
-  return import(`${pathToFileURL(join(root, 'virtual-db.mjs')).href}?test=${crypto.randomUUID()}`);
+  return import(
+    `${pathToFileURL(join(root, 'virtual-db.mjs')).href}?test=${crypto.randomUUID()}`
+  ) as Promise<MySqlDbModule>;
 }
 
 afterEach(() => {

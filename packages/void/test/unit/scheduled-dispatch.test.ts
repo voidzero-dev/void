@@ -59,7 +59,7 @@ function compileNativeScheduled(jobsDir: string, load: LoadJob): Scheduled {
     'load',
     source.replace('export async function', 'async function').replaceAll('import(', 'load(') +
       '\nreturn scheduled;',
-  )(load);
+  )(load) as Scheduled;
 }
 
 it('authenticates framework cron HTTP requests while leaving native events usable', async () => {

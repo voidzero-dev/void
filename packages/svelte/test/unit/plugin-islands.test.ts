@@ -264,9 +264,8 @@ describe('islandsPlugin — island style loader', () => {
             };
           }
           // oxlint-disable-next-line quality/no-reflect-get -- Delegate Vite plugin context members to the original context.
-          const value = Reflect.get(target, key, target);
-          // oxlint-disable-next-line typescript/no-unsafe-call -- The proxy delegates the original method to its receiver with the fixture arguments.
-          return typeof value === 'function' ? value.bind(target) : value;
+          const value: unknown = Reflect.get(target, key, target);
+          return typeof value === 'function' ? (value.bind(target) as unknown) : value;
         },
       });
       return handler.call(context, id);

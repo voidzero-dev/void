@@ -15,19 +15,19 @@ import { listSavedPlatformInstallPlans } from '../../src/cli/platform-saved-plan
 type Prompts = typeof import('@voidzero-dev/vite-plus-prompts');
 
 const mocks = vi.hoisted(() => ({
-  confirm: vi.fn(),
+  confirm: vi.fn<Prompts['confirm']>(),
   multiselect: vi.fn(),
-  note: vi.fn(),
-  select: vi.fn(),
+  note: vi.fn<Prompts['note']>(),
+  select: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').select<string>>(),
   text: vi.fn<Prompts['text']>(),
   plan: vi.fn(),
 }));
 
 function notesWithoutColors(): Array<[string, string]> {
-  return mocks.note.mock.calls.map(([message, title]) => [
-    stripVTControlCharacters(message),
-    stripVTControlCharacters(title),
-  ]);
+  return mocks.note.mock.calls.map(([message, title]) => {
+    assert(typeof message === 'string' && typeof title === 'string');
+    return [stripVTControlCharacters(message), stripVTControlCharacters(title)];
+  });
 }
 vi.mock('@voidzero-dev/vite-plus-prompts', async (original) => ({
   ...(await original<typeof import('@voidzero-dev/vite-plus-prompts')>()),
@@ -37,7 +37,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', async (original) => ({
       ? Promise.resolve(false)
       : mocks.confirm(input),
   multiselect: mocks.multiselect,
-  select: (input: { message: string }) =>
+  select: (input: Parameters<typeof mocks.select>[0]) =>
     input.message === 'Who should be able to access deployed apps?'
       ? Promise.resolve('public')
       : mocks.select(input),

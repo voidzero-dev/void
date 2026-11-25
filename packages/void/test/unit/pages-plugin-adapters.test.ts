@@ -161,7 +161,10 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
     await handler(plugin.buildStart)();
     const events = new Map<string, (path: string) => Promise<void>>();
     const moduleIds = ['\0virtual:void-pages-renderer', '\0virtual:void-pages-client'];
-    const invalidations = [vi.fn(), vi.fn()];
+    const invalidations = [
+      vi.fn<(module: { id: string }) => void>(),
+      vi.fn<(module: { id: string }) => void>(),
+    ];
     plugin.configureServer({
       watcher: {
         on(event: string, callback: (path: string) => Promise<void>) {

@@ -54,7 +54,7 @@ export const PROJECT_SECRET_KEYS_JSON = JSON.stringify({
 /** Override transactions on one database view while forwarding all other reads. */
 export function withTestTransaction(database: Db, transaction: Db['transaction']): Db {
   return new Proxy(database, {
-    get(target, property, receiver) {
+    get(target, property, receiver): unknown {
       if (property === 'transaction') {
         return transaction;
       }
@@ -1976,5 +1976,5 @@ export async function readAllEvents(res: Response): Promise<Array<unknown>> {
   return text
     .split('\n')
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line));
+    .map((line): unknown => JSON.parse(line));
 }

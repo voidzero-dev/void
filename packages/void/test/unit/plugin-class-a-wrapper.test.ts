@@ -535,7 +535,7 @@ export default defineEnv({
     return { root, wrapperPath, dev, build: readFileSync(wrapperPath, 'utf8') };
   }
 
-  const MISSING_VALUES = [
+  const MISSING_VALUES: Array<{ path: string; expected: unknown }> = [
     { path: '/', expected: '200 ok' },
     { path: '/SCHEMA_DEFAULT', expected: '200 {"SCHEMA_DEFAULT":48213}' },
     { path: '/STRIPE_KEY', expected: expect.stringMatching(/^500 Invalid env "STRIPE_KEY"/) },
@@ -583,7 +583,9 @@ registerHooks({
         '}\n' +
         'process.stdout.write(JSON.stringify(results));\n',
     );
-    return JSON.parse(execFileSync(process.execPath, [runner], { cwd: root, encoding: 'utf8' }));
+    return JSON.parse(
+      execFileSync(process.execPath, [runner], { cwd: root, encoding: 'utf8' }),
+    ) as Array<string>;
   }
 
   /** Bundle a wrapper for workerd and answer each request there, with `bindings` as its env. */
@@ -667,7 +669,7 @@ export default {
         ...VALID_VALUES.map((request) => ({ ...request, env: VALID_ENV })),
       ];
       expect(fetchInNode(app.root, app[mode], requests)).toEqual(
-        requests.map(({ expected }) => expected),
+        requests.map(({ expected }): unknown => expected),
       );
     },
   );

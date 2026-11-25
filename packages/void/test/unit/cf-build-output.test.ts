@@ -1385,7 +1385,7 @@ serialIt.skipIf(process.platform === 'win32')(
     const calls = readFileSync(log, 'utf8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line));
+      .map((line): unknown => JSON.parse(line));
     expect(calls[0]).toEqual([
       'build',
       '--platform',

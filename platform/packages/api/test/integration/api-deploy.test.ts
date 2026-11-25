@@ -261,7 +261,7 @@ function parseDeployStream(text: string): Array<unknown> {
   return text
     .split('\n')
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line));
+    .map((line): unknown => JSON.parse(line));
 }
 
 type DeployEvent = { event: string } & Record<string, unknown>;

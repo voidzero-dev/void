@@ -7843,8 +7843,12 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
     const { deps, exitCalls } = harness();
     await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
     expect(exitCalls).toEqual([]);
-    const readLockedQueues = () =>
-      JSON.parse(readFileSync(join(root, 'void.lock.json'), 'utf8')).resolved.queues;
+    const readLockedQueues = () => {
+      const lock = JSON.parse(readFileSync(join(root, 'void.lock.json'), 'utf8')) as {
+        resolved: { queues: { consumers: unknown } };
+      };
+      return lock.resolved.queues;
+    };
     expect(readLockedQueues().consumers).toEqual([{ queue: 'skapp-email', max_concurrency: 2 }]);
 
     writeFileSync(join(root, 'queues/email.ts'), 'export default async () => {};');

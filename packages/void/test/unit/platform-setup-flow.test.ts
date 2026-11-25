@@ -44,9 +44,9 @@ type InstallPlatform = typeof import('../../src/cli/platform-installer.ts').inst
 type PlanPlatform = typeof import('../../src/cli/platform-plan.ts').createPlatformInstallPlan;
 
 const mocks = vi.hoisted(() => ({
-  confirm: vi.fn(),
+  confirm: vi.fn<Prompts['confirm']>(),
   multiselect: vi.fn<Prompts['multiselect']>(),
-  select: vi.fn(),
+  select: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').select<string>>(),
   text: vi.fn<Prompts['text']>(),
   password: vi.fn<Prompts['password']>(),
   operatorCredential: vi.fn(),
@@ -78,7 +78,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', async (original) => ({
       ? Promise.resolve(false)
       : mocks.confirm(input),
   multiselect: mocks.multiselect,
-  select: (input: { message: string; options: Array<{ value: string }> }) =>
+  select: (input: Parameters<typeof mocks.select>[0]) =>
     input.message === 'Who should be able to access deployed apps?'
       ? Promise.resolve('public')
       : input.message === 'How should Void set up Hyperdrive?'

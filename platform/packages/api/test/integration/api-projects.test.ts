@@ -4280,13 +4280,13 @@ describe('POST /projects — owner email destination auto-add', () => {
         originalTransaction((tx) =>
           cb(
             new Proxy(tx as object, {
-              get(target, key, receiver) {
+              get(target, key, receiver): unknown {
                 // oxlint-disable-next-line quality/no-reflect-get -- Forward the transaction query and preserve the receiver.
                 const value = Reflect.get(target, key, receiver);
                 if (key !== 'query' || typeof value !== 'function') {
                   return value;
                 }
-                return (...args: Array<unknown>) => {
+                return (...args: Array<unknown>): unknown => {
                   observe(textOf(args[0]));
                   // oxlint-disable-next-line typescript/no-unsafe-call -- The proxy delegates the original method to its receiver with the fixture arguments.
                   return value.apply(target, args);

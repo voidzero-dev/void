@@ -5,21 +5,29 @@ import { Buffer } from '../../src/cli/node-buffer.ts';
 import type { DeployManifest } from '../../src/cli/types.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 
-const spawnSyncMock = vi.hoisted(() => vi.fn());
+const spawnSyncMock = vi.hoisted(() =>
+  vi.fn<
+    (
+      command: string,
+      args: Array<string>,
+      options: import('node:child_process').SpawnSyncOptionsWithStringEncoding,
+    ) => { status: number; stdout: string }
+  >(),
+);
 const accessKeyring = vi.hoisted(() => ({
   read: vi.fn((): string | null => null),
   write: vi.fn(() => true),
 }));
 vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:child_process')>()),
-  spawnSync: (...args: Array<unknown>) => spawnSyncMock(...args),
+  spawnSync: (...args: Parameters<typeof spawnSyncMock>) => spawnSyncMock(...args),
 }));
 vi.mock('../../src/cli/keyring.ts', () => ({
   readKeyringPassword: accessKeyring.read,
   writeKeyringPassword: accessKeyring.write,
 }));
 
-const fetchMock = vi.fn();
+const fetchMock = vi.fn<typeof fetch>();
 let originalFetch: typeof globalThis.fetch | undefined;
 
 beforeEach(() => {
@@ -308,7 +316,7 @@ describe('PlatformClient.finalizeDeploy', () => {
   function makeCliLog() {
     return {
       info: vi.fn(),
-      warn: vi.fn(),
+      warn: vi.fn<import('../../src/cli/log-file.ts').CliLogger['warn']>(),
       error: vi.fn(),
       debug: vi.fn(),
       path: '/tmp/test.jsonl',
@@ -458,8 +466,8 @@ describe('PlatformClient.finalizeDeploy', () => {
   }
 
   const idempotencyKeys = () =>
-    deployPostCalls().map(
-      ([, init]) => (init.headers as Record<string, string>)['x-void-deploy-idempotency-key'],
+    deployPostCalls().map(([, init]) =>
+      new Headers(init?.headers).get('x-void-deploy-idempotency-key'),
     );
 
   it('retries a headers timeout with the same idempotency key, then rethrows it', async () => {
@@ -647,8 +655,8 @@ describe('PlatformClient.finalizeDeploy', () => {
       await vi.runAllTimersAsync();
       await first;
       await collectDeploy();
-      const keys = fetchMock.mock.calls.map(
-        ([, init]) => (init.headers as Record<string, string>)['x-void-deploy-idempotency-key'],
+      const keys = fetchMock.mock.calls.map(([, init]) =>
+        new Headers(init?.headers).get('x-void-deploy-idempotency-key'),
       );
       expect(keys[0]).toMatch(/^[a-f0-9-]{36}$/);
       expect(keys[1]).toBe(keys[0]);
@@ -1171,11 +1179,11 @@ describe('PlatformClient Cloudflare Access challenge renewal', () => {
       'manual',
       'manual',
     ]);
-    const firstHeaders = fetchMock.mock.calls[0]?.[1].headers as Record<string, string>;
-    const secondHeaders = fetchMock.mock.calls[1]?.[1].headers as Record<string, string>;
-    expect(firstHeaders['cf-access-token']).toBe(stale);
-    expect(secondHeaders['cf-access-token']).toBe(fresh);
-    expect(secondHeaders['CF-Access-Client-Id']).toBeUndefined();
+    const firstHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    const secondHeaders = new Headers(fetchMock.mock.calls[1]?.[1]?.headers);
+    expect(firstHeaders.get('cf-access-token')).toBe(stale);
+    expect(secondHeaders.get('cf-access-token')).toBe(fresh);
+    expect(secondHeaders.has('CF-Access-Client-Id')).toBe(false);
     expect(fetchMock.mock.calls.some(([url]) => url === challengeLocation)).toBe(false);
   });
 

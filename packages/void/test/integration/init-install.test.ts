@@ -33,11 +33,11 @@ process.exitCode = process.argv.includes('--version') ? 0 : ${status};
   }
 }
 
-function calls(): Array<{ command: string; args: Array<string>; cwd: string }> {
+function calls(): Array<unknown> {
   return readFileSync(callsFile, 'utf8')
     .trim()
     .split('\n')
-    .map((line) => JSON.parse(line));
+    .map((line): unknown => JSON.parse(line));
 }
 
 /** What init has printed in this test, without colors. */

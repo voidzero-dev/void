@@ -255,15 +255,17 @@ describe('worker fetch runtime behavior', () => {
   });
 });
 
+type EvaluatedClient = {
+  fetch: (path: string, options?: Record<string, unknown>) => Promise<unknown>;
+  FetchError: typeof RuntimeFetchError;
+};
+
 function evaluateClient(
   compile: typeof compileWorkerClient,
   fetch: (...args: Array<unknown>) => Promise<Response>,
   env: Record<string, unknown>,
   requestContext: Pick<AsyncLocalStorage<unknown>, 'getStore'>,
-): {
-  fetch: (path: string, options?: Record<string, unknown>) => Promise<unknown>;
-  FetchError: typeof RuntimeFetchError;
-} {
+): EvaluatedClient {
   const code = compile('/auth.mjs')
     .replaceAll(/^(import .*|export \{.*)\n/gm, '')
     .replaceAll('export ', '');
@@ -275,7 +277,7 @@ function evaluateClient(
     'createServerFetch',
     'FetchError',
     code + '\nreturn { fetch, FetchError };',
-  )({ fetch }, env, requestContext, createServerFetch, RuntimeFetchError);
+  )({ fetch }, env, requestContext, createServerFetch, RuntimeFetchError) as EvaluatedClient;
 }
 
 describe.each([false, true])('server fetch documented options (nodeTarget: %s)', (nodeTarget) => {
