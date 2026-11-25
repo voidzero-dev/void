@@ -58,6 +58,7 @@ import {
   runSqliteStatements,
   splitSqliteStatements,
 } from './db-execute-results.ts';
+import type { MySqlServerMode } from './db-execute-results.ts';
 import type { StatementResult } from './db-execute-results.ts';
 import {
   assertPgExportableSchema,
@@ -945,6 +946,19 @@ async function executeExternalSql(
     return;
   }
   const { createConnection } = await import('mysql2/promise');
+  // Grouping a CALL's results reads the SQL the way this server does: its sql_mode decides
+  // what a backslash means, and its version and family which executable comments run. The
+  // query runs on a connection of its own, so the session the SQL runs in stays untouched
+  // (FOUND_ROWS(), ROW_COUNT(), warnings). A SET of sql_mode in the SQL itself is not followed.
+  let mode: MySqlServerMode | undefined;
+  if (json && needsMySqlServerMode(sql)) {
+    const modeClient = await createConnection({ uri: dbUrl });
+    try {
+      mode = mySqlServerMode((await modeClient.query(MYSQL_SERVER_MODE_QUERY))[0]);
+    } finally {
+      await modeClient.end();
+    }
+  }
   const mySqlClient = await createConnection({
     uri: dbUrl,
     multipleStatements: true,
@@ -952,13 +966,6 @@ async function executeExternalSql(
     ...(json ? { supportBigNumbers: true, bigNumberStrings: false } : {}),
   });
   try {
-    // Grouping a CALL's results reads the SQL the way this server does: its sql_mode decides
-    // what a backslash means, and its version which `/*!` comments run. A SET of sql_mode in
-    // the SQL itself is not followed.
-    const mode =
-      json && needsMySqlServerMode(sql)
-        ? mySqlServerMode((await mySqlClient.query(MYSQL_SERVER_MODE_QUERY))[0])
-        : undefined;
     const [rows, fields] = await mySqlClient.query(sql);
     if (json) {
       printStatementResults(mySqlStatementResults(rows, fields, sql, mode));

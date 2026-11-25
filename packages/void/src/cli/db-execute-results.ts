@@ -301,18 +301,28 @@ function mySqlStatementResult(value: unknown): StatementResult {
 }
 
 /**
- * How the server reads SQL. `version` is its version as MySQL writes it in a `/*!` comment
- * (80403 for 8.4.3), and `backslashEscapes` is false in `NO_BACKSLASH_ESCAPES` mode.
+ * How the server reads SQL. `version` is its version as a `/*!` comment writes it (80403 for
+ * 8.4.3), `backslashEscapes` is false in `NO_BACKSLASH_ESCAPES` mode, `ansiQuotes` is true in
+ * `ANSI_QUOTES` mode, and `mariaDb` tells MariaDB, which reads executable comments its own way.
  */
-export type MySqlServerMode = { version: number; backslashEscapes: boolean };
+export type MySqlServerMode = {
+  version: number;
+  backslashEscapes: boolean;
+  ansiQuotes: boolean;
+  mariaDb: boolean;
+};
 
 /** Reads what `mySqlServerMode()` needs. It only matters for SQL that `needsMySqlServerMode` finds. */
 export const MYSQL_SERVER_MODE_QUERY =
   'SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS version';
 
-/** Whether the SQL holds a backslash or a version comment, which read differently per server. */
+/**
+ * Whether the SQL holds a backslash or an executable comment, which read differently per
+ * server. Without a backslash, `ANSI_QUOTES` changes what a double-quoted text is but not
+ * where it ends.
+ */
 export function needsMySqlServerMode(sql: string): boolean {
-  return sql.includes('\\') || sql.includes('/*!');
+  return sql.includes('\\') || /\/\*M?!/u.test(sql);
 }
 
 /** Read the row `MYSQL_SERVER_MODE_QUERY` returns. */
@@ -320,13 +330,16 @@ export function mySqlServerMode(rows: unknown): MySqlServerMode {
   const row: unknown = Array.isArray(rows) ? rows[0] : undefined;
   const fields = (typeof row === 'object' && row !== null ? row : {}) as Record<string, unknown>;
   const modes = typeof fields.sql_mode === 'string' ? fields.sql_mode.split(',') : [];
-  const version = /^(\d+)\.(\d+)\.(\d+)/.exec(String(fields.version ?? ''));
+  const versionText = String(fields.version ?? '');
+  const version = /^(\d+)\.(\d+)\.(\d+)/.exec(versionText);
   return {
     // A server whose version does not read as one runs every version comment.
     version: version
       ? Number(version[1]) * 10_000 + Number(version[2]) * 100 + Number(version[3])
       : Number.POSITIVE_INFINITY,
     backslashEscapes: !modes.includes('NO_BACKSLASH_ESCAPES'),
+    ansiQuotes: modes.includes('ANSI_QUOTES'),
+    mariaDb: /mariadb/iu.test(versionText),
   };
 }
 
@@ -336,29 +349,71 @@ function startsMySqlDashComment(code: number): boolean {
   return Number.isNaN(code) || code <= 0x20 || code === 0x7f;
 }
 
+/**
+ * The index after the comment whose text starts at `index`. A skipped version comment may hold
+ * one nested comment (`nesting` 1); any other comment ends at its first closing marker.
+ */
+function skipMySqlComment(sql: string, index: number, nesting: number): number {
+  while (index < sql.length) {
+    const character = sql[index++];
+    if (nesting > 0 && character === '/' && sql[index] === '*') {
+      index = skipMySqlComment(sql, index + 1, nesting - 1);
+    } else if (character === '*' && sql[index] === '/') {
+      return index + 1;
+    }
+  }
+  return sql.length;
+}
+
+// After `/*`: MySQL reads six digits as a version when whitespace follows them, otherwise five.
+// MariaDB reads six when a sixth digit follows, and its own `/*M!` comments too.
+const MYSQL_VERSION_COMMENT = /!(?:(\d{6})(?=\s)|(\d{5}))?/y;
+const MARIADB_VERSION_COMMENT = /(M?)!(?:(\d{6})|(\d{5}))?/y;
+
+/** The index after the marker of an executable comment the server runs at `index`, if any. */
+function runsMySqlComment(sql: string, index: number, mode: MySqlServerMode): number | undefined {
+  const marker = mode.mariaDb ? MARIADB_VERSION_COMMENT : MYSQL_VERSION_COMMENT;
+  marker.lastIndex = index;
+  const match = marker.exec(sql);
+  if (!match) {
+    return undefined;
+  }
+  const digits = mode.mariaDb ? (match[2] ?? match[3]) : (match[1] ?? match[2]);
+  if (digits === undefined) {
+    return marker.lastIndex;
+  }
+  const required = Number(digits);
+  // MariaDB skips `/*!` comments for MySQL 5.7 and later (50700 to 99999), not its own `/*M!`.
+  const mySqlOnly = mode.mariaDb && match[1] !== 'M' && required >= 50_700 && required <= 99_999;
+  return required <= mode.version && !mySqlOnly ? marker.lastIndex : undefined;
+}
+
 const MYSQL_DEFAULT_MODE: MySqlServerMode = {
   version: Number.POSITIVE_INFINITY,
   backslashEscapes: true,
+  ansiQuotes: false,
+  mariaDb: false,
 };
 
 /**
  * The words, semicolons and other characters of MySQL SQL, lowercased, outside comments, with
- * a quoted string or name as one empty word. The SQL in a `/*!` comment counts when the server
- * runs it: always without a version, else when the server is at least that version (six digits
- * when whitespace follows them, otherwise five).
+ * a quoted string or name as one empty word. The SQL in an executable comment (`/*!`, and
+ * `/*M!` on MariaDB) counts when the server runs it.
  */
-function* mySqlWords(sql: string, mode: MySqlServerMode): Generator<string> {
+function mySqlWords(sql: string, mode: MySqlServerMode): Array<string> {
   const word = /[\w$\u0080-￿]+/uy;
-  const versionDigits = /!(?:(\d{6})(?=\s)|(\d{5}))?/y;
+  const words: Array<string> = [];
   let index = 0;
-  // Inside a `/*!` comment whose SQL the server runs, so its `*/` is skipped.
+  // Inside an executable comment whose SQL the server runs, so its `*/` is skipped.
   let inVersionComment = false;
   while (index < sql.length) {
     const character = sql[index];
     const next = sql[index + 1];
     if (character === "'" || character === '"' || character === '`') {
-      index = skipMySqlQuoted(sql, index, character, mode.backslashEscapes);
-      yield '';
+      // A backslash escapes nothing in a quoted name, `ANSI_QUOTES` double quotes included.
+      const name = character === '`' || (character === '"' && mode.ansiQuotes);
+      index = skipMySqlQuoted(sql, index, character, mode.backslashEscapes && !name);
+      words.push('');
     } else if (
       character === '#' ||
       // MySQL reads `--` as a comment only when whitespace or a control character, or the end of
@@ -371,16 +426,15 @@ function* mySqlWords(sql: string, mode: MySqlServerMode): Generator<string> {
       inVersionComment = false;
       index += 2;
     } else if (character === '/' && next === '*') {
-      versionDigits.lastIndex = index + 2;
-      const version = sql[index + 2] === '!' ? versionDigits.exec(sql) : null;
-      const required = version?.[1] ?? version?.[2];
-      if (version && (required === undefined || Number(required) <= mode.version)) {
+      const executable = /^M?!/u.test(sql.slice(index + 2, index + 4));
+      const runsFrom = executable ? runsMySqlComment(sql, index + 2, mode) : undefined;
+      if (runsFrom !== undefined) {
         inVersionComment = true;
-        index = versionDigits.lastIndex;
+        index = runsFrom;
       } else {
-        // Any other comment, an optimizer hint (`/*+`) too, holds no statement.
-        const close = sql.indexOf('*/', index + 2);
-        index = close === -1 ? sql.length : close + 2;
+        // Any other comment, an optimizer hint (`/*+`) too, holds no statement. One the server
+        // skips for its version may nest a comment.
+        index = skipMySqlComment(sql, index + 2, executable ? 1 : 0);
       }
     } else if (/[ \t\n\v\f\r]/u.test(character)) {
       index++;
@@ -389,25 +443,52 @@ function* mySqlWords(sql: string, mode: MySqlServerMode): Generator<string> {
       const match = word.exec(sql);
       const token = match ? match[0] : character;
       index += token.length;
-      yield token.toLowerCase();
+      words.push(token.toLowerCase());
     }
   }
+  return words;
 }
 
+// The object a CREATE statement makes, which tells a stored program from other DDL.
+const MYSQL_STORED_PROGRAMS = new Set(['procedure', 'function', 'trigger', 'event']);
+const MYSQL_OTHER_OBJECTS = new Set([
+  'database',
+  'fulltext',
+  'index',
+  'logfile',
+  'resource',
+  'role',
+  'schema',
+  'sequence',
+  'server',
+  'spatial',
+  'table',
+  'tablespace',
+  'temporary',
+  'undo',
+  'unique',
+  'user',
+  'view',
+]);
+
 /**
- * Tell which MySQL statements are `CALL`s. Statements end at top-level semicolons; a stored
- * program body (`BEGIN ... END`) and a `CASE ... END` hold semicolons or an `END` of their own,
- * so they nest. `END IF`, `END LOOP`, `END WHILE` and `END REPEAT` close blocks that sit inside
- * a `BEGIN`, so they do not change the depth. A `BEGIN` that opens a top-level statement starts
- * a transaction, not a block.
+ * Tell which MySQL statements are `CALL`s. Statements end at top-level semicolons. In a stored
+ * program (`CREATE PROCEDURE`, `FUNCTION`, `TRIGGER` or `EVENT`), a `BEGIN ... END` body holds
+ * semicolons of its own, so it nests, as does MariaDB's `BEGIN NOT ATOMIC` block. Elsewhere
+ * `BEGIN` starts a transaction or is a name. A `CASE ... END` nests anywhere. `END IF`,
+ * `END LOOP`, `END WHILE` and `END REPEAT` close blocks that sit inside a `BEGIN`, so they do
+ * not change the depth.
  */
 export function mySqlCallStatements(
   sql: string,
   mode: MySqlServerMode = MYSQL_DEFAULT_MODE,
 ): Array<boolean> {
+  const words = mySqlWords(sql, mode);
   const calls: Array<boolean> = [];
   let depth = 0;
   let firstWord: string | undefined;
+  // Whether this statement creates a stored program, once its CREATE names the object.
+  let storedProgram: boolean | undefined;
   // Set right after an END that closed a block, so a following IF, LOOP, WHILE, REPEAT or CASE
   // reads as part of that END.
   let afterEnd = false;
@@ -416,9 +497,10 @@ export function mySqlCallStatements(
       calls.push(firstWord === 'call');
     }
     firstWord = undefined;
+    storedProgram = undefined;
     afterEnd = false;
   };
-  for (const word of mySqlWords(sql, mode)) {
+  for (const [index, word] of words.entries()) {
     if (word === ';') {
       afterEnd = false;
       if (depth === 0) {
@@ -426,14 +508,25 @@ export function mySqlCallStatements(
       }
       continue;
     }
+    if (firstWord === 'create' && storedProgram === undefined) {
+      if (MYSQL_STORED_PROGRAMS.has(word)) {
+        storedProgram = true;
+      } else if (MYSQL_OTHER_OBJECTS.has(word)) {
+        storedProgram = false;
+      }
+    }
     const closedBlock = afterEnd;
     afterEnd = false;
+    const opensBlock =
+      word === 'begin' &&
+      words[index - 1] !== '.' &&
+      (storedProgram === true || (words[index + 1] === 'not' && words[index + 2] === 'atomic'));
     if (closedBlock && /^(?:if|loop|while|repeat)$/.test(word)) {
       // That END closed an IF or loop, which never opened a level, so restore it.
       depth++;
     } else if (closedBlock && word === 'case') {
       // END CASE closes the CASE that opened a level.
-    } else if (word === 'case' || (word === 'begin' && (depth > 0 || firstWord !== undefined))) {
+    } else if (word === 'case' || opensBlock) {
       depth++;
     } else if (word === 'end' && depth > 0) {
       depth--;

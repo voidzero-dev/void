@@ -233,11 +233,21 @@ describe('db execute --json results', () => {
 
   it('reads MySQL SQL the way the server it runs on does', () => {
     const mysql84 = mySqlServerMode([{ sql_mode: 'STRICT_TRANS_TABLES', version: '8.4.3' }]);
-    expect(mysql84).toEqual({ version: 80_403, backslashEscapes: true });
+    expect(mysql84).toEqual({
+      version: 80_403,
+      backslashEscapes: true,
+      ansiQuotes: false,
+      mariaDb: false,
+    });
     const noEscapes = mySqlServerMode([
-      { sql_mode: 'STRICT_TRANS_TABLES,NO_BACKSLASH_ESCAPES', version: '10.11.6-MariaDB' },
+      { sql_mode: 'STRICT_TRANS_TABLES,NO_BACKSLASH_ESCAPES', version: '8.4.3' },
     ]);
-    expect(noEscapes).toEqual({ version: 101_106, backslashEscapes: false });
+    expect(noEscapes).toEqual({
+      version: 80_403,
+      backslashEscapes: false,
+      ansiQuotes: false,
+      mariaDb: false,
+    });
     // With NO_BACKSLASH_ESCAPES, a backslash before a quote is an ordinary character.
     const backslash = String.raw`SELECT '\'; CALL p()`;
     expect(mySqlCallStatements(backslash, noEscapes)).toEqual([false, true]);
@@ -263,9 +273,66 @@ describe('db execute --json results', () => {
     expect(mySqlCallStatements('/*!800001 CALL p() */ SELECT 1', mysql84)).toEqual([false]);
     expect(mySqlCallStatements('/*!800001; CALL p() */', mysql84)).toEqual([false, true]);
     expect(mySqlCallStatements('/*!80000CALL p() */', mysql84)).toEqual([true]);
+    // A skipped version comment may hold one nested comment.
+    expect(mySqlCallStatements('/*!99999 /* note */ SELECT 1 */ CALL p()', mysql84)).toEqual([
+      true,
+    ]);
+    expect(mySqlCallStatements('/* /* note */ CALL p()', mysql84)).toEqual([true]);
+    // MySQL reads MariaDB's `/*M!` as an ordinary comment.
+    expect(mySqlCallStatements('/*M! SELECT 0; */ CALL p()', mysql84)).toEqual([true]);
     expect(needsMySqlServerMode('SELECT 1; CALL p()')).toBe(false);
     expect(needsMySqlServerMode(backslash)).toBe(true);
     expect(needsMySqlServerMode('/*!80000 SET @n = 1 */')).toBe(true);
+    expect(needsMySqlServerMode('/*M!100100 SELECT 0 */')).toBe(true);
+  });
+
+  it('reads MariaDB executable comments the way MariaDB does', () => {
+    const mariaDb = mySqlServerMode([
+      { sql_mode: 'STRICT_TRANS_TABLES', version: '10.11.6-MariaDB-1:10.11.6+maria~ubu2204' },
+    ]);
+    expect(mariaDb).toEqual({
+      version: 101_106,
+      backslashEscapes: true,
+      ansiQuotes: false,
+      mariaDb: true,
+    });
+    expect(mySqlCallStatements('/*M!100100 SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    expect(mySqlCallStatements('/*M! SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    expect(mySqlCallStatements('/*M!110000 SELECT 0; */ CALL p()', mariaDb)).toEqual([true]);
+    // MariaDB skips `/*!` comments for MySQL 5.7 and later, but not its own versions.
+    expect(mySqlCallStatements('/*!80000 SELECT 0; */ CALL p()', mariaDb)).toEqual([true]);
+    expect(mySqlCallStatements('/*!50699 SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    expect(mySqlCallStatements('/*!100100 SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    // A sixth digit belongs to the version without whitespace after it.
+    expect(mySqlCallStatements('/*!100100SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    expect(
+      mySqlStatementResults(
+        [[{ 0: 0 }], [{ a: 1 }], header],
+        [[field], [field], undefined],
+        '/*M!100100 SELECT 0 */; CALL p()',
+        mariaDb,
+      ),
+    ).toEqual([
+      { results: [{ 0: 0 }], success: true, meta: {} },
+      { results: [{ a: 1 }], success: true, meta: { affectedRows: 2, insertId: 5 } },
+    ]);
+  });
+
+  it('reads double quotes as a name in ANSI_QUOTES mode', () => {
+    const ansi = mySqlServerMode([
+      {
+        sql_mode: 'REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES,IGNORE_SPACE,ONLY_FULL_GROUP_BY,ANSI',
+        version: '8.4.3',
+      },
+    ]);
+    expect(ansi.ansiQuotes).toBe(true);
+    // A backslash escapes nothing in a quoted name.
+    expect(mySqlCallStatements(String.raw`SELECT 1 AS "a\"; CALL p()`, ansi)).toEqual([
+      false,
+      true,
+    ]);
+    // A single-quoted string still reads its backslash escapes.
+    expect(mySqlCallStatements(String.raw`SELECT 'a\'; CALL p()'`, ansi)).toEqual([false]);
   });
 
   it('finds MySQL statements around stored program bodies', () => {
@@ -286,5 +353,43 @@ describe('db execute --json results', () => {
         ].join(';\n'),
       ),
     ).toEqual([false, false, true, false]);
+  });
+
+  it('opens a BEGIN block only in a stored program', () => {
+    // BEGIN may name a column, and XA BEGIN starts a transaction.
+    expect(mySqlCallStatements('SELECT begin FROM appointments; CALL report()')).toEqual([
+      false,
+      true,
+    ]);
+    expect(mySqlCallStatements("XA BEGIN 'x'; CALL p()")).toEqual([false, true]);
+    expect(
+      mySqlCallStatements('CREATE TABLE event (begin INT, `end` INT); CREATE VIEW v AS SELECT 1'),
+    ).toEqual([false, false]);
+    expect(
+      mySqlCallStatements(
+        [
+          `CREATE DEFINER = CURRENT_USER TRIGGER t BEFORE INSERT ON a FOR EACH ROW BEGIN
+             SET NEW.begin = 1; SELECT x.begin INTO @b FROM x;
+           END`,
+          `CREATE EVENT e ON SCHEDULE EVERY 1 DAY DO BEGIN DELETE FROM a; END`,
+          'CALL p()',
+        ].join(';\n'),
+      ),
+    ).toEqual([false, false, true]);
+    // MariaDB runs BEGIN NOT ATOMIC blocks outside a stored program.
+    expect(mySqlCallStatements('BEGIN NOT ATOMIC SELECT 1; SELECT 2; END; CALL p()')).toEqual([
+      false,
+      true,
+    ]);
+    expect(
+      mySqlStatementResults(
+        [[{ begin: 1 }], [{ a: 1 }], header],
+        [[field], [field], undefined],
+        'SELECT begin FROM appointments; CALL report()',
+      ),
+    ).toEqual([
+      { results: [{ begin: 1 }], success: true, meta: {} },
+      { results: [{ a: 1 }], success: true, meta: { affectedRows: 2, insertId: 5 } },
+    ]);
   });
 });

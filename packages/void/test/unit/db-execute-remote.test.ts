@@ -893,12 +893,18 @@ describe('void db execute --remote (PostgreSQL)', () => {
       ),
     );
     const command = String.raw`SELECT '\'; CALL p()`;
+    mockMySqlCreateConnection.mockClear();
 
     await runDbCommand(root, { action: 'execute', command, remote: true, json: true });
 
     expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual([
       'SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS version',
       command,
+    ]);
+    // The mode is read on a connection of its own, which leaves the SQL's session untouched.
+    expect(mockMySqlCreateConnection.mock.calls.map(([options]) => options)).toEqual([
+      { uri: 'mysql://host/db' },
+      expect.objectContaining({ uri: 'mysql://host/db', multipleStatements: true }),
     ]);
     expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0][0]))).toEqual([
       { results: [{ a: '\\' }], success: true, meta: {} },
