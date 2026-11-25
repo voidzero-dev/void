@@ -693,11 +693,11 @@ describe('routeInbound — inbound header count cap', () => {
     });
     const { ctx } = createCtx();
     (globalThis as { gc?: () => void }).gc?.();
-    const before = (process as NodeJS.Process).memoryUsage().heapUsed;
+    const before = process.memoryUsage().heapUsed;
     const t0 = performance.now();
     await routeInbound(message, env, ctx);
     const elapsed = performance.now() - t0;
-    const grew = ((process as NodeJS.Process).memoryUsage().heapUsed - before) / (1024 * 1024);
+    const grew = (process.memoryUsage().heapUsed - before) / (1024 * 1024);
     expect(rejectCalls).toHaveLength(1);
     expect(rejectCalls[0]).toContain('too many headers');
     expect(emailFn).not.toHaveBeenCalled();

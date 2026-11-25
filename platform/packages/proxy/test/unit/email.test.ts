@@ -1046,11 +1046,11 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
         const { raw, lines } = foldedToTheCap('a@b', fold);
         expect(lines).toBe(expectedLines);
         expect(raw.byteLength).toBeLessThanOrEqual(MAX_MIME_BYTES);
-        const heapBefore = (process as NodeJS.Process).memoryUsage().heapUsed;
+        const heapBefore = process.memoryUsage().heapUsed;
         const started = performance.now();
         const parsed = readMimeFromAddrSpec(raw);
         const elapsed = performance.now() - started;
-        const heapGrowth = (process as NodeJS.Process).memoryUsage().heapUsed - heapBefore;
+        const heapGrowth = process.memoryUsage().heapUsed - heapBefore;
         expect(parsed).toEqual({ ok: true, addrSpec: 'a@b' });
         expect(elapsed).toBeLessThan(2000);
         expect(heapGrowth).toBeLessThan(64 * 1024 * 1024);

@@ -872,8 +872,7 @@ describe('BuildManager.startBuild', () => {
 
   it('fails fast (does NOT start) on staging when the service token is unconfigured', async () => {
     const ctx = makeStubCtx();
-    const env = makeEnv();
-    env.PLATFORM_ENV = 'staging';
+    const env = makeEnv('staging');
     const m = makeManager(ctx, env);
     // Staging is Access-gated and the container can't auth without the service
     // token, so an unconfigured staging worker is a platform misconfiguration:
