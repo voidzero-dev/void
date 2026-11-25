@@ -2,6 +2,7 @@ import { isRecord } from '@void/deploy-core';
 import { KV_THRESHOLD } from '../assets.ts';
 import type { AssetManifestEntry } from '../assets.ts';
 import type { ApiEnv } from '../env.ts';
+import { readServingAssetManifest } from '../routing-records.ts';
 import type { Deployment } from '../types.ts';
 
 export function sortUnique(values: ReadonlyArray<string> | undefined): ReadonlyArray<string> {
@@ -146,10 +147,6 @@ function reconstructPersistedServingManifest(
   return servingManifest;
 }
 
-function isServingManifest(value: unknown): value is ServingManifest {
-  return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
-}
-
 export async function assertPersistedDeploymentServingAssetsExist(
   env: ApiEnv['Bindings'],
   deployment: Deployment,
@@ -168,11 +165,11 @@ export async function assertPersistedDeploymentServingAssetsExist(
   const servingManifestRaw = await env.ROUTING.get(servingManifestKey);
   let servingManifest: Record<string, string>;
   if (servingManifestRaw) {
-    const parsed: unknown = JSON.parse(servingManifestRaw);
-    if (!isServingManifest(parsed)) {
+    const persisted = readServingAssetManifest(servingManifestRaw);
+    if (!persisted) {
       throw new Error('Invalid persisted serving manifest');
     }
-    servingManifest = parsed;
+    servingManifest = persisted;
   } else {
     // The ready marker and serving manifest are separate KV keys and can
     // propagate at different speeds. Reconstruct a missing read from the

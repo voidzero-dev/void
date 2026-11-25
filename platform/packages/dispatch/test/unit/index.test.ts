@@ -4675,6 +4675,18 @@ describe('queue relay', () => {
     expect(batch.ackAll).toHaveBeenCalledOnce();
     expect(batch.retryAll).not.toHaveBeenCalled();
   });
+  it('retries a batch when its stored queue route is malformed', async () => {
+    const batch = createMockBatch('test-queue', [{ id: 'm1', body: 'hello' }]);
+    const { env, dispatchGet } = createQueueEnv({
+      routingRaw: JSON.stringify({ workerName: 'user-app', queueName: 42 }),
+    });
+
+    await app.queue(batch, env);
+
+    expect(batch.retryAll).toHaveBeenCalledOnce();
+    expect(batch.ackAll).not.toHaveBeenCalled();
+    expect(dispatchGet).not.toHaveBeenCalled();
+  });
 
   it('retries all on legacy protocol (ok: false)', async () => {
     const routing = JSON.stringify({ workerName: 'user-app', queueName: 'emails' });

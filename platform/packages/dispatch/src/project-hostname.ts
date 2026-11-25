@@ -3,7 +3,7 @@ import {
   platformWorkersDevAliasKey,
   readPlatformApplication,
 } from '@void/platform';
-import type { PlatformApplicationProject } from '@void/platform';
+import { readProjectAlias } from '@voidcloud/api/routing-records';
 import type { Env } from './env.ts';
 import { extractSlug } from './hostname.ts';
 
@@ -19,10 +19,14 @@ export async function resolveProjectHostname(
     return { slug: extractSlug(hostname, env.BASE_HOSTNAME), workersDev: false };
   }
   const raw = await env.ROUTING.get(platformWorkersDevAliasKey(hostname));
-  if (raw) {
-    const project = JSON.parse(raw) as PlatformApplicationProject;
-    if (platformProjectWorkersDevHostname(project, application.workersDev) === hostname) {
-      return { slug: project.slug, projectId: project.id, workersDev: true };
+  const project = raw ? readProjectAlias(raw) : null;
+  if (project) {
+    try {
+      if (platformProjectWorkersDevHostname(project, application.workersDev) === hostname) {
+        return { slug: project.slug, projectId: project.id, workersDev: true };
+      }
+    } catch {
+      // The alias can survive a project identity change or a malformed write.
     }
   }
   return { slug: null, workersDev: true };

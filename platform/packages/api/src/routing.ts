@@ -2,6 +2,7 @@ import type { ProjectZeroTrustRouting } from '@void/edge';
 import { sql as drizzleSql } from 'drizzle-orm';
 import { getDomainsByProjectIds, getProject } from './db.ts';
 import type { Db } from './db.ts';
+import type { RoutingEntry } from './routing-records.ts';
 import type { AssetConfig, DeployManifest } from './types.ts';
 import {
   assertRouteBelongsToProject,
@@ -325,7 +326,7 @@ export function buildRoutingJson(opts: {
     ...(opts.assetManifestId ? { assetManifestId: opts.assetManifestId } : {}),
     ...(opts.assetConfig ? { assetConfig: opts.assetConfig } : {}),
     ...(opts.zeroTrust ? { zeroTrust: opts.zeroTrust } : {}),
-  });
+  } satisfies RoutingEntry);
 }
 
 export function buildStaticRoutingJson(opts: {
@@ -357,5 +358,5 @@ export function buildStaticRoutingJson(opts: {
       : {}),
     ...(opts.suspended ? { suspended: opts.suspended } : {}),
     ...(opts.zeroTrust ? { zeroTrust: opts.zeroTrust } : {}),
-  });
+  } satisfies RoutingEntry);
 }
