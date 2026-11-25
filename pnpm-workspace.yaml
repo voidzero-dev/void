@@ -105,7 +105,8 @@ catalog:
   '@react-router/dev': ^8.5.2
   arktype: ^2.2.10
   cron-parser: 5.10.6
-  hono: ^4.13.22
+  # Hono 4.13.20 drops HEAD response bodies in compress() before Void can resolve asset misses.
+  hono: '>=4.13.19 <4.13.20'
   ignore: ^7.0.16
   jose: 6.2.18
   mime: ^4.1.2
@@ -128,7 +129,8 @@ catalogs:
     typescript: 6.0.3
   platform:
     '@cloudflare/workers-types': ^5.20261125.1
-    hono: 4.13.22
+    # The dashboard consumes Void's Hono context and must use the same version.
+    hono: 4.13.19
     wrangler: ^4.168.0
   sveltekit:
     typescript: 6.0.3

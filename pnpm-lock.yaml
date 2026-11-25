@@ -341,8 +341,8 @@ catalogs:
       specifier: ^21.0.4
       version: 21.0.4
     hono:
-      specifier: ^4.13.22
-      version: 4.13.22
+      specifier: '>=4.13.19 <4.13.20'
+      version: 4.13.19
     ignore:
       specifier: ^7.0.16
       version: 7.0.16
@@ -453,8 +453,8 @@ catalogs:
       specifier: ^5.20261125.1
       version: 5.20261125.1
     hono:
-      specifier: 4.13.22
-      version: 4.13.22
+      specifier: 4.13.19
+      version: 4.13.19
     wrangler:
       specifier: ^4.168.0
       version: 4.168.0
@@ -903,7 +903,7 @@ importers:
         version: 4.0.3
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       ignore:
         specifier: 'catalog:'
         version: 7.0.16
@@ -1115,7 +1115,7 @@ importers:
         version: 0.45.4(@cloudflare/workers-types@5.20261125.1)(@electric-sql/pglite@0.5.17)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.2.0)(kysely@0.29.9)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)
       hono:
         specifier: catalog:platform
-        version: 4.13.22
+        version: 4.13.19
       jose:
         specifier: 'catalog:'
         version: 6.2.18
@@ -1203,7 +1203,7 @@ importers:
         version: link:../../../packages/platform
       hono:
         specifier: catalog:platform
-        version: 4.13.22
+        version: 4.13.19
       lucide-react:
         specifier: 'catalog:'
         version: 1.79.0(@types/react@19.3.0)(react@19.3.1)
@@ -1332,7 +1332,7 @@ importers:
         version: 2.0.4
       hono:
         specifier: catalog:platform
-        version: 4.13.22
+        version: 4.13.19
     devDependencies:
       '@cloudflare/workers-types':
         specifier: catalog:platform
@@ -1473,10 +1473,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: 'catalog:'
-        version: 2.1.11(hono@4.13.22)
+        version: 2.1.11(hono@4.13.19)
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -1513,7 +1513,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       valibot:
         specifier: ^1.5.0
         version: 1.5.0(typescript@7.0.2)
@@ -1590,7 +1590,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -1627,10 +1627,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: 'catalog:'
-        version: 2.1.11(hono@4.13.22)
+        version: 2.1.11(hono@4.13.19)
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -1661,10 +1661,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: 'catalog:'
-        version: 2.1.11(hono@4.13.22)
+        version: 2.1.11(hono@4.13.19)
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -1695,10 +1695,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: 'catalog:'
-        version: 2.1.11(hono@4.13.22)
+        version: 2.1.11(hono@4.13.19)
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -1775,7 +1775,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -1815,7 +1815,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -1886,7 +1886,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -1923,7 +1923,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       solid-js:
         specifier: 'catalog:'
         version: 1.9.20
@@ -1954,7 +1954,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -1994,7 +1994,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -2028,7 +2028,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       vue:
         specifier: 'catalog:'
         version: 3.5.46(typescript@7.0.2)
@@ -2050,7 +2050,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       svelte:
         specifier: 'catalog:'
         version: 5.59.1
@@ -2220,7 +2220,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       valibot:
         specifier: ^1.5.0
         version: 1.5.0(typescript@7.0.2)
@@ -2251,7 +2251,7 @@ importers:
     dependencies:
       hono:
         specifier: 'catalog:'
-        version: 4.13.22
+        version: 4.13.19
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -8230,8 +8230,8 @@ packages:
     resolution: {integrity: sha512-Ox1pJVrDCyGHMG9CFg1tmrRUMRPRsAWYc/PinY0XzJU4K7y7vjNoLKIQ7BR5UJMCxNN8EM1MNDmHWA/B3aZUuw==}
     engines: {node: '>=6'}
 
-  hono@4.13.22:
-    resolution: {integrity: sha512-wncKd5/40Pj8grx0RZ2fgNIicFEmVFwIHT5UFLTnphR8I6AQWFf9c2JoM6ZJ9g8y4pMzg3sNlCVNe0m2Yclg0Q==}
+  hono@4.13.19:
+    resolution: {integrity: sha512-KmXvQAXwcAHV+muzbIwoJ23niEB5nMoDVr9WcRkU8mvjUECm/1+7v4Jgp7P7a+H6MLFrh+vXrGonGrGS+RQfkA==}
     engines: {node: '>=16.9.0'}
 
   hookable@5.5.3:
@@ -12276,9 +12276,9 @@ snapshots:
   '@harperfast/extended-iterable@1.0.5':
     optional: true
 
-  '@hono/node-server@2.1.11(hono@4.13.22)':
+  '@hono/node-server@2.1.11(hono@4.13.19)':
     dependencies:
-      hono: 4.13.22
+      hono: 4.13.19
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -16647,7 +16647,7 @@ snapshots:
 
   hex-rgb@4.3.0: {}
 
-  hono@4.13.22: {}
+  hono@4.13.19: {}
 
   hookable@5.5.3: {}
 
