@@ -24,6 +24,7 @@ import {
   createTestDeployment,
   createTestProject,
   createTestUser,
+  mockKvRead,
   setupEnv,
   teardownEnv,
 } from './helpers.ts';
@@ -74,13 +75,7 @@ async function operatorRequest(token: string, path: string, body: Record<string,
 }
 
 function staleRouteRead(keys: Array<string>, raw: string) {
-  const originalGet = env.ROUTING.get.bind(env.ROUTING);
-  return vi
-    .spyOn(env.ROUTING, 'get')
-    .mockImplementation((async (key: string | Array<string>, ...args: Array<unknown>) =>
-      typeof key === 'string' && keys.includes(key)
-        ? raw
-        : Reflect.apply(originalGet, env.ROUTING, [key, ...args])) as typeof env.ROUTING.get);
+  return mockKvRead(env.ROUTING, (key) => (keys.includes(key) ? raw : undefined));
 }
 
 function providerError(message: string, status: number): Response {

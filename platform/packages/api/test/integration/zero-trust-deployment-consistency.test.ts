@@ -24,6 +24,7 @@ import {
   createTestDeployment,
   createTestProject,
   createTestUser,
+  mockKvRead,
   setupEnv,
   teardownEnv,
 } from './helpers.ts';
@@ -174,13 +175,7 @@ async function fixture(type: RouteType, initiallyProtected: boolean) {
 }
 
 function staleRead(key: string, raw: string) {
-  const originalGet = env.ROUTING.get.bind(env.ROUTING);
-  return vi
-    .spyOn(env.ROUTING, 'get')
-    .mockImplementation((async (candidate: string | Array<string>, ...args: Array<unknown>) =>
-      candidate === key
-        ? raw
-        : Reflect.apply(originalGet, env.ROUTING, [candidate, ...args])) as typeof env.ROUTING.get);
+  return mockKvRead(env.ROUTING, (candidate) => (candidate === key ? raw : undefined));
 }
 
 async function assertRoutes(projectSlug: string, expectedId: string, protectedProject: boolean) {

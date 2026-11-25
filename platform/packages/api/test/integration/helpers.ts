@@ -266,6 +266,22 @@ export class MemoryKVNamespace {
   }
 }
 
+/** Replace reads of selected keys while forwarding other reads to the fixture. */
+export function mockKvRead(
+  namespace: KVNamespace,
+  read: (key: string) => string | null | undefined,
+) {
+  if (!(namespace instanceof MemoryKVNamespace)) {
+    throw new Error('Expected an in-memory KV namespace.');
+  }
+  const memory: MemoryKVNamespace = namespace;
+  const get = memory.get.bind(memory);
+  return vi.spyOn(memory, 'get').mockImplementation(async (...args) => {
+    const replacement = read(args[0]);
+    return replacement === undefined ? get(...args) : replacement;
+  });
+}
+
 type MemoryR2Entry = {
   body: ArrayBuffer;
   httpMetadata?: unknown;

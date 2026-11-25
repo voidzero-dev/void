@@ -17,15 +17,15 @@ export function operationFixture<
     options?: unknown,
   ) => CloudflareCommandResult | Promise<CloudflareCommandResult>) {
   const mock = vi.fn(callback);
+  const invoke = mock as (...args: Parameters<T>) => ReturnType<T>;
   const runner = ((operation: CloudflareOperation, ...rest: Array<unknown>) => {
-    const result = Reflect.apply(mock, undefined, [
+    const argv =
       operation === undefined
         ? []
         : Array.isArray(operation)
           ? operation
-          : operationFixtureArgs(operation),
-      ...rest,
-    ]) as CloudflareCommandResult | Promise<CloudflareCommandResult>;
+          : operationFixtureArgs(operation);
+    const result = invoke(...([argv, ...rest] as Parameters<T>));
     const decode = (value: CloudflareCommandResult) => {
       const decoded = operationFixtureResult(value);
       if (
@@ -71,6 +71,7 @@ export function operationFixture<
   ] as const) {
     Object.defineProperty(runner, key, {
       value: (...args: Array<unknown>) => {
+        // oxlint-disable-next-line quality/no-reflect-apply -- Forward each Vitest method with its own arguments and mock receiver.
         const value: unknown = Reflect.apply(mock[key], mock, args);
         return value === mock ? runner : value;
       },

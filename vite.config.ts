@@ -263,7 +263,6 @@ const config = defineConfig({
         // Filesystem assertions use Node paths independently of the production wrapper.
         files: ['**/test/**/*'],
         rules: {
-          'quality/no-reflect-apply': 'off',
           'quality/no-reflect-get': 'off',
           'no-restricted-imports': [
             'error',

@@ -27,7 +27,7 @@ import {
   setupEnv,
   teardownEnv,
 } from './helpers.ts';
-import type { TestEnv } from './helpers.ts';
+import type { MemoryKVNamespace, TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -225,8 +225,9 @@ describe('deployment compensation during Zero Trust changes', () => {
             if (property !== 'get') {
               return Reflect.get(target, property, receiver);
             }
-            return async (...args: Array<unknown>) => {
-              const raw: unknown = await Reflect.apply(target.get, target, args);
+            return async (...args: Parameters<MemoryKVNamespace['get']>) => {
+              const get = target.get as MemoryKVNamespace['get'];
+              const raw = await get.call(target, ...args);
               if (
                 serveStaleReads &&
                 typeof raw === 'string' &&
