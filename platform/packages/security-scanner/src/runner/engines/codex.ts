@@ -192,6 +192,7 @@ function count(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Callers check the parsed file before use.
 async function readJson(path: string): Promise<unknown> {
   if (!existsSync(path)) {
     return undefined;

@@ -286,6 +286,7 @@ const UNSUPPORTED_SCHEMA_KEYS = new Set([
 
 /** The report schema without the size keywords structured output does not take; `validate-findings` still enforces them. */
 export function structuredOutputSchema(): Record<string, unknown> {
+  // oxlint-disable-next-line quality/no-unknown-returns -- Walks an arbitrary JSON Schema tree.
   const strip = (value: unknown): unknown => {
     if (Array.isArray(value)) {
       return value.map(strip);

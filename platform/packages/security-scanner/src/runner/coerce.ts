@@ -52,6 +52,7 @@ function pick(object: Plain, keys: ReadonlyArray<string>): Plain {
 }
 
 /** `High`, ` needs validation `, `needs-validation` → the enum spelling when it matches one. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Repairs raw model output; the strict report validator checks the result.
 function enumValue(value: unknown, values: ReadonlyArray<string>): unknown {
   if (typeof value !== 'string') {
     return value;
@@ -61,6 +62,7 @@ function enumValue(value: unknown, values: ReadonlyArray<string>): unknown {
 }
 
 /** A whole number written as a string or a float stays a number the validator accepts. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Repairs raw model output; the strict report validator checks the result.
 function lineValue(value: unknown): unknown {
   if (typeof value === 'string' && value.trim() !== '' && Number.isInteger(Number(value))) {
     return Number(value);
@@ -68,6 +70,7 @@ function lineValue(value: unknown): unknown {
   return value === 0 ? null : value;
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Repairs raw model output; the strict report validator checks the result.
 export function coerceReport(value: unknown): unknown {
   if (!isPlain(value)) {
     return value;
@@ -80,6 +83,7 @@ export function coerceReport(value: unknown): unknown {
   return report;
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Repairs raw model output; the strict report validator checks the result.
 function coerceFinding(value: unknown): unknown {
   if (!isPlain(value)) {
     return value;
