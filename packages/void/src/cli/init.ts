@@ -3173,9 +3173,6 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     const install = resolveProjectInstall(root, state.packageManager);
     const manualInstall = commandInProject(root, install.manualCommand);
     report.next(`Run \`${manualInstall}\` to install dependencies`);
-    if (migrationMode) {
-      report.next(`Then run \`${commandInProject(root, manualMigration)}\` to finish setup`);
-    }
   } else if (scaffoldAddedDependencies) {
     const install = resolveProjectInstall(root, state.packageManager);
     const manualInstall = commandInProject(root, install.manualCommand);
@@ -3189,6 +3186,9 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     const installer = projectInstaller(readPackageJson(root), state.packageManager);
     const manualInstall = commandInProject(root, `${installer} install`);
     report.next(`Run \`${manualInstall}\` to update your lockfile`);
+  }
+  if (migrationMode && initArgs?.install === false) {
+    report.next(`Run \`${commandInProject(root, manualMigration)}\` to finish setup`);
   }
   if (migrationMode && initArgs?.install !== false) {
     report.unfinished = `Run \`${commandInProject(root, manualMigration)}\` to finish setup`;
@@ -3222,7 +3222,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
   } else {
     const devCommand = commandInProject(root, getDevCommand(root, framework));
     printSuccess(
-      initArgs?.install === false && scaffoldAddedDependencies
+      initArgs?.install === false && (scaffoldAddedDependencies || migrationMode)
         ? 'Project initialized. Follow the next steps to finish setup.'
         : `Project initialized. Run \`${devCommand}\` to start developing.`,
     );

@@ -4482,6 +4482,26 @@ export default config;
     }
   });
 
+  it('reports the migration after scaffolding a demo with --no-install and existing dependencies', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeExistingViteApp(root, { void: '^0.0.1' });
+      writeInstalledVoid(root);
+      mockSelect.mockResolvedValueOnce('none');
+      mockConfirm.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+      await runInitCommand(root, parseInitArgs(['--no-install']));
+
+      expect(drizzleGenerateCalls()).toHaveLength(0);
+      expect(summaryMessages('→').join('\n')).toContain('db generate` to finish setup');
+      expect(String(mockOutro.mock.calls.at(-1)?.[0])).toContain(
+        'Follow the next steps to finish setup.',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('skips install after demo scaffold when void is hoisted at the workspace root (ancestor node_modules)', async () => {
     const wsroot = mkdtempSync(join(tmpdir(), 'void-init-'));
     try {
