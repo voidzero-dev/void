@@ -232,6 +232,7 @@ export async function uploadInstallationWorkers(input: {
   }> = [];
   const acquireUploadSlot = async (): Promise<(failure?: unknown) => void> => {
     if (uploadFailure !== undefined) {
+      // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured upload failure to the next waiter.
       throw uploadFailure;
     }
     if (availableUploadSlots === 0) {
@@ -369,6 +370,7 @@ export async function uploadInstallationWorkers(input: {
         ready.resolve();
         const batch = await uploadBatch;
         if (batch.error !== null) {
+          // oxlint-disable-next-line typescript/only-throw-error -- Forward the original rejection into the completion promise.
           throw batch.error;
         }
       });

@@ -2645,6 +2645,7 @@ describe('proxy worker', () => {
     it('returns 502 with stringified error when non-Error is thrown', async () => {
       const env = createEnv({
         run: vi.fn(async () => {
+          // oxlint-disable-next-line typescript/only-throw-error -- Exercise the proxy response to a non-Error provider rejection.
           throw 'string error';
         }),
       });
@@ -2666,6 +2667,7 @@ describe('proxy worker', () => {
     it('forwards response-shaped AI binding errors', async () => {
       const env = createEnv({
         run: vi.fn(async () => {
+          // oxlint-disable-next-line typescript/only-throw-error -- Exercise the response-shaped rejection from the AI binding.
           throw {
             response: new Response(
               JSON.stringify({ errors: [{ message: 'Unified Billing off' }] }),

@@ -549,6 +549,7 @@ export async function runUserAiLoggingPublishPage(
     return { cursor };
   });
   if (failure !== undefined) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured failure after recording the reconciliation state.
     throw failure;
   }
   const expectedBy = lastAt === null ? null : new Date(lastAt + AI_LOGGING_SETTLE_MS).toISOString();

@@ -309,13 +309,11 @@ const config = defineConfig({
         rules: { 'typescript/no-explicit-any': 'error' },
       },
       {
-        // Forward the original rejection value through cleanup and retries.
         files: [
-          'packages/void/src/cli/{direct-r2-upload,platform-install-workers}.ts',
-          'packages/void/src/runtime/live/index.ts',
-          'platform/packages/api/src/{ai-logging-plans,build-manager,routing,worker-upload,routes/projects,zero-trust/lock}.ts',
+          '**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}',
+          '**/__tests__/**/*.{ts,tsx,mts,cts}',
         ],
-        rules: { 'typescript/only-throw-error': 'off' },
+        rules: { 'typescript/only-throw-error': 'error' },
       },
       {
         // These adapters accept objects as weak keys or opaque identities.

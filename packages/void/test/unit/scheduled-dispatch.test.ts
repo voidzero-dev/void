@@ -195,6 +195,7 @@ it.each([
         throw failure;
       }
       if (path.endsWith('/second.mjs')) {
+        // oxlint-disable-next-line typescript/only-throw-error -- Exercise dispatch with a non-Error rejection.
         throw 'second failed';
       }
     },

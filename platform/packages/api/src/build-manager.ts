@@ -1965,6 +1965,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
         await this.pokeScheduler();
       }
       if (terminalError) {
+        // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured deployment failure after terminal-state cleanup.
         throw terminalError;
       }
       throw error;
@@ -2452,6 +2453,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       await this.pokeScheduler();
     }
     if (terminalError) {
+      // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured deployment failure after terminal-state cleanup.
       throw terminalError;
     }
   }
@@ -2771,6 +2773,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
         await this.pokeScheduler();
       }
       if (terminalError) {
+        // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured deployment failure after terminal-state cleanup.
         throw terminalError;
       }
       return;
@@ -2865,6 +2868,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       await this.pokeScheduler();
     }
     if (terminalError) {
+      // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured deployment failure after terminal-state cleanup.
       throw terminalError;
     }
   }
@@ -3039,6 +3043,7 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       await this.pokeScheduler();
     }
     if (terminalError) {
+      // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured deployment failure after terminal-state cleanup.
       throw terminalError;
     }
   }

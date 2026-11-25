@@ -214,6 +214,7 @@ interface MakeEnvOptions {
 function makeEnv(options: MakeEnvOptions = {}) {
   const emailFn = vi.fn(async (_envelope: unknown) => {
     if (options.emailThrow) {
+      // oxlint-disable-next-line typescript/only-throw-error -- The fake can reject with arbitrary provider error payloads.
       throw options.emailThrow;
     }
     return options.emailReturn;

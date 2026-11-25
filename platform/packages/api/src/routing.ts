@@ -201,6 +201,7 @@ export async function applyRoutingSuspension(
     );
   }
   if (rejected) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the original rejection after all routing writes settle.
     throw rejected;
   }
 }
@@ -277,6 +278,7 @@ export async function setProjectsRoutingSuspension(
       });
   }
   if (failure) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the original failure after the routing writes settle.
     throw failure;
   }
 }

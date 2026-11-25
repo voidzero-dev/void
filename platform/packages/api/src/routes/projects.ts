@@ -1803,6 +1803,7 @@ const app = new Hono<ApiEnv>()
       return rollbackErrorResponse;
     }
     if (rollbackErrorToThrow !== undefined) {
+      // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured rollback failure after releasing the lock.
       throw rollbackErrorToThrow;
     }
     if (!rollbackResult) {

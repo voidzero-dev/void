@@ -299,6 +299,7 @@ function sequence(
         try {
           for (;;) {
             if (canceled) {
+              // oxlint-disable-next-line typescript/only-throw-error -- Streams propagate the original cancellation reason, which may be any value.
               throw released();
             }
             if (reader) {
@@ -335,6 +336,7 @@ function sequence(
               if (canceled) {
                 // Released while it opened: nothing else will cancel it.
                 stream.cancel(releaseReason).catch(noop);
+                // oxlint-disable-next-line typescript/only-throw-error -- Streams propagate the original cancellation reason, which may be any value.
                 throw released();
               }
               reader = stream.getReader();

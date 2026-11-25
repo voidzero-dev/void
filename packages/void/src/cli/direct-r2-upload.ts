@@ -202,6 +202,7 @@ export async function uploadAssetsToR2(
   }
   await Promise.all(workers);
   if (firstError !== null) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured upload failure after all workers finish.
     throw firstError;
   }
 }
