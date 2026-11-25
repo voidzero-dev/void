@@ -479,7 +479,9 @@ test('records security policy changes as known ids and new state, nothing for pr
   expect(sweeps.status).toBe(400);
 
   const events = await env.db.select().from(operatorEvents);
-  expect(events.map((event) => [event.action, JSON.parse(event.target), event.status])).toEqual(
+  expect(
+    events.map((event) => [event.action, JSON.parse(event.target) as unknown, event.status]),
+  ).toEqual(
     expect.arrayContaining([
       [
         'security/policy',

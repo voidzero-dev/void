@@ -1612,6 +1612,13 @@ async function main() {
   const budget = Number(values['budget-usd']);
 
   const inputs = new Map<string, ScanInput>();
+  const inputOf = (name: string): ScanInput => {
+    const input = inputs.get(name);
+    if (!input) {
+      throw new Error(`No scan input for ${name}.`);
+    }
+    return input;
+  };
   for (const fixture of fixtures) {
     const input = fixtureInput(fixture);
     inputs.set(fixture.name, input);
@@ -1624,7 +1631,7 @@ async function main() {
     mode: values.local ? 'local' : 'live',
     limits: LIMITS,
     apps: fixtures.map((fixture) => {
-      const input = inputs.get(fixture.name)!;
+      const input = inputOf(fixture.name);
       return {
         name: fixture.name,
         base: fixture.base,
@@ -1644,7 +1651,7 @@ async function main() {
 
   if (values.local) {
     for (const fixture of fixtures) {
-      const input = inputs.get(fixture.name)!;
+      const input = inputOf(fixture.name);
       const run = await runLocalScan(input, fixture);
       results.push({ ...run, score: scoreScan(run, fixture, input) });
     }
@@ -1696,7 +1703,7 @@ async function main() {
             continue;
           }
           reserved += reserve;
-          const input = inputs.get(next.fixture.name)!;
+          const input = inputOf(next.fixture.name);
           try {
             const run = await runLiveScan(harness, input, next.fixture.name, model, next.run, log);
             spent += run.costUsd;

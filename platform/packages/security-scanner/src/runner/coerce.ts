@@ -32,7 +32,10 @@ const FINDING_KEYS = [
 ];
 const TRACE_KEYS = ['file', 'line', 'note'];
 
-type Plain = Record<string, unknown>;
+/** A JSON object, its fields not checked yet. */
+interface Plain {
+  [key: string]: unknown;
+}
 
 function isPlain(value: unknown): value is Plain {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -110,7 +113,7 @@ export function validateFindingsLenient(value: unknown): ValidationResult {
 }
 
 /** JSON text that holds a report: the whole text, a fenced block, or the outermost braces. */
-export function jsonFromText(text: string): unknown {
+export function jsonFromText(text: string): Plain | null {
   const trimmed = text.trim();
   const candidates: Array<string> = [trimmed];
   const fence = trimmed.indexOf('```');

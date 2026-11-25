@@ -365,8 +365,11 @@ async function copyImage(
     // One signal for the read and the write: a layer still in flight at the deadline is
     // cut off and copied again by the next probe.
     const signal = within(clock, BLOB_TIMEOUT_MS);
-    const response = await fetchBlob(source, layer, signal);
-    await pushBlob(base, auth, layer, response.body!, clock, signal);
+    const { body } = await fetchBlob(source, layer, signal);
+    if (!body) {
+      throw new ImageStepError('source', 'A published image layer is not readable.');
+    }
+    await pushBlob(base, auth, layer, body, clock, signal);
   }
   // The destination registry checked every blob digest; the manifest is the pinned bytes.
   const put = await fetch(`${base}/manifests/${digestTag(pin.digest)}`, {

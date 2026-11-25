@@ -306,7 +306,10 @@ export function securityProbeDeps(
       containers ??= assertSecurityScannerContainers(target);
       await containers;
       const names = await securityScannerNames(target.installationKey);
-      const pin = securityScannerImagePins().find((candidate) => candidate.engine === engine)!;
+      const pin = securityScannerImagePins().find((candidate) => candidate.engine === engine);
+      if (!pin) {
+        throw new Error(`No scanner image is pinned for ${engine}.`);
+      }
       return ensureSecurityScannerImage(target, pin, names.engines[engine].repository, {
         deadline,
       });

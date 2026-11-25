@@ -1,4 +1,5 @@
 /** Arguments of `void project security …` (spec §13.3). */
+import { hasOwnKey } from '../shared/has-own-key.ts';
 
 export const SECURITY_COMMENT_MAX_CHARS = 4000;
 const SECURITY_ACTIONS = [
@@ -18,11 +19,11 @@ const SECURITY_ACTIONS = [
 ] as const;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'informational'];
 const STATES = new Set(['open', 'resolved', 'all']);
-const REASONS: Record<string, 'fixed' | 'false_positive' | 'accepted_risk'> = {
+const REASONS = {
   fixed: 'fixed',
   'false-positive': 'false_positive',
   'accepted-risk': 'accepted_risk',
-};
+} satisfies Record<string, SecurityResolutionReason>;
 // The platform takes up to $1,000,000 a month (`MAX_CAP_CENTS`); "any amount" when no ceiling applies.
 const MAX_BUDGET_USD = 1_000_000;
 
@@ -84,7 +85,7 @@ const BOOLEAN_FLAGS = new Set([
   '--no-wait',
 ]);
 // Flags each action accepts besides `--project` and `--json`.
-const ACTION_FLAGS: Record<string, Array<string>> = {
+const ACTION_FLAGS = {
   status: [],
   open: [],
   list: ['--urgent', '--state', '--severity', '--leads', '--format'],
@@ -185,7 +186,11 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
   const values = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: Array<string> = [];
-  const allowed = new Set(['--project', '--json', ...(ACTION_FLAGS[action] ?? [])]);
+  const allowed = new Set([
+    '--project',
+    '--json',
+    ...(hasOwnKey(ACTION_FLAGS, action) ? ACTION_FLAGS[action] : []),
+  ]);
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (BOOLEAN_FLAGS.has(arg) || VALUE_FLAGS.has(arg)) {
@@ -291,7 +296,8 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
       );
     }
     const reasonText = values.get('--reason');
-    const reason = reasonText === undefined ? undefined : REASONS[reasonText];
+    const reason =
+      reasonText !== undefined && hasOwnKey(REASONS, reasonText) ? REASONS[reasonText] : undefined;
     if (!reason) {
       throw new Error('project: --reason is required: fixed, false-positive or accepted-risk.');
     }

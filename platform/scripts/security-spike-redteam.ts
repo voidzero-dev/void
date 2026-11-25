@@ -1809,7 +1809,13 @@ async function capsSection(db: Db) {
     seenTexts.push(text, JSON.stringify(Object.fromEntries(response.headers)));
     return { status: response.status, stop: response.headers.get('x-void-scan-stop'), text };
   };
-  const scanRow = async (scanId: string) => (await proxy.loadSecurityModelScan(db, scanId))!;
+  const scanRow = async (scanId: string) => {
+    const row = await proxy.loadSecurityModelScan(db, scanId);
+    if (!row) {
+      throw new Error(`Scan ${scanId} has no row.`);
+    }
+    return row;
+  };
 
   // a) 30 concurrent calls, each in its own session: the per-scan cap (10) holds.
   {

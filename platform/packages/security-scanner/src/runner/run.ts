@@ -5,7 +5,7 @@
 
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, rename } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join } from 'node:path/posix';
 import { createClaudeEngine } from './engines/claude.ts';
 import { createCodexEngine } from './engines/codex.ts';
 import type { Engine, EngineId } from './engines/types.ts';
@@ -163,7 +163,9 @@ export async function runScan(options: RunScanOptions): Promise<StatusFile> {
     findings: [],
     notes: '',
   };
-  let fields: StatusFields = failure ?? phases!;
+  // One of the two is always set above.
+  let fields: StatusFields =
+    failure ?? phases ?? infrastructure('runner_crash', 'runner stopped: no result');
   if (phases && failure === null) {
     findings = {
       ...findings,

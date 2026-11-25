@@ -134,12 +134,7 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
         };
         continue;
       }
-      let body: unknown;
-      try {
-        body = await response.json();
-      } catch {
-        body = null;
-      }
+      const body = await response.json().catch(() => null);
       if (typeof body !== 'object' || body === null || Array.isArray(body)) {
         failure = {
           kind: 'infrastructure',
@@ -154,7 +149,10 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
     if (signal?.aborted) {
       return { ok: false, outcome: { kind: 'aborted' } };
     }
-    return { ok: false, outcome: failure! };
+    if (failure === null) {
+      throw new Error('The model call loop ended with no outcome.');
+    }
+    return { ok: false, outcome: failure };
   }
 
   return {
@@ -241,7 +239,7 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
               continue;
             }
             const result = validateFindingsTextLenient(toolCall.function.arguments);
-            let problem: { kind: string; message: string };
+            let problem: SubmitProblem;
             if (!result.ok) {
               problem = { kind: result.kind, message: describeValidationError(result) };
             } else {
@@ -292,6 +290,9 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
     },
   };
 }
+
+/** Why a `submit_findings` call was not taken, for the repair turn. */
+type SubmitProblem = { kind: string; message: string };
 
 type Choice = { content: string | null; toolCalls: Array<ToolCall>; finishReason: string | null };
 

@@ -1539,10 +1539,10 @@ export async function uninstallPlatform(
         }
       }
     }
-    if (securityAudits) {
+    if (securityAudits && dependencies.deleteSecurityScanner) {
       // The scanner holds no data. It is billable, so uninstall always removes it; an
       // object that is not this installation's is left alone.
-      const teardown = await dependencies.deleteSecurityScanner!(next);
+      const teardown = await dependencies.deleteSecurityScanner(next);
       for (const entry of teardown.kept) {
         log.warn(`Kept ${entry}: it does not belong to this installation.`);
       }

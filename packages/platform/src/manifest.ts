@@ -136,7 +136,9 @@ const CORE_CAPABILITIES: PlatformCapabilities = {
 };
 
 /** Capabilities that older documents may omit; a missing value means `false`. */
-const OPTIONAL_CAPABILITIES: ReadonlySet<keyof PlatformCapabilities> = new Set(['securityAudits']);
+const OPTIONAL_CAPABILITIES = new Set<string>(['securityAudits'] satisfies ReadonlyArray<
+  keyof PlatformCapabilities
+>);
 
 /**
  * Reads one capability from an untrusted record. An optional capability that
@@ -145,7 +147,7 @@ const OPTIONAL_CAPABILITIES: ReadonlySet<keyof PlatformCapabilities> = new Set([
  */
 export function readPlatformCapability(
   record: Readonly<Record<string, unknown>>,
-  name: keyof PlatformCapabilities,
+  name: string,
   // oxlint-disable-next-line quality/no-unknown-returns -- The raw value stays unvalidated for the caller's own capability checks.
 ): unknown {
   const value = record[name];
@@ -160,7 +162,7 @@ export function serializePlatformCapabilities(capabilities: PlatformCapabilities
   return JSON.stringify(
     Object.fromEntries(
       Object.entries(capabilities).filter(
-        ([key, value]) => value || !OPTIONAL_CAPABILITIES.has(key as keyof PlatformCapabilities),
+        ([key, value]) => value || !OPTIONAL_CAPABILITIES.has(key),
       ),
     ),
   );
@@ -497,15 +499,15 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   assertRecord(controlPlane, 'controlPlane');
   assertRecord(authentication, 'authentication');
   assertRecord(rawResources, 'resources');
-  const capabilityKeys = Object.keys(CORE_CAPABILITIES) as Array<keyof PlatformCapabilities>;
-  const capabilities: Partial<Record<keyof PlatformCapabilities, boolean>> = {};
-  for (const key of capabilityKeys) {
-    const entry = readPlatformCapability(rawCapabilities, key);
-    if (typeof entry !== 'boolean') {
-      throw new Error(`capabilities.${key} must be a boolean.`);
-    }
-    capabilities[key] = entry;
-  }
+  const capabilities = Object.fromEntries(
+    Object.keys(CORE_CAPABILITIES).map((key) => {
+      const entry = readPlatformCapability(rawCapabilities, key);
+      if (typeof entry !== 'boolean') {
+        throw new Error(`capabilities.${key} must be a boolean.`);
+      }
+      return [key, entry];
+    }),
+  );
   if (capabilities.securityAudits && Number(value.schemaVersion) < 7) {
     throw new Error('Security audits require deployment schema version 7.');
   }

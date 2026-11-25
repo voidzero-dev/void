@@ -63,6 +63,9 @@ export type CopyClientOptions = {
   readyPollMs?: number;
 };
 
+/** One session's `copy_request` tool and the requests it sent. */
+export type CopySessionTool = { tool: SessionTool; requests: Array<CopyRequestRecord> };
+
 export class CopyClient {
   readonly #baseUrl: string;
   readonly #fetch: typeof fetch;
@@ -111,7 +114,7 @@ export class CopyClient {
   }
 
   /** A `copy_request` tool for one verify session, with its own record of requests. */
-  sessionTool(): { tool: SessionTool; requests: Array<CopyRequestRecord> } {
+  sessionTool(): CopySessionTool {
     const requests: Array<CopyRequestRecord> = [];
     const tool: SessionTool = {
       name: 'copy_request',

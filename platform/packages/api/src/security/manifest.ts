@@ -16,6 +16,5 @@ export function readSecurityManifest(raw: string | null | undefined): DeployMani
   } catch {
     return null;
   }
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The deploy wrote this row; scan code checks each field it reads.
   return isRecord(value) ? (value as DeployManifest) : null;
 }

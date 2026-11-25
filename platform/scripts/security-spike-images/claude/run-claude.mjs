@@ -143,7 +143,9 @@ try {
       for (const block of Array.isArray(content) ? content : []) {
         if (block.type === 'tool_result') {
           const text = Array.isArray(block.content)
-            ? block.content.map((part) => part.text ?? '').join('\n')
+            ? block.content
+                .map((/** @type {{ text?: string }} */ part) => part.text ?? '')
+                .join('\n')
             : String(block.content ?? '');
           out.toolResults.push({
             id: block.tool_use_id,

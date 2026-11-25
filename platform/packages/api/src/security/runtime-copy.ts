@@ -26,7 +26,6 @@ import { CF_API_BASE, cfFetch } from '../provisioning/cloudflare-api.ts';
 import { securityScannerNames, securityScannerTarget } from '../provisioning/security-scanner.ts';
 import type { SecurityScannerTarget } from '../provisioning/security-scanner.ts';
 import { deployments, projects } from '../schema.ts';
-import type { DeployManifest } from '../types.ts';
 import { chargeSecurityScanCopy } from './budget.ts';
 import { checkScanFence } from './fence.ts';
 import { modulesKey, parseSnapshotModules } from './input/prepare.ts';
@@ -277,14 +276,19 @@ export async function createSecurityRuntimeCopy(
       }
       const [read] = await d1Query(target, live, SCHEMA_QUERY);
       const statements = securityCopySchemaStatements(read?.results ?? []);
-      if (input.holdsSecret && statements.some((statement) => input.holdsSecret!(statement))) {
+      const { holdsSecret } = input;
+      if (holdsSecret && statements.some((statement) => holdsSecret(statement))) {
         throw new SecurityCopySkipped('secret_in_schema');
       }
       schema[store.binding] = statements.length;
       if (statements.length === 0) {
         continue;
       }
-      const written = await d1Query(target, ids.get(store.name)!, `${statements.join(';\n')};`);
+      const storeId = ids.get(store.name);
+      if (storeId === undefined) {
+        throw new Error(`The D1 copy ${store.name} was not created.`);
+      }
+      const written = await d1Query(target, storeId, `${statements.join(';\n')};`);
       for (const entry of written ?? []) {
         costNano += (entry.meta?.rows_written ?? 0) * SECURITY_COPY_PRICES_NANO.d1RowWritten;
       }

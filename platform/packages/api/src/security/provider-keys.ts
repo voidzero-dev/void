@@ -17,6 +17,7 @@
  * `cf-aig-no-wholesale` makes the gateway refuse instead of billing Unified Billing
  * credits if it ever does not read the key.
  */
+import { isRecord } from '@void/deploy-core';
 import type { SecurityModelId, SecurityThirdPartyHost } from '@void/platform/security-models';
 import type { SecurityEntitlement } from '@void/platform/security-policy';
 import type { DbOrTx } from '../db.ts';
@@ -313,6 +314,13 @@ export function parseSecurityProviderKey(value: unknown): string {
   return key;
 }
 
+type PlatformSettingValue = Awaited<ReturnType<typeof getPlatformSetting>>;
+
+/** The saved provider keys setting, by host; entries this code does not know are kept. */
+interface StoredKeysSetting {
+  [host: string]: PlatformSettingValue | undefined;
+}
+
 /** Saves (or with `key: null` removes) one host's key. Call under the policy lock. */
 export async function writeSecurityProviderKey(
   env: SecurityProviderKeyEnv,
@@ -325,11 +333,8 @@ export async function writeSecurityProviderKey(
   }>,
 ): Promise<Readonly<{ setAt: string } | null>> {
   const value = await getPlatformSetting(tx, SECURITY_PROVIDER_KEYS_SETTINGS_KEY);
-  const row = {
-    ...((value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<
-      string,
-      unknown
-    >),
+  const row: StoredKeysSetting = {
+    ...(isRecord(value) ? value : {}),
   };
   if (input.key === null) {
     delete row[input.host];

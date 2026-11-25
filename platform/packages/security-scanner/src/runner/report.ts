@@ -100,8 +100,13 @@ export const REPORT_LIMITS = {
   maxLine: 10_000_000,
 } as const;
 
+/** A JSON Schema object, as a tool definition carries it. */
+export interface ToolParametersSchema {
+  [keyword: string]: unknown;
+}
+
 /** JSON Schema for the `submit_findings` tool, kept in step with the validator. */
-export function submitFindingsParameters(): Record<string, unknown> {
+export function submitFindingsParameters(): ToolParametersSchema {
   const path = { type: 'string', maxLength: REPORT_LIMITS.path };
   const line = { type: ['integer', 'null'], minimum: 1, maximum: REPORT_LIMITS.maxLine };
   return {

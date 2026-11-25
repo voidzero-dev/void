@@ -182,10 +182,7 @@ async function throwPlatformApiError(
  * is the router of a platform that has no security routes; a 404 with JSON is a real miss (unknown
  * project or finding). The platform's own message is the copy for the other refusals.
  */
-export function securityApiError(error: unknown): unknown {
-  if (!(error instanceof PlatformApiError)) {
-    return error;
-  }
+export function securityApiError(error: PlatformApiError): Error {
   const parsed = parsePlatformErrorBody(error.body);
   if (error.status === 404 && parsed === null) {
     return new Error(
@@ -1038,7 +1035,10 @@ export class PlatformClient {
     try {
       return await this.json<T>(`${this.baseUrl}/projects/${path}`, action, options);
     } catch (error) {
-      throw securityApiError(error);
+      if (error instanceof PlatformApiError) {
+        throw securityApiError(error);
+      }
+      throw error;
     }
   }
 
@@ -1144,7 +1144,10 @@ export class PlatformClient {
           { cause: error },
         );
       }
-      throw securityApiError(error);
+      if (error instanceof PlatformApiError) {
+        throw securityApiError(error);
+      }
+      throw error;
     }
   }
 
@@ -1204,7 +1207,10 @@ export class PlatformClient {
           { cause: error },
         );
       }
-      throw securityApiError(error);
+      if (error instanceof PlatformApiError) {
+        throw securityApiError(error);
+      }
+      throw error;
     }
   }
 

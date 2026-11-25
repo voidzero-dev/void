@@ -6,7 +6,7 @@
 
 import { constants } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join } from 'node:path/posix';
 import { SCAN_INPUT_LIMITS } from './limits.ts';
 
 export type ExtractLimits = {
@@ -239,8 +239,10 @@ function readDecimal(text: string, name: string): number {
  * Keys are ASCII. Only `path` (UTF-8) and `size` (decimal) are decoded; every
  * other value is skipped as bytes, since some (`SCHILY.xattr.*`) are raw binary.
  */
-function readPaxRecords(data: Uint8Array): { path?: string; size?: string } {
-  const records: { path?: string; size?: string } = {};
+type PaxRecords = { path?: string; size?: string };
+
+function readPaxRecords(data: Uint8Array): PaxRecords {
+  const records: PaxRecords = {};
   let position = 0;
   while (position < data.length) {
     let space = position;

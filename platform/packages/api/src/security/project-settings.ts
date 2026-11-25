@@ -107,16 +107,17 @@ export async function readSecurityHighRefusalModels(
       ),
     )
     .groupBy(securityScans.model_used);
-  return new Set(
-    rows
-      .filter(
-        (row) =>
-          row.model !== null &&
-          row.ended >= SECURITY_HIGH_REFUSAL_MIN_SCANS &&
-          row.refused > row.ended * SECURITY_HIGH_REFUSAL_RATE,
-      )
-      .map((row) => row.model!),
-  );
+  const models = new Set<string>();
+  for (const row of rows) {
+    if (
+      row.model !== null &&
+      row.ended >= SECURITY_HIGH_REFUSAL_MIN_SCANS &&
+      row.refused > row.ended * SECURITY_HIGH_REFUSAL_RATE
+    ) {
+      models.add(row.model);
+    }
+  }
+  return models;
 }
 
 /** The picker badges of a model, with "High refusal" when its measured rate is high. */

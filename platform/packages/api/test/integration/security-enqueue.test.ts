@@ -15,7 +15,6 @@ import {
 } from 'vite-plus/test';
 import { deleteProjectAssets } from '../../src/assets.ts';
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
-import type { Db } from '../../src/db.ts';
 import { getDeploymentOperation, processDeploymentBatch } from '../../src/deployment-execution.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import app from '../../src/index.ts';
@@ -50,6 +49,7 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
+  withTestTransaction,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
@@ -919,28 +919,21 @@ describe('real deploys', () => {
         .where(eq(projects.id, projectId));
       return row?.status === 'live';
     };
-    const wrapped = new Proxy(realDb, {
-      get(target, prop, receiver) {
-        if (prop !== 'transaction') {
-          return Reflect.get(target, prop, receiver);
+    const wrapped = withTestTransaction(realDb, async (fn, config) => {
+      if (mode === 'nextStep' && live && !injected) {
+        injected = true;
+        throw new Error('retention cleanup failed');
+      }
+      const result = await realTransaction(fn, config);
+      if (!live && (await liveNow())) {
+        live = true;
+        if (mode === 'afterCommit') {
+          injected = true;
+          throw new Error('database connection lost after COMMIT');
         }
-        return (async (...args: Parameters<Db['transaction']>) => {
-          if (mode === 'nextStep' && live && !injected) {
-            injected = true;
-            throw new Error('retention cleanup failed');
-          }
-          const result = await realTransaction(...args);
-          if (!live && (await liveNow())) {
-            live = true;
-            if (mode === 'afterCommit') {
-              injected = true;
-              throw new Error('database connection lost after COMMIT');
-            }
-          }
-          return result;
-        }) as Db['transaction'];
-      },
-    }) as Db;
+      }
+      return result;
+    });
     setTestDb(wrapped);
     return { injected: () => injected, restore: () => setTestDb(realDb) };
   }

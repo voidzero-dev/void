@@ -468,7 +468,7 @@ describe('admin security: project detail', () => {
     expect(
       (await env.db.select().from(operatorEvents)).map((event) => [
         event.action,
-        JSON.parse(event.target),
+        JSON.parse(event.target) as unknown,
       ]),
     ).toEqual([
       [`projects/${project.id}/security/policy`, { projectId: project.id, override: 'never' }],

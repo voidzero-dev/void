@@ -185,7 +185,7 @@ const app = new Hono<ApiEnv>()
         protectedProject,
         { actorUserId: context.get('user').id },
       );
-      const project = publicProjectZeroTrustState(result.row)!;
+      const project = publicProjectZeroTrustState(result.row);
       const request = result.publicRequest;
       if (request && result.held && request.state !== 'canceled') {
         // Held (spec §5.5): the stored row is unchanged. An old CLI prints "is public"

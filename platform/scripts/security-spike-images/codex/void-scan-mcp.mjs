@@ -28,6 +28,10 @@ function inside(candidate) {
   return real;
 }
 
+/**
+ * @param {string} dir
+ * @param {Array<string>} out
+ */
 function walk(dir, out) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
@@ -77,7 +81,7 @@ const tools = {
     run({ path }) {
       return walk(inside(path), [])
         .map((p) => relative(ROOT, p))
-        .sort()
+        .sort((a, b) => a.localeCompare(b))
         .join('\n');
     },
   },

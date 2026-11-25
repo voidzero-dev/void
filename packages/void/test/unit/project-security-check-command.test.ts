@@ -293,12 +293,14 @@ describe('collecting the local tree', () => {
     git('add', '.');
     write(repo, { 'apps/web/src/index.ts': 'edited', 'apps/web/src/new.ts': 'untracked' });
     const tree = collectSecurityLocalTree(join(repo, 'apps/web'));
-    expect(tree.files.map((file) => [file.path, Buffer.from(file.data).toString()]).sort()).toEqual(
-      [
-        ['README.md', 'docs'],
-        ['src/index.ts', 'edited'],
-      ],
-    );
+    expect(
+      tree.files
+        .map((file) => [file.path, Buffer.from(file.data).toString()])
+        .sort((a, b) => a[0].localeCompare(b[0])),
+    ).toEqual([
+      ['README.md', 'docs'],
+      ['src/index.ts', 'edited'],
+    ]);
   });
 
   it('refuses a folder that is not a git repository or is over the limits', () => {

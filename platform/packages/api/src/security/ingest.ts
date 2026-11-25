@@ -971,7 +971,7 @@ async function fenceOk(db: DbOrTx, scanId: string, attempt: number, now: number)
   return (await checkScanFence(db, scanId, attempt, now)).ok;
 }
 
-async function bestEffort(what: string, scanId: string, run: () => Promise<unknown>) {
+async function bestEffort<Result>(what: string, scanId: string, run: () => Promise<Result>) {
   try {
     await run();
   } catch (error) {
@@ -1108,10 +1108,15 @@ async function storeOutcome(
     await markFixesChecked(tx, projectId, scanId, row.deploymentId, reportedIds);
   }
   // A diff scan (or one with no model run) carries the base's ledger over.
-  const baseLedger =
+  const [baseRow] =
     succeeded && scope?.full !== true && row.baseScanId !== null
-      ? await scanLedgerSummary(tx, row.baseScanId)
-      : null;
+      ? await tx
+          .select({ ledger: securityScans.ledger_summary })
+          .from(securityScans)
+          .where(eq(securityScans.id, row.baseScanId))
+          .limit(1)
+      : [];
+  const baseLedger = baseRow?.ledger ?? null;
 
   const notes = [...row.coverageNotes];
   if (capped && !notes.includes(SECURITY_FINDINGS_CAPPED_NOTE)) {
@@ -1147,15 +1152,6 @@ async function storeOutcome(
     await enqueueSecurityNotification(tx, { kind: 'findings', projectId, scanId });
   }
   return { ...result, capped };
-}
-
-async function scanLedgerSummary(tx: DbOrTx, scanId: string): Promise<unknown> {
-  const [row] = await tx
-    .select({ ledger: securityScans.ledger_summary })
-    .from(securityScans)
-    .where(eq(securityScans.id, scanId))
-    .limit(1);
-  return row?.ledger ?? null;
 }
 
 /** The head deployment's admission time as an ISO instant (the column has no zone). */

@@ -101,7 +101,8 @@ export function parsePackageLock(text: string): SecurityLockfileIndex | null {
     return null;
   }
   const index = new Map<string, SecurityPackageSource>();
-  for (const [key, entry] of Object.entries(packages as Record<string, unknown>)) {
+  const entries: Array<[string, unknown]> = Object.entries(packages);
+  for (const [key, entry] of entries) {
     const name = packageNameOfPath(key);
     if (name === null || typeof entry !== 'object' || entry === null) {
       continue;

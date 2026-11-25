@@ -6,8 +6,7 @@
 
 import { realpathSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path/posix';
 import { submitFindingsParameters } from '../report.ts';
 import { classifyClaudeResult, safeLabel } from '../status.ts';
 import type { OutcomeBody } from '../status.ts';
@@ -69,6 +68,16 @@ export function gatewayName(model: string): string {
   return model.slice(model.indexOf('/') + 1);
 }
 
+/** The Agent SDK `query` options; the SDK checks them. */
+export interface ClaudeQueryOptions {
+  [option: string]: unknown;
+}
+
+/** What a hook answers the Agent SDK. */
+interface ClaudeHookOutput {
+  [field: string]: unknown;
+}
+
 /** The SDK `options` for one session. Pure, so a test can pin every lockdown setting. */
 export function claudeOptions(input: {
   model: string;
@@ -84,7 +93,7 @@ export function claudeOptions(input: {
   /** PostToolUse: sees what a Read returned (`stats.reads`). */
   afterTool: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
   onStderr: (data: string) => void;
-}): Record<string, unknown> {
+}): ClaudeQueryOptions {
   const { root } = input;
   return {
     cwd: `${root}/input`,
@@ -219,7 +228,7 @@ export function createReadCounter(root: string, onRead: () => void) {
   };
 }
 
-function deny(): Record<string, unknown> {
+function deny(): ClaudeHookOutput {
   return {
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',

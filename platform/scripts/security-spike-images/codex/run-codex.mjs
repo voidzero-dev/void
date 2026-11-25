@@ -156,10 +156,13 @@ try {
         command: item.command,
         status: item.status,
         error: item.error?.message,
-        text: (item.text ?? item.result?.content?.map((c) => c.text ?? '').join('\n') ?? '').slice(
-          0,
-          200,
-        ),
+        text: (
+          item.text ??
+          item.result?.content
+            ?.map((/** @type {{ text?: string }} */ c) => c.text ?? '')
+            .join('\n') ??
+          ''
+        ).slice(0, 200),
       });
       if (item.type === 'agent_message') {
         out.finalResponse = item.text;

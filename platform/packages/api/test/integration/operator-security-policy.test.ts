@@ -288,7 +288,7 @@ describe('operator security policy', () => {
       request('/policy', { expectedRevision: 3, limits: { concurrency: 3 } }),
       request('/policy', { expectedRevision: 3, limits: { concurrency: 5 } }),
     ]);
-    expect([first.status, second.status].sort()).toEqual([200, 409]);
+    expect([first.status, second.status].sort((a, b) => a - b)).toEqual([200, 409]);
     expect((await storedPolicy())?.revision).toBe(4);
   });
 

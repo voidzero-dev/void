@@ -466,11 +466,11 @@ describe('T1 source diff with GitHub', () => {
     const kept = await env.STATIC_ASSETS_R2.list({
       prefix: securityRawOutputPrefix(project.id, 'scan_head'),
     });
-    expect(kept.objects.map((object) => object.key.split('/').at(-1)).sort()).toEqual([
-      'backlog.json',
-      'scope.json',
-      'server-leads.json',
-    ]);
+    expect(
+      kept.objects
+        .map((object) => object.key.split('/').at(-1))
+        .sort((a, b) => String(a).localeCompare(String(b))),
+    ).toEqual(['backlog.json', 'scope.json', 'server-leads.json']);
   });
 
   it('drops registry packages by the repo lockfile read from the same tarball (spec §7.4)', async () => {

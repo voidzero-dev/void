@@ -152,7 +152,8 @@ export async function fillSecurityGatewayCosts(
   for (const row of rows) {
     let nano = 0;
     if (row.modelCalls > 0) {
-      const finished = stamp(row.finishedAt)!;
+      // The query keeps only rows with a finish time.
+      const finished = stamp(row.finishedAt) ?? now;
       // The first queue time: a retried attempt keeps the calls of the earlier one.
       const from = stamp(row.queuedAt) ?? stamp(row.startedAt) ?? stamp(row.createdAt) ?? finished;
       const usd = await deps.query(

@@ -169,7 +169,7 @@ export async function recoverFailedDeployment(input: {
     const securityScan = await enqueueSecurityScanForLiveDeployment(
       context.get('db'),
       context.env,
-      { projectId, deploymentId: failedDeployment.id },
+      { projectId, deploymentId: deployment.id },
     ).catch((error: unknown) => {
       logger.warn('catch', 'security_scan_enqueue_failed', {
         err: error instanceof Error ? error.message : String(error),

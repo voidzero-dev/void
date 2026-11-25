@@ -216,7 +216,7 @@ export async function enqueueSecurityNotification(
 /** The highest threshold a total has reached on a cap, or `null`. */
 function highestThreshold(spentNano: number, capNano: number | null): 80 | 100 | null {
   const reached = securityBudgetThresholds(spentNano, capNano);
-  return reached.length === 0 ? null : reached.at(-1)!;
+  return reached.at(-1) ?? null;
 }
 
 /**
@@ -496,8 +496,12 @@ async function deliver(
 ): Promise<Delivery> {
   const row = group[0];
   switch (row.kind) {
-    case 'findings':
-      return deliverFindings(db, env, row.project_id!, group, now);
+    case 'findings': {
+      if (row.project_id === null) {
+        throw new Error('A findings notification has no project.');
+      }
+      return deliverFindings(db, env, row.project_id, group, now);
+    }
     case 'reopen':
       return deliverReopen(db, env, row);
     case 'cap_project':
@@ -651,7 +655,7 @@ async function newFindingsOfScans(
   const findings: Array<NewFinding> = [];
   let leads = 0;
   for (const row of rows) {
-    const seen = actions.get(row.id)!;
+    const seen = actions.get(row.id) ?? new Set<string>();
     if (row.verdict === 'needs_validation') {
       if (seen.has('created')) {
         leads++;
@@ -1511,7 +1515,10 @@ export async function securityWebhookEventOf(
   }
   switch (kind) {
     case 'findings': {
-      const { findings, leads } = await newFindingsOfScans(db, row.project_id!, row.scan_ids);
+      if (row.project_id === null) {
+        return null;
+      }
+      const { findings, leads } = await newFindingsOfScans(db, row.project_id, row.scan_ids);
       const bySeverity: Record<string, number> = {};
       for (const finding of findings) {
         bySeverity[finding.severity] = (bySeverity[finding.severity] ?? 0) + 1;

@@ -392,7 +392,18 @@ describe('project security page markup', () => {
 
   it('selects the saved model, not the one in use, and shows the notice it asks to accept', () => {
     const select = (html: string) => html.slice(html.indexOf('<select name="model"'));
-    const withChoices = (modelChoices: object, model: object = status.model) =>
+    // The fixture's fields the page reads; the full status is cast below.
+    type ChoicesFixture = Readonly<{
+      defaultModel: string;
+      saved: string | null;
+      defaultNotice: Readonly<{ provider: string; notice: ReadonlyArray<string> }> | null;
+      noticeVersion: number;
+      choices: ReadonlyArray<
+        Readonly<{ id: string; provider: string; badges: ReadonlyArray<string>; notice: null }>
+      >;
+    }>;
+    type ModelFixture = Readonly<{ id: string; requested: string; pendingDefault: string | null }>;
+    const withChoices = (modelChoices: ChoicesFixture, model: ModelFixture = status.model) =>
       render('owner', { status: { ...status, model, modelChoices } as never });
     const choices = {
       ...status.modelChoices,

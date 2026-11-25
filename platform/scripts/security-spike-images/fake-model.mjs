@@ -53,6 +53,7 @@ export function seededFinding(line) {
   };
 }
 
+/** @returns {string} */
 function textOf(value) {
   if (typeof value === 'string') {
     return value;
@@ -172,6 +173,7 @@ export function summarizeRequest({ method, path, headers, bodyText }) {
 
 // ---------- Anthropic Messages (Engine A) ----------
 
+/** @param {Array<[string, unknown]>} events */
 function sse(events) {
   return events
     .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
@@ -251,7 +253,9 @@ function anthropicMessage(blocks, stopReason, stream) {
 }
 
 function anthropicReply(body) {
-  const names = (body.tools ?? []).map((t) => t.name);
+  /** @type {Array<{ name: string }>} */
+  const tools = body.tools ?? [];
+  const names = tools.map((t) => t.name);
   if (!names.includes('Read')) {
     // Side request (title, summary, classifier): answer plainly.
     return anthropicMessage([{ type: 'text', text: 'ok' }], 'end_turn', body.stream);

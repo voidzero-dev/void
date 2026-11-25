@@ -80,9 +80,9 @@ export function securityProbeDue(policy: SecurityPolicy, now: number): boolean {
 
 export type SecurityMaintenanceDeps = Readonly<{
   controller: SecurityScanController;
-  forget(scanId: string, attempt: number): Promise<unknown>;
+  forget(scanId: string, attempt: number): Promise<number>;
   poke(): Promise<void>;
-  probe(): Promise<unknown>;
+  probe(): Promise<void>;
   /** Deletes runtime copies whose attempt is not running; returns how many. */
   reapCopies(): Promise<number>;
   /** Fills the gateway cost of ended scans; returns how many (`0` with no API token). */
@@ -114,7 +114,9 @@ function realDeps(env: ApiEnv['Bindings'], db: Db): SecurityMaintenanceDeps {
     controller: securityScanControllerClient(env),
     forget: (scanId, attempt) => scheduler().forgetModelCalls(scanId, attempt),
     poke: () => pokeSecurityScanScheduler(env),
-    probe: () => probeAndRecord(env, db),
+    probe: async () => {
+      await probeAndRecord(env, db);
+    },
     reapCopies: () => reapSecurityRuntimeCopies(env, db),
     gatewayCosts: async (now) => {
       if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) {

@@ -405,7 +405,7 @@ describe('scheduled sweeps', () => {
     await liveProject('acme-web');
     const report = await runSecurityMaintenance(onEnv as never, env.db, now, {
       controller: { cancel: async () => {} } as never,
-      forget: async () => {},
+      forget: async () => 0,
       poke: async () => {},
       probe: async () => {},
       reapCopies: async () => 0,

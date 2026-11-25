@@ -33,7 +33,11 @@ import { securityCoverageLabel } from '../../src/security/input/tier.ts';
 // Split so the test runner does not read these as the test file's own source map.
 const MAP_URL = `//# sourceMapping${''}URL=`;
 
-function map(sources: Array<string>, contents: Array<string | null>, extra: object = {}): string {
+function map(
+  sources: Array<string>,
+  contents: Array<string | null>,
+  extra: Readonly<{ sourceRoot?: string }> = {},
+): string {
   return JSON.stringify({ version: 3, sources, sourcesContent: contents, mappings: '', ...extra });
 }
 

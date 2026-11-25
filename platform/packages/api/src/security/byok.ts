@@ -178,10 +178,10 @@ export async function changeSecurityProviderKey(
       now: options.now,
     });
     const stored = await readStoredSecurityPolicy(tx);
-    let passed = stored.policy.entitlement?.hosts[host] === true;
+    const { entitlement } = stored.policy;
+    let passed = entitlement?.hosts[host] === true;
     // Removing no key changes no route, so the probe result stands.
-    if (request.key === null && hadKey && passed && stored.unreadable === null) {
-      const entitlement = stored.policy.entitlement!;
+    if (request.key === null && hadKey && entitlement && passed && stored.unreadable === null) {
       await replaceSecurityPolicy(tx, stored.policy, {
         ...stored.policy,
         entitlement: { ...entitlement, hosts: { ...entitlement.hosts, [host]: false } },

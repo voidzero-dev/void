@@ -146,7 +146,7 @@ describe('scan start reserve', () => {
     const reserved = [await scanRow('ss_a'), await scanRow('ss_b')].map(
       (row) => row.reserved_nano_usd,
     );
-    expect(reserved.sort()).toEqual([0, 1.5 * USD]);
+    expect(reserved.sort((a, b) => a - b)).toEqual([0, 1.5 * USD]);
     // The refused scan left no trace on its project row either.
     const loser = results[0].ok ? b : a;
     expect((await projectSpend(loser.id))?.reserved_nano_usd ?? 0).toBe(0);

@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const [, , source, target] = process.argv;
+/** @type {{ models: Array<{ slug: string }> }} */
 const bundled = JSON.parse(readFileSync(source, 'utf8'));
 const keep = ['gpt-6.1-terra', 'gpt-6.1-sol'];
 const models = bundled.models

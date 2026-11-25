@@ -218,8 +218,11 @@ export function mapBundleToRepo(
   }
   const prefixes = new Set<string>();
   for (const [path, list] of candidates) {
-    const source = wanted.get(path)!;
-    const same = list.filter((repoPath) => repo.get(repoPath)!.sha256 === source.sha256);
+    const source = wanted.get(path);
+    if (!source) {
+      continue;
+    }
+    const same = list.filter((repoPath) => repo.get(repoPath)?.sha256 === source.sha256);
     if (same.length === 1) {
       prefixes.add(same[0].slice(0, same[0].length - path.length));
     }
@@ -470,7 +473,7 @@ export function planSecuritySourceDiff(
       ? repoPath.slice(mapping.root.length)
       : repoPath;
     if (filter === 'secret') {
-      secret.push({ path: inputPath, bytes: repo.get(repoPath)!.size });
+      secret.push({ path: inputPath, bytes: repo.get(repoPath)?.size ?? 0 });
       continue;
     }
     if (filter === 'skipped') {
@@ -517,7 +520,10 @@ export function planSecuritySourceDiff(
   let bytes = 0;
   let files = 0;
   for (const entry of ordered) {
-    const file = repo.get(entry.repoPath)!;
+    const file = repo.get(entry.repoPath);
+    if (!file) {
+      continue;
+    }
     const first = changed.has(entry.inputPath);
     const maxBytes = first ? input.budget.bytes : input.budget.bytes - reservedBytes;
     const maxFiles = first ? input.budget.files : input.budget.files - bundleOnly.length;

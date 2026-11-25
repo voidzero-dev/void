@@ -144,7 +144,7 @@ export function normalizeSourcePath(
   if (normalized.length <= MAX_PATH_CHARS) {
     return normalized;
   }
-  return `${LONG_PATH_PREFIX}${sha256Hex(normalized).slice(0, 16)}/${out.at(-1)!.slice(0, 60)}`;
+  return `${LONG_PATH_PREFIX}${sha256Hex(normalized).slice(0, 16)}/${(out.at(-1) ?? '').slice(0, 60)}`;
 }
 
 type RawMap = {
@@ -417,10 +417,9 @@ export function importGraphOrder(
     queue.push(main);
     seen.add(main);
   }
-  while (queue.length > 0) {
-    const name = queue.shift()!;
+  for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
     order.push(name);
-    for (const specifier of relativeImports(byName.get(name)!.text)) {
+    for (const specifier of relativeImports(byName.get(name)?.text ?? '')) {
       const target = resolveRelative(name, specifier);
       if (target !== null && byName.has(target) && !seen.has(target)) {
         seen.add(target);
@@ -499,14 +498,20 @@ export function bundleSources(
     }
   };
   for (const name of importGraphOrder(code, main)) {
-    const module = byName.get(name)!;
+    const module = byName.get(name);
+    if (!module) {
+      continue;
+    }
     const map = isCodeModule(name) ? sourceMapFor(module, maps) : null;
     let sources: ReadonlyArray<SecurityMapSource> | null = null;
     if (map !== null && map.inline !== null) {
       sources = readSourceMap(map.name, map.inline);
     } else if (map !== null) {
-      const file = maps.get(map.name)!;
-      sources = file.sources !== undefined ? file.sources : readSourceMap(map.name, file.text);
+      // `sourceMapFor` names a separate map only when `maps` holds it.
+      const file = maps.get(map.name);
+      if (file) {
+        sources = file.sources !== undefined ? file.sources : readSourceMap(map.name, file.text);
+      }
     }
     if (sources && sources.length > 0) {
       for (const source of sources) {
@@ -515,7 +520,7 @@ export function bundleSources(
           text: source.text,
           sha256: sha256Hex(source.text),
           module: name,
-          map: map!.inline === null ? map!.name : null,
+          map: map?.inline === null ? map.name : null,
           built: false,
         });
       }

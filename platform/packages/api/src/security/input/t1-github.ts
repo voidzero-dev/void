@@ -390,8 +390,9 @@ export async function loadSecuritySourceDiff(
     // package identity (spec §7.4), never by path text.
     const lockfilePath = pickSecurityLockfile(repo, mapping.root);
     const wanted = new Map(plan.read.map((file) => [file.repoPath, file.sha256]));
-    if (lockfilePath !== null) {
-      wanted.set(lockfilePath, repo.get(lockfilePath)!.sha256);
+    const lockfileEntry = lockfilePath === null ? undefined : repo.get(lockfilePath);
+    if (lockfilePath !== null && lockfileEntry) {
+      wanted.set(lockfilePath, lockfileEntry.sha256);
     }
     const texts = await readTarballFiles(r2, key, wanted);
     const lockText = lockfilePath === null ? undefined : texts.get(lockfilePath);

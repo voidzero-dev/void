@@ -8,8 +8,13 @@
 
 import { MODEL_BASE_URL } from './engines/void-loop.ts';
 
+/** Egress check name → the URL it fetches. */
+export interface SelfTestEgressTargets {
+  readonly [name: string]: string;
+}
+
 /** Hosts the container must not reach. Each one fails, or ends in the controller's deny handler. */
-export const SELF_TEST_EGRESS_TARGETS: Readonly<Record<string, string>> = {
+export const SELF_TEST_EGRESS_TARGETS: SelfTestEgressTargets = {
   httpExample: 'http://example.com/',
   httpsExample: 'https://example.com/',
   httpsBareIp: 'https://1.1.1.1/',
@@ -42,7 +47,7 @@ export type SelfTestReport = Readonly<{
 
 export type SelfTestOptions = Readonly<{
   baseUrl?: string;
-  targets?: Readonly<Record<string, string>>;
+  targets?: SelfTestEgressTargets;
   timeoutMs?: number;
   env?: Readonly<Record<string, string | undefined>>;
   uid?: number | null;

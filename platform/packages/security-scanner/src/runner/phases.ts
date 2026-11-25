@@ -281,11 +281,13 @@ function record(
   result.tokensOut += outcome.stats.outputTokens;
 }
 
-/** Hunt candidates to verify (confirmed first, by severity), and the hunt's own rejections. */
-export function splitCandidates(report: ScanReport): {
+type SplitCandidates = {
   candidates: Array<FindingRecord>;
   rejected: Array<FindingRecord>;
-} {
+};
+
+/** Hunt candidates to verify (confirmed first, by severity), and the hunt's own rejections. */
+export function splitCandidates(report: ScanReport): SplitCandidates {
   const seen = new Set<string>();
   const candidates: Array<FindingRecord> = [];
   const rejected: Array<FindingRecord> = [];

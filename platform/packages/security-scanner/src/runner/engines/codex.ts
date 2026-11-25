@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join } from 'node:path/posix';
 import { validateFindingsLenient } from '../coerce.ts';
 import { classifyCodexRun, safeLabel } from '../status.ts';
 import type { CodexRunSignal, OutcomeBody } from '../status.ts';
@@ -119,6 +119,11 @@ async function defaultLoadSdk(): Promise<CodexSdk> {
   return (await import(SDK_PACKAGE)) as CodexSdk;
 }
 
+/** Codex `--config` values; Codex checks them. */
+export interface CodexConfig {
+  [key: string]: unknown;
+}
+
 /** The `--config` values for one session. Pure, so a test can pin every setting. */
 export function codexConfig(input: {
   baseUrl: string;
@@ -129,7 +134,7 @@ export function codexConfig(input: {
   root: string;
   maxRecords?: number;
   image?: Partial<CodexImagePaths>;
-}): Record<string, unknown> {
+}): CodexConfig {
   const image = { ...CODEX_IMAGE, ...input.image };
   return {
     model_provider: 'void-proxy',

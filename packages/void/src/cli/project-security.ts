@@ -35,7 +35,7 @@ type Args = ProjectSecurityArgs;
 function scrub(value: string, keepNewline: boolean): string {
   let out = '';
   for (const char of stripVTControlCharacters(value)) {
-    const code = char.codePointAt(0)!;
+    const code = char.codePointAt(0) ?? 0;
     const control = code < 0x20 || (code >= 0x7f && code <= 0x9f);
     out += control && !(keepNewline && char === '\n') ? ' ' : char;
   }

@@ -216,11 +216,11 @@ export function createFakeRegistry(
       if (!stored || !digest) {
         return new Response(null, { status: 404 });
       }
-      if (method === 'DELETE') {
-        entry!.manifests.delete(digest);
-        for (const [tag, value] of entry!.tags) {
+      if (method === 'DELETE' && entry) {
+        entry.manifests.delete(digest);
+        for (const [tag, value] of entry.tags) {
           if (value === digest) {
-            entry!.tags.delete(tag);
+            entry.tags.delete(tag);
           }
         }
         return new Response(null, { status: 202 });

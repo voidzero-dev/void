@@ -8,7 +8,7 @@
 
 import { constants } from 'node:fs';
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join } from 'node:path/posix';
 
 export type ToolResult = {
   ok: boolean;
@@ -179,8 +179,7 @@ export function createFsTools(options: FsToolsOptions): FsTools {
     const stack: Array<{ real: string; display: string; depth: number }> = [
       { real: start.real, display: start.display, depth: 0 },
     ];
-    while (stack.length > 0) {
-      const current = stack.pop()!;
+    for (let current = stack.pop(); current !== undefined; current = stack.pop()) {
       const entries = await readdir(current.real, { withFileTypes: true });
       entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       const subdirs: typeof stack = [];

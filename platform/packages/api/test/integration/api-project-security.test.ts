@@ -549,7 +549,11 @@ describe('comment, resolve, reopen', () => {
     const [finding] = await env.db.select().from(securityFindings);
     expect(finding.revision).toBe(1);
     const events = await env.db.select().from(securityFindingEvents);
-    expect(events.map((event) => [event.action, event.actor_role]).sort()).toEqual([
+    expect(
+      events
+        .map((event) => [event.action, event.actor_role])
+        .sort((a, b) => String(a).localeCompare(String(b))),
+    ).toEqual([
       ['commented', 'admin'],
       ['commented', 'collaborator'],
       ['commented', 'owner'],
@@ -871,7 +875,7 @@ describe('severity edit (M35)', () => {
     expect(
       events
         .map((event) => [event.action, event.severity_from, event.severity_to, event.actor_role])
-        .sort(),
+        .sort((a, b) => String(a).localeCompare(String(b))),
     ).toEqual([
       ['severity_edited', 'critical', 'low', 'admin'],
       ['severity_edited', 'low', 'critical', 'owner'],

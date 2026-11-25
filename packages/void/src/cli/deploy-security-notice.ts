@@ -1,3 +1,4 @@
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { PlatformApiError } from './client.ts';
 import type { PlatformClient } from './client.ts';
 import type { CliLogger } from './log-file.ts';
@@ -13,7 +14,7 @@ import type {
 const NOTICE_TIMEOUT_MS = 5000;
 const MAX_ROWS = 5;
 const MAX_TITLE = 120;
-const PROVIDERS: Record<string, string> = {
+const PROVIDERS = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   google: 'Google',
@@ -47,7 +48,10 @@ function inCi(env: NodeJS.ProcessEnv): boolean {
 
 function providerName(model: string): string {
   const prefix = model.startsWith('@') ? '' : model.split('/')[0];
-  return PROVIDERS[prefix] ?? (prefix ? cleanLine(prefix) : 'a third-party provider');
+  if (hasOwnKey(PROVIDERS, prefix)) {
+    return PROVIDERS[prefix];
+  }
+  return prefix ? cleanLine(prefix) : 'a third-party provider';
 }
 
 /** `Not security-scanned: …` for a budget skip (spec §6.5, §16.3). */

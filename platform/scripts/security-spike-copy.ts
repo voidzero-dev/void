@@ -920,19 +920,28 @@ async function createCopy(
   for (const [name, binding] of Object.entries(config.env)) {
     switch (binding.type) {
       case 'd1': {
-        const db = tracked.d1.find((entry) => entry.binding === name)!;
+        const db = tracked.d1.find((entry) => entry.binding === name);
+        if (!db) {
+          throw new Error(`No D1 copy for ${name}.`);
+        }
         bindings.push({ type: 'd1', name, id: db.id });
         bindingsSummary[name] = `d1 -> empty ${db.name}`;
         break;
       }
       case 'kv': {
-        const ns = tracked.kv.find((entry) => entry.binding === name)!;
+        const ns = tracked.kv.find((entry) => entry.binding === name);
+        if (!ns) {
+          throw new Error(`No KV copy for ${name}.`);
+        }
         bindings.push({ type: 'kv_namespace', name, namespace_id: ns.id });
         bindingsSummary[name] = `kv -> empty ${ns.title}`;
         break;
       }
       case 'r2': {
-        const bucket = tracked.r2.find((entry) => entry.binding === name)!;
+        const bucket = tracked.r2.find((entry) => entry.binding === name);
+        if (!bucket) {
+          throw new Error(`No R2 copy for ${name}.`);
+        }
         bindings.push({ type: 'r2_bucket', name, bucket_name: bucket.name });
         bindingsSummary[name] = `r2 -> empty ${bucket.name}`;
         break;
@@ -1126,6 +1135,9 @@ async function createCopy(
     );
   }
   if (app === 'react-d1') {
+    if (cookie === undefined) {
+      throw new Error(`${app}: the seed has no session cookie.`);
+    }
     await check(
       // The fixture throws a Response; Void does not catch it, so the copy throws and the
       // dispatcher sees "#<Response>" (a native deploy fails the same way).
@@ -1138,32 +1150,35 @@ async function createCopy(
     await check(
       'search with a cookie signed by the fake secret -> own invoice',
       '/api/invoices/search?q=Acme',
-      { headers: { cookie: cookie! } },
+      { headers: { cookie } },
       (status, text) => status === 200 && text.includes('INV-1') && !text.includes('INV-2'),
       snippet,
     );
     await check(
       'planted SQL injection: other owner rows come back',
       `/api/invoices/search?q=${encodeURIComponent("%' OR owner_id != 1 --")}`,
-      { headers: { cookie: cookie! } },
+      { headers: { cookie } },
       (status, text) => status === 200 && text.includes('INV-2'),
       snippet,
     );
     await check(
       'planted IDOR: invoice of owner 2 as user 1',
       '/api/invoices/2',
-      { headers: { cookie: cookie! } },
+      { headers: { cookie } },
       (status, text) => status === 200 && text.includes('Globex'),
       snippet,
     );
   }
   if (app === 'api-plain') {
+    if (cookie === undefined) {
+      throw new Error(`${app}: the seed has no session cookie.`);
+    }
     // A KV key written through the API can take up to a minute to be visible to the copy:
     // wait until the seeded session is accepted (the route then fails on the blocked fetch).
     for (let attempt = 0; attempt < 18; attempt++) {
       const response = await viaController(fixtures, counters, script, '/api/billing/charge', {
         method: 'POST',
-        headers: { cookie: cookie!, origin: `https://${COPY_HOST}` },
+        headers: { cookie, origin: `https://${COPY_HOST}` },
       });
       if (!response.text.includes('#<Response>')) {
         timings.kvSeedVisible = Date.now() - started;
@@ -1174,7 +1189,7 @@ async function createCopy(
     await check(
       'charge (app fetch to the payments API) -> blocked, app errors',
       '/api/billing/charge',
-      { method: 'POST', headers: { cookie: cookie!, origin: `https://${COPY_HOST}` } },
+      { method: 'POST', headers: { cookie, origin: `https://${COPY_HOST}` } },
       // The handler throws `charge failed: 403`; the sandbox log check below names the call.
       (status, text) => status >= 500 && !text.includes('#<Response>'),
       snippet,
@@ -1529,7 +1544,10 @@ async function main() {
           resources,
           !values['no-guard'],
         );
-        const tracked = resources.find((entry) => entry.script === copy.script)!;
+        const tracked = resources.find((entry) => entry.script === copy.script);
+        if (!tracked) {
+          throw new Error(`No tracked resources for ${copy.script}.`);
+        }
         const deleteStart = Date.now();
         const deleteLog = values.keep ? [] : await deleteCopy(env, fixtures.namespace, tracked);
         if (!values.keep) {

@@ -25,7 +25,9 @@ const OPEN_REQUEST_STATES = new Set([
   'needs_deploy',
 ]);
 
-function isOpenRequest(request: SecurityPublicRequest | null | undefined): boolean {
+function isOpenRequest(
+  request: SecurityPublicRequest | null | undefined,
+): request is SecurityPublicRequest {
   return Boolean(request && OPEN_REQUEST_STATES.has(request.state));
 }
 
@@ -137,7 +139,7 @@ function statusLines(
     ...(project?.last_error ? [`Last error: ${sanitizeTerminalText(project.last_error)}`] : []),
     ...(!result.available ? [unavailableMessage] : []),
     ...(isOpenRequest(result.publicRequest)
-      ? requestBlock(slug, result.publicRequest!, security)
+      ? requestBlock(slug, result.publicRequest, security)
       : []),
     ...(result.lastBypass ? [lastBypassLine(result.lastBypass)] : []),
   ].join('\n');
@@ -341,8 +343,8 @@ export async function runProjectZeroTrustCommand(
     args.action === 'reconcile'
       ? await client.reconcileProjectZeroTrust(projectId)
       : await client.setProjectZeroTrust(projectId, args.action === 'protect');
-  const held =
-    args.action === 'public' && result.publicRequest && isOpenRequest(result.publicRequest);
+  const publicRequest = result.publicRequest;
+  const held = args.action === 'public' && isOpenRequest(publicRequest);
   if (args.json) {
     printJson(held ? heldJson(result) : result);
     return;
@@ -351,7 +353,7 @@ export async function runProjectZeroTrustCommand(
     // Held for a scan: the project stays protected, so nothing here says "public". The
     // local copy adds the command lines (spec §13.3) the platform message leaves out.
     const security = await requestSecurity(client, projectId);
-    log.warn(publicRequestLines(slug, result.publicRequest!, security).join('\n'));
+    log.warn(publicRequestLines(slug, publicRequest, security).join('\n'));
     outro('Check it:  void project zero-trust status');
     return;
   }

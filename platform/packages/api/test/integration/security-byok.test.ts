@@ -246,7 +246,7 @@ describe('saving and removing a provider key', () => {
     // Audited by host and action, never the key.
     const events = await env.db.select().from(operatorEvents);
     const audited = events.filter((event) => event.action === 'security/provider-keys');
-    expect(audited.map((event) => [JSON.parse(event.target), event.status])).toEqual([
+    expect(audited.map((event) => [JSON.parse(event.target) as unknown, event.status])).toEqual([
       [{ installation: 'platform', host: 'anthropic', key: 'set' }, 'success'],
     ]);
     expect(JSON.stringify(events)).not.toContain(KEY);

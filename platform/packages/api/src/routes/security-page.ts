@@ -307,7 +307,7 @@ function requireCapability(context: Context<ApiEnv>): void {
 }
 
 /** Digits become a number; anything else goes on as text, for the parser's own reason. */
-function revision(value: string | undefined): unknown {
+function revision(value: string | undefined): number | string | undefined {
   return value === undefined ? value : (parseSecurityDigits(value, 15) ?? value);
 }
 

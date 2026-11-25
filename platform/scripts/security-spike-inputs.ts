@@ -268,29 +268,29 @@ function measureApp(app: string, lockfile: ReturnType<typeof thirdParty.parsePnp
   );
   const bundle = t2.bundleSources(head.modules, main);
 
+  type PathEntry = (typeof entries)[number] & { path: string };
   const firstPartyEntries = entries.filter(
-    (e) => e.path !== null && !e.path.includes('node_modules/'),
+    (e): e is PathEntry => e.path !== null && !e.path.includes('node_modules/'),
   );
   const registryEntries = entries.filter(
-    (e) => e.path !== null && e.path.includes('node_modules/'),
+    (e): e is PathEntry => e.path !== null && e.path.includes('node_modules/'),
   );
   const readableFirstParty = firstPartyEntries.filter((e) => e.hasText);
   const appFiles = readableFirstParty.filter(
-    (e) => !e.path!.startsWith('packages/') && !e.path!.startsWith('_'),
+    (e) => !e.path.startsWith('packages/') && !e.path.startsWith('_'),
   );
-  const workspaceFiles = readableFirstParty.filter((e) => e.path!.startsWith('packages/'));
-  const virtualFirstParty = readableFirstParty.filter((e) => diskFile(dir, e.path!) === null);
+  const workspaceFiles = readableFirstParty.filter((e) => e.path.startsWith('packages/'));
+  const virtualFirstParty = readableFirstParty.filter((e) => diskFile(dir, e.path) === null);
   const sameAsDisk = readableFirstParty.filter((e) => {
-    const file = diskFile(dir, e.path!);
+    const file = diskFile(dir, e.path);
     return file !== null && readFileSync(file, 'utf8') === e.text;
   });
-  const registryOnDisk = registryEntries.filter(
-    (e) => e.hasText && diskFile(dir, e.path!) !== null,
-  );
-  const registrySame = registryOnDisk.filter(
-    (e) => readFileSync(diskFile(dir, e.path!)!, 'utf8') === e.text,
-  );
-  const packages = new Set(registryEntries.map((e) => pnpmPackage(e.path!)).filter(Boolean));
+  const registryOnDisk = registryEntries.filter((e) => e.hasText && diskFile(dir, e.path) !== null);
+  const registrySame = registryOnDisk.filter((e) => {
+    const file = diskFile(dir, e.path);
+    return file !== null && readFileSync(file, 'utf8') === e.text;
+  });
+  const packages = new Set(registryEntries.map((e) => pnpmPackage(e.path)).filter(Boolean));
 
   const assets = clientAssets(dir);
   const noLock = plan(head, main, assets, null, null);
@@ -304,7 +304,7 @@ function measureApp(app: string, lockfile: ReturnType<typeof thirdParty.parsePnp
     return counts;
   };
   const sentAppFiles = appFiles.filter((e) => noLockPaths.includes(`input/${e.path}`));
-  const filtered = appFiles.filter((e) => filters.securityInputFilter(e.path!) !== null);
+  const filtered = appFiles.filter((e) => filters.securityInputFilter(e.path) !== null);
 
   // Snapshot: modules/{i} + modules.json + sources.json + assets.json, per deployment;
   // backlog.json + server-leads.json + scope.json per scan.
@@ -370,7 +370,7 @@ function measureApp(app: string, lockfile: ReturnType<typeof thirdParty.parsePnp
     `${app}: workspace packages kept as first-party`,
     workspaceFiles.length > 0 &&
       workspaceFiles.every(
-        (e) => thirdParty.classifyThirdParty(e.path!, lockfile) === 'first_party',
+        (e) => thirdParty.classifyThirdParty(e.path, lockfile) === 'first_party',
       ),
   );
   check(`${app}: full scan coverage complete`, noLock.coverage === 'complete', noLock.notes);

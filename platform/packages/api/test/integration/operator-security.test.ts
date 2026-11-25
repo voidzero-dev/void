@@ -385,7 +385,7 @@ describe('operator project scan rule (M34)', () => {
       .select()
       .from(operatorEvents)
       .where(eq(operatorEvents.action, `projects/${project.id}/security/policy`));
-    expect(audit.map((event) => [event.status, JSON.parse(event.target)])).toEqual([
+    expect(audit.map((event) => [event.status, JSON.parse(event.target) as unknown])).toEqual([
       ['success', { projectId: project.id, override: 'never' }],
     ]);
 
@@ -934,11 +934,15 @@ describe('operator public requests and bypass', () => {
     // second row of its own for an installation admin. No reason text is in any of them.
     const audit = await env.db.select().from(operatorEvents);
     // Exactly one success row for the real bypass; row order is not guaranteed.
-    expect(audit.map((event) => [event.action, event.status]).sort()).toEqual([
+    expect(
+      audit
+        .map((event) => [event.action, event.status])
+        .sort((a, b) => String(a).localeCompare(String(b))),
+    ).toEqual([
       [`projects/${project.id}/security/public-request/bypass`, 'failed'],
       [`projects/${project.id}/security/public-request/bypass`, 'success'],
     ]);
-    expect(audit.map((event) => JSON.parse(event.target))).toEqual([
+    expect(audit.map((event): unknown => JSON.parse(event.target))).toEqual([
       { projectId: project.id },
       { projectId: project.id },
     ]);

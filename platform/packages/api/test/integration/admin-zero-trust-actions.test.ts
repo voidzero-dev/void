@@ -123,7 +123,7 @@ describe('admin project Zero Trust actions', () => {
       { requester: { userId: admin.id, via: 'admin' } },
     );
     const events = await env.db.select().from(operatorEvents);
-    expect(events.map((event) => JSON.parse(event.target))).toEqual([
+    expect(events.map((event): unknown => JSON.parse(event.target))).toEqual([
       { projectId: project.id, protected: false },
       { projectId: project.id, protected: true },
     ]);

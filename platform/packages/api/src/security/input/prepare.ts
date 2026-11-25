@@ -394,7 +394,10 @@ async function readModules(
   for (const [index, source] of sources.entries()) {
     const bytes = await source.read(charge);
     const sha256 = source.sha256 ?? sha256Hex(bytes);
-    const key = copyTo === null ? source.key! : `${copyTo}modules/${index}`;
+    const key = copyTo === null ? source.key : `${copyTo}modules/${index}`;
+    if (key === undefined) {
+      throw new Error(`The scan snapshot has no key for module ${source.name}.`);
+    }
     if (copyTo !== null) {
       await r2.put(key, bytes);
     }
@@ -767,8 +770,10 @@ async function loadClientSources(
     if (ref.inline !== null) {
       found = readSourceMap(ref.name, ref.inline);
     } else {
-      const entry = maps.get(ref.name)!;
+      // `sourceMapFor` names a separate map only when `maps` holds it.
+      const entry = maps.get(ref.name);
       if (
+        !entry ||
         read >= MAX_CLIENT_MAPS_READ ||
         entry.size > MAX_CLIENT_MAP_BYTES ||
         bytes + entry.size > MAX_CLIENT_MAP_BYTES_READ
@@ -930,17 +935,19 @@ export async function prepareSecurityScanInputFiles(
   );
   const memory = await loadSecurityMemory(db, scan.projectId);
   const lastSucceededAt = base?.finishedAt ?? null;
-  const recheckFiles = memory.findings
-    .filter(
-      (finding) =>
-        finding.state === 'resolved' &&
-        finding.resolution === 'fixed' &&
-        finding.file !== null &&
-        (lastSucceededAt === null ||
-          (finding.resolvedAt !== null &&
-            Date.parse(finding.resolvedAt) > Date.parse(lastSucceededAt))),
-    )
-    .map((finding) => finding.file!);
+  const recheckFiles: Array<string> = [];
+  for (const finding of memory.findings) {
+    if (
+      finding.state === 'resolved' &&
+      finding.resolution === 'fixed' &&
+      finding.file !== null &&
+      (lastSucceededAt === null ||
+        (finding.resolvedAt !== null &&
+          Date.parse(finding.resolvedAt) > Date.parse(lastSucceededAt)))
+    ) {
+      recheckFiles.push(finding.file);
+    }
+  }
 
   // T1 when GitHub can show the change (hosted only); otherwise T2 stays, with a note.
   const manifest = readSecurityManifest(scan.manifest);

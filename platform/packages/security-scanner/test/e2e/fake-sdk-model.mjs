@@ -22,6 +22,7 @@ const SEEDED_NEEDLE = "WHERE owner = '";
 
 const [port, logPath] = process.argv.slice(2);
 
+/** @returns {string} */
 function textOf(value) {
   if (typeof value === 'string') {
     return value;
@@ -97,6 +98,7 @@ function report(line) {
   };
 }
 
+/** @param {Array<[string, unknown]>} events */
 function sse(events) {
   return events
     .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
@@ -166,7 +168,9 @@ function anthropicMessage(blocks, stopReason) {
 }
 
 function anthropicReply(body, entry) {
-  const names = (body.tools ?? []).map((tool) => tool.name);
+  /** @type {Array<{ name: string }>} */
+  const offered = body.tools ?? [];
+  const names = offered.map((tool) => tool.name);
   entry.tools = names;
   if (!names.includes('Read')) {
     // A side request (title, classifier): answer plainly.
@@ -212,8 +216,11 @@ function anthropicReply(body, entry) {
 
 // ---------- OpenAI Responses (Engine C) ----------
 
+/** @typedef {{ name: string, namespace?: string, inner: string }} FlatTool */
+
 /** Tools in body.tools (maybe in namespaces), named "<namespace>.<tool>". */
 function flattenTools(body) {
+  /** @type {Array<FlatTool>} */
   const out = [];
   const groups = [...(body.tools ?? [])];
   for (const item of Array.isArray(body.input) ? body.input : []) {

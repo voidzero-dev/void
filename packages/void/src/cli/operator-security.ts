@@ -5,7 +5,9 @@ import { dim, printSuccess } from './output.ts';
 import { sarifToolVersion, securityFindingsSarif } from './security-sarif.ts';
 import type { SarifFinding } from './security-sarif.ts';
 
-type Result = Record<string, unknown>;
+interface Result {
+  [key: string]: unknown;
+}
 
 /** What the runner borrows from `operator-cmd.ts` (passed in, so the two files do not import each other). */
 export type SecurityIo = {

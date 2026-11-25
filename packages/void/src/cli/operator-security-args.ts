@@ -1,3 +1,4 @@
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import type { OperatorCommand } from './operator-args.ts';
 
 /**
@@ -287,7 +288,7 @@ const MODES = new Set(['disabled', 'public', 'all']);
 /** One project's own scan rule (M34). */
 const OVERRIDES = new Set(['inherit', 'always', 'never']);
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'informational'];
-const REASONS: Record<string, string> = {
+const REASONS = {
   fixed: 'fixed',
   'false-positive': 'false_positive',
   false_positive: 'false_positive',
@@ -620,7 +621,10 @@ export function applySecurityArgs(
       return;
     }
     case 'resolve': {
-      const reason = values.reason === undefined ? undefined : REASONS[values.reason];
+      const reason =
+        values.reason !== undefined && hasOwnKey(REASONS, values.reason)
+          ? REASONS[values.reason]
+          : undefined;
       if (!reason) {
         throw new Error('platform: --reason is required: fixed, false-positive or accepted-risk.');
       }

@@ -440,7 +440,7 @@ describe('Engine B with the copy tool', () => {
       ]),
     ];
     const modelFetch = (async (_url: string, init?: RequestInit) => {
-      bodies.push(JSON.parse(String(init?.body)));
+      bodies.push(JSON.parse(String(init?.body)) as (typeof bodies)[number]);
       return replies.shift()!;
     }) as unknown as typeof fetch;
     const engine = createVoidLoopEngine({ model: 'm', tools: noTools, fetch: modelFetch });
@@ -466,7 +466,7 @@ describe('Engine B with the copy tool', () => {
   test('a session without tools offers only the four scan tools', async () => {
     const bodies: Array<{ tools: Array<{ function: { name: string } }> }> = [];
     const modelFetch = (async (_url: string, init?: RequestInit) => {
-      bodies.push(JSON.parse(String(init?.body)));
+      bodies.push(JSON.parse(String(init?.body)) as (typeof bodies)[number]);
       return chat([{ name: 'submit_findings', args: report([]) }]);
     }) as unknown as typeof fetch;
     const engine = createVoidLoopEngine({ model: 'm', tools: noTools, fetch: modelFetch });

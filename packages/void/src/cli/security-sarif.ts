@@ -12,6 +12,7 @@
  * `_worker/…` for built code with no source map.
  */
 import { stripVTControlCharacters } from 'node:util';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { getOwnVersion } from './agents.ts';
 
 /** The CLI version for the SARIF tool entry; `null` when it cannot be read. */
@@ -28,7 +29,7 @@ export function sarifToolVersion(): string | null {
 function cleanLine(value: unknown): string {
   let out = '';
   for (const char of stripVTControlCharacters(String(value ?? ''))) {
-    const code = char.codePointAt(0)!;
+    const code = char.codePointAt(0) ?? 0;
     out += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? ' ' : char;
   }
   return out;
@@ -60,7 +61,7 @@ const TOOL_URI = 'https://void.cloud/guide/platform/administration/security-audi
 const UNKNOWN_RULE = 'finding';
 
 /** GitHub code scanning ranks by `security-severity` (0.1 to 10). */
-const SECURITY_SEVERITY: Readonly<Record<string, number>> = {
+const SECURITY_SEVERITY = {
   critical: 9.5,
   high: 8,
   medium: 5.5,
@@ -88,7 +89,50 @@ function fileUri(path: string): string {
     .join('/');
 }
 
-function result(finding: SarifFinding): Record<string, unknown> {
+interface SarifLocation {
+  physicalLocation: {
+    artifactLocation: { uri: string; uriBaseId: string };
+    region?: { startLine: number; endLine?: number };
+  };
+}
+
+interface SarifResult {
+  ruleId: string;
+  level: 'error' | 'warning' | 'note';
+  message: { text: string };
+  locations?: Array<SarifLocation>;
+  partialFingerprints?: { 'voidFinding/v1': string };
+  suppressions?: Array<{ kind: 'external'; status: 'accepted'; justification: string }>;
+  properties?: {
+    id: string;
+    project?: string;
+    severity: string | null;
+    verdict: string;
+    state: string;
+    urgent?: boolean;
+    cwe?: string;
+  };
+}
+
+interface SarifRule {
+  id: string;
+  shortDescription: { text: string };
+  properties: { tags: Array<string>; 'security-severity'?: string };
+}
+
+/** One SARIF 2.1.0 log. */
+export interface SarifLog {
+  $schema: string;
+  version: '2.1.0';
+  runs: Array<{
+    tool: {
+      driver: { name: string; version?: string; informationUri: string; rules: Array<SarifRule> };
+    };
+    results: Array<SarifResult>;
+  }>;
+}
+
+function result(finding: SarifFinding): SarifResult {
   const id = cleanLine(finding.id);
   const project = finding.project === undefined ? null : cleanLine(finding.project);
   const ruleId = finding.category ? cleanLine(finding.category) : UNKNOWN_RULE;
@@ -96,7 +140,7 @@ function result(finding: SarifFinding): Record<string, unknown> {
     finding.title === undefined
       ? `${id}: ${cleanLine(finding.severity ?? 'unrated')} finding. Ask a project collaborator for the details.`
       : `${id}: ${cleanLine(finding.title)}`;
-  const out: Record<string, unknown> = {
+  const out: SarifResult = {
     ruleId,
     level: level(finding.severity),
     message: { text },
@@ -157,13 +201,17 @@ function result(finding: SarifFinding): Record<string, unknown> {
 export function securityFindingsSarif(
   findings: ReadonlyArray<SarifFinding>,
   options: Readonly<{ version: string | null }>,
-): Record<string, unknown> {
+): SarifLog {
   const results = findings.map(result);
   const rules = new Map<string, { id: string; score: number; cwes: Set<string> }>();
   for (const [index, finding] of findings.entries()) {
-    const ruleId = results[index].ruleId as string;
+    const ruleId = results[index].ruleId;
     const rule = rules.get(ruleId) ?? { id: ruleId, score: 0, cwes: new Set<string>() };
-    rule.score = Math.max(rule.score, SECURITY_SEVERITY[finding.severity ?? ''] ?? 0);
+    const severity = finding.severity;
+    rule.score = Math.max(
+      rule.score,
+      severity !== null && hasOwnKey(SECURITY_SEVERITY, severity) ? SECURITY_SEVERITY[severity] : 0,
+    );
     if (finding.cwe) {
       rule.cwes.add(cleanLine(finding.cwe));
     }

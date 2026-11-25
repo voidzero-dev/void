@@ -22,6 +22,7 @@ import {
 } from '@void/platform/security-local-check';
 import type { SecurityLocalTreeFile } from '@void/platform/security-local-check';
 import { join } from 'pathslash';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import type { PlatformClient } from './client.ts';
 import { DirectR2PutError, uploadAssetsToR2 } from './direct-r2-upload.ts';
 import type { SecurityCheckFinding, SecurityCheckView } from './security-api-types.ts';
@@ -219,7 +220,7 @@ export function checkSummaryLines(
   return lines;
 }
 
-const SEVERITY_LABEL: Record<string, string> = {
+const SEVERITY_LABEL = {
   critical: 'CRITICAL',
   high: 'HIGH',
   medium: 'MEDIUM',
@@ -275,8 +276,13 @@ export function checkResultLines(
       `  ${plural(confirmed.length, 'finding')}${counts ? ` (${counts})` : ''} · ${plural(leads.length, 'lead')}`,
     );
     for (const finding of confirmed) {
+      const severity = finding.severity;
+      const label =
+        severity !== null && hasOwnKey(SEVERITY_LABEL, severity)
+          ? SEVERITY_LABEL[severity]
+          : 'INFO';
       lines.push(
-        `  ${(SEVERITY_LABEL[finding.severity ?? ''] ?? 'INFO').padEnd(9)} ${clean(finding.title)}`,
+        `  ${label.padEnd(9)} ${clean(finding.title)}`,
         `  ${' '.repeat(9)} ${where(finding, clean)}`,
       );
     }

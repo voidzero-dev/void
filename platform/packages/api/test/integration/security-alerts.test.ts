@@ -566,7 +566,7 @@ describe('webhook', () => {
     expect(down.calls).toHaveLength(1);
     const webhooks = (await rows()).filter((row) => row.kind === 'webhook');
     expect(webhooks.map((row) => row.status)).toEqual(['pending', 'pending']);
-    expect(webhooks.map((row) => row.attempts).sort()).toEqual([0, 1]);
+    expect(webhooks.map((row) => row.attempts).sort((a, b) => a - b)).toEqual([0, 1]);
     // Both wait for the backoff: a second pass at once posts nothing.
     await runSecurityNotifications(env.db, mail, now, { fetch: down.fetch });
     expect(down.calls).toHaveLength(1);

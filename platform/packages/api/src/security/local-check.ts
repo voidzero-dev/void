@@ -117,6 +117,7 @@ export type SecurityLocalCheckRequest = Readonly<{
   md5: string;
 }>;
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Each caller validates the field it reads.
 function field(body: unknown, name: string): unknown {
   return body && typeof body === 'object' && !Array.isArray(body)
     ? (body as Record<string, unknown>)[name]

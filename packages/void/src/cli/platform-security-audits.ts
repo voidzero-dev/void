@@ -37,12 +37,14 @@ const ENGINES = [
 
 export type SecurityScannerEngineNames = { application: string; repository: string };
 
-export function securityScannerNames(installationId: string): {
+export interface SecurityScannerNames {
   worker: string;
   application: string;
   gate: string;
   engines: { 'engine-a': SecurityScannerEngineNames; 'engine-c': SecurityScannerEngineNames };
-} {
+}
+
+export function securityScannerNames(installationId: string): SecurityScannerNames {
   const suffix = createHash('sha256')
     .update(`void-security-scanner:${installationId}`)
     .digest('hex')

@@ -15,7 +15,7 @@ import {
   SECURITY_MODEL_IDS,
 } from './security-models.ts';
 import type { SecurityModelId } from './security-models.ts';
-import { isPrintableText, record } from './validate.ts';
+import { isPrintableText, isRecord, record } from './validate.ts';
 
 /** `platform_settings` key that holds the policy. */
 export const SECURITY_POLICY_SETTINGS_KEY = 'securityAudits.policy';
@@ -248,8 +248,7 @@ function parseSweeps(value: unknown, strict: boolean): SecuritySweeps {
       everyDays: parseSecuritySweepDays(input.everyDays),
     };
   }
-  const input =
-    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  const input: Record<string, unknown> = isRecord(value) ? value : {};
   const days = input.everyDays;
   if (typeof input.on !== 'boolean' || typeof days !== 'number' || !Number.isSafeInteger(days)) {
     return defaultSecuritySweeps();
@@ -744,12 +743,12 @@ export function readPlanSecurityCaps(value: unknown): PlanSecurityCapsRead {
   if (value === null || value === undefined) {
     return { caps: {}, dropped: 0 };
   }
-  if (typeof value !== 'object' || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return { caps: {}, dropped: 1 };
   }
   const caps: PlanSecurityCapsDraft = {};
   let dropped = 0;
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+  for (const [key, entry] of Object.entries(value)) {
     if (isPlanKey(key) && (entry === null || isPlanSecurityCapCents(entry))) {
       caps[key] = entry;
     } else {
@@ -856,7 +855,10 @@ export function securityTraceLines(value: unknown): Array<string> | null {
   }
   const lines: Array<string> = [];
   for (const step of value) {
-    const { file, line, note } = (step ?? {}) as Record<string, unknown>;
+    if (!isRecord(step)) {
+      return null;
+    }
+    const { file, line, note } = step;
     if (typeof file !== 'string' || typeof note !== 'string') {
       return null;
     }

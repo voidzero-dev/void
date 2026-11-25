@@ -361,6 +361,7 @@ async function changesInput(
     throw new Error('platform: No plan selected.');
   }
   const aiLogging = listing?.aiLogging;
+  const securityCaps = listing?.securityCaps;
   const field = value(
     await select({
       message: 'What would you like to change?',
@@ -379,11 +380,11 @@ async function changesInput(
               },
             ]
           : []),
-        ...(listing?.securityCaps
+        ...(securityCaps
           ? [
               {
                 value: 'securityCap',
-                label: `Security scan cap: ${formatPlanSecurityCap(securityCapOf(listing.securityCaps, plan!.id))}`,
+                label: `Security scan cap: ${formatPlanSecurityCap(securityCapOf(securityCaps, plan.id))}`,
               },
             ]
           : []),
@@ -391,7 +392,10 @@ async function changesInput(
     }),
   );
   if (field === 'securityCap') {
-    return { securityCap: await chooseSecurityCap(securityCapOf(listing!.securityCaps, plan!.id)) };
+    if (!securityCaps) {
+      throw new Error('platform: Security scan caps are unavailable.');
+    }
+    return { securityCap: await chooseSecurityCap(securityCapOf(securityCaps, plan.id)) };
   }
   if (field === 'aiLogging') {
     if (!aiLogging) {

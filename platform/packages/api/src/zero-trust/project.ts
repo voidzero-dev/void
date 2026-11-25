@@ -137,13 +137,13 @@ async function checkpointProjectReconciliation(
     }
     const effects: GateEffects = { poke: false };
     let step: GateStep = { kind: 'open' };
-    const held = async (request: PublicRequestRow | null): Promise<CheckpointResult> => ({
-      row: (await getProjectZeroTrustState(lockedDb, projectId))!,
-      request,
-      held: true,
-      poke: effects.poke,
-      skipped: null,
-    });
+    const held = async (request: PublicRequestRow | null): Promise<CheckpointResult> => {
+      const row = await getProjectZeroTrustState(lockedDb, projectId);
+      if (!row) {
+        throw new ZeroTrustUnavailableError('Project Zero Trust state is unavailable.');
+      }
+      return { row, request, held: true, poke: effects.poke, skipped: null };
+    };
     const intent = options?.gate;
     if (intent?.kind === 'flip') {
       // Judge first: a hold is recorded even while Zero Trust is busy; only a pass

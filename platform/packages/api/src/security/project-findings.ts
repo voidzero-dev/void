@@ -347,6 +347,7 @@ export async function listSecurityFindings(
           shown.map((row) => row.resolvedByUserId),
         )
       : new Map<string, string>();
+  const last = shown.at(-1);
   return {
     findings: shown.map((row) =>
       securityFindingView(
@@ -356,7 +357,7 @@ export async function listSecurityFindings(
         row.resolvedByUserId ? (logins.get(row.resolvedByUserId) ?? null) : null,
       ),
     ),
-    nextCursor: more && shown.length > 0 ? String(shown.at(-1)!.number) : null,
+    nextCursor: more && last ? String(last.number) : null,
   };
 }
 

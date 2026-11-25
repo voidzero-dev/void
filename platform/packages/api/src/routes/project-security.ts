@@ -93,6 +93,7 @@ function failure(context: Context<ApiEnv>, error: unknown): Response {
   throw error;
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Each route validates the JSON fields it reads.
 async function readJson(context: Context<ApiEnv>): Promise<unknown> {
   try {
     return await context.req.json();
@@ -101,6 +102,7 @@ async function readJson(context: Context<ApiEnv>): Promise<unknown> {
   }
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Each caller validates the field it reads.
 function field(body: unknown, name: string): unknown {
   return body && typeof body === 'object' && !Array.isArray(body)
     ? (body as Record<string, unknown>)[name]

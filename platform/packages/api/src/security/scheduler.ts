@@ -530,7 +530,7 @@ async function startClaimed(
 }
 
 /** Runs `run`, logging instead of throwing, also when it throws before its promise. */
-async function bestEffort(what: string, scanId: string, run: () => Promise<unknown>) {
+async function bestEffort<Result>(what: string, scanId: string, run: () => Promise<Result>) {
   try {
     await run();
   } catch (error) {
@@ -551,7 +551,7 @@ async function stopAttempt(
 export type SecurityScanCancelDeps = Readonly<{
   db: Db;
   controller: SecurityScanController;
-  forget(scanId: string, attempt: number): Promise<unknown>;
+  forget(scanId: string, attempt: number): Promise<number>;
 }>;
 
 /**
