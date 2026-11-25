@@ -120,7 +120,7 @@ r2.on('POST', ['/put', '/put-conditional'], async (context) => {
   // Decode base64 value from JSON body, or use text value
   const data = base64
     ? Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0))
-    : new TextEncoder().encode((body.value as string) ?? '');
+    : new TextEncoder().encode(String(body.value ?? ''));
 
   const cfRes = await fetch(
     `${CF_API}/accounts/${context.env.CF_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${encodeURIComponent(key)}`,

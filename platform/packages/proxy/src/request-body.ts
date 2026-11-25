@@ -73,7 +73,7 @@ export async function readRequestJson(request: Request, maxBytes: number): Promi
     throw new RequestBodyError('invalid request body', 400);
   }
   const expectedLength = declaredLength === null ? null : Number(declaredLength);
-  const reader = (request.body as ReadableStream<Uint8Array>).getReader();
+  const reader: ReadableStreamDefaultReader<unknown> = request.body.getReader();
   let bytes = new Uint8Array(Math.min(1024, maxBytes));
   const deadline = Date.now() + REQUEST_BODY_DEADLINE_MS;
   let size = 0;
@@ -82,6 +82,9 @@ export async function readRequestJson(request: Request, maxBytes: number): Promi
       const chunk = await beforeDeadline(deadline, () => reader.read());
       if (chunk.done) {
         break;
+      }
+      if (!(chunk.value instanceof Uint8Array)) {
+        throw new RequestBodyError('invalid request body', 400);
       }
       const nextSize = size + chunk.value.byteLength;
       if (nextSize > maxBytes) {
