@@ -2,14 +2,17 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 const mockReadDeploymentPlatform = vi.fn(() => 'void');
-const mockExecuteD1 = vi.fn();
-const mockImportD1 = vi.fn();
+const mockExecuteD1 =
+  vi.fn<typeof import('../../src/cli/cloudflare-operations.ts').executeCloudflareD1Sql>();
+const mockImportD1 =
+  vi.fn<typeof import('../../src/cli/cloudflare-operations.ts').importCloudflareD1Sql>();
 const mockD1Context = { binding: 'DB' };
 vi.mock('../../src/cli/cloudflare-operations.ts', () => ({
-  executeCloudflareD1Sql: (...args: Array<unknown>) => mockExecuteD1(...args),
-  importCloudflareD1Sql: (...args: Array<unknown>) => mockImportD1(...args),
+  executeCloudflareD1Sql: (...args: Parameters<typeof mockExecuteD1>) => mockExecuteD1(...args),
+  importCloudflareD1Sql: (...args: Parameters<typeof mockImportD1>) => mockImportD1(...args),
   resolveCloudflareD1Context: () => mockD1Context,
 }));
 
@@ -21,7 +24,8 @@ const mockGetResources = vi.fn<() => Promise<Array<{ type: string; binding_name:
   Promise.resolve([]),
 );
 const mockGetDatabaseUrl = vi.fn<() => Promise<{ url: string }>>();
-const mockEnsurePlatformAccessToken = vi.fn();
+const mockEnsurePlatformAccessToken =
+  vi.fn<typeof import('../../src/cli/cf-access.ts').ensurePlatformAccessToken>();
 
 vi.mock('../../src/cli/auth', () => ({
   getProxyUrl: () => mockGetProxyUrl(),
@@ -57,7 +61,8 @@ vi.mock('../../src/cli/client', () => ({
 vi.mock('../../src/cli/cf-access', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/cli/cf-access.ts')>()),
   ensurePlatformProxyAccess: vi.fn(),
-  ensurePlatformAccessToken: (...args: Array<unknown>) => mockEnsurePlatformAccessToken(...args),
+  ensurePlatformAccessToken: (...args: Parameters<typeof mockEnsurePlatformAccessToken>) =>
+    mockEnsurePlatformAccessToken(...args),
 }));
 
 const mockPgConnect = vi.fn<() => Promise<void>>(() => Promise.resolve());
@@ -74,7 +79,7 @@ vi.mock('pg', () => ({
   },
 }));
 
-const fetchMock = vi.fn();
+const fetchMock = vi.fn<typeof fetch>();
 let originalFetch: typeof globalThis.fetch | undefined;
 
 const mockConfirm = vi.fn<(opts: { message: string }) => Promise<boolean | symbol>>();
@@ -123,7 +128,7 @@ describe('void db execute --remote (D1)', () => {
     vi.clearAllMocks();
     mockReadDeploymentPlatform.mockReturnValue('void');
     originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    globalThis.fetch = fetchMock;
 
     mockGetToken.mockReturnValue('test-token');
     mockReadProjectConfig.mockReturnValue({ projectId: 'proj-abc', slug: 'test-proj' });
@@ -279,7 +284,7 @@ describe('void db execute --remote (D1)', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       'https://void-company-proxy.example.workers.dev/d1/query',
     );
-    const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
     expect(headers['CF-Access-Client-Id']).toBe('proxy-id');
     expect(headers['CF-Access-Client-Secret']).toBe('proxy-secret');
     expect(headers['CF-Access-Client-Id']).not.toBe('api-id');
@@ -321,11 +326,11 @@ describe('void db execute --remote (D1)', () => {
       false,
       'stale-user-token',
     );
-    const firstHeaders = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<
+    const firstHeaders = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<
       string,
       string
     >;
-    const secondHeaders = (fetchMock.mock.calls[1]![1] as RequestInit).headers as Record<
+    const secondHeaders = (fetchMock.mock.calls[1][1] as RequestInit).headers as Record<
       string,
       string
     >;
@@ -436,7 +441,7 @@ describe('void db execute --remote (D1)', () => {
     const consoleSpy = vi.spyOn(console, 'log');
     await runDbCommand(root, { action: 'execute', command: 'SELECT * FROM users', remote: true });
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n');
+    const output = consoleSpy.mock.calls.map(([line]) => String(line ?? '')).join('\n');
     expect(output).toContain('id');
     expect(output).toContain('name');
     expect(output).toContain('Alice');
@@ -494,7 +499,7 @@ describe('void db execute --remote (D1)', () => {
     await runDbCommand(root, { action: 'execute', command: 'DELETE FROM users', remote: true });
 
     expect(mockConfirm).toHaveBeenCalledTimes(1);
-    const confirmCall = mockConfirm.mock.calls[0][0] as { message: string };
+    const confirmCall = mockConfirm.mock.calls[0][0];
     expect(confirmCall.message).toContain('deployed database');
   });
 
@@ -591,7 +596,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    globalThis.fetch = fetchMock;
 
     mockGetToken.mockReturnValue('test-token');
     mockReadProjectConfig.mockReturnValue({ projectId: 'proj-abc', slug: 'test-proj' });
@@ -649,7 +654,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
       remote: true,
     });
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n');
+    const output = consoleSpy.mock.calls.map(([line]) => String(line ?? '')).join('\n');
     expect(output).toContain('id');
     expect(output).toContain('name');
     expect(output).toContain('Bob');

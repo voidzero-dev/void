@@ -5,9 +5,8 @@ import {
   resolvePathTtl,
   SHARED_CACHE_POLICY_VERSION,
   serializeHeaders,
-  type IsrCacheEntry,
-  type IsrCacheMetadata,
 } from '@void/isr/core';
+import type { IsrCacheEntry, IsrCacheMetadata } from '@void/isr/core';
 import { MAX_ISR_VARIANTS_PER_PATH } from '@void/isr/runtime';
 import { createIsrStore } from '@voidcloud/api/isr-store';
 import type { Env } from './env.ts';

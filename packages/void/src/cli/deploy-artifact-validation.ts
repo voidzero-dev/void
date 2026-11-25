@@ -5,11 +5,13 @@ import {
   readConfigEntryString as readD1EntryString,
   readStoredResourceName,
   assertExistingCloudflareConfig,
-  type ExistingCloudflareWorker,
-  type ApprovedCloudflareKvBinding,
+} from '@void/deploy-cloudflare';
+import type {
+  ExistingCloudflareWorker,
+  ApprovedCloudflareKvBinding,
 } from '@void/deploy-cloudflare';
 import { dirname, resolve } from 'pathslash';
-import { type RoutingConfig } from '../config.ts';
+import type { RoutingConfig } from '../config.ts';
 import {
   deployPointerPath,
   desiredIdentityBindings,
@@ -28,7 +30,11 @@ import {
 import { log } from './deploy-helpers.ts';
 import { BETTER_AUTH_SECRET_NAME } from './deploy-resources.ts';
 import { buildSchemaProbeEnv } from './deploy-transport.ts';
-import { type BindingIdentitySnapshot, type CloudflareDeployDeps } from './deploy-types.ts';
+import type {
+  BindingIdentitySnapshot,
+  CloudflareDeployDeps,
+  DeployVerification,
+} from './deploy-types.ts';
 import type {
   EnvSchemaProbeInput,
   EnvSchemaProbeResult,
@@ -43,8 +49,8 @@ import {
   SelfHostFirstDeployError,
   SelfHostSchemaError,
   SelfHostSecretListError,
-  type SelfHostSchemaFacts,
 } from './env-validation.ts';
+import type { SelfHostSchemaFacts } from './env-validation.ts';
 import { readGeneratedWranglerConfigFile } from './generated-wrangler-config.ts';
 import { getErrorMessage } from './output.ts';
 import type { DesiredResourceSet } from './provision.ts';
@@ -73,17 +79,19 @@ async function validateEmittedVarsDefault(
 
 export function resolveGeneratedDeployConfigPathDefault(root: string): string {
   const pointerPath = deployPointerPath(root);
-  const pointer = JSON.parse(readFileSync(pointerPath, 'utf-8')) as { configPath?: unknown };
+  const pointer = JSON.parse(readFileSync(pointerPath, 'utf8')) as { configPath?: unknown };
   if (typeof pointer.configPath !== 'string' || pointer.configPath.length === 0) {
     throw new Error(`Generated Cloudflare deploy pointer ${pointerPath} has no configPath.`);
   }
   return resolve(dirname(pointerPath), pointer.configPath);
 }
 
-export function readGeneratedDeployConfig(root: string): {
+type GeneratedDeployConfig = {
   path: string;
-  config: Record<string, unknown>;
-} {
+  config: ReturnType<typeof readGeneratedWranglerConfigFile>;
+};
+
+export function readGeneratedDeployConfig(root: string): GeneratedDeployConfig {
   const redirectedPath = resolveGeneratedDeployConfigPathDefault(root);
   try {
     return { path: redirectedPath, config: readGeneratedWranglerConfigFile(redirectedPath) };
@@ -134,6 +142,9 @@ export function removeDeployPointer(root: string): void {
   rmSync(deployPointerPath(root), { force: true });
 }
 
+const byName = (left: Record<string, unknown>, right: Record<string, unknown>) =>
+  String(left.name).localeCompare(String(right.name));
+
 /**
  * Check the generated deploy config before upload: the pinned account and Worker name, required
  * secrets, and every binding, container, migration, queue and cron against the pre-build pins,
@@ -168,7 +179,7 @@ export function verifyGeneratedDeployConfig(
     /** Cron schedules the build should emit, derived from the source before the build. */
     expectedCrons?: Array<string>;
   },
-): { ok: boolean; reason?: string } {
+): DeployVerification {
   const deployConfigPath = deployPointerPath(root);
   if (!existsSync(deployConfigPath)) {
     return {
@@ -178,7 +189,7 @@ export function verifyGeneratedDeployConfig(
   }
   let redirectedPath: string;
   try {
-    const parsed = JSON.parse(readFileSync(deployConfigPath, 'utf-8')) as { configPath?: unknown };
+    const parsed = JSON.parse(readFileSync(deployConfigPath, 'utf8')) as { configPath?: unknown };
     if (typeof parsed.configPath !== 'string' || parsed.configPath.length === 0) {
       return { ok: false, reason: `${deployConfigPath} has no "configPath" pointer.` };
     }
@@ -424,8 +435,6 @@ export function verifyGeneratedDeployConfig(
         reason: 'generated config durable_objects bindings could not be verified.',
       };
     }
-    const byName = (left: Record<string, unknown>, right: Record<string, unknown>) =>
-      String(left.name).localeCompare(String(right.name));
     if (
       !deepEqual(
         [...emittedBindings].sort(byName),
@@ -661,7 +670,7 @@ export async function validateCloudflarePostBuildEnv(options: {
   }
   const emittedVars = emitted.vars;
   // Better Auth's signing secret belongs in the secret store, never in plaintext vars.
-  if (authEnabled && Object.prototype.hasOwnProperty.call(emittedVars, BETTER_AUTH_SECRET_NAME)) {
+  if (authEnabled && Object.hasOwn(emittedVars, BETTER_AUTH_SECRET_NAME)) {
     log.error(
       [
         `deploy: ${BETTER_AUTH_SECRET_NAME} must be stored as a Cloudflare Worker secret, not a plaintext worker var.`,

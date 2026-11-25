@@ -91,7 +91,7 @@ export function createCloudflareMetadataRunner(options: {
                   status: 1,
                   stdout: '',
                   stderr: `The Worker ${options.workerName} has no deployments.`,
-                  errorCode: 10007,
+                  errorCode: 10_007,
                 };
               }
               if (isRecord(latest) && Array.isArray(latest.versions)) {
@@ -105,14 +105,14 @@ export function createCloudflareMetadataRunner(options: {
               const items: Array<unknown> = result.items;
               if (
                 items.every(
-                  (item) =>
+                  (item): item is { metadata: { created_on: string } } =>
                     isRecord(item) &&
                     isRecord(item.metadata) &&
                     typeof item.metadata.created_on === 'string',
                 )
               ) {
                 // Preserve the oldest-first, ten-most-recent JSON contract.
-                const sorted = (items as Array<{ metadata: { created_on: string } }>)
+                const sorted = items
                   .sort((a, b) => a.metadata.created_on.localeCompare(b.metadata.created_on))
                   .slice(-10);
                 return { status: 0, stdout: '', data: sorted, stderr: '' };

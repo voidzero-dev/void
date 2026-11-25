@@ -1,10 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import {
-  CloudflareWorkerInspectionError,
-  type CloudflareCommandResult,
-  type ExistingCloudflareWorker,
-} from '@void/deploy-cloudflare';
+import { CloudflareWorkerInspectionError } from '@void/deploy-cloudflare';
+import type { CloudflareCommandResult, ExistingCloudflareWorker } from '@void/deploy-cloudflare';
 import { isCancel, select } from '@voidzero-dev/vite-plus-prompts';
 import { isCI as ciInfoIsCI } from 'ci-info';
 import {
@@ -22,7 +19,7 @@ import { createCloudflareProcessRunner, isCleanCloudflareExit } from './cloudfla
 import { log } from './deploy-helpers.ts';
 import { CloudflareAuthSecretError, BETTER_AUTH_SECRET_NAME } from './deploy-resources.ts';
 import { deployChildEnv } from './deploy-transport.ts';
-import { type DeployWranglerRun, type DeployWranglerRunResult } from './deploy-types.ts';
+import type { DeployWranglerRun, DeployWranglerRunResult } from './deploy-types.ts';
 import {
   listSelfHostSecretNames,
   SelfHostFirstDeployError,
@@ -87,17 +84,20 @@ export async function prepareExistingCloudflareDeployWithAuth(
         identity.stderr,
       );
     if (!authenticationError || identity.signal || identity.error) {
+      // oxlint-disable-next-line preserve-caught-error -- Provider credential and session failures are translated to a safe user-facing message.
       throw new Error(
         'Could not verify the Cloudflare session after the Worker check failed. Run `void cloudflare status` and retry.',
       );
     }
     const overrides = cloudflareCredentialOverrides();
     if (overrides.length > 0) {
+      // oxlint-disable-next-line preserve-caught-error -- Provider credential and session failures are translated to a safe user-facing message.
       throw new Error(
         `Cloudflare credentials from ${overrides.join(', ')} were rejected or cannot access account ${options.accountId}. Correct or unset them, then retry the deploy.`,
       );
     }
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      // oxlint-disable-next-line preserve-caught-error -- Provider credential and session failures are translated to a safe user-facing message.
       throw new Error(
         wrongAccount
           ? `The Cloudflare session cannot access account ${options.accountId}. Run \`void cloudflare login\` with the correct user, or set a token for that account in CI, then retry.`
@@ -117,6 +117,7 @@ export async function prepareExistingCloudflareDeployWithAuth(
       configPath,
     });
     if (!authenticated.accounts.some((account) => account.id === options.accountId)) {
+      // oxlint-disable-next-line preserve-caught-error -- Provider credential and session failures are translated to a safe user-facing message.
       throw new Error(
         `The signed-in Cloudflare user cannot access account ${options.accountId}. Sign in with a user who can access it, then retry.`,
       );
@@ -145,7 +146,7 @@ export async function chooseCloudflareDeployAccount(options: {
     configPath: existsSync(options.configPath) ? options.configPath : undefined,
   });
   const accounts = session.accounts;
-  let account = accounts[0]!;
+  let account = accounts[0];
   if (accounts.length > 1) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       throw new Error(
@@ -191,6 +192,21 @@ export type WranglerAuthTokenResult =
   | { ok: true; token: string }
   | { ok: false; failure: CloudflareCommandResult };
 
+const fail = (
+  status: number,
+  signal: NodeJS.Signals | null | undefined,
+  stderr: string,
+): WranglerAuthTokenResult => ({
+  ok: false,
+  // A clean status here would read as a successful upload.
+  failure: {
+    status: status === 0 ? 1 : status,
+    ...(signal ? { signal } : {}),
+    stdout: '',
+    stderr,
+  },
+});
+
 /**
  * Read the current Cloudflare session bearer through the pinned deploy runner, for API calls
  * Void makes itself. The token goes only to the caller. A failure is built fresh from the
@@ -201,20 +217,6 @@ export async function readWranglerAuthToken(
   runWrangler: DeployWranglerRun,
   configPath: string,
 ): Promise<WranglerAuthTokenResult> {
-  const fail = (
-    status: number,
-    signal: NodeJS.Signals | null | undefined,
-    stderr: string,
-  ): WranglerAuthTokenResult => ({
-    ok: false,
-    // A clean status here would read as a successful upload.
-    failure: {
-      status: status === 0 ? 1 : status,
-      ...(signal ? { signal } : {}),
-      stdout: '',
-      stderr,
-    },
-  });
   let result: DeployWranglerRunResult;
   try {
     result = await Promise.resolve(

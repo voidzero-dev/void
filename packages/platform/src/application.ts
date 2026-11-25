@@ -1,4 +1,4 @@
-import { createPlatformDeploymentManifest } from './manifest.ts';
+import { createPlatformDeploymentManifest, readPlatformApplicationInput } from './manifest.ts';
 
 /** Public application addressing, independent of the platform API's origin. */
 export type PlatformApplication = Readonly<{
@@ -38,7 +38,7 @@ export function parsePlatformApplication(value: unknown): PlatformApplication {
   return createPlatformDeploymentManifest({
     installationSlug: 'runtime',
     displayName: 'Runtime',
-    application: value as PlatformApplication,
+    application: readPlatformApplicationInput(value),
   }).application;
 }
 

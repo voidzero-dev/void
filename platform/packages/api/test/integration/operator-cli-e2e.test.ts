@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,8 +19,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { createUsageCounterFixture } from './usage-counter-fixture.ts';
 
 const cli = fileURLToPath(
@@ -38,9 +39,9 @@ beforeAll(async () => {
     try {
       const parts: Array<Buffer> = [];
       for await (const part of incoming) {
-        parts.push(Buffer.from(part));
+        parts.push((Buffer as BufferConstructor).from(part));
       }
-      const body = Buffer.concat(parts);
+      const body = (Buffer as BufferConstructor).concat(parts);
       const response = await app.fetch(
         new Request(`${origin}${incoming.url}`, {
           method: incoming.method,
@@ -50,7 +51,7 @@ beforeAll(async () => {
         env,
       );
       outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      outgoing.end(Buffer.from(await response.arrayBuffer()));
+      outgoing.end((Buffer as BufferConstructor).from(await response.arrayBuffer()));
     } catch (error) {
       outgoing.writeHead(500, { 'Content-Type': 'application/json' });
       outgoing.end(JSON.stringify({ error: 'fixture_failure', message: String(error) }));
@@ -66,9 +67,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve, reject) =>
-    server.close((error) => (error ? reject(error) : resolve())),
-  );
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
   await teardownEnv();
 });
 
@@ -93,7 +94,7 @@ beforeEach(async () => {
     }),
     env,
   );
-  const session = (await response.json()) as { token: string };
+  const session = await response.json<{ token: string }>();
   operatorToken = session.token;
 });
 

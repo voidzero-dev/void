@@ -1,7 +1,8 @@
 import { PLATFORM_DISABLED_KEY } from '@void/platform';
 import { beforeAll, afterAll, afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import app from '../../src/index.ts';
-import { setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {

@@ -39,6 +39,7 @@ function arrayIdentity(value: unknown): string {
 }
 
 /** Keep authored values authoritative while retaining fields produced by Void. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Merge config inputs without assuming a schema for authored values.
 function mergeConfig(previous: unknown, resolved: unknown, authored: unknown): unknown {
   if (isDeepStrictEqual(previous, authored)) {
     return resolved;
@@ -47,14 +48,15 @@ function mergeConfig(previous: unknown, resolved: unknown, authored: unknown): u
     const previousByIdentity = new Map(previous.map((item) => [arrayIdentity(item), item]));
     const resolvedByIdentity = new Map(resolved.map((item) => [arrayIdentity(item), item]));
     const authoredIdentities = new Set(authored.map(arrayIdentity));
+    // oxlint-disable-next-line quality/no-known-value-widening -- The recursive merge also returns arbitrary authored and resolved values.
     return [
-      ...authored.map((item) => {
+      ...authored.map((item: unknown) => {
         const identity = arrayIdentity(item);
         return previousByIdentity.has(identity) && resolvedByIdentity.has(identity)
           ? mergeConfig(previousByIdentity.get(identity), resolvedByIdentity.get(identity), item)
           : item;
       }),
-      ...resolved.filter((item) => {
+      ...(resolved as Array<unknown>).filter((item) => {
         const identity = arrayIdentity(item);
         return !previousByIdentity.has(identity) && !authoredIdentities.has(identity);
       }),
@@ -86,6 +88,7 @@ function mergeConfig(previous: unknown, resolved: unknown, authored: unknown): u
         configurable: true,
       });
     }
+    // oxlint-disable-next-line quality/no-known-value-widening -- The recursive merge also returns arbitrary authored and resolved values.
     return result;
   }
   return authored;

@@ -1,13 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { AssetConfig, HeaderRule, RedirectRule } from '@void/deploy-core';
-import {
-  createScanner,
-  parse,
-  parseTree,
-  type Node,
-  type ParseError,
-  SyntaxKind,
-} from 'jsonc-parser';
+import { createScanner, parse, parseTree, SyntaxKind } from 'jsonc-parser';
+import type { Node, ParseError } from 'jsonc-parser';
 import { dirname, join, relative, resolve } from 'pathslash';
 import { setJsoncValue } from './config.ts';
 
@@ -98,7 +92,7 @@ export function stageCloudflareStaticAssets(options: {
  */
 export function writeCloudflareStaticDeployConfig(options: CloudflareStaticDeployConfig): boolean {
   const initial = existsSync(options.configPath)
-    ? readFileSync(options.configPath, 'utf-8')
+    ? readFileSync(options.configPath, 'utf8')
     : '{}\n';
   const hasBom = initial.startsWith('\uFEFF');
   const source = hasBom ? initial.slice(1) : initial;
@@ -149,7 +143,7 @@ export function writeCloudflareStaticDeployConfig(options: CloudflareStaticDeplo
 
 function assertValidStaticConfig(text: string, configPath: string): void {
   const errors: Array<ParseError> = [];
-  const parsed = parse(text, errors, { allowTrailingComma: true });
+  const parsed: unknown = parse(text, errors, { allowTrailingComma: true });
   const root = parseTree(text, undefined, { allowTrailingComma: true });
   if (
     errors.length > 0 ||
@@ -166,7 +160,7 @@ function assertValidStaticConfig(text: string, configPath: string): void {
     if (node.type === 'object' && node.children) {
       const seen = new Set<string>();
       for (const property of node.children) {
-        const key = property.children?.[0]?.value;
+        const key: unknown = property.children?.[0]?.value;
         if (typeof key !== 'string') {
           continue;
         }

@@ -13,6 +13,7 @@ export default function FooterNav({ footer }: FooterNavProps) {
   const footerNav: ReadonlyArray<FooterColumn> = footer?.nav ?? [];
   const footerSocial: ReadonlyArray<FooterSocialLink> = footer?.social ?? [];
   const footerCopyright =
+    // oxlint-disable-next-line react/purity -- Compute the default copyright year at render time.
     footer?.copyright || `© ${new Date().getFullYear()} VoidZero Inc. All Rights Reserved.`;
 
   return (

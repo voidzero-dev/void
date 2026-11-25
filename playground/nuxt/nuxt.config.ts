@@ -19,6 +19,6 @@ export default defineNuxtConfig({
     },
   },
   vite: {
-    plugins: [voidPlugin() as unknown as PluginOption],
+    plugins: [voidPlugin() as PluginOption],
   },
 });

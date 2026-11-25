@@ -27,7 +27,9 @@ export async function assertFrameworkQueueDelivery(dispatch: {
       crons: [],
       queues: [{ name: 'emails', filePath: 'emails.ts', bindingName: 'QUEUE_EMAILS' }],
     });
-    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    const { default: worker } = (await import(pathToFileURL(join(root, 'index.mjs')).href)) as {
+      default: { fetch(request: Request, bindings: unknown, context: unknown): Promise<Response> };
+    };
     const bindings = { __VOID_PROXY_TOKEN: 'token', received: [] as Array<unknown> };
     const forwarded: Array<Request> = [];
     const env = {

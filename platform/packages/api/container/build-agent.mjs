@@ -68,7 +68,7 @@ const LOG_FLUSH_MS = 500;
 // stall the single-flight log flush forever (logging would silently stop for the
 // rest of the build); with it the flush retries on the next tick. Also bounds how
 // long the final drain at exit can block before the container terminates.
-const DO_POST_TIMEOUT_MS = 10000;
+const DO_POST_TIMEOUT_MS = 10_000;
 // BuildManager injects VOID_CLI_VERSION. If absent, use the release manifest
 // copied into this image, never a mutable npm dist-tag or the untrusted app's manifest.
 export const DEFAULT_VOID_CLI_VERSION = voidPackageJson.version;
@@ -91,13 +91,13 @@ export const DEFAULT_VOID_CLI_VERSION = voidPackageJson.version;
  * No bytes received for this long aborts the in-flight attempt. Reset by every
  * chunk, so it measures a dead stream, not a slow one.
  */
-export const SOURCE_STALL_TIMEOUT_MS = 20000;
+export const SOURCE_STALL_TIMEOUT_MS = 20_000;
 /**
  * Hard ceiling on the whole download phase, across ALL attempts. Sized to sit
  * well inside the smallest plan budget (free tier = 10 minutes) so a pathological
  * but never-quite-stalled trickle still leaves most of the budget for the build.
  */
-export const SOURCE_PHASE_BUDGET_MS = 240000;
+export const SOURCE_PHASE_BUDGET_MS = 240_000;
 /** Attempts per build, including the first. */
 export const SOURCE_DOWNLOAD_MAX_ATTEMPTS = 3;
 /** Backoff before attempt 2 and attempt 3. */
@@ -107,7 +107,7 @@ export const SOURCE_RETRY_BACKOFF_MS = [2000, 5000];
  * live tail and the check-run tail. The check run keeps the last 100 lines and the phase is capped at 4 minutes, so this can add at most
  * ~16 lines.
  */
-export const SOURCE_PROGRESS_INTERVAL_MS = 15000;
+export const SOURCE_PROGRESS_INTERVAL_MS = 15_000;
 /**
  * How long a killed `tar` gets between SIGTERM and SIGKILL. A child that ignores
  * SIGTERM must not be able to hold the retry loop — and therefore the phase
@@ -236,7 +236,7 @@ let bufferedBytes = 0;
  * tail, so a far-behind puller simply misses the very start; `seq` stays
  * monotonic, so `since` queries over RETAINED lines are still exact.
  */
-export const MAX_BUFFERED_LOG_LINES = 10000;
+export const MAX_BUFFERED_LOG_LINES = 10_000;
 
 /**
  * Companion BYTE cap on the same ring. The line cap alone bounds the COUNT, not
@@ -269,7 +269,7 @@ export const MAX_BUFFERED_LOG_BYTES = 16 * 1024 * 1024;
  * is preserved, and the retained PULL history (`logBuffer`) is independently
  * bounded, so a far-behind reader simply misses the flood's start.
  */
-export const MAX_PENDING_LOG_LINES = 10000;
+export const MAX_PENDING_LOG_LINES = 10_000;
 
 /**
  * Per-response bounds on `GET /logs?since=N`.
@@ -618,7 +618,7 @@ export function pipeStream(source, stream) {
   };
 
   source.setEncoding('utf8');
-  source.on('data', (chunk) => {
+  source.on('data', (/** @type {string} */ chunk) => {
     const n = chunk.length;
     let i = 0;
     // A CR at a chunk seam is the one ambiguous case: wait for the next byte so
@@ -795,7 +795,7 @@ export function startControlServer(port = PORT) {
         lines.push(entry);
         responseBytes += entryBytes;
       }
-      const servedSeq = lines.length > 0 ? lines[lines.length - 1].seq : lastSeq;
+      const servedSeq = lines.at(-1)?.seq ?? lastSeq;
       // Explicit, because the puller cannot infer it: it does not know our caps,
       // and a page that happens to land exactly on one is indistinguishable from
       // the last page. Without it the puller waits a full tick per page, and the
@@ -859,12 +859,14 @@ export function startControlServer(port = PORT) {
  * failing, which is the right side of the trade against losing its logs.
  */
 export const LOG_DRAIN_IDLE_TIMEOUT_MS = 8000;
-export const LOG_DRAIN_ABSOLUTE_TIMEOUT_MS = 120000;
+export const LOG_DRAIN_ABSOLUTE_TIMEOUT_MS = 120_000;
 export const LOG_DRAIN_POLL_MS = 100;
 
 /** @param {number} ms */
 function sleepMs(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /**
@@ -1036,7 +1038,7 @@ export const SECONDARY_RATE_LIMIT_PATTERN = /secondary rate limit|abuse detectio
 export const ERROR_BODY_SNIFF_BYTES = 2048;
 
 /** Fallback wait for a rate limit that names no delay (GitHub advises >= 60s). */
-export const SECONDARY_RATE_LIMIT_DELAY_MS = 60000;
+export const SECONDARY_RATE_LIMIT_DELAY_MS = 60_000;
 
 /**
  * How long the server asked us to wait, in ms, or null. Handles `retry-after` in
@@ -1234,7 +1236,7 @@ function formatRate(bytes, elapsedMs) {
  *
  * Exported so the retry loop above it is unit-testable without spawning `tar`.
  *
- * @param {unknown} body web ReadableStream from `fetch`
+ * @param {NonNullable<Response['body']>} body response body from `fetch`
  * @param {{ onBytes?: (length: number) => void, signal?: AbortSignal, spawnImpl?: typeof spawn, killGraceMs?: number }} [options]
  * @returns {Promise<void>}
  */
@@ -1310,7 +1312,7 @@ export function extractTarball(body, options = {}) {
       // Cancel raced the spawn — terminate immediately.
       stopTar();
     }
-    pipeStream(/** @type {NodeJS.ReadableStream} */ (tar.stderr), 'stderr');
+    pipeStream(tar.stderr, 'stderr');
     tar.on('error', (err) => {
       if (tar.pid === undefined) {
         // The child never spawned, so 'close' is not guaranteed to arrive. This is
@@ -1358,8 +1360,10 @@ export function extractTarball(body, options = {}) {
     // `activeChild` out from under the new attempt. Waiting for 'close' makes
     // "attempt finished" mean the child is actually reaped.
     pipeline(
-      Readable.fromWeb(/** @type {any} */ (body)),
-      async function* meter(source) {
+      Readable.fromWeb(
+        /** @type {import('node:stream/web').ReadableStream<Uint8Array<ArrayBuffer>>} */ (body),
+      ),
+      async function* meter(/** @type {AsyncIterable<Uint8Array>} */ source) {
         for await (const chunk of source) {
           onBytes(chunk.length);
           yield chunk;
@@ -1400,10 +1404,7 @@ export function extractTarball(body, options = {}) {
  *
  * @param {{
  *   fetchImpl?: typeof fetch,
- *   extract?: (
- *     body: unknown,
- *     options?: { onBytes?: (length: number) => void, signal?: AbortSignal },
- *   ) => Promise<void>,
+ *   extract?: typeof extractTarball,
  *   resetWorkDir?: () => void | Promise<void>,
  *   sleep?: (ms: number) => Promise<void>,
  *   isCancelled?: () => boolean,
@@ -1475,11 +1476,10 @@ export async function downloadSource(options = {}) {
       });
       return;
     } catch (err) {
-      lastError = /** @type {Error & { retryable?: boolean, retryAfterMs?: number | null }} */ (
-        err instanceof Error ? err : new Error(String(err))
-      );
+      lastError = err instanceof Error ? err : new Error(String(err));
       // A cancel is not a download failure and must never be retried.
       if (isCancelled()) {
+        // oxlint-disable-next-line preserve-caught-error -- An explicit cancellation replaces the aborted transfer error.
         throw new Error('build cancelled');
       }
       if (lastError.retryable !== true || attempt >= maxAttempts) {
@@ -1490,7 +1490,7 @@ export async function downloadSource(options = {}) {
       const backoff =
         typeof lastError.retryAfterMs === 'number' && lastError.retryAfterMs >= 0
           ? lastError.retryAfterMs
-          : (backoffMs[attempt - 1] ?? backoffMs[backoffMs.length - 1] ?? 0);
+          : (backoffMs[attempt - 1] ?? backoffMs.at(-1) ?? 0);
       // Don't sleep into the deadline just to be refused at the top of the loop.
       // This is also what keeps a long `retry-after` from parking the whole build:
       // a delay that does not fit the phase budget ends the download now.
@@ -1514,10 +1514,7 @@ export async function downloadSource(options = {}) {
  *   tarballUrl: string,
  *   sourceToken: string,
  *   fetchImpl: typeof fetch,
- *   extract: (
- *     body: unknown,
- *     options?: { onBytes?: (length: number) => void, signal?: AbortSignal },
- *   ) => Promise<void>,
+ *   extract: typeof extractTarball,
  *   isCancelled: () => boolean,
  *   stallTimeoutMs: number,
  *   phaseDeadline: number,
@@ -1648,7 +1645,7 @@ async function downloadSourceAttempt(args) {
     }
     // Anything already classified (an HTTP status, a non-zero `tar`) keeps its
     // verdict.
-    if (err instanceof Error && typeof (/** @type {any} */ (err).retryable) === 'boolean') {
+    if (err instanceof Error && 'retryable' in err && typeof err.retryable === 'boolean') {
       throw err;
     }
     // Everything else reaching here came off the wire: `fetch` rejecting with
@@ -1663,19 +1660,30 @@ async function downloadSourceAttempt(args) {
 
 // --- dependency install ------------------------------------------------------
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** @param {string} path */
+function readPackageManifest(path) {
+  try {
+    /** @type {unknown} */
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Read the repo's `package.json#packageManager` pin (e.g. "pnpm@9.1.0"). Returns
- * the raw string, or '' if the file is missing/unreadable/has no pin. Wrapped in
- * try/catch so a malformed package.json can't crash install resolution.
+ * the raw string, or '' if the manifest can't be read or has no pin.
  * @returns {string}
  */
 function readPackageManagerPin() {
-  try {
-    const pkg = JSON.parse(readFileSync(`${WORK_DIR}/package.json`, 'utf8'));
-    return typeof pkg.packageManager === 'string' ? pkg.packageManager : '';
-  } catch {
-    return '';
-  }
+  const pkg = readPackageManifest(`${WORK_DIR}/package.json`);
+  return typeof pkg?.packageManager === 'string' ? pkg.packageManager : '';
 }
 
 /**
@@ -1689,10 +1697,10 @@ function readPackageManagerPin() {
 function readYarnLockKind() {
   try {
     const head = readFileSync(`${WORK_DIR}/yarn.lock`, 'utf8').slice(0, 200);
-    if (head.includes('# yarn lockfile v1')) {
+    if (/# yarn lockfile v1/.test(head)) {
       return 'classic';
     }
-    if (head.includes('__metadata:')) {
+    if (/__metadata:/.test(head)) {
       return 'berry';
     }
     return 'unknown';
@@ -2042,13 +2050,12 @@ function redactUrl(raw) {
 /** Resolve the CLI when deploying the Void source repository or a fork. */
 export function resolveSourceVoidCli(root = WORK_DIR) {
   const packageRoot = `${root}/packages/void`;
-  let manifest;
-  try {
-    manifest = JSON.parse(readFileSync(`${packageRoot}/package.json`, 'utf8'));
-  } catch {
-    return null;
-  }
-  if (manifest.name !== 'void' || typeof manifest.bin?.void !== 'string') {
+  const manifest = readPackageManifest(`${packageRoot}/package.json`);
+  if (
+    manifest?.name !== 'void' ||
+    !isRecord(manifest.bin) ||
+    typeof manifest.bin.void !== 'string'
+  ) {
     return null;
   }
   const cli = `${packageRoot}/${manifest.bin.void}`;
@@ -2059,6 +2066,17 @@ export function resolveSourceVoidCli(root = WORK_DIR) {
   }
   return cli;
 }
+
+// Whether the repo DECLARES `void` as a dependency — the accurate "is void
+// locally resolvable" signal under PnP, where `node_modules/.bin/void` never
+// exists. Falls back to `false` on any read/parse error (→ fetch the CLI).
+const repoDeclaresVoid = () => {
+  const pkg = readPackageManifest(`${WORK_DIR}/package.json`);
+  return (
+    (isRecord(pkg?.dependencies) && Boolean(pkg.dependencies.void)) ||
+    (isRecord(pkg?.devDependencies) && Boolean(pkg.devDependencies.void))
+  );
+};
 
 /**
  * Run the build pipeline and resolve to the process exit code (0 = success,
@@ -2105,17 +2123,6 @@ export async function runBuild(deps = {}) {
   // `hasLocalVoid` and the runner selection both read it lazily (after install),
   // so a reassignable `let` is correct.
   let pnpPresent = false;
-  // Whether the repo DECLARES `void` as a dependency — the accurate "is void
-  // locally resolvable" signal under PnP, where `node_modules/.bin/void` never
-  // exists. Falls back to `false` on any read/parse error (→ fetch the CLI).
-  const repoDeclaresVoid = () => {
-    try {
-      const pkg = JSON.parse(readFileSync(`${WORK_DIR}/package.json`, 'utf8'));
-      return Boolean(pkg.dependencies?.void || pkg.devDependencies?.void);
-    } catch {
-      return false;
-    }
-  };
   const hasLocalVoid =
     deps.hasLocalVoid ??
     (() => existsSync(`${WORK_DIR}/node_modules/.bin/void`) || (pnpPresent && repoDeclaresVoid()));
@@ -2298,15 +2305,19 @@ export async function runBuild(deps = {}) {
       cfAccessClientId && cfAccessClientSecret
         ? JSON.stringify(
             Object.fromEntries(
-              [apiUrl, proxyUrl]
-                .filter((url) => url !== undefined && url !== '')
-                .map((url) => [
-                  new URL(/** @type {string} */ (url)).origin,
-                  {
-                    CF_ACCESS_CLIENT_ID: cfAccessClientId,
-                    CF_ACCESS_CLIENT_SECRET: cfAccessClientSecret,
-                  },
-                ]),
+              [apiUrl, proxyUrl].flatMap((url) =>
+                url !== undefined && url !== ''
+                  ? [
+                      [
+                        new URL(url).origin,
+                        {
+                          CF_ACCESS_CLIENT_ID: cfAccessClientId,
+                          CF_ACCESS_CLIENT_SECRET: cfAccessClientSecret,
+                        },
+                      ],
+                    ]
+                  : [],
+              ),
             ),
           )
         : undefined;
@@ -2407,10 +2418,12 @@ async function main() {
 // helpers without starting the control server or spawning any build steps.
 const isEntrypoint = argv[1] && import.meta.url === pathToFileURL(argv[1]).href;
 if (isEntrypoint) {
-  main().catch((err) => {
+  try {
+    await main();
+  } catch (err) {
     // Last-resort guard — main() already wraps its body, but never let an
     // unhandled rejection leave the container hanging without an exit code.
     console.error(err);
     process.exit(1);
-  });
+  }
 }

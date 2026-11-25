@@ -4,7 +4,9 @@ import { isAdminOAuthState } from '../admin/routes/login.ts';
 import type { ApiEnv } from '../env.ts';
 import { platformAuthAttempts } from '../schema.ts';
 
-export function isMaintenanceReadRequest(context: Context<ApiEnv>): boolean {
+export function isMaintenanceReadRequest(context: {
+  req: Pick<Context<ApiEnv>['req'], 'method' | 'path'>;
+}): boolean {
   if (context.req.method !== 'GET' && context.req.method !== 'HEAD') {
     return false;
   }
@@ -17,12 +19,17 @@ export function isMaintenanceReadRequest(context: Context<ApiEnv>): boolean {
   );
 }
 
-export function isMaintenanceLoginCallback(context: Context<ApiEnv>): boolean {
+export function isMaintenanceLoginCallback(context: {
+  req: Pick<Context<ApiEnv>['req'], 'method' | 'path'>;
+}): boolean {
   return context.req.method === 'GET' && context.req.path === '/auth/callback';
 }
 
 /** Only administrator login may complete while the traffic gate is closed. */
-export async function isAdministratorCallback(context: Context<ApiEnv>): Promise<boolean> {
+export async function isAdministratorCallback(context: {
+  req: Pick<Context<ApiEnv>['req'], 'query'>;
+  get: Context<ApiEnv>['get'];
+}): Promise<boolean> {
   const state = context.req.query('state');
   if (!state) {
     return false;

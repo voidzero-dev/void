@@ -21,7 +21,7 @@ function routeParams(pattern: string, params: unknown): Record<string, string> {
   if (typeof params !== 'object' || params === null || Array.isArray(params)) {
     throw new TypeError(`Expected an object of route params, got ${describeValue(params)}.`);
   }
-  const values: Record<string, string> = Object.create(null);
+  const values = Object.create(null) as Record<string, string>;
   for (const [, paramName, catchAll] of pattern.matchAll(ROUTE_TOKEN)) {
     const name = paramName ?? '*';
     if (!Object.hasOwn(params, name)) {
@@ -62,6 +62,6 @@ export function buildPrerenderPath(
     return interpolateRouteParams(pattern, routeParams(pattern, params), true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new TypeError(`${file} getPrerenderPaths()[${index}]: ${message}`);
+    throw new TypeError(`${file} getPrerenderPaths()[${index}]: ${message}`, { cause: error });
   }
 }

@@ -8,7 +8,8 @@ import {
 } from 'node:fs';
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { join, relative } from 'pathslash';
-import { getPackageDir, type AgentConfig } from './agents.ts';
+import { getPackageDir } from './agents.ts';
+import type { AgentConfig } from './agents.ts';
 
 type SkillInfo = {
   dirName: string;
@@ -30,7 +31,7 @@ function parseSkills(skillsDir: string): Array<SkillInfo> {
     if (!existsSync(skillMd)) {
       continue;
     }
-    const content = readFileSync(skillMd, 'utf-8');
+    const content = readFileSync(skillMd, 'utf8');
     const frontmatter = content.match(/^---\n([\s\S]*?)\n---/);
     if (!frontmatter) {
       continue;

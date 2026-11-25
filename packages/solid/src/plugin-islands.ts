@@ -18,8 +18,8 @@ import {
   ISLANDS_CLIENT_ENTRY_ID,
   findIslandImports,
   editIslandSource,
-  type IslandSourceEdit,
 } from 'void/pages-islands-plugin';
+import type { IslandSourceEdit } from 'void/pages-islands-plugin';
 
 const COMPONENT_EXTENSIONS = ['.tsx', '.jsx', '.ts', '.js'];
 
@@ -85,6 +85,7 @@ export function islandsPlugin(
       },
 
       configureServer(server) {
+        islandManifest.configureServer(server, pagesDir);
         watchPagesForRescan(server, pagesDir, root, (scan: PageScanResult) => {
           pageScan = scan;
         });
@@ -121,7 +122,7 @@ export function islandsPlugin(
 
       load: {
         filter: {
-          // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
+          // Vite virtual module null-byte prefix
           id: /^(\0virtual:void-islands-(renderer|client)|\/@void-island-wrap\/)/,
         },
         handler(id) {

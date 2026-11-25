@@ -31,7 +31,7 @@ type EntriesMap = Record<string, Entry>;
 const STORAGE_KEY = 'controlled-entries-v1';
 const COMPLETIONS_KEY = 'controlled-completions-v1';
 const COMPLETION_RETENTION_MS = 24 * 60 * 60 * 1000;
-const MAX_COMPLETIONS = 4_096;
+const MAX_COMPLETIONS = 4096;
 const unavailable: SandboxControlResult = { ok: false, reason: 'unavailable' };
 
 /** Account-wide capacity and usage, callable only through the private SandboxControl entrypoint. */
@@ -243,7 +243,7 @@ export class SandboxConcurrencyCounter extends DurableObject<ApiEnv['Bindings']>
         return;
       }
       for (const id of matching) {
-        const entry = entries[id]!;
+        const entry = entries[id];
         if (entry.stoppedAt === undefined) {
           entries[id] = { ...entry, stoppedAt };
         }
@@ -257,8 +257,11 @@ export class SandboxConcurrencyCounter extends DurableObject<ApiEnv['Bindings']>
   }
 
   private async finishStopped(entries: EntriesMap, id: string): Promise<void> {
-    const entry = entries[id]!;
-    await this.meterThrough(id, entry, entry.stoppedAt!);
+    const entry = entries[id];
+    if (entry.stoppedAt === undefined) {
+      throw new Error('Cannot finalize a sandbox lease before it has stopped.');
+    }
+    await this.meterThrough(id, entry, entry.stoppedAt);
     // Receipt precedes capacity release; any partial failure is safe to retry.
     await this.recordCompletion(id, entry.generation);
     delete entries[id];

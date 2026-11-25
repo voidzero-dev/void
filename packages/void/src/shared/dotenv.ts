@@ -61,7 +61,11 @@ export function parseDotenvFile(
   if (!existsSync(filePath)) {
     return {};
   }
-  return parseDotenv(readFileSync(filePath, 'utf-8'), options);
+  return parseDotenv(readFileSync(filePath, 'utf8'), options);
+}
+
+interface ExpandedEnvironment {
+  [key: string]: string;
 }
 
 /**
@@ -83,7 +87,7 @@ export function parseDotenvFile(
 export function expandDotenv(
   input: Record<string, string>,
   options: { onWarn?: (message: string) => void } = {},
-): Record<string, string> {
+): ExpandedEnvironment {
   const out: Record<string, string> = {};
   const resolving = new Set<string>();
   const warned = new Set<string>();
@@ -93,7 +97,7 @@ export function expandDotenv(
       return '';
     }
     if (key in out) {
-      return out[key]!;
+      return out[key];
     }
     if (resolving.has(key)) {
       if (!warned.has(key) && options.onWarn) {
@@ -102,10 +106,10 @@ export function expandDotenv(
       }
       // Return the raw literal so the cycle short-circuits instead of
       // looping; callers see the un-expanded `${...}` text.
-      return input[key]!;
+      return input[key];
     }
     resolving.add(key);
-    const expanded = expandValue(input[key]!, resolveKey);
+    const expanded = expandValue(input[key], resolveKey);
     resolving.delete(key);
     out[key] = expanded;
     return expanded;
@@ -126,7 +130,7 @@ function expandValue(value: string, resolve: (key: string) => string): string {
   let result = '';
   let cursor = 0;
   while (cursor < value.length) {
-    const character = value[cursor]!;
+    const character = value[cursor];
     if (character === '\\' && cursor + 1 < value.length && value[cursor + 1] === '$') {
       // Literal `$`: consume the backslash and emit `$`.
       result += '$';
@@ -160,7 +164,7 @@ function expandValue(value: string, resolve: (key: string) => string): string {
     }
     if (next && /[A-Za-z_]/.test(next)) {
       let keyEndIndex = cursor + 1;
-      while (keyEndIndex < value.length && /[A-Za-z0-9_]/.test(value[keyEndIndex]!)) {
+      while (keyEndIndex < value.length && /[A-Za-z0-9_]/.test(value[keyEndIndex])) {
         keyEndIndex++;
       }
       const key = value.slice(cursor + 1, keyEndIndex);
@@ -193,7 +197,7 @@ export function scanWranglerDotenvKeys(filePath: string): Set<string> {
   if (!existsSync(filePath)) {
     return keys;
   }
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, 'utf8');
   WRANGLER_DOTENV_LINE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = WRANGLER_DOTENV_LINE.exec(content)) !== null) {

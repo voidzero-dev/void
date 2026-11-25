@@ -1,16 +1,7 @@
 <script lang="ts">
   import { getContext, onDestroy, onMount } from "svelte";
-  import {
-    handleLinkClick,
-    linkActiveAttributes,
-    linkPendingAttributes,
-    linkPrefetchStrategies,
-    observeLinkVisible,
-    prefetchLink,
-    resolveLink,
-    type NavigationState,
-    type VoidRouter,
-  } from "void/pages-client";
+  import { handleLinkClick, linkActiveAttributes, linkPendingAttributes, linkPrefetchStrategies, observeLinkVisible, prefetchLink, resolveLink } from 'void/pages-client';
+import type { NavigationState, VoidRouter } from 'void/pages-client';
   import type { LinkProps } from "./link-props.ts";
 
   let {

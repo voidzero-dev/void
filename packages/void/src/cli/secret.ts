@@ -4,6 +4,7 @@ import { outro, log, cancel, isCancel, password, confirm } from '@voidzero-dev/v
 import { getToken } from './auth.ts';
 import { PlatformClient } from './client.ts';
 import { validateSecretValues } from './env-validation.ts';
+import { Buffer } from './node-buffer.ts';
 import { printSuccess, formatCount, note } from './output.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';
 import { getRequestedProjectSlug, resolveProjectBySlug } from './resolve-project.ts';
@@ -169,7 +170,7 @@ const UTF8_BOM = '\uFEFF';
 export function parseDotenvFile(filePath: string): Array<{ name: string; value: string }> {
   const secrets: Array<{ name: string; value: string }> = [];
 
-  const raw = readFileSync(filePath, 'utf-8');
+  const raw = readFileSync(filePath, 'utf8');
   // parseEnv keeps a leading BOM as part of the first key name.
   const text = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
   for (const [key, value] of Object.entries(parseEnv(text))) {
@@ -194,7 +195,7 @@ async function readSecretValue(): Promise<string> {
     for await (const chunk of process.stdin) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
     }
-    const value = Buffer.concat(chunks).toString('utf-8');
+    const value = Buffer.concat(chunks).toString('utf8');
     if (value.length === 0) {
       throw new Error('Secret value is required.');
     }

@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 
 import { Activity, CircleCheck, CircleHelp, CircleX, Clock } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { AdminCard } from './AdminCard.tsx';
 
 export function LastCheckedTime({
@@ -11,16 +12,24 @@ export function LastCheckedTime({
   checkedAt?: number;
   unavailable: boolean;
 }) {
+  return (
+    <span className="void-admin-health-checked-at" data-unavailable={unavailable || undefined}>
+      {unavailable ? (
+        <span role="status">Status unavailable</span>
+      ) : checkedAt !== undefined ? (
+        <CheckedTime key={checkedAt} checkedAt={checkedAt} />
+      ) : null}
+    </span>
+  );
+}
+
+function CheckedTime({ checkedAt }: { checkedAt: number }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    if (checkedAt === undefined) {
-      return;
-    }
-    setNow(Date.now());
-    const interval = setInterval(() => setNow(Date.now()), 5_000);
+    const interval = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(interval);
-  }, [checkedAt]);
-  const seconds = checkedAt === undefined ? 0 : Math.max(0, Math.floor((now - checkedAt) / 1000));
+  }, []);
+  const seconds = Math.max(0, Math.floor((now - checkedAt) / 1000));
   const age =
     seconds < 5
       ? 'just now'
@@ -28,18 +37,12 @@ export function LastCheckedTime({
         ? `${seconds}s ago`
         : `${Math.floor(seconds / 60)}m ago`;
   return (
-    <span className="void-admin-health-checked-at" data-unavailable={unavailable || undefined}>
-      {unavailable ? (
-        <span role="status">Status unavailable</span>
-      ) : checkedAt !== undefined ? (
-        <time
-          dateTime={new Date(checkedAt).toISOString()}
-          title={new Date(checkedAt).toLocaleTimeString()}
-        >
-          Checked {age}
-        </time>
-      ) : null}
-    </span>
+    <time
+      dateTime={new Date(checkedAt).toISOString()}
+      title={new Date(checkedAt).toLocaleTimeString()}
+    >
+      Checked {age}
+    </time>
   );
 }
 

@@ -1,4 +1,5 @@
-import { createActionClient, type ActionClient } from 'void/pages-client';
+import { createActionClient } from 'void/pages-client';
+import type { ActionClient } from 'void/pages-client';
 
 const client = createActionClient();
 

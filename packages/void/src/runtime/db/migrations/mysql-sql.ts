@@ -42,8 +42,8 @@ const PLAIN_OBJECTS =
 const COMPOUND_START = new RegExp(
   [
     `^\\s*(?:CREATE|ALTER)\\s+(?:(?!(?:${PLAIN_OBJECTS})\\b)\\S+\\s+){0,8}?(?:TRIGGER|PROCEDURE|FUNCTION|EVENT|PACKAGE)\\b`,
-    '^\\s*BEGIN\\s+NOT\\s+ATOMIC\\b',
-    '^\\s*(?:\\w+\\s*:\\s*)?(?:BEGIN|IF|CASE|LOOP|REPEAT|WHILE)\\b(?!\\s*(?:WORK\\s*)?$)',
+    String.raw`^\s*BEGIN\s+NOT\s+ATOMIC\b`,
+    String.raw`^\s*(?:\w+\s*:\s*)?(?:BEGIN|IF|CASE|LOOP|REPEAT|WHILE)\b(?!\s*(?:WORK\s*)?$)`,
   ].join('|'),
   'i',
 );
@@ -67,7 +67,7 @@ function splitMySqlStatements(sql: string): Array<MySqlMigrationStatement> {
   };
 
   while (index < sql.length) {
-    const character = sql[index]!;
+    const character = sql[index];
     const next = sql[index + 1];
 
     if (character === "'" || character === '"' || character === '`') {

@@ -9,7 +9,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createBuilder, type Plugin } from 'vite';
+import { createBuilder } from 'vite';
+import type { Plugin } from 'vite';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { voidPlugin } from '../../src/index.ts';
 

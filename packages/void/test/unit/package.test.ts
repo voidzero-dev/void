@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   buildFrameworkManifest,
   buildStaticManifest,
@@ -98,6 +99,7 @@ describe('worker packaging', () => {
         }),
       ];
       for (const manifest of manifests) {
+        // oxlint-disable-next-line unicorn/prefer-structured-clone -- Compare the package manifest as it is written to JSON.
         const published = JSON.parse(JSON.stringify(manifest));
         expect(published.alwaysUseHttps).toBe(value);
         expect(Object.hasOwn(published, 'alwaysUseHttps')).toBe(value !== undefined);
@@ -225,9 +227,9 @@ describe('manifest limits (worker.limits.cpu_ms)', () => {
       frameworkName: 'astro',
       workerMain: 'index.mjs',
       bindings: makeBindings(),
-      packageOptions: { cpuMs: 30000 },
+      packageOptions: { cpuMs: 30_000 },
     });
-    expect(manifest.limits).toEqual({ cpuMs: 30000 });
+    expect(manifest.limits).toEqual({ cpuMs: 30_000 });
   });
 
   it('omits the limits key entirely when packageOptions.cpuMs is unset (framework manifest)', () => {

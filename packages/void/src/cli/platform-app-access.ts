@@ -4,9 +4,11 @@ import {
   parsePlatformAppAccessSetup,
   PLATFORM_APP_ACCESS_SETUP_PROOF_PREFIX,
   PLATFORM_APP_ACCESS_TURN_OFF_PROOF_PREFIX,
-  type PlatformAppAccess,
-  type PlatformAppAccessSetup,
-  type PlatformDeploymentManifest,
+} from '@void/platform';
+import type {
+  PlatformAppAccess,
+  PlatformAppAccessSetup,
+  PlatformDeploymentManifest,
 } from '@void/platform';
 import { confirm, log, multiselect, password, select } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
@@ -285,10 +287,10 @@ export async function prepareInstallationAppAccess(input: {
       );
     }
     identityProviderIds = input.checkpoint.appAccessIdentityProviderIds
-      ? JSON.parse(input.checkpoint.appAccessIdentityProviderIds)
+      ? (JSON.parse(input.checkpoint.appAccessIdentityProviderIds) as Array<string>)
       : ((reuse ? setupSpec?.identityProviderIds : undefined) ?? file?.identityProviderIds ?? []);
     policyIds = input.checkpoint.appAccessPolicyIds
-      ? JSON.parse(input.checkpoint.appAccessPolicyIds)
+      ? (JSON.parse(input.checkpoint.appAccessPolicyIds) as Array<string>)
       : ((reuse ? setupSpec?.policyIds : undefined) ?? file?.policyIds ?? []);
     if (!identityProviderIds.length) {
       if (!process.stdin.isTTY) {
@@ -409,7 +411,7 @@ export async function initializeInstalledAppAccess(
     }
     let body: { ready?: boolean; installationId?: string; error?: string; code?: string };
     try {
-      body = (await response.json()) as typeof body;
+      body = await response.json<typeof body>();
     } catch {
       throw new Error(
         `platform: App access setup did not respond (HTTP ${response.status}). Check platform Access permissions and resume.`,
@@ -466,15 +468,16 @@ export async function turnOffInstalledProjectZeroTrust(
     redirect: 'manual',
     signal: AbortSignal.timeout(60_000),
   });
-  let result: {
+  type TurnOffResponse = {
     turnedOff?: boolean;
     usersExist?: boolean;
     installationId?: string;
     error?: string;
     code?: string;
-  } = {};
+  };
+  let result: TurnOffResponse = {};
   try {
-    result = (await response.json()) as typeof result;
+    result = await response.json<typeof result>();
   } catch {
     // Older runtimes answer an unknown route without a JSON body.
   }

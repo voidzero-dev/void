@@ -1,27 +1,29 @@
 import { createHash } from 'node:crypto';
-import { type CloudflareTriggerConfig } from '@void/deploy-cloudflare';
+import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import {
   createPlatformResourceOwnershipMarker,
   PLATFORM_R2_OWNERSHIP_MARKER_KEY,
   recordInstallationResource,
   recordInstallationStep,
-  type InstallationResource,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { InstallationResource, PlatformInstallationManifest } from '@void/platform';
 import { PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY as REMOTE_INSTALLATION_MANIFEST_KEY } from '@void/platform';
 import {
   hyperdriveOriginConfigHash,
   hyperdriveOriginFromConnectionString,
-  type CloudflareNamedResource,
-  type CloudflareWorkerCustomDomainOrigin,
+} from './platform-cloudflare.ts';
+import type {
+  CloudflareNamedResource,
+  CloudflareWorkerCustomDomainOrigin,
 } from './platform-cloudflare.ts';
 import { writePlatformTiming } from './platform-installer-process.ts';
-import {
-  type PlatformInstallationSecrets,
-  type PlatformInstallerDependencies,
-  type InstallationCheckpointWriter,
-  type InstallerClient,
-  type PlatformDatabaseLifecycleLock,
+import type {
+  PlatformInstallationSecrets,
+  PlatformInstallerDependencies,
+  InstallationCheckpointWriter,
+  InstallerClient,
+  PlatformDatabaseLifecycleLock,
+  PlatformWorkerConfig,
 } from './platform-installer-types.ts';
 import {
   dnsRecordConfigHash,
@@ -30,9 +32,8 @@ import {
   platformAdoptionIntentHash,
   platformProvisionIntentHash,
   r2BucketConfigHash,
-  type PlatformInstallPlan,
-  type PlatformInstallPlanAction,
 } from './platform-plan.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
 import { savePlatformConnection, writeInstallationManifest } from './platform-registry.ts';
 import { platformManagedWorkerTraffic } from './platform-traffic.ts';
 
@@ -405,16 +406,16 @@ export async function inventoryUnmanagedPlatformWorkerTraffic(
 }
 
 export function mergePlatformWorkerTrafficConfig(
-  config: Record<string, unknown>,
+  config: PlatformWorkerConfig,
   preservedRoutes: ReadonlyArray<unknown>,
-): Record<string, unknown> {
+): PlatformWorkerConfig {
   if (preservedRoutes.length === 0) {
     return config;
   }
   return {
     ...config,
     routes: uniqueTriggerRoutes([
-      ...(Array.isArray(config.routes) ? config.routes : []),
+      ...(Array.isArray(config.routes) ? (config.routes as Array<unknown>) : []),
       ...preservedRoutes,
     ]),
   };
@@ -429,10 +430,14 @@ export function mergePreservedTriggerRoutes(
     : { ...config, routes: uniqueTriggerRoutes([...config.routes, ...preservedRoutes]) };
 }
 
-export function isolatePlatformWorkerCustomDomains(config: Record<string, unknown>): {
+type PlatformWorkerCustomDomains = {
   customDomains: ReadonlyArray<CloudflareWorkerCustomDomainOrigin>;
-  wranglerConfig: Record<string, unknown>;
-} {
+  wranglerConfig: PlatformWorkerConfig;
+};
+
+export function isolatePlatformWorkerCustomDomains(
+  config: PlatformWorkerConfig,
+): PlatformWorkerCustomDomains {
   if (config.routes === undefined) {
     return { customDomains: [], wranglerConfig: config };
   }
@@ -480,8 +485,8 @@ export function isolatePlatformWorkerCustomDomains(config: Record<string, unknow
 }
 
 export function withoutPlatformWorkerTrafficAttachments(
-  config: Record<string, unknown>,
-): Record<string, unknown> {
+  config: PlatformWorkerConfig,
+): PlatformWorkerConfig {
   const isolated = { ...config };
   delete isolated.route;
   delete isolated.routes;

@@ -1,11 +1,7 @@
 import { log, note } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import {
-  PlatformApiError,
-  PlatformClient,
-  type EmailDomainResponse,
-  type RemoveEmailDomainResponse,
-} from '../../src/cli/client.ts';
+import { PlatformApiError, PlatformClient } from '../../src/cli/client.ts';
+import type { EmailDomainResponse, RemoveEmailDomainResponse } from '../../src/cli/client.ts';
 import {
   buildCfApiTokenTemplateUrl,
   classifyCfApiTokenShape,
@@ -17,8 +13,9 @@ import {
   emailDomainRotateSecret,
   isValidEmailDomainInput,
   normalizeEmailDomainInput,
-  type EmailDomainAddDeps,
 } from '../../src/cli/email.ts';
+import type { EmailDomainAddDeps } from '../../src/cli/email.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as output from '../../src/cli/output.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 
@@ -109,14 +106,13 @@ function neverEnter(): Promise<never> {
 }
 
 describe('buildCfApiTokenTemplateUrl', () => {
-  it('carries the five pinned permission groups, wildcard resources and the domain name', () => {
+  it('prefills email and zone permissions for the user token form', () => {
     const url = new URL(buildCfApiTokenTemplateUrl('acme.com'));
     expect(url.origin + url.pathname).toBe('https://dash.cloudflare.com/profile/api-tokens');
     expect(JSON.parse(url.searchParams.get('permissionGroupKeys')!)).toEqual([
       { key: 'zone', type: 'read' },
       { key: 'email_routing_rule', type: 'edit' },
       { key: 'email_sending', type: 'edit' },
-      { key: 'workers_scripts', type: 'edit' },
       { key: 'zone_settings', type: 'edit' },
     ]);
     expect(url.searchParams.get('accountId')).toBe('*');
@@ -260,6 +256,7 @@ describe('emailDomainAdd', () => {
     expect(deps.openUrl).toHaveBeenCalledWith(expect.stringContaining('/profile/api-tokens?'));
     expect(deps.confirmScope).toHaveBeenCalledWith('acme.com');
     expect(printed(infoSpy)).toContain('replace All accounts and All zones');
+    expect(printed(infoSpy)).toContain('Add Workers → Admin');
     expect(printed(infoSpy)).toContain('zone connection');
     expect([printed(infoSpy), printed(successSpy), notedBlocks()].join('')).not.toContain(
       LEGACY_TOKEN,
@@ -664,7 +661,7 @@ describe('PlatformClient.removeEmailDomain', () => {
     vi.stubGlobal('fetch', withPlatformDiscovery(fetchMock));
     const client = new PlatformClient('tok', { apiUrl: 'https://api.test' });
     await client.removeEmailDomain('prj_1', 'acme.com');
-    const [url, init] = fetchMock.mock.calls[0]!;
+    const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe('https://api.test/projects/prj_1/email/domains/acme.com');
     expect(init?.method).toBe('DELETE');
   });
@@ -738,7 +735,7 @@ describe('PlatformClient.rotateEmailDomainSecret', () => {
     vi.stubGlobal('fetch', withPlatformDiscovery(fetchMock));
     const client = new PlatformClient('tok', { apiUrl: 'https://api.test' });
     await client.rotateEmailDomainSecret('prj_1', 'acme.com', 'attempt_1');
-    const [url, init] = fetchMock.mock.calls[0]!;
+    const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe(
       'https://api.test/projects/prj_1/email/domains/acme.com/rotate-secret',
     );

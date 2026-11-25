@@ -9,13 +9,8 @@ import { readConfig } from '../config.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import { scanEmailHandlersSync } from '../router/email.ts';
 import { getToken, openBrowser } from './auth.ts';
-import {
-  PlatformApiError,
-  PlatformClient,
-  type EmailDomainResponse,
-  type EmailOperationResponse,
-  type EmailSharedInbound,
-} from './client.ts';
+import { PlatformApiError, PlatformClient } from './client.ts';
+import type { EmailDomainResponse, EmailOperationResponse, EmailSharedInbound } from './client.ts';
 import {
   createDeployWranglerRunner,
   deriveWorkerName,
@@ -35,11 +30,13 @@ import {
   probeMx,
   renderAddressMap,
   renderEmailChecklist,
-  type EmailCloudflareInputs,
-  type EmailDns,
-  type EmailFetch,
-  type EmailPreflight,
-  type EmailWranglerRun,
+} from './email-cloudflare.ts';
+import type {
+  EmailCloudflareInputs,
+  EmailDns,
+  EmailFetch,
+  EmailPreflight,
+  EmailWranglerRun,
 } from './email-cloudflare.ts';
 import { printSuccess, createSpinner, formatUrl, note, pc } from './output.ts';
 import { resolveCommandProjectId } from './resolve-project.ts';
@@ -81,9 +78,13 @@ export async function runEmailCommand(root: string, args: EmailArgs): Promise<vo
     case 'destinations':
       return emailDestinations(client, projectId);
     case 'allow':
-      return emailAllow(client, projectId, args.address!);
     case 'disallow':
-      return emailDisallow(client, projectId, args.address!);
+      if (args.address === undefined) {
+        throw new Error(`email: Usage: void email ${args.subcommand} <address>.`);
+      }
+      return args.subcommand === 'allow'
+        ? emailAllow(client, projectId, args.address)
+        : emailDisallow(client, projectId, args.address);
     case 'alias':
       return emailAlias(client, projectId, args.address, { yes: args.yes === true });
     case 'domain':
@@ -147,14 +148,12 @@ export async function emailAlias(
   }
   const result = await client.setEmailAlias(projectId, name);
   printSuccess(`Email alias set: ${result.address}`);
-  const status = result.sharedInbound?.status;
-  if (status && status !== 'ready') {
-    const other =
-      result.sharedInbound!.recipient === result.address
-        ? ''
-        : ` at ${result.sharedInbound!.recipient}`;
+  const inbound = result.sharedInbound;
+  const status = inbound?.status;
+  if (inbound && status && status !== 'ready') {
+    const other = inbound.recipient === result.address ? '' : ` at ${inbound.recipient}`;
     log.info(
-      `Inbound mail${other} is ${status}${result.sharedInbound?.reason ? `: ${result.sharedInbound.reason}` : ''}. It starts working once the project has an email handler deployed and routing is ready; check with \`void email alias\`.`,
+      `Inbound mail${other} is ${status}${inbound.reason ? `: ${inbound.reason}` : ''}. It starts working once the project has an email handler deployed and routing is ready; check with \`void email alias\`.`,
     );
   }
 }
@@ -271,12 +270,12 @@ export async function emailLogs(
 /**
  * Permission groups prefilled in the dashboard token link. `zone_settings: edit` gates
  * the routing POST; `zone: read` serves the zone lookup.
+ * User-token templates cannot prefill Workers Admin by permission group ID.
  */
 const CF_TOKEN_TEMPLATE_PERMISSION_GROUPS = [
   { key: 'zone', type: 'read' },
   { key: 'email_routing_rule', type: 'edit' },
   { key: 'email_sending', type: 'edit' },
-  { key: 'workers_scripts', type: 'edit' },
   { key: 'zone_settings', type: 'edit' },
 ] as const;
 
@@ -383,7 +382,7 @@ async function verifyCfApiToken(token: string): Promise<CfTokenVerification> {
     return 'unknown';
   }
   try {
-    const body = (await res.json()) as { result?: { status?: unknown } };
+    const body = await res.json<{ result?: { status?: unknown } }>();
     return body.result?.status === 'active' ? 'active' : 'inactive';
   } catch {
     return 'unknown';
@@ -410,7 +409,7 @@ type EnterRace = { promise: Promise<'enter'>; stop: () => void };
  * Resolves when Enter is pressed during the clipboard watch. `stop` removes the listener so
  * a losing race cannot eat the first keystroke of a later prompt.
  */
-function createEnterRace(waitForEnter?: () => Promise<unknown>): EnterRace {
+function createEnterRace(waitForEnter?: () => Promise<void>): EnterRace {
   if (waitForEnter) {
     return { promise: waitForEnter().then((): 'enter' => 'enter'), stop: () => {} };
   }
@@ -448,7 +447,7 @@ export interface EmailDomainAddDeps {
   /** Confirms the account/zone resource restriction shown in the token form. */
   confirmScope?: (domain: string) => Promise<boolean>;
   /** The Enter keypress that switches paths (default: one stdin line). */
-  waitForEnter?: () => Promise<unknown>;
+  waitForEnter?: () => Promise<void>;
   watchIntervalMs?: number;
   /** Default 10 minutes. */
   watchTimeoutMs?: number;
@@ -603,7 +602,7 @@ export async function emailDomainAdd(
   let credential: EmailDomainCredential;
   {
     log.info(
-      `Create a Cloudflare API token restricted to the account and DNS zone containing ${domain}. In the resource selectors, replace All accounts and All zones with those exact resources. Workers Scripts Write still applies to every Worker in the selected account.`,
+      `Create a Cloudflare API token restricted to the account and DNS zone containing ${domain}. In the resource selectors, replace All accounts and All zones with those exact resources. Add Workers → Admin for that account so Void can create and remove the mail ingress Worker.`,
     );
     const url = buildCfApiTokenTemplateUrl(domain);
     const readClip = deps.readClipboard ?? readClipboard;
@@ -905,11 +904,13 @@ export async function emailDomainRotateSecret(
       deps.sleep,
     );
     if (!operation) {
+      // oxlint-disable-next-line preserve-caught-error -- The operator sees the tracked operation state without provider details.
       throw new Error(
         `email: secret rotation outcome is unknown (operation key ${attemptId}); inspect \`void email domain status ${domain}\` before starting another rotation.`,
       );
     }
     if (operation.status !== 'completed') {
+      // oxlint-disable-next-line preserve-caught-error -- The operator sees the tracked operation state without provider details.
       throw new Error(
         `email: secret rotation ${operation.status}; inspect operation ${operation.operationId}`,
       );
@@ -951,19 +952,27 @@ async function runEmailDomainCommand(
   projectId: string,
   args: EmailArgs,
 ): Promise<void> {
-  switch (args.domainVerb) {
+  const { domainVerb, domain } = args;
+  if (domainVerb === undefined) {
+    return;
+  }
+  if (domainVerb === 'list') {
+    return emailDomainList(client, projectId);
+  }
+  if (domain === undefined) {
+    throw new Error(`email: Usage: void email domain ${domainVerb} <domain> [--project <name>].`);
+  }
+  switch (domainVerb) {
     case 'add':
-      return emailDomainAdd(client, projectId, args.domain!);
+      return emailDomainAdd(client, projectId, domain);
     case 'status':
-      return emailDomainStatus(client, projectId, args.domain!);
-    case 'list':
-      return emailDomainList(client, projectId);
+      return emailDomainStatus(client, projectId, domain);
     case 'sync':
-      return emailDomainSync(client, projectId, args.domain!);
+      return emailDomainSync(client, projectId, domain);
     case 'rotate-secret':
-      return emailDomainRotateSecret(client, projectId, args.domain!);
+      return emailDomainRotateSecret(client, projectId, domain);
     case 'remove':
-      return emailDomainRemove(client, projectId, args.domain!);
+      return emailDomainRemove(client, projectId, domain);
   }
 }
 

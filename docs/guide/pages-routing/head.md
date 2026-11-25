@@ -9,7 +9,7 @@ Set page titles and metadata with `head()`, middleware, or site-wide defaults. P
 
 ## Page titles and metadata
 
-Export a `head()` function from your `.server.ts` file. It receives the Hono context and the resolved loader props, and returns a `HeadDescriptor`:
+Export a `head()` function from your `.server.ts` file. It receives the Hono context and the resolved loader props, and returns a `HeadConfig`: the [head fields](#headdescriptor) plus an optional [`titleTemplate`](#page-title-templates):
 
 ```ts
 // pages/posts/[slug].server.ts
@@ -98,13 +98,29 @@ A page returning `{ title: "Users" }` under `/admin` produces `<title>Users | Ad
 
 To drop the suffix entirely for a section, including the config's, set the template to an empty string: `c.set('headDefaults', { ...c.get('headDefaults'), titleTemplate: '' })`. A page returning `{ title: "Users" }` under `/admin` then produces `<title>Users</title>`.
 
+## Page title templates
+
+A page's `head()` can also return `titleTemplate`. It replaces the template from middleware and config for that page. Use it when a page's title already names the site, such as a home page:
+
+```ts
+// pages/index.server.ts
+import { defineHead } from 'void';
+
+export const head = defineHead(() => ({
+  title: 'My Site | Guides and Tutorials',
+  titleTemplate: '', // [!code highlight]
+}));
+```
+
+With `"titleTemplate": "%s | My Site"` in config, this page produces `<title>My Site | Guides and Tutorials</title>`, while other pages keep the suffix. An empty string drops the template. Any other value replaces it, so `titleTemplate: '%s - Docs'` gives the page its own suffix.
+
 ## Precedence
 
 When multiple layers provide head data, they merge with this precedence:
 
 | Field       | Behavior                                                                                                             |
 | ----------- | -------------------------------------------------------------------------------------------------------------------- |
-| `title`     | Page wins. `titleTemplate` from middleware, or else from config, wraps the winning title.                            |
+| `title`     | Page wins. `titleTemplate` from the page, or else middleware, or else config, wraps the winning title.               |
 | `meta`      | Deduplicates by `name` or `property`. Page entries override matching keys, and non-conflicting entries are appended. |
 | `link`      | Concatenated: config first, then middleware, then page.                                                              |
 | `script`    | Concatenated: config first, then middleware, then page.                                                              |
@@ -142,6 +158,8 @@ This works in config, middleware, and page head data, including client-side navi
 Absolute URLs and other tags keep the values you provide. For prerendered pages, provide an absolute URL such as `https://example.com/og-image.jpg`: the build does not know your site's origin and leaves relative paths as written.
 
 ## HeadDescriptor
+
+Page `head()`, middleware `headDefaults` and the `head` config also accept `titleTemplate?: string` (the `HeadConfig` type).
 
 ```ts
 interface HeadDescriptor {

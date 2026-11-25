@@ -52,7 +52,7 @@ describe('database provider adapters', () => {
 
     writeLocalDatabaseUrl(root, 'postgresql://user:p@ss@host/app');
 
-    expect(readFileSync(join(root, '.env'), 'utf-8')).toBe(
+    expect(readFileSync(join(root, '.env'), 'utf8')).toBe(
       'API_KEY=test\nDATABASE_URL="postgresql://user:p@ss@host/app"\n',
     );
   });

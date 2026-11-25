@@ -127,6 +127,35 @@ describe('workers.dev routing', () => {
     );
     await expect(resolvePlatformApplicationEnvironment(env)).rejects.toThrow('another platform');
   });
+  it.each(['[', '{"id":"invalid","slug":"kitchen-sink"}'])(
+    'treats invalid alias data as a missing project (%s)',
+    async (raw) => {
+      const { env, values } = fixture();
+      values.set(platformWorkersDevAliasKey(hostname), raw);
+      expect(await resolveProjectHostname(hostname, env)).toEqual({ slug: null, workersDev: true });
+    },
+  );
+  it('fails closed when an existing route carries malformed Access policy', async () => {
+    const { env, values } = fixture();
+    values.set(
+      project.slug,
+      JSON.stringify({
+        projectId: project.id,
+        workerName: 'user-app',
+        zeroTrust: { teamDomain: 'access.example.com' },
+      }),
+    );
+    const worker = vi.fn();
+    Object.assign(env, { DISPATCH: { get: worker } });
+    const response = await app.fetch(
+      new Request(`https://${hostname}/`),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(worker).not.toHaveBeenCalled();
+  });
   it('does not let a recreated project inherit an old workers.dev URL', async () => {
     const { env, values } = fixture();
     values.set(

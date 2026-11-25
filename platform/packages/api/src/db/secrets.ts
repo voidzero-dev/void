@@ -2,7 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import { generateId } from '../id.ts';
 import { projectSecrets, projectDatabaseCredentials } from '../schema.ts';
 import type { ProjectDatabaseCredentials, ProjectSecret } from '../types.ts';
-import { type Db } from './client.ts';
+import type { Db } from './client.ts';
 
 // --- Project secrets ---
 

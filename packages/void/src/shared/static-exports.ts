@@ -1,13 +1,13 @@
 import { parseSync } from 'vite';
 import { bindingNames } from './ast-bindings.ts';
-import {
-  isIdentifier,
-  moduleExportName,
-  type AstExportAllDeclaration,
-  type AstExportNamedDeclaration,
-  type AstNode,
-  type AstProgram,
-  type AstVariableDeclaration,
+import { asAstProgram, isIdentifier, isLiteral, moduleExportName } from './ast.ts';
+import type {
+  AstExportAllDeclaration,
+  AstExportNamedDeclaration,
+  AstLiteral,
+  AstNode,
+  AstProgram,
+  AstVariableDeclaration,
 } from './ast.ts';
 
 /** How a module exports some names, as far as its source shows without running it. */
@@ -39,14 +39,14 @@ export function mayExportAll(source: string): boolean {
   ) {
     let cursor = index + 'export'.length;
     while (cursor < source.length) {
-      if (/\s/.test(source[cursor]!)) {
+      if (/\s/.test(source[cursor])) {
         cursor += 1;
       } else if (source.startsWith('/*', cursor)) {
         const end = source.indexOf('*/', cursor + 2);
         cursor = end === -1 ? source.length : end + 2;
       } else if (source.startsWith('//', cursor)) {
         cursor += 2;
-        while (cursor < source.length && !LINE_TERMINATORS.has(source[cursor]!)) {
+        while (cursor < source.length && !LINE_TERMINATORS.has(source[cursor])) {
           cursor += 1;
         }
       } else {
@@ -131,7 +131,7 @@ export function readStaticExports(
   source: string,
   names: ReadonlySet<string>,
 ): StaticExports {
-  return staticExports(parseSync(filename, source).program as unknown as AstProgram, names);
+  return staticExports(asAstProgram(parseSync(filename, source).program), names);
 }
 
 export function unwrapStaticExpression(node: AstNode | undefined): AstNode | undefined {
@@ -149,9 +149,9 @@ export function unwrapStaticExpression(node: AstNode | undefined): AstNode | und
   return node;
 }
 
-export function staticLiteral(node: AstNode | undefined): unknown {
+export function staticLiteral(node: AstNode | undefined): AstLiteral['value'] | undefined {
   node = unwrapStaticExpression(node);
-  if (node?.type === 'Literal') {
+  if (isLiteral(node)) {
     return node.value;
   }
   if (node?.type === 'TemplateLiteral') {

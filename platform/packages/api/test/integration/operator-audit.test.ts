@@ -9,8 +9,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let token: string;
@@ -213,7 +213,7 @@ test('records complete and partial 207 mutation outcomes as failed', async () =>
   const events = await env.db.select().from(operatorEvents);
   expect(events).toHaveLength(2);
   expect(
-    JSON.parse(events.find((event) => event.action === 'workers/rollback-all')!.target!),
+    JSON.parse(events.find((event) => event.action === 'workers/rollback-all')!.target),
   ).toMatchObject({ versions: { 'email-gateway': 'previous' } });
   expect(events).toEqual(
     expect.arrayContaining([
@@ -381,7 +381,7 @@ test('records sanitized action targets and change arguments', async () => {
   expect(
     events
       .filter((event) => event.action === 'signup/remove')
-      .map((event) => JSON.parse(event.target))
+      .map((event) => JSON.parse(event.target) as { type: string; pattern: string })
       .sort((a, b) => a.pattern.localeCompare(b.pattern)),
   ).toEqual([
     { type: 'email', pattern: 'alice@example.com' },
@@ -426,7 +426,9 @@ test('records the project scope of a proxy token rotation and nothing for its pr
   expect((await request('/system/rotate-proxy-tokens', { all: true })).status).toBe(207);
 
   const events = await env.db.select().from(operatorEvents);
-  expect(events.map((event) => [event.action, JSON.parse(event.target), event.status])).toEqual(
+  expect(
+    events.map((event) => [event.action, JSON.parse(event.target) as unknown, event.status]),
+  ).toEqual(
     expect.arrayContaining([
       ['system/rotate-proxy-tokens', { projects: project.id }, 'success'],
       ['system/rotate-proxy-tokens', { projects: 'all' }, 'success'],

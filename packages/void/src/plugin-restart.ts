@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { TLSSocket } from 'node:tls';
 import type { Plugin } from 'vite';
+import { Buffer } from './cli/node-buffer.ts';
 import { safeJsonStringify } from './pages/protocol.ts';
 
 const BINDING_HINT_VIRTUAL = 'virtual:void/binding-hint';
@@ -186,7 +187,7 @@ export function restartPlugin(): Plugin {
     },
 
     load: {
-      // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
+      // Vite virtual module null-byte prefix
       filter: { id: /^\0virtual:void\/binding-hint$/ },
       handler() {
         return clientModule(restartToken);

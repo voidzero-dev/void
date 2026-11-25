@@ -33,14 +33,14 @@ describe('classifyCloudflareDeployApp', () => {
     );
     mkdirSync(join(root, 'src/routes'), { recursive: true });
 
-    expect(classify(root, {} as VoidConfig)).toEqual({ supported: true });
+    expect(classify(root, {})).toEqual({ supported: true });
   });
 
   it('describes an unresolved static output without claiming static deploys are unsupported', () => {
     const root = mkdtempSync(join(tmpdir(), 'void-cloudflare-classify-'));
     roots.push(root);
 
-    const result = classify(root, { inference: { appType: 'static' } } as VoidConfig);
+    const result = classify(root, { inference: { appType: 'static' } });
 
     expect(result).toEqual({
       supported: false,

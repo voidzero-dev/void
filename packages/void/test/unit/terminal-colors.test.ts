@@ -30,8 +30,8 @@ it('honors NO_COLOR for dev messages and severity output', () => {
 
 it('uses blue branding while keeping warnings and errors distinct', () => {
   const output = renderLogger(true);
-  expect(output).toContain('\x1b[34m[void]');
-  expect(output).toContain('\x1b[33mMissing cache');
-  expect(output).toContain('\x1b[31mMissing secret');
-  expect(output).not.toContain('\x1b[36m');
+  expect(output).toContain('\u001b[34m[void]');
+  expect(output).toContain('\u001b[33mMissing cache');
+  expect(output).toContain('\u001b[31mMissing secret');
+  expect(output).not.toContain('\u001b[36m');
 });

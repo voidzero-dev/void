@@ -1,13 +1,13 @@
 /** Revalidate every delivered chunk; idle streams also close when their session is revoked. */
-export function guardHumanStream(
-  source: ReadableStream<Uint8Array>,
+export function guardHumanStream<Chunk>(
+  source: ReadableStream<Chunk>,
   validate: () => Promise<boolean>,
   signal?: AbortSignal,
-): ReadableStream<Uint8Array> {
+): ReadableStream<Chunk> {
   const reader = source.getReader();
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let controller: ReadableStreamDefaultController<Uint8Array>;
+  let controller: ReadableStreamDefaultController<Chunk>;
   const cleanup = () => {
     closed = true;
     if (timer !== undefined) {
@@ -45,7 +45,7 @@ export function guardHumanStream(
       }
     }, 15_000);
   };
-  return new ReadableStream<Uint8Array>(
+  return new ReadableStream<Chunk>(
     {
       start(target) {
         controller = target;

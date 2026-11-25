@@ -67,7 +67,7 @@ async function runFrameworkSync(root: string): Promise<Record<string, unknown>> 
     throw new Error('Expected framework Wrangler sync hook');
   }
   await handler.call({} as never, { command: 'serve' } as ResolvedConfig);
-  return JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8'));
+  return JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')) as Record<string, unknown>;
 }
 
 async function runFrameworkCompat(root: string, command: 'serve' | 'build'): Promise<void> {

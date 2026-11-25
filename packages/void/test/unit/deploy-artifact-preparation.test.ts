@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deployArtifactDigest } from '@void/deploy-core';
 import { beforeEach, afterEach, it, expect, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { prepareDeployArtifact } from '../../src/deploy.ts';
 
 let root: string;
@@ -36,10 +37,10 @@ afterEach(() => {
 });
 it('packages real Worker and asset bytes without credentials or provider calls', async () => {
   const result = await prepareDeployArtifact(root);
-  expect(Buffer.from(result.artifact.workerFiles!['index.js']!, 'base64').toString()).toContain(
+  expect(Buffer.from(result.artifact.workerFiles!['index.js'], 'base64').toString()).toContain(
     "new Response('hello')",
   );
-  expect(Buffer.from(result.assets['/index.html']!, 'base64').toString()).toBe('<h1>Hello</h1>');
+  expect(Buffer.from(result.assets['/index.html'], 'base64').toString()).toBe('<h1>Hello</h1>');
   expect(result.artifact.manifest.assetManifestVersion).toBe(2);
   expect(result.artifact.manifest.bindings).toEqual({});
   expect(result.artifact.manifest).not.toHaveProperty('vars');
@@ -142,7 +143,7 @@ it('packages a detected Vite SPA as assets without a Worker or provider calls', 
     not_found_handling: 'single-page-application',
   });
   expect(result.artifact.workerFiles).toBeUndefined();
-  expect(Buffer.from(result.assets['/index.html']!, 'base64').toString()).toBe(
+  expect(Buffer.from(result.assets['/index.html'], 'base64').toString()).toBe(
     '<div id="root"></div>',
   );
   expect(fetch).not.toHaveBeenCalled();

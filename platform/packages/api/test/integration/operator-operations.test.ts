@@ -18,7 +18,6 @@ import {
   advanceProxyTokenRotation,
   reconcileProxyTokenRotations,
   requestProxyTokenRotation,
-  type ProxyTokenRotationEnv,
 } from '../../src/proxy-token-rotation.ts';
 import { deriveProxyToken } from '../../src/proxy-token.ts';
 import { databaseTimestampMs } from '../../src/routes/deploy.ts';
@@ -46,9 +45,8 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type MockCfApiHandle,
-  type TestEnv,
 } from './helpers.ts';
+import type { MockCfApiHandle, TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let token: string;
@@ -92,7 +90,7 @@ async function applyDrainUntilComplete(extraEnv?: Record<string, unknown>) {
   for (let attempt = 0; attempt < 10; attempt++) {
     const response = await req('/system/sandbox-drain', {}, extraEnv);
     responses.push(response);
-    const body = (await response.clone().json()) as { complete?: boolean };
+    const body = await response.clone().json<{ complete?: boolean }>();
     if (body.complete) {
       return responses;
     }
@@ -192,7 +190,9 @@ test.runIf(Boolean(process.env.VOID_TEST_DATABASE_URL))(
       .then(() => {
         barrierArmed = true;
       });
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
     expect(barrierArmed).toBe(false);
 
     releaseLegacy();
@@ -248,7 +248,9 @@ test.runIf(Boolean(process.env.VOID_TEST_DATABASE_URL))(
       inventoryRead = true;
       return inventory;
     });
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
     expect(inventoryRead).toBe(false);
 
     releaseLegacy();
@@ -306,9 +308,9 @@ describe('operator deployment operations', () => {
     await createTestDeployment(env.db, project.id, 'live');
     const response = await req('/deployments?project=alpha&status=pending&limit=1');
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
+    const body = await response.json<{
       deployments: Array<{ project_id: string; status: string }>;
-    };
+    }>();
     expect(body).toMatchObject({ page: 1, limit: 1, total: 1 });
     expect(body.deployments[0]).toMatchObject({ project_id: project.id, status: 'pending' });
     expect((await req('/deployments?status=unknown')).status).toBe(400);
@@ -358,17 +360,17 @@ describe('operator deployment operations', () => {
       .mockResolvedValueOnce(Response.json({ data: [{ ...row, url: '/c' }] }));
     const first = await req(`/deployments/${deployment.id}/logs?limit=2`);
     expect(first.status).toBe(200);
-    const page = (await first.json()) as {
+    const page = await first.json<{
       data: Array<unknown>;
       nextCursor: string;
       watermark: string;
-    };
+    }>();
     expect(page.data).toHaveLength(2);
     expect(page.nextCursor).toEqual(expect.any(String));
     const second = await req(
       `/deployments/${deployment.id}/logs?limit=2&cursor=${encodeURIComponent(page.nextCursor)}`,
     );
-    const last = (await second.json()) as { data: Array<unknown> };
+    const last = await second.json<{ data: Array<unknown> }>();
     expect(last).toMatchObject({ nextCursor: null, watermark: page.watermark });
     expect(last.data).toHaveLength(1);
     expect(fetch.mock.calls[0][1]?.body).toContain(
@@ -395,10 +397,9 @@ describe('operator deployment operations', () => {
       statusCode: '200',
     };
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ data: [row] }));
-    const full = (await (await req(`/deployments/${deployment.id}/logs`)).json()) as Record<
-      string,
-      unknown
-    >;
+    const full = await (
+      await req(`/deployments/${deployment.id}/logs`)
+    ).json<Record<string, unknown>>();
     expect(full).not.toHaveProperty('runtimeLogs');
     const minimal = await req(`/deployments/${deployment.id}/logs`, undefined, {
       PLATFORM_RUNTIME_LOGS: 'minimal',
@@ -983,9 +984,9 @@ describe('operator installation-aware system and worker operations', () => {
     };
     const response = await req('/workers/rollback-all', { environment: 'staging', versions });
     expect(response.status).toBe(207);
-    const result = (await response.json()) as {
+    const result = await response.json<{
       events: Array<{ worker_name: string; status: string }>;
-    };
+    }>();
     expect(result).toMatchObject({ ok: false, partial: true, environment: 'staging' });
     // Rollback runs in reverse deploy order, so the email gateway, which the
     // API's confirmation page posts back through, rolls back after the API.
@@ -1107,8 +1108,7 @@ describe('operator installation-aware system and worker operations', () => {
     const resumed = resumedPages.at(-1)!;
     const resumedPageBodies = await Promise.all(
       resumedPages.map(
-        async (response) =>
-          (await response.clone().json()) as { deletedApplications?: Array<string> },
+        async (response) => await response.clone().json<{ deletedApplications?: Array<string> }>(),
       ),
     );
     expect(resumed.status).toBe(200);
@@ -1322,7 +1322,7 @@ describe('operator installation-aware system and worker operations', () => {
       containerName: 'void-sandbox',
       identityOversized: false,
     });
-    expect(Object.keys(rows[0]!)).toEqual([
+    expect(Object.keys(rows[0])).toEqual([
       'deploymentId',
       'projectId',
       'projectSlug',
@@ -1340,7 +1340,7 @@ describe('operator installation-aware system and worker operations', () => {
       'createdAt',
     ]);
     const returnedProjection = JSON.stringify(rows);
-    expect(returnedProjection.length).toBeLessThan(2_000);
+    expect(returnedProjection.length).toBeLessThan(2000);
     expect(returnedProjection).not.toContain('manifest-payload-');
   });
   test('blocks oversized Sandbox identity metadata before any Container API call', async () => {
@@ -1468,7 +1468,7 @@ describe('operator installation-aware system and worker operations', () => {
     const cf = mockCfApi();
 
     const plan = await req('/system/sandbox-drain', { dryRun: true });
-    const planBody = (await plan.json()) as { nextCursor: string; processed: number };
+    const planBody = await plan.json<{ nextCursor: string; processed: number }>();
     expect(planBody.processed).toBe(16);
     expect(typeof planBody.nextCursor).toBe('string');
     const nextPlan = await req('/system/sandbox-drain', {
@@ -1480,19 +1480,19 @@ describe('operator installation-aware system and worker operations', () => {
 
     const first = await req('/system/sandbox-drain', {});
     expect(first.status).toBe(207);
-    const firstBody = (await first.json()) as {
+    const firstBody = await first.json<{
       truncated: boolean;
       processed: number;
       checkpoint: { cursor: { id: string } };
-    };
+    }>();
     expect(firstBody).toMatchObject({ truncated: true, processed: 16, complete: false });
 
     const second = await req('/system/sandbox-drain', {});
     expect(second.status).toBe(207);
-    const secondBody = (await second.json()) as {
+    const secondBody = await second.json<{
       processed: number;
       checkpoint: { cursor: { id?: string }; phase: string };
-    };
+    }>();
     expect(secondBody).toMatchObject({ processed: 1, complete: false });
     expect(secondBody.checkpoint.phase).toBe('resources');
     expect(secondBody.checkpoint.cursor.id).toBeUndefined();
@@ -1512,7 +1512,7 @@ describe('proxy token rotation', () => {
         const script = cf.state.hostScripts.get(name);
         return script
           ? cfSuccess(script.bindings)
-          : cfError('workers.api.error.script_not_found', 404, 10007);
+          : cfError('workers.api.error.script_not_found', 404, 10_007);
       },
     });
     return cf;
@@ -1566,7 +1566,7 @@ describe('proxy token rotation', () => {
       .select({ gen: projects.proxy_token_gen })
       .from(projects)
       .where(eq(projects.id, projectId));
-    return row!.gen;
+    return row.gen;
   }
 
   const scriptToken = (cf: MockCfApiHandle, script: string) =>
@@ -1587,7 +1587,7 @@ describe('proxy token rotation', () => {
   /** One scheduled rotation run past the current waits. */
   async function runRotations() {
     await endWaits();
-    await reconcileProxyTokenRotations(env.db, env as unknown as ProxyTokenRotationEnv);
+    await reconcileProxyTokenRotations(env.db, env);
   }
 
   /** Scheduled rotation runs until no job is left. */
@@ -1595,7 +1595,7 @@ describe('proxy token rotation', () => {
     for (let run = 0; run < 6; run++) {
       await runRotations();
       const plan = await req('/system/rotate-proxy-tokens', { dryRun: true });
-      const body = (await plan.json()) as { summary: { pending: number; failed: number } };
+      const body = await plan.json<{ summary: { pending: number; failed: number } }>();
       if (body.summary.pending + body.summary.failed === 0) {
         return;
       }
@@ -1700,7 +1700,7 @@ describe('proxy token rotation', () => {
     });
 
     const plan = await req('/system/rotate-proxy-tokens', { dryRun: true, project: project.id });
-    const body = (await plan.json()) as { job: { waitUntil: string } };
+    const body = await plan.json<{ job: { waitUntil: string } }>();
     expect(body).toMatchObject({
       projectId: project.id,
       gen: 1,
@@ -1736,21 +1736,19 @@ describe('proxy token rotation', () => {
       if (phase === 'patch') {
         // Stop right after START, before the first Worker is patched.
         await requestProxyTokenRotation(env.db, project.id, 'operator', 'operator');
-        await advanceProxyTokenRotation(
-          env.db,
-          env as unknown as ProxyTokenRotationEnv,
-          project.id,
-          { cfCallsRemaining: 0, deadline: Date.now() + 60_000 },
-        );
+        await advanceProxyTokenRotation(env.db, env, project.id, {
+          cfCallsRemaining: 0,
+          deadline: Date.now() + 60_000,
+        });
       } else {
         await req('/system/rotate-proxy-tokens', { project: project.id });
       }
-      while ((await rotationJob(project.id))!.payload.phase !== phase) {
+      while ((await rotationJob(project.id)).payload.phase !== phase) {
         await runRotations();
       }
 
       await req('/system/rotate-proxy-tokens', { project: project.id });
-      expect((await rotationJob(project.id))!.payload.again).toBe('1');
+      expect((await rotationJob(project.id)).payload.again).toBe('1');
 
       await finishRotations();
       expect(await issued(project.id)).toBe(2);
@@ -1773,8 +1771,8 @@ describe('proxy token rotation', () => {
 
     await req('/system/rotate-proxy-tokens', { project: project.id });
     const job = await rotationJob(project.id);
-    expect(job!.payload).toMatchObject({ phase: 'revoke', reason: 'member-removed' });
-    expect(job!.payload.again).toBeUndefined();
+    expect(job.payload).toMatchObject({ phase: 'revoke', reason: 'member-removed' });
+    expect(job.payload.again).toBeUndefined();
 
     await finishRotations();
     expect(await issued(project.id)).toBe(1);
@@ -1784,17 +1782,17 @@ describe('proxy token rotation', () => {
     const cf = cloudflare();
     const project = await rotationProject(cf, 'rotate-flag', { workers: true });
     await req('/system/rotate-proxy-tokens', { project: project.id });
-    expect((await rotationJob(project.id))!.payload.again).toBeUndefined();
+    expect((await rotationJob(project.id)).payload.again).toBeUndefined();
 
     const all = await req('/system/rotate-proxy-tokens', { all: true });
     expect(await all.json()).toMatchObject({ queued: 1 });
-    expect((await rotationJob(project.id))!.payload.again).toBe('1');
+    expect((await rotationJob(project.id)).payload.again).toBe('1');
   });
 
   test('reports a rotation that keeps failing', async () => {
     const cf = cloudflare();
     const project = await rotationProject(cf, 'rotate-failing', { workers: true });
-    cf.state.hostScripts.delete(project.workers[1]!);
+    cf.state.hostScripts.delete(project.workers[1]);
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const failed = await req('/system/rotate-proxy-tokens', { project: project.id });

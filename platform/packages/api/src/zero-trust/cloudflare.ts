@@ -127,20 +127,25 @@ export class ZeroTrustCloudflareClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/json');
+    }
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${this.token}`);
+    }
+    if (init?.body && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
     const response = await this.fetcher(`${this.#base}/${path.replace(/^\/+/, '')}`, {
       ...init,
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${this.token}`,
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-        ...init?.headers,
-      },
+      headers,
       redirect: 'manual',
       signal: init?.signal ?? AbortSignal.timeout(30_000),
     });
     let body: CloudflareEnvelope<T>;
     try {
-      body = (await response.json()) as CloudflareEnvelope<T>;
+      body = await response.json<CloudflareEnvelope<T>>();
     } catch {
       throw new ZeroTrustCloudflareError(
         `Cloudflare returned a non-JSON response (HTTP ${response.status}).`,
@@ -296,7 +301,7 @@ export class ZeroTrustCloudflareClient {
     }
   }
 
-  private applicationBody(spec: AccessApplicationSpec): ObjectValue {
+  private applicationBody(spec: AccessApplicationSpec) {
     const destinations = [...new Set(spec.destinations)];
     if (destinations.length < 1 || destinations.length > 100) {
       throw new Error('An Access application needs between 1 and 100 destinations.');
@@ -497,7 +502,8 @@ export class ZeroTrustCloudflareClient {
             const value = object(entry, 'Access application destination');
             return value.type !== 'public' || value.uri !== destination;
           }))) ||
-      (application.target_criteria != null &&
+      (application.target_criteria !== null &&
+        application.target_criteria !== undefined &&
         (!Array.isArray(application.target_criteria) || application.target_criteria.length > 0))
     ) {
       throw new Error(
@@ -548,7 +554,10 @@ export class ZeroTrustCloudflareClient {
         name,
       });
     }
-    const matches = [...inventory!.values()].filter((entry) =>
+    if (!inventory) {
+      throw new Error('Access application inventory is unavailable.');
+    }
+    const matches = [...inventory.values()].filter((entry) =>
       destinationList(entry).includes(`${hostname}/health`),
     );
     if (matches.length > 1) {

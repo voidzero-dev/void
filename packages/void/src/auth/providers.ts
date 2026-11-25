@@ -73,10 +73,11 @@ export function getVoidAuthProviderSettingEnvNames(
   return VOID_AUTH_PROVIDER_SETTING_ENV_NAMES[provider] ?? {};
 }
 
-export function getVoidAuthProviderEnvNames(provider: VoidSocialAuthProvider): {
-  clientId: string;
-  clientSecret: string;
-} {
+type ProviderCredentialEnvNames = { clientId: string; clientSecret: string };
+
+export function getVoidAuthProviderEnvNames(
+  provider: VoidSocialAuthProvider,
+): ProviderCredentialEnvNames {
   const normalized = provider.toUpperCase().replaceAll('-', '_');
   return {
     clientId: `AUTH_${normalized}_CLIENT_ID`,

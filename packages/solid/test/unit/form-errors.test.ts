@@ -10,6 +10,7 @@ vi.mock('solid-js/store', () =>
 );
 
 type TestForm = {
+  data: Readonly<Record<string, unknown>>;
   errors: Record<string, string>;
   setData(field: string, value: unknown): void;
   setError(field: string, message: string): void;
@@ -20,17 +21,17 @@ const useForm = typedUseForm as unknown as (
   defaults: Record<string, unknown>,
 ) => TestForm;
 
-function createForm() {
-  const [serverErrors, setServerErrors] = createSignal({
-    email: 'Invalid email',
-    name: 'Required',
-  });
+function createForm(
+  server: Record<string, string> = { email: 'Invalid email', name: 'Required' },
+  defaults: Record<string, unknown> = { email: '', name: '' },
+) {
+  const [serverErrors, setServerErrors] = createSignal(server);
   let form!: TestForm;
   const dispose = createRoot((dispose) => {
     createComponent(ErrorsContext.Provider, {
       value: serverErrors,
       get children() {
-        form = useForm('/test', { email: '', name: '' });
+        form = useForm('/test', defaults);
         return null;
       },
     });
@@ -66,6 +67,56 @@ describe('useForm router errors', () => {
     }
   });
 
+  it('clears only the errors of the fields a change touched', () => {
+    const { form, dispose } = createForm(
+      {
+        'profile.name': 'Required name',
+        'profile.email': 'Required email',
+        'contacts.0.email': 'First email',
+        'contacts.1.email': 'Second email',
+        name: 'Unrelated',
+      },
+      {
+        profile: { name: '', email: '' },
+        contacts: [{ email: '' }, { email: '' }],
+      },
+    );
+    try {
+      form.setData('profile', { name: 'Alex', email: '' });
+      expect(form.errors).toEqual({
+        'profile.email': 'Required email',
+        'contacts.0.email': 'First email',
+        'contacts.1.email': 'Second email',
+        name: 'Unrelated',
+      });
+
+      form.setData('contacts', [{ email: '' }, { email: 'alex@example.com' }]);
+      expect(form.errors).toEqual({
+        'profile.email': 'Required email',
+        'contacts.0.email': 'First email',
+        name: 'Unrelated',
+      });
+
+      form.clearErrors('profile');
+      expect(form.errors).toEqual({ 'contacts.0.email': 'First email', name: 'Unrelated' });
+
+      form.setError('profile.name', 'Required name');
+      expect(form.errors).toEqual({
+        'profile.name': 'Required name',
+        'contacts.0.email': 'First email',
+        name: 'Unrelated',
+      });
+
+      form.clearErrors('contacts');
+      expect(form.errors).toEqual({ 'profile.name': 'Required name', name: 'Unrelated' });
+
+      form.clearErrors();
+      expect(form.errors).toEqual({});
+    } finally {
+      dispose();
+    }
+  });
+
   it('shows new server results after earlier errors were cleared', () => {
     const { form, setServerErrors, dispose } = createForm();
     try {
@@ -77,4 +128,46 @@ describe('useForm router errors', () => {
       dispose();
     }
   });
+});
+
+it('keeps an untouched row error when clearing its parent array error', () => {
+  const { form, dispose } = createForm(
+    {
+      contacts: 'At least one valid email required',
+      'contacts.0.email': 'First email required',
+      'contacts.1.email': 'Second email required',
+    },
+    { contacts: [{ email: '' }, { email: '' }] },
+  );
+  try {
+    form.setData('contacts', [{ email: 'fixed@example.com' }, { email: '' }]);
+    expect(form.errors).toEqual({ 'contacts.1.email': 'Second email required' });
+  } finally {
+    dispose();
+  }
+});
+
+it('clears an array count error after adding an undefined entry', () => {
+  const { form, dispose } = createForm({ contacts: 'Add a second row' }, { contacts: [undefined] });
+  try {
+    form.setData('contacts', [undefined, undefined]);
+    expect(form.data.contacts).toEqual([undefined, undefined]);
+    expect(form.errors).toEqual({});
+  } finally {
+    dispose();
+  }
+});
+
+it('keeps a nested error for an optional key preserved by the store merge', () => {
+  const { form, dispose } = createForm(
+    { 'profile.nickname': 'Nickname unavailable' },
+    { profile: { name: '', nickname: 'Reserved name' } },
+  );
+  try {
+    form.setData('profile', { name: 'Alex' });
+    expect(form.data.profile).toEqual({ name: 'Alex', nickname: 'Reserved name' });
+    expect(form.errors).toEqual({ 'profile.nickname': 'Nickname unavailable' });
+  } finally {
+    dispose();
+  }
 });

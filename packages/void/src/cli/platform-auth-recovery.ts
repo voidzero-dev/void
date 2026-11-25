@@ -14,9 +14,12 @@ import {
   recoverAuthenticationCredential,
   requireAdministrator,
   transaction,
-  type Connection,
 } from './platform-auth-recovery-core.ts';
-import { resolvePlatformCloudflareCredential } from './platform-auth.ts';
+import type { Connection } from './platform-auth-recovery-core.ts';
+import {
+  platformOperatorCredentialLabel,
+  resolvePlatformCloudflareCredential,
+} from './platform-auth.ts';
 import { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import type { PlatformConfigArgs } from './platform-config-args.ts';
 import {
@@ -85,7 +88,9 @@ export async function runPlatformAuthRecovery(args: PlatformConfigArgs): Promise
           releaseDatabase.authoritativeManifest,
         );
         await verifyPlatformInstallationOwnership(
-          new PlatformCloudflareClient(credential.token),
+          new PlatformCloudflareClient(credential.token, {
+            credential: platformOperatorCredentialLabel(credential),
+          }),
           manifest,
           { databaseUrl },
         );
@@ -162,16 +167,21 @@ export async function runPlatformAuthRecovery(args: PlatformConfigArgs): Promise
             revision = existing ? existing.revision + 1 : 1;
             const secret =
               suppliedSecret ??
-              recoverAuthenticationCredential(
-                secrets.projectSecretKeysJson!,
-                manifest.id,
-                existing!.id,
-                existing!.revision,
-                existing!.secret,
-              );
+              (existing
+                ? recoverAuthenticationCredential(
+                    secrets.projectSecretKeysJson,
+                    manifest.id,
+                    existing.id,
+                    existing.revision,
+                    existing.secret,
+                  )
+                : undefined);
+            if (secret === undefined) {
+              throw new Error('platform: The login connection requires a client secret.');
+            }
             const encrypted = encryptCredential(
-              secrets.projectSecretKeysJson!,
-              secrets.projectSecretActiveKeyVersion!,
+              secrets.projectSecretKeysJson,
+              secrets.projectSecretActiveKeyVersion,
               manifest.id,
               args.target,
               revision,
@@ -206,7 +216,7 @@ export async function runPlatformAuthRecovery(args: PlatformConfigArgs): Promise
           };
           const recovery = {
             ...unsigned,
-            signature: createHmac('sha256', secrets.jwtSecret!)
+            signature: createHmac('sha256', secrets.jwtSecret)
               .update(platformAuthenticationRecoveryMessage(unsigned))
               .digest('base64url'),
           };

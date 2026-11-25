@@ -1,4 +1,4 @@
-import { extname } from 'node:path';
+import { extname } from 'node:path/posix';
 import { count, eq, or, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import {
@@ -186,7 +186,11 @@ function batchFor(assets: Array<Asset>, entries: Record<string, unknown>, cursor
     bytes += asset.size;
   }
   const complete = batch.length === pending.length;
-  return { batch, bytes, complete, nextCursor: complete ? null : batch.at(-1)!.hash };
+  const lastAsset = batch.at(-1);
+  if (!complete && !lastAsset) {
+    throw new Error('Asset migration batch did not advance.');
+  }
+  return { batch, bytes, complete, nextCursor: complete ? null : (lastAsset?.hash ?? null) };
 }
 
 function verify(bytes: ArrayBuffer, asset: Asset) {
@@ -202,7 +206,11 @@ function verify(bytes: ArrayBuffer, asset: Asset) {
 }
 
 async function verifyObject(object: R2ObjectBody, asset: Asset) {
-  const result = await computeAssetStreamHashes(object.body, asset.paths, asset.size);
+  const result = await computeAssetStreamHashes(
+    object.body as ReadableStream<Uint8Array>,
+    asset.paths,
+    asset.size,
+  );
   if (result.size !== asset.size || result.hashes.some((hash) => hash !== asset.hash)) {
     invalid(
       `Asset ${asset.paths[0]} failed content hash or size verification. No serving metadata was changed.`,
@@ -250,7 +258,7 @@ async function copyAsset(context: Context<ApiEnv>, projectId: string, asset: Ass
       invalid(`Asset ${asset.paths[0]} is missing from its serving KV store.`);
     }
     bytes = legacy.value;
-    httpMetadata = { contentType: legacy.metadata?.ct ?? getContentType(asset.paths[0]!) };
+    httpMetadata = { contentType: legacy.metadata?.ct ?? getContentType(asset.paths[0]) };
     verify(bytes, asset);
   }
   // Never overwrite a concurrently uploaded object. Its bytes must be checked
@@ -415,7 +423,7 @@ export async function assetMigrationInventory(
         const store =
           serving[path] === undefined
             ? entry.store
-            : typeof serving[path] === 'string' && (serving[path] as string).startsWith('!')
+            : typeof serving[path] === 'string' && serving[path].startsWith('!')
               ? 'r2'
               : 'kv';
         const prior = hashes.get(entry.hash);

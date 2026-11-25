@@ -1,9 +1,7 @@
-import {
-  PLAN_EDITABLE_LIMIT_KEYS,
-  parsePlatformPlanId,
-  type PlatformPlanCatalog,
-} from '@void/platform/plans';
-import { Hono, type Context } from 'hono';
+import { PLAN_EDITABLE_LIMIT_KEYS, parsePlatformPlanId } from '@void/platform/plans';
+import type { PlatformPlanCatalog } from '@void/platform/plans';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { PlanAiLoggingPublishProgress } from '../../ai-logging-plans.ts';
 import { isAiLoggingMode } from '../../ai-logging-policy.ts';
@@ -14,8 +12,8 @@ import {
   getOperatorPlanCatalog,
   mutateOperatorPlanCatalog,
   syncOperatorPlanCatalog,
-  type PlanCatalogAction,
 } from '../../operator/plans.ts';
+import type { PlanCatalogAction } from '../../operator/plans.ts';
 import { getPlatformDisplayName } from '../../platform-identity.ts';
 import { renderFateListPage } from '../fate/render.ts';
 import type { AdminPlanPreview, AdminPlanProgress } from '../plans.ts';
@@ -46,9 +44,9 @@ app.onError((error, context) => {
   throw error;
 });
 
-const actions: Array<PlanCatalogAction> = ['add', 'set', 'archive', 'remove', 'default', 'reset'];
+const actions = new Set<PlanCatalogAction>(['add', 'set', 'archive', 'remove', 'default', 'reset']);
 function action(value: unknown): PlanCatalogAction {
-  if (typeof value !== 'string' || !actions.includes(value as PlanCatalogAction)) {
+  if (typeof value !== 'string' || !actions.has(value as PlanCatalogAction)) {
     throw new OperatorError(400, 'Choose a supported plan action.');
   }
   return value as PlanCatalogAction;
@@ -111,7 +109,22 @@ app.post('/preview', async (context) => {
   const form = await context.req.parseBody();
   const selectedAction = action(form.action);
   const target = planId(form.id);
-  const body: Record<string, unknown> = { expectedRevision: Number(form.revision) };
+  const body: Record<'expectedRevision', number> &
+    Partial<
+      Record<
+        | 'id'
+        | 'copyFrom'
+        | 'name'
+        | 'buildInstanceType'
+        | 'allowShortSlugs'
+        | 'aiLogging'
+        | 'limits'
+        | 'archived'
+        | 'replacementPlanId'
+        | 'planId',
+        unknown
+      >
+    > = { expectedRevision: Number(form.revision) };
   if (selectedAction === 'add') {
     body.id = target;
     body.copyFrom = planId(form.copyFrom);
@@ -192,6 +205,7 @@ app.post('/apply', async (context) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       throw new Error();
     }
+    // oxlint-disable-next-line quality/no-known-value-widening -- Forward the reviewed JSON to the operator mutation for schema validation.
     body = { ...value, expectedRevision: Number(form.revision), dryRun: false };
   } catch {
     throw new OperatorError(400, 'The plan review is invalid. Preview the change again.');

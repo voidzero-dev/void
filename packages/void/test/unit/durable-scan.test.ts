@@ -72,14 +72,14 @@ describe('scanDurableObjectModules', () => {
         'export default defineDurableState({ initialState: {} })',
       );
       const [original] = scanDurableObjectModules(root);
-      const name = inferDurableResourceName(original!.filePath);
+      const name = inferDurableResourceName(original.filePath);
       writeFileSync(
-        original!.filePath,
+        original.filePath,
         `export default defineDurableState({ name: ${JSON.stringify(name)}, initialState: {} })`,
       );
       const [pinned] = scanDurableObjectModules(root);
       expect(pinned).toEqual({ ...original, name });
-      renameSync(original!.filePath, join(root, 'durable-objects', 'new-location.ts'));
+      renameSync(original.filePath, join(root, 'durable-objects', 'new-location.ts'));
       const [moved] = scanDurableObjectModules(root);
       expect(moved).toEqual({
         ...pinned,

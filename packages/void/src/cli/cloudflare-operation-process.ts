@@ -31,6 +31,7 @@ import {
   printCloudflareLoginPrompt,
 } from './cloudflare-login-output.ts';
 import { normalizeD1SqlLineEndings } from './d1-sql-line-endings.ts';
+import { Buffer } from './node-buffer.ts';
 import { platformWorkerUploadAttribution } from './platform-worker-user-agent.ts';
 import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 
@@ -39,7 +40,8 @@ type Json = Record<string, unknown>;
 const cf = join(dirname(fileURLToPath(import.meta.resolve('cf/package.json'))), 'bin', 'cf');
 const operation = (() => {
   try {
-    return JSON.parse(process.argv[2] ?? 'null');
+    const parsed: unknown = JSON.parse(process.argv[2] ?? 'null');
+    return parsed;
   } catch {
     return null;
   }
@@ -105,7 +107,7 @@ function result(status: number, stdout = '', stderr = '', data?: unknown): Resul
     stderr,
     ...(data !== undefined ? { data } : {}),
     ...(errorCode ? { errorCode } : {}),
-    ...([10006, 10007, 10090].includes(errorCode ?? 0) ? { failure: 'not-found' as const } : {}),
+    ...([10_006, 10_007, 10_090].includes(errorCode ?? 0) ? { failure: 'not-found' as const } : {}),
   };
 }
 
@@ -135,7 +137,7 @@ function runCf(
   ]
     .filter(Boolean)
     .join('\n')
-    .replace(/\[(\d{4,})\]/g, '[code: $1]');
+    .replaceAll(/\[(\d{4,})\]/g, '[code: $1]');
   if (child.signal || child.error || child.status === null) {
     return {
       status: 1,
@@ -247,6 +249,7 @@ async function withBuildOutput(
   }
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Each command validates the JSON fields it reads.
 function parsedJson(value: string): unknown {
   return JSON.parse(value) as unknown;
 }
@@ -285,13 +288,13 @@ function updateBinding(section: string, binding: string, values: Json): void {
   const previous = Array.isArray(current[section]) ? current[section] : [];
   const existing = previous.map(object).find((entry) => entry.binding === binding);
   current[section] = [
-    ...previous.filter((entry) => object(entry).binding !== binding),
+    ...(previous as Array<unknown>).filter((entry) => object(entry).binding !== binding),
     { ...existing, binding, ...values },
   ];
   writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
 }
 
-function d1Database(token: string): { id: string; dir: string; table: string; pattern?: string } {
+function d1Database(token: string) {
   const entries = config().d1_databases;
   if (!Array.isArray(entries)) {
     throw new Error('D1 database binding is unavailable.');
@@ -325,7 +328,7 @@ function previousD1Bookmark(stdout: string): string | undefined {
   }
 }
 
-function cleanJson(command: Array<string>, transform?: (value: unknown) => unknown): Result {
+function cleanJson<Output>(command: Array<string>, transform?: (value: unknown) => Output): Result {
   const called = runCf(command);
   if (called.status !== 0 || !transform) {
     return called;
@@ -633,7 +636,7 @@ function listAllResourcePages(command: Array<string>, extraFlags: Array<string> 
     if (!Array.isArray(items) || items.length > pageSize) {
       throw new Error(`Cloudflare returned an invalid ${command.join(' ')} page.`);
     }
-    entries.push(...items);
+    entries.push(...(items as Array<unknown>));
     if (items.length < pageSize) {
       return result(0, `${JSON.stringify(entries)}\n`);
     }
@@ -820,7 +823,7 @@ async function resources(): Promise<Result> {
       if (!Array.isArray(list)) {
         throw new Error('D1 list was malformed.');
       }
-      const value = list.find((item) => object(item).name === operation.name);
+      const value = (list as Array<unknown>).find((item) => object(item).name === operation.name);
       return value === undefined
         ? { ...result(1, '', 'D1 database does not exist.'), failure: 'not-found' }
         : result(0, '', '', value);
@@ -1046,7 +1049,7 @@ async function setSecretsOnWorkerWithoutCode(
   if (created.status === 409) {
     const retried = retry();
     // 10007 or 10013: the Worker still has no deployment.
-    if (retried.status === 0 || (retried.errorCode !== 10007 && retried.errorCode !== 10013)) {
+    if (retried.status === 0 || (retried.errorCode !== 10_007 && retried.errorCode !== 10_013)) {
       return retried;
     }
     return result(1, '', workerWithoutDeploymentMessage(worker));
@@ -1079,7 +1082,7 @@ async function secrets(): Promise<Result> {
   const worker = workerName();
   const apply = async (values: Record<string, string>, action: () => Result): Promise<Result> => {
     const first = action();
-    if (first.status === 0 || first.errorCode !== 10007) {
+    if (first.status === 0 || first.errorCode !== 10_007) {
       return first;
     }
     return setSecretsOnWorkerWithoutCode(worker, values, action);
@@ -1303,7 +1306,10 @@ async function workerChanges(): Promise<Result> {
     return deployed;
   }
   if (operation.type === 'versions.upload' || operation.type === 'worker.deploy') {
-    const path = configPath()!;
+    const path = configPath();
+    if (!path) {
+      throw new Error('Cloudflare Worker upload requires a configuration path.');
+    }
     if (typeof raw.main !== 'string' || !raw.main || raw.no_bundle !== true) {
       throw new Error('Cloudflare Worker upload requires a prebuilt platform Worker.');
     }
@@ -1410,9 +1416,10 @@ async function tail(): Promise<Result> {
     await new Promise<void>((resolve, reject) => {
       finish = resolve;
       let pendingMessages = Promise.resolve();
-      socket = new WebSocket(tailUrl, 'trace-v1');
-      socket.addEventListener('open', () => {
-        socket!.send(JSON.stringify({ debug: false }));
+      const connection = new WebSocket(tailUrl, 'trace-v1');
+      socket = connection;
+      connection.addEventListener('open', () => {
+        connection.send(JSON.stringify({ debug: false }));
       });
       socket.addEventListener('message', (event) => {
         pendingMessages = pendingMessages
@@ -1486,7 +1493,7 @@ async function tail(): Promise<Result> {
       await fetch(`${endpoint}/${encodeURIComponent(record.id)}`, {
         method: 'DELETE',
         headers,
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(5000),
       }).catch(() => {});
     }
     // Node's WebSocket can remain in CLOSING after the remote tail is deleted.

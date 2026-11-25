@@ -23,28 +23,24 @@ import {
   skippedOperationKey,
   skippedProjectIds,
 } from './candidates.ts';
+import type { ZeroTrustCloudflareClient } from './cloudflare.ts';
 import {
-  ZeroTrustCloudflareClient,
   ZeroTrustCloudflareError,
   reusablePolicyReferences,
   publicAppManagementApplication,
 } from './cloudflare.ts';
 import {
-  type ZeroTrustConfiguration,
-  type ZeroTrustOperation,
   readZeroTrustConfigurationStrict,
   replaceZeroTrustConfiguration,
   writeZeroTrustConfiguration,
   zeroTrustWildcardDestinations,
 } from './configuration.ts';
+import type { ZeroTrustConfiguration, ZeroTrustOperation } from './configuration.ts';
 import { errorMessage, ZeroTrustUnavailableError } from './errors.ts';
 import { lockZeroTrustConfiguration, withProjectZeroTrustLock } from './lock.ts';
 import { reconcileProjectZeroTrust, reconcilePublicProjectForOperation } from './project.ts';
-import {
-  MAX_ROUTING_KEYS_PER_RUN,
-  publishProjectZeroTrustRoutingLocked,
-  type RoutingBudget,
-} from './routing.ts';
+import { MAX_ROUTING_KEYS_PER_RUN, publishProjectZeroTrustRoutingLocked } from './routing.ts';
+import type { RoutingBudget } from './routing.ts';
 import {
   applicationName,
   clientForConfiguration,
@@ -95,7 +91,7 @@ export async function operationStartedAt(db: DbOrTx): Promise<string> {
   const result = await db.execute<{ startedAt: string }>(
     sql`SELECT now()::timestamp::text AS "startedAt"`,
   );
-  return result.rows[0]!.startedAt;
+  return result.rows[0].startedAt;
 }
 
 /**
@@ -271,11 +267,11 @@ async function skipFailedProject(
 }
 
 /** Run one project's work inside an installation batch; only operation-wide failures escape. */
-async function runOperationProjectStep(
+async function runOperationProjectStep<Result>(
   db: Db,
   configuration: ZeroTrustConfiguration,
   projectId: string,
-  step: () => Promise<unknown>,
+  step: () => Promise<Result>,
 ): Promise<void> {
   try {
     await step();
@@ -407,7 +403,7 @@ export async function runConfigureOperation(
             configuration = await heartbeatConfiguration(db, configuration);
           }
           if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-            return releaseOperation(db, configuration);
+            return await releaseOperation(db, configuration);
           }
         }
         const missing = await seedCandidates(
@@ -427,7 +423,7 @@ export async function runConfigureOperation(
           configuration = await heartbeatConfiguration(db, configuration);
         }
         if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         configuration = await advanceOperation(
           db,
@@ -460,11 +456,11 @@ export async function runConfigureOperation(
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
           if (routingBudget.exhausted || routingBudget.remaining === 0) {
-            return releaseOperation(db, configuration);
+            return await releaseOperation(db, configuration);
           }
         }
         if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         configuration = await advanceOperation(db, configuration, 'wildcard');
         continue;
@@ -493,9 +489,13 @@ export async function runConfigureOperation(
                   configuration.healthApplication,
                 )
               : configuration.healthApplication;
+          const guardDestination = configuration.publicAccessGuardDestination;
+          if (configuration.publicAccess && !guardDestination) {
+            throw new ZeroTrustUnavailableError('Public app management destination is missing.');
+          }
           const wildcard = await client.ensureApplication(
-            configuration.publicAccess
-              ? publicAppManagementApplication(name, configuration.publicAccessGuardDestination!)
+            configuration.publicAccess && guardDestination
+              ? publicAppManagementApplication(name, guardDestination)
               : {
                   name,
                   destinations: zeroTrustWildcardDestinations(readPlatformApplication(env)),
@@ -550,7 +550,7 @@ export async function runConfigureOperation(
           }
         }
         if (stoppedForRoutingBudget || projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         continue;
       }
@@ -691,7 +691,7 @@ export async function runDisableOperation(
           }
         }
         if (stoppedForRoutingBudget || projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         continue;
       }
@@ -743,7 +743,7 @@ export async function runDisableOperation(
           configuration = await heartbeatConfiguration(db, configuration);
         }
         if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+          return await releaseOperation(db, configuration);
         }
         configuration = await withZeroTrustOperationLock(db, configuration, async (lockedDb) => {
           // Recheck late project work under the lock used by project mutations

@@ -2,7 +2,8 @@ import { appendFileSync, writeFileSync } from 'node:fs';
 import { log, outro } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
 import type { BuildArgs } from './build-args.ts';
-import { PlatformApiError, PlatformClient, type BuildLogsResponse } from './client.ts';
+import { PlatformApiError, PlatformClient } from './client.ts';
+import type { BuildLogsResponse } from './client.ts';
 import { dim, pc, printSuccess } from './output.ts';
 import { readProjectConfig } from './project.ts';
 import { getRequestedProjectSlug, resolveProjectBySlug } from './resolve-project.ts';
@@ -24,7 +25,9 @@ function isBuildLogComplete(page: BuildLogsResponse): boolean {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /**
@@ -59,13 +62,11 @@ export async function followBuildLogs(opts: {
   write: (line: string) => void;
   sleep: (ms: number) => Promise<void>;
   since: number;
-  status: string;
   pollMs?: number;
   isFatal?: (err: unknown) => boolean;
   onRetry?: (err: unknown) => void;
 }): Promise<{ status: string; terminal: boolean }> {
   let cursor = opts.since;
-  let status = opts.status;
   let terminalSince: number | null = null;
   const pollMs = opts.pollMs ?? POLL_MS;
   for (;;) {
@@ -85,7 +86,7 @@ export async function followBuildLogs(opts: {
       opts.write(l.line);
     }
     cursor = pageResult.lastSeq;
-    status = pageResult.status;
+    const status = pageResult.status;
     if (isBuildLogComplete(pageResult)) {
       return { status, terminal: true };
     }
@@ -108,6 +109,13 @@ export async function runBuildCommand(root: string, args: BuildArgs): Promise<vo
     return runBuildLogsCommand(root, args);
   }
 }
+
+// `isFatalFollowError` decides fatal vs transient (see its doc). The SAME
+// policy governs both the first-page fetch below and the follow loop.
+const onRetry = (err: unknown): void =>
+  log.warn(
+    `build: transient error while following (${err instanceof Error ? err.message : String(err)}); retrying…`,
+  );
 
 async function runBuildLogsCommand(
   root: string,
@@ -153,20 +161,14 @@ async function runBuildLogsCommand(
       outro('No builds found. Push to your connected branch to trigger one.');
       return;
     }
-    buildId = builds[0]!.id;
+    buildId = builds[0].id;
   }
 
   // Writer: append to a file, or print to stdout.
-  const write = args.output
-    ? (line: string): void => appendFileSync(args.output!, `${line}\n`)
+  const { output } = args;
+  const write = output
+    ? (line: string): void => appendFileSync(output, `${line}\n`)
     : (line: string): void => console.log(line);
-
-  // `isFatalFollowError` decides fatal vs transient (see its doc). The SAME
-  // policy governs both the first-page fetch below and the follow loop.
-  const onRetry = (err: unknown): void =>
-    log.warn(
-      `build: transient error while following (${err instanceof Error ? err.message : String(err)}); retrying…`,
-    );
 
   // First page (since=0). A transient failure on the FIRST poll must not kill
   // `--follow` either: on a fatal error we exit with a friendly message, on a
@@ -218,11 +220,10 @@ async function runBuildLogsCommand(
 
   if (args.follow && !isBuildLogComplete(first)) {
     ({ status, terminal } = await followBuildLogs({
-      fetchPage: (since) => client.getBuildLogs(projectId, buildId!, since),
+      fetchPage: (since) => client.getBuildLogs(projectId, buildId, since),
       write,
       sleep,
       since: first.lastSeq,
-      status,
       isFatal: isFatalFollowError,
       onRetry,
     }));

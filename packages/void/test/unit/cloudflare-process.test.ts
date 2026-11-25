@@ -29,10 +29,10 @@ describe('typed Cloudflare process protocol', () => {
       expect(runner({ ...read, includeSource: true }, { capture: true }).status).toBe(0);
       // Workers allow 64 MiB of source, which grows by a third when base64-encoded.
       const encodedWorkerBytes = Math.ceil((64 * 1024 * 1024 * 4) / 3);
-      expect(spawn.mock.calls[0]![2]!.maxBuffer).toBeGreaterThan(encodedWorkerBytes);
+      expect(spawn.mock.calls[0][2]!.maxBuffer).toBeGreaterThan(encodedWorkerBytes);
 
       expect(runner(read, { capture: true }).status).toBe(0);
-      expect(spawn.mock.calls[1]![2]!.maxBuffer).toBe(32 * 1024 * 1024);
+      expect(spawn.mock.calls[1][2]!.maxBuffer).toBe(32 * 1024 * 1024);
     } finally {
       spawn.mockRestore();
       syncBuiltinESMExports();
@@ -59,20 +59,32 @@ describe('typed Cloudflare process protocol', () => {
     const value = decodeCloudflareOperationResult({
       ...processResult({
         operationResult: 1,
-        errorCode: 10007,
+        errorCode: 10_007,
         failure: 'not-found',
-        errors: [{ code: 10007, message: 'Worker is absent.' }],
+        errors: [{ code: 10_007, message: 'Worker is absent.' }],
       }),
       status: 1,
     });
     expect(value).toMatchObject({
       status: 1,
       stdout: '',
-      errorCode: 10007,
+      errorCode: 10_007,
       failure: 'not-found',
-      errors: [{ code: 10007, message: 'Worker is absent.' }],
+      errors: [{ code: 10_007, message: 'Worker is absent.' }],
     });
   });
+
+  it.each(['not-found', 'durable-migration', 'containers-unavailable', 'version-history-changed'])(
+    'accepts the %s failure from the runner',
+    (failure) => {
+      const value = decodeCloudflareOperationResult({
+        ...processResult({ operationResult: 1, failure }),
+        status: 1,
+      });
+      expect(value).toMatchObject({ status: 1, failure });
+      expect(value.stderr).not.toContain('invalid operation response');
+    },
+  );
 
   it.each([
     null,
@@ -108,7 +120,7 @@ describe('typed Cloudflare process protocol', () => {
     'never trusts buffered data after a process failure',
     (provenance) => {
       const result = {
-        ...processResult({ operationResult: 1, data: [], errorCode: 10007, failure: 'not-found' }),
+        ...processResult({ operationResult: 1, data: [], errorCode: 10_007, failure: 'not-found' }),
         ...provenance,
       };
       expect(decodeCloudflareOperationResult(result)).toEqual(result);
@@ -129,7 +141,7 @@ it.each([{ signal: 'SIGTERM' }, { error: 'Provider spawn failed.' }])(
       processResult({
         operationResult: 1,
         data: [],
-        errorCode: 10007,
+        errorCode: 10_007,
         failure: 'not-found',
         ...provenance,
       }),

@@ -7,6 +7,10 @@ import {
   markSharedCachePolicy,
   packIsrValue,
 } from '../../src/isr.ts';
+import {
+  createMockExecutionContext as createCtx,
+  waitForBackgroundTasks,
+} from '../execution-context.ts';
 
 const edgeCacheStore = new Map<string, Response>();
 
@@ -73,10 +77,6 @@ function cachedStubResponse(cacheControl: string): Response {
   response.headers.set('Cache-Control', cacheControl);
   markSharedCachePolicy(response.headers);
   return response;
-}
-
-function createCtx(): ExecutionContext {
-  return { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 }
 
 type Harness = {
@@ -574,7 +574,7 @@ describe('WfP asset fallback on CF stub', () => {
     );
     await vi.advanceTimersByTimeAsync(100);
     const res = await responsePromise;
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     expect(workerFetch).toHaveBeenCalledOnce();
     expect(res.status).toBe(503);
@@ -711,7 +711,7 @@ describe('WfP asset fallback on CF stub', () => {
   });
 
   it('does not buffer the body for non-matching responses (large JSON API reply)', async () => {
-    const largeBody = JSON.stringify({ items: new Array(100).fill({ x: 1 }) });
+    const largeBody = JSON.stringify({ items: Array.from({ length: 100 }, () => ({ x: 1 })) });
     const apiResponse = new Response(largeBody, {
       status: 200,
       headers: {
@@ -890,7 +890,7 @@ describe('WfP asset fallback on CF stub', () => {
     const ctx = createCtx();
 
     const res = await app.fetch(request, env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     expect(workerFetch).not.toHaveBeenCalled();
     expect(res.status).toBe(200);

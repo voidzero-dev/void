@@ -33,5 +33,5 @@ export function checkIslandForm(): void {
   // @ts-expect-error Field values keep their default types.
   form.setData('count', '1');
   // @ts-expect-error Only Vue and Svelte islands expose submit().
-  void form.submit('/notes', 'PATCH');
+  void form.submit;
 }

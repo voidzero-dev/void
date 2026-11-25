@@ -19,6 +19,7 @@ import {
   revokeInvitation,
   upsertGitHubInstallation,
 } from '../../src/db.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as dbModule from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
@@ -52,8 +53,8 @@ import {
   setupEnv,
   skipOrphanSweepDelay,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let token: string;
@@ -173,7 +174,7 @@ function captureUsageCounter(calls: Array<CounterCall>, failPath?: string) {
     get: (ownerId: string) => ({
       fetch: async (request: Request) => {
         const path = new URL(request.url).pathname;
-        const body = (await request.json()) as Record<string, unknown>;
+        const body = await request.json<Record<string, unknown>>();
         calls.push({ ownerId, path, body });
         return path === failPath
           ? new Response('counter unavailable', { status: 500 })
@@ -196,12 +197,16 @@ describe('operator tenant reads', () => {
     for (const login of ['find-a', 'find-b', 'find-c', 'unrelated']) {
       await createTestUser(env.db, login);
     }
-    const first = (await (await req('/users?search=find-&limit=2')).json()) as {
+    const first = await (
+      await req('/users?search=find-&limit=2')
+    ).json<{
       users: Array<{ id: string }>;
-    };
-    const second = (await (await req('/users?search=find-&limit=2&page=2')).json()) as {
+    }>();
+    const second = await (
+      await req('/users?search=find-&limit=2&page=2')
+    ).json<{
       users: Array<{ id: string }>;
-    };
+    }>();
     expect(first).toMatchObject({ total: 3, page: 1, limit: 2, totalPages: 2 });
     expect(first.users).toHaveLength(2);
     expect(second.users).toHaveLength(1);
@@ -219,7 +224,7 @@ describe('operator tenant reads', () => {
     const deploy = await createTestDeployment(env.db, project.id, 'live');
     const response = await req(`/projects?user=${owner.id}&search=matching`);
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { total: number; projects: Array<unknown> };
+    const body = await response.json<{ total: number; projects: Array<unknown> }>();
     expect(body.total).toBe(1);
     expect(body.projects).toMatchObject([
       { id: project.id, owner_login: owner.login, last_deploy_id: deploy.id },
@@ -259,8 +264,8 @@ describe('operator tenant reads', () => {
     // both ownership intervals fall inside the current billing period.
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-07-15T12:00:00.000Z'));
-    const ownedFrom = new Date(Date.now() - 5 * 24 * 60 * 60 * 1_000);
-    const transferredAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000);
+    const ownedFrom = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const transferredAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
     transferredAt.setMilliseconds(500);
     await env.db
       .update(users)
@@ -560,7 +565,7 @@ describe('operator tenant mutations', () => {
       })
       .from(projectDeployCredentials)
       .where(eq(projectDeployCredentials.id, 'transfer-deploy-credential'));
-    expect(revokedCredential!.sameTransferInstant).toBe(true);
+    expect(revokedCredential.sameTransferInstant).toBe(true);
     expect(counterCalls).toEqual([
       {
         ownerId: owner.id,
@@ -628,7 +633,7 @@ describe('operator tenant mutations', () => {
         get: (ownerId: string) => ({
           fetch: async (request: Request) => {
             const path = new URL(request.url).pathname;
-            const body = (await request.json()) as Record<string, unknown>;
+            const body = await request.json<Record<string, unknown>>();
             transferCounterCalls.push({ ownerId, path, body });
             if (path === '/detach-project') {
               detachStarted.resolve();
@@ -689,9 +694,9 @@ describe('operator tenant mutations', () => {
         body: { projectId: project.id, userId: target.id },
       },
     ]);
-    expect(transferCounterCalls[1]!.body).not.toHaveProperty('plan');
+    expect(transferCounterCalls[1].body).not.toHaveProperty('plan');
     expect(planCounterCalls.map((call) => call.path)).toEqual(['/init', '/reevaluate-limits']);
-    expect(planCounterCalls[1]!.body).toEqual({ userId: target.id });
+    expect(planCounterCalls[1].body).toEqual({ userId: target.id });
     expect(JSON.parse((await env.ROUTING.get(project.slug))!).suspended).toBeUndefined();
     expect(await env.ROUTING.get(`project-suspended:${project.id}`)).toBeNull();
 
@@ -1218,7 +1223,7 @@ describe('operator tenant mutations', () => {
       suspended: 'requests_exceeded',
     });
     expect(calls.map((call) => call.path)).toEqual(['/init', '/reevaluate-limits']);
-    expect(calls[0]!.body).toMatchObject({
+    expect(calls[0].body).toMatchObject({
       userId: user.id,
       plan: 'pro',
       projectSlugs: { [project.id]: project.slug },
@@ -1398,9 +1403,11 @@ describe('operator tenant mutations', () => {
       invited_by: inviter.id,
       revoked_by: revoker.id,
     });
-    const history = (await (await req('/invitations?limit=100')).json()) as {
+    const history = await (
+      await req('/invitations?limit=100')
+    ).json<{
       invitations: Array<Record<string, unknown>>;
-    };
+    }>();
     expect(history.invitations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1546,10 +1553,10 @@ describe('operator signup access and invitations', () => {
     expect(await getAllowlist(env.ROUTING)).toEqual([]);
     const response = await req('/invitations/send', body, emailEnv);
     expect(response.status).toBe(200);
-    const result = (await response.json()) as {
+    const result = await response.json<{
       invitations: Array<{ id: string }>;
       warnings: Array<string>;
-    };
+    }>();
     expect(result.invitations).toHaveLength(2);
     expect(result.invitations).toEqual(
       expect.arrayContaining([
@@ -1566,9 +1573,11 @@ describe('operator signup access and invitations', () => {
         text: expect.stringContaining("void connect 'api.example.com'"),
       }),
     );
-    const listed = (await (await req('/invitations?limit=1')).json()) as {
+    const listed = await (
+      await req('/invitations?limit=1')
+    ).json<{
       invitations: Array<unknown>;
-    };
+    }>();
     expect(listed).toMatchObject({ total: 2, limit: 1, totalPages: 2 });
     expect(listed.invitations).toHaveLength(1);
     expect(listed.invitations).toEqual([
@@ -1602,7 +1611,7 @@ describe('operator signup access and invitations', () => {
       warnings: ['Email failed: delivery@example.com. Signup access was granted.'],
     });
     expect(
-      await getInvitation(env.db, (await env.db.select().from(invitations))[0]!.id),
+      await getInvitation(env.db, (await env.db.select().from(invitations))[0].id),
     ).toMatchObject({
       email_delivery_status: 'failed',
     });
@@ -1618,9 +1627,11 @@ describe('operator signup access and invitations', () => {
       invitations: [{ email: 'offline@example.com', email_delivery_status: 'unavailable' }],
       emailDelivery: [{ email: 'offline@example.com', status: 'unavailable' }],
     });
-    const rows = (await (await req('/invitations?limit=100')).json()) as {
+    const rows = await (
+      await req('/invitations?limit=100')
+    ).json<{
       invitations: Array<{ email: string; email_delivery_status: string | null }>;
-    };
+    }>();
     expect(rows.invitations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ email: 'old@example.com', email_delivery_status: null }),
@@ -1661,14 +1672,14 @@ describe('operator signup access and invitations', () => {
 
   test('requires revoking a pending invitation to remove its exact-email grant', async () => {
     const response = await req('/invitations/send', { emails: ['invited@example.com'] });
-    const result = (await response.json()) as { invitations: Array<{ id: string }> };
+    const result = await response.json<{ invitations: Array<{ id: string }> }>();
     const remove = await req('/signup/remove', { type: 'email', pattern: 'invited@example.com' });
     expect(remove.status).toBe(409);
     expect(await remove.json()).toMatchObject({ error: 'invitation_pending' });
     expect(await getAllowlist(env.ROUTING)).toEqual([
       expect.objectContaining({ type: 'email', pattern: 'invited@example.com' }),
     ]);
-    expect((await req(`/invitations/${result.invitations[0]!.id}/revoke`, {})).status).toBe(200);
+    expect((await req(`/invitations/${result.invitations[0].id}/revoke`, {})).status).toBe(200);
     expect(await getAllowlist(env.ROUTING)).toEqual([]);
   });
 

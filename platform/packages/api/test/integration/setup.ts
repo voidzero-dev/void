@@ -18,7 +18,7 @@ globalThis.Response = class TrackedResponse extends NativeResponse {
       unreadDeployStreams.add(this);
     }
   }
-} as typeof Response;
+};
 
 afterEach(async () => {
   const pending = [...unreadDeployStreams];

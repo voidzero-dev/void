@@ -26,8 +26,8 @@ import {
   readAllEvents,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { MemoryKVNamespace, TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -85,7 +85,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return Response.json(
@@ -221,12 +221,14 @@ describe('deployment compensation during Zero Trust changes', () => {
       const deploymentPlatform = {
         ...platform,
         ROUTING: new Proxy(env.ROUTING, {
-          get(target, property, receiver) {
+          get(target, property, receiver): unknown {
             if (property !== 'get') {
+              // oxlint-disable-next-line quality/no-reflect-get -- Preserve the KV receiver for forwarded properties.
               return Reflect.get(target, property, receiver);
             }
-            return async (...args: Array<unknown>) => {
-              const raw: unknown = await Reflect.apply(target.get, target, args);
+            return async (...args: Parameters<MemoryKVNamespace['get']>) => {
+              const get = target.get as MemoryKVNamespace['get'];
+              const raw = await get.call(target, ...args);
               if (
                 serveStaleReads &&
                 typeof raw === 'string' &&

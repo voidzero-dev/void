@@ -17,8 +17,8 @@ import {
   dispatchToSinks,
   hasActiveSink,
   serializeCapturedMessage,
-  type CapturedMessage,
 } from './dev-inbox.ts';
+import type { CapturedMessage } from './dev-inbox.ts';
 import {
   bytesToReadableStream,
   readEnvString,
@@ -270,7 +270,7 @@ function resolveDefaultFrom(opts: SendEmailOptions): SendEmailOptions {
     // Drop `null` so the caller reports a clean INVALID_FROM.
     if (supplied === null) {
       const next = { ...opts };
-      delete (next as { from?: unknown }).from;
+      delete next.from;
       return next;
     }
     return opts;
@@ -280,6 +280,17 @@ function resolveDefaultFrom(opts: SendEmailOptions): SendEmailOptions {
 
 function err(code: SendEmailErrorCode, message: string, cause?: unknown): SendEmailResult {
   return { ok: false, error: makeError(code, message, cause) };
+}
+
+function missingEmailBinding(): SendEmailResult {
+  return err(
+    'BINDING_MISSING',
+    'email: neither SEND_EMAIL nor __VOID_PROXY is available, so nothing was sent. Deploy via Void to bind the platform proxy, ' +
+      'or set `email.from` in void.config.ts, run `void email setup --platform cloudflare`, and redeploy. ' +
+      'Under `void dev` messages are captured by the local inbox at /__void/inbox instead — reaching this error there means ' +
+      'that path was bypassed by the deprecated `sendInDev: true` (it never delivers) or unavailable ' +
+      '(the worker has no assets binding to reach the dev server through).',
+  );
 }
 
 interface ProxySendBody {
@@ -593,7 +604,7 @@ const DEV_INBOX_ERROR_EXCERPT_TIMEOUT_MS = 1000;
 async function readErrorExcerpt(res: Response): Promise<string> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const reader = res.body?.getReader();
+    const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = res.body?.getReader();
     if (!reader) {
       return '';
     }
@@ -695,15 +706,27 @@ function capturedResult(normalized: NormalizedEmail, captureId: string): SendEma
 export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
   if (
     opts.idempotencyKey !== undefined &&
-    (typeof opts.idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(opts.idempotencyKey))
+    (typeof opts.idempotencyKey !== 'string' ||
+      !/^[\u0021-\u007e]{1,128}$/.test(opts.idempotencyKey))
   ) {
     return err(
       'MIME_ERROR',
       'email: idempotencyKey must contain 1–128 printable non-space ASCII characters.',
     );
   }
+  const rawEnv = tryGetRawRuntimeEnv();
+  const {
+    __VOID_PROXY: proxy,
+    __PROJECT_ID: projectId,
+    __VOID_PROXY_TOKEN: proxyToken,
+  } = (rawEnv as ProxyEnv | undefined) ?? {};
   const resolvedOpts = resolveDefaultFrom(opts);
   if (resolvedOpts.from === undefined) {
+    // An unconfigured deploy can be missing both the transport and the default sender.
+    const capturable = !opts.sendInDev && (hasActiveSink() || resolveDevInbox(rawEnv));
+    if (!capturable && !resolveSendEmailBinding(rawEnv) && (!proxy || !projectId || !proxyToken)) {
+      return missingEmailBinding();
+    }
     return err(
       'INVALID_FROM',
       "email: 'from' is required. Set it explicitly or deploy via Void so the platform-injected __VOID_PROJECT_SLUG and __VOID_EMAIL_DOMAIN can default it to <slug>+noreply@<domain>.",
@@ -728,8 +751,6 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
     }
     return err('MIME_ERROR', e instanceof Error ? e.message : String(e), e);
   }
-
-  const rawEnv = tryGetRawRuntimeEnv();
 
   // A sink in this isolate (`createEmailTestHarness`) owns the capture; do
   // not also post it to the dev inbox.
@@ -768,19 +789,8 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
     return sendViaBinding(sendBinding, normalized.from.email, recipients, raw, messageId);
   }
 
-  const env = rawEnv as ProxyEnv | undefined;
-  const proxy = env?.__VOID_PROXY;
-  const projectId = env?.__PROJECT_ID;
-  const proxyToken = env?.__VOID_PROXY_TOKEN;
   if (!proxy || !projectId || !proxyToken) {
-    return err(
-      'BINDING_MISSING',
-      'email: neither SEND_EMAIL nor __VOID_PROXY is available, so nothing was sent. Deploy via Void to bind the platform proxy, ' +
-        'or set `email.from` in void.config.ts so `void deploy --platform cloudflare` provisions the SEND_EMAIL binding. ' +
-        'Under `void dev` messages are captured by the local inbox at /__void/inbox instead — reaching this error there means ' +
-        'that path was bypassed by the deprecated `sendInDev: true` (it never delivers) or unavailable ' +
-        '(the worker has no assets binding to reach the dev server through).',
-    );
+    return missingEmailBinding();
   }
 
   const body: ProxySendBody = {

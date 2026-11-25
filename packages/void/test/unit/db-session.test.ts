@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import { convertV4MiniflareOptions, Miniflare } from 'miniflare';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as runtimeDb from '../../src/runtime/db/index.ts';
 import { envContext } from '../../src/runtime/env/raw.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
@@ -47,7 +48,7 @@ async function loadGeneratedDb(bindingName: string): Promise<typeof runtimeDb> {
         JSON.stringify(new URL('../../src/runtime/db/session.ts', import.meta.url).href),
       ),
   );
-  return import(pathToFileURL(path).href);
+  return import(pathToFileURL(path).href) as Promise<typeof runtimeDb>;
 }
 
 // Miniflare executes real D1 SQL but does not provide controllable replica lag.
@@ -124,10 +125,7 @@ describe('D1 cross-request bookmark reproduction (#783)', () => {
             .run();
           await database.prepare("INSERT INTO profile VALUES (1, 'Old name')").run();
         }
-        const { binding, withSession } = laggingBinding(
-          primary as unknown as D1Database,
-          replica as unknown as D1Database,
-        );
+        const { binding, withSession } = laggingBinding(primary, replica);
         const { db, createDb, setSession, getBookmark } =
           testCase.module === 'runtime' ? runtimeDb : await loadGeneratedDb(testCase.bindingName);
         const env = { [testCase.bindingName]: binding };
@@ -261,6 +259,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     {
       name: 'await',
       read: async (db: typeof runtimeDb.db) => {
+        // oxlint-disable-next-line typescript/await-thenable -- Await must read the proxy's then property without opening a session.
         await db;
       },
     },
@@ -285,6 +284,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     {
       name: 'custom inspection hook',
       read: (db: typeof runtimeDb.db) => {
+        // oxlint-disable-next-line quality/no-reflect-get -- Probe the runtime inspection symbol omitted from Drizzle's public type.
         Reflect.get(db, inspect.custom);
       },
     },
@@ -295,12 +295,12 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     const { withSession, env } = mockBinding();
     await withRuntimeEnv(env, async () => {
       setSession({ bookmark: BEFORE_SAVE });
-      await read(db);
+      await Promise.resolve(read(db));
       expect(withSession).not.toHaveBeenCalled();
       expect(getBookmark()).toBeNull();
       setSession({ bookmark: AFTER_SAVE });
       void db.select;
-      await read(db);
+      await Promise.resolve(read(db));
       expect(getBookmark()).toBe(AFTER_SAVE);
     });
     expect(withSession).toHaveBeenCalledExactlyOnceWith(AFTER_SAVE);
@@ -309,7 +309,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
   it('allows promise and inspection probes without request bindings', async () => {
     const { db } = await loadClient();
     for (const { read } of probes) {
-      await read(db);
+      await Promise.resolve(read(db));
     }
   });
 
@@ -319,6 +319,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
       const { db, setSession } = await loadClient();
       const { withSession, env } = mockBinding();
       withRuntimeEnv(env, () => {
+        // oxlint-disable-next-line quality/no-reflect-get -- Include Drizzle's runtime $client property in the session probe.
         void Reflect.get(db, prop);
         expect(() => setSession({ bookmark: AFTER_SAVE })).toThrow('createDb');
       });
@@ -366,7 +367,8 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
       expect(() => setSession('first-primary')).toThrow('createDb');
       expect(getBookmark()).toBe(BEFORE_SAVE);
       expect(getBookmark(db)).toBe(BEFORE_SAVE);
-      withSession.mock.results[0]!.value.getBookmark.mockReturnValue(AFTER_SAVE);
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Set the return value on the session mock supplied by the fixture.
+      withSession.mock.results[0].value.getBookmark.mockReturnValue(AFTER_SAVE);
       expect(() => setSession({ bookmark: 'test-bookmark-003-newer' })).toThrow('createDb');
       expect(() => setSession('first-primary')).toThrow('createDb');
       expect(getBookmark()).toBe(AFTER_SAVE);
@@ -384,9 +386,10 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
         void db.select();
         setSession(start === BEFORE_SAVE ? { bookmark: start } : start);
         setSession('first-unconstrained');
-        const session = withSession.mock.results[0]!.value;
+        const session = withSession.mock.results[0].value;
         // D1 advances the bookmark as queries complete. Compare against that
         // progress, not just the session's original starting value.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Set the return value on the session mock supplied by the fixture.
         session.getBookmark.mockReturnValue(AFTER_SAVE);
         setSession({ bookmark: BEFORE_SAVE });
         setSession({ bookmark: AFTER_SAVE });
@@ -509,5 +512,5 @@ it('starts each published db access on primary outside a Void request scope', ()
     void runtimeDb.db.select;
   });
   expect(withSession.mock.calls).toEqual([['first-primary'], ['first-primary'], ['first-primary']]);
-  expect(new Set(withSession.mock.results.map((result) => result.value)).size).toBe(3);
+  expect(new Set(withSession.mock.results.map((result): unknown => result.value)).size).toBe(3);
 });

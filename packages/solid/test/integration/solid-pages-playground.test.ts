@@ -1,7 +1,8 @@
-import { execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
@@ -9,8 +10,8 @@ import {
   killChild,
   spawnFixtureServer,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
   registerSharedClientTests,
@@ -242,7 +243,7 @@ describe('solid-pages client (dev)', () => {
     const metadataPath = join(workerDepsDir, '_metadata.json');
 
     expect(existsSync(metadataPath)).toBe(true);
-    const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8')) as {
+    const metadata = JSON.parse(readFileSync(metadataPath, 'utf8')) as {
       optimized?: Record<string, unknown>;
     };
 

@@ -3,8 +3,8 @@ import {
   PLATFORM_DISABLED_KEY,
   PLATFORM_APP_ACCESS_SETUP_PROOF_PREFIX,
   PLATFORM_APP_ACCESS_TURN_OFF_PROOF_PREFIX,
-  type PlatformAppAccessSetup,
 } from '@void/platform';
+import type { PlatformAppAccessSetup } from '@void/platform';
 import { sql } from 'drizzle-orm';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import {
@@ -26,6 +26,7 @@ import { tryActivateDomain } from '../../src/provisioning/activate-domain.ts';
 import { domains, platformAuthSettings } from '../../src/schema.ts';
 import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
 import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustInstallation from '../../src/zero-trust/installation.ts';
 import {
   initializeNewProjectZeroTrust,
@@ -39,8 +40,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 const installationId = 'company-123456789abc';
@@ -201,7 +202,7 @@ function accessApi(identity?: { issuer: string; jwk: Record<string, unknown> }) 
     }
     const policy = path?.match(/^apps\/([^/]+)\/policies$/);
     if (policy) {
-      return response(applications.get(policy[1]!)?.policies ?? []);
+      return response(applications.get(policy[1])?.policies ?? []);
     }
     const match = path?.match(/^apps\/([^/]+)$/);
     const id = match?.[1];
@@ -603,11 +604,11 @@ describe('installer app access handoff', () => {
       [...cf.applications.values()].some((value) => value.domain === 'pending.example.test'),
     ).toBe(false);
     expect(
-      (await tryActivateDomain(bindings('public'), env.db, domain!, persistedProject)).activated,
+      (await tryActivateDomain(bindings('public'), env.db, domain, persistedProject)).activated,
     ).toBe(false);
     cf.controls.domainVerified = true;
     expect(
-      (await tryActivateDomain(bindings('public'), env.db, domain!, persistedProject)).activated,
+      (await tryActivateDomain(bindings('public'), env.db, domain, persistedProject)).activated,
     ).toBe(true);
     expect(
       [...cf.applications.values()].find((value) => value.domain === 'pending.example.test'),

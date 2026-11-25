@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { CloudEnv } from 'void/handler';
 import { UsageLimit } from 'void/limits';
@@ -16,8 +17,10 @@ let fixture: ReturnType<typeof kitchenSinkSourceFixture>;
 let app: Hono<CloudEnv>;
 beforeAll(async () => {
   fixture = kitchenSinkSourceFixture(['routes/api/sandbox.ts', 'lib/sandbox-demo.ts']);
-  const { POST } = await import(join(fixture.root, 'routes/api/sandbox.ts'));
-  app = new Hono<CloudEnv>().post('/', (c) => POST(c) as Promise<Response>);
+  const { POST } = (await import(join(fixture.root, 'routes/api/sandbox.ts'))) as {
+    POST(context: Context<CloudEnv>): Promise<Response>;
+  };
+  app = new Hono<CloudEnv>().post('/', (c) => POST(c));
 });
 afterAll(() => fixture?.cleanup());
 const request = (marker: string) =>
@@ -81,8 +84,8 @@ describe('kitchen-sink Sandbox requests', () => {
     ]);
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    const firstResult = (await first.json()) as { output: { value: string } };
-    const secondResult = (await second.json()) as { output: { value: string } };
+    const firstResult = await first.json<{ output: { value: string } }>();
+    const secondResult = await second.json<{ output: { value: string } }>();
     expect(firstResult.output.value).toBe('first program');
     expect(secondResult.output.value).toBe('second program');
     expect(containers.size).toBe(2);

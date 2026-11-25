@@ -1,10 +1,6 @@
 import { RpcTarget, WorkerEntrypoint } from 'cloudflare:workers';
-import {
-  SandboxContainer,
-  validateSandboxOptions,
-  type SandboxOptions,
-  type SandboxInstance,
-} from 'void/_sandbox-container';
+import { SandboxContainer, validateSandboxOptions } from 'void/_sandbox-container';
+import type { SandboxOptions, SandboxInstance } from 'void/_sandbox-container';
 import { getSandboxShim } from './sandbox-shim.ts';
 
 type Admission = { ok: true } | { ok: false; reason: string };
@@ -25,7 +21,7 @@ const LEASE_KEY = '__voidSandboxLease';
 const ACTIVITY_KEY = '__voidSandboxActivity';
 type Activity = { lastActivity: number; idleDeadline: number };
 const HEARTBEAT_MS = 30_000;
-const CONTROL_TIMEOUT_MS = 5_000;
+const CONTROL_TIMEOUT_MS = 5000;
 
 function denied(reason: string): Error {
   return new Error(
@@ -52,6 +48,7 @@ class SandboxCapability extends RpcTarget {
     super();
     this.#sandbox = sandbox;
   }
+  // oxlint-disable-next-line quality/no-unknown-returns -- This RPC forwards the operation-specific result to the SDK for decoding.
   async invoke(operation: string, args: Array<unknown>): Promise<unknown> {
     // No raw stub, control binding, configuration, alarm or startup authority.
     if (!['exec', 'files', 'fetch', 'running', 'destroy'].includes(operation)) {
@@ -76,16 +73,18 @@ export default class SandboxService extends WorkerEntrypoint<ControllerEnv> {
   }
 }
 
+type LaunchFailure = { failure?: Error };
+
 /** Platform-owned lifecycle; no application code is loaded in this Worker. */
 export class SandboxController extends SandboxContainer<ControllerEnv> {
   #finishing: Promise<void> | undefined;
   #activity: Activity | undefined;
   #activityReady: Promise<void> | undefined;
   #busy = 0;
-  #generation: { failure?: Error } = {};
-  protected override processContext(exitCode: Promise<number>): unknown {
+  #generation: LaunchFailure = {};
+  protected override processContext(exitCode: Promise<number>): LaunchFailure {
     const generation = this.#generation;
-    const completion: { failure?: Error } = {};
+    const completion: LaunchFailure = {};
     const capture = () => {
       completion.failure = generation.failure;
     };
@@ -211,6 +210,7 @@ export class SandboxController extends SandboxContainer<ControllerEnv> {
       abort: (reason) => run(() => writer.abort(reason)),
     });
   }
+  // oxlint-disable-next-line quality/no-unknown-returns -- Preserve the inherited RPC result contract while wrapping streams.
   override async invoke(operation: string, args: Array<unknown>): Promise<unknown> {
     if (!['exec', 'files', 'fetch'].includes(operation)) {
       return super.invoke(operation, args);
@@ -249,7 +249,7 @@ export class SandboxController extends SandboxContainer<ControllerEnv> {
   protected override get image(): string {
     return this.env.__VOID_SANDBOX_IMAGE === 'cloudflare/debian-trixie'
       ? 'cloudflare/debian-trixie'
-      : this.container.images.default!;
+      : this.container.images.default;
   }
   protected override get entrypoint(): Array<string> | undefined {
     return this.image === 'cloudflare/debian-trixie' ? ['sleep', 'infinity'] : undefined;
@@ -376,7 +376,7 @@ export class SandboxController extends SandboxContainer<ControllerEnv> {
         if (!this.#activity) {
           await this.#touch();
         }
-        if (this.#busy === 0 && Date.now() >= this.#activity!.idleDeadline) {
+        if (this.#busy === 0 && this.#activity && Date.now() >= this.#activity.idleDeadline) {
           await this.destroy();
           return;
         }

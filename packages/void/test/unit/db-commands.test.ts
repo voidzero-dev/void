@@ -12,19 +12,24 @@ import { join } from 'node:path';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vite-plus/test';
 
-const mockExecFileSync = vi.hoisted(() => vi.fn());
+const mockExecFileSync = vi.hoisted(() =>
+  vi.fn<(...args: Array<unknown>) => string | Buffer | undefined>(),
+);
 const mockPgQuery = vi.hoisted(() =>
   vi.fn(async (_sql: string) => ({ rows: [] as Array<Record<string, unknown>> })),
 );
-const mockConfirm = vi.fn();
-const mockGetMiniflareDatabasePath = vi.fn();
-const mockOpenSqliteDatabase = vi.fn();
-const mockGetAppliedMigrations = vi.fn();
-const mockRunMigrations = vi.fn();
-const mockWriteJournal = vi.fn();
+const mockConfirm = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').confirm>();
+const mockGetMiniflareDatabasePath =
+  vi.fn<typeof import('../../src/migrations/runner.ts').getMiniflareDatabasePath>();
+const mockOpenSqliteDatabase =
+  vi.fn<typeof import('../../src/migrations/runner.ts').openSqliteDatabase>();
+const mockGetAppliedMigrations =
+  vi.fn<typeof import('../../src/migrations/runner.ts').getAppliedMigrations>();
+const mockRunMigrations = vi.fn<typeof import('../../src/migrations/runner.ts').runMigrations>();
+const mockWriteJournal = vi.fn<typeof import('../../src/migrations/collect.ts').writeJournal>();
 
 vi.mock('node:child_process', () => ({
-  execFileSync: (...args: Array<unknown>) => mockExecFileSync(...args),
+  execFileSync: (...args: Parameters<typeof mockExecFileSync>) => mockExecFileSync(...args),
 }));
 
 vi.mock('pg', async (importOriginal) => {
@@ -95,22 +100,22 @@ vi.mock('../../src/migrations/runner', async () => {
   );
   return {
     ...actual,
-    getMiniflareDatabasePath: (...args: Array<unknown>) =>
+    getMiniflareDatabasePath: (...args: Parameters<typeof mockGetMiniflareDatabasePath>) =>
       mockGetMiniflareDatabasePath.getMockImplementation()
         ? mockGetMiniflareDatabasePath(...args)
-        : actual.getMiniflareDatabasePath(...(args as [string, string])),
-    openSqliteDatabase: (...args: Array<unknown>) =>
+        : actual.getMiniflareDatabasePath(...args),
+    openSqliteDatabase: (...args: Parameters<typeof mockOpenSqliteDatabase>) =>
       mockOpenSqliteDatabase.getMockImplementation()
         ? mockOpenSqliteDatabase(...args)
-        : actual.openSqliteDatabase(...(args as [string, Record<string, unknown> | undefined])),
-    getAppliedMigrations: (...args: Array<unknown>) =>
+        : actual.openSqliteDatabase(...args),
+    getAppliedMigrations: (...args: Parameters<typeof mockGetAppliedMigrations>) =>
       mockGetAppliedMigrations.getMockImplementation()
         ? mockGetAppliedMigrations(...args)
-        : actual.getAppliedMigrations(...(args as [string])),
-    runMigrations: (...args: Array<unknown>) =>
+        : actual.getAppliedMigrations(...args),
+    runMigrations: (...args: Parameters<typeof mockRunMigrations>) =>
       mockRunMigrations.getMockImplementation()
         ? mockRunMigrations(...args)
-        : actual.runMigrations(...(args as [string, string])),
+        : actual.runMigrations(...args),
   };
 });
 
@@ -120,12 +125,10 @@ vi.mock('../../src/migrations/collect', async () => {
   );
   return {
     ...actual,
-    writeJournal: (...args: Array<unknown>) =>
+    writeJournal: (...args: Parameters<typeof mockWriteJournal>) =>
       mockWriteJournal.getMockImplementation()
         ? mockWriteJournal(...args)
-        : actual.writeJournal(
-            ...(args as [string, import('../../src/migrations/collect.ts').DrizzleJournal]),
-          ),
+        : actual.writeJournal(...args),
   };
 });
 
@@ -158,15 +161,15 @@ vi.mock('../../src/cli/client', () => ({
 }));
 
 const mockLog = {
-  error: vi.fn(),
-  info: vi.fn(),
-  step: vi.fn(),
-  success: vi.fn(),
-  warn: vi.fn(),
+  error: vi.fn<(...args: Array<unknown>) => void>(),
+  info: vi.fn<(...args: Array<unknown>) => void>(),
+  step: vi.fn<(...args: Array<unknown>) => void>(),
+  success: vi.fn<(...args: Array<unknown>) => void>(),
+  warn: vi.fn<(...args: Array<unknown>) => void>(),
 };
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
   isCancel: () => false,
   intro: vi.fn(),
   outro: vi.fn(),
@@ -282,9 +285,9 @@ describe('void db drizzle-kit subprocesses', () => {
 
     await runDbCommand(root, { action: 'generate' });
 
-    const config = JSON.parse(readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf-8'));
+    const config = JSON.parse(readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf8'));
     expect(config.schema).toEqual(['./db/schema.ts', './.void/better-auth-schema.ts']);
-    const authSchema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf-8');
+    const authSchema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf8');
     expect(authSchema).toContain('export const userTable = sqliteTable("user"');
     expect(authSchema).toContain('export const sessionTable = sqliteTable("session"');
     expect(authSchema).toContain('export const accountTable = sqliteTable("account"');
@@ -315,7 +318,7 @@ describe('void db drizzle-kit subprocesses', () => {
 
     await runDbCommand(root, { action: 'generate' });
 
-    const config = JSON.parse(readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf-8'));
+    const config = JSON.parse(readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf8'));
     expect(config.schema).toBe('./.void/better-auth-schema.ts');
     expect(mockExecFileSync).toHaveBeenCalledOnce();
   });
@@ -344,7 +347,7 @@ describe('void db drizzle-kit subprocesses', () => {
 
     await runDbCommand(root, { action: 'generate' });
 
-    const authSchema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf-8');
+    const authSchema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf8');
     expect(authSchema).toContain('sqliteTable("development_users"');
   });
 
@@ -979,7 +982,11 @@ describe('void db rename-migrations', () => {
     expect(files[0]).toMatch(/^\d{14}_a\.sql$/);
     expect(files[1]).toMatch(/^\d{14}_b\.sql$/);
 
-    const journal = JSON.parse(readFileSync(join(metaDir, '_journal.json'), 'utf-8'));
+    const journal = JSON.parse(readFileSync(join(metaDir, '_journal.json'), 'utf8')) as {
+      entries: Array<{ tag: string; idx: number; when: number }>;
+      version: string;
+      dialect: string;
+    };
     expect(journal.version).toBe('7');
     expect(journal.dialect).toBe('sqlite');
     expect(journal.entries).toHaveLength(2);
@@ -994,12 +1001,8 @@ describe('void db rename-migrations', () => {
     const [prefixA, prefixB] = tagsOnDisk.map((tag) => tag.split('_')[0]);
     const snapshots = readdirSync(metaDir).filter((f) => f.endsWith('_snapshot.json'));
     expect(snapshots.sort()).toEqual([`${prefixA}_snapshot.json`, `${prefixB}_snapshot.json`]);
-    expect(readFileSync(join(metaDir, `${prefixA}_snapshot.json`), 'utf-8')).toBe(
-      snapshotContentsA,
-    );
-    expect(readFileSync(join(metaDir, `${prefixB}_snapshot.json`), 'utf-8')).toBe(
-      snapshotContentsB,
-    );
+    expect(readFileSync(join(metaDir, `${prefixA}_snapshot.json`), 'utf8')).toBe(snapshotContentsA);
+    expect(readFileSync(join(metaDir, `${prefixB}_snapshot.json`), 'utf8')).toBe(snapshotContentsB);
 
     const { collectMigrations } = await import('../../src/migrations/collect.ts');
     const { assertJournalCoherence } = await import('../../src/migrations/validate.ts');
@@ -1238,8 +1241,8 @@ describe('void db rename-migrations', () => {
     expect(sqlFiles).toEqual(['0001_a.sql', '0002_b.sql']);
 
     const metaDir = join(migrationsDir, 'meta');
-    expect(readFileSync(join(metaDir, '0001_snapshot.json'), 'utf-8')).toBe(snapshotContentsA);
-    expect(readFileSync(join(metaDir, '0002_snapshot.json'), 'utf-8')).toBe(snapshotContentsB);
+    expect(readFileSync(join(metaDir, '0001_snapshot.json'), 'utf8')).toBe(snapshotContentsA);
+    expect(readFileSync(join(metaDir, '0002_snapshot.json'), 'utf8')).toBe(snapshotContentsB);
     const allSnapshots = readdirSync(metaDir).filter((f) => f.endsWith('_snapshot.json'));
     expect(allSnapshots.sort()).toEqual(['0001_snapshot.json', '0002_snapshot.json']);
 

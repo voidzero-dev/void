@@ -31,6 +31,7 @@ allowBuilds:
   workerd: true
 
 catalog:
+  '@cloudflare/oxlint-config': 0.2.0
   '@cloudflare/workers-types': ^5.20261117.1
   '@cloudflare/workers-utils': ^0.54.1
   '@pierre/highlights': ^0.5.1

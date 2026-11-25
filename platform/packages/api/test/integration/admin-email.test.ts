@@ -26,8 +26,8 @@ import {
   clearTables,
   createTestUser,
   createTestProject,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { CF_ACCOUNT_ID } from './helpers.ts';
 
 let env: TestEnv;
@@ -48,7 +48,7 @@ async function seedVerifiedDestination(db: Db, projectId: string, address: strin
       verified_at: new Date().toISOString(),
     })
     .returning();
-  return row!;
+  return row;
 }
 
 beforeAll(async () => {
@@ -210,7 +210,7 @@ describe('admin write guard (cross-origin)', () => {
     );
 
     expect(res.status).toBe(403);
-    expect((await res.json()) as { error: string }).toEqual({
+    expect(await res.json<{ error: string }>()).toEqual({
       error: 'cross-site request blocked',
       message: 'Refresh the dashboard and try again.',
     });

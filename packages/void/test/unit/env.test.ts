@@ -68,6 +68,21 @@ describe('runtime env resolution', () => {
 });
 
 describe('internal binding filtering — ISR_CACHE (exact-name)', () => {
+  it('checks a getter-backed ISR deployment ID once per binding lookup', () => {
+    const getDeploymentId = vi.fn<() => string>().mockReturnValueOnce('dep_1');
+    const env = {
+      ISR_CACHE: { tag: 'isr-kv' },
+      get __VOID_ISR_DEPLOYMENT_ID() {
+        return getDeploymentId();
+      },
+    };
+
+    withRuntimeEnv(env, () => {
+      expect(getRuntimeBinding('ISR_CACHE')).toBeUndefined();
+    });
+    expect(getDeploymentId).toHaveBeenCalledOnce();
+  });
+
   it('hides ISR_CACHE from getRuntimeEnv while ISR is active', () => {
     withRuntimeEnv(
       { DB: { tag: 'db' }, ISR_CACHE: { tag: 'isr-kv' }, __VOID_ISR_DEPLOYMENT_ID: 'dep_1' },

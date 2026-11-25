@@ -25,6 +25,7 @@ import { setProjectAiLogging } from '../../src/ai-logging.ts';
 import { respondToProjectInvitation } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as systemOperations from '../../src/operator/system-operations.ts';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
@@ -55,8 +56,8 @@ import {
   createTestDeployment,
   mockCfApi,
   skipOrphanSweepDelay,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { nativeFormSubmission } from './native-form-browser.ts';
 import { createUsageCounterFixture } from './usage-counter-fixture.ts';
 
@@ -223,9 +224,9 @@ describe('auth middleware', () => {
       fateQuery('usersPage', '/admin/users?search=fate-page-member', ['id', 'users', 'search']),
     );
     expect(page.status).toBe(200);
-    const body = (await page.json()) as {
+    const body = await page.json<{
       results: Array<{ ok: boolean; data?: { users?: Array<{ login: string }> } }>;
-    };
+    }>();
     expect(body.results[0]?.ok).toBe(true);
     expect(body.results[0]?.data?.users?.map((user) => user.login)).toEqual(['fate-page-member']);
 
@@ -234,9 +235,9 @@ describe('auth middleware', () => {
       admin.adminJwt,
       fateQuery('usersPage', '/operator/v1/users', ['id', 'users']),
     );
-    const invalidBody = (await invalid.json()) as {
+    const invalidBody = await invalid.json<{
       results: Array<{ ok: boolean; error?: { code: string } }>;
-    };
+    }>();
     expect(invalidBody.results[0]).toMatchObject({ ok: false, error: { code: 'BAD_REQUEST' } });
   });
 
@@ -282,9 +283,9 @@ describe('auth middleware', () => {
         fateQuery(name, path, ['id', field]),
       );
       expect(response.status).toBe(200);
-      const body = (await response.json()) as {
+      const body = await response.json<{
         results: Array<{ ok: boolean; data?: Record<string, Array<{ id: string }>> }>;
-      };
+      }>();
       expect(body.results[0]?.ok).toBe(true);
       return body.results[0]?.data?.[field]?.map((row) => row.id) ?? [];
     };
@@ -418,7 +419,7 @@ describe('auth middleware', () => {
     expect(navigation.headers.get('X-VoidPages')).toBe('true');
     expect(navigation.headers.get('Vary')).toBe('X-VoidPages');
     expect(navigation.headers.get('Cache-Control')).toBe('private, no-store');
-    expect(((await navigation.json()) as { component: string }).component).toBe('users');
+    expect((await navigation.json<{ component: string }>()).component).toBe('users');
   });
 
   test('keeps runtime-log client fields when navigating away and back', async () => {
@@ -468,7 +469,7 @@ describe('auth middleware', () => {
         await route.fulfill({
           status: response.status,
           headers: Object.fromEntries(response.headers),
-          body: Buffer.from(await response.arrayBuffer()),
+          body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
         });
       });
       await page.goto(`http://localhost/admin/deployments/${deployment.id}`);
@@ -479,9 +480,11 @@ describe('auth middleware', () => {
       });
       await page.locator(`a[href="/admin/projects/${project.id}"]`).first().click();
       await page.getByRole('heading', { name: project.slug, exact: true }).waitFor();
-      expect(await page.evaluate(() => Reflect.get(window, 'adminNavigationMarker'))).toBe(
-        'same-document',
-      );
+      expect(
+        await page.evaluate(
+          () => (window as Window & { adminNavigationMarker?: string }).adminNavigationMarker,
+        ),
+      ).toBe('same-document');
       await page.goBack();
       await page
         .getByRole('heading', { name: `Deployment ${deployment.id}`, exact: true })
@@ -568,7 +571,7 @@ describe('auth middleware', () => {
           await route.fulfill({
             status: response.status,
             headers: Object.fromEntries(response.headers),
-            body: Buffer.from(await response.arrayBuffer()),
+            body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
           });
         });
         await page.goto('http://localhost/admin/');
@@ -782,7 +785,7 @@ function zeroTrustSetting(overrides: Record<string, unknown> = {}) {
     key: 'zeroTrust.configuration',
     value: {
       version: 1,
-      revision: 918273645,
+      revision: 918_273_645,
       enabled: true,
       protectNewProjects: true,
       accountId: 'zero-trust-account',
@@ -823,7 +826,7 @@ function pageSnapshot(html: string): string {
   const match =
     /<script id="__VOID_PAGE_DATA__" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
   expect(match).not.toBeNull();
-  const page = deserializePageData(match![1]!) as { shared: { adminFateSnapshot?: unknown } };
+  const page = deserializePageData<{ shared: { adminFateSnapshot?: unknown } }>(match![1]);
   expect(page.shared.adminFateSnapshot).toBeDefined();
   return JSON.stringify(page.shared.adminFateSnapshot);
 }
@@ -1011,9 +1014,9 @@ describe('admin Zero Trust', () => {
       admin.adminJwt,
       fateQuery('zeroTrust', '/admin/users', ['id', 'configured']),
     );
-    const invalidBody = (await invalid.json()) as {
+    const invalidBody = await invalid.json<{
       results: Array<{ ok: boolean; error?: { code: string } }>;
-    };
+    }>();
     expect(invalidBody.results[0]).toMatchObject({ ok: false, error: { code: 'BAD_REQUEST' } });
   });
 
@@ -1026,7 +1029,7 @@ describe('admin Zero Trust', () => {
     expect(navigation.headers.get('X-VoidPages')).toBe('true');
     expect(navigation.headers.get('Cache-Control')).toBe('no-store');
     expect(navigation.headers.get('Referrer-Policy')).toBe('strict-origin');
-    const pageObject = (await navigation.json()) as { component: string; shared: object };
+    const pageObject = await navigation.json<{ component: string; shared: object }>();
     expect(pageObject.component).toBe('zeroTrust');
     expect(pageObject.shared).not.toHaveProperty('adminFateSnapshot');
 
@@ -1224,14 +1227,14 @@ describe('GET /admin/ (dashboard)', () => {
       { DEV_AUTH_BYPASS: 'true' },
     );
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
+    const body = await response.json<{
       results: Array<{
         ok: boolean;
         data: { checkedAt: number; checks: Array<{ name: string; ok: boolean }> };
       }>;
-    };
+    }>();
     expect(body.results[0]?.ok).toBe(true);
-    const health = body.results[0]!.data;
+    const health = body.results[0].data;
     expect(health.checkedAt).toBeGreaterThanOrEqual(startedAt);
     expect(health.checkedAt).toBeLessThanOrEqual(Date.now());
     expect(health.checks).toEqual(
@@ -1337,7 +1340,7 @@ describe('GET /admin/ (dashboard)', () => {
           await route.fulfill({
             status: response.status,
             headers: Object.fromEntries(response.headers),
-            body: Buffer.from(await response.arrayBuffer()),
+            body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
           });
         });
         for (const path of [
@@ -1389,7 +1392,7 @@ describe('GET /admin/ (dashboard)', () => {
               const ownership = document.getElementById('owner-transfer')!;
               const sections = [builds, zeroTrust, team, ownership];
               return sections.slice(1).map((section, index) => {
-                const previous = sections[index]!.getBoundingClientRect();
+                const previous = sections[index].getBoundingClientRect();
                 return section.getBoundingClientRect().top - previous.bottom;
               });
             });
@@ -1525,7 +1528,7 @@ describe('GET /admin/ (dashboard)', () => {
                 .map(
                   (section, index) =>
                     section.getBoundingClientRect().top -
-                    sections[index]!.getBoundingClientRect().bottom,
+                    sections[index].getBoundingClientRect().bottom,
                 );
             });
           expect(gaps.length).toBeGreaterThan(0);
@@ -1544,7 +1547,7 @@ describe('GET /admin/ (dashboard)', () => {
                   .map(
                     (element, index) =>
                       element.getBoundingClientRect().top -
-                      elements[index]!.getBoundingClientRect().bottom,
+                      elements[index].getBoundingClientRect().bottom,
                   );
               }),
             );
@@ -2126,7 +2129,7 @@ describe('POST /admin/users/:id/plan', () => {
         body: new URLSearchParams({ plan: 'pro' }).toString(),
         redirect: 'manual',
       }),
-      { ...env, USAGE_COUNTER: failingDo } as typeof env,
+      { ...env, USAGE_COUNTER: failingDo },
     );
     expect(res.status).toBe(500);
 
@@ -2283,7 +2286,7 @@ describe('POST /admin/users/:id/suspend + unsuspend', () => {
         body: '',
         redirect: 'manual',
       }),
-      { ...env, ...overrides } as typeof env,
+      { ...env, ...overrides },
     );
   }
 
@@ -2306,7 +2309,7 @@ describe('POST /admin/users/:id/suspend + unsuspend', () => {
         body: new URLSearchParams({ reason }).toString(),
         redirect: 'manual',
       }),
-      { ...env, ...overrides } as typeof env,
+      { ...env, ...overrides },
     );
   }
 
@@ -2485,8 +2488,8 @@ describe('GET /admin/projects', () => {
     expect(projectLink).toContain('target="_blank"');
     expect(projectLink).toContain('rel="noopener noreferrer"');
     expect(projectLink).toContain('<svg');
-    expect(projectLink?.replace(/<[^>]+>/g, '')).toContain('my-proj.void.app');
-    expect(projectLink?.replace(/<[^>]+>/g, '')).not.toContain('https://');
+    expect(projectLink?.replaceAll(/<[^>]+>/g, '')).toContain('my-proj.void.app');
+    expect(projectLink?.replaceAll(/<[^>]+>/g, '')).not.toContain('https://');
   });
 
   test('paginates projects', async () => {
@@ -2723,7 +2726,7 @@ describe('GET /admin/projects/:id', () => {
     );
     await expect(
       respondToProjectInvitation(env.db, {
-        invitationId: invitation!.id,
+        invitationId: invitation.id,
         actorUserId: teammate.id,
         response: 'accept',
       }),
@@ -2758,7 +2761,7 @@ describe('GET /admin/projects/:id', () => {
     const [invitation] = await env.db.select().from(projectInvitations);
 
     const revoke = await req(
-      `/admin/projects/${project.id}/team/invitations/${invitation!.id}/revoke`,
+      `/admin/projects/${project.id}/team/invitations/${invitation.id}/revoke`,
       admin.adminJwt,
       form({}),
     );
@@ -2994,7 +2997,7 @@ describe('GET /admin/deployments/:id', () => {
           await route.fulfill({
             status: response.status,
             headers: Object.fromEntries(response.headers),
-            body: Buffer.from(await response.arrayBuffer()),
+            body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
           });
         });
         await page.goto(`http://localhost/admin/deployments/${id}`);
@@ -3164,7 +3167,7 @@ describe('GET /admin/login', () => {
     );
     expect(authorization.searchParams.get('redirect_uri')).toBe('http://localhost/auth/callback');
     const state = authorization.searchParams.get('state')!;
-    const browserCookie = start.headers.get('Set-Cookie')!.split(';', 1)[0]!;
+    const browserCookie = start.headers.get('Set-Cookie')!.split(';', 1)[0];
 
     vi.stubGlobal(
       'fetch',
@@ -3205,7 +3208,7 @@ describe('GET /admin/login', () => {
       env,
     );
     const state = new URL(start.headers.get('Location')!).searchParams.get('state')!;
-    const browserCookie = start.headers.get('Set-Cookie')!.split(';', 1)[0]!;
+    const browserCookie = start.headers.get('Set-Cookie')!.split(';', 1)[0];
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: string | URL | Request): Promise<Response> => {
@@ -3261,7 +3264,7 @@ describe('GET /admin/login', () => {
       );
       const authorization = new URL(start.headers.get('Location')!);
       const state = authorization.searchParams.get('state')!;
-      const browserCookie = start.headers.get('Set-Cookie')!.split(';', 1)[0]!;
+      const browserCookie = start.headers.get('Set-Cookie')!.split(';', 1)[0];
 
       vi.stubGlobal(
         'fetch',
@@ -3590,9 +3593,9 @@ describe('GET /admin/deployments/:id/logs', () => {
 
     const res = await req(`/admin/deployments/${deployment.id}/logs?since=1m`, admin.adminJwt);
     expect(res.status).toBe(200);
-    const json = (await res.json()) as {
+    const json = await res.json<{
       data: Array<{ outcome: string; logs: Array<unknown>; timestamp: number; ingestedAt: number }>;
-    };
+    }>();
     expect(json.data).toHaveLength(1);
     expect(json.data[0]).toMatchObject({
       outcome: 'exception',
@@ -3617,9 +3620,9 @@ describe('GET /admin/deployments/:id/logs', () => {
       }),
     });
     expect(fateResponse.status).toBe(200);
-    const fateBody = (await fateResponse.json()) as {
+    const fateBody = await fateResponse.json<{
       results: Array<{ ok: boolean; data?: { data?: Array<{ outcome: string }> } }>;
-    };
+    }>();
     expect(fateBody.results[0]?.ok).toBe(true);
     expect(fateBody.results[0]?.data?.data?.[0]?.outcome).toBe('exception');
     vi.restoreAllMocks();
@@ -3681,10 +3684,10 @@ describe('GET /admin/deployments/:id/logs', () => {
     expect(await route.json()).toMatchObject({ runtimeLogs: 'minimal', data: [{ url: '' }] });
 
     type FateBody = { results: Array<{ ok: boolean; data?: Record<string, unknown> }> };
-    const fullFate = (await (await fateLogs()).json()) as FateBody;
+    const fullFate = await (await fateLogs()).json<FateBody>();
     expect(fullFate.results[0]?.ok).toBe(true);
     expect(fullFate.results[0]?.data?.runtimeLogs ?? null).toBeNull();
-    const minimalFate = (await (await fateLogs(minimal)).json()) as FateBody;
+    const minimalFate = await (await fateLogs(minimal)).json<FateBody>();
     expect(minimalFate.results[0]?.ok).toBe(true);
     expect(minimalFate.results[0]?.data?.runtimeLogs).toBe('minimal');
   });

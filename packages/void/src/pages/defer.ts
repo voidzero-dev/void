@@ -32,8 +32,10 @@ export function defer(
 ): Deferred<unknown> {
   const [group, resolver] =
     typeof groupOrResolver === 'string'
-      ? [groupOrResolver, maybeResolver!]
+      ? // oxlint-disable-next-line typescript/no-non-null-assertion -- The string overload requires its second argument to be the resolver.
+        [groupOrResolver, maybeResolver!]
       : [null, groupOrResolver];
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- The server sends a sentinel which the client replaces with the advertised deferred resource.
   return { [DEFERRED]: true, group, resolver } as unknown as Deferred<unknown>;
 }
 
@@ -42,15 +44,17 @@ export type ResolvedDeferredGroup = {
   keys: Array<string>;
 };
 
+type SeparatedDeferred = {
+  immediateProps: Record<string, unknown>;
+  deferredMap: Record<string, ResolvedDeferredGroup>;
+};
+
 /**
  * Separate a loader's return value into immediate props and deferred sentinels.
  * For single-prop deferred (group=null), the object key becomes the group name.
  * For named groups, all keys sharing the same group name are collected.
  */
-export function separateDeferred(props: Record<string, unknown>): {
-  immediateProps: Record<string, unknown>;
-  deferredMap: Record<string, ResolvedDeferredGroup>;
-} {
+export function separateDeferred(props: Record<string, unknown>): SeparatedDeferred {
   const immediateProps: Record<string, unknown> = {};
   const deferredMap: Record<string, ResolvedDeferredGroup> = {};
 

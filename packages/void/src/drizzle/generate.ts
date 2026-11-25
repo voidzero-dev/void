@@ -28,6 +28,14 @@ function listFiles(dir: string, suffix: string): Set<string> {
   return new Set(existsSync(dir) ? readdirSync(dir).filter((file) => file.endsWith(suffix)) : []);
 }
 
+const bestEffort = (step: () => void): void => {
+  try {
+    step();
+  } catch {
+    // The drizzle-kit failure is the error worth reporting.
+  }
+};
+
 /**
  * Record the Drizzle outputs under `migrationsDir` and return a rollback for a
  * failed `drizzle-kit generate`, so partial files cannot fail the journal check
@@ -40,14 +48,6 @@ export function snapshotDrizzleOutputs(migrationsDir: string): () => void {
   const journal = existsSync(journalPath) ? readFileSync(journalPath) : null;
   const snapshots = listFiles(metaDir, '_snapshot.json');
   const sqlFiles = listFiles(migrationsDir, '.sql');
-
-  const bestEffort = (step: () => void): void => {
-    try {
-      step();
-    } catch {
-      // The drizzle-kit failure is the error worth reporting.
-    }
-  };
   const removeNewFiles = (dir: string, suffix: string, before: Set<string>): void => {
     for (const file of listFiles(dir, suffix)) {
       if (!before.has(file)) {

@@ -1,7 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'pathslash';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
 import { writeFileIfChanged } from './write-if-changed.ts';
+
+/** The import name of the auth tables Void generates, as `@schema` is the app's own tables. */
+export const AUTH_SCHEMA_ID = '@auth-schema';
+/** The generated auth tables in .void/, written by the routing plugin while auth is on. */
+export const AUTH_SCHEMA_FILE = 'better-auth-schema.ts';
 
 export type ProjectTsconfigOptions = {
   redirectDbModule?: boolean;
@@ -93,6 +99,8 @@ export function createProjectTsconfig(
     paths['@void/md/pages'] = ['./md.d.ts'];
   }
 
+  syncAuthSchemaPath(tsconfig, outDir);
+
   return tsconfig;
 }
 
@@ -114,9 +122,10 @@ export function ensureProjectTsconfig(
 }
 
 /**
- * Add or drop `auth.d.ts` in an existing .void/tsconfig.json to match whether
- * `.void/auth.d.ts` exists, keeping every other entry as written. The dev/build
- * routing plugin uses this after it writes or removes auth.d.ts, so it does not
+ * Add or drop `auth.d.ts` and the `@auth-schema` path in an existing .void/tsconfig.json
+ * to match whether `.void/auth.d.ts` and `.void/better-auth-schema.ts` exist, keeping every
+ * other entry as written. The dev/build routing plugin uses this after it writes or removes
+ * the auth files, so it does not
  * recompute the routes/db choices the Drizzle plugin or `void prepare` made.
  * A missing or unreadable tsconfig is left for those writers to create.
  */
@@ -132,5 +141,20 @@ export function syncAuthTypesInProjectTsconfig(root: string): boolean {
   const files = Array.isArray(tsconfig.files) ? tsconfig.files : [];
   const others = files.filter((file) => file !== 'auth.d.ts');
   tsconfig.files = existsSync(join(outDir, 'auth.d.ts')) ? [...others, 'auth.d.ts'] : others;
+  syncAuthSchemaPath(tsconfig, outDir);
   return writeFileIfChanged(tsconfigPath, JSON.stringify(tsconfig, null, 2) + '\n');
+}
+
+/**
+ * Map `@auth-schema` to .void/better-auth-schema.ts while that file exists, and drop the
+ * mapping when it does not. Apps then import the auth tables without `paths` of their own,
+ * which would replace every path this file provides.
+ */
+function syncAuthSchemaPath(tsconfig: ProjectTsconfig, outDir: string): void {
+  if (!existsSync(join(outDir, AUTH_SCHEMA_FILE))) {
+    delete tsconfig.compilerOptions?.paths?.[AUTH_SCHEMA_ID];
+    return;
+  }
+  const compilerOptions = (tsconfig.compilerOptions ??= {});
+  (compilerOptions.paths ??= {})[AUTH_SCHEMA_ID] = [`./${AUTH_SCHEMA_FILE}`];
 }

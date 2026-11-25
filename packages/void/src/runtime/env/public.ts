@@ -31,7 +31,8 @@
 import { isUnmaskActive, redactMessage } from '../../shared/env-mask.ts';
 import { ENV_REGISTRY_KEY } from '../../shared/env-registry.ts';
 import type { StandardSchemaV1 } from '../../standard-schema.ts';
-import { getRawRuntimeEnv, type RuntimeEnv } from './raw.ts';
+import { getRawRuntimeEnv } from './raw.ts';
+import type { RuntimeEnv } from './raw.ts';
 import { getRuntimeEnv, isInternalBinding } from './runtime.ts';
 
 type AnyValidator = StandardSchemaV1<unknown, unknown>;
@@ -90,6 +91,7 @@ const registry = (registryGlobal[ENV_REGISTRY_SYMBOL] ??= {
 });
 
 /** The results of `rawEnv`, where `readKey` looks first. */
+// oxlint-disable-next-line quality/no-object-parameters -- The cache uses the runtime environment's identity as a weak key.
 function getEnvResults(rawEnv: object): Map<string, KeyResult> {
   const byEnv = (registry.results ??= new WeakMap());
   let results = byEnv.get(rawEnv);
@@ -102,7 +104,7 @@ function getEnvResults(rawEnv: object): Map<string, KeyResult> {
 
 /** Vite embeds the same public build inputs into server and browser bundles. */
 function getClientEnvValues(): Record<string, unknown> {
-  const values = (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const values = (import.meta as { env?: Record<string, unknown> }).env;
   return Object.fromEntries(
     Object.entries(values ?? {}).filter(([key]) => key.startsWith('VITE_')),
   );
@@ -143,7 +145,7 @@ export function defineEnv<S extends AnySchema>(schema: S): InferEnv<S> {
   // Reset the latest validation so a re-imported schema is re-checked.
   registry.latestValidation = null;
   registry.prepare = _prepareEnv;
-  return env as unknown as InferEnv<S>;
+  return env as InferEnv<S>;
 }
 
 /**
@@ -327,6 +329,10 @@ export function _hasRegisteredSchema(): boolean {
   return registry.hasDefineEnvBeenCalled;
 }
 
+interface SchemaDefaults {
+  [key: string]: string;
+}
+
 /**
  * Internal: extract `.default(value)` values from the registered schema as
  * stringified env values. Used for explicit build-time client fallbacks.
@@ -339,7 +345,7 @@ export function _hasRegisteredSchema(): boolean {
  *
  * Keys with no default — required keys and plain `.optional()` keys — are omitted.
  */
-export function _getSchemaDefaults(): Record<string, string> {
+export function _getSchemaDefaults(): SchemaDefaults {
   const defaults: Record<string, string> = {};
   if (!registry.schema) {
     return defaults;
@@ -464,35 +470,38 @@ function isMissing(raw: unknown): boolean {
  * on first access and passing through bindings / unknown keys unchanged.
  * Async validators must be resolved first by `_validateEnvOnce()` or `_prepareEnv()`.
  */
-export const env = new Proxy({} as Record<string, unknown>, {
-  get(_target, key) {
-    if (typeof key === 'symbol') {
-      return undefined;
-    }
-    return readKey(key);
+export const env = new Proxy(
+  {},
+  {
+    get(_target, key) {
+      if (typeof key === 'symbol') {
+        return undefined;
+      }
+      return readKey(key);
+    },
+    has(_target, key) {
+      if (typeof key === 'symbol') {
+        return false;
+      }
+      return Object.hasOwn(getClientEnvValues(), key) || Reflect.has(getRuntimeEnv(), key);
+    },
+    ownKeys() {
+      return [
+        ...new Set([...Reflect.ownKeys(getRuntimeEnv()), ...Object.keys(getClientEnvValues())]),
+      ];
+    },
+    getOwnPropertyDescriptor(_target, key) {
+      if (typeof key === 'symbol') {
+        return undefined;
+      }
+      return {
+        enumerable: true,
+        configurable: true,
+        value: readKey(String(key)),
+      };
+    },
   },
-  has(_target, key) {
-    if (typeof key === 'symbol') {
-      return false;
-    }
-    return Object.hasOwn(getClientEnvValues(), key) || Reflect.has(getRuntimeEnv() as object, key);
-  },
-  ownKeys() {
-    return [
-      ...new Set([...Reflect.ownKeys(getRuntimeEnv()), ...Object.keys(getClientEnvValues())]),
-    ];
-  },
-  getOwnPropertyDescriptor(_target, key) {
-    if (typeof key === 'symbol') {
-      return undefined;
-    }
-    return {
-      enumerable: true,
-      configurable: true,
-      value: readKey(String(key)),
-    };
-  },
-}) as ValidatedEnv;
+) as ValidatedEnv;
 
 /** Aggregate report from validating an entire env object against the schema. */
 export type EnvValidationReport = {

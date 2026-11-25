@@ -1,6 +1,8 @@
 import type { ProjectZeroTrustRouting } from '@void/edge';
 import { sql as drizzleSql } from 'drizzle-orm';
-import { getDomainsByProjectIds, getProject, type Db } from './db.ts';
+import { getDomainsByProjectIds, getProject } from './db.ts';
+import type { Db } from './db.ts';
+import type { RoutingEntry } from './routing-records.ts';
 import type { AssetConfig, DeployManifest } from './types.ts';
 import {
   assertRouteBelongsToProject,
@@ -83,6 +85,8 @@ export type RoutingSuspensionUpdate =
   | { op: 'suspend'; reason: string; force: boolean }
   | { op: 'unsuspend'; matchReason: string | null };
 
+type RoutingUndo = { restore: boolean; value: string | null };
+
 /**
  * Resolve a routing undo without overwriting a later authoritative mutation.
  * Exact matches restore directly. A suspension-only rewrite still belongs to
@@ -96,7 +100,7 @@ export function resolveRoutingUndo(
   current: string | null,
   written: string | null,
   previous: string | null,
-): { restore: boolean; value: string | null } {
+): RoutingUndo {
   if (current === written) {
     return { restore: true, value: previous };
   }
@@ -158,6 +162,7 @@ export async function applyRoutingSuspension(
   update: RoutingSuspensionUpdate,
   project?: Readonly<{ id: string; protection: ProjectZeroTrustRouting | null }>,
 ): Promise<void> {
+  // oxlint-disable-next-line quality/no-known-value-widening -- Retain the first thrown value, including non-Error rejections.
   let rejected: unknown = null;
   for (const key of keys) {
     const raw = await routing.get(key);
@@ -197,6 +202,7 @@ export async function applyRoutingSuspension(
     );
   }
   if (rejected) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the original rejection after all routing writes settle.
     throw rejected;
   }
 }
@@ -238,6 +244,7 @@ export async function setProjectsRoutingSuspension(
   if (projects.length === 0) {
     return;
   }
+  // oxlint-disable-next-line quality/no-known-value-widening -- Retain the first thrown value, including non-Error rejections.
   let failure: unknown = null;
   for (const project of projects) {
     await db
@@ -272,6 +279,7 @@ export async function setProjectsRoutingSuspension(
       });
   }
   if (failure) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the original failure after the routing writes settle.
     throw failure;
   }
 }
@@ -318,7 +326,7 @@ export function buildRoutingJson(opts: {
     ...(opts.assetManifestId ? { assetManifestId: opts.assetManifestId } : {}),
     ...(opts.assetConfig ? { assetConfig: opts.assetConfig } : {}),
     ...(opts.zeroTrust ? { zeroTrust: opts.zeroTrust } : {}),
-  });
+  } satisfies RoutingEntry);
 }
 
 export function buildStaticRoutingJson(opts: {
@@ -350,5 +358,5 @@ export function buildStaticRoutingJson(opts: {
       : {}),
     ...(opts.suspended ? { suspended: opts.suspended } : {}),
     ...(opts.zeroTrust ? { zeroTrust: opts.zeroTrust } : {}),
-  });
+  } satisfies RoutingEntry);
 }

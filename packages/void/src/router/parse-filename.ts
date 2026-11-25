@@ -23,7 +23,7 @@ function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefini
   const filePath = relativePath;
 
   // Normalize path separators
-  let path = relativePath.replace(/\\/g, '/');
+  let path = relativePath.replaceAll('\\', '/');
 
   // 1. Strip extension
   for (const ext of ROUTE_EXTENSIONS) {
@@ -40,7 +40,7 @@ function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefini
 
   // Split into segments for processing
   const segments = path.split('/');
-  let filename = segments.pop()!;
+  let filename = segments.pop() ?? '';
 
   // 2. Check for env suffix
   let env: RouteEnvironment | null = null;
@@ -56,7 +56,7 @@ function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefini
   segments.push(filename);
 
   // 3. Strip trailing "index"
-  if (segments[segments.length - 1] === 'index') {
+  if (segments.at(-1) === 'index') {
     segments.pop();
   }
 

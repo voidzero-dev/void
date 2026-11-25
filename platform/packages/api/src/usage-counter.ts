@@ -6,8 +6,8 @@ import {
   getProjectsByIds,
   suspendUser,
   unsuspendUserIfReason,
-  type Db,
 } from './db.ts';
+import type { Db } from './db.ts';
 import type { ApiEnv } from './env.ts';
 import { resolvePlanLimits } from './plans.ts';
 import { queryProjectAiUsage } from './routes/usage.ts';
@@ -18,12 +18,8 @@ import {
   verifyActiveProjectOwner,
 } from './routing.ts';
 import { REASON_REQUESTS_EXCEEDED, REASON_SANDBOX_RUNTIME_EXCEEDED } from './suspension.ts';
-import {
-  getCurrentBillingPeriodStart,
-  getPlanLimits,
-  isWithinLimit,
-  type PlanLimits,
-} from './tiers.ts';
+import { getCurrentBillingPeriodStart, getPlanLimits, isWithinLimit } from './tiers.ts';
+import type { PlanLimits } from './tiers.ts';
 import { SANDBOX_USAGE_RETENTION_MS } from './usage-auth.ts';
 
 // --- Exported types ---
@@ -233,8 +229,10 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
       if (expired.length > 0) {
         await transaction.delete(expired);
       }
-      if (page.size === SANDBOX_PRUNE_BATCH_SIZE) {
-        await transaction.put(SANDBOX_PRUNE_CURSOR_KEY, Array.from(page.keys()).at(-1)!);
+      const lastKey =
+        page.size === SANDBOX_PRUNE_BATCH_SIZE ? Array.from(page.keys()).at(-1) : undefined;
+      if (lastKey !== undefined) {
+        await transaction.put(SANDBOX_PRUNE_CURSOR_KEY, lastKey);
       } else {
         await transaction.delete(SANDBOX_PRUNE_CURSOR_KEY);
       }
@@ -295,12 +293,12 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleRecord(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       events: ReadonlyArray<UsageEvent>;
       plan?: string;
       userId: string;
       billingPeriodStart?: string;
-    };
+    }>();
     const state = await this.getState();
     if (body.userId) {
       state.ownerUserId = body.userId;
@@ -331,27 +329,29 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
       const through = event.sandboxMeteredThrough;
       if (
         !leaseId ||
+        typeof from !== 'number' ||
+        typeof through !== 'number' ||
         !Number.isSafeInteger(from) ||
         !Number.isSafeInteger(through) ||
-        through! <= from! ||
-        through! < watermarkCutoff
+        through <= from ||
+        through < watermarkCutoff
       ) {
         continue;
       }
-      const key = await sandboxWatermarkKey(leaseId, from!);
-      const previous = watermarks.get(key) ?? (await this.ctx.storage.get<number>(key)) ?? from!;
+      const key = await sandboxWatermarkKey(leaseId, from);
+      const previous = watermarks.get(key) ?? (await this.ctx.storage.get<number>(key)) ?? from;
       const billFrom = Math.max(
         previous,
-        from!,
-        Number.isFinite(periodStart) ? periodStart : from!,
+        from,
+        Number.isFinite(periodStart) ? periodStart : from,
         // Receipts older than retention may already be pruned. A cumulative
         // frame must not revive their billed prefix after a long delivery gap.
         watermarkCutoff,
       );
-      if (through! > billFrom) {
-        incomingSandboxSeconds += (through! - billFrom) / 1000;
+      if (through > billFrom) {
+        incomingSandboxSeconds += (through - billFrom) / 1000;
       }
-      watermarks.set(key, Math.max(previous, through!));
+      watermarks.set(key, Math.max(previous, through));
     }
     state.totalSandboxSeconds += incomingSandboxSeconds;
 
@@ -437,11 +437,11 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleRollover(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       billingPeriodStart: string;
       plan: string;
       userId: string;
-    };
+    }>();
     const incomingPeriodStart = Date.parse(body.billingPeriodStart);
     if (!Number.isFinite(incomingPeriodStart)) {
       return Response.json({ error: 'invalid billing period' }, { status: 400 });
@@ -485,13 +485,13 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleInit(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       plan: string;
       billingPeriodStart: string;
       projectSlugs: Record<string, string>;
       projectOwnershipStarts?: Record<string, string>;
       userId?: string;
-    };
+    }>();
     const incomingPeriodStart = Date.parse(body.billingPeriodStart);
     if (!Number.isFinite(incomingPeriodStart)) {
       return Response.json({ error: 'invalid billing period' }, { status: 400 });
@@ -550,13 +550,13 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleAttachProject(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       projectId: string;
       slug: string;
       ownershipStartedAt: string;
       billingPeriodStart?: string;
       userId?: string;
-    };
+    }>();
     if (
       !body.projectId ||
       !body.slug ||
@@ -616,13 +616,13 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleDetachProject(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       projectId: string;
       userId?: string;
       billingPeriodStart?: string;
       ownershipStartedAt?: string;
       ownershipEndedAt?: string;
-    };
+    }>();
     if (!body.projectId) {
       return Response.json({ error: 'projectId is required' }, { status: 400 });
     }
@@ -667,7 +667,7 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
 
   /** Reconcile changed plan limits without resetting the billing ledger. */
   private async handleReevaluateLimits(request: Request): Promise<Response> {
-    const body = (await request.json()) as { userId?: string };
+    const body = await request.json<{ userId?: string }>();
     const state = await this.getState();
     const userId = body.userId ?? state.ownerUserId;
     if (!userId || (state.ownerUserId && state.ownerUserId !== userId)) {
@@ -733,7 +733,7 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
    * DO). The plan-change route deletes the userId-keyed sandbox-block.
    */
   private async handleReevaluateSandbox(request: Request): Promise<Response> {
-    const body = (await request.json()) as { plan: string };
+    const body = await request.json<{ plan: string }>();
     const state = await this.getState();
     state.plan = body.plan;
     state.requestsSuspended = false;
@@ -981,12 +981,12 @@ export class UsageCounter extends DurableObject<ApiEnv['Bindings']> {
       const expectedStart = state.projectOwnershipStarts[projectId];
       const candidates = periods
         .filter(
-          (period) =>
+          (period): period is (typeof periods)[number] & { ends_at: string } =>
             period.project_id === projectId &&
             period.owner_user_id === state.ownerUserId &&
             period.ends_at !== null,
         )
-        .sort((left, right) => Date.parse(right.ends_at!) - Date.parse(left.ends_at!));
+        .sort((left, right) => Date.parse(right.ends_at) - Date.parse(left.ends_at));
       const period =
         candidates.find(
           (candidate) =>

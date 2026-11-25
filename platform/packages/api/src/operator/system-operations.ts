@@ -9,9 +9,10 @@ import {
   getCliVersionDeploymentStats,
   getProjectsWithOwnerByIds,
   getSystemStats,
-  type Db,
 } from '../db.ts';
-import { type ApiEnv, isDevBypass } from '../env.ts';
+import type { Db } from '../db.ts';
+import { isDevBypass } from '../env.ts';
+import type { ApiEnv } from '../env.ts';
 import { getRequestsDataset, queryTopProjectTraffic } from '../routes/usage.ts';
 
 /** Derive the base cloud domain from the API request hostname.
@@ -169,6 +170,7 @@ export async function systemHealth(
           : null;
     }
   }
+  const proxy = env.PLATFORM_PROXY;
   const dispatchHeaders: Record<string, string> | undefined = installed
     ? env.PLATFORM_HEALTH_PROBE_TOKEN
       ? { 'X-Void-Platform-Probe': env.PLATFORM_HEALTH_PROBE_TOKEN }
@@ -181,9 +183,7 @@ export async function systemHealth(
         'proxy',
         `${proxyUrl.replace(/\/$/, '')}/health`,
         installed ? dispatchHeaders : undefined,
-        installed && env.PLATFORM_PROXY
-          ? (url, init) => env.PLATFORM_PROXY!.fetch(url, init)
-          : undefined,
+        installed && proxy ? (url, init) => proxy.fetch(url, init) : undefined,
       ),
       ...(!installed
         ? [

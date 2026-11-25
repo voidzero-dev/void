@@ -5,11 +5,8 @@ import {
   REASON_SANDBOX_RUNTIME_EXCEEDED,
   routingSuspensionReason,
 } from '../../src/suspension.ts';
-import {
-  evaluateRequestLimit,
-  evaluateAiLimit,
-  type CounterState,
-} from '../../src/usage-counter.ts';
+import { evaluateRequestLimit, evaluateAiLimit } from '../../src/usage-counter.ts';
+import type { CounterState } from '../../src/usage-counter.ts';
 
 describe('isAdminSuspended', () => {
   it('distinguishes usage limits from administrator suspensions', () => {
@@ -92,7 +89,7 @@ describe('evaluateAiLimit (real implementation)', () => {
   }
 
   it('returns false when under the AI limit', () => {
-    const state = makeState({ totalNeurons: 1_000 });
+    const state = makeState({ totalNeurons: 1000 });
     expect(evaluateAiLimit(state)).toBe(false);
   });
 

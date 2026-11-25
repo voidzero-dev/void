@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { toSlash } from 'pathslash';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
+import { resolveCloudflareStaticPreset } from '../../src/cli/deploy-cloudflare-static.ts';
 import {
   detectPreset,
   findBackendSources,
@@ -11,6 +12,7 @@ import {
   hasBackendFiles,
   resolveProjectCommand,
 } from '../../src/cli/preset.ts';
+import type { VoidConfig } from '../../src/config.ts';
 
 const TMP = packageFixturePath(import.meta.dirname, '.tmp-preset');
 
@@ -151,6 +153,54 @@ describe('detectPreset', () => {
     });
   });
 
+  // voidPlugin() splits the build into dist/client and dist/ssr. Uploading dist
+  // published the server bundle, its source map and wrangler.json, and left /
+  // without an index.html.
+  it('uploads only dist/client for a Vite app built with void and no backend', () => {
+    const root = setupProject({
+      pkg: { devDependencies: { 'vite-plus': '^1.0.0', void: '^0.5.0' } },
+      files: {
+        'index.html': '<html></html>',
+        'main.js': '',
+        'vite.config.ts':
+          "import { defineConfig } from 'vite-plus';\nimport { voidPlugin } from 'void';\nexport default defineConfig({ plugins: [voidPlugin()] });\n",
+      },
+    });
+    expect(detectPreset(root)).toEqual({
+      buildCommand: 'vp build',
+      outputDir: toSlash(resolve(root, 'dist/client')),
+      appType: 'spa',
+    });
+  });
+
+  // `void` installed only for its CLI: the build is plain Vite and writes dist.
+  it('keeps dist for a Vite app that installs void without voidPlugin()', () => {
+    for (const config of [
+      null,
+      "import { defineConfig } from 'vite';\nexport default defineConfig({});\n",
+    ]) {
+      const root = setupProject({
+        pkg: { devDependencies: { vite: '^6.0.0', void: '^0.5.0' } },
+        files: { 'index.html': '<html></html>', ...(config ? { 'vite.config.ts': config } : {}) },
+      });
+      expect(detectPreset(root)?.outputDir).toBe(toSlash(resolve(root, 'dist')));
+    }
+  });
+
+  it('uses dist/client for a configured static app built with void', () => {
+    const root = setupProject({
+      pkg: { dependencies: { vite: '^6.0.0', void: '^0.5.0' } },
+      files: {
+        'vite.config.ts':
+          "import { voidPlugin } from 'void';\nexport default { plugins: [voidPlugin()] };\n",
+      },
+    });
+    const config = { inference: { appType: 'spa' } } as VoidConfig;
+    expect(resolveCloudflareStaticPreset(root, config, {})?.outputDir).toBe(
+      toSlash(resolve(root, 'dist/client')),
+    );
+  });
+
   it('detects pre-built dist/index.html as static', () => {
     const root = setupProject({
       files: { 'dist/index.html': '<html></html>' },
@@ -266,6 +316,32 @@ describe('detectPreset — strictBackend', () => {
   });
 });
 
+describe('resolveCloudflareStaticPreset — configured app type', () => {
+  const vitepressPkg = { devDependencies: { vitepress: '^1.0.0' } };
+
+  // The guide sends a VitePress site with `routes/` to `appType: "void"`, which this branch ignored.
+  it('returns null for a configured appType "void" with an SSG plus backend', () => {
+    const root = setupProject({ pkg: vitepressPkg, dirs: ['.vitepress', 'routes'] });
+    const voidConfig = { inference: { appType: 'void' } } as VoidConfig;
+    expect(resolveCloudflareStaticPreset(root, voidConfig, {})).toBeNull();
+  });
+
+  it('still refuses the unconfigured SSG plus backend case', () => {
+    const root = setupProject({ pkg: vitepressPkg, dirs: ['.vitepress', 'routes'] });
+    expect(() => resolveCloudflareStaticPreset(root, {}, {})).toThrow('vitepress');
+  });
+
+  it('keeps resolving a configured static app that also has backend sources', () => {
+    const root = setupProject({ pkg: vitepressPkg, dirs: ['.vitepress', 'routes'] });
+    const voidConfig = { inference: { appType: 'static' } } as VoidConfig;
+    expect(resolveCloudflareStaticPreset(root, voidConfig, {})).toEqual({
+      buildCommand: 'vitepress build',
+      outputDir: toSlash(resolve(root, '.vitepress/dist')),
+      appType: 'static',
+    });
+  });
+});
+
 describe('findBackendSources', () => {
   it('lists every backend source relative to the root', () => {
     const root = setupProject({
@@ -320,6 +396,106 @@ describe('project Vite commands', () => {
     );
   });
 
+  it.each(['pnpm', 'npm'])('detects Vite+ in a %s workspace root', (manager) => {
+    const workspaces = ['apps/*', '!apps/excluded'];
+    const workspace = setupProject({
+      pkg: {
+        devDependencies: { 'vite-plus': '^1.0.0' },
+        ...(manager === 'npm' ? { workspaces } : {}),
+      },
+      files: {
+        ...(manager === 'pnpm'
+          ? { 'pnpm-workspace.yaml': 'packages: ' + JSON.stringify(workspaces) + '\n' }
+          : {}),
+        'apps/site/package.json': '{}',
+        'apps/site/index.html': '<!doctype html>',
+        'apps/plain-vite/package.json': '{"devDependencies":{"vite":"^8.0.0"}}',
+        'apps/excluded/package.json': '{}',
+        'tools/standalone/package.json': '{}',
+        'node_modules/.bin/vp': '',
+      },
+    });
+    const app = join(workspace, 'apps/site');
+    const buildCommand = toSlash(join(workspace, 'node_modules/.bin/vp')) + ' build';
+
+    expect(formatProjectCommand(app, 'vite dev')).toBe('vp dev');
+    expect(resolveProjectCommand(app, 'vite build')).toBe(buildCommand);
+    expect(detectPreset(app)).toEqual({
+      appType: 'spa',
+      buildCommand,
+      outputDir: toSlash(join(app, 'dist')),
+    });
+    for (const appPath of ['apps/plain-vite', 'apps/excluded', 'tools/standalone']) {
+      expect(formatProjectCommand(join(workspace, appPath), 'vite dev')).toBe('vite dev');
+    }
+  });
+
+  it('uses only browser output for workspace apps configured with the Void plugin', () => {
+    const workspace = setupProject({
+      pkg: { workspaces: ['apps/*'], devDependencies: { 'vite-plus': '^1.0.0', void: '^1.0.0' } },
+      files: {
+        'apps/site/package.json': '{}',
+        'apps/site/index.html': '<!doctype html>',
+        'apps/site/vite.config.ts':
+          "import { voidPlugin } from 'void'; export default { plugins: [voidPlugin()] };",
+      },
+    });
+    const app = join(workspace, 'apps/site');
+
+    expect(detectPreset(app)).toEqual({
+      appType: 'spa',
+      buildCommand: 'vp build',
+      outputDir: toSlash(join(app, 'dist/client')),
+    });
+  });
+
+  it('preserves prebuilt static output for workspace apps with no build inputs', () => {
+    const workspace = setupProject({
+      pkg: { workspaces: ['apps/*'], devDependencies: { 'vite-plus': '^1.0.0' } },
+      files: {
+        'apps/site/package.json': '{}',
+        'apps/site/dist/index.html': '<!doctype html>',
+      },
+    });
+    const app = join(workspace, 'apps/site');
+
+    expect(detectPreset(app)).toEqual({
+      appType: 'static',
+      buildCommand: null,
+      outputDir: toSlash(join(app, 'dist')),
+    });
+  });
+
+  it('respects workspace glob exclusions and optional local Vite', () => {
+    const workspace = setupProject({
+      pkg: {
+        workspaces: ['apps/*', '!apps/legacy-[0-9]'],
+        devDependencies: { 'vite-plus': '^1.0.0' },
+      },
+      files: {
+        'apps/legacy-1/package.json': '{}',
+        'apps/optional-vite/package.json': '{"optionalDependencies":{"vite":"^8.0.0"}}',
+      },
+    });
+    for (const appPath of ['apps/legacy-1', 'apps/optional-vite']) {
+      expect(formatProjectCommand(join(workspace, appPath), 'vite dev')).toBe('vite dev');
+    }
+  });
+
+  it.each([
+    ['pnpm', 'pnpm-lock.yaml'],
+    ['yarn', 'yarn.lock'],
+  ])('runs an inherited Vite+ build script with the workspace’s %s', (manager, lockfile) => {
+    const workspace = setupProject({
+      pkg: { workspaces: ['apps/*'], devDependencies: { 'vite-plus': '^1.0.0' } },
+      files: {
+        [lockfile]: '',
+        'apps/site/package.json': '{"scripts":{"build":"vp build"}}',
+      },
+    });
+    expect(detectPreset(join(workspace, 'apps/site'))?.buildCommand).toBe(manager + ' build');
+  });
+
   it('keeps plain Vite commands unchanged', () => {
     const root = setupProject({
       pkg: { devDependencies: { vite: '^6.0.0' } },
@@ -366,7 +542,7 @@ describe('resolveProjectCommand shell safety (project root with spaces)', () => 
       expect(cmd).toBe(`"${toSlash(binPath)}" build`);
     } else {
       // POSIX single-quote wrap, embedded `'` escaped as '\''.
-      expect(cmd).toBe(`'${binPath.replace(/'/g, "'\\''")}' build`);
+      expect(cmd).toBe(`'${binPath.replaceAll("'", String.raw`'\''`)}' build`);
     }
   });
 
@@ -375,7 +551,7 @@ describe('resolveProjectCommand shell safety (project root with spaces)', () => 
     () => {
       const { root } = setupSpacedProject('vitepress');
       const cmd = resolveProjectCommand(root, 'vitepress build docs');
-      const out = execSync(cmd, { encoding: 'utf-8' });
+      const out = execSync(cmd, { encoding: 'utf8' });
       expect(out).toContain('VOID_BIN_OK');
       expect(out).toContain('args=build docs');
     },
@@ -391,8 +567,8 @@ describe('resolveProjectCommand shell safety (project root with spaces)', () => 
         JSON.stringify({ devDependencies: { 'vite-plus': '^1.0.0' } }),
       );
       const cmd = resolveProjectCommand(SPACED_TMP, 'vite build');
-      expect(cmd).toBe(`'${binPath.replace(/'/g, "'\\''")}' build`);
-      const out = execSync(cmd, { encoding: 'utf-8' });
+      expect(cmd).toBe(`'${binPath.replaceAll("'", String.raw`'\''`)}' build`);
+      const out = execSync(cmd, { encoding: 'utf8' });
       expect(out).toContain('VOID_BIN_OK');
       expect(out).toContain('args=build');
     },

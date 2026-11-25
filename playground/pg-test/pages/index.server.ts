@@ -1,6 +1,7 @@
 import { users, posts, insertUserSchema, insertPostSchema } from '@schema';
-import * as v from 'valibot';
-import { defineHandler, type InferProps } from 'void';
+import { number, object } from 'valibot';
+import { defineHandler } from 'void';
+import type { InferProps } from 'void';
 import { db, eq, desc } from 'void/db';
 
 export type Props = InferProps<typeof loader>;
@@ -29,7 +30,7 @@ export const actions = {
   }),
 
   'delete-user': defineHandler.withValidator({
-    body: v.object({ id: v.number() }),
+    body: object({ id: number() }),
   })(async (_c, { body }) => {
     await db.delete(posts).where(eq(posts.authorId, body.id));
     await db.delete(users).where(eq(users.id, body.id));
@@ -42,7 +43,7 @@ export const actions = {
   }),
 
   'delete-post': defineHandler.withValidator({
-    body: v.object({ id: v.number() }),
+    body: object({ id: number() }),
   })(async (_c, { body }) => {
     await db.delete(posts).where(eq(posts.id, body.id));
   }),

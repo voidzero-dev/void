@@ -1,5 +1,9 @@
 import type { DevCssAsset } from '../../pages/types.ts';
+import { isClientManifest } from '../../shared/client-manifest.ts';
+import type { ClientManifest } from '../../shared/client-manifest.ts';
 import type { RuntimeEnvironment } from './worker.ts';
+
+export type { ClientManifest } from '../../shared/client-manifest.ts';
 
 // `c.rewrite()` cannot reach files the asset layer serves. `.html` is excluded: routes may use it.
 export const ASSET_EXTENSIONS: Array<string> = [
@@ -38,52 +42,46 @@ export type ClientAssetTags = {
   body: string;
   devCss?: Array<DevCssAsset>;
 };
-export type ClientManifest = Record<
-  string,
-  {
-    file?: string;
-    imports?: Array<string>;
-    css?: Array<string>;
-    /** Build-proven fingerprinted outputs; absent in older/third-party manifests. */
-    immutableFiles?: Array<string>;
-  }
->;
 export type ManifestLoader = (
   request: Request,
   env: RuntimeEnvironment,
 ) => Promise<ClientManifest | null>;
 export function createManifestLoader(): ManifestLoader {
   let cached: ClientManifest | null = null;
-  let pending: Promise<ClientManifest | null> | null = null;
   return async (request, env) => {
     if (cached) {
       return cached;
     }
-    const injected = (globalThis as typeof globalThis & { __VITE_MANIFEST__?: unknown })
-      .__VITE_MANIFEST__;
-    if (typeof injected === 'object' && injected) {
-      cached = injected as ClientManifest;
+    const globals: object = globalThis;
+    const injected = '__VITE_MANIFEST__' in globals ? globals.__VITE_MANIFEST__ : undefined;
+    if (isClientManifest(injected)) {
+      cached = injected;
       return cached;
     }
     const assets = env?.ASSETS;
     if (!assets || typeof assets.fetch !== 'function') {
       return null;
     }
-    // Concurrent cold requests share one fetch and parse. A missing or failed
-    // manifest is not cached, so a later request retries.
-    pending ??= (async () => {
-      const response = await assets.fetch(
-        new Request(new URL('/.vite/manifest.json', request.url).toString()),
-      );
-      if (!response.ok) {
-        return null;
+    // Workers scope I/O to the request that starts it: if this fetch is shared, a
+    // canceled request can leave the promise unsettled and every later request waits
+    // on it. Cache the parsed manifest only. A failed load retries on the next request.
+    const response = await assets.fetch(
+      new Request(new URL('/.vite/manifest.json', request.url).toString()),
+    );
+    if (!response.ok) {
+      return null;
+    }
+    try {
+      const manifest = await response.json<unknown>();
+      if (isClientManifest(manifest)) {
+        cached ??= manifest;
       }
-      cached = (await response.json()) as ClientManifest;
-      return cached;
-    })().finally(() => {
-      pending = null;
-    });
-    return pending;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) {
+        throw error;
+      }
+    }
+    return cached;
   };
 }
 export type ClientAssetOptions = {
@@ -100,7 +98,7 @@ export type ClientAssetOptions = {
     request: Request,
     env: RuntimeEnvironment,
     options: { kind: 'pages' | 'islands'; componentId: string; rootPhases: Array<Array<string>> },
-  ) => Promise<unknown>;
+  ) => Promise<Array<DevCssAsset>>;
 };
 const BINDING_HINT_SCRIPT = '<script type="module" src="/@id/virtual:void/binding-hint"></script>';
 const REACT_REFRESH_SCRIPT = `<script type="module">
@@ -110,7 +108,7 @@ window.$RefreshReg$ = () => {};
 window.$RefreshSig$ = () => (type) => type;
 window.__vite_plugin_react_preamble_installed__ = true;
 </script>`;
-const escapeAttribute = (value: string): string => String(value).replace(/"/g, '&quot;');
+const escapeAttribute = (value: string): string => String(value).replaceAll('"', '&quot;');
 const script = (url: string): string =>
   `<script type="module" src="${escapeAttribute(url)}"></script>`;
 function collectManifestFiles(
@@ -121,7 +119,10 @@ function collectManifestFiles(
   const seen = new Set<string>();
   const pending = [entryId];
   for (let index = 0; depthFirst ? pending.length > 0 : index < pending.length;) {
-    const id = depthFirst ? pending.pop()! : pending[index++];
+    const id = depthFirst ? pending.pop() : pending[index++];
+    if (id === undefined) {
+      break;
+    }
     if (seen.has(id)) {
       continue;
     }
@@ -183,12 +184,11 @@ export function createClientAssetTags(
       }
       const tags: ClientAssetTags = { css: '', preloads: preloads.join('\n'), body };
       if (options.devCss && options.kind !== 'ssr') {
-        const css = await options.devCss(request, env, {
+        tags.devCss = await options.devCss(request, env, {
           kind: options.kind,
           componentId,
           rootPhases: options.devRootPhases?.[componentId] || [[options.entryUrl]],
         });
-        tags.devCss = Array.isArray(css) ? (css as Array<DevCssAsset>) : [];
       }
       return tags;
     }
@@ -197,10 +197,12 @@ export function createClientAssetTags(
       return empty;
     }
     const ids = collectManifestFiles(manifest, options.entryId, options.kind === 'ssr');
-    const extraEntry = options.extraEntryId ? manifest[options.extraEntryId] : undefined;
-    const hasExtra = extraEntry && typeof extraEntry.file === 'string';
+    const extraEntryId = options.extraEntryId;
+    const extraEntry = extraEntryId ? manifest[extraEntryId] : undefined;
+    const extraFile = extraEntry?.file;
+    const hasExtra = extraEntryId && typeof extraFile === 'string';
     if (hasExtra) {
-      ids.push(...collectManifestFiles(manifest, options.extraEntryId!, false));
+      ids.push(...collectManifestFiles(manifest, extraEntryId, false));
     }
     const css =
       options.kind === 'ssr'
@@ -210,7 +212,7 @@ export function createClientAssetTags(
             ...(options.pageCssKeys?.[componentId] ?? []),
           ]);
     if (hasExtra) {
-      for (const file of collectRouteCss(manifest, [options.extraEntryId!])) {
+      for (const file of collectRouteCss(manifest, [extraEntryId])) {
         css.add(file);
       }
     }
@@ -231,7 +233,7 @@ export function createClientAssetTags(
     }
     let body = script('/' + entry.file);
     if (hasExtra) {
-      body += '\n' + script('/' + extraEntry.file!);
+      body += '\n' + script('/' + extraFile);
     }
     return {
       css: [...css]

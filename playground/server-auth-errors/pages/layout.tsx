@@ -1,5 +1,6 @@
 import { Link, useNavigation, useRouter } from '@void/react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { auth } from 'void/client/react';
 import './styles.css';
 
@@ -11,7 +12,10 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { data: session, isPending } = auth.useSession();
 
   useEffect(() => {
-    const toast = toastRef.current!;
+    const toast = toastRef.current;
+    if (!toast) {
+      return;
+    }
     toast.showPopover();
     const timeout = window.setTimeout(() => toast.hidePopover(), 2500);
     return () => {

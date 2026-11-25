@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import * as p from '@voidzero-dev/vite-plus-prompts';
+import { cancel, isCancel, log, outro, text } from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
 import pc from 'picocolors';
 import { parseCreateArgs, validateProjectName } from './args.ts';
@@ -14,19 +15,19 @@ async function main() {
   let appName = createArgs.appName;
 
   if (!appName && !process.stdin.isTTY) {
-    p.log.error('create-void: Pass a project name when running without an interactive terminal.');
+    log.error('create-void: Pass a project name when running without an interactive terminal.');
     process.exit(1);
   }
 
   if (!appName) {
-    const name = await p.text({
+    const name = await text({
       message: 'Project name:',
       defaultValue: 'my-app',
       placeholder: 'my-app',
       validate: validateProjectName,
     });
-    if (p.isCancel(name) || typeof name !== 'string') {
-      p.cancel('Cancelled.');
+    if (isCancel(name) || typeof name !== 'string') {
+      cancel('Cancelled.');
       process.exit(0);
     }
     appName = name;
@@ -37,27 +38,36 @@ async function main() {
   if (existsSync(targetDir)) {
     const entries = readdirSync(targetDir);
     if (entries.length > 0) {
-      p.log.error(`create-void: Directory '${pc.bold(appName)}' is not empty.`);
+      log.error(`create-void: Directory '${pc.bold(appName)}' is not empty.`);
       process.exit(1);
     }
   }
 
   // The release publishes the scaffolder and CLI at the same version. Preserve
   // that exact version, including prereleases, instead of switching to latest.
-  const { version: voidVersion } = JSON.parse(
+  const manifest: unknown = JSON.parse(
     readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-  ) as { version: string };
+  );
+  if (
+    !manifest ||
+    typeof manifest !== 'object' ||
+    !('version' in manifest) ||
+    typeof manifest.version !== 'string'
+  ) {
+    throw new Error('create-void: The package manifest is missing its version.');
+  }
+  const voidVersion = manifest.version;
 
   mkdirSync(targetDir, { recursive: true });
 
   p.log.step('Scaffolding starter...');
   await runVoidInit(pm, voidVersion, createArgs.initArgs, targetDir);
 
-  p.outro(`\n${pc.green(`✓ Created ${appName}`)}`, { withGuide: false });
-  p.outro(`cd ${appName} && ${pm === 'npm' ? 'npm run' : pm} dev`);
+  outro(`\n${pc.green(`✓ Created ${appName}`)}`, { withGuide: false });
+  outro(`cd ${appName} && ${pm === 'npm' ? 'npm run' : pm} dev`);
 }
 
-main().catch((err) => {
-  p.log.error(err.message);
+await main().catch((err: unknown) => {
+  log.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

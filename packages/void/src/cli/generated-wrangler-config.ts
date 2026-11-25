@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { parse, type ParseError } from 'jsonc-parser';
+import { parse } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 
 /** Parse JSON/JSONC text with an optional BOM; undefined unless it is one valid object. */
 export function parseJsoncObject(text: string): Record<string, unknown> | undefined {

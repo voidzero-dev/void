@@ -6,27 +6,23 @@ import {
   observeLinkVisible,
   prefetchLink,
   resolveLink,
-  type BaseLinkProps,
-  type LinkActiveMatch,
-  type LinkNavigateEvent,
-  type LinkPrefetchValue,
-  type NavigationState,
-  type VoidRouter,
+} from 'void/pages-client';
+import type {
+  BaseLinkProps,
+  LinkActiveMatch,
+  LinkNavigateEvent,
+  LinkPrefetchValue,
+  NavigationState,
+  VoidRouter,
 } from 'void/pages-client';
 import type { Href } from 'void/routes';
-import {
-  computed,
-  defineComponent,
-  h,
-  inject,
-  onMounted,
-  onUnmounted,
-  ref,
-  type AnchorHTMLAttributes,
-  type ButtonHTMLAttributes,
-  type DefineSetupFnComponent,
-  type ExtractPublicPropTypes,
-  type PropType,
+import { computed, defineComponent, h, inject, onMounted, onUnmounted, ref } from 'vue';
+import type {
+  AnchorHTMLAttributes,
+  ButtonHTMLAttributes,
+  DefineSetupFnComponent,
+  ExtractPublicPropTypes,
+  PropType,
 } from 'vue';
 
 type LinkMethod = NonNullable<BaseLinkProps['method']>;
@@ -35,6 +31,11 @@ type LinkMethod = NonNullable<BaseLinkProps['method']>;
 type LinkProps = BaseLinkProps &
   Omit<AnchorHTMLAttributes, keyof BaseLinkProps> &
   Omit<ButtonHTMLAttributes, keyof BaseLinkProps>;
+
+type LinkEventHandlers = Pick<
+  AnchorHTMLAttributes,
+  'onClick' | 'onMouseenter' | 'onMouseleave' | 'onFocus' | 'onTouchstart' | 'onMousedown'
+>;
 
 const linkPropOptions = {
   href: { type: String as PropType<Href>, required: true },
@@ -72,13 +73,13 @@ void linkPropsMatchRuntime;
 
 function callHandler(handler: unknown, event: Event): void {
   if (Array.isArray(handler)) {
-    for (const fn of handler) {
+    for (const fn of handler as Array<unknown>) {
       if (typeof fn === 'function') {
-        fn(event);
+        (fn as (event: Event) => void)(event);
       }
     }
   } else if (typeof handler === 'function') {
-    handler(event);
+    (handler as (event: Event) => void)(event);
   }
 }
 
@@ -172,7 +173,7 @@ const LinkComponent = defineComponent({
       const { href, isGet } = link.value;
       const tag = isGet ? 'a' : 'button';
 
-      const eventHandlers: Record<string, unknown> = { onClick };
+      const eventHandlers: LinkEventHandlers = { onClick };
 
       if (strategies.value.includes('hover')) {
         eventHandlers.onMouseenter = onMouseEnter;

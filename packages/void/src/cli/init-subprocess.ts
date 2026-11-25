@@ -1,4 +1,5 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import {
   closeSync,
@@ -26,9 +27,9 @@ const STOP_SIGNALS: Array<NodeJS.Signals> =
   process.platform === 'win32' ? ['SIGINT', 'SIGTERM'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 /** How long a command that init stops has to end by itself before init kills it. */
-const STOP_GRACE_MS = 5_000;
+const STOP_GRACE_MS = 5000;
 /** How long init waits for the killed processes to go. */
-const KILL_WAIT_MS = 1_000;
+const KILL_WAIT_MS = 1000;
 /** How often init checks whether a stopped command has ended. */
 const STOP_POLL_MS = 25;
 
@@ -159,7 +160,7 @@ async function replayOutput(path: string): Promise<void> {
     return;
   }
   // Stop at the size on exit even if a background child is still writing.
-  const output = createReadStream(path, { encoding: 'utf8', end: size - 1 });
+  const output: AsyncIterable<string> = createReadStream(path, { encoding: 'utf8', end: size - 1 });
   let endsWithNewline = true;
   for await (const chunk of output) {
     endsWithNewline = chunk.endsWith('\n');
@@ -171,6 +172,10 @@ async function replayOutput(path: string): Promise<void> {
     process.stdout.write('\n');
   }
 }
+
+const onSignal = (signal: NodeJS.Signals): void => {
+  process.exit(128 + constants.signals[signal]);
+};
 
 /** Run a command behind a spinner and print its output if it fails. */
 export async function runBehindSpinner(
@@ -207,9 +212,6 @@ export async function runBehindSpinner(
       }
     }
     cleanup();
-  };
-  const onSignal = (signal: NodeJS.Signals): void => {
-    process.exit(128 + constants.signals[signal]);
   };
 
   try {

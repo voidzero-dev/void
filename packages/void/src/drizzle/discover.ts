@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { relative } from 'pathslash';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
 
 export type SchemaLocation = { type: 'file'; path: string } | { type: 'directory'; path: string };
 

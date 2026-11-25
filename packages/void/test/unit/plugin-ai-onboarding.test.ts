@@ -50,11 +50,11 @@ async function startAiApp(plugins: Array<PluginOption>): Promise<void> {
 
   const { voidPlugin } = await import('../../src/index.ts');
   const envPlugin = voidPlugin().find((plugin) => plugin.name === 'void:env');
-  const config = getHookHandler(envPlugin?.config) as (config: UserConfig, env: ConfigEnv) => void;
+  const config = getHookHandler<(config: UserConfig, env: ConfigEnv) => void>(envPlugin?.config);
   config({}, { command: 'serve', mode: 'development' });
-  const configureServer = getHookHandler(envPlugin?.configureServer) as (
-    server: ViteDevServer,
-  ) => void;
+  const configureServer = getHookHandler<(server: ViteDevServer) => void>(
+    envPlugin?.configureServer,
+  );
   // Without an HTTP server, the setup starts right away.
   configureServer({ config: { plugins }, httpServer: null } as unknown as ViteDevServer);
 }

@@ -103,7 +103,7 @@ export function truncateUtf8(value: string, maxBytes: number): string {
   // falls inside a character — walk back to that character's lead byte, which
   // `slice(0, end)` then excludes. A cut already on a boundary stops at once,
   // so a whole character is never dropped needlessly.
-  while (end > 0 && (encoded[end]! & 0xc0) === 0x80) {
+  while (end > 0 && (encoded[end] & 0xc0) === 0x80) {
     end--;
   }
 

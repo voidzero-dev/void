@@ -25,8 +25,8 @@ import {
   EMAIL_SIGNING_SECRET,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 const token = 'customer-scoped-token';
@@ -198,7 +198,7 @@ describe('project email domain authority', () => {
         })
       ).status,
     ).toBe(200);
-    const credential = (await env.db.select().from(emailCredentials))[0]!;
+    const credential = (await env.db.select().from(emailCredentials))[0];
     expect(credential).toMatchObject({
       token_id: 'tok_dummy',
       status: 'healthy',
@@ -365,30 +365,30 @@ describe('project email domain authority', () => {
       attemptId: 'stable-add',
     });
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
+    const body = await response.json<{
       operationId: string;
       attemptId: string;
       readiness: { inbound: { status: string } };
       domain: string;
-    };
+    }>();
     expect(body.domain).toBe('mail.example.com');
     expect(body.attemptId).toBe('stable-add');
     expect(body.operationId).toMatch(/^eop/);
     expect(body.readiness.inbound.status).toBe('ready');
     expect(JSON.stringify(body)).not.toContain(token);
-    const credential = (await env.db.select().from(emailCredentials))[0]!;
+    const credential = (await env.db.select().from(emailCredentials))[0];
     expect(credential.kind).toBe('api_token');
     expect(credential.ciphertext).not.toContain(token);
     expect(credential.account_id).toBe('customer-account');
     const status = await call(project.id, owner.jwt, 'GET', '/operations/stable-add');
     expect(status.status).toBe(200);
-    expect(((await status.json()) as { operationId: string }).operationId).toBe(body.operationId);
+    expect((await status.json<{ operationId: string }>()).operationId).toBe(body.operationId);
     const replay = await call(project.id, owner.jwt, 'POST', '/domains', {
       domain: 'mail.example.com',
       apiToken: token,
       attemptId: 'stable-add',
     });
-    expect(((await replay.json()) as { operationId: string }).operationId).toBe(body.operationId);
+    expect((await replay.json<{ operationId: string }>()).operationId).toBe(body.operationId);
     const conflict = await call(project.id, owner.jwt, 'POST', '/domains', {
       domain: 'mail.example.com',
       apiToken: 'another-token',
@@ -406,7 +406,7 @@ describe('project email domain authority', () => {
       },
     );
     expect(rotation.status).toBe(200);
-    const rotated = (await rotation.json()) as { operationId: string };
+    const rotated = await rotation.json<{ operationId: string }>();
     const recoveredRotation = await call(
       project.id,
       owner.jwt,

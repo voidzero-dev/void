@@ -1,5 +1,6 @@
 import { expectTypeOf } from 'vite-plus/test';
-import { createActionClient, type ActionResult } from '../../src/pages/client.ts';
+import { createActionClient } from '../../src/pages/client.ts';
+import type { ActionResult } from '../../src/pages/client.ts';
 import type { ParseActionUrl, ResolveActionBody } from '../../src/routes-stub.ts';
 
 const { action } = createActionClient();

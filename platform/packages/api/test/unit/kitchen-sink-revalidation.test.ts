@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { CloudEnv } from 'void/handler';
 import { kitchenSinkSourceFixture } from './kitchen-sink-source-fixture.ts';
@@ -13,7 +14,9 @@ let fixture: ReturnType<typeof kitchenSinkSourceFixture>;
 let app: Hono<CloudEnv>;
 beforeAll(async () => {
   fixture = kitchenSinkSourceFixture(['pages/revalidate.server.ts']);
-  const { action } = await import(join(fixture.root, 'pages/revalidate.server.ts'));
+  const { action } = (await import(join(fixture.root, 'pages/revalidate.server.ts'))) as {
+    action(context: Context<CloudEnv>): Promise<Response | void>;
+  };
   app = new Hono<CloudEnv>()
     .post('/', async (c) => {
       const response = await action(c);

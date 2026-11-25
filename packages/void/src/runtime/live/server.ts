@@ -1,12 +1,13 @@
-import { eventStream, type SseStream } from '../sse/index.ts';
-import {
-  __getLiveBindingName,
-  type LiveClientEvent,
-  type LiveControlErrorCode,
-  type LiveControlOperation,
-  type LiveControlOperationResult,
-  type LiveControlResponse,
-  type LiveLimits,
+import { eventStream } from '../sse/index.ts';
+import type { SseStream } from '../sse/index.ts';
+import { __getLiveBindingName } from './index.ts';
+import type {
+  LiveClientEvent,
+  LiveControlErrorCode,
+  LiveControlOperation,
+  LiveControlOperationResult,
+  LiveControlResponse,
+  LiveLimits,
 } from './index.ts';
 import { connectionInstanceName, internalUrl, topicDigest, topicInstanceName } from './names.ts';
 
@@ -116,22 +117,22 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
         return new Response('Method Not Allowed', { status: 405 });
       }
       if (pathname === '/connect') {
-        return this.connect((await request.json()) as ConnectRequest);
+        return this.connect(await request.json<ConnectRequest>());
       }
       if (pathname === '/control') {
-        return this.control((await request.json()) as ControlRequest);
+        return this.control(await request.json<ControlRequest>());
       }
       if (pathname === '/deliver') {
-        return this.deliver((await request.json()) as DeliveryRequest);
+        return this.deliver(await request.json<DeliveryRequest>());
       }
       if (pathname === '/check') {
-        return this.check((await request.json()) as StaleCheckRequest);
+        return this.check(await request.json<StaleCheckRequest>());
       }
       if (pathname === '/register') {
-        return this.register((await request.json()) as SubscriberRow & { limits: LiveLimits });
+        return this.register(await request.json<SubscriberRow & { limits: LiveLimits }>());
       }
       if (pathname === '/unregister') {
-        return this.unregister((await request.json()) as Partial<SubscriberRow>);
+        return this.unregister(await request.json<Partial<SubscriberRow>>());
       }
       if (pathname === '/publish') {
         return this.enqueuePublish(request);
@@ -147,7 +148,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
       const run = this.publishChain
         .catch(() => {})
         .then(async () => {
-          return this.publish((await request.json()) as PublishRequest);
+          return this.publish(await request.json<PublishRequest>());
         });
       this.publishChain = run.then(
         () => {},
@@ -176,7 +177,9 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
       return eventStream(
         async (stream) => {
           const subscriptions =
-            previous?.owner === message.owner ? previous.subscriptions : new Map();
+            previous?.owner === message.owner
+              ? previous.subscriptions
+              : new Map<string, ActiveSubscription>();
           for (const subscription of subscriptions.values()) {
             subscription.active = false;
           }
@@ -405,7 +408,12 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
         return Response.json({ ok: true });
       }
       const key =
-        row.connectionId && row.subscriptionId && row.generation != null && row.revision != null
+        row.connectionId &&
+        row.subscriptionId &&
+        row.generation !== null &&
+        row.generation !== undefined &&
+        row.revision !== null &&
+        row.revision !== undefined
           ? subscriberKey(row as SubscriberRow)
           : undefined;
       if (key) {
@@ -453,7 +461,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
             throw outcome.reason;
           }
           const response = outcome.value;
-          const items = batch[index]![1];
+          const items = batch[index][1];
           // A missed delivery does not prove the still-open SSE connection is gone.
           if (!response) {
             continue;
@@ -482,7 +490,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
     private async pruneAllSubscribers(): Promise<void> {
       const rows = await this.state.storage.list<SubscriberRow>({ prefix: 'sub:' });
       const staleKeys = await this.findStaleSubscriberKeys([...rows], {
-        deliveryAttemptTimeoutMs: 1_500,
+        deliveryAttemptTimeoutMs: 1500,
       });
       if (staleKeys.length > 0) {
         await this.state.storage.delete(staleKeys);
@@ -505,7 +513,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
         const responses = await Promise.allSettled(
           batch.map(([connectionId, items]) =>
             fetchWithTimeout(
-              this.connectionStub(items[0]!.row.streamId, connectionId),
+              this.connectionStub(items[0].row.streamId, connectionId),
               internalUrl('/check'),
               {
                 method: 'POST',
@@ -522,7 +530,7 @@ export function createLiveDurableObject(): LiveDurableObjectClass {
             throw outcome.reason;
           }
           const response = outcome.value;
-          const items = batch[index]![1];
+          const items = batch[index][1];
           if (!response) {
             continue;
           }

@@ -6,9 +6,10 @@ import {
   advanceStackGame,
   createStackGame,
   dropStackTile,
+  topStackTile,
   LAYER_HEIGHT,
-  type Tile,
 } from './stack-and-ship';
+import type { Tile } from './stack-and-ship';
 import StackTile from './StackTile.vue';
 
 type Phase = 'idle' | 'playing' | 'paused' | 'over';
@@ -30,7 +31,7 @@ const shareUrl = computed(
     })}`,
 );
 const framework = computed(() => frameworks[game.value.moving?.framework ?? 0]?.name);
-const top = computed(() => game.value.tiles[game.value.tiles.length - 1]!);
+const top = computed(() => topStackTile(game.value));
 const originX = computed(
   () => 320 - (top.value.x + top.value.width / 2 - top.value.z - top.value.depth / 2) * 0.8,
 );

@@ -1,10 +1,10 @@
-import { type CloudflareTriggerConfig } from '@void/deploy-cloudflare';
-import {
-  createPlatformDeploymentManifest,
-  type PlatformInstallationManifest,
-  type PlatformLifecycleOperation,
-  type PlatformAccessProtection,
-  type PlatformLoginKind,
+import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
+import { createPlatformDeploymentManifest } from '@void/platform';
+import type {
+  PlatformInstallationManifest,
+  PlatformLifecycleOperation,
+  PlatformAccessProtection,
+  PlatformLoginKind,
 } from '@void/platform';
 import type {
   PlatformRuntime,
@@ -19,9 +19,10 @@ import type {
 } from './platform-ai-logging-projection.ts';
 import type { initializeInstalledAppAccess } from './platform-app-access.ts';
 import type { initializeInstalledPlatformAuthentication } from './platform-auth-bootstrap.ts';
-import {
-  type CloudflareWorkerCustomDomainOrigin,
-  type PlatformCloudflareClient,
+import type {
+  CloudflareWorkerCustomDomainOrigin,
+  PlatformCloudflareClient,
+  ReadCloudflare,
 } from './platform-cloudflare.ts';
 import type {
   bootstrapPlatformSharedEmail,
@@ -29,8 +30,8 @@ import type {
   verifyPlatformDeploymentExecutionDrain,
 } from './platform-installer-health.ts';
 import type { runPlatformWrangler } from './platform-installer-workers.ts';
-import { type PlatformInstallPlan, type PlatformInstallPlanAction } from './platform-plan.ts';
-import { type PlatformProjectZeroTrustState } from './platform-zero-trust-uninstall.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
+import type { PlatformProjectZeroTrustState } from './platform-zero-trust-uninstall.ts';
 
 export type PlatformInstallationSecrets = Readonly<{
   appAccessSetupJson?: string;
@@ -137,6 +138,12 @@ export type PlatformDatabaseLifecycleLock = (() => Promise<void>) & {
     kv: AiLoggingProjectionKv,
     onProgress?: (message: string) => void,
   ) => Promise<AiLoggingProjectionResult>;
+  /**
+   * Connections the database accepts from roles without SUPERUSER:
+   * max_connections minus the reserved slots. Missing on test locks, which then skip
+   * fitting the Hyperdrive origin connection limit to the database.
+   */
+  readConnectionSlots?: () => Promise<number>;
   /** Project slugs, which --purge-resources requires to be empty. */
   readProjects?: () => Promise<ReadonlyArray<string>>;
   /** Block Zero Trust writers in the API until the returned release runs. */
@@ -204,6 +211,7 @@ export type InstallerClient = Pick<
   | 'createHyperdrive'
   | 'getHyperdriveConfig'
   | 'disableHyperdriveCaching'
+  | 'setHyperdriveOriginConnectionLimit'
   | 'createKvNamespace'
   | 'createQueue'
   | 'createR2Bucket'
@@ -362,7 +370,7 @@ export type InstallationCheckpointWriter = (
 export type PlatformWorkerDeploymentOptions = Readonly<{
   apiBaseUrl: string;
   operatorApiToken?: string;
-  readCloudflare?: (path: string) => Promise<unknown>;
+  readCloudflare?: ReadCloudflare;
   acquireUploadSlot?: () => Promise<(failure?: unknown) => void>;
   onReadyForActivation?: () => Promise<void>;
   waitForPriorWorker?: () => Promise<void>;
@@ -416,6 +424,13 @@ export type PlatformWorkerDeployment = Readonly<{
 }>;
 
 export type PlatformWorkerKey = 'api' | 'proxy' | 'emailGateway' | 'tail' | 'dispatch';
+
+/** Wrangler configuration forwarded through worker installation and recovery. */
+export type PlatformWorkerConfig = Record<string, unknown> & {
+  route?: unknown;
+  routes?: unknown;
+  migrations?: unknown;
+};
 
 export type PlatformWorkerCutoverSnapshot = Readonly<{
   previousVersionId: string | null;
