@@ -66,9 +66,7 @@ export type Env = Readonly<{
 
 export type JwtPayload = Readonly<{
   sub: string;
-  login: string;
-  aud: string;
-  iat: number;
+  aud: 'api' | 'prerender';
   exp: number;
   project?: string;
   build?: string;

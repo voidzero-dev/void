@@ -1,3 +1,4 @@
+import { isRecord } from '@void/deploy-core';
 import { usageLimitResponse } from '@void/edge';
 import { verifyEmailReceipt } from '@void/platform/email-protocol';
 import { isProjectId } from '@voidcloud/api/id';
@@ -266,11 +267,7 @@ app.post('/*', async (context, next) => {
       path === '/r2/get')
   ) {
     context.res = new Response(
-      guardHumanStream(
-        context.res.body as ReadableStream<Uint8Array>,
-        revalidateHuman,
-        context.req.raw.signal,
-      ),
+      guardHumanStream(context.res.body, revalidateHuman, context.req.raw.signal),
       context.res,
     );
   }
@@ -351,7 +348,7 @@ async function getVerifyKey(secret: string): Promise<CryptoKey> {
   return cachedVerifyKey;
 }
 
-function base64urlDecode(str: string): Uint8Array {
+function base64urlDecode(str: string): Uint8Array<ArrayBuffer> {
   const padded = str.replaceAll('-', '+').replaceAll('_', '/');
   const binary = atob(padded);
   return Uint8Array.from(binary, (context) => context.charCodeAt(0));
@@ -371,25 +368,30 @@ async function verifyJwt(token: string, secret: string): Promise<JwtPayload | nu
     const valid = await crypto.subtle.verify(
       'HMAC',
       key,
-      sigBytes.buffer as ArrayBuffer,
+      sigBytes,
       encoder.encode(`${header}.${body}`),
     );
     if (!valid) {
       return null;
     }
 
-    const payload = JSON.parse(decoder.decode(base64urlDecode(body))) as JwtPayload;
-
+    const payload: unknown = JSON.parse(decoder.decode(base64urlDecode(body)));
     const now = Math.floor(Date.now() / 1000);
-    if (payload.exp <= now) {
+    if (
+      !isRecord(payload) ||
+      typeof payload.sub !== 'string' ||
+      typeof payload.exp !== 'number' ||
+      !Number.isFinite(payload.exp) ||
+      payload.exp <= now ||
+      (payload.aud !== 'api' && payload.aud !== 'prerender') ||
+      (payload.project !== undefined && typeof payload.project !== 'string') ||
+      (payload.build !== undefined && typeof payload.build !== 'string') ||
+      (payload.credential !== undefined && typeof payload.credential !== 'string')
+    ) {
       return null;
     }
-
-    if (payload.aud !== 'api' && payload.aud !== 'prerender') {
-      return null;
-    }
-
-    return payload;
+    const { sub, exp, aud, project, build, credential } = payload;
+    return { sub, exp, aud, project, build, credential };
   } catch {
     return null;
   }
