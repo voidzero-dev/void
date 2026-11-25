@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import * as p from '@voidzero-dev/vite-plus-prompts';
 import { cancel, isCancel, log, outro, text } from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
 import pc from 'picocolors';
@@ -60,7 +59,7 @@ async function main() {
 
   mkdirSync(targetDir, { recursive: true });
 
-  p.log.step('Scaffolding starter...');
+  log.step('Scaffolding starter...');
   await runVoidInit(pm, voidVersion, createArgs.initArgs, targetDir);
 
   outro(`\n${pc.green(`✓ Created ${appName}`)}`, { withGuide: false });
