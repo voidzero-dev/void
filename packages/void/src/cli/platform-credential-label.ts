@@ -25,6 +25,7 @@ export type PlatformCredentialDenial = Readonly<{
 
 export const PLATFORM_RUNTIME_TOKEN_VARIABLE = 'VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN';
 export const PLATFORM_AI_GATEWAY_PERMISSION = 'Account → AI Gateway → Edit';
+export const PLATFORM_WORKERS_PERMISSION = 'Account → Workers → Admin';
 
 /** For example `management token from CLOUDFLARE_API_TOKEN`. */
 export function describePlatformCredential(label: PlatformCredentialLabel): string {
@@ -129,7 +130,7 @@ export function cloudflarePermissionForPath(requestPath: string): string | undef
       return 'Account → Hyperdrive → Edit';
     }
     if (area === 'workers') {
-      return 'Account → Workers Scripts → Edit';
+      return PLATFORM_WORKERS_PERMISSION;
     }
     if (area === 'email' && parts[3] === 'routing') {
       return 'Account → Email Routing Addresses → Edit';
@@ -142,7 +143,7 @@ export function cloudflarePermissionForPath(requestPath: string): string | undef
     }
     const area = parts[2];
     if (area === 'workers' && parts[3] === 'routes') {
-      return 'Zone → Workers Routes → Edit';
+      return 'Zone → Workers Routes → Write';
     }
     if (area === 'dns_records') {
       return 'Zone → DNS → Edit';

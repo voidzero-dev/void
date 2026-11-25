@@ -136,12 +136,14 @@ Set these CI secrets and variables as needed:
 
 | Name                                             | When needed                                                                                                                                                                               |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`                           | Required. Workers Scripts: Edit, read access to bound resources, and edit access to products Void provisions.                                                                             |
+| `CLOUDFLARE_API_TOKEN`                           | Required. Workers Admin for the first deploy, or Workers Editor to deploy to an existing Worker.                                                                                          |
 | `CLOUDFLARE_ACCOUNT_ID`                          | When the token can access several accounts.                                                                                                                                               |
 | `DATABASE_URL`                                   | PostgreSQL and MySQL provisioning and migrations.                                                                                                                                         |
 | `CLOUDFLARE_WORKERS_SUBDOMAIN`                   | When workers.dev is enabled and the version has no preview URL. Use `my-team` or `my-team.workers.dev`. An account subdomain does not create a readiness URL when `workers_dev` is false. |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | When Cloudflare Access protects the readiness URL.                                                                                                                                        |
 | `CF_ACCESS_READINESS_ORIGIN`                     | When Access protects a route or Custom Domain and `workers_dev` is `false`. See [Cloudflare Access](#cloudflare-access).                                                                  |
+
+Grant **Workers → Admin** for the account when Void creates the Worker. For subsequent deploys, **Workers → Editor** is enough for the Worker itself. Add **Workers Routes Write** for each zone where the deploy adds, updates, or removes a route or Custom Domain. Grant access to any resources Void reads or provisions, such as D1 or KV. See [Cloudflare Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/).
 
 For email, run `void email setup --platform cloudflare` locally, commit `void.lock.json`, and pass `--require-email` in CI. The token also needs Zone Read and Email Sending Edit, plus Email Routing Edit for apps with `email/` handlers.
 

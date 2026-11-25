@@ -6,6 +6,7 @@ import {
 import type { InstallationResource, PlatformInstallationManifest } from '@void/platform';
 import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
 import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
+import { PLATFORM_WORKERS_PERMISSION } from './platform-credential-label.ts';
 import { platformTrafficAttachmentWorker } from './platform-traffic.ts';
 import { readPlatformDatabase } from './platform-zero-trust-uninstall.ts';
 
@@ -106,9 +107,9 @@ const PERMISSIONS = {
   kv: 'Account → Workers KV Storage → Edit',
   queues: 'Account → Queues → Edit',
   r2: 'Account → Workers R2 Storage → Edit',
-  routes: 'Zone → Workers Routes → Edit',
+  routes: 'Zone → Workers Routes → Write',
   serviceTokens: 'Account → Access: Service Tokens → Edit',
-  workers: 'Account → Workers Scripts → Edit',
+  workers: PLATFORM_WORKERS_PERMISSION,
 } as const;
 
 export function isPlatformTailWorker(

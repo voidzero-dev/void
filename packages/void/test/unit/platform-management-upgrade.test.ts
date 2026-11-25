@@ -574,7 +574,7 @@ describe('installed platform upgrade', () => {
       const failure = await upgrade().then(expectedRejection, (error: unknown) => error);
       assert.instanceOf(failure, Error);
       expect(failure.message).toContain(
-        'Cloudflare denied the management token from CF_API_TOKEN:\n- Account → Workers Scripts → Edit (HTTP 403; Cloudflare Workers access)\n- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "assets")',
+        'Cloudflare denied the management token from CF_API_TOKEN:\n- Account → Workers → Admin (HTTP 403; Cloudflare Workers access)\n- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "assets")',
       );
       expect(acquirePlatformLifecycleLock).not.toHaveBeenCalled();
       expect(installPlatform).not.toHaveBeenCalled();

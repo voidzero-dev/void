@@ -5,6 +5,7 @@ import type { CloudflareAccount, PlatformCloudflareClient } from './platform-clo
 import {
   describePlatformCredential,
   formatPlatformCredentialDenials,
+  PLATFORM_WORKERS_PERMISSION,
 } from './platform-credential-label.ts';
 import type {
   PlatformCredentialDenial,
@@ -115,7 +116,7 @@ export async function verifyPlatformCloudflareCredential(
       `platform: The ${name} cannot access Cloudflare account ${JSON.stringify(input.account.name)} (${input.account.id}). ${retry}`,
     );
   }
-  await check('Cloudflare Workers access', 'Account → Workers Scripts → Edit', () =>
+  await check('Cloudflare Workers access', PLATFORM_WORKERS_PERMISSION, () =>
     client.listWorkerNames(input.account.id),
   );
   for (const bucket of new Set(input.r2Buckets)) {

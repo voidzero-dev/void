@@ -42,12 +42,12 @@ Compare each token's form with the permission checklist below. The installer sav
 
 ::: details Permissions to select for each token
 
-Use the following permissions for the core platform. Cloudflare may label write access as **Edit** or **Write**, depending on the token screen; see its [permission reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/).
+Use the following permissions for the core platform. Confirm **Workers → Admin** for the account on both forms. The installer creates platform Workers, and the runtime token deploys apps into the platform's dispatch namespace. Cloudflare may label write access as **Edit** or **Write**, depending on the token screen. See its [permission reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/).
 
 | Scope   | Permission         | Management | Runtime                                 |
 | ------- | ------------------ | ---------- | --------------------------------------- |
 | Account | Account Settings   | Read       | Read                                    |
-| Account | Workers Scripts    | Edit       | Edit                                    |
+| Account | Workers            | Admin      | Admin                                   |
 | Account | Workers Tail       | Read       | Read                                    |
 | Account | D1                 | Edit       | Edit                                    |
 | Account | Workers KV Storage | Edit       | Edit                                    |
@@ -60,7 +60,7 @@ Use the following permissions for the core platform. Cloudflare may label write 
 | Account | Cloudchamber       | —          | Edit                                    |
 | Zone    | Zone               | Read       | —                                       |
 | Zone    | DNS                | Edit       | —                                       |
-| Zone    | Workers Routes     | Edit       | —                                       |
+| Zone    | Workers Routes     | Write      | —                                       |
 | Zone    | Cache Purge        | —          | Purge                                   |
 
 When Void configures Access in the installation account, the initial management-token link also selects **Account → Access: Apps and Policies → Edit** and **Account → Access: Organizations, Identity Providers, and Groups → Read**. Protection adds **Account → Access: Service Tokens → Edit**. When the authentication configuration or saved setup selects existing applications, the link requests Read access instead of Edit. These permissions belong to the management token; the runtime token does not need them.

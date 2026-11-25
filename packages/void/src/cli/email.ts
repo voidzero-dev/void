@@ -270,12 +270,12 @@ export async function emailLogs(
 /**
  * Permission groups prefilled in the dashboard token link. `zone_settings: edit` gates
  * the routing POST; `zone: read` serves the zone lookup.
+ * User-token templates cannot prefill Workers Admin by permission group ID.
  */
 const CF_TOKEN_TEMPLATE_PERMISSION_GROUPS = [
   { key: 'zone', type: 'read' },
   { key: 'email_routing_rule', type: 'edit' },
   { key: 'email_sending', type: 'edit' },
-  { key: 'workers_scripts', type: 'edit' },
   { key: 'zone_settings', type: 'edit' },
 ] as const;
 
@@ -602,7 +602,7 @@ export async function emailDomainAdd(
   let credential: EmailDomainCredential;
   {
     log.info(
-      `Create a Cloudflare API token restricted to the account and DNS zone containing ${domain}. In the resource selectors, replace All accounts and All zones with those exact resources. Workers Scripts Write still applies to every Worker in the selected account.`,
+      `Create a Cloudflare API token restricted to the account and DNS zone containing ${domain}. In the resource selectors, replace All accounts and All zones with those exact resources. Add Workers → Admin for that account so Void can create and remove the mail ingress Worker.`,
     );
     const url = buildCfApiTokenTemplateUrl(domain);
     const readClip = deps.readClipboard ?? readClipboard;

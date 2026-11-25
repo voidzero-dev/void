@@ -137,7 +137,7 @@ describe('platform Cloudflare authentication', () => {
     expect(error.message).toBe(
       [
         'platform: Cloudflare denied the management token from CF_API_TOKEN:',
-        '- Account → Workers Scripts → Edit (HTTP 403; Cloudflare Workers access)',
+        '- Account → Workers → Admin (HTTP 403; Cloudflare Workers access)',
         '- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "assets")',
         '- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "cache")',
         'HTTP 403 means the token works but is missing the permissions listed above, or is not scoped to this account or zone. Add them to the token in the Cloudflare dashboard (the token value stays the same), or set CF_API_TOKEN to a management token that has them, then retry.',
@@ -172,8 +172,8 @@ describe('platform Cloudflare authentication', () => {
     expect(error.message).toBe(
       [
         'platform: Cloudflare denied the management token saved on this machine:',
-        '- Account → Workers Scripts → Edit (HTTP 403; Cloudflare Workers access)',
-        'HTTP 403 means the token works but is missing Account → Workers Scripts → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has it, then retry.',
+        '- Account → Workers → Admin (HTTP 403; Cloudflare Workers access)',
+        'HTTP 403 means the token works but is missing Account → Workers → Admin, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has it, then retry.',
       ].join('\n'),
     );
     expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
@@ -199,7 +199,7 @@ describe('platform Cloudflare authentication', () => {
     assert.instanceOf(error, Error);
     expect(error.message).toContain('Cloudflare denied the management token saved on this machine');
     expect(error.message).toContain('- Account → Account Settings → Read (HTTP 401');
-    expect(error.message).toContain('- Account → Workers Scripts → Edit (HTTP 401');
+    expect(error.message).toContain('- Account → Workers → Admin (HTTP 401');
     expect(error.message).toContain(
       'HTTP 401 means Cloudflare did not accept the token: it is not valid, has expired, or was replaced. Set CLOUDFLARE_API_TOKEN to a valid management token, then retry.',
     );
