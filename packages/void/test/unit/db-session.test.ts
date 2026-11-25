@@ -259,6 +259,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     {
       name: 'await',
       read: async (db: typeof runtimeDb.db) => {
+        // oxlint-disable-next-line typescript/await-thenable -- Await must read the proxy's then property without opening a session.
         await db;
       },
     },
@@ -293,12 +294,12 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     const { withSession, env } = mockBinding();
     await withRuntimeEnv(env, async () => {
       setSession({ bookmark: BEFORE_SAVE });
-      await read(db);
+      await Promise.resolve(read(db));
       expect(withSession).not.toHaveBeenCalled();
       expect(getBookmark()).toBeNull();
       setSession({ bookmark: AFTER_SAVE });
       void db.select;
-      await read(db);
+      await Promise.resolve(read(db));
       expect(getBookmark()).toBe(AFTER_SAVE);
     });
     expect(withSession).toHaveBeenCalledExactlyOnceWith(AFTER_SAVE);
@@ -307,7 +308,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
   it('allows promise and inspection probes without request bindings', async () => {
     const { db } = await loadClient();
     for (const { read } of probes) {
-      await read(db);
+      await Promise.resolve(read(db));
     }
   });
 

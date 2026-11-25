@@ -1021,7 +1021,7 @@ describe('registered OAuth applications', () => {
       refresh(token.refresh_token),
       refresh(token.refresh_token),
     ]);
-    expect(responses.map((response) => response.status).sort()).toEqual([200, 400]);
+    expect(responses.map((response) => response.status).sort((a, b) => a - b)).toEqual([200, 400]);
     // The second redemption is reuse, so the grant it raced is revoked.
     const [grant] = await env.db.select().from(oauthGrants);
     expect(grant.revoked_at).not.toBeNull();
@@ -1033,7 +1033,7 @@ describe('registered OAuth applications', () => {
       const responses = await Promise.all(
         Array.from({ length: 6 }, () => refresh(token.refresh_token)),
       );
-      const statuses = responses.map((response) => response.status).sort();
+      const statuses = responses.map((response) => response.status).sort((a, b) => a - b);
       expect(statuses).toEqual([200, 400, 400, 400, 400, 400]);
       expect(
         await env.db.select().from(oauthRefreshTokens).where(isNull(oauthRefreshTokens.used_at)),

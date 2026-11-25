@@ -1,5 +1,6 @@
 import { Context } from 'hono';
 import type { MiddlewareHandler } from 'hono';
+import type { matchedRoutes as honoMatchedRoutes } from 'hono/route';
 import {
   PRESERVED_QUERY_HEADER,
   markActionKey,
@@ -67,18 +68,21 @@ function actionNameOf(request: Request): string | undefined {
   );
   return new URLSearchParams(search).keys().next().value;
 }
-const routeHandlers = new WeakSet<Function>();
-const namedActionHandlers = new WeakSet<Function>();
-const pageGetOptions = new WeakMap<Function, PageRouteOptions>();
+type MatchedRoutes = typeof honoMatchedRoutes;
+type RouteHandler = ReturnType<MatchedRoutes>[number]['handler'];
+
+const routeHandlers = new WeakSet<RouteHandler>();
+const namedActionHandlers = new WeakSet<RouteHandler>();
+const pageGetOptions = new WeakMap<RouteHandler, PageRouteOptions>();
 /** Records a handler that answers a route, so the marker can tell it from middleware. */
-export function markRouteHandler<T extends Function>(handler: T): T {
+export function markRouteHandler<T extends RouteHandler>(handler: T): T {
   routeHandlers.add(handler);
   return handler;
 }
 
 /** Hono catches middleware throws itself, before the page endpoint can run. */
 export function createPageErrorHandler(
-  matchedRoutes: (c: Context) => Array<{ handler: Function }>,
+  matchedRoutes: MatchedRoutes,
   fallback: ErrorRenderer['onError'],
 ): ErrorRenderer['onError'] {
   const recovering = new WeakSet<Context>();
@@ -134,9 +138,7 @@ export function createPageErrorHandler(
  * `matchedRoutes` comes from 'hono/route' of the same Hono copy as the app: it
  * reads the request through a Symbol that each copy defines for itself.
  */
-export function createNamedActionMarker(
-  matchedRoutes: (c: Context) => Array<{ handler: Function }>,
-): MiddlewareHandler {
+export function createNamedActionMarker(matchedRoutes: MatchedRoutes): MiddlewareHandler {
   return async (c, next) => {
     const answer = matchedRoutes(c)
       .slice(c.req.routeIndex + 1)

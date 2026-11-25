@@ -840,7 +840,9 @@ describe('provider-independent first administrator setup', () => {
       form('/auth/bootstrap/confirm', { confirm: 'yes' }, proofCookie),
       form('/auth/bootstrap/confirm', { confirm: 'yes' }, proofCookie),
     ]);
-    expect(confirmations.map((response) => response.status).sort()).toEqual([302, 403]);
+    expect(confirmations.map((response) => response.status).sort((a, b) => a - b)).toEqual([
+      302, 403,
+    ]);
     const usersAfter = await env.db.select().from(users);
     expect(usersAfter).toHaveLength(1);
     expect(usersAfter[0]).toMatchObject({

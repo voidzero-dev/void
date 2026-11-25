@@ -522,7 +522,9 @@ describe('managed native Durable Objects', () => {
         deadline,
       ),
     ).rejects.toThrow(WORKER_UPLOAD_OUT_OF_TIME);
-    expect(workers.map(currentRelease).sort()).toEqual([first.id, second.id].sort());
+    expect(workers.map(currentRelease).sort((a, b) => String(a).localeCompare(String(b)))).toEqual(
+      [first.id, second.id].sort((a, b) => String(a).localeCompare(String(b))),
+    );
   });
 
   it.each([

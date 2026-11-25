@@ -2239,7 +2239,7 @@ describe('UsageCounter operation ordering and persistence', () => {
     await counter.fetch(recordRequest([first, next], 'u1'));
     const persisted = storage.data.get('state') as CounterState;
     expect(persisted.totalSandboxSeconds).toBe(30);
-    expect(Array.from(storedWatermarks(storage).values()).sort()).toEqual([
+    expect(Array.from(storedWatermarks(storage).values()).sort((a, b) => a - b)).toEqual([
       from + 10_000,
       from + 80_000,
     ]);

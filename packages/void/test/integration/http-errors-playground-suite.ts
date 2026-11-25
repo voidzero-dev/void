@@ -326,7 +326,7 @@ function httpErrorsSuite(mode: HttpErrorsMode): void {
       for (const name of ['Document load', 'Client navigation']) {
         const links = await page.getByRole('link', { name, exact: true }).all();
         const targets = await Promise.all(links.map((link) => link.getAttribute('href')));
-        expect(targets.sort()).toEqual(paths);
+        expect(targets.sort((a, b) => String(a).localeCompare(String(b)))).toEqual(paths);
       }
     });
 

@@ -160,12 +160,7 @@ function parseSegments(source: string): Array<Token> {
     const name = segment.slice(1, -4);
     if (segment[0] !== ':' || segment.length < 2) {
       parseStars(tokens, segment);
-    } else if (
-      segment.length > 5 &&
-      segment.endsWith('{.+}') &&
-      !name.includes('{') &&
-      !name.includes('}')
-    ) {
+    } else if (segment.length > 5 && segment.endsWith('{.+}') && !/[{}]/.test(name)) {
       tokens.push({ kind: 'plus' });
     } else {
       // Whatever follows the ':' only names the param.

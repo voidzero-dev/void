@@ -266,7 +266,6 @@ const config = defineConfig({
           'quality/no-object-parameters': 'off',
           'quality/no-reflect-apply': 'off',
           'quality/no-reflect-get': 'off',
-          'typescript/require-array-sort-compare': 'off',
           'no-restricted-imports': [
             'error',
             {
@@ -315,14 +314,6 @@ const config = defineConfig({
         rules: { 'typescript/no-explicit-any': 'error' },
       },
       {
-        // The default comparisons preserve lexicographic order in serialized values.
-        files: [
-          'packages/void/src/cli/cf-version-api.ts',
-          'platform/packages/email-gateway/src/router.ts',
-        ],
-        rules: { 'typescript/require-array-sort-compare': 'off' },
-      },
-      {
         // Forward the original rejection value through cleanup and retries.
         files: [
           'packages/void/src/cli/{direct-r2-upload,platform-install-workers}.ts',
@@ -344,26 +335,6 @@ const config = defineConfig({
           'packages/void/src/runtime/{db/index,db/session,env/runtime,routing/worker,storage/index}.ts',
         ],
         rules: { 'quality/no-reflect-get': 'off' },
-      },
-      {
-        // These string scans look for substrings and delimiters.
-        files: ['packages/edge/src/pattern.ts', 'platform/packages/api/container/build-agent.mjs'],
-        rules: { 'unicorn/prefer-set-has': 'off' },
-      },
-      {
-        // Exercise provider rejections containing raw payloads.
-        files: ['packages/void/test/unit/provision-resources.test.ts'],
-        rules: { 'prefer-promise-reject-errors': 'off' },
-      },
-      {
-        // Test proxy thenables and non-thenable mocks.
-        files: ['packages/void/test/unit/{db-session,plugin-drizzle}.test.ts'],
-        rules: { 'typescript/await-thenable': 'off' },
-      },
-      {
-        // Routing adapters accept component functions with framework-specific signatures.
-        files: ['packages/void/src/runtime/routing/{errors,pages}.ts'],
-        rules: { 'typescript/no-unsafe-function-type': 'off' },
       },
       {
         // Empty defaults are part of route and binding types.
@@ -413,11 +384,6 @@ const config = defineConfig({
           'react/no-unknown-property': 'off',
           'react/purity': 'off',
         },
-      },
-      {
-        // The default copyright label uses the current year.
-        files: ['platform/packages/dashboard/ui/components/oss/FooterNav.tsx'],
-        rules: { 'react/purity': 'off' },
       },
       {
         // Hosted admin views synchronize streamed logs and external data in effects.
@@ -479,12 +445,7 @@ const config = defineConfig({
           'platform/packages/api/src/{migrations,observability,queues}/**/*',
           'platform/packages/api/src/{assets,proxy-token-rotation,sandbox-concurrency-counter,usage-counter}.ts',
         ],
-        excludeFiles: [
-          // Version rollout carries state across asynchronous API calls.
-          'packages/deploy-cloudflare/src/version.ts',
-          '**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}',
-          '**/__tests__/**',
-        ],
+        excludeFiles: ['**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}', '**/__tests__/**'],
         rules: { 'typescript/no-non-null-assertion': 'error' },
       },
       {

@@ -577,6 +577,12 @@ function assertContainerApplicationIdentity(
   }
 }
 
+function compareFlagValues(left: unknown, right: unknown): number {
+  const a = String(left);
+  const b = String(right);
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function assertContainerApplicationSettings(application: Json, plan: ContainerPlan): void {
   const desired = object(plan.settings.configuration) ?? {};
   const current = object(application.configuration) ?? {};
@@ -596,8 +602,8 @@ function assertContainerApplicationSettings(application: Json, plan: ContainerPl
       return (
         !Array.isArray(flags) ||
         !isDeepStrictEqual(
-          [...(flags as Array<unknown>)].sort(),
-          [...(value as Array<unknown>)].sort(),
+          [...(flags as Array<unknown>)].sort(compareFlagValues),
+          [...(value as Array<unknown>)].sort(compareFlagValues),
         )
       );
     }

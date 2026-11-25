@@ -33,7 +33,7 @@ export type ErrorRenderer = {
 const ERROR_PAGE_FONT_STACK =
   'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const errorStack = Error as {
-  captureStackTrace?: (error: Error, constructor?: Function) => void;
+  captureStackTrace?: (error: Error, stackStart: (error: Error) => Array<StackFrame>) => void;
   prepareStackTrace?: (error: Error, sites: Array<NodeJS.CallSite>) => unknown;
 };
 

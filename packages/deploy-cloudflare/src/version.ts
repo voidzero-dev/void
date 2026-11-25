@@ -977,7 +977,6 @@ async function activateCloudflareVersionWithSecretsFile(
       : options.trustedInheritanceVersionIds;
   let inheritanceBaseline: Array<RecentCloudflareVersion> | undefined;
   let trustedCandidateChain = false;
-  let activeSecretsPinned = false;
   let pinnedActiveSecrets: Array<{ name: string; type: 'secret_key' | 'secret_text' }> | undefined;
   if (options.expectedPreviousVersionId !== undefined || options.verifyInheritedSecrets === true) {
     const recent = await readRecentCloudflareVersionIds(options);
@@ -1027,13 +1026,14 @@ async function activateCloudflareVersionWithSecretsFile(
         return { ok: false, reason: 'inheritance-source-unavailable' };
       }
       if (!replacesAllRemoteSecrets) {
-        const activeSecrets = previous.versionId
-          ? await readCloudflareVersionSecretBindings(options, previous.versionId)
+        const activeSecrets = previousVersionId
+          ? await readCloudflareVersionSecretBindings(options, previousVersionId)
           : null;
         if (
+          !previousVersionId ||
           !activeSecrets ||
           !options.pinActiveSecrets ||
-          !(await options.pinActiveSecrets(previous.versionId!, activeSecrets))
+          !(await options.pinActiveSecrets(previousVersionId, activeSecrets))
         ) {
           return {
             ok: false,
@@ -1042,7 +1042,6 @@ async function activateCloudflareVersionWithSecretsFile(
             rollback: 'not-needed',
           };
         }
-        activeSecretsPinned = true;
         pinnedActiveSecrets = activeSecrets;
       }
     }
@@ -1158,10 +1157,10 @@ async function activateCloudflareVersionWithSecretsFile(
     // The exact private cf placeholder has no serving preview. Publish its first
     // application once through the bootstrap path, pinning its active secrets
     // just as for an explicitly atomic release.
-    if (bootstrapVoidDraft && !activeSecretsPinned && !options.pinActiveSecrets) {
+    if (bootstrapVoidDraft && !pinnedActiveSecrets && !options.pinActiveSecrets) {
       return { ok: false, reason: 'inheritance-source-unavailable' };
     }
-    if (bootstrapVoidDraft || (!activeSecretsPinned && options.pinActiveSecrets)) {
+    if (bootstrapVoidDraft || (!pinnedActiveSecrets && options.pinActiveSecrets)) {
       let activeSecrets: Awaited<ReturnType<typeof readCloudflareVersionSecretBindings>>;
       try {
         activeSecrets = await readCloudflareVersionSecretBindings(options, previous.versionId);
@@ -1171,26 +1170,31 @@ async function activateCloudflareVersionWithSecretsFile(
       if (activeSecrets === null) {
         return { ok: false, reason: 'inheritance-source-unavailable' };
       }
+      const draftSecretNames = previousVersion?.voidDraftSecretNames;
       if (
         bootstrapVoidDraft &&
-        (activeSecrets.length === 0 ||
+        (!draftSecretNames ||
+          activeSecrets.length === 0 ||
           activeSecrets.some((secret) => secret.type !== 'secret_text') ||
           !arraysEqual(
             activeSecrets.map((secret) => secret.name).sort(),
-            [...previousVersion!.voidDraftSecretNames!].sort(),
+            [...draftSecretNames].sort(),
           ) ||
-          (activeSecretsPinned &&
+          (pinnedActiveSecrets &&
             !isDeepStrictEqual(
               [...activeSecrets].sort((a, b) => a.name.localeCompare(b.name)),
-              [...pinnedActiveSecrets!].sort((a, b) => a.name.localeCompare(b.name)),
+              [...pinnedActiveSecrets].sort((a, b) => a.name.localeCompare(b.name)),
             )))
       ) {
         return { ok: false, reason: 'inheritance-source-changed' };
       }
-      if (!activeSecretsPinned && activeSecrets.length) {
+      if (!pinnedActiveSecrets && activeSecrets.length) {
+        if (!options.pinActiveSecrets) {
+          return { ok: false, reason: 'inheritance-source-unavailable' };
+        }
         let pinned: boolean;
         try {
-          pinned = await options.pinActiveSecrets!(previous.versionId, activeSecrets);
+          pinned = await options.pinActiveSecrets(previous.versionId, activeSecrets);
         } catch {
           return { ok: false, reason: 'inheritance-source-unavailable' };
         }
@@ -1213,7 +1217,7 @@ async function activateCloudflareVersionWithSecretsFile(
   // explicitly supplied replacement retains its existing upload semantics.
   if (
     previous.versionId !== null &&
-    !activeSecretsPinned &&
+    !pinnedActiveSecrets &&
     options.pinActiveSecrets &&
     options.candidateSecretsFilePath === undefined
   ) {
@@ -1242,10 +1246,10 @@ async function activateCloudflareVersionWithSecretsFile(
       if (!pinned) {
         return { ok: false, reason: 'inheritance-source-changed' };
       }
-      activeSecretsPinned = true;
+      pinnedActiveSecrets = activeSecrets;
     }
   }
-  if (activeSecretsPinned) {
+  if (pinnedActiveSecrets) {
     if (!options.verifyUploader()) {
       return { ok: false, reason: 'uploader-changed' };
     }
@@ -1255,9 +1259,10 @@ async function activateCloudflareVersionWithSecretsFile(
     }
     if (
       owner.kind !== 'ok' ||
+      previousVersionId === null ||
       owner.versionId !== previous.versionId ||
       !productionVersionPercentagesEqual(owner.versions, [
-        { versionId: previous.versionId!, percentage: 100 },
+        { versionId: previousVersionId, percentage: 100 },
       ])
     ) {
       return {

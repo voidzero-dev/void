@@ -165,7 +165,9 @@ describe('provisionCloudflareResources — whole-provision cross-process lock (p
     const [a, b] = await Promise.all([runChild('hd-a'), runChild('hd-b')]);
     expect(a.code).toBe(0);
     expect(b.code).toBe(0);
-    const actions = [a.stdout, b.stdout].map((s) => s.match(/ACTION:(\w+)/)?.[1]).sort();
+    const actions = [a.stdout, b.stdout]
+      .map((s) => s.match(/ACTION:(\w+)/)?.[1])
+      .sort((a, b) => String(a).localeCompare(String(b)));
     // Exactly one create; the loser's read-first (under the lock) reused the winner's id.
     expect(actions).toEqual(['created', 'reused']);
     // Mutex always released — no leak.

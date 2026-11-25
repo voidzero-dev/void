@@ -868,6 +868,13 @@ async function enactActions(
   await enactSanitized(env, message, sanitized, gate);
 }
 
+function compareHeaderEntries(left: [string, string], right: [string, string]): number {
+  // Preserve the default tuple ordering used by previously issued admission keys.
+  const a = left.join(',');
+  const b = right.join(',');
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 async function enactSanitized(
   env: Env,
   message: ForwardableEmailMessage,
@@ -898,7 +905,9 @@ async function enactSanitized(
       [to],
       action.type === 'reply'
         ? action.raw
-        : new TextEncoder().encode(JSON.stringify([...(action.headers?.entries() ?? [])].sort())),
+        : new TextEncoder().encode(
+            JSON.stringify([...(action.headers?.entries() ?? [])].sort(compareHeaderEntries)),
+          ),
     );
     let admission;
     try {
