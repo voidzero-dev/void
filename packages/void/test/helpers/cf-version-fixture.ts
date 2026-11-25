@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, expect, vi } from 'vite-plus/test';
+import { assert, afterAll, afterEach, expect, vi } from 'vite-plus/test';
 import { prepareCfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { createCfCommand } from '../../src/cli/cf-version-runner.ts';
 import { Buffer } from '../../src/cli/node-buffer.ts';
@@ -131,9 +131,9 @@ async function output(
     }),
   );
   const prepared = await prepareCfBuildOutput(worker, 'account-id');
-  expect(prepared).not.toBeNull();
-  outputRoots.set(prepared!, root);
-  return prepared!;
+  assert(prepared, 'Expected a prepared build output.');
+  outputRoots.set(prepared, root);
+  return prepared;
 }
 
 /** The project root that `output()` created for this prepared output. */

@@ -500,7 +500,10 @@ export function generateVoidAuthDrizzleSchema(
   ];
 
   for (const [defaultModelName, table] of entries) {
-    const variableName = defaultToVariable.get(defaultModelName)!;
+    const variableName = defaultToVariable.get(defaultModelName);
+    if (variableName === undefined) {
+      throw new Error(`No schema variable for auth model '${defaultModelName}'.`);
+    }
     const fieldEntries = Object.entries(table.fields);
     const renderedFields = [
       `  "id": ${createColumnDefinition(

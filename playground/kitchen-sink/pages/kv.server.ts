@@ -24,7 +24,10 @@ export const action = defineHandler(async (c) => {
   const body = await c.req.json<{ intent: string; key: string; value?: string }>();
 
   if (body.intent === 'set') {
-    await kv.put(body.key, body.value!);
+    if (typeof body.value !== 'string') {
+      return c.text('Missing value', 400);
+    }
+    await kv.put(body.key, body.value);
   } else if (body.intent === 'delete') {
     await kv.delete(body.key);
   }

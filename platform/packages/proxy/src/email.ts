@@ -1311,11 +1311,19 @@ async function sendViaCustomDomain(
   }
 
   for (const r of recipients) {
-    if (failure) {
-      deliveries.push({ recipient: r, ok: false, state: failureState, error: failure });
+    if (failure || !sendRawResult) {
+      deliveries.push({
+        recipient: r,
+        ok: false,
+        state: failure ? failureState : 'outcome_unknown',
+        error: failure ?? {
+          code: 'OUTCOME_UNKNOWN',
+          message: 'email sending API response invalid',
+        },
+      });
       continue;
     }
-    const outcome = classifySendRawRecipient(sendRawResult!, r);
+    const outcome = classifySendRawRecipient(sendRawResult, r);
     if (outcome === 'permanent_bounce') {
       deliveries.push({
         recipient: r,
@@ -1351,7 +1359,7 @@ async function sendViaCustomDomain(
         recipient: r,
         ok: true,
         state: 'provider_accepted',
-        messageId: sendRawResult!.messageId,
+        messageId: sendRawResult.messageId,
       });
     }
   }

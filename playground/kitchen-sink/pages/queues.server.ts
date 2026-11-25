@@ -15,8 +15,14 @@ export const action = defineHandler(async (c) => {
   const body = await c.req.json<{ intent?: string; key: string; value?: string; id?: number }>();
 
   if (body.intent === 'delete') {
-    await db.delete(queueResults).where(eq(queueResults.id, body.id!));
+    if (typeof body.id !== 'number') {
+      return c.text('Missing result id', 400);
+    }
+    await db.delete(queueResults).where(eq(queueResults.id, body.id));
   } else {
-    await queues['demo-queue'].send({ key: body.key, value: body.value! });
+    if (typeof body.value !== 'string') {
+      return c.text('Missing value', 400);
+    }
+    await queues['demo-queue'].send({ key: body.key, value: body.value });
   }
 });

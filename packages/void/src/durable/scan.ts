@@ -14,7 +14,7 @@ export type DurableObjectModule = {
 const MODULE_PATTERN = /\.(?:[cm]?[jt]s)$/;
 
 export function inferDurableResourceName(filePath: string): string {
-  return filePath.replaceAll('\\', '/').split('/').pop()!.replace(MODULE_PATTERN, '');
+  return filePath.replaceAll('\\', '/').split('/').at(-1)?.replace(MODULE_PATTERN, '') ?? '';
 }
 
 const DURABLE_HELPERS = new Set(['defineDurableState', 'defineDurableObject']);

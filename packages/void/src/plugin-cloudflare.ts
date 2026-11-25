@@ -154,8 +154,11 @@ export function cloudflare(options: {
         const built = await readBuildOutput(root);
         const worker = built.workers.default;
         const environment = options.viteEnvironment.name ?? 'ssr';
-        const destination = outputDirectories.get(environment)!;
-        const client = outputDirectories.get('client')!;
+        const destination = outputDirectories.get(environment);
+        const client = outputDirectories.get('client');
+        if (!destination || !client) {
+          throw new Error('Void requires configured Worker and client output directories.');
+        }
         if (!worker.bundleDir || !worker.config.manifest) {
           throw new Error('Void requires a built Cloudflare Worker.');
         }

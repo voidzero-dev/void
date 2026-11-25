@@ -1,4 +1,4 @@
-import { expectTypeOf } from 'vite-plus/test';
+import { assert, expectTypeOf } from 'vite-plus/test';
 import { defineRoom } from '../../src/runtime/ws/index.ts';
 import type { RoomActionContext } from '../../src/runtime/ws/index.ts';
 import { getRoom } from '../../src/runtime/ws/room.ts';
@@ -47,14 +47,15 @@ const definition = defineRoom({
   },
 });
 
-expectTypeOf(definition.actions!.revokeSession).toEqualTypeOf<
+assert(definition.actions);
+expectTypeOf(definition.actions.revokeSession).toEqualTypeOf<
   (
     context: RoomActionContext,
     sessionId: string,
     code: number,
   ) => { closed: number; sessionId: string }
 >();
-expectTypeOf(definition.actions!.ping).toEqualTypeOf<(context: RoomActionContext) => string>();
+expectTypeOf(definition.actions.ping).toEqualTypeOf<(context: RoomActionContext) => string>();
 
 const plain = defineRoom({ messages: { client, server } });
 expectTypeOf(plain.actions).toEqualTypeOf<{} | undefined>();

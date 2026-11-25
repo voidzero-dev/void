@@ -2,7 +2,13 @@
 import { Icon } from '@iconify/vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 import { frameworks } from './frameworks';
-import { advanceStackGame, createStackGame, dropStackTile, LAYER_HEIGHT } from './stack-and-ship';
+import {
+  advanceStackGame,
+  createStackGame,
+  dropStackTile,
+  topStackTile,
+  LAYER_HEIGHT,
+} from './stack-and-ship';
 import type { Tile } from './stack-and-ship';
 import StackTile from './StackTile.vue';
 
@@ -25,7 +31,7 @@ const shareUrl = computed(
     })}`,
 );
 const framework = computed(() => frameworks[game.value.moving?.framework ?? 0]?.name);
-const top = computed(() => game.value.tiles.at(-1)!);
+const top = computed(() => topStackTile(game.value));
 const originX = computed(
   () => 320 - (top.value.x + top.value.width / 2 - top.value.z - top.value.depth / 2) * 0.8,
 );

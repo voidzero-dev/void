@@ -65,8 +65,8 @@ async function pollObservation(
   const deadline = now() + options.timeoutMs;
   for (;;) {
     const latest = await read();
-    if (accepts(latest, now())) {
-      return latest!;
+    if (latest !== null && accepts(latest, now())) {
+      return latest;
     }
     const remaining = deadline - now();
     if (remaining <= 0) {

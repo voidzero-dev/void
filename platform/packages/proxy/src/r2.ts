@@ -60,14 +60,11 @@ r2.post('/get', async (context) => {
   // Stream the object body back, preserve metadata in headers
   const headers = new Headers();
   headers.set('content-type', cfRes.headers.get('content-type') ?? 'application/octet-stream');
-  if (cfRes.headers.has('content-length')) {
-    headers.set('content-length', cfRes.headers.get('content-length')!);
-  }
-  if (cfRes.headers.has('etag')) {
-    headers.set('etag', cfRes.headers.get('etag')!);
-  }
-  if (cfRes.headers.has('last-modified')) {
-    headers.set('last-modified', cfRes.headers.get('last-modified')!);
+  for (const name of ['content-length', 'etag', 'last-modified']) {
+    const value = cfRes.headers.get(name);
+    if (value !== null) {
+      headers.set(name, value);
+    }
   }
 
   return new Response(cfRes.body, { headers });

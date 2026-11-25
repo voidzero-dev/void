@@ -206,7 +206,11 @@ export function spawnHang(): ChildProcess {
 /** SIGKILL the child's process group, or the child alone where groups are unsupported. */
 export function reap(child: ChildProcess): void {
   try {
-    process.kill(-child.pid!, 'SIGKILL');
+    if (child.pid === undefined) {
+      child.kill('SIGKILL');
+      return;
+    }
+    process.kill(-child.pid, 'SIGKILL');
   } catch {
     try {
       child.kill('SIGKILL');

@@ -340,15 +340,19 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
       return { type: 'secret.put', name: args[2], ...target };
     }
   }
-  if (args[0] === 'd1' && args[1] === 'migrations') {
+  if (args[0] === 'd1' && (args[1] === 'migrations' || args[1] === 'time-travel')) {
+    const configPath = value('-c');
+    if (configPath === undefined) {
+      throw new Error('Expected a D1 command configuration path.');
+    }
+    if (args[1] === 'time-travel') {
+      return { type: 'd1.time-travel.bookmark', database: args[3], configPath };
+    }
     return {
       type: args[2] === 'apply' ? 'd1.migrations.apply' : 'd1.migrations.list',
       database: args[3],
-      configPath: value('-c')!,
+      configPath,
     };
-  }
-  if (args[0] === 'd1' && args[1] === 'time-travel') {
-    return { type: 'd1.time-travel.bookmark', database: args[3], configPath: value('-c')! };
   }
   if (args[0] === 'queues' && args[1] === 'info') {
     return { type: 'queues.info', name: args[2], configPath: value('-c') };

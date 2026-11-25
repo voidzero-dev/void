@@ -21,7 +21,10 @@ export const loader = defineHandler<Props>(async (context) => {
 
   // Derive origin from Host header — context.req.url can be localhost in prod
   // due to Workers Assets internal dispatch
-  const host = context.req.header('host')!;
+  const host = context.req.header('host');
+  if (!host) {
+    throw new Error('Missing Host header.');
+  }
   const isLocal = isLocalDashboardHost(host);
   const protocol = isLocal ? 'http' : 'https';
   const callbackUrl = `${protocol}://${host}/auth/callback`;

@@ -189,7 +189,7 @@ export function routingPlugin(
   const normalizedPagesDir = normalizePath(pagesDir);
   const ssrEntryAbsPaths = new Set(
     [...SSR_SERVER_ENTRY_RELATIVE_PATHS, ...SSR_CLIENT_ENTRY_RELATIVE_PATHS].map((path) =>
-      normalizePath(join(ssrDir, path.split('/').pop()!)),
+      normalizePath(join(ssrDir, path.slice(path.lastIndexOf('/') + 1))),
     ),
   );
 
@@ -469,8 +469,15 @@ export function routingPlugin(
     };
   }
 
+  function completedScan(): ScanResult {
+    if (!scan) {
+      throw new Error('Expected route analysis to complete before generating routes.');
+    }
+    return scan;
+  }
+
   function resolveCurrentAssetRoutingPolicy(): AssetRoutingPolicy {
-    const { pages, routes, websockets = [], middleware } = scan!;
+    const { pages, routes, websockets = [], middleware } = completedScan();
     return resolveAssetRoutingPolicy({
       isSsr: Boolean(ssr),
       hasPages:
@@ -626,6 +633,7 @@ export function routingPlugin(
 
   /** Write the Cloudflare worker entry from the completed scan. */
   function writeWorkerEntry(isr: WorkerEntryOptions['isr']): void {
+    const { queues, websockets = [] } = completedScan();
     const policy = resolveCurrentAssetRoutingPolicy();
     writeFileIfChanged(
       join(outDir, 'entry.ts'),
@@ -636,11 +644,11 @@ export function routingPlugin(
           options.routing?.alwaysUseHttps === true &&
           resolvedConfig?.command === 'build' &&
           !compileOptions.managedDispatch,
-        hasQueues: scan!.queues.length > 0,
+        hasQueues: queues.length > 0,
         remote,
         assetsDir: resolvedConfig?.build.assetsDir,
         webSocketClasses: [
-          ...(scan!.websockets ?? []).map((route) => route.className),
+          ...websockets.map((route) => route.className),
           ...(options.websocketTombstones ?? []),
         ],
         runtimeEnvPath: compileOptions.runtimeEnvPath,
@@ -850,7 +858,8 @@ export function routingPlugin(
         } else {
           // Only a non-managed production build bakes ISR in; managed deploys leave it to the platform.
           const buildConfig = readConfig(root);
-          const merged = collectRevalidate(buildConfig, scan!.pages);
+          const { pages } = completedScan();
+          const merged = collectRevalidate(buildConfig, pages);
           const configuredRevalidate = buildConfig.routing?.revalidate;
           const emitIsr =
             resolvedConfig?.command === 'build' &&
@@ -859,7 +868,7 @@ export function routingPlugin(
           // Route table + worker entry must agree within one build. All constants
           // derive from `emitIsr` so they are present or absent together.
           isrRevalidate = emitIsr ? merged : undefined;
-          isrPages = emitIsr ? collectPages(scan!.pages, configuredRevalidate) : undefined;
+          isrPages = emitIsr ? collectPages(pages, configuredRevalidate) : undefined;
           isrPathRevalidate =
             emitIsr && configuredRevalidate && typeof configuredRevalidate === 'object'
               ? configuredRevalidate
@@ -938,7 +947,7 @@ export function routingPlugin(
           await regenerateInOrder(() => rescan());
         }
         return compileRouteTable(
-          scan!,
+          completedScan(),
           routesDir,
           middlewareDir,
           jobsDir,

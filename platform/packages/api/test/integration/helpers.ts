@@ -1433,8 +1433,8 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
   // PUT through the stateful path; otherwise returns a proxy-token binding.
   const defaultListWorkerBindings = (url: string): Response => {
     const scriptName = parseScriptNameFromUrl(url);
-    if (scriptName && state.hostScripts.has(scriptName)) {
-      const script = state.hostScripts.get(scriptName)!;
+    const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
+    if (script) {
       return cfSuccess(script.bindings);
     }
     return cfSuccess([
@@ -1462,7 +1462,8 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
   // `result.script.migration_tag`, not `result.migration_tag`.)
   const defaultGetDispatchScript = (url: string): Response => {
     const scriptName = parseScriptNameFromUrl(url);
-    if (!scriptName || !state.hostScripts.has(scriptName)) {
+    const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
+    if (!script || !scriptName) {
       return Response.json(
         {
           success: false,
@@ -1471,7 +1472,6 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
         { status: 404 },
       );
     }
-    const script = state.hostScripts.get(scriptName)!;
     return cfSuccess({
       script: {
         id: scriptName,
@@ -1612,13 +1612,13 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
 
   const defaultPatchContainerApp = async (url: string, init?: RequestInit): Promise<Response> => {
     const id = parseAppIdFromUrl(url);
-    if (!id || !state.containerApps.has(id)) {
+    const app = id ? state.containerApps.get(id) : undefined;
+    if (!id || !app) {
       return Response.json(
         { success: false, errors: [{ code: 1000, message: 'not found' }] },
         { status: 404 },
       );
     }
-    const app = state.containerApps.get(id)!;
     let body: Record<string, unknown> = {};
     if (typeof init?.body === 'string') {
       try {
@@ -1657,7 +1657,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     return cfSuccess({ id: 'rollout-test-id' });
   };
 
-  const mocks: CfApiMocks = {
+  const mocks = {
     ...baseDefaultMocks,
     uploadWorker: defaultUploadWorker,
     listWorkerBindings: defaultListWorkerBindings,
@@ -1671,7 +1671,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     listContainerApps: defaultListContainerApps,
     postContainerAppRollout: defaultPostContainerAppRollout,
     ...overrides,
-  };
+  } satisfies CfApiMocks;
 
   const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url =
@@ -1768,22 +1768,22 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       url.includes('/containers/applications/') &&
       url.endsWith('/rollouts')
     ) {
-      return mocks.postContainerAppRollout!(url, init);
+      return mocks.postContainerAppRollout(url, init);
     }
     if (method === 'PATCH' && url.includes('/containers/applications/')) {
-      return mocks.patchContainerApp!(url, init);
+      return mocks.patchContainerApp(url, init);
     }
     if (method === 'DELETE' && url.includes('/containers/applications/')) {
-      return mocks.deleteContainerApp!(url, init);
+      return mocks.deleteContainerApp(url, init);
     }
     if (method === 'GET' && url.includes('/containers/applications/')) {
-      return mocks.getContainerApp!(url, init);
+      return mocks.getContainerApp(url, init);
     }
     if (method === 'GET' && url.includes('/containers/applications')) {
-      return mocks.listContainerApps!(url, init);
+      return mocks.listContainerApps(url, init);
     }
     if (method === 'POST' && url.includes('/containers/applications')) {
-      return mocks.createContainerApp!(url, init);
+      return mocks.createContainerApp(url, init);
     }
 
     if (method === 'GET' && url.includes('/workers/dispatch/') && url.includes('/secrets')) {
@@ -1830,7 +1830,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return mocks.listWorkerBindings(url, init);
     }
     if (method === 'PATCH' && url.includes('/workers/dispatch/') && url.endsWith('/settings')) {
-      return mocks.patchScriptSettings!(url, init);
+      return mocks.patchScriptSettings(url, init);
     }
     // GET on a dispatch script (no /bindings, no /secrets) — read the
     // script's metadata + migration_tag. Must come AFTER /bindings and
@@ -1839,7 +1839,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       method === 'GET' &&
       /\/workers\/dispatch\/namespaces\/[^/]+\/scripts\/[^/?#]+(?:[?#]|$)/.test(url)
     ) {
-      return mocks.getDispatchScript!(url, init);
+      return mocks.getDispatchScript(url, init);
     }
     if (method === 'DELETE' && url.includes('/workers/dispatch/')) {
       return mocks.deleteWorker(url, init);

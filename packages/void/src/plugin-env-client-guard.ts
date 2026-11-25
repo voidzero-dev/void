@@ -195,15 +195,11 @@ export function walkEnvReads(
   }
 }
 
-type Hit = {
-  kind: 'error' | 'warn';
-  property: string | null;
-  start: number;
-};
+type Hit = { start: number } & ({ kind: 'error'; property: string } | { kind: 'warn' });
 
 /**
- * Collect every `void/env` read. Computed access produces a warning hit
- * with `property === null`; everything else carries the property name.
+ * Collect every `void/env` read. Computed access produces a warning hit;
+ * statically known reads carry the property name.
  */
 function findHits(program: AstProgram, bindings: ImportBindings): Array<Hit> {
   const hits: Array<Hit> = [];
@@ -212,14 +208,17 @@ function findHits(program: AstProgram, bindings: ImportBindings): Array<Hit> {
 }
 
 function recordHit(node: AstMemberExpression, hits: Array<Hit>): void {
+  if (node.start === undefined) {
+    throw new Error('Expected an offset for a parsed environment read.');
+  }
   if (node.computed) {
-    hits.push({ kind: 'warn', property: null, start: node.start! });
+    hits.push({ kind: 'warn', start: node.start });
     return;
   }
   if (!isIdentifier(node.property)) {
     return;
   }
-  hits.push({ kind: 'error', property: node.property.name, start: node.start! });
+  hits.push({ kind: 'error', property: node.property.name, start: node.start });
 }
 
 /**
@@ -302,7 +301,7 @@ export function envClientGuardPlugin(root: string): Plugin {
           continue;
         }
 
-        const key = hit.property!;
+        const key = hit.property;
         // Unknown to the schema? Could be a CF binding or a typo — neither
         // is the guard's concern. The runtime proxy still catches misuse.
         if (!(key in schema)) {

@@ -107,7 +107,11 @@ export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): Cloud
  * even one with a class of the same name, so it stays as written.
  */
 export function restoreLocalContainerBindings(worker: CloudflareConfig['worker']): void {
-  for (const [name, binding] of Object.entries(worker.env ?? {})) {
+  const env = worker.env;
+  if (!env) {
+    return;
+  }
+  for (const [name, binding] of Object.entries(env)) {
     if (
       binding.type !== 'unsafe:durable_object_namespace' ||
       Object.keys(binding).some((key) => !['type', 'class_name'].includes(key))
@@ -117,7 +121,7 @@ export function restoreLocalContainerBindings(worker: CloudflareConfig['worker']
     const className = binding.class_name as string;
     const declaration = worker.exports?.[className];
     if (declaration && 'container' in declaration) {
-      worker.env![name] = { type: 'durable-object', worker: worker.name, exportName: className };
+      env[name] = { type: 'durable-object', worker: worker.name, exportName: className };
     }
   }
 }

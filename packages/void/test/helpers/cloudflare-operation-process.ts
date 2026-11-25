@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CloudflareOperation } from '@void/deploy-cloudflare';
-import { afterAll } from 'vite-plus/test';
+import { assert, afterAll } from 'vite-plus/test';
 import { encodeCloudflareOperation } from '../../src/cli/cloudflare-process.ts';
 import { resolveCloudflareOperationArgv } from '../../src/cli/preset.ts';
 
@@ -89,7 +89,8 @@ export function runOperation(
         resolve({ status: error ? Number(error.code) || 1 : 0, stdout, stderr }),
     );
     if (input !== undefined) {
-      child.stdin!.end(input);
+      assert(child.stdin, 'Expected a writable child input stream.');
+      child.stdin.end(input);
     }
   });
 }

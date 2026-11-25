@@ -7,7 +7,10 @@ export default function Layout({ children }: { children: ReactNode }) {
   const toastRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const toast = toastRef.current!;
+    const toast = toastRef.current;
+    if (!toast) {
+      return;
+    }
     toast.showPopover();
     const timeout = window.setTimeout(() => toast.hidePopover(), 2500);
     return () => {
