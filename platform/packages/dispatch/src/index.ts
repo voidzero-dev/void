@@ -113,6 +113,11 @@ type QueueRoutingEntry = Readonly<{
   proxyToken?: string;
 }>;
 
+type QueueRelayHeaders = {
+  'Content-Type': 'application/json';
+  'x-void-internal'?: string;
+};
+
 const CLIENT_REVALIDATE_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
 const STATIC_ASSET_HEDGE_DELAY_MS = 1000;
 const PLATFORM_QUEUE_RETRY_DELAY_SECONDS = 300;
@@ -2058,7 +2063,7 @@ const dispatcher = {
     const worker = env.DISPATCH.get(workerName);
     try {
       const body = JSON.stringify({ queue: queueName, messages });
-      const queueHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      const queueHeaders: QueueRelayHeaders = { 'Content-Type': 'application/json' };
       if (proxyToken) {
         queueHeaders['x-void-internal'] = proxyToken;
       }

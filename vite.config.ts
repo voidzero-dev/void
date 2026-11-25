@@ -436,16 +436,14 @@ const config = defineConfig({
         rules: { 'quality/no-unknown-returns': 'error' },
       },
       {
-        files: ['packages/void/src/**/*'],
+        files: ['packages/void/src/**/*', 'platform/packages/*/src/**/*'],
         excludeFiles: ['packages/void/src/cli/**/*'],
         rules: { 'quality/no-known-value-widening': 'error' },
       },
       {
         files: [
-          'packages/void/src/cli/{cf-*,deploy-*}.ts',
+          'packages/void/src/cli/{cf-*,deploy-*,*-args}.ts',
           'packages/void/src/cli/cf-config-convert/triggers.ts',
-          'platform/packages/api/src/**/*',
-          'platform/packages/proxy/src/ai.ts',
         ],
         rules: { 'quality/no-known-value-widening': 'error' },
       },

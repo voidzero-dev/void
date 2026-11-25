@@ -123,7 +123,7 @@ export function parseConfigFlags(
   args: ReadonlyArray<string>,
   group: 'auth' | 'plans',
   valueFlags: ReadonlyArray<string>,
-): { positional: Array<string>; flags: Set<string>; values: Map<string, string> } {
+) {
   const positional: Array<string> = [];
   const flags = new Set<string>();
   const values = new Map<string, string>();

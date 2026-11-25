@@ -152,7 +152,7 @@ function parseSelector(
   rest: Array<string>,
   subcommand: string,
   options: { allowYes?: boolean } = {},
-): { selector: string; plan: boolean; yes: boolean } {
+) {
   let selector = '';
   let plan = false;
   let yes = false;
@@ -178,18 +178,7 @@ function parseSelector(
 function parseLifecycleSelector(
   rest: Array<string>,
   subcommand: 'upgrade' | 'rollback' | 'repair' | 'disable' | 'enable',
-): {
-  selector: string;
-  plan: boolean;
-  runtime: string;
-  fromRuntime: string;
-  yes: boolean;
-  authConfig?: string;
-  dashboardUrl?: string;
-  customDomains?: true;
-  runtimeLogs?: PlatformRuntimeLogsChoice;
-  storageLocation?: PlatformStorageLocation;
-} {
+) {
   const positional: Array<string> = [];
   let runtimeLogs: PlatformRuntimeLogsChoice | undefined;
   let storageLocation: PlatformStorageLocation | undefined;
