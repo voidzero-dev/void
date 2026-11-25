@@ -48,6 +48,14 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
 
 const roots: Array<string> = [];
 
+const messagesSchema = `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const messages = sqliteTable("messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  text: text("text").notNull(),
+});
+`;
+
 function createProjectRoot(options: {
   seedFile: { name: string; content: string };
   extraSeedFile?: { name: string; content: string };
@@ -117,13 +125,13 @@ async function readMessages(root: string): Promise<Array<{ id: number; text: str
 }
 
 // Exercise Node’s module loaders without Vitest resolving the fixture imports.
-function runSeedInNode(root: string, file?: string) {
+function runSeedInNode(root: string, file?: string, preamble = '') {
   const result = spawnSync(
     process.execPath,
     [
       '--input-type=module',
       '-e',
-      'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed", file: process.argv[3] });',
+      `${preamble}const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed", file: process.argv[3] });`,
       new URL('../../src/cli/db.ts', import.meta.url).href,
       root,
       ...(file ? [file] : []),
@@ -681,6 +689,64 @@ export default async ({db})=>{ await db.run(sql\`INSERT INTO messages (text) VAL
     );
     runSeedInNode(root);
     expect(await readMessages(root)).toEqual([{ id: 1, text: 'from json' }]);
+  });
+
+  it('loads seeds when the runtime has no module hooks', async () => {
+    const root = createProjectRoot({
+      seedFile: {
+        name: 'seed.ts',
+        content: `export default async ({ db, schema }) => {
+  await db.insert(schema.messages).values({ text: 'without hooks' });
+};`,
+      },
+      schema: messagesSchema,
+    });
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { paths: { '@schema': ['./db/schema.ts'] } } }),
+    );
+    // Bun's node:module has no registerHooks.
+    runSeedInNode(
+      root,
+      undefined,
+      "(await import('node:module')).default.registerHooks = undefined; ",
+    );
+    expect(await readMessages(root)).toEqual([{ id: 1, text: 'without hooks' }]);
+  });
+
+  it('keeps package resolution for extensionless subpaths, .tsx helpers, and .json neighbours', async () => {
+    const root = createProjectRoot({
+      seedFile: {
+        name: 'seed.ts',
+        content: `import legacy from 'legacy/plugin/value';
+import named from 'named';
+import { text } from './text';
+export default async ({ db, schema }) => {
+  await db.insert(schema.messages).values({ text: [legacy, named, text].join(',') });
+};`,
+      },
+      schema: messagesSchema,
+    });
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: { baseUrl: '.', paths: { '@schema': ['./db/schema.ts'] } },
+      }),
+    );
+    mkdirSync(join(root, 'node_modules/legacy/plugin'), { recursive: true });
+    writeFileSync(join(root, 'node_modules/legacy/package.json'), '{"name":"legacy"}');
+    writeFileSync(join(root, 'node_modules/legacy/plugin/value.js'), "module.exports = 'legacy';");
+    mkdirSync(join(root, 'node_modules/named'), { recursive: true });
+    writeFileSync(
+      join(root, 'node_modules/named/package.json'),
+      '{"name":"named","type":"module","exports":"./index.js"}',
+    );
+    writeFileSync(join(root, 'node_modules/named/index.js'), "export default 'package';");
+    // TypeScript never maps the baseUrl candidate `named` to this file.
+    writeFileSync(join(root, 'named.json'), '"json"');
+    writeFileSync(join(root, 'db/text.tsx'), "export const text: string = 'tsx';");
+    runSeedInNode(root);
+    expect(await readMessages(root)).toEqual([{ id: 1, text: 'legacy,package,tsx' }]);
   });
 
   it('checks the seed file before it resets the database', async () => {

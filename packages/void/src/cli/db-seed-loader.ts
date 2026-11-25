@@ -16,7 +16,7 @@ export interface SeedModuleLoader {
 }
 
 const DECLARATION_SUFFIXES = ['.d.ts', '.d.mts', '.d.cts'];
-const TYPESCRIPT_SUFFIXES = ['.ts', '.mts', '.cts'];
+const TYPESCRIPT_SUFFIXES = ['.ts', '.mts', '.cts', '.tsx'];
 const MISSING_MODULE_CODES = new Set([
   'MODULE_NOT_FOUND',
   'ERR_MODULE_NOT_FOUND',
@@ -29,6 +29,11 @@ function isDeclarationFile(path: string): boolean {
 
 function isTypeScriptFile(path: string): boolean {
   return TYPESCRIPT_SUFFIXES.some((suffix) => path.endsWith(suffix));
+}
+
+function isMissingModule(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code !== undefined && MISSING_MODULE_CODES.has(code);
 }
 
 /** Whether a specifier starts with a URL scheme such as `node:`, `data:`, or `file:`. */
@@ -116,7 +121,9 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
     interopDefault: false,
     tsconfigPaths: false,
   });
-  if (!match) {
+  // Bun has no `registerHooks`; there jiti loads the seed and Bun applies the tsconfig paths itself.
+  const { registerHooks } = nodeModule as Partial<typeof nodeModule>;
+  if (!match || typeof registerHooks !== 'function') {
     return { importModule: (path) => jiti.import<Record<string, unknown>>(path), close: () => {} };
   }
   const owns = seedScope(root, seed);
@@ -132,8 +139,7 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
       try {
         return nextResolve(specifier, context);
       } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== undefined && MISSING_MODULE_CODES.has(code)) {
+        if (isMissingModule(error)) {
           const target = new URL(specifier, parent);
           const resolved = jiti.esmResolve(fileURLToPath(target), { try: true });
           if (resolved) {
@@ -143,22 +149,30 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
         throw error;
       }
     }
-    if (
-      owns(parent) &&
-      !isAbsolute(specifier) &&
-      !specifier.startsWith('.') &&
-      !hasUrlScheme(specifier)
-    ) {
+    const bare = !isAbsolute(specifier) && !specifier.startsWith('.') && !hasUrlScheme(specifier);
+    if (bare && owns(parent)) {
       for (const target of match(specifier)) {
         const resolved = jiti.esmResolve(target, { try: true });
-        if (resolved) {
+        // TypeScript adds code extensions to a path target, never `.json`.
+        if (resolved && (!resolved.endsWith('.json') || target.endsWith('.json'))) {
           return { shortCircuit: true, url: resolved };
         }
       }
     }
-    return nextResolve(specifier, context);
+    try {
+      return nextResolve(specifier, context);
+    } catch (error) {
+      // Allow extensionless subpaths into packages without `exports`, such as `lodash/range`.
+      if (bare && isMissingModule(error)) {
+        const resolved = jiti.esmResolve(specifier, { parentURL: parent, try: true });
+        if (resolved) {
+          return { shortCircuit: true, url: resolved };
+        }
+      }
+      throw error;
+    }
   };
-  const hooks = nodeModule.registerHooks({
+  const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
       const parent = context.parentURL;
       if (!parent || !modules.has(parent) || nodeModule.isBuiltin(specifier)) {
@@ -204,7 +218,7 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
       const commonjs = sourcefile.endsWith('.cts');
       const { code } = transformSync(readFileSync(sourcefile, 'utf8'), {
         sourcefile,
-        loader: 'ts',
+        loader: sourcefile.endsWith('.tsx') ? 'tsx' : 'ts',
         target: 'node24',
         platform: 'node',
         format: commonjs ? 'cjs' : 'esm',
