@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 const router = vi.hoisted(() => ({ routeInbound: vi.fn(), routeRelayed: vi.fn() }));
@@ -320,10 +321,18 @@ describe('dedicated email gateway', () => {
       expect(
         await hmacVerifyState(raw, request.headers.get('x-void-internal') ?? '', 'platform-secret'),
       ).toBe(true);
-      const input = JSON.parse(raw);
+      const input: unknown = JSON.parse(raw);
+      assert(
+        input &&
+          typeof input === 'object' &&
+          'receiptId' in input &&
+          typeof input.receiptId === 'string',
+        'Expected a receipt ID',
+      );
       const existing = receipts.get(input.receiptId);
       if (String(url).endsWith('/receipts/claim')) {
-        expect(input.route).toEqual({
+        assert('payloadDigest' in input && typeof input.payloadDigest === 'string');
+        expect('route' in input ? input.route : undefined).toEqual({
           routeId: route.routeId,
           routeGeneration: route.routeGeneration,
           connectionId: route.connectionId,
@@ -345,7 +354,8 @@ describe('dedicated email gateway', () => {
         );
       }
       expect(String(url)).toContain('/receipts/complete');
-      existing!.reject = input.reject;
+      assert(existing && 'reject' in input && typeof input.reject === 'boolean');
+      existing.reject = input.reject;
       return Response.json({ ok: true });
     });
   }

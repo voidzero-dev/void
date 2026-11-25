@@ -7,6 +7,10 @@ import { integrationTestDirs, listIntegrationTestFiles } from './test/integratio
 import { SuiteSequencer } from './test/sequencer.ts';
 import { chunkTestFiles } from './test/test-chunks.ts';
 
+const typeScriptTestFiles = [
+  '**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}',
+  '**/__tests__/**/*.{ts,tsx,mts,cts}',
+];
 const maxWorkers = process.env.CI ? 2 : Math.max(2, Math.floor(availableParallelism() * 0.75));
 const apiTimezoneTests = [
   'platform/packages/api/test/integration/api-delete-accounting.test.ts',
@@ -304,11 +308,13 @@ const config = defineConfig({
         rules: { 'typescript/no-explicit-any': 'error' },
       },
       {
-        files: [
-          '**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}',
-          '**/__tests__/**/*.{ts,tsx,mts,cts}',
-        ],
+        files: typeScriptTestFiles,
         rules: { 'typescript/only-throw-error': 'error' },
+      },
+      {
+        files: typeScriptTestFiles,
+        excludeFiles: ['packages/void/test/**/*', 'platform/packages/api/test/**/*'],
+        rules: { 'typescript/no-unsafe-argument': 'error' },
       },
       {
         // These adapters accept objects as weak keys or opaque identities.
