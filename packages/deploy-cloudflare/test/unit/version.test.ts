@@ -1338,6 +1338,189 @@ describe('Cloudflare version activation', () => {
   );
 
   it.each([
+    { read: 'older', outcome: 'recovers' },
+    { read: 'older', outcome: 'exhausted' },
+    { read: 'deleted', outcome: 'changed' },
+    { read: 'recreated', outcome: 'changed' },
+  ] as const)(
+    'waits for an older post-upload snapshot but not a $read Worker ($outcome)',
+    async ({ read, outcome }) => {
+      const PREVIOUS = '44444444-4444-4444-8444-444444444444';
+      const base = runner();
+      let uploaded = false;
+      let reads = 0;
+      const runWrangler = operationFixture((args: Array<string>) => {
+        if (args[0] === 'versions' && args[1] === 'upload') {
+          uploaded = true;
+        }
+        if (args[0] === 'versions' && args[1] === 'list') {
+          if (!uploaded) {
+            return ok(
+              JSON.stringify([
+                { id: PREVIOUS, number: 1 },
+                { id: CURRENT, number: 2 },
+              ]),
+            );
+          }
+          reads++;
+          if (read === 'deleted') {
+            return { stdout: '', stderr: 'Worker not found. [code: 10007]', status: 1 };
+          }
+          if (read === 'recreated') {
+            return ok(
+              JSON.stringify([
+                { id: CONCURRENT, number: 1 },
+                { id: NEXT, number: 2 },
+              ]),
+            );
+          }
+          return ok(
+            JSON.stringify(
+              reads === 1 || outcome === 'exhausted'
+                ? [{ id: PREVIOUS, number: 1 }]
+                : [
+                    { id: PREVIOUS, number: 1 },
+                    { id: CURRENT, number: 2 },
+                    { id: NEXT, number: 3 },
+                  ],
+            ),
+          );
+        }
+        return base(args);
+      });
+      const sleep = vi.fn(async () => {});
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        workerName: 'my-worker',
+        verifyUploader: () => true,
+        verifyInheritedSecrets: true,
+        message: encodeCloudflareVersionMessage([], triggersWith()),
+        fetch: async () => Response.json({ ready: true }),
+        sleep,
+      });
+      expect(result).toMatchObject(
+        outcome === 'recovers'
+          ? { ok: true, versionId: NEXT }
+          : {
+              ok: false,
+              reason:
+                outcome === 'exhausted'
+                  ? 'inheritance-source-unavailable'
+                  : 'inheritance-source-changed',
+            },
+      );
+      expect(sleep.mock.calls).toEqual(
+        outcome === 'recovers'
+          ? [[STALE_VERSION_HISTORY_DELAYS_MS[0]]]
+          : outcome === 'exhausted'
+            ? STALE_VERSION_HISTORY_DELAYS_MS.map((delay) => [delay])
+            : [],
+      );
+    },
+  );
+
+  it('fails at once on a post-upload list that disagrees with the baseline about a version', async () => {
+    const base = runner();
+    let uploaded = false;
+    const runWrangler = operationFixture((args: Array<string>) => {
+      if (args[0] === 'versions' && args[1] === 'upload') {
+        uploaded = true;
+      }
+      if (args[0] === 'versions' && args[1] === 'list' && uploaded) {
+        // Lower than the baseline, but number 1 names another version: a different history.
+        return ok(JSON.stringify([{ id: CONCURRENT, number: 1 }]));
+      }
+      return base(args);
+    });
+    const sleep = vi.fn(async () => {});
+    await expect(
+      activateCloudflareVersion({
+        runWrangler,
+        workerName: 'my-worker',
+        verifyUploader: () => true,
+        verifyInheritedSecrets: true,
+        message: encodeCloudflareVersionMessage([], triggersWith()),
+        fetch: async () => Response.json({ ready: true }),
+        sleep,
+      }),
+    ).resolves.toMatchObject({ ok: false, reason: 'inheritance-source-changed' });
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('reads production again only after a wait for a lagging list, not a quick retry', async () => {
+    const statusReads = async (firstRead: 'unavailable' | 'stale') => {
+      const base = runner();
+      let uploaded = false;
+      let reads = 0;
+      const runWrangler = operationFixture((args: Array<string>) => {
+        if (args[0] === 'versions' && args[1] === 'upload') {
+          uploaded = true;
+        }
+        if (args[0] === 'versions' && args[1] === 'list' && uploaded && ++reads === 1) {
+          return firstRead === 'stale'
+            ? ok(JSON.stringify([{ id: CURRENT, number: 1 }]))
+            : { status: 1, stdout: '', stderr: 'Version list temporarily unavailable' };
+        }
+        return base(args);
+      });
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        workerName: 'my-worker',
+        verifyUploader: () => true,
+        verifyInheritedSecrets: true,
+        message: encodeCloudflareVersionMessage([], triggersWith()),
+        fetch: async () => Response.json({ ready: true }),
+        sleep: async () => {},
+      });
+      expect(result).toMatchObject({ ok: true, versionId: NEXT });
+      return runWrangler.mock.calls.filter(
+        ([args]) => args.slice(0, 2).join(' ') === 'deployments status',
+      ).length;
+    };
+    // The same count as a deploy with no retry (see the shared snapshot test), plus one re-read
+    // after the wait for a stale list.
+    expect(await statusReads('unavailable')).toBe(4);
+    expect(await statusReads('stale')).toBe(5);
+  });
+
+  it('reports a post-upload wait that starts after a failed read', async () => {
+    const base = runner();
+    let uploaded = false;
+    let reads = 0;
+    const runWrangler = operationFixture((args: Array<string>) => {
+      if (args[0] === 'versions' && args[1] === 'upload') {
+        uploaded = true;
+      }
+      if (args[0] === 'versions' && args[1] === 'list' && uploaded) {
+        reads++;
+        if (reads === 1) {
+          return { status: 1, stdout: '', stderr: 'Version list temporarily unavailable' };
+        }
+        if (reads === 2) {
+          return ok(JSON.stringify([{ id: CURRENT, number: 1 }]));
+        }
+      }
+      return base(args);
+    });
+    const onProgress = vi.fn();
+    await expect(
+      activateCloudflareVersion({
+        runWrangler,
+        workerName: 'my-worker',
+        verifyUploader: () => true,
+        verifyInheritedSecrets: true,
+        message: encodeCloudflareVersionMessage([], triggersWith()),
+        fetch: async () => Response.json({ ready: true }),
+        sleep: async () => {},
+        onProgress,
+      }),
+    ).resolves.toMatchObject({ ok: true, versionId: NEXT });
+    expect(onProgress).toHaveBeenCalledWith(
+      "Waiting for Cloudflare's Worker version list to catch up...",
+    );
+  });
+
+  it.each([
     { outcome: 'present' },
     { outcome: 'recovers' },
     { outcome: 'exhausted' },

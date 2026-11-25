@@ -1015,7 +1015,7 @@ async function activateCloudflareVersionWithSecretsFile(
       if (attempt === 0) {
         options.onProgress?.("Waiting for Cloudflare's Worker version list to catch up...");
       }
-      await (options.sleep ?? delay)(delays[attempt]!);
+      await (options.sleep ?? delay)(delays[attempt]);
       waited = true;
       if (!options.verifyUploader()) {
         return { ok: false, reason: 'uploader-changed' };
@@ -1392,9 +1392,12 @@ async function activateCloudflareVersionWithSecretsFile(
   const baseline = inheritanceBaseline;
   let waitedAfterUpload = false;
   if (baseline) {
-    // The list can still show the exact pre-upload history after a successful upload.
-    // Wait for a fresh read, but pass any other history straight to the lineage check.
+    // The list can still show the exact pre-upload history after a successful upload, or an
+    // older snapshot of it, since reads can alternate between snapshots. Wait for a fresh read,
+    // but pass any other history straight to the lineage check.
     let stale = false;
+    const baselineIdsByNumber = new Map(baseline.map((version) => [version.number, version.id]));
+    const baselineLatestNumber = baseline.at(-1)?.number ?? 0;
     const readUpdatedHistory = async () => {
       const { versions: read, changing } = await readRecentCloudflareVersionHistory(options);
       const unchanged =
@@ -1403,12 +1406,26 @@ async function activateCloudflareVersionWithSecretsFile(
           (version, index) =>
             version.id === baseline[index].id && version.number === baseline[index].number,
         );
+      // Versions are never removed and new ones get higher numbers, so a list that ends below
+      // the baseline and agrees with it on every shared number is behind, not a concurrent write.
+      // It must share a number, which an empty list from a deleted Worker does not, and cannot
+      // hold the upload, which a recreated Worker's list can.
+      const older =
+        read !== null &&
+        (read.at(-1)?.number ?? 0) < baselineLatestNumber &&
+        read.some((version) => baselineIdsByNumber.has(version.number)) &&
+        read.every(
+          (version) =>
+            version.id !== versionId &&
+            (baselineIdsByNumber.get(version.number) ?? version.id) === version.id,
+        );
       // Pages that disagree are a read that raced a write, so they wait like a stale list does.
-      stale = unchanged || changing;
-      return unchanged ? null : read;
+      stale = unchanged || older || changing;
+      return unchanged || older ? null : read;
     };
     const historyDelays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
     let recent = await readUpdatedHistory();
+    let reportedWait = false;
     for (
       let attempt = 0;
       recent === null &&
@@ -1416,11 +1433,16 @@ async function activateCloudflareVersionWithSecretsFile(
       (stale || attempt < UNAVAILABLE_VERSION_HISTORY_RETRIES);
       attempt++
     ) {
-      if (attempt === 0 && stale) {
+      if (stale && !reportedWait) {
+        reportedWait = true;
         options.onProgress?.("Waiting for Cloudflare's Worker version list to catch up...");
       }
-      await (options.sleep ?? delay)(historyDelays[attempt]!);
-      waitedAfterUpload = true;
+      // Only a wait for a lagging list reads production again below. The quick retries of a
+      // failed read keep their earlier behavior.
+      if (stale) {
+        waitedAfterUpload = true;
+      }
+      await (options.sleep ?? delay)(historyDelays[attempt]);
       if (!options.verifyUploader()) {
         return {
           ok: false,
@@ -2154,8 +2176,8 @@ async function isVoidSecretDraftPlaceholderVersion(
  * for a small Worker). The waits double up to 30 seconds and add up to about five and a half minutes.
  */
 export const STALE_VERSION_HISTORY_DELAYS_MS: ReadonlyArray<number> = [
-  250, 500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000,
-  30_000, 30_000, 30_000, 30_000,
+  250, 500, 1000, 2000, 4000, 8000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000,
+  30_000, 30_000, 30_000,
 ];
 
 /** The Worker Version's sequential number, or null when it cannot be read. */
