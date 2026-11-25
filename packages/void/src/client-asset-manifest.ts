@@ -1,7 +1,7 @@
 import { compilePattern, matchPattern } from '@void/edge';
 import type { Rolldown } from 'vite';
-import type { ClientManifest } from './runtime/routing/assets.ts';
 import type { RoutingHeaderRule } from './runtime/routing/index.ts';
+import { isClientManifest } from './shared/client-manifest.ts';
 
 /**
  * Attach cache provenance to the existing manifest without changing its entry inventory.
@@ -15,6 +15,12 @@ export function stampClientAssetCachePolicy(
   const asset = bundle[manifestPath];
   if (asset?.type !== 'asset') {
     return [];
+  }
+  const source =
+    typeof asset.source === 'string' ? asset.source : new TextDecoder().decode(asset.source);
+  const manifest: unknown = JSON.parse(source);
+  if (!isClientManifest(manifest)) {
+    throw new Error(`Invalid Vite client manifest in ${manifestPath}`);
   }
   const fingerprinted = new Set<string>();
   const authoredCachePatterns = headerRules.flatMap((rule) =>
@@ -38,7 +44,6 @@ export function stampClientAssetCachePolicy(
       }
     }
   }
-  const manifest = JSON.parse(String(asset.source)) as ClientManifest;
   const stamped = new Set<string>();
   for (const entry of Object.values(manifest)) {
     if (entry.file && fingerprinted.has(entry.file)) {

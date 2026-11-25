@@ -1734,6 +1734,28 @@ describe('typed client asset tags', () => {
     expect(binding).toHaveBeenCalledTimes(1);
   });
 
+  it('falls back from an invalid injected manifest and retries malformed asset responses', async () => {
+    const manifest = { page: { file: 'page.js' } };
+    const binding = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(new Response('invalid JSON'))
+      .mockResolvedValueOnce(Response.json({ page: { imports: [false] } }))
+      .mockImplementation(async () => Response.json(manifest));
+    const loader = createManifestLoader();
+    const env = { ASSETS: { fetch: binding } };
+    const request = new Request('https://app.test/page');
+    vi.stubGlobal('__VITE_MANIFEST__', { page: null });
+    try {
+      expect(await loader(request, env)).toBeNull();
+      expect(await loader(request, env)).toBeNull();
+      expect(await loader(request, env)).toEqual(manifest);
+      expect(await loader(request, env)).toEqual(manifest);
+      expect(binding).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('retries the manifest after a missing response or a rejected fetch', async () => {
     const manifest = { page: { file: 'page.js' } };
     const binding = vi
