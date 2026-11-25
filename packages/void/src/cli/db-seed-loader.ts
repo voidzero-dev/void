@@ -132,41 +132,47 @@ function compileToEsm(sourcefile: string, loader: 'js' | 'ts' | 'tsx'): string {
   }).code;
 }
 
-/** ESM that re-exports every named value, which Node's static CommonJS and JSON imports lack. */
-function namedExports(value: unknown): string {
-  const names =
-    value !== null && (typeof value === 'object' || typeof value === 'function')
-      ? Object.keys(value).filter((name) => name !== 'default' && name !== '__esModule')
-      : [];
-  return names
-    .map((name, index) => {
-      const key = JSON.stringify(name);
-      return `const __voidExport${index} = __voidValue[${key}];\nexport { __voidExport${index} as ${key} };`;
-    })
-    .join('\n');
-}
-
-/** A JSON module that also has a named export for each top-level key, as jiti gave seeds. */
-function jsonModule(url: string): string {
-  const value: unknown = JSON.parse(readFileSync(fileURLToPath(url), 'utf8'));
-  return `const __voidValue = ${JSON.stringify(value)};
-export default __voidValue;
-${namedExports(value)}`;
+/** Whether a string has no lone surrogate, which an export name cannot contain. */
+function isWellFormed(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd8_00 && code <= 0xdb_ff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc_00 && next <= 0xdf_ff)) {
+        return false;
+      }
+      index++;
+    } else if (code >= 0xdc_00 && code <= 0xdf_ff) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
- * A CommonJS module whose named exports are read from its `module.exports`, as jiti gave seeds.
- * Node only finds the names it can detect in the source, so `import { range } from 'lodash'`
- * would fail to link. The module runs here, and the wrapper gets the cached instance.
+ * A JSON module that also has a named export for each top-level key, as jiti gave seeds, so
+ * `import { rows } from './fixtures.json'` keeps working. The default export matches Node's.
  */
-function commonjsModule(url: string): string {
-  const filename = JSON.stringify(fileURLToPath(url));
-  const value: unknown = nodeModule.createRequire(url)(fileURLToPath(url));
-  return `import { createRequire } from 'node:module';
-const __voidValue = createRequire(import.meta.url)(${filename});
-export default __voidValue && __voidValue.__esModule ? __voidValue.default : __voidValue;
-export { __voidValue as 'module.exports' };
-${namedExports(value)}`;
+function jsonModule(url: string): string {
+  let text = readFileSync(fileURLToPath(url), 'utf8');
+  if (text.startsWith('\uFEFF')) {
+    text = text.slice(1);
+  }
+  const value: unknown = JSON.parse(text);
+  const names =
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? Object.keys(value).filter(
+          (name) => name !== 'default' && name !== '__proto__' && isWellFormed(name),
+        )
+      : [];
+  return [
+    `const __voidValue = JSON.parse(${JSON.stringify(text)});`,
+    'export default __voidValue;',
+    ...names.map((name, index) => {
+      const key = JSON.stringify(name);
+      return `const __voidExport${index} = __voidValue[${key}];\nexport { __voidExport${index} as ${key} };`;
+    }),
+  ].join('\n');
 }
 
 export function createSeedModuleLoader(root: string, seed: string): SeedModuleLoader {
@@ -184,7 +190,7 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
   }
   const owns = seedScope(root, seed);
   const modules = new Set<string>();
-  // Modules that an app module imports with `import`, which get jiti's named-export interop.
+  // Modules that an app module imports with `import`. A JSON one gets jiti's named exports.
   const imported = new Set<string>();
 
   const resolveImport = (
@@ -193,18 +199,20 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
     context: Parameters<ResolveHookSync>[1],
     nextResolve: Parameters<ResolveHookSync>[2],
   ): ReturnType<ResolveHookSync> => {
-    const file =
+    const absolute = isAbsolute(specifier);
+    if (
+      absolute ||
       specifier.startsWith('./') ||
       specifier.startsWith('../') ||
-      specifier.startsWith('/') ||
-      specifier.startsWith('file:');
-    if (file) {
+      specifier.startsWith('file:')
+    ) {
       try {
         return nextResolve(specifier, context);
       } catch (error) {
         // Add the extension that jiti added for an extensionless path, such as `./users`.
-        if (isMissingModule(error)) {
-          const target = new URL(specifier, parent);
+        // Node's ESM resolver also rejects a Windows drive path, which jiti accepted.
+        if (isMissingModule(error) || absolute) {
+          const target = absolute ? pathToFileURL(specifier) : new URL(specifier, parent);
           const resolved = jiti.esmResolve(fileURLToPath(target), { try: true });
           if (resolved) {
             return { shortCircuit: true, url: resolved + target.search + target.hash };
@@ -213,7 +221,7 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
         throw error;
       }
     }
-    const bare = !isAbsolute(specifier) && !specifier.startsWith('.') && !hasUrlScheme(specifier);
+    const bare = !specifier.startsWith('.') && !hasUrlScheme(specifier);
     if (bare && owns(parent)) {
       for (const target of match(specifier)) {
         const resolved = jiti.esmResolve(target, { try: true });
@@ -272,15 +280,16 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
           return { format: 'module', source: compileToEsm(sourcefile, 'js'), shortCircuit: true };
         }
       }
-      const interop = imported.has(url) && !context.conditions.includes('require');
-      if (interop && extname(sourcefile) === '.json' && !context.importAttributes.type) {
+      if (
+        extname(sourcefile) === '.json' &&
+        imported.has(url) &&
+        !context.conditions.includes('require') &&
+        !context.importAttributes.type
+      ) {
         return { format: 'module', source: jsonModule(url), shortCircuit: true };
       }
       if (!isTypeScriptFile(sourcefile)) {
-        const result = nextLoad(url, context);
-        return interop && result.format === 'commonjs'
-          ? { format: 'module', source: commonjsModule(url), shortCircuit: true }
-          : result;
+        return nextLoad(url, context);
       }
       if (sourcefile.endsWith('.cts')) {
         const { code } = transformSync(readFileSync(sourcefile, 'utf8'), {
