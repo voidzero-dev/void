@@ -45,8 +45,9 @@ export function createStaticEdgeHandler(config: StaticEdgeConfig): StaticEdgeHan
         if (!config.versionMetadataBinding) {
           return Response.json({ ready: true });
         }
-        const bindings: Record<string, unknown> = env;
-        const metadata = bindings[config.versionMetadataBinding];
+        // The runtime-selected binding is outside the static ASSETS contract.
+        const bindings: unknown = env;
+        const metadata = isRecord(bindings) ? bindings[config.versionMetadataBinding] : undefined;
         return Response.json(
           { ready: true, versionId: isRecord(metadata) ? metadata.id : undefined },
           { headers: { 'cache-control': 'no-store' } },

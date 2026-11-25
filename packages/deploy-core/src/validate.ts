@@ -20,7 +20,7 @@ type RoutingRuleKind = 'redirectRules' | 'fallbackRules';
 
 // Lowercases `host` in place: dispatch compares the stored form with the lowercase `url.hostname`.
 function validateRuleHost(
-  rule: Record<string, unknown>,
+  rule: { host?: unknown },
   kind: RoutingRuleKind,
   sourceRef: string,
 ): string | null {

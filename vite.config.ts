@@ -444,6 +444,13 @@ const config = defineConfig({
       },
       {
         files: [
+          'packages/{create-void,deploy-core,edge,isr}/src/**/*',
+          'platform/packages/{dashboard,dispatch,email-gateway,tail}/src/**/*',
+        ],
+        rules: { 'quality/no-unsafe-dictionary-type': 'error' },
+      },
+      {
+        files: [
           'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,svelte}/src/**/*',
           'packages/platform/src/{email-protocol,plans}.ts',
           'platform/packages/email-gateway/src/**/*',
