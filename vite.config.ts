@@ -465,6 +465,8 @@ const config = defineConfig({
       {
         files: [
           'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,platform,react,svelte}/src/**/*',
+          'packages/void/src/{client-asset-manifest,runtime/routing/assets,shared/client-manifest}.ts',
+          'packages/void/src/runtime/db/migrations/mysql-lock.ts',
           'platform/packages/{dispatch,email-gateway,proxy}/src/**/*',
           'platform/packages/api/src/deploy/{persisted-manifest,serving-assets}.ts',
           'platform/packages/api/src/email/ingress-resolution.ts',

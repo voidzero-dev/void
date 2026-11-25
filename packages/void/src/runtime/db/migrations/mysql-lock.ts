@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { isRecord } from '@void/deploy-core';
 
 /**
  * Migration runs on one MySQL database exclude each other with two kinds of lock, and each run
@@ -49,12 +50,12 @@ export function mySqlMigrationLockError(database: string, retry: string): Error 
  */
 export async function readMySqlMigrationLease(query: MySqlLeaseQuery): Promise<number | undefined> {
   try {
-    const [row] = rowsOf(
+    const row = firstRow(
       await query(
         "SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(6), `expires_at`) AS remaining FROM `_void_migration_lock` WHERE `name` = 'app' AND `expires_at` > UTC_TIMESTAMP(6)",
       ),
     );
-    return row ? Number(row.remaining) : undefined;
+    return row ? readCount(row.remaining, 'remaining lease time') : undefined;
   } catch (error) {
     if (isMissingTable(error)) {
       return undefined;
@@ -70,8 +71,11 @@ export async function readMySqlMigrationLease(query: MySqlLeaseQuery): Promise<n
 export async function acquireMySqlMigrationLease(
   query: MySqlLeaseQuery,
 ): Promise<MySqlMigrationLease> {
-  const [row] = rowsOf(await query('SELECT DATABASE() AS db'));
-  const database = String(row?.db ?? '');
+  const databaseName = firstRow(await query('SELECT DATABASE() AS db'))?.db;
+  if (databaseName !== null && typeof databaseName !== 'string') {
+    throw new Error('Invalid database name in MySQL migration lock response');
+  }
+  const database = databaseName ?? '';
   const lockName = mySqlMigrationLockName(database);
   const owner = randomUUID();
   await query(
@@ -101,23 +105,28 @@ export async function acquireMySqlMigrationLease(
   };
 
   const deadline = Date.now() + DEPLOY_WAIT_MS;
-  for (;;) {
-    if (await take(query, owner)) {
-      // Taken before this check, so a CLI run that starts later sees the lease and stops.
-      const [lock] = rowsOf(await query('SELECT IS_USED_LOCK(?)', [lockName]));
-      // Vitess names the column after the call and ignores any alias.
-      if ((Object.values(lock ?? {})[0] ?? null) === null) {
-        return lease;
+  try {
+    for (;;) {
+      if (await take(query, owner)) {
+        // Taken before this check, so a CLI run that starts later sees the lease and stops.
+        if (await isNamedLockFree(query, lockName)) {
+          return lease;
+        }
+        await lease.release();
       }
-      await lease.release();
+      if (Date.now() >= deadline) {
+        break;
+      }
+      await new Promise((resolve) => {
+        setTimeout(resolve, POLL_MS);
+      });
     }
-    if (Date.now() >= deadline) {
-      throw mySqlMigrationLockError(database, 'deploy again');
-    }
-    await new Promise((resolve) => {
-      setTimeout(resolve, POLL_MS);
-    });
+  } catch (error) {
+    // A lease write can succeed even when its result cannot be read.
+    await lease.release().catch(() => {});
+    throw error;
   }
+  throw mySqlMigrationLockError(database, 'deploy again');
 }
 
 /**
@@ -157,7 +166,7 @@ async function take(query: MySqlLeaseQuery, owner: string): Promise<boolean> {
     return await tryTake(query, owner);
   } catch (error) {
     // MySQL rolled the statement back as a deadlock victim, so the lease is not taken: poll again.
-    if (errnoOf(error) === 1213) {
+    if (isRecord(error) && error.errno === 1213) {
       return false;
     }
     throw error;
@@ -180,22 +189,46 @@ async function tryTake(query: MySqlLeaseQuery, owner: string): Promise<boolean> 
   return affectedRows(taken) === 1;
 }
 
-function rowsOf(result: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(result) ? (result as Array<Record<string, unknown>>) : [];
+async function isNamedLockFree(query: MySqlLeaseQuery, lockName: string): Promise<boolean> {
+  const row = firstRow(await query('SELECT IS_USED_LOCK(?)', [lockName]));
+  // Vitess names the column after the call and ignores any alias.
+  const columns = row ? Object.values(row) : [];
+  const holder = columns.length === 1 ? columns[0] : undefined;
+  if (holder === null) {
+    return true;
+  }
+  readCount(holder, 'named lock holder');
+  return false;
+}
+
+function firstRow(result: unknown): Record<string, unknown> | undefined {
+  if (Array.isArray(result)) {
+    if (result.length === 0) {
+      return undefined;
+    }
+    const row: unknown = result[0];
+    if (isRecord(row)) {
+      return row;
+    }
+  }
+  throw new Error('Invalid result rows in MySQL migration lock response');
+}
+
+function readCount(value: unknown, field: string): number {
+  const count =
+    typeof value === 'bigint' || (typeof value === 'string' && /^\d+$/.test(value))
+      ? Number(value)
+      : value;
+  if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
+    throw new Error(`Invalid ${field} in MySQL migration lock response`);
+  }
+  return count;
 }
 
 function affectedRows(result: unknown): number {
-  return Number((result as { affectedRows?: unknown } | undefined)?.affectedRows ?? 0);
+  return readCount(isRecord(result) ? result.affectedRows : undefined, 'affected row count');
 }
 
 function isMissingTable(error: unknown): boolean {
-  const value =
-    typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : undefined;
-  return value?.code === 'ER_NO_SUCH_TABLE' || value?.errno === 1146;
-}
-
-function errnoOf(error: unknown): unknown {
-  return typeof error === 'object' && error !== null
-    ? (error as { errno?: unknown }).errno
-    : undefined;
+  return isRecord(error) && (error.code === 'ER_NO_SUCH_TABLE' || error.errno === 1146);
 }

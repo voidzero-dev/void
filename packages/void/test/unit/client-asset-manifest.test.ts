@@ -8,7 +8,7 @@ function chunk(fileName: string, preliminaryFileName: string): Rolldown.OutputCh
   return { type: 'chunk', fileName, preliminaryFileName } as Rolldown.OutputChunk;
 }
 
-function fakeBundle(): Rolldown.OutputBundle {
+function fakeBundle(manifestSource?: string): Rolldown.OutputBundle {
   const manifest = {
     'main.js': {
       file: 'assets/main-abcdefgh.js',
@@ -30,7 +30,11 @@ function fakeBundle(): Rolldown.OutputBundle {
       fileName: 'assets/main-12345678.css',
       source: 'body{}',
     },
-    [MANIFEST]: { type: 'asset', fileName: MANIFEST, source: JSON.stringify(manifest) },
+    [MANIFEST]: {
+      type: 'asset',
+      fileName: MANIFEST,
+      source: manifestSource ?? JSON.stringify(manifest),
+    },
   } as unknown as Rolldown.OutputBundle;
 }
 
@@ -53,5 +57,33 @@ describe('stampClientAssetCachePolicy', () => {
     const bundle = fakeBundle();
     delete bundle[MANIFEST];
     expect(stampClientAssetCachePolicy(bundle, MANIFEST)).toEqual([]);
+  });
+
+  it('preserves Vite fields when stamping a UTF-8 manifest asset', () => {
+    const bundle = fakeBundle();
+    const asset = bundle[MANIFEST];
+    if (asset.type !== 'asset' || typeof asset.source !== 'string') {
+      throw new Error('Expected a manifest asset with text source');
+    }
+    asset.source = new TextEncoder().encode(asset.source);
+
+    stampClientAssetCachePolicy(bundle, MANIFEST);
+
+    expect(JSON.parse(String(asset.source))['main.js']).toEqual({
+      file: 'assets/main-abcdefgh.js',
+      isEntry: true,
+      css: ['assets/main-12345678.css'],
+      immutableFiles: ['assets/main-abcdefgh.js'],
+    });
+  });
+
+  it('rejects malformed entries before stamping the manifest', () => {
+    const source = JSON.stringify({ page: { file: 'page.js', css: [123] } });
+    const bundle = fakeBundle(source);
+
+    expect(() => stampClientAssetCachePolicy(bundle, MANIFEST)).toThrow(
+      'Invalid Vite client manifest in .vite/manifest.json',
+    );
+    expect(bundle[MANIFEST]).toHaveProperty('source', source);
   });
 });

@@ -797,6 +797,55 @@ describe('MySQL migration lock across runners', () => {
     expect(applied).toEqual(['0001_a.sql']);
   });
 
+  it('releases the CLI lock if the lease query returns an invalid duration', async () => {
+    const database = useDatabase(new FakeMySqlDatabase());
+    const query = database.query.bind(database);
+    vi.spyOn(database, 'query').mockImplementation(async (session, sql, params) =>
+      sql.startsWith('SELECT TIMESTAMPDIFF') ? [{ remaining: null }] : query(session, sql, params),
+    );
+
+    await expect(applyMySqlMigrations(database.client(), RACE)).rejects.toThrow(
+      'Invalid remaining lease time in MySQL migration lock response',
+    );
+    expect(database.statements()).not.toContain('SELECT `name` FROM `_void_migrations`');
+    expect(database.statements().at(-1)).toBe('SELECT RELEASE_LOCK(?)');
+  });
+
+  it('releases the hosted lease if the named lock query returns an invalid result', async () => {
+    const database = useDatabase(new FakeMySqlDatabase());
+    const query = database.query.bind(database);
+    vi.spyOn(database, 'query').mockImplementation(async (session, sql, params) =>
+      sql.startsWith('SELECT IS_USED_LOCK') ? [] : query(session, sql, params),
+    );
+
+    const result = await migrate(RACE);
+
+    expect(result).toMatchObject({
+      status: 500,
+      body: { ok: false, error: 'Invalid named lock holder in MySQL migration lock response' },
+    });
+    expect(database.statements()).not.toContain('SELECT `name` FROM `_void_migrations`');
+    expect(database.lease?.expiresAt).toBeLessThan(Date.now());
+  });
+
+  it('releases the hosted lease if the lease write returns an invalid row count', async () => {
+    const database = useDatabase(new FakeMySqlDatabase());
+    const query = database.query.bind(database);
+    vi.spyOn(database, 'query').mockImplementation(async (session, sql, params) => {
+      const result = await query(session, sql, params);
+      return sql.startsWith('INSERT IGNORE') ? { affectedRows: true } : result;
+    });
+
+    const result = await migrate(RACE);
+
+    expect(result).toMatchObject({
+      status: 500,
+      body: { ok: false, error: 'Invalid affected row count in MySQL migration lock response' },
+    });
+    expect(database.statements()).not.toContain('SELECT `name` FROM `_void_migrations`');
+    expect(database.lease?.expiresAt).toBeLessThan(Date.now());
+  });
+
   it('makes a deploy wait for the lease of a run that stopped early to expire', async () => {
     const { database, expiresAt, finishedAt, result } = await withFakeTime(async () => {
       const expiresAt = Date.now() + 30_000;
