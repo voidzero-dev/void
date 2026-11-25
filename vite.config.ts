@@ -330,13 +330,20 @@ const config = defineConfig({
         rules: { 'quality/no-reflect-get': 'off' },
       },
       {
-        // Empty defaults are part of route and binding types.
+        // Code generation augments these interfaces with app-specific types.
         files: [
-          'playground/**/env.d.ts',
-          'packages/void/src/{routes-stub,runtime/{queues,handler,auth,ws}/index,runtime/client/{fetch,fetch-stream}}.ts',
-          'packages/void/test/unit/{route-type-extraction,ws-room,fetch,fetch-stream}{,.test,.typecheck}.ts',
+          'packages/void/src/routes-stub.ts',
+          'packages/void/src/runtime/{auth,queues}/index.ts',
         ],
-        rules: { 'typescript/no-empty-object-type': 'off' },
+        rules: {
+          'typescript/no-empty-object-type': [
+            'error',
+            {
+              allowWithName:
+                '^(RoutePathMap|PagePathMap|EncodedRoutePathMap|RouteTypesConfig|RouteMap|WebSocketRouteMap|PageActionMap|VoidAuthTypes|QueueMap)$',
+            },
+          ],
+        },
       },
       {
         // Fate emits imports and empty route shapes. Keep checking the generated client.

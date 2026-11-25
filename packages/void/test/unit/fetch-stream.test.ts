@@ -22,7 +22,7 @@ declare module 'void/routes' {
       POST: { input: { body: { messages: Array<unknown> } }; output: unknown };
     };
     '/api/stream': {
-      POST: { input: {}; output: unknown };
+      POST: { input: Record<never, never>; output: unknown };
     };
     '/api/stream/:path{.+}': {
       POST: { input: { params: { path: string } }; output: unknown };

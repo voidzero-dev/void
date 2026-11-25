@@ -58,7 +58,7 @@ expectTypeOf(definition.actions.revokeSession).toEqualTypeOf<
 expectTypeOf(definition.actions.ping).toEqualTypeOf<(context: RoomActionContext) => string>();
 
 const plain = defineRoom({ messages: { client, server } });
-expectTypeOf(plain.actions).toEqualTypeOf<{} | undefined>();
+expectTypeOf(plain.actions).toEqualTypeOf<Record<never, never> | undefined>();
 
 const room = getRoom('/relay/[accountId]', { params: { accountId: 'acct_1' } });
 expectTypeOf(room).toEqualTypeOf<RoomHandle<'/relay/[accountId]'>>();

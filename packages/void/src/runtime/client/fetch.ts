@@ -12,7 +12,7 @@ type RouteEntry<P extends keyof RouteMap, M extends MethodsOf<P>> = RouteMap[P][
   output: infer O;
 }
   ? { input: I; output: O }
-  : { input: {}; output: unknown };
+  : { input: Record<never, never>; output: unknown };
 
 type OutputOf<P extends keyof RouteMap, M extends MethodsOf<P>> = RouteEntry<P, M>['output'];
 type InputOf<P extends keyof RouteMap, M extends MethodsOf<P>> = RouteEntry<P, M>['input'];

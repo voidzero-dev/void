@@ -4,7 +4,7 @@ import { fetch as typedFetch } from '../../src/runtime/client/fetch.ts';
 declare module 'void/routes' {
   interface RouteMap {
     '/api/rebuild': {
-      POST: { input: {}; output: { started: boolean } };
+      POST: { input: Record<never, never>; output: { started: boolean } };
     };
   }
 }

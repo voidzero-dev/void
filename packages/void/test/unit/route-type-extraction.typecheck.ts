@@ -45,7 +45,7 @@ describe('ExtractInput<handler.__validators>', () => {
     const handler = defineHandler((_c) => ({ ok: true }));
     type Input = ExtractInput<(typeof handler)['__validators']>;
 
-    expectTypeOf<Input>().toEqualTypeOf<{}>();
+    expectTypeOf<Input>().toEqualTypeOf<Record<never, never>>();
   });
 
   it('extracts body from zod schema', () => {
