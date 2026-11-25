@@ -459,6 +459,7 @@ const config = defineConfig({
         files: [
           'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,platform,react,svelte}/src/**/*',
           'platform/packages/{email-gateway,proxy}/src/**/*',
+          'platform/packages/api/src/email/ingress-resolution.ts',
         ],
         excludeFiles: ['platform/packages/proxy/src/{ai,email-admission,index}.ts'],
         rules: { 'typescript/no-unsafe-type-assertion': 'error' },
