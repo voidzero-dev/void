@@ -462,6 +462,7 @@ const config = defineConfig({
           'platform/packages/api/src/deploy/{persisted-manifest,serving-assets}.ts',
           'platform/packages/api/src/email/ingress-resolution.ts',
           'platform/packages/api/src/routing-records.ts',
+          'platform/packages/api/test/unit/build-manager.test.ts',
         ],
         rules: { 'typescript/no-unsafe-type-assertion': 'error' },
       },
