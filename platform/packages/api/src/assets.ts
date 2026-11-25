@@ -1,4 +1,4 @@
-import { extname } from 'node:path';
+import { extname } from 'node:path/posix';
 import { createHasher } from 'blake3-jit';
 import mime from 'mime';
 import { retryWithBackoff } from './cf-api.ts';

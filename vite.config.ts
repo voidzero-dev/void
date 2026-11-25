@@ -254,8 +254,8 @@ const config = defineConfig({
     ],
     overrides: [
       {
-        // Hosted platform code uses native paths on the host.
-        files: ['platform/**/*'],
+        // Platform scripts and build config operate on native host paths.
+        files: ['platform/**/scripts/**/*', 'platform/**/vite.config.ts'],
         rules: { 'no-restricted-imports': 'off' },
       },
       {

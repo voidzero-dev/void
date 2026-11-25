@@ -1,4 +1,4 @@
-import { extname } from 'node:path';
+import { extname } from 'node:path/posix';
 import { count, eq, or, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import {
