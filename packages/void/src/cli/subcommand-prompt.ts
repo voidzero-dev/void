@@ -179,10 +179,17 @@ export function promptSubcommand(
 
     const title = command ? `void ${command}` : 'void';
 
+    function selectedSubcommand(): SubcommandDef {
+      if (!selectedSub) {
+        throw new Error('No subcommand selected.');
+      }
+      return selectedSub;
+    }
+
     function headerLine(): string {
       const argPart = selectedArg ? ` ${selectedArg}` : '';
       return promptTitle(
-        `${pc.blue(title)} ${pc.dim('·')} ${selectedSub!.name}${argPart}`,
+        `${pc.blue(title)} ${pc.dim('·')} ${selectedSubcommand().name}${argPart}`,
         'active',
         { output: stdout },
       );
@@ -231,7 +238,10 @@ export function promptSubcommand(
     }
 
     function renderFlags() {
-      const flags = selectedSub!.flags!;
+      const { flags } = selectedSubcommand();
+      if (!flags?.length) {
+        throw new Error('The selected subcommand has no flags.');
+      }
       const focused = flags[cursor];
       const lines: Array<string> = [];
 
@@ -265,7 +275,10 @@ export function promptSubcommand(
     }
 
     function renderMultiSelect() {
-      const followUp = selectedSub!.followUp as Extract<FollowUpDef, { type: 'multi-select' }>;
+      const { followUp } = selectedSubcommand();
+      if (followUp?.type !== 'multi-select') {
+        throw new Error('The selected subcommand has no multi-select options.');
+      }
       const options = followUp.options;
       const lines: Array<string> = [];
 
@@ -281,7 +294,10 @@ export function promptSubcommand(
     }
 
     function renderRepeatInput() {
-      const followUp = selectedSub!.followUp as Extract<FollowUpDef, { type: 'repeat-input' }>;
+      const { followUp } = selectedSubcommand();
+      if (followUp?.type !== 'repeat-input') {
+        throw new Error('The selected subcommand has no repeat input.');
+      }
       const lines: Array<string> = [];
 
       for (const entry of repeatEntries) {
@@ -348,7 +364,7 @@ export function promptSubcommand(
 
     function finalize() {
       const result: SubcommandResult = {
-        subcommand: selectedSub!.name,
+        subcommand: selectedSubcommand().name,
         arg: selectedArg,
       };
 
@@ -364,18 +380,18 @@ export function promptSubcommand(
     }
 
     function advancePhase() {
+      const { flags, followUp } = selectedSubcommand();
       // After choosing a command, try flags first.
-      if (phase === 'select' && selectedSub!.flags && selectedSub!.flags.length > 0) {
+      if (phase === 'select' && flags?.length) {
         phase = 'flags';
         cursor = 0;
-        flagStates = selectedSub!.flags.map(() => ({ enabled: false, value: '' }));
+        flagStates = flags.map(() => ({ enabled: false, value: '' }));
         render();
         return;
       }
 
       // Then try any follow-up input phase.
-      if ((phase === 'select' || phase === 'flags') && selectedSub!.followUp) {
-        const followUp = selectedSub!.followUp;
+      if ((phase === 'select' || phase === 'flags') && followUp) {
         if (followUp.type === 'multi-select') {
           phase = 'multi-select';
           cursor = 0;
@@ -442,7 +458,10 @@ export function promptSubcommand(
     }
 
     function handleFlagKey(key: string) {
-      const flags = selectedSub!.flags!;
+      const { flags } = selectedSubcommand();
+      if (!flags?.length) {
+        throw new Error('The selected subcommand has no flags.');
+      }
       const focused = flags[cursor];
       const state = flagStates[cursor];
 
@@ -493,7 +512,10 @@ export function promptSubcommand(
     }
 
     function handleMultiSelectKey(key: string) {
-      const followUp = selectedSub!.followUp as Extract<FollowUpDef, { type: 'multi-select' }>;
+      const { followUp } = selectedSubcommand();
+      if (followUp?.type !== 'multi-select') {
+        throw new Error('The selected subcommand has no multi-select options.');
+      }
       const options = followUp.options;
 
       if (moveCursor(key, options.length)) {

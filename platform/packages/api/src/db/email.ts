@@ -393,10 +393,12 @@ export async function deleteProjectEmailDestinations(
       .for('update');
     await tx.delete(emailDestinations).where(eq(emailDestinations.project_id, projectId));
     const queued: Array<string> = [];
-    for (const tag of new Set(rows.map((row) => row.cf_destination_id).filter(Boolean))) {
-      if ((await countDestinationReferences(tx, tag!)) === 0) {
-        await queueDestinationCleanupTx(tx, tag!);
-        queued.push(tag!);
+    for (const tag of new Set(
+      rows.flatMap(({ cf_destination_id }) => (cf_destination_id ? [cf_destination_id] : [])),
+    )) {
+      if ((await countDestinationReferences(tx, tag)) === 0) {
+        await queueDestinationCleanupTx(tx, tag);
+        queued.push(tag);
       }
     }
     return queued;

@@ -74,7 +74,10 @@ export async function promptProjectSelection(
     return { action: 'create' };
   }
 
-  const project = projects.find((p) => p.id === result)!;
+  const project = projects.find((p) => p.id === result);
+  if (!project) {
+    throw new Error('The selected project is unavailable.');
+  }
   if (options.confirmExisting) {
     const confirmed = await confirm({
       message:

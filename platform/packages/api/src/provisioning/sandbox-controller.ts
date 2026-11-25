@@ -426,14 +426,17 @@ export async function retrySandboxControllerCleanup(
     .orderBy(asc(deployments.updated_at), asc(deployments.id))
     .limit(16);
   for (const row of rows) {
-    const manifest = JSON.parse(row.manifest!) as DeployManifest;
     try {
+      const manifest = row.manifest ? (JSON.parse(row.manifest) as DeployManifest) : null;
+      if (!manifest?.sandbox) {
+        throw new Error('Sandbox cleanup requires the deployment sandbox manifest.');
+      }
       await deleteSandboxController(
         env.CF_ACCOUNT_ID,
         env.CF_API_TOKEN,
         row.projectId,
         row.id,
-        manifest.sandbox!,
+        manifest.sandbox,
         env.SANDBOX_CONCURRENCY_COUNTER,
         db,
       );

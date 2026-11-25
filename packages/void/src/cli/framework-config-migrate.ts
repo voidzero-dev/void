@@ -90,8 +90,7 @@ function asNode(value: unknown): Expression | undefined {
 function walk(root: Expression): Array<Expression> {
   const result: Array<Expression> = [];
   const pending = [root];
-  while (pending.length > 0) {
-    const node = pending.pop()!;
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
     result.push(node);
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) {
@@ -315,8 +314,8 @@ export function planFrameworkConfigMigration(
       if (nitroConfigurations.length !== 1) {
         throw nitroPathError(file);
       }
-      const nitro = asNode(nitroConfigurations[0].value)!;
-      if (property(nitro, 'preset')?.value !== 'cloudflare-module') {
+      const nitro = asNode(nitroConfigurations[0].value);
+      if (!nitro || property(nitro, 'preset')?.value !== 'cloudflare-module') {
         throw nitroPathError(file);
       }
       const dev = property(nitro, 'cloudflareDev');

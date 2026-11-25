@@ -321,8 +321,9 @@ function sequence(
               }
               sourcesStarted++;
               let opened: Promise<ReadableStream<Uint8Array>>;
-              if (ahead[0]?.index === at) {
-                const entry = ahead.shift()!;
+              const entry = ahead[0];
+              if (entry?.index === at) {
+                ahead.shift();
                 aheadBytes -= entry.size;
                 opened = entry.opened;
               } else {
@@ -445,9 +446,10 @@ export function uploadWatchdog(
     const state = progress();
     let kind: UploadTimeout = 'deadline';
     let at = limits.deadline;
-    const limit: [UploadTimeout, number] = state.done
-      ? ['response', state.doneAt! + limits.responseMs]
-      : ['idle', state.lastProgressAt + limits.idleMs];
+    const limit: [UploadTimeout, number] =
+      state.done && state.doneAt !== undefined
+        ? ['response', state.doneAt + limits.responseMs]
+        : ['idle', state.lastProgressAt + limits.idleMs];
     if (limit[1] < at) {
       [kind, at] = limit;
     }

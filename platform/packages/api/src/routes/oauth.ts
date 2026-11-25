@@ -78,6 +78,7 @@ async function userSession(context: Context<ApiEnv>): Promise<OAuthSession | nul
   const token = getCookie(context, userCookie);
   const payload = token ? await verifyJwt(token, context.env.JWT_SECRET, 'api') : null;
   if (
+    !token ||
     !payload ||
     !(await validateHumanSession(context.get('db'), payload, context.get('companyIdentity')))
   ) {
@@ -146,6 +147,7 @@ function validateAuthorization(
       'An exact registered redirect URL, state, and S256 PKCE challenge are required.',
     );
   }
+  return { redirectUri: redirect, state, challenge };
 }
 async function newRequest(
   context: Context<ApiEnv>,
@@ -206,11 +208,19 @@ async function consentPage(context: Context<ApiEnv>, request: typeof oauthReques
   if (request.data.kind === 'connections') {
     return context.redirect('/oauth/connections');
   }
-  const client = await activeOAuthClient(context.get('db'), request.client_id!);
+  const clientId = request.client_id;
+  if (!clientId) {
+    throw new OAuthError('invalid_request', 'The application for this request is unavailable.');
+  }
+  const client = await activeOAuthClient(context.get('db'), clientId);
   if (request.data.kind === 'deployment') {
+    const { grantId } = request.data;
+    if (!grantId) {
+      throw new OAuthError('invalid_request', 'The original deployment grant is unavailable.');
+    }
     const { grant } = await activeOAuthGrant(
       context.get('db'),
-      request.data.grantId!,
+      grantId,
       context.get('companyIdentity'),
     );
     if (grant.user_id !== session.sub) {
@@ -227,10 +237,14 @@ async function consentPage(context: Context<ApiEnv>, request: typeof oauthReques
     : request.data.scopes?.includes('preview:deploy')
       ? 'Read your user ID and username, and build private previews with separate resources and no production secrets. Production publishing still requires your approval for each artifact.'
       : 'Read your user ID and username. Project access requires separate approval for each publish.';
-  const artifact = request.data.artifact;
-  const summary = artifact
-    ? `<p>Resources: ${h(Object.keys(artifact.manifest.bindings).join(', ') || 'none')}. ${Object.keys(artifact.assetManifest).length} assets; ${request.data.workerModules?.length ?? 0} Worker modules.</p><details><summary>Deployment details</summary><pre>${h(JSON.stringify(artifact.manifest, null, 2))}</pre><p>Artifact: ${h(request.data.artifactDigest!)}</p></details>`
-    : '';
+  const { artifact, artifactDigest } = request.data;
+  if (artifact && !artifactDigest) {
+    throw new OAuthError('invalid_request', 'The deployment artifact digest is unavailable.');
+  }
+  const summary =
+    artifact && artifactDigest
+      ? `<p>Resources: ${h(Object.keys(artifact.manifest.bindings).join(', ') || 'none')}. ${Object.keys(artifact.assetManifest).length} assets; ${request.data.workerModules?.length ?? 0} Worker modules.</p><details><summary>Deployment details</summary><pre>${h(JSON.stringify(artifact.manifest, null, 2))}</pre><p>Artifact: ${h(artifactDigest)}</p></details>`
+      : '';
   // Chrome makes same-origin form Origin opaque under no-referrer. Keep the
   // strict Origin check while suppressing referrers to every external client.
   context.header('Referrer-Policy', 'same-origin');
@@ -279,8 +293,8 @@ app.onError((error, context) =>
 );
 
 app.get('/authorize', async (context) => {
-  if (context.req.query('request')) {
-    const id = context.req.query('request')!;
+  const id = context.req.query('request');
+  if (id) {
     const [pending] = await context
       .get('db')
       .select()
@@ -334,10 +348,13 @@ app.get('/authorize', async (context) => {
       'Request only enabled identity and private preview permissions.',
     );
   }
-  const redirectUri = context.req.query('redirect_uri')!;
-  const state = context.req.query('state')!;
-  const challenge = context.req.query('code_challenge')!;
-  validateAuthorization(client, redirectUri, state, challenge, isDevBypass(context.env));
+  const { redirectUri, state, challenge } = validateAuthorization(
+    client,
+    context.req.query('redirect_uri'),
+    context.req.query('state'),
+    context.req.query('code_challenge'),
+    isDevBypass(context.env),
+  );
   return consentPage(
     context,
     await newRequest(
@@ -383,18 +400,20 @@ app.get('/login', async (context) => {
 
 app.get('/login/callback', async (context) => {
   const request = await browserRequest(context, context.req.query('state') ?? '');
-  if (!request.data.loginVerifier || !context.req.query('code')) {
+  const code = context.req.query('code');
+  if (!request.data.loginVerifier || !code) {
     throw new OAuthError('invalid_request', 'Sign-in expired.');
   }
   const token = await consumeCliAuthCode(
     context.get('db'),
-    context.req.query('code')!,
+    code,
     request.id,
     await createCodeChallenge(request.data.loginVerifier),
     'S256',
   );
   const payload = token ? await verifyJwt(token, context.env.JWT_SECRET, 'api') : null;
   if (
+    !token ||
     !payload ||
     !(await validateHumanSession(context.get('db'), payload, context.get('companyIdentity')))
   ) {
@@ -403,7 +422,7 @@ app.get('/login/callback', async (context) => {
   setCookie(
     context,
     userCookie,
-    token!,
+    token,
     cookieOptions(context, Math.min(TOKEN_SECONDS, payload.exp - Math.floor(Date.now() / 1000))),
   );
   const { loginVerifier: _verifier, ...data } = request.data;
@@ -423,9 +442,13 @@ app.post('/approve', async (context) => {
   if (!session || request.data.kind === 'connections') {
     throw new OAuthError('access_denied', 'Sign in again.', 401);
   }
+  const clientId = request.client_id;
+  if (!clientId) {
+    throw new OAuthError('invalid_request', 'The application for this request is unavailable.');
+  }
   const code = randomLoginProof();
   await context.get('db').transaction(async (tx) => {
-    const client = await activeOAuthClient(tx, request.client_id!, true);
+    const client = await activeOAuthClient(tx, clientId, true);
     if (
       request.data.kind === 'profile' &&
       request.data.scopes?.some((scope) => !client.scopes.includes(scope))
@@ -433,12 +456,11 @@ app.post('/approve', async (context) => {
       throw new OAuthError('invalid_scope', 'The requested permission is no longer enabled.', 403);
     }
     if (request.data.kind === 'deployment') {
-      const { grant } = await activeOAuthGrant(
-        tx,
-        request.data.grantId!,
-        context.get('companyIdentity'),
-        true,
-      );
+      const { grantId } = request.data;
+      if (!grantId) {
+        throw new OAuthError('invalid_request', 'The original deployment grant is unavailable.');
+      }
+      const { grant } = await activeOAuthGrant(tx, grantId, context.get('companyIdentity'), true);
       if (
         grant.user_id !== session.sub ||
         grant.client_id !== client.id ||
@@ -471,7 +493,11 @@ app.post('/approve', async (context) => {
     }
     let data = locked.data;
     if (data.kind === 'deployment') {
-      let project = await getProjectBySlug(tx, data.slug!);
+      const { slug } = data;
+      if (!slug) {
+        throw new OAuthError('invalid_request', 'The selected project is unavailable.');
+      }
+      let project = await getProjectBySlug(tx, slug);
       if (
         project &&
         (project.user_id !== session.sub ||
@@ -484,7 +510,7 @@ app.post('/approve', async (context) => {
         const original = context.get('db');
         context.set('db', tx as typeof original);
         try {
-          const result = await createUserProject(context, { slug: data.slug! });
+          const result = await createUserProject(context, { slug });
           if (!result.ok) {
             const payload = await result.json<{ error: string }>();
             throw new OAuthError('invalid_request', payload.error);

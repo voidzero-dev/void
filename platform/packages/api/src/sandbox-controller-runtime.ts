@@ -374,7 +374,7 @@ export class SandboxController extends SandboxContainer<ControllerEnv> {
         if (!this.#activity) {
           await this.#touch();
         }
-        if (this.#busy === 0 && Date.now() >= this.#activity!.idleDeadline) {
+        if (this.#busy === 0 && this.#activity && Date.now() >= this.#activity.idleDeadline) {
           await this.destroy();
           return;
         }

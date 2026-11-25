@@ -1281,7 +1281,8 @@ export function writeProvisionedWranglerConfig(
   }
 
   let d1MigrationsDirSkipped = false;
-  if (patch.d1MigrationsDir) {
+  const { d1MigrationsDir } = patch;
+  if (d1MigrationsDir) {
     const currentD1 = parseJsonc(text).d1_databases;
     const d1Entries = Array.isArray(currentD1)
       ? (currentD1 as Array<{
@@ -1292,14 +1293,14 @@ export function writeProvisionedWranglerConfig(
       : [];
     const matchIndices: Array<number> = [];
     d1Entries.forEach((entry, i) => {
-      if (entry.binding === patch.d1MigrationsDir!.binding) {
+      if (entry.binding === d1MigrationsDir.binding) {
         matchIndices.push(i);
       }
     });
     if (matchIndices.length > 1) {
       throw new Error(
         `deploy: cannot update "${configPath}" — binding ` +
-          `${JSON.stringify(patch.d1MigrationsDir.binding)} is declared ${matchIndices.length} times ` +
+          `${JSON.stringify(d1MigrationsDir.binding)} is declared ${matchIndices.length} times ` +
           `in "d1_databases". A binding name must be unique across the worker (wrangler rejects the ` +
           `config otherwise), so migrations_dir cannot be attached unambiguously. Remove the ` +
           `duplicate D1 entry and retry.`,
@@ -1311,7 +1312,7 @@ export function writeProvisionedWranglerConfig(
       if (existingPattern !== undefined && typeof existingPattern !== 'string') {
         throw new Error(
           `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-            `${JSON.stringify(patch.d1MigrationsDir.binding)} has a non-string ` +
+            `${JSON.stringify(d1MigrationsDir.binding)} has a non-string ` +
             `"migrations_pattern" value; expected a string. Wrangler rejects such a config, so ` +
             `filling "migrations_dir" beside it would commit an invalid file. Fix the config ` +
             `and retry.`,
@@ -1322,19 +1323,19 @@ export function writeProvisionedWranglerConfig(
       if (existingDir !== undefined && typeof existingDir !== 'string') {
         throw new Error(
           `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-            `${JSON.stringify(patch.d1MigrationsDir.binding)} has a non-string ` +
+            `${JSON.stringify(d1MigrationsDir.binding)} has a non-string ` +
             `"migrations_dir" value; expected a string. Fix the config and retry.`,
         );
       }
       if (typeof existingDir === 'string') {
-        if (!sameMigrationsDir(configPath, existingDir, patch.d1MigrationsDir.dir)) {
+        if (!sameMigrationsDir(configPath, existingDir, d1MigrationsDir.dir)) {
           throw new Error(
             `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-              `${JSON.stringify(patch.d1MigrationsDir.binding)} already sets "migrations_dir": ` +
+              `${JSON.stringify(d1MigrationsDir.binding)} already sets "migrations_dir": ` +
               `${JSON.stringify(existingDir)}, but Void keeps this database's migrations in ` +
-              `${JSON.stringify(patch.d1MigrationsDir.dir)}. Refusing to overwrite an explicit ` +
+              `${JSON.stringify(d1MigrationsDir.dir)}. Refusing to overwrite an explicit ` +
               `different migrations directory. Either remove "migrations_dir" from the entry (or ` +
-              `set it to ${JSON.stringify(patch.d1MigrationsDir.dir)}) to let Void manage it, or ` +
+              `set it to ${JSON.stringify(d1MigrationsDir.dir)}) to let Void manage it, or ` +
               `move the migrations and keep your directory, then retry.`,
           );
         }
@@ -1343,18 +1344,18 @@ export function writeProvisionedWranglerConfig(
       } else {
         if (
           existingPattern !== undefined &&
-          !migrationsPatternMatchesDir(existingPattern, patch.d1MigrationsDir.dir)
+          !migrationsPatternMatchesDir(existingPattern, d1MigrationsDir.dir)
         ) {
           throw new Error(
             `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-              `${JSON.stringify(patch.d1MigrationsDir.binding)} has "migrations_pattern": ` +
+              `${JSON.stringify(d1MigrationsDir.binding)} has "migrations_pattern": ` +
               `${JSON.stringify(existingPattern)}, which is not under the requested ` +
-              `"migrations_dir": ${JSON.stringify(patch.d1MigrationsDir.dir)}. Wrangler requires the ` +
+              `"migrations_dir": ${JSON.stringify(d1MigrationsDir.dir)}. Wrangler requires the ` +
               `pattern to start with the migrations dir, so this change would break ` +
               `\`wrangler d1 migrations\`. Align "migrations_pattern" with the dir (or remove it) and retry.`,
           );
         }
-        set(['d1_databases', index, 'migrations_dir'], patch.d1MigrationsDir.dir);
+        set(['d1_databases', index, 'migrations_dir'], d1MigrationsDir.dir);
       }
     } else {
       d1MigrationsDirSkipped = true;
@@ -2039,11 +2040,11 @@ export function assertNoDuplicateMembers(text: string, configPath: string): void
       for (const property of node.children) {
         const keyNode = property.children?.[0];
         const key: unknown = keyNode?.value;
-        if (typeof key !== 'string') {
+        if (!keyNode || typeof key !== 'string') {
           continue;
         }
         if (seen.has(key)) {
-          const { line, column } = offsetToLineColumn(text, keyNode!.offset);
+          const { line, column } = offsetToLineColumn(text, keyNode.offset);
           throw new Error(
             `deploy: cannot update "${configPath}" — duplicate key ${JSON.stringify(key)} ` +
               `at line ${line}, column ${column}. Wrangler reads the last of two duplicate ` +

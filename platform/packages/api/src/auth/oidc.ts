@@ -132,7 +132,10 @@ export class PlatformOidcProvider {
     const server = await this.discoverForLogin();
     const verifier = generateRandomCodeVerifier();
     const nonce = generateRandomNonce();
-    const url = new URL(server.authorization_endpoint!);
+    if (!server.authorization_endpoint) {
+      throw new Error('The identity provider has no authorization endpoint.');
+    }
+    const url = new URL(server.authorization_endpoint);
     url.searchParams.set('client_id', this.configuration.clientId);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('response_type', 'code');
@@ -192,7 +195,11 @@ export class PlatformOidcProvider {
       await validateApplicationLevelSignature(server, response, {
         [customFetch]: this.network,
       });
-      claims = getValidatedIdTokenClaims(tokens)!;
+      const idTokenClaims = getValidatedIdTokenClaims(tokens);
+      if (!idTokenClaims) {
+        throw new Error('The identity provider did not return a verified ID token.');
+      }
+      claims = idTokenClaims;
       if (typeof claims.sub !== 'string' || claims.sub.length === 0 || claims.sub.length > 255) {
         throw new Error(
           'The identity provider must return a nonempty subject of at most 255 characters.',

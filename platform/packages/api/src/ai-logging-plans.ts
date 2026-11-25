@@ -398,12 +398,16 @@ export async function publishProjectsAiLogging(
 }
 
 function accountCandidates(userId: string, cursor: string | null): SQL {
-  return and(
+  const predicate = and(
     eq(projects.user_id, userId),
     eq(projects.status, 'active'),
     isNull(projectAiLogging.project_id),
     cursor ? gt(projects.id, cursor) : undefined,
-  )!;
+  );
+  if (!predicate) {
+    throw new Error('AI logging publish requires an account filter.');
+  }
+  return predicate;
 }
 
 /**

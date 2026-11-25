@@ -1160,7 +1160,7 @@ function addNamedPlan(
     });
     return;
   }
-  if (recorded && recorded.state === 'ready') {
+  if (existing && recorded?.state === 'ready') {
     if (options?.repairMissing && recorded.ownership === 'created') {
       actions.push({
         action: 'create',
@@ -1178,7 +1178,7 @@ function addNamedPlan(
       );
     }
     throw new Error(
-      `platform: Recorded ${kind} ${JSON.stringify(name)} (${recorded.id}) is missing. Run \`void platform repair ${existing!.id}\` to reconcile it.`,
+      `platform: Recorded ${kind} ${JSON.stringify(name)} (${recorded.id}) is missing. Run \`void platform repair ${existing.id}\` to reconcile it.`,
     );
   }
   actions.push({

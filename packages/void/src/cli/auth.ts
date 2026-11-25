@@ -65,13 +65,14 @@ function readOriginScopedToken(apiUrl: string, config: Config): string | null {
     return keyringToken;
   }
 
-  const fileToken = config.tokens?.[normalizedApiUrl];
-  if (!fileToken) {
+  const tokens = config.tokens;
+  const fileToken = tokens?.[normalizedApiUrl];
+  if (!tokens || !fileToken) {
     return null;
   }
   if (keyringSet(account, fileToken)) {
-    delete config.tokens![normalizedApiUrl];
-    if (Object.keys(config.tokens!).length === 0) {
+    delete tokens[normalizedApiUrl];
+    if (Object.keys(tokens).length === 0) {
       delete config.tokens;
     }
     try {
@@ -381,7 +382,7 @@ export async function awaitBrowserCallback<T>(options: {
     };
 
     const server = http.createServer(async (req, res) => {
-      const url = new URL(req.url!, `http://localhost`);
+      const url = new URL(req.url ?? '/', `http://localhost`);
       if (url.pathname !== '/callback') {
         res.writeHead(404);
         res.end('Not found');
@@ -504,6 +505,12 @@ export async function runPlatformLogin(
       }
       return null;
     },
-    finalize: (params) => exchangeLoginCode(apiUrl, params.get('code')!, state, codeVerifier),
+    finalize: (params) => {
+      const code = params.get('code');
+      if (!code) {
+        throw new Error('No authorization code received. Please try again.');
+      }
+      return exchangeLoginCode(apiUrl, code, state, codeVerifier);
+    },
   });
 }

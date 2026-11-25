@@ -35,7 +35,6 @@ import {
   uploadedDeploymentInput,
   uploadedWorkerInputProblem,
 } from '../deployment-execution.ts';
-import type { DeploymentInput } from '../deployment-execution.ts';
 import {
   getSharedEmailRecipientReadiness,
   reconcileSharedEmailRecipient,
@@ -286,7 +285,8 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
       503,
     );
   }
-  if (context.get('oauthApproval') && !context.get('deploymentExecution')) {
+  const oauthApproval = context.get('oauthApproval');
+  if (oauthApproval && !context.get('deploymentExecution')) {
     // The approved artifact digest commits to inline `workerFiles` bytes, so
     // an uploaded `workerInput` could not be checked against it.
     if (body.workerInput !== undefined) {
@@ -301,7 +301,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     try {
       await verifyOAuthDeployment(
         context.get('db'),
-        context.get('oauthApproval')!,
+        oauthApproval,
         projectId,
         context.req.header('x-void-deploy-idempotency-key'),
         body,
@@ -577,17 +577,15 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   // Keys derive from the authenticated project and the validated upload id,
   // so a request can only name objects under its own project's prefix.
   const uploadPrefix = workerInput ? deploymentInputPrefix(projectId, workerInput.id) : null;
-  const uploadedModules: DeploymentInput['modules'] = (workerInput?.modules ?? []).map(
-    (module, index) => ({
-      name: module.name,
-      key: `${uploadPrefix}${index}`,
-      digest: module.sha256,
-      type: moduleContentType(module.name),
-      size: module.size,
-    }),
-  );
+  const uploadedModules = (workerInput?.modules ?? []).map((module, index) => ({
+    name: module.name,
+    key: `${uploadPrefix}${index}`,
+    digest: module.sha256,
+    type: moduleContentType(module.name),
+    size: module.size,
+  }));
   for (const module of uploadedModules) {
-    workerFiles.push(deploymentInputModule(context.env.STATIC_ASSETS_R2, module, module.size!));
+    workerFiles.push(deploymentInputModule(context.env.STATIC_ASSETS_R2, module, module.size));
   }
   if (!execution && body.workerFiles !== undefined) {
     if (
@@ -696,8 +694,8 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     oauthApproval: context.get('oauthApproval'),
   };
   const uploadedInput =
-    durable && workerInput
-      ? await uploadedDeploymentInput(uploadPrefix!, body, uploadedModules, inputOptions)
+    durable && uploadPrefix !== null
+      ? await uploadedDeploymentInput(uploadPrefix, body, uploadedModules, inputOptions)
       : null;
   if (uploadedInput) {
     // A retry of an admitted deploy gets its receipt even after the
@@ -717,10 +715,10 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
       return deploymentReceiptResponse(context.get('db'), existing.id);
     }
   }
-  if (workerInput) {
+  if (workerInput && uploadPrefix !== null) {
     const uploadProblem = await uploadedWorkerInputProblem(
       context.env.STATIC_ASSETS_R2,
-      uploadPrefix!,
+      uploadPrefix,
       workerInput.modules,
     );
     if (uploadProblem) {
@@ -873,7 +871,11 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
           }
         };
         const promoteProtectedDeployment = async (): Promise<void> => {
-          const cutoverManifest = JSON.parse(protectedDeployment.manifest!) as DeployManifest;
+          const { manifest } = protectedDeployment;
+          if (!manifest) {
+            throw new Error('Protected deployment is missing its manifest.');
+          }
+          const cutoverManifest = JSON.parse(manifest) as DeployManifest;
           await updateDeploymentStatus(tx, protectedDeployment.id, 'live', undefined, {
             force: true,
           });

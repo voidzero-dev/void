@@ -107,13 +107,14 @@ export async function platformWorkerLiveTriggersMatch(options: {
     const worker = record(workerValue);
     const subdomain = record(worker?.subdomain);
     const schedules = record(schedulesValue)?.schedules;
+    const references = record(worker?.references)?.queues;
     if (
       worker?.name !== workerName ||
       !subdomain ||
       (!desired.preserveWorkersDev && subdomain.enabled !== desired.workers_dev) ||
       (!desired.preservePreviewUrls && subdomain.previews_enabled !== desired.preview_urls) ||
       !Array.isArray(schedules) ||
-      !Array.isArray(worker.references && record(worker.references)?.queues) ||
+      !Array.isArray(references) ||
       !Array.isArray(workflowsValue) ||
       workflowsValue.length >= 100 ||
       !Array.isArray(nextWorkflowsValue) ||
@@ -136,7 +137,6 @@ export async function platformWorkerLiveTriggersMatch(options: {
     ) {
       return false;
     }
-    const references = record(worker.references)!.queues as Array<unknown>;
     if (references.length !== queues.length) {
       return false;
     }

@@ -50,15 +50,15 @@ import { sanitizeDeployErrorMessage } from './shared.ts';
 export async function recoverFailedDeployment(input: {
   readonly err: unknown;
   readonly logger: DeployLogger;
-  readonly workerName: string | undefined;
+  readonly workerName: string;
   readonly currentStep: string;
   readonly routingSwitched: boolean;
   readonly workerUploaded: boolean;
   wfpMirroredManifestDeploymentId: string | null;
   readonly context: Context<ApiEnv>;
-  readonly deployment: Deployment | undefined;
-  readonly manifest: DeployManifest | undefined;
-  readonly dispatchNamespace: string | undefined;
+  readonly deployment: Deployment;
+  readonly manifest: DeployManifest;
+  readonly dispatchNamespace: string;
   readonly cutoverCommitted: boolean;
   readonly projectId: string;
   readonly cutoverOwnerId: string;
@@ -131,13 +131,8 @@ export async function recoverFailedDeployment(input: {
     );
   }
 
-  const failedDeployment = deployment!;
-  const failedManifest = manifest!;
-  const failedWorkerName = workerName!;
-  const failedDispatchNamespace = dispatchNamespace!;
-
   const cleanupSandboxController = async (): Promise<void> => {
-    if (sandboxControllerAttempted && deployment && manifest?.sandbox) {
+    if (sandboxControllerAttempted && manifest.sandbox) {
       await deleteSandboxController(
         context.env.CF_ACCOUNT_ID,
         context.env.CF_API_TOKEN,
@@ -148,7 +143,7 @@ export async function recoverFailedDeployment(input: {
         context.get('db'),
       ).catch((error: unknown) =>
         logger.error('catch', 'sandbox_controller_cleanup_failed', error, {
-          deploymentId: deployment?.id,
+          deploymentId: deployment.id,
         }),
       );
     }
@@ -157,7 +152,7 @@ export async function recoverFailedDeployment(input: {
     const slugUrl = `https://${platformProjectHostname(project, readPlatformApplication(context.env))}`;
     emit({
       event: 'done',
-      deployment: failedDeployment.id,
+      deployment: deployment.id,
       url: slugUrl,
       urls: [slugUrl],
       assets: 0,
@@ -196,7 +191,7 @@ export async function recoverFailedDeployment(input: {
     let durableReadSucceeded = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const latest = await getDeployment(context.get('db'), failedDeployment.id);
+        const latest = await getDeployment(context.get('db'), deployment.id);
         durableReadSucceeded = true;
         if (latest?.status === 'live') {
           ambiguousCutoverOutcome = 'committed';
@@ -208,7 +203,7 @@ export async function recoverFailedDeployment(input: {
         }
       } catch (readError) {
         logger.warn('catch', 'cutover_outcome_read_failed', {
-          deploymentId: failedDeployment.id,
+          deploymentId: deployment.id,
           attempt: attempt + 1,
           err: readError instanceof Error ? readError.message : String(readError),
         });
@@ -221,7 +216,7 @@ export async function recoverFailedDeployment(input: {
     }
     ambiguousCutoverOutcome ??= durableReadSucceeded ? 'not_committed' : 'unknown';
     logger.warn('catch', 'cutover_outcome_reconciled', {
-      deploymentId: failedDeployment.id,
+      deploymentId: deployment.id,
       outcome: ambiguousCutoverOutcome,
     });
   }
@@ -229,7 +224,7 @@ export async function recoverFailedDeployment(input: {
   if (ambiguousCutoverOutcome === 'pending_reconcile') {
     try {
       const ready = parseCutoverMarker(
-        await context.env.ROUTING.get(cutoverReadyKey(failedDeployment.id)),
+        await context.env.ROUTING.get(cutoverReadyKey(deployment.id)),
       );
       readyMarkerConfirmed = ready?.projectId === projectId && ready.ownerId === cutoverOwnerId;
     } catch {
@@ -256,7 +251,7 @@ export async function recoverFailedDeployment(input: {
         ? 'teardown_race_lost'
         : 'cutover_failed';
     logger.error('catch', failureEvent, err, {
-      workerName: failedWorkerName,
+      workerName,
       writtenRoutingKeyCount: writtenRoutingKeys.length,
     });
 
@@ -270,16 +265,16 @@ export async function recoverFailedDeployment(input: {
       const claimed = await context.get('db').transaction(async (tx) => {
         await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
         const intent = parseCutoverMarker(
-          await context.env.ROUTING.get(cutoverIntentKey(failedDeployment.id)),
+          await context.env.ROUTING.get(cutoverIntentKey(deployment.id)),
         );
         if (intent?.projectId !== projectId || intent.ownerId !== cutoverOwnerId) {
           return false;
         }
-        return await beginDeploymentCompensation(tx, failedDeployment.id);
+        return await beginDeploymentCompensation(tx, deployment.id);
       });
       if (!claimed) {
         logger.warn('catch', 'cutover_compensation_claim_lost', {
-          deploymentId: failedDeployment.id,
+          deploymentId: deployment.id,
         });
         emit({ event: 'error', message: msg, step: currentStep });
         return;
@@ -324,7 +319,7 @@ export async function recoverFailedDeployment(input: {
         }
         if (
           compensationErrors.length > 0 ||
-          failedManifest.durableObjects ||
+          manifest.durableObjects ||
           currentStep === 'durable_objects'
         ) {
           const committedActive = lockedProject.active_deployment_id
@@ -383,14 +378,14 @@ export async function recoverFailedDeployment(input: {
         headers: { Authorization: `Bearer ${context.env.CF_API_TOKEN}` },
       }).catch((e: unknown) =>
         logger.error('catch', 'orphan_worker_delete_failed', e, {
-          workerName: failedWorkerName,
+          workerName,
         }),
       );
     }
     await cleanupSandboxController();
 
     if (needsProtectedClaim) {
-      const compensatedKey = cutoverCompensatedKey(failedDeployment.id);
+      const compensatedKey = cutoverCompensatedKey(deployment.id);
       try {
         await context.env.ROUTING.put(compensatedKey, projectId);
       } catch (markerError) {
@@ -400,30 +395,30 @@ export async function recoverFailedDeployment(input: {
         }
       }
     }
-    const latestAfterFailure = await getDeployment(context.get('db'), failedDeployment.id);
+    const latestAfterFailure = await getDeployment(context.get('db'), deployment.id);
     const wasCanceled =
       latestAfterFailure !== null &&
       CANCELLATION_REQUESTED_DEPLOYMENT_STATUSES.includes(latestAfterFailure.status);
     logger.info('status_transition', 'status_change', {
-      deploymentId: failedDeployment.id,
+      deploymentId: deployment.id,
       from: input.currentStatus,
       to: wasCanceled ? 'canceled' : 'failed',
       reason: failureEvent,
     });
     await updateDeploymentStatus(
       context.get('db'),
-      failedDeployment.id,
+      deployment.id,
       wasCanceled ? 'canceled' : 'failed',
       msg,
       wasCanceled ? { force: true } : undefined,
     ).catch(() => {});
     input.currentStatus = wasCanceled ? 'canceled' : 'failed';
-    const terminal = await getDeployment(context.get('db'), failedDeployment.id).catch(() => null);
+    const terminal = await getDeployment(context.get('db'), deployment.id).catch(() => null);
     if (terminal && TERMINAL_DEPLOYMENT_STATUSES.includes(terminal.status)) {
       await Promise.all([
-        context.env.ROUTING.delete(cutoverIntentKey(failedDeployment.id)),
-        context.env.ROUTING.delete(cutoverReadyKey(failedDeployment.id)),
-        context.env.ROUTING.delete(cutoverCompensatedKey(failedDeployment.id)),
+        context.env.ROUTING.delete(cutoverIntentKey(deployment.id)),
+        context.env.ROUTING.delete(cutoverReadyKey(deployment.id)),
+        context.env.ROUTING.delete(cutoverCompensatedKey(deployment.id)),
       ]).catch(() => {
         // Terminal PostgreSQL state makes stale markers harmless.
       });
@@ -431,14 +426,14 @@ export async function recoverFailedDeployment(input: {
     emit({ event: 'error', message: msg, step: currentStep });
   } else if (preserveAmbiguousCutover) {
     logger.warn('catch', 'ambiguous_cutover_preserved', {
-      deploymentId: failedDeployment.id,
+      deploymentId: deployment.id,
       outcome: ambiguousCutoverOutcome,
     });
     if (ambiguousCutoverOutcome === 'committed') {
       input.currentStatus = 'live';
       await Promise.all([
-        context.env.ROUTING.delete(cutoverIntentKey(failedDeployment.id)),
-        context.env.ROUTING.delete(cutoverReadyKey(failedDeployment.id)),
+        context.env.ROUTING.delete(cutoverIntentKey(deployment.id)),
+        context.env.ROUTING.delete(cutoverReadyKey(deployment.id)),
       ]).catch(() => {
         // Stale markers are harmless once PostgreSQL is live.
       });
@@ -448,29 +443,29 @@ export async function recoverFailedDeployment(input: {
     }
   } else if (routingSwitched) {
     logger.error('catch', 'post_routing_step_failed', err, {
-      workerName: failedWorkerName,
+      workerName,
       currentPhase: currentStep,
     });
     logger.info('status_transition', 'status_change', {
-      deploymentId: failedDeployment.id,
+      deploymentId: deployment.id,
       from: input.currentStatus,
       to: 'live',
       reason: 'post_routing_recovery',
     });
-    await updateDeploymentStatus(context.get('db'), failedDeployment.id, 'live', undefined, {
+    await updateDeploymentStatus(context.get('db'), deployment.id, 'live', undefined, {
       force: true,
     }).catch(() => {});
     input.currentStatus = 'live';
     await updateProjectType(
       context.get('db'),
       projectId,
-      failedManifest.type ?? (failedManifest.framework ? 'framework' : 'void'),
+      manifest.type ?? (manifest.framework ? 'framework' : 'void'),
     ).catch(() => {});
-    await setActiveDeployment(context.get('db'), projectId, failedDeployment.id).catch(() => {});
-    await markDeploymentRetained(context.get('db'), failedDeployment.id, true).catch(() => {});
+    await setActiveDeployment(context.get('db'), projectId, deployment.id).catch(() => {});
+    await markDeploymentRetained(context.get('db'), deployment.id, true).catch(() => {});
     emitSlugDone();
   } else {
-    const latest = await getDeployment(context.get('db'), failedDeployment.id);
+    const latest = await getDeployment(context.get('db'), deployment.id);
     const wasCanceled =
       latest && CANCELLATION_REQUESTED_DEPLOYMENT_STATUSES.includes(latest.status);
     await restoreTrackedRouting().catch((e: unknown) =>
@@ -479,35 +474,35 @@ export async function recoverFailedDeployment(input: {
     await deleteDispatchScript(
       context.env.CF_ACCOUNT_ID,
       context.env.CF_API_TOKEN,
-      failedDispatchNamespace,
-      failedWorkerName,
+      dispatchNamespace,
+      workerName,
     ).catch((e: unknown) =>
       logger.error('catch', 'worker_script_cleanup_failed', e, {
-        workerName: failedWorkerName,
+        workerName,
       }),
     );
     await cleanupSandboxController();
     await clearIsrCache(
       createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
       projectId,
-      failedDeployment.id,
+      deployment.id,
     ).catch((e: unknown) =>
       logger.error('catch', 'isr_cache_clear_failed', e, {
-        deploymentId: failedDeployment.id,
+        deploymentId: deployment.id,
       }),
     );
     logger.info('status_transition', 'status_change', {
-      deploymentId: failedDeployment.id,
+      deploymentId: deployment.id,
       from: input.currentStatus,
       to: wasCanceled ? 'canceled' : 'failed',
       reason: 'pre_routing_failure',
       wasCanceled,
     });
     if (!wasCanceled) {
-      await updateDeploymentStatus(context.get('db'), failedDeployment.id, 'failed', msg);
+      await updateDeploymentStatus(context.get('db'), deployment.id, 'failed', msg);
       input.currentStatus = 'failed';
     } else {
-      await updateDeploymentStatus(context.get('db'), failedDeployment.id, 'canceled', msg, {
+      await updateDeploymentStatus(context.get('db'), deployment.id, 'canceled', msg, {
         force: true,
       });
       input.currentStatus = 'canceled';

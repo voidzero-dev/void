@@ -393,8 +393,14 @@ export function cloudflareCandidateActivationOptions(options: {
         }
       : undefined,
     recordVerifiedCandidate: existingWorker
-      ? (versionId) =>
-          recordCloudflareCandidate(root, pinnedHandoffLink!, existingWorker.versionId, versionId)
+      ? (versionId) => {
+          if (!pinnedHandoffLink) {
+            throw new Error(
+              'Cannot record a Cloudflare handoff candidate without its pinned link.',
+            );
+          }
+          recordCloudflareCandidate(root, pinnedHandoffLink, existingWorker.versionId, versionId);
+        }
       : (versionId, parentVersionId) => {
           if (parentVersionId) {
             recordCloudflareCandidateUpload(

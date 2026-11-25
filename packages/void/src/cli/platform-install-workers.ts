@@ -34,7 +34,12 @@ export function platformWorkerAction(
   workerActions: ReadonlyArray<PlatformInstallPlanAction>,
   key: PlatformWorkerKey,
 ): PlatformInstallPlanAction {
-  return workerActions.find((entry) => entry.key === platformWorkerResourceKey(key))!;
+  const resourceKey = platformWorkerResourceKey(key);
+  const action = workerActions.find((entry) => entry.key === resourceKey);
+  if (!action) {
+    throw new Error(`platform: The plan is missing the ${resourceKey} Worker action.`);
+  }
+  return action;
 }
 
 /** Deploy callbacks shared by the upload and enable phases for one platform Worker. */

@@ -165,8 +165,9 @@ async function runBuildLogsCommand(
   }
 
   // Writer: append to a file, or print to stdout.
-  const write = args.output
-    ? (line: string): void => appendFileSync(args.output!, `${line}\n`)
+  const { output } = args;
+  const write = output
+    ? (line: string): void => appendFileSync(output, `${line}\n`)
     : (line: string): void => console.log(line);
 
   // First page (since=0). A transient failure on the FIRST poll must not kill

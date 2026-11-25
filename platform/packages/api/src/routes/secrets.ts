@@ -28,7 +28,10 @@ async function withProjectSecretUpdate(
   context: Context<ApiEnv>,
   update: (db: Db, project: Project) => Promise<Response>,
 ): Promise<Response> {
-  const projectId = context.req.param('id')!;
+  const projectId = context.req.param('id');
+  if (!projectId) {
+    return context.json({ error: 'Project not found' }, 404);
+  }
   return context.get('db').transaction(async (tx) => {
     // This is the same fence used to claim deploys/rollback leases and switch
     // routing. Hold it through live propagation, and reject in-flight work

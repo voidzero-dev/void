@@ -123,12 +123,13 @@ export async function prepareCloudflareFrameworkArtifact(options: {
     migrationDialect: analysis.dialect,
     readiness: true,
     versionMetadataBinding,
-    ...(hasRevalidate(revalidate) && {
-      isr: {
-        revalidate: revalidate!,
-        queryAllowlist: voidConfig.routing?.revalidateQueryAllowlist,
-      },
-    }),
+    ...(revalidate !== undefined &&
+      hasRevalidate(revalidate) && {
+        isr: {
+          revalidate,
+          queryAllowlist: voidConfig.routing?.revalidateQueryAllowlist,
+        },
+      }),
   });
   if (preset.cloudflareArtifact === 'vite-plugin') {
     return;

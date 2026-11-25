@@ -134,8 +134,11 @@ export async function initializePlatformAppAccess(
       : setup.mode === 'protected'
         ? 'protected'
         : 'public';
+  if (!setup.apiToken) {
+    throw new Error('Managed app access requires an API token.');
+  }
   await configurePlatformZeroTrust(env, db, {
-    apiToken: setup.apiToken!,
+    apiToken: setup.apiToken,
     identityProviderIds: setup.identityProviderIds,
     policyIds: setup.policyIds,
     protectNewProjects: setup.mode === 'protected',

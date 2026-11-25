@@ -51,8 +51,12 @@ export function buildDurableObjectUploadMigrations(
 
   const sortedSteps = [...steps].sort(compareDurableObjectMigrationSteps);
 
+  const lastStep = sortedSteps.at(-1);
+  if (!lastStep) {
+    throw new Error('No Durable Object migration steps to upload.');
+  }
   return {
-    new_tag: sortedSteps.at(-1)!.tag,
+    new_tag: lastStep.tag,
     steps: sortedSteps.map(({ tag: _tag, index: _index, ...step }) => step),
   };
 }

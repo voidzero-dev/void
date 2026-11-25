@@ -265,6 +265,10 @@ async function probePlatformDomain(
   hostname: string,
   manifest: PlatformInstallationManifest,
 ): Promise<void> {
+  const { pendingDomain } = manifest;
+  if (!pendingDomain) {
+    throw new Error('platform: No pending application domain to probe.');
+  }
   const url = `https://${hostname}/health`;
   try {
     const response = await fetch(url, {
@@ -281,7 +285,7 @@ async function probePlatformDomain(
     }
   } catch {
     throw new Error(
-      `platform: HTTPS is not ready for *.${manifest.pendingDomain!.baseDomain}. Existing URLs remain active. Wait for DNS/certificate activation and rerun the same domain set command.`,
+      `platform: HTTPS is not ready for *.${pendingDomain.baseDomain}. Existing URLs remain active. Wait for DNS/certificate activation and rerun the same domain set command.`,
     );
   }
 }
@@ -343,6 +347,12 @@ export async function runPlatformDomainCommand(args: DomainArgs): Promise<void> 
     );
     if (args.plan) {
       return;
+    }
+    const { apiUrl } = manifest.endpoints;
+    if (!apiUrl) {
+      throw new Error(
+        'platform: The installation has no API URL. Repair the platform, then rerun this command.',
+      );
     }
     assertPlatformOperatorCredentialCanApplyPlan(credential, plan);
     if (!args.yes) {
@@ -407,7 +417,7 @@ export async function runPlatformDomainCommand(args: DomainArgs): Promise<void> 
     }
     savePlatformConnection({
       accountId: manifest.account.id,
-      apiUrl: manifest.endpoints.apiUrl!,
+      apiUrl,
       applicationDomain: domain,
       displayName: deployment.displayName,
       installationId: manifest.id,

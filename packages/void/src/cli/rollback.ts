@@ -76,7 +76,11 @@ export async function runRollbackCommand(
 
   // Compute migration diff client-side for warning
   const active = deployments.find((d) => d.id === activeDeploymentId);
-  const target = candidates.find((d) => d.id === targetId)!;
+  const target = candidates.find((d) => d.id === targetId);
+  if (!target) {
+    log.error(`Deployment ${targetId} is not available for rollback.`);
+    process.exit(1);
+  }
   const currentMigrations: Array<string> = active?.applied_migrations
     ? (JSON.parse(active.applied_migrations) as Array<string>)
     : [];
@@ -162,7 +166,12 @@ async function runCloudflareRollback(
       cancel('Rollback cancelled.');
       process.exit(0);
     }
-    target = candidates.find((version) => version.id === result)!;
+    const selected = candidates.find((version) => version.id === result);
+    if (!selected) {
+      log.error(`Version ${result} is not available for rollback.`);
+      process.exit(1);
+    }
+    target = selected;
   }
 
   const current = status.versions.find((version) => version.id === status.activeVersionId);

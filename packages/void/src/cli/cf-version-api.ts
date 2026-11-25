@@ -530,7 +530,7 @@ async function apiResult(
   const result = object(parsed?.result);
   if (!response.ok || parsed?.success !== true || !result) {
     const error = Array.isArray(parsed?.errors) ? object(parsed.errors[0]) : null;
-    const code = Number.isSafeInteger(error?.code) ? ` [code: ${error!.code}]` : '';
+    const code = error && Number.isSafeInteger(error.code) ? ` [code: ${error.code}]` : '';
     throw new CloudflareApiError(
       `Cloudflare version upload failed (${response.status})${code}.`,
       response.status,
@@ -692,14 +692,14 @@ function containerPlansFromOutput(
       throw new Error(`Cloudflare Container ${config.name} needs exactly one local SQLite export.`);
     }
     const [className, raw] = classes[0];
-    const declaration = object(raw)!;
+    const declaration = object(raw);
     const localBindings = bindings.filter(
       (binding) =>
         binding.type === 'durable_object_namespace' &&
         binding.class_name === className &&
         binding.script_name === undefined,
     );
-    if (declaration.storage !== 'sqlite' || localBindings.length === 0) {
+    if (declaration?.storage !== 'sqlite' || localBindings.length === 0) {
       throw new Error(
         `Cloudflare Container ${config.name} needs a local SQLite Durable Object binding.`,
       );
@@ -820,15 +820,15 @@ async function prepareContainerMetadata(options: {
   for (const plan of options.plans) {
     const images: Json = {};
     for (const [name, raw] of Object.entries(plan.images)) {
-      const source = object(raw)!;
+      const source = object(raw);
       const reference = requiredString(
-        source.localReference ?? source.reference,
+        source?.localReference ?? source?.reference,
         `Container ${plan.name} image`,
       );
       let image = prepared.get(reference);
       if (!image) {
         image = reference;
-        if (source.localReference !== undefined) {
+        if (source?.localReference !== undefined) {
           if (!options.runCf || !options.verifyUploader()) {
             throw new Error('The verified Cloudflare Container image uploader is unavailable.');
           }
@@ -950,9 +950,11 @@ async function ensureContainerApplications(options: {
             entry.name === expected.name &&
             entry.class_name === expected.class_name,
         );
+      const actual = matching[0];
       return (
         matching.length !== 1 ||
-        !isDeepStrictEqual(matching[0]!.images ?? {}, expected.images ?? {})
+        !actual ||
+        !isDeepStrictEqual(actual.images ?? {}, expected.images ?? {})
       );
     })
   ) {

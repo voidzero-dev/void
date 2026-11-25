@@ -437,15 +437,6 @@ const config = defineConfig({
         rules: { 'quality/no-known-value-widening': 'error' },
       },
       {
-        // Review lifecycle invariants before enabling this in the remaining CLI and hosted API code.
-        files: ['packages/void/src/cli/**/*', 'platform/packages/api/src/**/*'],
-        excludeFiles: [
-          'platform/packages/api/src/{migrations,observability,queues}/**/*',
-          'platform/packages/api/src/{assets,proxy-token-rotation,sandbox-concurrency-counter,usage-counter}.ts',
-        ],
-        rules: { 'typescript/no-non-null-assertion': 'off' },
-      },
-      {
         files: [
           'packages/{deploy-core,isr}/src/**/*',
           'packages/platform/src/{email-protocol,plans}.ts',

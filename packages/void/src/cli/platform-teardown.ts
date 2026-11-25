@@ -675,7 +675,10 @@ export async function runPurgeResourcesTeardown(
     await context.checkpoint(next);
   };
   const markDeleted = async (key: string) => {
-    const resource = next.resources.find((entry) => entry.key === key)!;
+    const resource = next.resources.find((entry) => entry.key === key);
+    if (!resource) {
+      throw new Error(`platform: Missing teardown resource ${key}.`);
+    }
     await save(
       recordInstallationResource(next, { ...resource, state: 'deleted' }, new Date().toISOString()),
     );
@@ -783,14 +786,20 @@ export async function runPurgeResourcesTeardown(
       const dependents = await client
         .listWorkerDependents(accountId, resource.name)
         .catch(() => null);
-      const outside = dependents?.workers.filter((name) => !workerTarget(name)) ?? [];
+      const outside: Array<string> = [];
+      const keys: Array<string> = [];
       // Prove each dependent live, like the Worker itself: a name match alone
       // could be another Worker that took a recorded name.
-      const keys = outside.length
-        ? []
-        : (dependents?.workers.map((name) => workerTarget(name)!.key) ?? []);
+      for (const name of dependents?.workers ?? []) {
+        const worker = workerTarget(name);
+        if (worker) {
+          keys.push(worker.key);
+        } else {
+          outside.push(name);
+        }
+      }
       const missing =
-        dependents && !dependents.pagesFunction && keys.length
+        dependents && !dependents.pagesFunction && outside.length === 0 && keys.length
           ? await verify(new Set(['routing-kv', ...keys]))
           : null;
       if (
@@ -863,7 +872,10 @@ export async function runPurgeResourcesTeardown(
           break;
         }
         if (current.kind === 'worker-route') {
-          const live = (await client.listWorkerRoutes(zone!.id)).find(
+          if (!zone) {
+            throw new Error('platform: Cannot verify the route without its zone.');
+          }
+          const live = (await client.listWorkerRoutes(zone.id)).find(
             (route) => route.id === current.id,
           );
           if (live && (live.pattern !== current.name || live.script !== worker.name)) {
@@ -874,7 +886,7 @@ export async function runPurgeResourcesTeardown(
             break;
           }
           if (live) {
-            await client.deleteWorkerRoute(zone!.id, current.id);
+            await client.deleteWorkerRoute(zone.id, current.id);
           }
         } else {
           const live = (await client.listWorkerDomains(accountId)).find(
@@ -895,8 +907,11 @@ export async function runPurgeResourcesTeardown(
         break;
       }
       case 'dns':
+        if (!zone) {
+          throw new Error('platform: Cannot verify the DNS record without its zone.');
+        }
         try {
-          await remove(current, 'Check the record in the Cloudflare dashboard.', zone!.id);
+          await remove(current, 'Check the record in the Cloudflare dashboard.', zone.id);
         } catch (error) {
           if (
             !(error instanceof PlatformResourceChangedError && error.resourceKey === current.key)
@@ -912,7 +927,10 @@ export async function runPurgeResourcesTeardown(
         if (!(await prove(current))) {
           break;
         }
-        const zoneId = emailRoutingZone(next)!;
+        const zoneId = emailRoutingZone(next);
+        if (!zoneId) {
+          throw new Error('platform: Cannot verify Email Routing without its zone.');
+        }
         const hint =
           'Check the Email Routing rules for this zone in the Cloudflare dashboard. Never disable Email Routing for the zone.';
         try {

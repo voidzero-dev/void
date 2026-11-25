@@ -74,14 +74,14 @@ export async function buildLogs(
   const lines = limit === undefined ? body.lines : body.lines.slice(0, limit);
   const hasMore = lines.length < body.lines.length;
   const lastSeq = hasMore ? lines.at(-1)?.seq : body.lastSeq;
-  if (!Number.isSafeInteger(lastSeq)) {
+  if (lastSeq === undefined || !Number.isSafeInteger(lastSeq)) {
     throw new OperatorError(502, 'Build log service returned an invalid sequence.');
   }
   return {
     ...body,
     lines,
     hasMore,
-    lastSeq: Math.max(since, lastSeq!),
+    lastSeq: Math.max(since, lastSeq),
     status: body.status ?? build.status,
     terminal: body.terminal === true || terminal,
     // A terminal row that was never claimed could not have had a container log

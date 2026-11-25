@@ -438,7 +438,7 @@ function differences(
   aiLogging: Readonly<{ before: AiLoggingMode | undefined; after: AiLoggingMode }>,
 ) {
   if (!after) {
-    return [{ label: 'Plan', before: before!.name, after: 'Removed' }];
+    return [{ label: 'Plan', before: before?.name ?? '—', after: 'Removed' }];
   }
   const rows = [
     { label: 'Display name', before: before?.name ?? '—', after: after.name },

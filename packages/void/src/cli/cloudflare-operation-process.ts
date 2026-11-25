@@ -1304,7 +1304,10 @@ async function workerChanges(): Promise<Result> {
     return deployed;
   }
   if (operation.type === 'versions.upload' || operation.type === 'worker.deploy') {
-    const path = configPath()!;
+    const path = configPath();
+    if (!path) {
+      throw new Error('Cloudflare Worker upload requires a configuration path.');
+    }
     if (typeof raw.main !== 'string' || !raw.main || raw.no_bundle !== true) {
       throw new Error('Cloudflare Worker upload requires a prebuilt platform Worker.');
     }
@@ -1411,9 +1414,10 @@ async function tail(): Promise<Result> {
     await new Promise<void>((resolve, reject) => {
       finish = resolve;
       let pendingMessages = Promise.resolve();
-      socket = new WebSocket(tailUrl, 'trace-v1');
-      socket.addEventListener('open', () => {
-        socket!.send(JSON.stringify({ debug: false }));
+      const connection = new WebSocket(tailUrl, 'trace-v1');
+      socket = connection;
+      connection.addEventListener('open', () => {
+        connection.send(JSON.stringify({ debug: false }));
       });
       socket.addEventListener('message', (event) => {
         pendingMessages = pendingMessages

@@ -150,9 +150,9 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
     for (let index = 0; index < rest.length; index++) {
       const value = rest[index];
       if (value === '--project' && rest[index + 1]) {
-        projectSlug = rest[++index]!;
+        projectSlug = rest[++index];
       } else if (value === '--name' && rest[index + 1]) {
-        name = rest[++index]!;
+        name = rest[++index];
       } else if (value === '--expires-in' && rest[index + 1]) {
         const parsed = Number(rest[++index]);
         if (!Number.isInteger(parsed) || parsed < 1 || parsed > 90) {

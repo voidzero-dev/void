@@ -98,7 +98,8 @@ export async function initializeAuthentication(
       400,
     );
   }
-  if (setup.protection) {
+  const { protection } = setup;
+  if (protection) {
     if (!env.PROXY_URL) {
       throw new AuthenticationConfigurationError(
         'Access protection requires the platform proxy origin.',
@@ -109,8 +110,7 @@ export async function initializeAuthentication(
     const requiredOrigins = [apiOrigin, new URL(env.PROXY_URL).origin];
     if (
       requiredOrigins.some(
-        (origin) =>
-          !setup.protection!.applications.some((application) => application.origin === origin),
+        (origin) => !protection.applications.some((application) => application.origin === origin),
       )
     ) {
       throw new AuthenticationConfigurationError(

@@ -810,7 +810,11 @@ export function parseCounter(raw: string | null): number {
  */
 async function aliasResponse(context: Context<ApiEnv>, alias: string): Promise<Response> {
   const db = context.get('db');
-  const projectId = context.req.param('id')!;
+  const projectId = context.req.param('id');
+  const senderDomain = context.env.EMAIL_SENDER_DOMAIN;
+  if (!projectId || !senderDomain) {
+    return context.json({ error: 'Shared email is unavailable' }, 404);
+  }
   try {
     await reconcileSharedEmailRecipient(db, context.env, projectId);
   } catch (error) {
@@ -818,7 +822,7 @@ async function aliasResponse(context: Context<ApiEnv>, alias: string): Promise<R
   }
   return context.json({
     emailAlias: alias,
-    address: `${alias}@${context.env.EMAIL_SENDER_DOMAIN!.toLowerCase()}`,
+    address: `${alias}@${senderDomain.toLowerCase()}`,
     sharedInbound: await getSharedEmailRecipientReadiness(db, context.env, projectId),
   });
 }

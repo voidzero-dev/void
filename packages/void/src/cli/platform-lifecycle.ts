@@ -401,15 +401,16 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
   const recorded = existing?.deployment;
   if (
     existing &&
+    recorded &&
     isPlatformSetupDraft(existing) &&
     ((args.applicationDomain &&
-      normalizeApplicationDomain(args.applicationDomain) !== recorded!.application.baseDomain) ||
-      (args.zone && normalizeApplicationDomain(args.zone) !== recorded!.application.zoneName) ||
-      (args.workersDev && !!recorded!.application.zoneName) ||
+      normalizeApplicationDomain(args.applicationDomain) !== recorded.application.baseDomain) ||
+      (args.zone && normalizeApplicationDomain(args.zone) !== recorded.application.zoneName) ||
+      (args.workersDev && !!recorded.application.zoneName) ||
       (args.controlPlaneDomain &&
         normalizeApplicationDomain(args.controlPlaneDomain) !==
-          recorded!.controlPlane.apiHostname) ||
-      (args.dedicatedZone && !recorded!.application.dedicatedZone))
+          recorded.controlPlane.apiHostname) ||
+      (args.dedicatedZone && !recorded.application.dedicatedZone))
   ) {
     throw new Error(
       'platform: These options differ from the saved setup. Resume its recorded configuration or choose another installation name.',

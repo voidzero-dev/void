@@ -481,12 +481,17 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     if (appAccess !== undefined && !['public', 'platform', 'custom'].includes(appAccess)) {
       throw new Error('platform: --app-access accepts public, platform, or custom.');
     }
-    const runtimeLogs = values.has('--runtime-logs')
-      ? parseRuntimeLogs(values.get('--runtime-logs')!)
-      : undefined;
-    const storageLocation = values.has('--storage-location')
-      ? parsePlatformStorageLocation(values.get('--storage-location')!)
-      : undefined;
+    const runtimeLogsInput = values.get('--runtime-logs');
+    const runtimeLogs =
+      runtimeLogsInput === undefined ? undefined : parseRuntimeLogs(runtimeLogsInput);
+    const storageLocationInput = values.get('--storage-location');
+    const storageLocation =
+      storageLocationInput === undefined
+        ? undefined
+        : parsePlatformStorageLocation(storageLocationInput);
+    const hyperdrive = values.get('--hyperdrive');
+    const authConfig = values.get('--auth-config');
+    const dashboardUrl = values.get('--dashboard-url');
     const loginMethods = values.get('--login-methods')?.split(',');
     if (
       loginMethods &&
@@ -514,7 +519,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       ...(noControlPlaneDomain ? { noControlPlaneDomain: true as const } : {}),
       ...(noDedicatedZone ? { dedicatedZoneSpecified: true as const } : {}),
       ...(customDomains ? { customDomains: true as const } : {}),
-      ...(values.has('--hyperdrive') ? { hyperdrive: values.get('--hyperdrive')! } : {}),
+      ...(hyperdrive !== undefined ? { hyperdrive } : {}),
       ...(loginMethods
         ? { loginMethods: [...new Set(loginMethods)] as Array<PlatformLoginKind> }
         : {}),
@@ -523,12 +528,12 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       ...(workersDev ? { workersDev: true } : {}),
       ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
       ...(storageLocation !== undefined ? { storageLocation } : {}),
-      ...(values.has('--auth-config') ? { authConfig: values.get('--auth-config')! } : {}),
+      ...(authConfig !== undefined ? { authConfig } : {}),
       account: values.get('--account') ?? '',
       applicationDomain: values.get('--application-domain') ?? '',
       controlPlaneDomain: values.get('--control-plane-domain') ?? '',
-      ...(values.has('--dashboard-url')
-        ? { dashboardUrl: normalizePlatformDashboardUrl(values.get('--dashboard-url')!) }
+      ...(dashboardUrl !== undefined
+        ? { dashboardUrl: normalizePlatformDashboardUrl(dashboardUrl) }
         : {}),
       dedicatedZone,
       displayName: values.get('--display-name') ?? '',

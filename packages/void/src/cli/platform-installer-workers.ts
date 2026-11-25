@@ -176,8 +176,11 @@ export async function recoverInterruptedPlatformWorkerCutover(
       'proxy',
       'api',
     ];
-    for (const key of recoveryOrder.filter((key) => interruptedCutover.staged.has(key))) {
-      const snapshot = interruptedCutover.staged.get(key)!;
+    for (const key of recoveryOrder) {
+      const snapshot = interruptedCutover.staged.get(key);
+      if (!snapshot) {
+        continue;
+      }
       const preservedRoutes = dependencies.recoverWorkerCutover
         ? []
         : await inventoryUnmanagedPlatformWorkerTraffic(
@@ -705,7 +708,7 @@ export async function deployPlatformWorker(
           `platform: Worker ${workerName} changed concurrently while its deployment lineage was inspected.`,
         );
       }
-      previousDeployment = deployments[0]!;
+      previousDeployment = deployments[0];
       previousDeploymentId = previousDeployment.id;
       if (
         contentHash &&
@@ -945,11 +948,12 @@ export async function deployPlatformWorker(
       await options.publishRoutes(workerName, options.managedRoutes);
     }
     await options.onTrafficPublished();
+    const committedVersionId = uploadedVersionId;
     const rollback = () =>
       rollbackPlatformWorker({
         accountId,
         activatedDeploymentId,
-        activatedVersionId: uploadedVersionId!,
+        activatedVersionId: committedVersionId,
         config,
         nextTriggers,
         previousConfig: options.previousConfig,

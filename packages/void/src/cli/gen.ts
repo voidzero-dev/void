@@ -373,7 +373,10 @@ export const GET = defineHandler(async (c) => {
 `;
   }
 
-  const importLine = getImportLine(validator)!;
+  const importLine = getImportLine(validator);
+  if (!importLine) {
+    throw new Error(`No import available for the ${validator} validator.`);
+  }
   const paramsSchema = getParamsSchema(validator);
 
   return `${importLine}

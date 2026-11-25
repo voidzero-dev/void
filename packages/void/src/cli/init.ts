@@ -2166,7 +2166,7 @@ export function resolveProjectInstall(
     args,
     manualCommand: `${installer} ${manualArgs}`,
   };
-  if (installer !== 'vp') {
+  if (installer !== 'vp' || !pkg) {
     return install;
   }
 
@@ -2197,7 +2197,7 @@ export function resolveProjectInstall(
   }
   // npx void init must also work without a globally installed vp. Avoid
   // asking an older pnpm to switch itself to a pinned native pnpm 12.
-  const vitePlus = `vite-plus@${resolveVitePlusBootstrapSpec(root, pkg!)}`;
+  const vitePlus = `vite-plus@${resolveVitePlusBootstrapSpec(root, pkg)}`;
   const packageArg = `--package=${vitePlus}`;
   return {
     installer,

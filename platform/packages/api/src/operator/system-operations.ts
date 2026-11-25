@@ -170,6 +170,7 @@ export async function systemHealth(
           : null;
     }
   }
+  const proxy = env.PLATFORM_PROXY;
   const dispatchHeaders: Record<string, string> | undefined = installed
     ? env.PLATFORM_HEALTH_PROBE_TOKEN
       ? { 'X-Void-Platform-Probe': env.PLATFORM_HEALTH_PROBE_TOKEN }
@@ -182,9 +183,7 @@ export async function systemHealth(
         'proxy',
         `${proxyUrl.replace(/\/$/, '')}/health`,
         installed ? dispatchHeaders : undefined,
-        installed && env.PLATFORM_PROXY
-          ? (url, init) => env.PLATFORM_PROXY!.fetch(url, init)
-          : undefined,
+        installed && proxy ? (url, init) => proxy.fetch(url, init) : undefined,
       ),
       ...(!installed
         ? [

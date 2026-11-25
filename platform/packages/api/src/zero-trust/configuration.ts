@@ -248,16 +248,17 @@ export function parseZeroTrustApplicationTarget(value: unknown): PlatformApplica
   try {
     const application = readPlatformApplication({ PLATFORM_APPLICATION: JSON.stringify(input) });
     if (
-      application.baseDomain !== application.zoneName &&
-      !application.baseDomain.endsWith(`.${application.zoneName}`)
+      !application.workersDev ||
+      (application.baseDomain !== application.zoneName &&
+        !application.baseDomain.endsWith(`.${application.zoneName}`))
     ) {
       throw new Error('Application target is outside its zone');
     }
     return {
       ...application,
       workersDev: {
-        subdomain: application.workersDev!.subdomain,
-        installationId: application.workersDev!.installationId,
+        subdomain: application.workersDev.subdomain,
+        installationId: application.workersDev.installationId,
       },
     };
   } catch {

@@ -2643,11 +2643,13 @@ export class BuildManager extends Container<ApiEnv['Bindings']> {
       this.deferredLaunchTermination = reason;
       return;
     }
-    const resumeFinalization =
-      !this.activeLaunch?.containerStartPending && this.deferredLaunchTermination !== null;
-    if (resumeFinalization) {
+    const deferredTermination = this.activeLaunch?.containerStartPending
+      ? null
+      : this.deferredLaunchTermination;
+    const resumeFinalization = deferredTermination !== null;
+    if (deferredTermination !== null) {
       markerAuthoritative = true;
-      reason = this.deferredLaunchTermination!;
+      reason = deferredTermination;
       this.deferredLaunchTermination = null;
     }
 

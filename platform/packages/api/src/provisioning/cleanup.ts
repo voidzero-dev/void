@@ -659,6 +659,9 @@ async function lockAndMarkDeleting(
         })
         .returning();
     }
+    if (!ownership?.ends_at) {
+      throw new Error('Project teardown requires a closed ownership period.');
+    }
     if (lockedProject.status !== 'deleting') {
       await tx
         .update(projectsTable)
@@ -690,7 +693,7 @@ async function lockAndMarkDeleting(
       ownerUserId: lockedProject.user_id,
       ownerBillingCycleStart: owner.billing_cycle_start,
       ownershipStartedAt: ownership.starts_at,
-      ownershipEndedAt: ownership.ends_at!,
+      ownershipEndedAt: ownership.ends_at,
       cancelledBuilds: await terminateBuildsForProject(tx, projectId, {
         reason: 'project deleted',
       }),

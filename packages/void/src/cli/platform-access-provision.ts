@@ -414,11 +414,12 @@ export async function provisionPlatformAccess(
       'platform: Connecting an existing protection application requires its admitted service token.',
     );
   }
-  if (input.serviceToken) {
-    const token = tokenInventory.find((token) => token.id === input.serviceToken!.id);
+  const { serviceToken } = input;
+  if (serviceToken) {
+    const token = tokenInventory.find((token) => token.id === serviceToken.id);
     if (
       !token ||
-      token.client_id !== input.serviceToken.clientId ||
+      token.client_id !== serviceToken.clientId ||
       token.enabled === false ||
       (typeof token.expires_at === 'string' && Date.parse(token.expires_at) <= Date.now())
     ) {
@@ -428,11 +429,11 @@ export async function provisionPlatformAccess(
     }
     const prior = state.resources['service-token'];
     state.resources['service-token'] = {
-      id: input.serviceToken.id,
+      id: serviceToken.id,
       name: text(token.name, 'service token name'),
       fingerprint: fingerprint({ origins }),
       pending: false,
-      adopted: prior?.id === input.serviceToken.id ? prior.adopted : true,
+      adopted: prior?.id === serviceToken.id ? prior.adopted : true,
     };
     save(state);
   }
@@ -675,10 +676,14 @@ export async function provisionPlatformAccess(
       );
     }
     const audience = text(app.aud, 'application audience');
-    output.protection = parsePlatformAccessProtection({
+    const protection = parsePlatformAccessProtection({
       teamDomain: inspected.teamDomain,
       applications: origins.map((origin) => ({ origin, audience })),
-    })!;
+    });
+    if (!protection) {
+      throw new Error('platform: The Access protection configuration is missing.');
+    }
+    output.protection = protection;
     output.credentials = Object.fromEntries(
       origins.map((origin) => [
         origin,

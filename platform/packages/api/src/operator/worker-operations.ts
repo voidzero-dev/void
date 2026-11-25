@@ -218,7 +218,10 @@ export async function executeWorkerRollbacks(
   const outcomes: Array<PlatformEvent & { auditError?: string }> = [];
   let stopped = false;
   for (const target of targets) {
-    const event = eventByWorker.get(target.worker.name)!;
+    const event = eventByWorker.get(target.worker.name);
+    if (!event) {
+      throw new Error('Worker operation has no audit event.');
+    }
     let status: PlatformEvent['status'] = stopped ? 'skipped' : 'success';
     let error: string | undefined;
     if (!stopped) {

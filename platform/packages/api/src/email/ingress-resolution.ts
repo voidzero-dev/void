@@ -239,17 +239,23 @@ app.post('/resolve-ingress', async (context) => {
       return context.json({ error: 'shared recipient routing is not ready' }, 503);
     }
   } else {
+    if (!projectId) {
+      return context.json({ error: 'project unavailable' }, 404);
+    }
     const project = (
       await db
         .select({ id: projects.id, slug: projects.slug, status: projects.status })
         .from(projects)
-        .where(eq(projects.id, projectId!))
+        .where(eq(projects.id, projectId))
         .limit(1)
     )[0];
     if (!project || project.status !== 'active') {
       return context.json({ error: 'project unavailable' }, 404);
     }
     slug = project.slug;
+  }
+  if (!projectId) {
+    return context.json({ error: 'project unavailable' }, 404);
   }
   const authority = (
     await db
@@ -263,7 +269,7 @@ app.post('/resolve-ingress', async (context) => {
       .from(projects)
       .innerJoin(users, eq(projects.user_id, users.id))
       .leftJoin(emailProjectControls, eq(emailProjectControls.project_id, projects.id))
-      .where(eq(projects.id, projectId!))
+      .where(eq(projects.id, projectId))
       .limit(1)
   )[0];
   if (
@@ -282,7 +288,7 @@ app.post('/resolve-ingress', async (context) => {
     await db
       .select({ manifest: deployments.manifest, status: deployments.status })
       .from(deployments)
-      .where(and(eq(deployments.id, deploymentId), eq(deployments.project_id, projectId!)))
+      .where(and(eq(deployments.id, deploymentId), eq(deployments.project_id, projectId)))
       .limit(1)
   )[0];
   let manifest: Pick<DeployManifest, 'emailProtocolVersion' | 'limits'> | null;

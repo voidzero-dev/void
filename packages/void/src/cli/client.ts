@@ -67,9 +67,12 @@ type PlatformVersionProbe =
  */
 export function isOlderPlatformVersion(version: string, minimumVersion: string): boolean | null {
   const actual = RELEASE_VERSION.exec(version);
-  const minimum = RELEASE_VERSION.exec(minimumVersion)!;
+  const minimum = RELEASE_VERSION.exec(minimumVersion);
   if (!actual) {
     return null;
+  }
+  if (!minimum) {
+    throw new Error(`Invalid minimum platform release version: ${minimumVersion}.`);
   }
   for (const part of [1, 2, 3]) {
     const difference = Number(actual[part]) - Number(minimum[part]);

@@ -546,7 +546,7 @@ export async function runConnect(
     }
     installation = found;
   } else if (installations.length === 1) {
-    installation = installations[0]!;
+    installation = installations[0];
   } else if (!isTTY) {
     log.error('connect: Multiple installations found. Pass --installation <id>.');
     process.exit(1);
@@ -562,7 +562,12 @@ export async function runConnect(
       cancel('Cancelled.');
       process.exit(0);
     }
-    installation = installations.find((i) => i.installation_id === picked)!;
+    const selected = installations.find((i) => i.installation_id === picked);
+    if (!selected) {
+      log.error('connect: Selected installation is unavailable.');
+      process.exit(1);
+    }
+    installation = selected;
   }
 
   let repoFullName: string;

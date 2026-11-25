@@ -489,9 +489,13 @@ export async function runConfigureOperation(
                   configuration.healthApplication,
                 )
               : configuration.healthApplication;
+          const guardDestination = configuration.publicAccessGuardDestination;
+          if (configuration.publicAccess && !guardDestination) {
+            throw new ZeroTrustUnavailableError('Public app management destination is missing.');
+          }
           const wildcard = await client.ensureApplication(
-            configuration.publicAccess
-              ? publicAppManagementApplication(name, configuration.publicAccessGuardDestination!)
+            configuration.publicAccess && guardDestination
+              ? publicAppManagementApplication(name, guardDestination)
               : {
                   name,
                   destinations: zeroTrustWildcardDestinations(readPlatformApplication(env)),

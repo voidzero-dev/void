@@ -113,11 +113,10 @@ export async function getAccessibleProjectsByUserId(
 
   return rows
     .filter((row) => !isAdminSuspended(row.owner.suspended_reason))
-    .map((row) => ({
-      project: row.project,
-      role: row.project.user_id === userId ? 'owner' : row.memberRole!,
-      owner: row.owner,
-    }));
+    .flatMap((row) => {
+      const role = row.project.user_id === userId ? 'owner' : row.memberRole;
+      return role ? [{ project: row.project, role, owner: row.owner }] : [];
+    });
 }
 
 /** Resolve one accessible project without loading the user's project list. */
@@ -145,11 +144,8 @@ export async function getAccessibleProjectBySlug(
   if (!row || isAdminSuspended(row.owner.suspended_reason)) {
     return null;
   }
-  return {
-    project: row.project,
-    role: row.project.user_id === userId ? 'owner' : row.memberRole!,
-    owner: row.owner,
-  };
+  const role = row.project.user_id === userId ? 'owner' : row.memberRole;
+  return role ? { project: row.project, role, owner: row.owner } : null;
 }
 
 // --- Project team membership and invitations ---
@@ -847,8 +843,8 @@ export async function respondToProjectInvitation(
     return { member };
   });
 
-  if ('error' in result) {
-    throw new ProjectTeamMutationError(result.error!);
+  if (result.error !== undefined) {
+    throw new ProjectTeamMutationError(result.error);
   }
   return result;
 }

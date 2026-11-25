@@ -406,7 +406,8 @@ export async function activeOAuthApproval(
   if (
     approval.data.kind === 'preview'
       ? project.preview_client_id !== client.id ||
-        Date.parse(project.preview_expires_at!) <= Date.now()
+        !project.preview_expires_at ||
+        Date.parse(project.preview_expires_at) <= Date.now()
       : project.preview_client_id !== null
   ) {
     throw new OAuthError(

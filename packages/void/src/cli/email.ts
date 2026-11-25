@@ -78,9 +78,13 @@ export async function runEmailCommand(root: string, args: EmailArgs): Promise<vo
     case 'destinations':
       return emailDestinations(client, projectId);
     case 'allow':
-      return emailAllow(client, projectId, args.address!);
     case 'disallow':
-      return emailDisallow(client, projectId, args.address!);
+      if (args.address === undefined) {
+        throw new Error(`email: Usage: void email ${args.subcommand} <address>.`);
+      }
+      return args.subcommand === 'allow'
+        ? emailAllow(client, projectId, args.address)
+        : emailDisallow(client, projectId, args.address);
     case 'alias':
       return emailAlias(client, projectId, args.address, { yes: args.yes === true });
     case 'domain':
@@ -144,14 +148,12 @@ export async function emailAlias(
   }
   const result = await client.setEmailAlias(projectId, name);
   printSuccess(`Email alias set: ${result.address}`);
-  const status = result.sharedInbound?.status;
-  if (status && status !== 'ready') {
-    const other =
-      result.sharedInbound!.recipient === result.address
-        ? ''
-        : ` at ${result.sharedInbound!.recipient}`;
+  const inbound = result.sharedInbound;
+  const status = inbound?.status;
+  if (inbound && status && status !== 'ready') {
+    const other = inbound.recipient === result.address ? '' : ` at ${inbound.recipient}`;
     log.info(
-      `Inbound mail${other} is ${status}${result.sharedInbound?.reason ? `: ${result.sharedInbound.reason}` : ''}. It starts working once the project has an email handler deployed and routing is ready; check with \`void email alias\`.`,
+      `Inbound mail${other} is ${status}${inbound.reason ? `: ${inbound.reason}` : ''}. It starts working once the project has an email handler deployed and routing is ready; check with \`void email alias\`.`,
     );
   }
 }
@@ -950,21 +952,27 @@ async function runEmailDomainCommand(
   projectId: string,
   args: EmailArgs,
 ): Promise<void> {
-  switch (args.domainVerb) {
-    case undefined:
-      return;
+  const { domainVerb, domain } = args;
+  if (domainVerb === undefined) {
+    return;
+  }
+  if (domainVerb === 'list') {
+    return emailDomainList(client, projectId);
+  }
+  if (domain === undefined) {
+    throw new Error(`email: Usage: void email domain ${domainVerb} <domain> [--project <name>].`);
+  }
+  switch (domainVerb) {
     case 'add':
-      return emailDomainAdd(client, projectId, args.domain!);
+      return emailDomainAdd(client, projectId, domain);
     case 'status':
-      return emailDomainStatus(client, projectId, args.domain!);
-    case 'list':
-      return emailDomainList(client, projectId);
+      return emailDomainStatus(client, projectId, domain);
     case 'sync':
-      return emailDomainSync(client, projectId, args.domain!);
+      return emailDomainSync(client, projectId, domain);
     case 'rotate-secret':
-      return emailDomainRotateSecret(client, projectId, args.domain!);
+      return emailDomainRotateSecret(client, projectId, domain);
     case 'remove':
-      return emailDomainRemove(client, projectId, args.domain!);
+      return emailDomainRemove(client, projectId, domain);
   }
 }
 

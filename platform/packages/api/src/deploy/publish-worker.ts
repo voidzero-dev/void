@@ -269,7 +269,8 @@ export async function publishWorkerDeployment(input: {
   });
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
 
-  const hasCrons = manifest.schedules && manifest.schedules.length > 0;
+  const { schedules } = manifest;
+  const hasCrons = schedules && schedules.length > 0;
 
   await clearIsrCache(
     createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
@@ -418,7 +419,7 @@ export async function publishWorkerDeployment(input: {
     if (hasCrons) {
       await syncCronScheduler(context.env, projectId, {
         workerName,
-        schedules: manifest.schedules!,
+        schedules,
         proxyToken,
       });
     } else {

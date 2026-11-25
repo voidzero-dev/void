@@ -330,7 +330,7 @@ export async function uploadDeploymentWorker(input: {
       }
       assetsByHash.set(hash, {
         bytes: new Uint8Array(await object.arrayBuffer()),
-        contentType: contentTypes.get(hash)!,
+        contentType: contentTypes.get(hash) ?? 'application/octet-stream',
       });
     });
     // Every byte was pre-uploaded direct-to-R2 by the CLI, so none are new
@@ -524,7 +524,8 @@ export async function uploadDeploymentWorker(input: {
     );
   }
 
-  input.workerUploadUrl = `https://api.cloudflare.com/client/v4/accounts/${context.env.CF_ACCOUNT_ID}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${workerName}`;
+  const workerUploadUrl = `https://api.cloudflare.com/client/v4/accounts/${context.env.CF_ACCOUNT_ID}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${workerName}`;
+  input.workerUploadUrl = workerUploadUrl;
   const maxAttempts = CF_RETRY.maxRetries + 1;
   const cfHeaders = {
     Authorization: `Bearer ${context.env.CF_API_TOKEN}`,
@@ -537,7 +538,7 @@ export async function uploadDeploymentWorker(input: {
   // the uploaded migration tag is this upload.
   const savedDespiteFailure = async (fields: Record<string, unknown>) => {
     const saved = await workerScriptSaved(
-      input.workerUploadUrl!,
+      workerUploadUrl,
       cfHeaders,
       durableObjectMigrations?.new_tag,
     );
@@ -573,7 +574,7 @@ export async function uploadDeploymentWorker(input: {
       // The request and its response body are retried together: a connection
       // that drops while the body is read fails like one that drops earlier.
       try {
-        cfResponse = await fetch(input.workerUploadUrl!, {
+        cfResponse = await fetch(workerUploadUrl, {
           method: 'PUT',
           headers: { ...cfHeaders, 'Content-Type': upload.contentType },
           body: withKnownLength(upload.stream, upload.length),

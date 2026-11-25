@@ -74,13 +74,14 @@ export async function zeroTrustStatus(
             identityProviderIds: configuration.identityProviderIds,
             policyIds: configuration.policyIds,
           });
+      const guardDestination = configuration.publicAccessGuardDestination;
+      if (configuration.publicAccess && !guardDestination) {
+        throw new ZeroTrustConfigurationError('Public app management destination is missing.');
+      }
       live = await client.inspectApplication(
         configuration.wildcardApplication,
-        configuration.publicAccess
-          ? publicAppManagementApplication(
-              configuration.wildcardApplicationName,
-              configuration.publicAccessGuardDestination!,
-            )
+        configuration.publicAccess && guardDestination
+          ? publicAppManagementApplication(configuration.wildcardApplicationName, guardDestination)
           : {
               name: configuration.wildcardApplicationName,
               destinations: zeroTrustWildcardDestinations(readPlatformApplication(env)),

@@ -99,17 +99,17 @@ export async function ensurePlatformAccessHealthChecks(input: {
     : identityAccountId === accountId
       ? process.env.VOID_PLATFORM_ACCESS_SETUP_TOKEN || input.checkpoint.accessManagementToken
       : undefined;
-  if (!token && !input.client.request) {
+  const accessClient = token
+    ? new PlatformCloudflareClient(token, { apiBase: input.client.apiBaseUrl })
+    : input.client.request
+      ? { request: input.client.request.bind(input.client) }
+      : undefined;
+  if (!accessClient) {
     throw new Error(
       'platform: Access management is required to configure the reserved health endpoints.',
     );
   }
-  const access = new PlatformAccessClient(
-    token
-      ? new PlatformCloudflareClient(token, { apiBase: input.client.apiBaseUrl })
-      : { request: input.client.request!.bind(input.client) },
-    accountId,
-  );
+  const access = new PlatformAccessClient(accessClient, accountId);
   const nonce = createHash('sha256')
     .update(`void-access-health:${input.manifest.ownershipNonce}`)
     .digest('hex')
