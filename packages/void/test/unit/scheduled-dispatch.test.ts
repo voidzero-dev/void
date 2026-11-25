@@ -19,7 +19,11 @@ const jobs = [
   { name: 'other', filePath: 'other.mjs', crons: ['0 1 * * *'] },
 ];
 type JobEnv = { calls: Array<string>; fail: boolean };
-type Scheduled = (controller: { cron: string }, env: JobEnv, ctx: object) => Promise<void>;
+type Scheduled = (
+  controller: { cron: string },
+  env: JobEnv,
+  ctx: Record<string, never>,
+) => Promise<void>;
 type LoadJob = (
   path: string,
 ) => Promise<{ default: (controller: unknown, env: JobEnv) => Promise<void> }>;
@@ -76,11 +80,15 @@ it('authenticates framework cron HTTP requests while leaving native events usabl
   });
   const { default: worker } = (await import(pathToFileURL(join(root, 'index.mjs')).href)) as {
     default: {
-      fetch(request: Request, env: object, context: object): Promise<Response>;
+      fetch(
+        request: Request,
+        env: { calls: Array<string>; CRON_SECRET?: string; __VOID_PROXY_TOKEN?: string },
+        context: Record<string, never>,
+      ): Promise<Response>;
       scheduled(
         controller: { cron: string; scheduledTime: number },
-        env: object,
-        context: object,
+        env: { calls: Array<string> },
+        context: Record<string, never>,
       ): Promise<void>;
     };
   };

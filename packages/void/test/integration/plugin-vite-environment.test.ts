@@ -18,7 +18,7 @@ import { createBuilder, createServer, normalizePath, resolveConfig } from 'vite'
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { voidPlugin } from '../../src/index.ts';
 import { findVoidDependentPackages } from '../../src/installed-packages.ts';
-import { getHookHandler } from '../helpers/vite-hooks.ts';
+import { getHookHandler, loadVirtualModule } from '../helpers/vite-hooks.ts';
 
 const roots: Array<string> = [];
 
@@ -281,9 +281,8 @@ describe('voidPlugin Vite environments', () => {
 
     const config = await resolveConfig({ root, plugins: [voidPlugin()] }, 'serve', 'development');
     const plugin = config.plugins.find((candidate) => candidate.name === 'void:drizzle');
-    const load = getHookHandler(plugin?.load) as (this: object, id: string) => string;
 
-    expect(load.call({}, '\0virtual:void-db')).toContain(
+    expect(loadVirtualModule(plugin?.load, '\0virtual:void-db')).toContain(
       'drizzle(connectionString, { schema, casing: "snake_case" })',
     );
   });
@@ -382,7 +381,12 @@ describe('voidPlugin Vite environments', () => {
   });
 
   /** An installed package with the given manifest and `index.js`. */
-  function installPackage(root: string, name: string, manifest: object, index: string): void {
+  function installPackage(
+    root: string,
+    name: string,
+    manifest: Record<string, unknown>,
+    index: string,
+  ): void {
     const dir = join(root, 'node_modules', name);
     mkdirSync(dir, { recursive: true });
     writeFileSync(
@@ -1203,7 +1207,7 @@ describe('deploy-build preview', () => {
           (plugin) => plugin.name === 'void:remove-implicit-cloudflare-deploy-pointer',
         )!;
         const configure = getHookHandler(guard.config) as (
-          config: object,
+          config: import('vite').UserConfig,
           env: { command: string; mode: string; isPreview: boolean },
         ) => void;
         configure({}, { command: 'serve', mode: 'production', isPreview: true });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { bindingRuntimePlugin } from '../../src/plugin-binding-runtime.ts';
-import { getHookHandler } from '../helpers/vite-hooks.ts';
+import { getHookHandler, loadVirtualModule } from '../helpers/vite-hooks.ts';
 
 describe('bindingRuntimePlugin', () => {
   it('uses custom binding names in KV and R2 runtime helpers', () => {
@@ -11,7 +11,6 @@ describe('bindingRuntimePlugin', () => {
       importer: string | undefined,
       options: { isEntry: boolean },
     ) => string | undefined;
-    const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
 
     const kvId = resolveId.call({ environment: { name: 'ssr' } }, 'void/kv', undefined, {
       isEntry: false,
@@ -22,7 +21,7 @@ describe('bindingRuntimePlugin', () => {
         isEntry: false,
       }),
     ).toBeUndefined();
-    const kvCode = load.call({}, kvId!);
+    const kvCode = loadVirtualModule(plugin.load, kvId!);
     expect(kvCode).toContain('requireRuntimeBinding("myapp_kv")');
     expect(kvCode).not.toContain('requireRuntimeBinding("KV")');
 
@@ -30,7 +29,7 @@ describe('bindingRuntimePlugin', () => {
       isEntry: false,
     });
     expect(storageId).toBe('\0virtual:void-storage');
-    const storageCode = load.call({}, storageId!);
+    const storageCode = loadVirtualModule(plugin.load, storageId!);
     expect(storageCode).toContain('requireRuntimeBinding("myapp_storage")');
     expect(storageCode).not.toContain('requireRuntimeBinding("STORAGE")');
   });

@@ -11,7 +11,7 @@ import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
 import type { FakeMySqlServer } from '../helpers/fake-mysql-server.ts';
-import { getHookHandler } from '../helpers/vite-hooks.ts';
+import { loadVirtualModule } from '../helpers/vite-hooks.ts';
 
 const USERS = [
   { id: 1, name: 'Ada' },
@@ -61,7 +61,6 @@ export const users = mysqlTable('users', { id: int('id').primaryKey(), name: var
   );
 
   const plugin = drizzlePlugin(root, false, dialect);
-  const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
   const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
   const stateKey = `__void_db_request_pools_${crypto.randomUUID().replaceAll('-', '')}`;
   const state = { pools: [] as Array<Pool>, checkouts: 0 };
@@ -69,8 +68,7 @@ export const users = mysqlTable('users', { id: int('id').primaryKey(), name: var
   stateKeys.push(stateKey);
   // Both drivers check a connection out of the pool for each query and each transaction.
   const checkout = dialect === 'postgresql' ? 'connect' : 'getConnection';
-  const code = load
-    .call({}, '\0virtual:void-db')
+  const code = loadVirtualModule(plugin.load, '\0virtual:void-db')
     .replace(
       /^import \{ drizzle \} from (.*);$/m,
       (_match, driver: string) => `import { drizzle as createDrizzle } from ${driver};

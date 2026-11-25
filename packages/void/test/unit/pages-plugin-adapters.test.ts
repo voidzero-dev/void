@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Plugin } from 'vite';
+import type { Plugin, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { pagesPlugin as reactPagesPlugin } from '../../../react/src/plugin-pages.ts';
 import { pagesPlugin as solidPagesPlugin } from '../../../solid/src/plugin-pages.ts';
@@ -10,7 +10,7 @@ import { pagesPlugin as vuePagesPlugin } from '../../../vue/src/plugin-pages.ts'
 
 type Hook<T> = T | { handler: T; filter?: { id: RegExp } };
 type PagesPluginHooks = {
-  config: Hook<(config: object, env: { command: 'serve' | 'build' }) => unknown>;
+  config: Hook<(config: UserConfig, env: { command: 'serve' | 'build' }) => unknown>;
   configResolved: (config: { publicDir: string | false }) => void;
   buildStart: Hook<() => Promise<void>>;
   resolveId: Hook<(id: string) => string | undefined>;

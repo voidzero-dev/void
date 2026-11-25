@@ -12,7 +12,7 @@ vi.mock('../../src/pages/scan.ts', () => ({ scanPages: vi.fn() }));
 type Hook<T> = T | { handler: T };
 type PagesPluginHooks = {
   buildStart: Hook<() => Promise<void>>;
-  config: (config: object, env: { command: 'serve' | 'build' }) => unknown;
+  config: (config: import('vite').UserConfig, env: { command: 'serve' | 'build' }) => unknown;
   load: Hook<(id: string) => Promise<string | undefined>>;
   configureServer: (server: unknown) => void;
 };
