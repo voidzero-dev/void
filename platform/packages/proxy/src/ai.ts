@@ -39,20 +39,17 @@ function isBinaryView(value: unknown): value is ArrayBufferView {
   return ArrayBuffer.isView(value);
 }
 
-function isSerializedFileInput(value: string | SerializedFileInput): value is SerializedFileInput {
+function isSerializedFileInput(value: unknown): value is SerializedFileInput {
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as Record<string, unknown>)[VOID_FILE_MARKER] === true &&
-    typeof (value as Record<string, unknown>).data === 'string' &&
-    ((value as Record<string, unknown>).name === undefined ||
-      typeof (value as Record<string, unknown>).name === 'string') &&
-    ((value as Record<string, unknown>).type === undefined ||
-      typeof (value as Record<string, unknown>).type === 'string')
+    isRecord(value) &&
+    value[VOID_FILE_MARKER] === true &&
+    typeof value.data === 'string' &&
+    (value.name === undefined || typeof value.name === 'string') &&
+    (value.type === undefined || typeof value.type === 'string')
   );
 }
 
-function base64ToBytes(base64: string): Uint8Array {
+function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   let binary: string;
   try {
     binary = atob(base64);
@@ -93,17 +90,36 @@ function isUnsafeProviderPath(path: string): boolean {
 
 function providerBody(value: unknown): SerializedProviderBody {
   const record = asRecord(value);
-  const type = asString(record.type);
-  if (
-    type === 'none' ||
-    type === 'json' ||
-    type === 'text' ||
-    type === 'base64' ||
-    type === 'form'
-  ) {
-    return record as SerializedProviderBody;
+  const { type, data, contentType, entries } = record;
+  if (type === 'json') {
+    return { type, value: record.value };
+  }
+  if (type === 'text' || type === 'base64') {
+    if (
+      typeof data !== 'string' ||
+      (contentType !== undefined && typeof contentType !== 'string')
+    ) {
+      throw new BadRequestError('invalid provider body');
+    }
+    return { type, data, contentType };
+  }
+  if (type === 'form') {
+    if (!Array.isArray(entries) || !entries.every(isSerializedFormEntry)) {
+      throw new BadRequestError('invalid provider form data');
+    }
+    return { type, entries };
   }
   return { type: 'none' };
+}
+
+function isSerializedFormEntry(
+  entry: unknown,
+): entry is { name: string; value: string | SerializedFileInput } {
+  return (
+    isRecord(entry) &&
+    typeof entry.name === 'string' &&
+    (typeof entry.value === 'string' || isSerializedFileInput(entry.value))
+  );
 }
 
 function appendSerializedFormValue(
@@ -111,7 +127,7 @@ function appendSerializedFormValue(
   name: string,
   value: string | SerializedFileInput,
 ): void {
-  if (isSerializedFileInput(value)) {
+  if (typeof value !== 'string') {
     const blob = new Blob([base64ToBytes(value.data)], {
       type: value.type ?? 'application/octet-stream',
     });
@@ -141,7 +157,7 @@ function providerRequestBody(body: SerializedProviderBody): ProviderRequestBody 
 
   if (body.type === 'base64') {
     return {
-      body: base64ToBytes(body.data).buffer as ArrayBuffer,
+      body: base64ToBytes(body.data).buffer,
       contentType: body.contentType,
     };
   }
@@ -512,14 +528,16 @@ ai.post('/provider', async (context) => {
 
     if (!response.ok) {
       const text = await response.text();
-      let error: string;
+      let error = text;
       try {
-        const json = JSON.parse(text) as { error?: { message?: string } };
-        error = json.error?.message ?? text;
+        const json: unknown = JSON.parse(text);
+        if (isRecord(json) && isRecord(json.error) && typeof json.error.message === 'string') {
+          error = json.error.message;
+        }
       } catch {
-        error = text;
+        // The provider may return a plain-text error.
       }
-      return context.json({ error }, response.status as 400);
+      return Response.json({ error }, { status: response.status });
     }
 
     return await responseFromGateway(response, false);
