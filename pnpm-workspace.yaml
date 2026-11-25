@@ -36,14 +36,14 @@ catalog:
   '@cloudflare/workers-utils': ^0.57.0
   '@pierre/highlights': ^0.5.1
   '@types/node': ^26.6.6
-  '@voidzero-dev/vite-plus-prompts': 1.6.0
+  '@voidzero-dev/vite-plus-prompts': 1.8.0
   typescript: 7.0.2
   # Match the tsrs version bundled with vite-plus so `vp check` and `typecheck` agree.
-  tsrs: 7.1.0-beta.tsrs2
+  tsrs: 7.1.0-beta.tsrs4
   '@voidzero-dev/vitepress-theme': ^5.0.7
   pathslash: ^0.1.0
-  vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
-  vite-plus: 1.7.0
+  vite: npm:@voidzero-dev/vite-plus-core@8.3.8001
+  vite-plus: 1.8.0
   wrangler: ^4.168.0
   cf: 1.0.0-rc.5
   oauth4webapi: ^3.8.8
@@ -143,11 +143,11 @@ packageExtensions:
 
 overrides:
   # Keep Vite+'s pinned Vitest internals on the same patch as the runner.
-  '@vitest/mocker': 5.1.0
-  '@vitest/pretty-format': 5.1.0
-  '@vitest/snapshot': 5.1.0
-  '@vitest/spy': 5.1.0
-  '@vitest/utils': 5.1.0
+  '@vitest/mocker': 5.1.1
+  '@vitest/pretty-format': 5.1.1
+  '@vitest/snapshot': 5.1.1
+  '@vitest/spy': 5.1.1
+  '@vitest/utils': 5.1.1
   esbuild: ^0.28.2
   react-server-dom-webpack: 19.3.1
   vite@*: 'catalog:'
@@ -173,7 +173,7 @@ minimumReleaseAgeExclude:
   - void
   - void-fate
   - mysql2@3.24.6
-  - vite-plus@1.3.0 || 1.6.0 || 1.7.0
+  - vite-plus@1.3.0 || 1.6.0 || 1.8.0
   - vitepress-plugin-group-icons@1.8.2
   - '@oxc-project/runtime@0.159.0'
   - '@oxc-project/types@0.159.0'
@@ -216,14 +216,14 @@ minimumReleaseAgeExclude:
   - '@oxlint/binding-win32-ia32-msvc@1.94.0'
   - '@oxlint/binding-win32-x64-msvc@1.94.0'
   - '@oxlint/plugins@1.94.0'
-  - '@tsrs/darwin-arm64@7.1.0-beta.tsrs2'
-  - '@tsrs/darwin-x64@7.1.0-beta.tsrs2'
-  - '@tsrs/linux-arm64-gnu@7.1.0-beta.tsrs2'
-  - '@tsrs/linux-arm64-musl@7.1.0-beta.tsrs2'
-  - '@tsrs/linux-x64-gnu@7.1.0-beta.tsrs2'
-  - '@tsrs/linux-x64-musl@7.1.0-beta.tsrs2'
-  - '@tsrs/win32-arm64@7.1.0-beta.tsrs2'
-  - '@tsrs/win32-x64@7.1.0-beta.tsrs2'
+  - '@tsrs/darwin-arm64@7.1.0-beta.tsrs4'
+  - '@tsrs/darwin-x64@7.1.0-beta.tsrs4'
+  - '@tsrs/linux-arm64-gnu@7.1.0-beta.tsrs4'
+  - '@tsrs/linux-arm64-musl@7.1.0-beta.tsrs4'
+  - '@tsrs/linux-x64-gnu@7.1.0-beta.tsrs4'
+  - '@tsrs/linux-x64-musl@7.1.0-beta.tsrs4'
+  - '@tsrs/win32-arm64@7.1.0-beta.tsrs4'
+  - '@tsrs/win32-x64@7.1.0-beta.tsrs4'
   - oxfmt@0.79.0
   - oxlint@1.94.0
-  - tsrs@7.1.0-beta.tsrs2
+  - tsrs@7.1.0-beta.tsrs4

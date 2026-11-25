@@ -41,5 +41,5 @@
     "vite-plus": "catalog:",
     "vue": "catalog:"
   },
-  "packageManager": "pnpm@12.21.0"
+  "packageManager": "pnpm@12.23.0"
 }
