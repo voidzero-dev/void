@@ -94,7 +94,7 @@ void db execute --json "select count(*) as total from users; select id from user
 
 Each entry has the same shape as a D1 result and as an entry of `wrangler d1 execute --json`:
 
-- `results`: the rows the statement returned, or `[]`. `NULL` prints as `null`, numbers and text keep their types, and binary values print as arrays of bytes. An integer outside ±9007199254740991, which a JSON number cannot hold exactly, prints as a string of its digits, and infinite or not-a-number values print as `"Infinity"`, `"-Infinity"` and `"NaN"`. PostgreSQL `bigint` and `numeric` values print as strings. A remote D1 database returns values as D1's API reports them. A MySQL `CALL` is one entry, with the rows of every result set the procedure returns.
+- `results`: the rows the statement returned, or `[]`. `NULL` prints as `null`, numbers and text keep their types, and binary values print as arrays of bytes. An integer outside ±9007199254740991, which a JSON number cannot hold exactly, prints as a string of its digits, and infinite or not-a-number values print as `"Infinity"`, `"-Infinity"` and `"NaN"`. PostgreSQL `bigint` and `numeric` values print as strings, in arrays too, and numbers in `json` and `jsonb` values keep the digits the database returned. A remote D1 database returns values as D1's API reports them. A MySQL `CALL` is one entry, with the rows of every result set the procedure returns.
 - `success`: `true` for a statement that ran.
 - `meta`: what the database reports about the statement. D1 databases report D1's metadata, such as `changes` and `last_row_id` (locally `changes`, `last_row_id` and `duration`). PostgreSQL reports `command` and `rowCount`, and MySQL reports `affectedRows` and `insertId` for a statement that changes data.
 

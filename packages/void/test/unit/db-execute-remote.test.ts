@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { CustomTypesConfig } from 'pg';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { Buffer } from '../../src/cli/node-buffer.ts';
 
@@ -75,8 +76,14 @@ const mockPgQuery = vi.fn<() => Promise<{ rows: Array<Record<string, unknown>> }
   Promise.resolve({ rows: [] }),
 );
 
-vi.mock('pg', () => ({
+const mockPgClient = vi.fn((_options: Record<string, unknown>) => undefined);
+
+vi.mock('pg', async (importOriginal) => ({
+  types: (await importOriginal<typeof import('pg')>()).types,
   Client: class {
+    constructor(options: Record<string, unknown>) {
+      mockPgClient(options);
+    }
     connect = mockPgConnect;
     end = mockPgEnd;
     query = mockPgQuery;
@@ -869,6 +876,21 @@ describe('void db execute --remote (PostgreSQL)', () => {
     expect(mockMySqlCreateConnection).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ supportBigNumbers: true }),
     );
+  });
+
+  it('keeps PostgreSQL numeric arrays and JSON numbers exact with --json only', async () => {
+    const root = createProjectRoot({ database: 'pg' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'postgres://host/db' });
+    const parserFor = (oid: number) => {
+      const options = mockPgClient.mock.lastCall?.[0] as { types?: CustomTypesConfig } | undefined;
+      return options?.types?.getTypeParser(oid, 'text') as ((value: string) => unknown) | undefined;
+    };
+
+    await runDbCommand(root, { action: 'execute', command: 'SELECT 1', remote: true, json: true });
+    expect(parserFor(1231)?.('{1234567890123456789.987}')).toEqual(['1234567890123456789.987']);
+
+    await runDbCommand(root, { action: 'execute', command: 'SELECT 1', remote: true });
+    expect(parserFor(1231)).toBeUndefined();
   });
 
   it('prints every statement of a multi-statement query with --json', async () => {

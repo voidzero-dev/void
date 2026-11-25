@@ -71,7 +71,7 @@ function splitMySqlStatements(sql: string): Array<MySqlMigrationStatement> {
     const next = sql[index + 1];
 
     if (character === "'" || character === '"' || character === '`') {
-      const close = skipQuoted(sql, index, character);
+      const close = skipMySqlQuoted(sql, index, character);
       take(index, close);
       bare += ' ';
       index = close;
@@ -127,7 +127,7 @@ function splitMySqlStatements(sql: string): Array<MySqlMigrationStatement> {
 }
 
 /** The index after the quoted string or name that opens at `open`. */
-function skipQuoted(sql: string, open: number, quote: string): number {
+export function skipMySqlQuoted(sql: string, open: number, quote: string): number {
   let index = open + 1;
   while (index < sql.length) {
     const character = sql[index];

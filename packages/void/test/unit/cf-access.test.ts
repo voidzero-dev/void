@@ -271,9 +271,11 @@ describe('origin-scoped self-hosted Access login', () => {
       Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: stdoutTty });
     }
     expect(spawnSyncMock.mock.calls.map((call) => call[1])).toEqual([
-      ['access', 'login', 'https://api.example.com'],
+      ['access', 'login', '--quiet', 'https://api.example.com'],
       ['access', 'token', '-app=https://api.example.com'],
     ]);
+    // The browser login keeps the JWT and its messages off stdout.
+    expect(spawnSyncMock.mock.calls[0]?.[2]).toMatchObject({ stdio: ['inherit', 2, 'inherit'] });
     expect(cfAccessHeaders(process.env, 'https://api.example.com')).toEqual({
       'cf-access-token': fresh,
     });

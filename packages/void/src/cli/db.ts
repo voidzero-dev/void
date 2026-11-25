@@ -50,6 +50,7 @@ import type { DbArgs } from './db-args.ts';
 import {
   formatStatementResults,
   mySqlStatementResults,
+  pgJsonTypes,
   pgStatementResults,
   runSqliteStatements,
   splitSqliteStatements,
@@ -918,8 +919,12 @@ async function executeExternalSql(
   json: boolean,
 ): Promise<void> {
   if (dialect === 'postgresql') {
-    const { Client } = await import('pg');
-    const pgClient = new Client({ connectionString: dbUrl });
+    const { Client, types } = await import('pg');
+    const pgClient = new Client({
+      connectionString: dbUrl,
+      // numeric[] and JSON values keep their digits.
+      ...(json ? { types: pgJsonTypes(types) } : {}),
+    });
     await pgClient.connect();
     try {
       // node-postgres resolves to an array of results when the SQL holds several statements.

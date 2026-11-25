@@ -34,13 +34,14 @@ vi.mock('node:child_process', () => ({
 
 vi.mock('pg', async (importOriginal) => {
   // Keep pg's own connection-string parsing; stub only the network calls.
-  class Client extends (await importOriginal<typeof import('pg')>()).Client {}
+  const pg = await importOriginal<typeof import('pg')>();
+  class Client extends pg.Client {}
   Object.assign(Client.prototype, {
     async connect() {},
     async end() {},
     query: (sql: string) => mockPgQuery(sql),
   });
-  return { Client };
+  return { Client, types: pg.types };
 });
 
 const mysqlQueries = vi.hoisted((): Array<string> => []);
@@ -983,6 +984,17 @@ describe('void db execute', () => {
       await expect(
         runDbCommand(root, { action: 'execute', command: 'SELECT 1; SELECT (2', json: true }),
       ).rejects.toThrow('incomplete input');
+      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+    });
+
+    it('reports trailing input SQLite rejects instead of ignoring it', async () => {
+      const root = await createLocalSqliteProject();
+
+      for (const command of ['SELECT 1;/*', 'SELECT 1; ']) {
+        await expect(
+          runDbCommand(root, { action: 'execute', command, json: true }),
+        ).rejects.toThrow('syntax error');
+      }
       expect(vi.mocked(console.log)).not.toHaveBeenCalled();
     });
 

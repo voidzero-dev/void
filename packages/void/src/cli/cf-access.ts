@@ -113,7 +113,7 @@ export function ensurePlatformAccessToken(
       );
     }
     console.error(`Renew Cloudflare Access authentication for ${origin}.`);
-    runCloudflared(['access', 'login', origin], { inherit: true, timeoutMs: 120_000 });
+    runCloudflaredLogin(origin);
   }
   let token = runCloudflared(['access', 'token', `-app=${origin}`]);
   if (token && rejectedTokens.has(token)) {
@@ -121,7 +121,7 @@ export function ensurePlatformAccessToken(
   }
   if ((!token || !usableToken(token)) && process.stdin.isTTY && process.stdout.isTTY) {
     console.error(`Authenticate to Cloudflare Access for ${origin}.`);
-    runCloudflared(['access', 'login', origin], { inherit: true, timeoutMs: 120_000 });
+    runCloudflaredLogin(origin);
     token = runCloudflared(['access', 'token', `-app=${origin}`]);
   }
   if (!token || !usableToken(token)) {
@@ -135,6 +135,14 @@ export function ensurePlatformAccessToken(
   writeKeyringPassword(ACCESS_KEYRING_SERVICE, account, token);
 }
 
+/**
+ * Sign in through the browser. `--quiet` keeps the JWT off the terminal, and cloudflared's
+ * output goes to stderr, since stdout may carry a command's result (`void db execute --json`).
+ */
+function runCloudflaredLogin(origin: string): void {
+  runCloudflared(['access', 'login', '--quiet', origin], { inherit: true, timeoutMs: 120_000 });
+}
+
 function runCloudflared(
   args: Array<string>,
   opts?: { inherit?: boolean; timeoutMs?: number },
@@ -142,7 +150,7 @@ function runCloudflared(
   try {
     const result = spawnSync('cloudflared', args, {
       encoding: 'utf8',
-      stdio: opts?.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+      stdio: opts?.inherit ? ['inherit', 2, 'inherit'] : ['ignore', 'pipe', 'pipe'],
       timeout: opts?.timeoutMs ?? 5000,
     });
     if (result.error || result.status !== 0) {

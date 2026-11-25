@@ -1,5 +1,7 @@
 import { tokenizeSql } from '@void/deploy-core';
+import type { CustomTypesConfig } from 'pg';
 import type { SqliteDatabase } from '../migrations/runner.ts';
+import { skipMySqlQuoted } from '../runtime/db/migrations/mysql-sql.ts';
 
 /**
  * One statement's outcome for `void db execute --json`. The shape follows D1's result
@@ -102,7 +104,10 @@ export function sqliteStatementRanges(sql: string): Array<StatementRange> {
     state = next;
   };
   for (const segment of tokenizeSql(sql)) {
-    if (segment.kind === 'line-comment' || segment.kind === 'block-comment') {
+    // SQLite reads a `/*` that ends the input as a `/` and rejects it, so it stays in a statement.
+    // Any other block comment, even one left open, is a comment.
+    const bareOpen = segment.kind === 'block-comment' && segment.end - segment.start === 2;
+    if (segment.kind === 'line-comment' || (segment.kind === 'block-comment' && !bareOpen)) {
       continue;
     }
     if (segment.kind !== 'sql') {
@@ -110,11 +115,13 @@ export function sqliteStatementRanges(sql: string): Array<StatementRange> {
       continue;
     }
     const text = sql.slice(segment.start, segment.end);
-    for (const match of text.matchAll(/;|\s+|[\w$\u0080-￿]+|./gu)) {
+    // SQLite's whitespace is these five characters; anything else, such as a nonbreaking
+    // space, is part of a statement and fails there.
+    for (const match of text.matchAll(/;|[ \t\n\f\r]+|[\w$\u0080-￿]+|./gu)) {
       const [token] = match;
       if (token === ';') {
         advance(0, segment.start + match.index);
-      } else if (!/^\s/u.test(token)) {
+      } else if (!/^[ \t\n\f\r]/u.test(token)) {
         advance(keywords.get(token.toLowerCase()) ?? 1, segment.start + match.index);
       }
     }
@@ -176,6 +183,87 @@ type PgResult = {
   rows?: Array<Record<string, unknown>>;
 };
 
+/** What `JSON.rawJSON()` returns. `JSON.stringify` writes its text as it is. */
+type RawJson = { readonly rawJSON: string };
+
+/** JSON parsed with each number kept as its source text. */
+type ExactJson =
+  | string
+  | boolean
+  | null
+  | RawJson
+  | Array<ExactJson>
+  | { [key: string]: ExactJson };
+
+// Node 24 has both; TypeScript's libs do not declare them yet.
+declare global {
+  interface JSON {
+    /** A reviver also receives a primitive's source text. */
+    parse(
+      text: string,
+      reviver: (key: string, value: ExactJson | number, context: { source?: string }) => ExactJson,
+    ): ExactJson;
+    /** A value that `JSON.stringify` writes as `text`, which must be a JSON primitive. */
+    rawJSON(text: string): RawJson;
+  }
+}
+
+/** Parse JSON keeping each number's digits, which `JSON.stringify` then writes back unchanged. */
+function parseExactJson(text: string): ExactJson {
+  return JSON.parse(text, (_key, value: ExactJson | number, context: { source?: string }) =>
+    typeof value === 'number' ? JSON.rawJSON(context.source ?? String(value)) : value,
+  );
+}
+
+/** A PostgreSQL text array as node-postgres parses it: elements, `NULL`s and nested arrays. */
+type PgTextArray = Array<string | null | PgTextArray>;
+type PgJsonArray = Array<ExactJson | PgJsonArray>;
+
+function parseExactJsonElements(values: PgTextArray): PgJsonArray {
+  return values.map((value) =>
+    Array.isArray(value)
+      ? parseExactJsonElements(value)
+      : value === null
+        ? null
+        : parseExactJson(value),
+  );
+}
+
+// PostgreSQL type OIDs. pg's `TypeId` lists only the base types, not arrays.
+const PG_TEXT_ARRAY = 1009;
+const PG_NUMERIC_ARRAY = 1231;
+const PG_JSON = 114;
+const PG_JSONB = 3802;
+const PG_JSON_ARRAY = 199;
+const PG_JSONB_ARRAY = 3807;
+
+/**
+ * Type parsers for `void db execute --json` on PostgreSQL. node-postgres reads `numeric[]`
+ * elements as numbers and JSON with `JSON.parse`, which round what a double cannot hold. Here a
+ * `numeric[]` element stays a string, like a `numeric`, and a JSON number keeps its digits.
+ */
+export function pgJsonTypes(types: CustomTypesConfig): CustomTypesConfig {
+  const parseTextArray = types.getTypeParser(PG_TEXT_ARRAY as CustomTypeId, 'text') as (
+    value: string,
+  ) => PgTextArray;
+  const parsers = new Map<number, (value: string) => ExactJson | PgJsonArray | PgTextArray>([
+    [PG_NUMERIC_ARRAY, parseTextArray],
+    [PG_JSON, parseExactJson],
+    [PG_JSONB, parseExactJson],
+    [PG_JSON_ARRAY, (value) => parseExactJsonElements(parseTextArray(value))],
+    [PG_JSONB_ARRAY, (value) => parseExactJsonElements(parseTextArray(value))],
+  ]);
+  return {
+    getTypeParser(oid, format = 'text') {
+      const parser = format === 'text' ? parsers.get(oid) : undefined;
+      // oxlint-disable-next-line typescript/no-unsafe-return -- Other types keep node-postgres's own parsers.
+      return parser ?? types.getTypeParser(oid, format);
+    },
+  };
+}
+
+type CustomTypeId = Parameters<CustomTypesConfig['getTypeParser']>[0];
+
 /**
  * node-postgres returns one result for one statement and an array for several. SQL without a
  * statement returns an empty-query result with no command, which is left out.
@@ -212,6 +300,46 @@ function mySqlStatementResult(value: unknown): StatementResult {
 }
 
 /**
+ * The words, semicolons and other characters of MySQL SQL, lowercased, outside comments. A
+ * quoted string or name, and a comment that opens with `/*!` or `/*+`, which MySQL reads as SQL,
+ * each count as one empty word.
+ */
+function* mySqlWords(sql: string): Generator<string> {
+  const word = /[\w$\u0080-￿]+/uy;
+  let index = 0;
+  while (index < sql.length) {
+    const character = sql[index];
+    const next = sql[index + 1];
+    if (character === "'" || character === '"' || character === '`') {
+      index = skipMySqlQuoted(sql, index, character);
+      yield '';
+    } else if (
+      character === '#' ||
+      // MySQL reads `--` as a comment only when whitespace or a control character follows it.
+      (character === '-' && next === '-' && !/\S/u.test(sql[index + 2] ?? ' '))
+    ) {
+      const newline = sql.indexOf('\n', index);
+      index = newline === -1 ? sql.length : newline;
+    } else if (character === '/' && next === '*') {
+      const close = sql.indexOf('*/', index + 2);
+      const executable = sql[index + 2] === '!' || sql[index + 2] === '+';
+      index = close === -1 ? sql.length : close + 2;
+      if (executable) {
+        yield '';
+      }
+    } else if (/\s/u.test(character)) {
+      index++;
+    } else {
+      word.lastIndex = index;
+      const match = word.exec(sql);
+      const token = match ? match[0] : character;
+      index += token.length;
+      yield token.toLowerCase();
+    }
+  }
+}
+
+/**
  * Tell which MySQL statements are `CALL`s. Statements end at top-level semicolons; a stored
  * program body (`BEGIN ... END`) and a `CASE ... END` hold semicolons or an `END` of their own,
  * so they nest. `END IF`, `END LOOP`, `END WHILE` and `END REPEAT` close blocks that sit inside
@@ -232,43 +360,28 @@ export function mySqlCallStatements(sql: string): Array<boolean> {
     firstWord = undefined;
     afterEnd = false;
   };
-  for (const segment of tokenizeSql(sql)) {
-    if (segment.kind === 'line-comment' || segment.kind === 'block-comment') {
+  for (const word of mySqlWords(sql)) {
+    if (word === ';') {
+      afterEnd = false;
+      if (depth === 0) {
+        finish();
+      }
       continue;
     }
-    if (segment.kind !== 'sql') {
-      firstWord ??= '';
-      afterEnd = false;
-      continue;
+    const closedBlock = afterEnd;
+    afterEnd = false;
+    if (closedBlock && /^(?:if|loop|while|repeat)$/.test(word)) {
+      // That END closed an IF or loop, which never opened a level, so restore it.
+      depth++;
+    } else if (closedBlock && word === 'case') {
+      // END CASE closes the CASE that opened a level.
+    } else if (word === 'case' || (word === 'begin' && (depth > 0 || firstWord !== undefined))) {
+      depth++;
+    } else if (word === 'end' && depth > 0) {
+      depth--;
+      afterEnd = true;
     }
-    const text = sql.slice(segment.start, segment.end);
-    for (const [token] of text.matchAll(/;|\s+|[\w$\u0080-￿]+|./gu)) {
-      if (/^\s/u.test(token)) {
-        continue;
-      }
-      const word = token.toLowerCase();
-      if (word === ';') {
-        afterEnd = false;
-        if (depth === 0) {
-          finish();
-        }
-        continue;
-      }
-      const closedBlock = afterEnd;
-      afterEnd = false;
-      if (closedBlock && /^(?:if|loop|while|repeat)$/.test(word)) {
-        // That END closed an IF or loop, which never opened a level, so restore it.
-        depth++;
-      } else if (closedBlock && word === 'case') {
-        // END CASE closes the CASE that opened a level.
-      } else if (word === 'case' || (word === 'begin' && (depth > 0 || firstWord !== undefined))) {
-        depth++;
-      } else if (word === 'end' && depth > 0) {
-        depth--;
-        afterEnd = true;
-      }
-      firstWord ??= word;
-    }
+    firstWord ??= word;
   }
   finish();
   return calls;

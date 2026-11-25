@@ -1,8 +1,10 @@
+import { types } from 'pg';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   formatStatementResults,
   mySqlCallStatements,
   mySqlStatementResults,
+  pgJsonTypes,
   pgStatementResults,
   splitSqliteStatements,
 } from '../../src/cli/db-execute-results.ts';
@@ -80,6 +82,33 @@ describe('db execute --json results', () => {
     ]);
   });
 
+  it('keeps the digits of PostgreSQL numeric arrays and JSON numbers', () => {
+    const parsers = pgJsonTypes(types);
+    const parse = (oid: number, text: string) =>
+      (parsers.getTypeParser(oid, 'text') as (value: string) => object | string | number | null)(
+        text,
+      );
+    // The value as `--json` prints it, without whitespace.
+    const value = (oid: number, text: string) =>
+      formatStatementResults([{ results: [{ v: parse(oid, text) }], success: true, meta: {} }])
+        .replaceAll(/\s/g, '')
+        .slice('[{"results":[{"v":'.length, -'}],"success":true,"meta":{}}]'.length);
+    // numeric[] elements stay strings, like a numeric.
+    expect(value(1231, '{1234567890123456789.987,NULL}')).toBe('["1234567890123456789.987",null]');
+    // json and jsonb numbers print with the digits the database sent.
+    expect(value(3802, '{"a": 9007199254740993, "b": [1.50, "x", null, true]}')).toBe(
+      '{"a":9007199254740993,"b":[1.50,"x",null,true]}',
+    );
+    expect(value(114, '0.1000000000000000000001')).toBe('0.1000000000000000000001');
+    expect(value(3807, String.raw`{"{\"a\": 9007199254740993}",NULL}`)).toBe(
+      '[{"a":9007199254740993},null]',
+    );
+    expect(value(199, '{{"1e400"}}')).toBe('[[1e400]]');
+    // Other types keep node-postgres's parsers.
+    expect(parse(23, '5')).toBe(5);
+    expect(parse(20, '9007199254740993')).toBe('9007199254740993');
+  });
+
   it('leaves out the empty-query result of SQL without a statement', () => {
     expect(pgStatementResults({ command: null, rowCount: null, rows: [] })).toEqual([]);
   });
@@ -99,6 +128,13 @@ describe('db execute --json results', () => {
     ).toHaveLength(1);
     // A transaction's BEGIN and END are statements of their own.
     expect(splitSqliteStatements('BEGIN; INSERT INTO a VALUES (1); END;')).toHaveLength(3);
+    // SQLite rejects a bare `/*` at the end and characters it does not count as whitespace, so
+    // they stay as statements that fail. A block comment left open is still a comment.
+    expect(splitSqliteStatements('SELECT 1;/*')).toEqual(['SELECT 1;', '/*']);
+    expect(splitSqliteStatements('SELECT 1;\u00a0')).toEqual(['SELECT 1;', '\u00a0']);
+    expect(splitSqliteStatements('SELECT 1;\v')).toEqual(['SELECT 1;', '\v']);
+    expect(splitSqliteStatements('SELECT 1; /* open')).toEqual(['SELECT 1;']);
+    expect(splitSqliteStatements('SELECT 1;\t\n\f\r ')).toEqual(['SELECT 1;']);
     // A trigger missing its END stays open for SQLite to report.
     expect(
       splitSqliteStatements('CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 1;'),
@@ -165,6 +201,23 @@ describe('db execute --json results', () => {
       { results: [{ a: 1 }], success: true, meta: {} },
       { results: [], success: true, meta: { affectedRows: 2, insertId: 5 } },
     ]);
+  });
+
+  it('reads MySQL comments and quoted text the way MySQL does', () => {
+    expect(mySqlCallStatements('# note\nCALL report()')).toEqual([true]);
+    expect(mySqlCallStatements(String.raw`SELECT 'it\'s; ok'; CALL p()`)).toEqual([false, true]);
+    expect(mySqlCallStatements(String.raw`SELECT "a\";b"; CALL p()`)).toEqual([false, true]);
+    // `--` starts a comment only before whitespace, so `1--1` is arithmetic.
+    expect(mySqlCallStatements('SELECT 1--1; -- x;\nCALL p()')).toEqual([false, true]);
+    // MySQL runs the SQL in a `/*!` comment, and `[` quotes nothing.
+    expect(mySqlCallStatements('/*!40101 SET @a = 1 */; SELECT [1; CALL p()')).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(
+      mySqlStatementResults([[{ a: 1 }], header], [[field], undefined], '# note\nCALL report()'),
+    ).toEqual([{ results: [{ a: 1 }], success: true, meta: { affectedRows: 2, insertId: 5 } }]);
   });
 
   it('finds MySQL statements around stored program bodies', () => {
