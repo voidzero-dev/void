@@ -371,7 +371,7 @@
     "better-sqlite3": "catalog:",
     "blake3-jit": "catalog:",
     "cf": "catalog:",
-    "devalue": "^6.0.3",
+    "devalue": "^6.0.4",
     "drizzle-arktype": "^0.1.3",
     "drizzle-kit": "^0.31.11",
     "drizzle-orm": "^0.45.4",
