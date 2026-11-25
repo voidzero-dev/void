@@ -1,6 +1,7 @@
 // The Void CLI. cli.ts checks the runtime and then loads this module.
 
 import { log } from '@voidzero-dev/vite-plus-prompts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { accountSubcommands, parseAccountArgs } from './account-args.ts';
 import { getOwnVersion } from './agents.ts';
 import { parseDeployArgs } from './args.ts';
@@ -125,7 +126,7 @@ const args = process.argv.slice(2);
 const command = args[0];
 const helpPath = getHelpPath(args);
 
-const subcommandGroups: Record<string, () => Promise<void>> = {
+const subcommandGroups = {
   auth: () =>
     runSubcommandGroup('auth', authSubcommands, parseAuthArgs, (root, parsed) =>
       import('./auth-router.ts').then(({ runAuthRouter }) => runAuthRouter(root, parsed)),
@@ -182,7 +183,7 @@ const subcommandGroups: Record<string, () => Promise<void>> = {
     runSubcommandGroup('build', buildSubcommands, parseBuildArgs, (root, parsed) =>
       import('./build-cmd.ts').then(({ runBuildCommand }) => runBuildCommand(root, parsed)),
     ),
-};
+} satisfies Record<string, () => Promise<void>>;
 
 if (helpPath) {
   if (helpPath.length === 0) {
@@ -219,7 +220,7 @@ if (helpPath) {
     log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });
-} else if (command && Object.hasOwn(subcommandGroups, command)) {
+} else if (command && hasOwnKey(subcommandGroups, command)) {
   void subcommandGroups[command]();
 } else if (command === 'info') {
   await import('./info.ts').then(async ({ runInfoCommand }) => {
@@ -376,7 +377,7 @@ if (helpPath) {
     const cmd = result.subcommand;
     const root = process.cwd();
 
-    if (Object.hasOwn(subcommandGroups, cmd)) {
+    if (hasOwnKey(subcommandGroups, cmd)) {
       return subcommandGroups[cmd]();
     }
 

@@ -38,9 +38,10 @@ import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 type Json = Record<string, unknown>;
 
 const cf = join(dirname(fileURLToPath(import.meta.resolve('cf/package.json'))), 'bin', 'cf');
-const operation = ((): unknown => {
+const operation = (() => {
   try {
-    return JSON.parse(process.argv[2] ?? 'null');
+    const parsed: unknown = JSON.parse(process.argv[2] ?? 'null');
+    return parsed;
   } catch {
     return null;
   }
@@ -292,7 +293,7 @@ function updateBinding(section: string, binding: string, values: Json): void {
   writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
 }
 
-function d1Database(token: string): { id: string; dir: string; table: string; pattern?: string } {
+function d1Database(token: string) {
   const entries = config().d1_databases;
   if (!Array.isArray(entries)) {
     throw new Error('D1 database binding is unavailable.');

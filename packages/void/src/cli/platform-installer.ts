@@ -126,7 +126,7 @@ async function recoverFailedPlatformInstallation(
     writeRemoteInstallationCheckpoint,
   } = state;
   let { manifest } = state;
-  let failure: unknown = error;
+  let failure = error;
   const currentWorkerRecoveryIncomplete = error instanceof PlatformWorkerRecoveryIncompleteError;
   if (workerTrafficGuarded) {
     try {

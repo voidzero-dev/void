@@ -7,6 +7,7 @@
 import type { CloudflareOperation, CloudflareCommandResult } from '@void/deploy-cloudflare';
 import { isRecord } from '@void/deploy-core';
 import type { EmailHandlersScan } from '../router/email.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { findBindingNameOwner } from './wrangler.ts';
 
 /** The `send_email` binding name Void provisions and the runtime reads. */
@@ -22,12 +23,12 @@ const SENDING_SCOPES = ['email_sending:write'];
 const INBOUND_SCOPES = ['email_routing:write', ...SENDING_SCOPES];
 
 /** Cloudflare Email API error codes with a known meaning; others are reported verbatim. */
-const CF_EMAIL_ERROR_CODES: Readonly<Record<number, string>> = {
+const CF_EMAIL_ERROR_CODES = {
   2062: 'Email Routing is not enabled on this zone',
   2040: 'already onboarded for Email Sending',
   2036: 'account is not entitled to Email Sending',
   10_105: 'account is not entitled to Email Sending',
-};
+} satisfies Readonly<Record<number, string>>;
 
 /** The one-time dashboard step printed when the subdomain routing call cannot be made. */
 export function subdomainDashboardFallback(apex: string, domain: string): string {
@@ -1283,6 +1284,17 @@ export interface SessionBearerResponse {
   errors: Array<{ code: number; message: string }>;
 }
 
+type SessionBearerHeaders = {
+  Authorization: string;
+  'Content-Type'?: string;
+};
+
+type SessionBearerPayload = {
+  success?: boolean;
+  result?: unknown;
+  errors?: Array<{ code?: number; message?: string }>;
+};
+
 /**
  * The ONLY function that receives the session bearer. It puts the token in the
  * `Authorization` header and nowhere else: not in the URL, not in a log line, not in
@@ -1298,7 +1310,7 @@ export async function fetchWithSessionBearer(
   body?: unknown,
   apiBaseUrl: string = CLOUDFLARE_API_BASE_URL,
 ): Promise<SessionBearerResponse> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${bearer}` };
+  const headers: SessionBearerHeaders = { Authorization: `Bearer ${bearer}` };
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
@@ -1320,11 +1332,7 @@ export async function fetchWithSessionBearer(
       errors: [{ code: 0, message: scrub(err instanceof Error ? err.message : String(err)) }],
     };
   }
-  let payload: {
-    success?: boolean;
-    result?: unknown;
-    errors?: Array<{ code?: number; message?: string }>;
-  };
+  let payload: SessionBearerPayload;
   try {
     payload = await response.json<typeof payload>();
   } catch {
@@ -1377,7 +1385,10 @@ const describeFailure = (response: SessionBearerResponse | null): string => {
   }
   const first = response.errors[0];
   const code = first?.code ? ` [code: ${first.code}]` : '';
-  const known = first?.code ? CF_EMAIL_ERROR_CODES[first.code] : undefined;
+  const known =
+    first?.code && hasOwnKey(CF_EMAIL_ERROR_CODES, first.code)
+      ? CF_EMAIL_ERROR_CODES[first.code]
+      : undefined;
   return `Cloudflare answered ${response.status}${code}${known ? ` — ${known}` : first?.message ? ` — ${first.message}` : ''}`;
 };
 
@@ -1479,7 +1490,7 @@ export async function applyEmailSetup(
       } else {
         const code = providerErrorCode(enable);
         lines.push(
-          `  ✘ routing   could not enable Email Routing on ${apex}${code ? ` [code: ${code}]${CF_EMAIL_ERROR_CODES[code] ? ` — ${CF_EMAIL_ERROR_CODES[code]}` : ''}` : ''}`,
+          `  ✘ routing   could not enable Email Routing on ${apex}${code ? ` [code: ${code}]${hasOwnKey(CF_EMAIL_ERROR_CODES, code) ? ` — ${CF_EMAIL_ERROR_CODES[code]}` : ''}` : ''}`,
         );
       }
     } else if (apexRoutingOff) {
@@ -1578,7 +1589,8 @@ export async function applyEmailSetup(
         `  ! sending   ${pre.domain} not onboarded (session bearer unavailable); rerun void email setup --platform cloudflare`,
       );
     } else {
-      const known = code ? CF_EMAIL_ERROR_CODES[code] : undefined;
+      const known =
+        code && hasOwnKey(CF_EMAIL_ERROR_CODES, code) ? CF_EMAIL_ERROR_CODES[code] : undefined;
       lines.push(
         `  ! sending   ${pre.domain} not onboarded${code ? ` [code: ${code}]` : ''}${known ? ` — ${known}` : ''}`,
       );

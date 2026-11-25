@@ -1536,7 +1536,7 @@ export async function uninstallPlatform(
         next,
       );
     }
-    const deletionPriority: Record<string, number> = {
+    const deletionPriority = {
       worker: 0,
       queue: 1,
       'ai-gateway': 2,
@@ -1921,7 +1921,7 @@ async function hasLiveInstallationWorker(
 
 function resourceDeletionPriority(
   resource: InstallationResource,
-  priorities: Readonly<Record<string, number>>,
+  priorities: Readonly<Partial<Record<InstallationResource['kind'], number>>>,
 ): number {
   // The routing namespace contains the authoritative ownership checkpoint.
   // Delete it last so interrupted purges can still prove every earlier mutation.

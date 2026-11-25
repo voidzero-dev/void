@@ -27,6 +27,7 @@ import type { VoidConfig } from '../config.ts';
 import type { DurableObjectModule } from '../durable/scan.ts';
 import type { InferredBindings } from '../inference/walk.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { Buffer } from './node-buffer.ts';
 
 const COMPAT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -59,11 +60,7 @@ function writeProjectWranglerFile(configPath: string, text: string): void {
  * Read the first existing project Wrangler config. A missing or unparseable one is
  * replaced by the generated config, starting from an empty object.
  */
-function readOrCreateProjectWranglerConfig(root: string): {
-  configPath: string;
-  parsed: Record<string, unknown>;
-  created: boolean;
-} {
+function readOrCreateProjectWranglerConfig(root: string) {
   const configPath = projectWranglerPaths(root).find((path) => existsSync(path));
   if (configPath) {
     let parsed: Record<string, unknown> | undefined;
@@ -2065,7 +2062,7 @@ export function assertNoDuplicateMembers(text: string, configPath: string): void
 }
 
 /** 1-based line and column of an offset. */
-function offsetToLineColumn(text: string, offset: number): { line: number; column: number } {
+function offsetToLineColumn(text: string, offset: number) {
   let line = 1;
   let column = 1;
   const limit = Math.min(offset, text.length);
@@ -2154,7 +2151,7 @@ function validateDurableObjectMigrations(
  * their labels. `queues` is left out because the producer upsert matches its own entries;
  * including it would make a producer collide with itself.
  */
-export const FRIENDLY_BINDING_NAMES: Record<string, string> = {
+export const FRIENDLY_BINDING_NAMES = {
   data_blobs: 'Data Blob',
   durable_objects: 'Durable Object',
   kv_namespaces: 'KV Namespace',
@@ -2366,7 +2363,7 @@ type BindingFieldShape =
   | { kind: 'whole-object' };
 
 /** Fields that are not a `namespace-array`. */
-const BINDING_FIELD_SHAPES: Record<string, BindingFieldShape> = {
+const BINDING_FIELD_SHAPES = {
   vars: { kind: 'key-map' },
   wasm_modules: { kind: 'key-map' },
   text_blobs: { kind: 'key-map' },
@@ -2387,14 +2384,14 @@ const BINDING_FIELD_SHAPES: Record<string, BindingFieldShape> = {
   logfwdr: { kind: 'binding-list', bindingsRequired: true },
   // `unsafe` may carry only `metadata`.
   unsafe: { kind: 'binding-list', bindingsRequired: false },
-};
+} satisfies Record<string, BindingFieldShape>;
 
 /**
  * Binding names in one config field, read by the field's known shape. Throws on a wrong
  * shape or a missing required name, which Wrangler would drop silently.
  */
 export function bindingNamesForField(field: string, value: unknown): Array<string> {
-  if (BINDING_FIELD_SHAPES[field]?.kind === 'key-map') {
+  if (hasOwnKey(BINDING_FIELD_SHAPES, field) && BINDING_FIELD_SHAPES[field].kind === 'key-map') {
     return keyMapBindingNames(field, value);
   }
   return bindingEntriesForField(field, value).map((entry) => entry.name);
@@ -2408,7 +2405,9 @@ export function bindingEntriesForField(
   field: string,
   value: unknown,
 ): Array<{ name: string; entry: Record<string, unknown> }> {
-  const shape: BindingFieldShape = BINDING_FIELD_SHAPES[field] ?? { kind: 'namespace-array' };
+  const shape: BindingFieldShape = hasOwnKey(BINDING_FIELD_SHAPES, field)
+    ? BINDING_FIELD_SHAPES[field]
+    : { kind: 'namespace-array' };
   switch (shape.kind) {
     case 'key-map':
       return keyMapBindingEntries(field);

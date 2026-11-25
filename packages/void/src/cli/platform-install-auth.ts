@@ -227,7 +227,7 @@ export async function collectInstallationAuthentication(
       authBootstrapCode: checkpoint.authBootstrapCode ?? '',
     };
   }
-  const entries =
+  const entries: NonNullable<PlatformAuthSelection['file']>['connections'] =
     selection.file?.connections ??
     selection.authentication.providers.map((kind) => ({
       configuration: {
@@ -241,7 +241,7 @@ export async function collectInstallationAuthentication(
               : kind === 'oidc'
                 ? 'Company SSO'
                 : 'Cloudflare Access',
-      } as Record<string, unknown>,
+      },
       clientSecretEnv: undefined,
     }));
   const connections = [];

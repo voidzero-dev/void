@@ -612,7 +612,14 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
     }
     return;
   }
-  let body: Record<string, unknown> = {};
+  type PlanMutationBody = {
+    id?: string;
+    copyFrom?: string;
+    planId?: string;
+    archived?: boolean;
+    replacementPlanId?: string;
+  } & Record<string, unknown>;
+  let body: PlanMutationBody = {};
   let path = `/config/plans/${encodeURIComponent(args.target)}/${args.action}`;
   const plan = catalog.plans.find((entry) => entry.id === args.target);
   if (args.action === 'add') {

@@ -1011,7 +1011,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
     removeSavedPlatformInstallPlan({ ...args, account: accountId, name: installationSlug });
     const setupManifest = existing;
     const credentialSetup = isPlatformSetupDraft(existing);
-    const values: Record<string, string> = { ...checkpoint };
+    const values = { ...checkpoint };
     if (managementAccess) {
       // A verified management token replaces an older, separately collected Access token.
       delete values.accessManagementToken;

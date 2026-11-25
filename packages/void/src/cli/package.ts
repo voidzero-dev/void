@@ -58,6 +58,11 @@ function stripDevOnlyRuleFields(
   return rules.map(({ origin: _origin, force: _force, ...rest }) => rest);
 }
 
+type SpaFallbackChain = {
+  assetConfig: AssetConfig;
+  fallbackRules: Array<DevRedirectRule> | undefined;
+};
+
 /**
  * Layer user `routing.fallbacks` over the SPA default. The platform SPA switch
  * is global, so a SPA with user fallbacks turns it off and appends a synthetic
@@ -70,10 +75,7 @@ export function resolveSpaFallbackChain(
   appType: 'spa' | 'static' | undefined,
   fallbackRules: Array<DevRedirectRule> | undefined,
   notFound?: NotFoundHandling,
-): {
-  assetConfig: AssetConfig;
-  fallbackRules: Array<DevRedirectRule> | undefined;
-} {
+): SpaFallbackChain {
   const userRules = fallbackRules && fallbackRules.length > 0 ? fallbackRules : undefined;
 
   const handling: NotFoundHandling =
@@ -178,13 +180,7 @@ function computeMd5(content: Buffer): string {
  * listed in a .assetsignore file.
  * Matches Wrangler's createAssetsIgnoreFunction from workers-shared/utils/helpers.ts.
  */
-function createAssetsIgnoreFunction(
-  dir: string,
-  extraPatterns: Array<string> = [],
-): {
-  isIgnored: (relativePath: string) => boolean;
-  assetsIgnoreFilePresent: boolean;
-} {
+function createAssetsIgnoreFunction(dir: string, extraPatterns: Array<string> = []) {
   const patterns = [
     '/.assetsignore',
     '/_redirects',

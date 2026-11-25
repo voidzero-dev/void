@@ -408,7 +408,10 @@ export function platformWorkerUploadFingerprint(
       return null;
     }
     const mainSha256 = createHash('sha256').update(readFileSync(config.main)).digest('hex');
-    const normalized: Record<string, unknown> = { ...config, main: { sha256: mainSha256 } };
+    const normalized: WorkerUploadSnapshot<{ sha256: string }> = {
+      ...config,
+      main: { sha256: mainSha256 },
+    };
     if (config.assets !== undefined) {
       const assets = config.assets;
       if (!assets || typeof assets !== 'object' || Array.isArray(assets)) {
@@ -435,17 +438,22 @@ export function platformWorkerUploadFingerprint(
   }
 }
 
+type WorkerUploadSnapshot<Main> = {
+  main: Main;
+  assets?: object;
+};
+
 function snapshotPlatformWorkerUploadInputs(
   config: Record<string, unknown>,
   directory: string,
-): Record<string, unknown> {
+): WorkerUploadSnapshot<string> {
   const main = config.main;
   if (typeof main !== 'string') {
     throw new Error('platform: Worker upload has no script artifact.');
   }
   const snapshotMain = join(directory, 'worker-upload.js');
   copyFileSync(main, snapshotMain);
-  const snapshot: Record<string, unknown> = { ...config, main: snapshotMain };
+  const snapshot: WorkerUploadSnapshot<string> = { ...config, main: snapshotMain };
   if (config.assets !== undefined) {
     const assets = config.assets as Record<string, unknown>;
     const sourceDirectory = assets.directory;

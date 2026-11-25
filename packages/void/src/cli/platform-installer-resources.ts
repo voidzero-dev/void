@@ -23,6 +23,7 @@ import type {
   InstallationCheckpointWriter,
   InstallerClient,
   PlatformDatabaseLifecycleLock,
+  PlatformWorkerConfig,
 } from './platform-installer-types.ts';
 import {
   dnsRecordConfigHash,
@@ -405,9 +406,9 @@ export async function inventoryUnmanagedPlatformWorkerTraffic(
 }
 
 export function mergePlatformWorkerTrafficConfig(
-  config: Record<string, unknown>,
+  config: PlatformWorkerConfig,
   preservedRoutes: ReadonlyArray<unknown>,
-): Record<string, unknown> {
+): PlatformWorkerConfig {
   if (preservedRoutes.length === 0) {
     return config;
   }
@@ -429,10 +430,14 @@ export function mergePreservedTriggerRoutes(
     : { ...config, routes: uniqueTriggerRoutes([...config.routes, ...preservedRoutes]) };
 }
 
-export function isolatePlatformWorkerCustomDomains(config: Record<string, unknown>): {
+type PlatformWorkerCustomDomains = {
   customDomains: ReadonlyArray<CloudflareWorkerCustomDomainOrigin>;
-  wranglerConfig: Record<string, unknown>;
-} {
+  wranglerConfig: PlatformWorkerConfig;
+};
+
+export function isolatePlatformWorkerCustomDomains(
+  config: PlatformWorkerConfig,
+): PlatformWorkerCustomDomains {
   if (config.routes === undefined) {
     return { customDomains: [], wranglerConfig: config };
   }
@@ -480,8 +485,8 @@ export function isolatePlatformWorkerCustomDomains(config: Record<string, unknow
 }
 
 export function withoutPlatformWorkerTrafficAttachments(
-  config: Record<string, unknown>,
-): Record<string, unknown> {
+  config: PlatformWorkerConfig,
+): PlatformWorkerConfig {
   const isolated = { ...config };
   delete isolated.route;
   delete isolated.routes;

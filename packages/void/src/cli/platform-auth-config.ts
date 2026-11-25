@@ -150,6 +150,7 @@ async function configurationInput(
         'platform: Supply the client secret with --client-secret-env, not in the configuration file.',
       );
     }
+    // oxlint-disable-next-line quality/no-known-value-widening -- A config file may supply arbitrary fields before the login parser validates them.
     input = { ...input, ...file };
   }
   const kind = (existing?.configuration.kind ?? args.target) as PlatformLoginKind;
@@ -346,9 +347,9 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
     throw new Error('platform: Run void platform config auth initialize, then sign in again.');
   }
   if (args.action === 'admission') {
-    let admission: unknown;
+    let admission: PlatformAdmissionPolicy;
     if (args.file) {
-      admission = JSON.parse(await readFile(args.file, 'utf8'));
+      admission = parsePlatformAdmissionPolicy(JSON.parse(await readFile(args.file, 'utf8')));
     } else {
       if (!process.stdin.isTTY || args.json) {
         throw new Error('platform: Supply --file with the signup policy in non-interactive mode.');
@@ -397,16 +398,16 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
               }),
             )
           : [];
-        admission = { mode, access, connections };
+        admission = parsePlatformAdmissionPolicy({ mode, access, connections });
       } else {
-        admission = { mode };
+        admission = parsePlatformAdmissionPolicy({ mode });
       }
     }
     printApplied(
       await apply(
         client,
         '/config/auth/admission',
-        { revision: listing.revision, admission: parsePlatformAdmissionPolicy(admission) },
+        { revision: listing.revision, admission },
         args,
       ),
       args,

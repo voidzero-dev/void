@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'pathslash';
+import type { Framework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import type { ProjectPaths } from '../project-paths.ts';
 import {
@@ -30,7 +31,7 @@ export type SsgPreset = {
  * Known output conventions for SSGs.
  * Keyed by the SSG name — detection iterates in insertion order.
  */
-export const SSG_PRESETS: Record<string, SsgPreset> = {
+export const SSG_PRESETS: Record<'vitepress' | 'docusaurus', SsgPreset> = {
   vitepress: {
     dep: 'vitepress',
     buildCommand: 'vitepress build',
@@ -84,7 +85,10 @@ export type FrameworkPreset = {
  * Class B/C frameworks (sveltekit, nuxt, analog, astro) use their own build CLI
  * and have framework-specific output conventions.
  */
-export const FRAMEWORK_PRESETS: Record<string, FrameworkPreset> = {
+export const FRAMEWORK_PRESETS: Record<
+  Framework | 'sveltekit' | 'nuxt' | 'analog' | 'astro',
+  FrameworkPreset
+> = {
   // Class A
   'tanstack-start': {
     cloudflareArtifact: 'vite-plugin',

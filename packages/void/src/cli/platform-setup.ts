@@ -157,11 +157,13 @@ export function platformManagementSetupPage(
   };
 }
 
-export function platformSetupPages(plan: PlatformInstallPlan): {
+type PlatformSetupPages = {
   runtime: PlatformSetupPage;
   github: PlatformSetupPage;
   r2: PlatformSetupPage;
-} {
+};
+
+export function platformSetupPages(plan: PlatformInstallPlan): PlatformSetupPages {
   const needsGateway = plan.actions.some(
     (action) => action.kind === 'ai-gateway' && action.action === 'inspect',
   );

@@ -650,7 +650,7 @@ function cloudflareRefusal(
   description: string,
   error: unknown,
   hint: string,
-): unknown {
+) {
   if (!(error instanceof PlatformCloudflareApiError)) {
     return error;
   }

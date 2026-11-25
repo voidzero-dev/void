@@ -165,6 +165,7 @@ export async function uploadAssetsToR2(
     return;
   }
 
+  // oxlint-disable-next-line quality/no-known-value-widening -- Retain any rejected value from the first failed upload.
   let firstError: unknown = null;
   let nextIndex = 0;
 

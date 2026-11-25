@@ -126,8 +126,10 @@ export function getToken(root: string = process.cwd()): string | null {
   return readTokenForOrigin(apiUrl, config);
 }
 
+type AccountCredential = { apiUrl: string; token: string | null };
+
 /** Account actions follow the selected connection, independently of application metadata. */
-export function getAccountCredential(): { apiUrl: string; token: string | null } {
+export function getAccountCredential(): AccountCredential {
   const config = readConfig();
   const apiUrl = connectedPlatform(
     process.env.VOID_API_URL || getActivePlatformConnection()?.apiUrl,

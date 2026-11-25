@@ -339,7 +339,7 @@ async function bundleMigrationHandler(
 const SQL_WORKER_EXTERNAL = [/^cloudflare:/, /^node:/, /^pgpass$/];
 
 /** pg's workerd socket and its CommonJS pool, resolved from the pg that `fromPath` loads. */
-function pgWorkerAliases(fromPath: string): Record<string, string> {
+function pgWorkerAliases(fromPath: string) {
   return {
     'pg-cloudflare': resolvePgCloudflareWorkerdEntry(fromPath),
     'pg-pool': resolvePgCjsDependency(fromPath, 'pg-pool'),
@@ -361,7 +361,7 @@ export async function bundleWorkerSqlDriver(
   const packageName = dialect === 'postgresql' ? 'pg' : 'mysql2';
   const outDir = join(baseDir, createHash('sha256').update(main).digest('hex').slice(0, 12));
   mkdirSync(outDir, { recursive: true });
-  const input: Record<string, string> = {
+  const input = {
     [packageName]: writeDriverEntry(join(outDir, 'entry.mjs'), main),
   };
   const promise = dialect === 'mysql' ? resolveMysqlPromise(main) : undefined;

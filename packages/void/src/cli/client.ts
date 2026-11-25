@@ -648,6 +648,8 @@ function parseDeployEvent(value: unknown): SequencedDeployEvent {
 /**
  * HTTP client for the Void platform API.
  */
+type RollbackRequest = { deploymentId: string; allowDestructive?: Array<string> };
+
 export class PlatformClient {
   private readonly baseUrl: string;
   private readonly authHeaders: Record<string, string>;
@@ -1101,7 +1103,7 @@ export class PlatformClient {
     migrationDiff?: Array<string>;
     error?: string;
   }> {
-    const body: { deploymentId: string; allowDestructive?: Array<string> } = {
+    const body: RollbackRequest = {
       deploymentId,
     };
     if (options?.allowDestructive && options.allowDestructive.length > 0) {

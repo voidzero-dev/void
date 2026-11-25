@@ -18,13 +18,14 @@ import type {
   PlatformWorkerKey,
   PlatformWorkerCutoverSnapshot,
   InterruptedWorkerCutover,
+  PlatformWorkerConfig,
 } from './platform-installer-types.ts';
 import { latestPlatformWorkerCutoverGeneration } from './platform-registry.ts';
 
 export function withoutCompletedPlatformWorkerMigrations(
-  config: Record<string, unknown>,
+  config: PlatformWorkerConfig,
   activeMigrationTag: string | null,
-): Record<string, unknown> {
+): PlatformWorkerConfig {
   const migrations = Array.isArray(config.migrations) ? (config.migrations as Array<unknown>) : [];
   const target = migrations.at(-1);
   if (

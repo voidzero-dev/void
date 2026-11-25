@@ -514,10 +514,10 @@ export async function activateCloudflareExistingVersion(
     },
     { capture: false },
   );
-  const knownTriggerConfigs: Record<string, typeof targetTriggerConfig> = {
+  const knownTriggerConfigs = {
     [target.id]: targetTriggerConfig,
     [current.id]: currentTriggerConfig,
-  };
+  } satisfies Record<string, typeof targetTriggerConfig>;
   const stabilizeTriggers = (
     targetVersionId: string,
     targetConfig: typeof targetTriggerConfig,
@@ -754,13 +754,22 @@ export function createCloudflareEmptyCronPublisher(
  * this command owns and the workers.dev switches that route reconciliation
  * also evaluates.
  */
+type DomainTriggerConfig = {
+  name: string;
+  account_id: string;
+  routes: Array<unknown>;
+  workers_dev?: boolean;
+  preview_urls?: boolean;
+  compatibility_date?: string;
+};
+
 function writeDomainTriggerConfig(
   context: CloudflareOperationContext,
   sourceConfigPath: string,
   triggerConfigPath: string,
 ): void {
   const source = parseRootWranglerConfig(sourceConfigPath);
-  const config: Record<string, unknown> = {
+  const config: DomainTriggerConfig = {
     name: context.workerName,
     account_id: context.accountId,
     routes: Array.isArray(source.routes) ? source.routes : [],

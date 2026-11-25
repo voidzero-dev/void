@@ -1894,12 +1894,7 @@ const LOCK_RETRIES = { retries: 100, factor: 1.5, minTimeout: 200, maxTimeout: 2
 const RECOVERY_LOCK_STALE_MS = 6000;
 
 /** Backoff schedule for our own retry loop (proper-lockfile runs with `retries: 0`). */
-function normalizeLockRetries(retries: ProvisionLockOptions['retries']): {
-  retries: number;
-  factor: number;
-  minTimeout: number;
-  maxTimeout: number;
-} {
+function normalizeLockRetries(retries: ProvisionLockOptions['retries']) {
   if (typeof retries === 'number') {
     return { ...LOCK_RETRIES, retries };
   }

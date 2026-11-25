@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as delay } from 'node:timers/promises';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import {
   aiLoggingChangeLines,
   aiLoggingPreviewLines,
@@ -97,7 +98,7 @@ function eventLines(events: Array<unknown>, indent: string): Array<string> {
   ]);
 }
 
-const LABEL_WORDS: Record<string, string> = {
+const LABEL_WORDS = {
   api: 'API',
   dns: 'DNS',
   github: 'GitHub',
@@ -108,7 +109,7 @@ const LABEL_WORDS: Record<string, string> = {
   oidc: 'OIDC',
   url: 'URL',
   urls: 'URLs',
-};
+} satisfies Record<string, string>;
 
 // API field names are camelCase or snake_case. Any other key is data, such as
 // a worker name ('email-gateway') or a model ID ('@cf/zai-org/glm-5.3'), and
@@ -132,7 +133,8 @@ function fieldLabel(key: string): string {
     .replaceAll(/([a-z0-9])([A-Z])/g, '$1 $2')
     .split(/[\s_-]+/)
     .filter(Boolean)
-    .map((word) => LABEL_WORDS[word.toLowerCase()] ?? word.toLowerCase());
+    .map((word) => word.toLowerCase())
+    .map((word) => (hasOwnKey(LABEL_WORDS, word) ? LABEL_WORDS[word] : word));
   if (words[0]) {
     words[0] = words[0][0].toUpperCase() + words[0].slice(1);
   }
@@ -275,16 +277,7 @@ function outputLogs(
   }
 }
 
-function operationRecoveryFence(value: unknown): {
-  stepId: string;
-  attempt: number;
-  requestDigest: string;
-  resourceIdentity: string;
-  connectionId: string;
-  desiredGeneration: number;
-  routeId: string | null;
-  routeDesiredGeneration: number | null;
-} {
+function operationRecoveryFence(value: unknown) {
   const target =
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
@@ -727,7 +720,9 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
         'invalid_preview',
       );
     }
-    let recoveryFence: Record<string, unknown> =
+    let recoveryFence: Partial<ReturnType<typeof operationRecoveryFence>> & {
+      recoveryFence?: string;
+    } =
       args.group === 'email' && args.action === 'operation-resolve'
         ? operationRecoveryFence(preview.target)
         : {};

@@ -8175,7 +8175,7 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
     'nuxt',
     'analog',
     'astro',
-  ])(
+  ] as const)(
     'adds ISR to the direct Cloudflare %s worker when revalidation is configured',
     async (name) => {
       const preset = FRAMEWORK_PRESETS[name];

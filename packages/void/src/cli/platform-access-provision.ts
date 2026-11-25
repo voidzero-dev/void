@@ -63,10 +63,14 @@ function text(value: unknown, name: string): string {
   }
   return value;
 }
-export function platformAccessIdentityProvider(provider: ObjectValue): {
+type PlatformAccessIdentityProvider = {
   id: string;
   name: string;
-} {
+};
+
+export function platformAccessIdentityProvider(
+  provider: ObjectValue,
+): PlatformAccessIdentityProvider {
   const id = text(provider.id, 'identity provider ID');
   // Cloudflare's built-in provider can have an empty display name. Identity
   // selection still uses its validated ID, including in the interactive picker.

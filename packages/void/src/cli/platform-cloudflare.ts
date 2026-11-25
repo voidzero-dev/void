@@ -1738,7 +1738,7 @@ function encodeR2ObjectKey(key: string): string {
  * An AI Gateway creation time as ISO 8601 UTC. Cloudflare reports it without a
  * zone ("2026-10-05 18:29:14"), which JavaScript would read as local time.
  */
-function withCreatedAt(value: unknown): { createdAt?: string } {
+function withCreatedAt(value: unknown) {
   if (typeof value !== 'string') {
     return {};
   }
@@ -1788,14 +1788,16 @@ function parseDnsRecord(value: Record<string, unknown>): CloudflareDnsRecord {
   };
 }
 
-export function parsePostgresConnectionString(value: string): {
+type PostgresConnectionSettings = {
   database: string;
   host: string;
   mtls?: Readonly<{ sslmode: 'require' }>;
   password: string;
   port: number;
   user: string;
-} {
+};
+
+export function parsePostgresConnectionString(value: string): PostgresConnectionSettings {
   let url: URL;
   try {
     url = new URL(value);

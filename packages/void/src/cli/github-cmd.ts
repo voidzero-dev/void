@@ -848,11 +848,7 @@ export async function runGithubUpdate(
     executor = args.executor ?? current.build_executor;
   }
 
-  const patch: {
-    branch?: string;
-    buildExecutor?: 'container' | 'github_actions';
-    workflowPath?: string;
-  } = {};
+  const patch: Parameters<typeof client.updateGithubConnection>[1] = {};
   if (branch !== current.branch) {
     patch.branch = branch;
   }

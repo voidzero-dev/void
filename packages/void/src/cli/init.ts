@@ -29,6 +29,7 @@ import { detectFramework } from '../plugin-inference.ts';
 import type { DetectedFramework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import { ensureGitignoreLines } from '../shared/gitignore.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import {
   getPackageDependencies,
   hasPackageDependency,
@@ -246,13 +247,13 @@ const EMPTY_PROJECT_BASE_PACKAGES = new Set([
 
 // scaffoldPagesApp() replaces these starter scripts; custom scripts make the
 // package an existing project.
-const EMPTY_PROJECT_ALLOWED_SCRIPTS: Record<string, Set<string> | undefined> = {
+const EMPTY_PROJECT_ALLOWED_SCRIPTS = {
   test: undefined,
   dev: new Set(['vite', 'vp dev']),
   build: new Set(['vite build', 'vp build']),
   preview: new Set(['vite preview', 'vp preview']),
   postinstall: new Set(['void prepare']),
-};
+} satisfies Record<string, Set<string> | undefined>;
 const EMPTY_PROJECT_STARTER_SCRIPT_COMMANDS = new Set(
   Object.values(EMPTY_PROJECT_ALLOWED_SCRIPTS).flatMap((commands) =>
     commands ? Array.from(commands) : [],
@@ -393,7 +394,7 @@ function readStringArray(value: unknown): Array<string> {
     : [];
 }
 
-function readPaths(value: unknown): Record<string, Array<string>> {
+function readPaths(value: unknown) {
   const paths = asRecord(value);
   if (!paths) {
     return {};
@@ -591,7 +592,9 @@ export function isScaffoldableEmptyProject(root: string): boolean {
     if (!(name in EMPTY_PROJECT_ALLOWED_SCRIPTS)) {
       return false;
     }
-    const allowed = EMPTY_PROJECT_ALLOWED_SCRIPTS[name];
+    const allowed = hasOwnKey(EMPTY_PROJECT_ALLOWED_SCRIPTS, name)
+      ? EMPTY_PROJECT_ALLOWED_SCRIPTS[name]
+      : undefined;
     if (allowed === undefined) {
       continue;
     }
@@ -1460,10 +1463,7 @@ const projectVoidRunner: Record<ProjectState['packageManager'], string> = {
 
 // Per-package-manager install + setup steps. `void deploy` always runs through
 // the package-manager-appropriate runner in the deploy step below.
-function getWorkflowSetupSteps(
-  root: string,
-  pm: ProjectState['packageManager'],
-): { setup: string; install: string; runner: string } {
+function getWorkflowSetupSteps(root: string, pm: ProjectState['packageManager']) {
   const nodeVersion = getNodeVersionLine(root);
   switch (pm) {
     case 'pnpm':
@@ -1701,10 +1701,7 @@ function ensureGitignore(root: string, report: InitReport): void {
 }
 
 /** Removes each block-style top-level `key:` block; `removed` holds its non-blank lines. */
-function removeTopLevelYamlBlock(
-  yaml: string,
-  key: string,
-): { yaml: string; removed: Array<string> } {
+function removeTopLevelYamlBlock(yaml: string, key: string) {
   const lines = yaml.split(/\r?\n/);
   const next: Array<string> = [];
   const removed: Array<string> = [];
@@ -2378,7 +2375,7 @@ export const posts = sqliteTable("posts", {
 `;
 }
 
-function demoFiles(root: string): { schema: string; route: string; client: string } {
+function demoFiles(root: string) {
   const paths = readProjectPaths(root);
   return {
     schema: paths.schemaFile,

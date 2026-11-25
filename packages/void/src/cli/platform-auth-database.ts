@@ -32,7 +32,7 @@ const nonempty = (value: unknown): value is string =>
   typeof value === 'string' && value.trim() !== '';
 
 export function parsePlatformHyperdriveSelection(value: unknown): PlatformExternalHyperdrive {
-  const selected = value as Partial<PlatformExternalHyperdrive> | null;
+  const selected = value as { [Key in keyof PlatformExternalHyperdrive]?: unknown } | null;
   if (
     !selected ||
     typeof selected !== 'object' ||
@@ -47,9 +47,9 @@ export function parsePlatformHyperdriveSelection(value: unknown): PlatformExtern
   }
   const { host, serviceId } = selected;
   const origin =
-    serviceId === undefined && nonempty(host)
+    serviceId === undefined && typeof host === 'string' && host.trim() !== ''
       ? { host }
-      : nonempty(serviceId) && host === undefined
+      : typeof serviceId === 'string' && serviceId.trim() !== '' && host === undefined
         ? { serviceId }
         : undefined;
   if (!origin) {

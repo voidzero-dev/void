@@ -34,7 +34,7 @@ export type AgentConfig = {
   detect: (root: string) => boolean;
 };
 
-const agents: Record<string, AgentConfig> = {
+const agents = {
   'claude-code': {
     displayName: 'Claude Code',
     skillsDir: '.claude/skills',
@@ -125,7 +125,7 @@ const agents: Record<string, AgentConfig> = {
     skillsDir: '.qwen/skills',
     detect: (root) => existsSync(join(root, '.qwen')),
   },
-};
+} satisfies Record<string, AgentConfig>;
 
 export function detectAgents(root: string): Array<AgentConfig> {
   return Object.values(agents).filter((a) => a.detect(root));
