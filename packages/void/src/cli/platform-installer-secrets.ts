@@ -1,21 +1,27 @@
 import { createHash, randomBytes } from 'node:crypto';
-import {
-  type PlatformInstallationManifest,
-  parsePlatformAuthenticationSetup,
-} from '@void/platform';
+import { parsePlatformAuthenticationSetup } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
+import { Buffer } from './node-buffer.ts';
 import {
   checkpointPlatformAccessResources,
   isPlatformAuthenticationPreparationKey,
 } from './platform-access-setup.ts';
-import {
-  type PlatformInstallationSecrets,
-  type PlatformWorkerKey,
-  type PlatformWorkerSecretUpdateIntent,
-  type PlatformWorkerSecretUpdateName,
-  PLATFORM_WORKER_SECRET_UPDATE_NAMES,
-  type PlatformWorkerSecretUpdates,
+import { PLATFORM_WORKER_SECRET_UPDATE_NAMES } from './platform-installer-types.ts';
+import type {
+  PlatformInstallationSecrets,
+  PlatformWorkerKey,
+  PlatformWorkerSecretUpdateIntent,
+  PlatformWorkerSecretUpdateName,
+  PlatformWorkerSecretUpdates,
 } from './platform-installer-types.ts';
-import { type PlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformInstallPlan } from './platform-plan.ts';
+
+const required = (value: string, name: string): string => {
+  if (!value) {
+    throw new Error(`platform: ${name} is required to install the platform.`);
+  }
+  return value;
+};
 
 export function createPlatformInstallationSecrets(input: {
   configurableAuthentication?: boolean;
@@ -45,12 +51,18 @@ export function createPlatformInstallationSecrets(input: {
   checkpoint?: Record<string, string> | null;
 }): PlatformInstallationSecrets {
   const checkpoint = input.checkpoint ?? {};
-  const required = (value: string, name: string): string => {
-    if (!value) {
-      throw new Error(`platform: ${name} is required to install the platform.`);
-    }
-    return value;
-  };
+  // The two halves are one key pair. Replacing one half would leave the
+  // Workers signing with a mismatched pair.
+  if (!input.r2AccessKeyId !== !input.r2SecretAccessKey) {
+    const [given, missing] = input.r2AccessKeyId
+      ? ['VOID_PLATFORM_R2_ACCESS_KEY_ID', 'VOID_PLATFORM_R2_SECRET_ACCESS_KEY']
+      : ['VOID_PLATFORM_R2_SECRET_ACCESS_KEY', 'VOID_PLATFORM_R2_ACCESS_KEY_ID'];
+    throw new Error(
+      `platform: ${given} is set but ${missing} is not. ` +
+        'Set VOID_PLATFORM_R2_ACCESS_KEY_ID and VOID_PLATFORM_R2_SECRET_ACCESS_KEY together, ' +
+        'even if only the secret changed.',
+    );
+  }
   // Runtime signing/encryption keys are installation identity, not ordinary
   // configuration. A checkpoint wins over the legacy single-key inputs. The
   // explicit complete-keyring pair is the only supported way to supersede a
@@ -231,6 +243,8 @@ export function createPlatformInstallationSecrets(input: {
   };
 }
 
+type ProjectSecretKeyring = Readonly<{ activeVersion: string; keysJson: string; v1Key: string }>;
+
 function resolveProjectSecretKeyring(input: {
   checkpoint: Record<string, string>;
   existingInstallation: boolean;
@@ -239,7 +253,7 @@ function resolveProjectSecretKeyring(input: {
   projectSecretKey: string;
   projectSecretKeysJson: string;
   required: (value: string, name: string) => string;
-}): Readonly<{ activeVersion: string; keysJson: string; v1Key: string }> {
+}): ProjectSecretKeyring {
   const explicitFullKeyring =
     input.projectSecretKeysJson !== '' || input.projectSecretActiveKeyVersion !== '';
   if (
@@ -309,7 +323,7 @@ function normalizeProjectSecretKeyring(
   activeVersion: string,
   keysName: string,
   activeVersionName: string,
-): Readonly<{ activeVersion: string; keysJson: string; v1Key: string }> {
+): ProjectSecretKeyring {
   let parsed: unknown;
   try {
     parsed = JSON.parse(keysJson);
@@ -355,10 +369,13 @@ function assertCanonicalProjectSecretKey(
   }
 }
 
+type SecretCheckpoint = Record<string, string> &
+  Pick<PlatformInstallationSecrets, 'databaseUrl' | 'cloudflareApiToken' | 'jwtSecret'>;
+
 export function secretCheckpoint(
   secrets: PlatformInstallationSecrets,
   workerSecretUpdateIntent?: PlatformWorkerSecretUpdateIntent | null,
-): Record<string, string> {
+): SecretCheckpoint {
   return {
     ...(secrets.appAccessSetupToken ? { appAccessSetupToken: secrets.appAccessSetupToken } : {}),
     ...(secrets.appAccessSetupJson ? { appAccessSetupJson: secrets.appAccessSetupJson } : {}),
@@ -576,7 +593,7 @@ export async function resolveBootstrapGitHubId(
       `platform: Could not resolve GitHub user ${JSON.stringify(normalizedLogin)} (HTTP ${response.status}). Verify the username and retry.`,
     );
   }
-  const body = (await response.json()) as { id?: unknown };
+  const body = await response.json<{ id?: unknown }>();
   const id = typeof body.id === 'number' && Number.isSafeInteger(body.id) ? String(body.id) : '';
   if (!/^[1-9][0-9]*$/.test(id)) {
     throw new Error(

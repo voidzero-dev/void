@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { normalizeApplicationDomain, PLATFORM_HEALTH_HOSTNAME_LABEL } from '@void/platform';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
-import { type PlatformHealthCheckContext } from './platform-installer-types.ts';
+import type { PlatformHealthCheckContext } from './platform-installer-types.ts';
 
 export class PlatformAccessBlockedError extends Error {
   constructor(url: string, context?: PlatformHealthCheckContext) {
@@ -98,12 +98,15 @@ export async function verifyPlatformHealth(
   // Project Zero Trust leaves only this application-domain hostname outside Access.
   const dispatchUrl =
     dispatchOrigin ?? `https://${PLATFORM_HEALTH_HOSTNAME_LABEL}.${applicationBaseDomain}`;
+  const emailGatewayHealthUrl = context?.emailGatewayUrl
+    ? context.emailGatewayUrl + '/health'
+    : undefined;
   const [health, discovery, proxy, dispatch, emailGateway] = await Promise.all([
     request(`${apiUrl}/health`),
     request(`${apiUrl}/.well-known/void-platform`),
     request(`${proxyUrl}/health`),
     request(`${dispatchUrl}/health`),
-    context?.emailGatewayUrl ? request(`${context.emailGatewayUrl}/health`) : undefined,
+    emailGatewayHealthUrl ? request(emailGatewayHealthUrl) : undefined,
   ]);
   if (!health.ok) {
     throw await platformProbeFailure('Health check', `${apiUrl}/health`, health, context);
@@ -116,11 +119,11 @@ export async function verifyPlatformHealth(
       context,
     );
   }
-  const body = (await discovery.json()) as {
+  const body = await discovery.json<{
     installationId?: unknown;
     platformVersion?: unknown;
     usageProtocolVersion?: unknown;
-  };
+  }>();
   if (body.installationId !== installationId) {
     throw new Error('platform: Deployed API discovery identity does not match this installation.');
   }
@@ -143,20 +146,20 @@ export async function verifyPlatformHealth(
       context,
     );
   }
-  if (emailGateway) {
+  if (emailGateway && emailGatewayHealthUrl) {
     if (!emailGateway.ok) {
       throw await platformProbeFailure(
         'Email gateway health check',
-        `${context!.emailGatewayUrl!}/health`,
+        emailGatewayHealthUrl,
         emailGateway,
         context,
       );
     }
-    const identity = (await emailGateway.json()) as {
+    const identity = await emailGateway.json<{
       installationId?: unknown;
       platformVersion?: unknown;
       emailProtocolVersion?: unknown;
-    } | null;
+    } | null>();
     if (
       identity?.installationId !== installationId ||
       identity.platformVersion !== platformVersion ||
@@ -292,6 +295,9 @@ const sharedEmailStepPermissions: ReadonlyMap<string, string> = new Map([
   ['sending_onboard', 'Account → Email Sending → Edit'],
 ]);
 
+const code = (value: unknown) =>
+  typeof value === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(value) ? value : null;
+
 export async function bootstrapPlatformSharedEmail(
   apiUrl: string,
   healthProbeToken: string,
@@ -311,7 +317,9 @@ export async function bootstrapPlatformSharedEmail(
     if (remaining <= 0) {
       throw timedOut();
     }
-    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(1_000, remaining)));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, Math.min(1000, remaining));
+    });
   };
   let response: Response;
   let value: unknown;
@@ -337,6 +345,7 @@ export async function bootstrapPlatformSharedEmail(
         await waitForProgress();
         continue;
       }
+      // oxlint-disable-next-line preserve-caught-error -- Bootstrap errors can include request or response data that should stay out of logs.
       throw new Error(
         `platform: Shared email bootstrap request failed at ${apiUrl}. Traffic remains disabled. Retry the installation's repair or resume command to reconcile the existing email operation.`,
       );
@@ -348,6 +357,7 @@ export async function bootstrapPlatformSharedEmail(
         await waitForProgress();
         continue;
       }
+      // oxlint-disable-next-line preserve-caught-error -- Bootstrap errors can include request or response data that should stay out of logs.
       throw new Error(
         `platform: Shared email bootstrap failed at ${apiUrl} (HTTP ${response.status}). Traffic remains disabled.`,
       );
@@ -374,7 +384,7 @@ export async function bootstrapPlatformSharedEmail(
       status.state === 'incomplete' &&
       observedOperationId &&
       (status.operationStatus === 'pending' || status.operationStatus === 'running') &&
-      status.failureCode == null
+      (status.failureCode === null || status.failureCode === undefined)
     ) {
       await waitForProgress();
       continue;
@@ -387,11 +397,11 @@ export async function bootstrapPlatformSharedEmail(
     status.state !== 'ready' ||
     operationId === null ||
     status.operationId !== operationId ||
-    (status.operationStatus != null && status.operationStatus !== 'completed') ||
-    status.failureCode != null
+    (status.operationStatus !== null &&
+      status.operationStatus !== undefined &&
+      status.operationStatus !== 'completed') ||
+    (status.failureCode !== null && status.failureCode !== undefined)
   ) {
-    const code = (value: unknown) =>
-      typeof value === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(value) ? value : null;
     const operationStatus = code(status?.operationStatus);
     const operationId =
       typeof status?.operationId === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(status.operationId)

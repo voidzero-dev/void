@@ -121,7 +121,7 @@ describe('platform config plans', () => {
     );
     const output = vi
       .mocked(console.log)
-      .mock.calls.map((call) => call[0])
+      .mock.calls.map(([line]) => String(line ?? ''))
       .join('\n');
     expect(output).toContain('Move accounts to free (free)');
     expect(output).toContain('Requests per billing month: unlimited → 3,000,000');

@@ -1,15 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { PlatformApiError, type PlatformClient } from '../../src/cli/client.ts';
+import type { MockInstance } from 'vite-plus/test';
+import { PlatformApiError } from '../../src/cli/client.ts';
+import type { PlatformClient } from '../../src/cli/client.ts';
 import { runInstall } from '../../src/cli/github-cmd.ts';
 import { throwOnProcessExit } from '../helpers/github-cli.ts';
 
 // Keep openBrowser from launching a real browser.
 const mockExecFile = vi.fn();
 vi.mock('node:child_process', () => ({
-  execFile: (...args: Array<unknown>) => mockExecFile(...args),
+  execFile: (...args: Array<unknown>) => {
+    mockExecFile(...args);
+  },
 }));
 
-let exitSpy: ReturnType<typeof vi.spyOn>;
+let exitSpy: MockInstance;
 
 function identityRequired(): PlatformApiError {
   return new PlatformApiError(

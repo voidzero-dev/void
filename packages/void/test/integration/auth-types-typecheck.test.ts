@@ -2,10 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
-import {
-  createIsolatedPlayground,
-  type IsolatedPlayground,
-} from '../../../../test/integration-helpers.ts';
+import { createIsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { generateAuthTypes } from '../../src/codegen/auth-types.ts';
 
 const workspaceRoot = join(import.meta.dirname, '..', '..', '..', '..');

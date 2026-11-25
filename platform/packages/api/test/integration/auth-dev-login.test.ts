@@ -10,7 +10,8 @@ import {
 } from 'vite-plus/test';
 import { verifyJwt } from '../../src/auth/jwt.ts';
 import app from '../../src/index.ts';
-import { setupEnv, teardownEnv, clearTables, createTestUser, type TestEnv } from './helpers.ts';
+import { setupEnv, teardownEnv, clearTables, createTestUser } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -40,7 +41,7 @@ function extractRedirectTarget(body: string): string {
   if (!match) {
     throw new Error(`no location.replace() in body: ${body.slice(0, 200)}`);
   }
-  return match[1]!;
+  return match[1];
 }
 
 describe('GET /auth/dev-login', () => {

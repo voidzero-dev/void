@@ -14,6 +14,9 @@
       return;
     }
     const canvas = document.querySelector('.error-texture');
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return;
+    }
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       return;

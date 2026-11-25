@@ -36,25 +36,25 @@ export function defineIslandsPluginTests(
     const plugins = islandsPlugin(PAGES_DIR);
     const plugin = plugins[0] as IslandsPluginHooks;
 
-    const command = options?.dev ? 'serve' : 'build';
-    const config = { root: TMP, command: command as 'serve' | 'build', plugins: [] };
+    const command: 'build' | 'serve' = options?.dev ? 'serve' : 'build';
+    const config = { root: TMP, command, plugins: [] };
     plugin.configResolved?.(config);
 
     return {
-      async buildStart() {
+      buildStart: async () => {
         if (typeof plugin.buildStart === 'function') {
           await plugin.buildStart.call({});
         } else {
           await plugin.buildStart?.handler.call({});
         }
       },
-      loadClientEntry(): string | undefined {
+      loadClientEntry: (): string | undefined => {
         if (typeof plugin.load === 'function') {
           return plugin.load('\0virtual:void-islands-client');
         }
         return plugin.load?.handler('\0virtual:void-islands-client');
       },
-      transform(code: string, id: string): { code: string; map: null } | undefined {
+      transform: (code: string, id: string): { code: string; map: null } | undefined => {
         if (typeof plugin.transform === 'function') {
           return plugin.transform.call({ warn() {} }, code, id);
         }
@@ -137,7 +137,7 @@ export default function Home() { return <Counter />; }`,
       await buildStart();
       const clientEntry = loadClientEntry();
       const transformed = transform(
-        readFileSync(join(PAGES_DIR, 'index.island.tsx'), 'utf-8'),
+        readFileSync(join(PAGES_DIR, 'index.island.tsx'), 'utf8'),
         join(PAGES_DIR, 'index.island.tsx'),
       );
 

@@ -1,3 +1,5 @@
+import { isRecord } from './validate.ts';
+
 /** Worker-safe wire contract shared by the platform gateway and tenant entry. */
 export const EMAIL_PROTOCOL_VERSION = 1;
 export const EMAIL_RECEIPT_PATH = '/__void/email/receipt/v1';
@@ -25,6 +27,12 @@ export type EmailReceiptClaims = {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
+
+function hasStringHeaderValues(
+  headers: Record<string, unknown>,
+): headers is Record<string, string> {
+  return Object.values(headers).every((header) => typeof header === 'string');
+}
 
 function assertFlatJson(bytes: Uint8Array, maxDepth: number, maxFields: number): void {
   let depth = 0;
@@ -134,11 +142,10 @@ export async function readEmailEnvelope(
   }
   const metadataBytes = bytes.subarray(4, 4 + metadataLength);
   assertFlatJson(metadataBytes, 2, EMAIL_MAX_INBOUND_HEADERS + 8);
-  const metadata: unknown = JSON.parse(decoder.decode(metadataBytes));
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+  const value: unknown = JSON.parse(decoder.decode(metadataBytes));
+  if (!isRecord(value)) {
     throw new Error('invalid email envelope');
   }
-  const value = metadata as Record<string, unknown>;
   const raw = bytes.subarray(4 + metadataLength, total);
   if (
     raw.byteLength > EMAIL_MAX_INBOUND_BYTES ||
@@ -148,11 +155,9 @@ export async function readEmailEnvelope(
     value.to.length > 320 ||
     typeof value.rawSize !== 'number' ||
     value.rawSize !== raw.byteLength ||
-    !value.headers ||
-    typeof value.headers !== 'object' ||
-    Array.isArray(value.headers) ||
+    !isRecord(value.headers) ||
     Object.keys(value.headers).length > EMAIL_MAX_INBOUND_HEADERS ||
-    Object.values(value.headers).some((header) => typeof header !== 'string') ||
+    !hasStringHeaderValues(value.headers) ||
     (value.viaDomain !== undefined &&
       (typeof value.viaDomain !== 'string' || value.viaDomain.length > 253))
   ) {
@@ -161,10 +166,10 @@ export async function readEmailEnvelope(
   return {
     from: value.from,
     to: value.to,
-    headers: value.headers as Record<string, string>,
+    headers: value.headers,
     raw,
     rawSize: raw.byteLength,
-    ...(value.viaDomain ? { viaDomain: value.viaDomain as string } : {}),
+    ...(value.viaDomain ? { viaDomain: value.viaDomain } : {}),
   };
 }
 
@@ -239,29 +244,30 @@ export async function verifyEmailReceipt(
     ) {
       return null;
     }
-    const claims: unknown = JSON.parse(decoder.decode(payload));
-    if (typeof claims !== 'object' || claims === null) {
-      return null;
-    }
-    const value = claims as Partial<EmailReceiptClaims>;
-    if (
-      value.version !== EMAIL_PROTOCOL_VERSION ||
-      typeof value.receiptId !== 'string' ||
-      !/^[a-f0-9-]{16,64}$/.test(value.receiptId) ||
-      value.projectId !== expected.projectId ||
-      value.deploymentId !== expected.deploymentId ||
-      value.recipient !== expected.recipient ||
-      typeof value.expiresAt !== 'number' ||
-      !Number.isSafeInteger(value.expiresAt) ||
-      value.expiresAt < now ||
-      value.expiresAt > now + 60_000
-    ) {
-      return null;
-    }
-    return value as EmailReceiptClaims;
+    const value: unknown = JSON.parse(decoder.decode(payload));
+    return matchesReceiptClaims(value, expected, now) ? value : null;
   } catch {
     return null;
   }
+}
+
+function matchesReceiptClaims(
+  value: unknown,
+  expected: Pick<EmailReceiptClaims, 'projectId' | 'deploymentId' | 'recipient'>,
+  now: number,
+): value is EmailReceiptClaims {
+  return (
+    isRecord(value) &&
+    value.version === EMAIL_PROTOCOL_VERSION &&
+    typeof value.receiptId === 'string' &&
+    /^[a-f0-9-]{16,64}$/.test(value.receiptId) &&
+    value.projectId === expected.projectId &&
+    value.deploymentId === expected.deploymentId &&
+    value.recipient === expected.recipient &&
+    typeof value.expiresAt === 'number' &&
+    Number.isSafeInteger(value.expiresAt) &&
+    !(value.expiresAt < now || value.expiresAt > now + 60_000)
+  );
 }
 
 function frame(kind: number, payload: Uint8Array): Uint8Array {
@@ -380,11 +386,10 @@ export async function readEmailActions(
       }
       const metadataBytes = await exact(length);
       assertFlatJson(metadataBytes, 2, 40);
-      const value: unknown = JSON.parse(decoder.decode(metadataBytes));
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      const action: unknown = JSON.parse(decoder.decode(metadataBytes));
+      if (!isRecord(action)) {
         throw new Error('invalid email action');
       }
-      const action = value as Record<string, unknown>;
       if (action.type === 'reply') {
         if (
           typeof action.from !== 'string' ||
@@ -405,28 +410,21 @@ export async function readEmailActions(
           raw: await exact(rawLength),
         });
       } else if (action.type === 'forward') {
+        const headers = action.headers;
         if (
           typeof action.to !== 'string' ||
           Object.keys(action).length > 3 ||
-          (action.headers !== undefined &&
-            (typeof action.headers !== 'object' ||
-              action.headers === null ||
-              Array.isArray(action.headers)))
+          (headers !== undefined && !isRecord(headers))
         ) {
           throw new Error('invalid email forward');
         }
-        const headers = action.headers as Record<string, unknown> | undefined;
-        if (
-          headers &&
-          (Object.keys(headers).length > 32 ||
-            Object.values(headers).some((v) => typeof v !== 'string'))
-        ) {
+        if (headers && (Object.keys(headers).length > 32 || !hasStringHeaderValues(headers))) {
           throw new Error('invalid email headers');
         }
         actions.push({
           type: 'forward',
           to: action.to,
-          ...(headers ? { headers: headers as Record<string, string> } : {}),
+          ...(headers ? { headers } : {}),
         });
       } else if (action.type === 'reject') {
         if (typeof action.reason !== 'string' || Object.keys(action).length !== 2) {

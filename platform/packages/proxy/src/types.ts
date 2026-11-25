@@ -15,9 +15,12 @@ export type AiBinding = Readonly<{
     model: string,
     inputs?: unknown,
     options?: Record<string, unknown>,
+    // oxlint-disable-next-line quality/no-unknown-returns -- Workers AI returns provider-specific values or a stream.
   ): Promise<ReadableStream | unknown>;
   gateway(id: string): AiGateway;
+  // oxlint-disable-next-line quality/no-unknown-returns -- Workers AI owns the model-list response.
   models(inputs?: unknown): Promise<unknown>;
+  // oxlint-disable-next-line quality/no-unknown-returns -- Workers AI owns the format-conversion response.
   toMarkdown(inputs?: unknown, options?: unknown): Promise<unknown>;
 }>;
 
@@ -63,9 +66,7 @@ export type Env = Readonly<{
 
 export type JwtPayload = Readonly<{
   sub: string;
-  login: string;
-  aud: string;
-  iat: number;
+  aud: 'api' | 'prerender';
   exp: number;
   project?: string;
   build?: string;

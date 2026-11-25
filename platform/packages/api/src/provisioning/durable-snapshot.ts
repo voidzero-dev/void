@@ -3,8 +3,8 @@ import {
   trackedModuleStream,
   withKnownLength,
   WorkerModuleIntegrityError,
-  type WorkerModule,
 } from '../worker-upload.ts';
+import type { TrackedStream, WorkerModule } from '../worker-upload.ts';
 
 export async function snapshotDigest(value: string | ArrayBuffer | Uint8Array): Promise<string> {
   const bytes = new Uint8Array(
@@ -21,7 +21,7 @@ export async function snapshotDigest(value: string | ArrayBuffer | Uint8Array): 
 
 type SnapshotBody = Readonly<{
   value: string | ArrayBuffer | Uint8Array | ReadableStream<Uint8Array>;
-  failure?: () => unknown;
+  failure?: TrackedStream['failure'];
 }>;
 
 /** Immutable release writes can be recovered after a lost R2 acknowledgement. */
@@ -76,13 +76,15 @@ async function putVerifiedSnapshotObject(
     // write before accepting it; the condition also fences any late PUT.
     const stored = await bucket.get(key);
     if (stored) {
-      if ((await streamSha256(stored.body)) === expected) {
+      if ((await streamSha256(stored.body as ReadableStream<Uint8Array>)) === expected) {
         return;
       }
       throw new Error(`Custom Durable Object release snapshot changed: ${key}`);
     }
     if (attempt < 2) {
-      await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 200 * 2 ** attempt);
+      });
     }
   }
   throw new Error(`Could not store custom Durable Object release snapshot: ${key}`, {

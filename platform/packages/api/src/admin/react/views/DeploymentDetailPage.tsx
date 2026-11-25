@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHeaderCell, TableRow } from '@astryxd
 import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import { DeploymentDetailView, deploymentDetailRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { CopyButton } from './CopyButton.tsx';
 import { DeploymentLogs } from './DeploymentLogs.tsx';
 import { DeploymentManifestCard } from './DeploymentManifestCard.tsx';

@@ -1,4 +1,5 @@
-import { createRouteFetch, type UntypedFetchOptions } from './fetch.ts';
+import { createRouteFetch } from './fetch.ts';
+import type { UntypedFetchOptions } from './fetch.ts';
 export { FetchError } from './fetch-error.ts';
 
 /** Keep local calls in the app while using the browser client's request and error handling. */
@@ -30,7 +31,7 @@ export function createServerFetch<Context extends { request?: Request }>(
     // signal supplied by ofetch (including its timeout), and forward it to handlers.
     const signal = request.signal;
     signal.throwIfAborted();
-    let abort: () => void;
+    let abort: (() => void) | undefined;
     try {
       return await new Promise<Response>((resolve, reject) => {
         abort = () => reject(signal.reason);
@@ -38,7 +39,9 @@ export function createServerFetch<Context extends { request?: Request }>(
         Promise.resolve(dispatch(request, store)).then(resolve, reject);
       });
     } finally {
-      signal.removeEventListener('abort', abort!);
+      if (abort) {
+        signal.removeEventListener('abort', abort);
+      }
     }
   });
 }

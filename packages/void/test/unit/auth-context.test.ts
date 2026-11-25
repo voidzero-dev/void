@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import {
-  authContext,
-  getSession,
-  getUser,
-  type AuthState,
-  type AuthUser,
-} from '../../src/runtime/auth/index.ts';
+import { authContext, getSession, getUser } from '../../src/runtime/auth/index.ts';
+import type { AuthState, AuthUser } from '../../src/runtime/auth/index.ts';
 
 describe('authContext', () => {
   it('runs callback with provided store and exposes it via getUser/getSession', () => {

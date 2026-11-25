@@ -29,7 +29,7 @@ describe('isDevTriggerSecretRequest', () => {
     '/_nuxt/@fs/Users/me/app/.nuxt/dev/index.mjs.map',
     '/dist/.nitro/dev/index.mjs',
     '/@fs/Users/me/app/dist/.nitro/dev/index.mjs.map',
-    '\\.void\\dev-trigger-token',
+    String.raw`\.void\dev-trigger-token`,
     '/.astro/dev.log',
     '/.ASTRO/Dev.Log?raw',
     '/@fs/Users/me/app/.astro/dev.log',

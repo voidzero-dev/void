@@ -12,7 +12,7 @@ type RouteEntry<P extends keyof RouteMap, M extends MethodsOf<P>> = RouteMap[P][
   output: infer O;
 }
   ? { input: I; output: O }
-  : { input: {}; output: unknown };
+  : { input: Record<never, never>; output: unknown };
 
 type OutputOf<P extends keyof RouteMap, M extends MethodsOf<P>> = RouteEntry<P, M>['output'];
 type InputOf<P extends keyof RouteMap, M extends MethodsOf<P>> = RouteEntry<P, M>['input'];
@@ -99,7 +99,7 @@ export function createRouteFetch(
   return async (path, options) => {
     const url = interpolateRouteParams(path, options?.params);
 
-    return client(url, {
+    return client<unknown>(url, {
       method: options?.method ?? 'GET',
       body: options?.body as Record<string, unknown> | BodyInit | null | undefined,
       query: options?.query,

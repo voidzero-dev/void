@@ -94,9 +94,9 @@ describe('mergeVoidSvelteKitTsconfig', () => {
         ['@schema', 'db/schema.ts'],
       ]) {
         expect(
-          ts.resolveModuleName(name!, join(TMP, 'src/page.ts'), parsed.options, ts.sys)
+          ts.resolveModuleName(name, join(TMP, 'src/page.ts'), parsed.options, ts.sys)
             .resolvedModule?.resolvedFileName,
-        ).toBe(generatedPath(file!));
+        ).toBe(generatedPath(file));
       }
     },
   );

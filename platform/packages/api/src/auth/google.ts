@@ -44,7 +44,7 @@ export async function exchangeCodeForToken(
     throw new Error(`Google token exchange failed: ${res.status}`);
   }
 
-  const data = (await res.json()) as { access_token?: string; error?: string };
+  const data = await res.json<{ access_token?: string; error?: string }>();
   if (data.error || !data.access_token) {
     throw new Error(`Google token exchange error: ${data.error ?? 'no access_token'}`);
   }
@@ -63,11 +63,11 @@ export async function getGoogleUser(accessToken: string): Promise<GoogleUser> {
     throw new Error(`Google user fetch failed: ${res.status}`);
   }
 
-  const data = (await res.json()) as {
+  const data = await res.json<{
     id: string;
     email: string;
     name: string;
     verified_email: boolean;
-  };
+  }>();
   return { id: data.id, email: data.email, name: data.name, emailVerified: data.verified_email };
 }

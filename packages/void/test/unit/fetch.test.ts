@@ -6,10 +6,10 @@ declare module 'void/routes' {
     '/api/users/[id]': RouteMap['/api/users/:id'];
     '/api/files/[...path]': RouteMap['/api/files/:path{.+}'];
     '/api/hello': {
-      GET: { input: {}; output: { ok: boolean } };
+      GET: { input: Record<never, never>; output: { ok: boolean } };
     };
     '/api/users': {
-      GET: { input: {}; output: Array<{ id: string; name: string }> };
+      GET: { input: Record<never, never>; output: Array<{ id: string; name: string }> };
       POST: { input: { body: { name: string } }; output: { created: boolean } };
     };
     '/api/users/:id': {
@@ -19,8 +19,8 @@ declare module 'void/routes' {
       GET: { input: { params: { path: string } }; output: unknown };
     };
     '/api/items/:id': {
-      GET: { input: {}; output: { id: string } };
-      DELETE: { input: {}; output: undefined };
+      GET: { input: Record<never, never>; output: { id: string } };
+      DELETE: { input: Record<never, never>; output: undefined };
     };
   }
 }
@@ -93,7 +93,7 @@ describe('typed fetch client', () => {
     const init = call[1] as RequestInit;
     expect(init.method).toBe('POST');
     expect(init.body).toBe(JSON.stringify({ name: 'Alice' }));
-    expect(new Headers(init.headers!).get('Content-Type')).toBe('application/json');
+    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
   });
 
   it('throws FetchError on non-OK response', async () => {
@@ -101,7 +101,7 @@ describe('typed fetch client', () => {
       new Response('Not Found', { status: 404, statusText: 'Not Found' }),
     );
 
-    const err = await typedFetch('/api/hello', { retry: 0 }).catch((e: Error) => e);
+    const err = await typedFetch('/api/hello', { retry: 0 }).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(FetchError);
     expect((err as FetchError).status).toBe(404);

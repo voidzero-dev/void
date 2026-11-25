@@ -145,9 +145,9 @@ export function isrLegacyCacheVariantPrefix(
   return `${isrLegacyCachePrefix(projectId, deploymentId)}${normalizeIsrPath(pathname)}${ISR_VARIANT_SEPARATOR}`;
 }
 
-const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
-const FNV_PRIME = 0x100000001b3n;
-const FNV_MASK = 0xffffffffffffffffn;
+const FNV_OFFSET_BASIS = 0xcb_f2_9c_e4_84_22_23_25n;
+const FNV_PRIME = 0x1_00_00_00_01_b3n;
+const FNV_MASK = 0xff_ff_ff_ff_ff_ff_ff_ffn;
 
 /**
  * Hash an original URL into a 16-hex-char variant token (FNV-1a 64-bit), used
@@ -159,21 +159,23 @@ export function hashOriginalUrl(originalUrl: string): string {
   const bytes = new TextEncoder().encode(originalUrl);
   let h = FNV_OFFSET_BASIS;
   for (let i = 0; i < bytes.length; i++) {
-    h = (h ^ BigInt(bytes[i]!)) & FNV_MASK;
+    h = (h ^ BigInt(bytes[i])) & FNV_MASK;
     h = (h * FNV_PRIME) & FNV_MASK;
   }
   return h.toString(16).padStart(16, '0');
 }
+
+type IsrCacheKeyParts = {
+  normalizedPath: string;
+  variantToken: string | null;
+};
 
 /**
  * Split an ISR KV key into its normalized path and its `#rw=` variant token
  * (`null` for a direct hit). Pass the token to `isrEdgeCacheUrlForToken` to
  * rebuild the matching edge-cache URL.
  */
-export function splitIsrCacheKey(fullKey: string): {
-  normalizedPath: string;
-  variantToken: string | null;
-} {
+export function splitIsrCacheKey(fullKey: string): IsrCacheKeyParts {
   const sepIdx = fullKey.indexOf(ISR_VARIANT_SEPARATOR);
   if (sepIdx === -1) {
     return { normalizedPath: fullKey, variantToken: null };

@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'pathslash';
 import { writeFileAtomic } from '../shared/atomic-write.ts';
-import { parsePlatformArgs, type PlatformArgs } from './platform-args.ts';
+import { parsePlatformArgs } from './platform-args.ts';
+import type { PlatformArgs } from './platform-args.ts';
 import { parsePlatformHyperdriveSelection } from './platform-auth-database.ts';
 import type { PlatformExternalHyperdrive } from './platform-plan.ts';
 import { platformRegistryDirectory } from './platform-registry.ts';
@@ -105,6 +106,7 @@ function readSavedPlatformInstallPlan(path: string, id: string): SavedPlatformIn
     }
     throw new Error(
       `platform: Invalid saved installation plan ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }

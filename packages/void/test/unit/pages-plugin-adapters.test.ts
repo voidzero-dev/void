@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Plugin } from 'vite';
+import type { Plugin, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { pagesPlugin as reactPagesPlugin } from '../../../react/src/plugin-pages.ts';
 import { pagesPlugin as solidPagesPlugin } from '../../../solid/src/plugin-pages.ts';
@@ -10,7 +10,7 @@ import { pagesPlugin as vuePagesPlugin } from '../../../vue/src/plugin-pages.ts'
 
 type Hook<T> = T | { handler: T; filter?: { id: RegExp } };
 type PagesPluginHooks = {
-  config: Hook<(config: object, env: { command: 'serve' | 'build' }) => unknown>;
+  config: Hook<(config: UserConfig, env: { command: 'serve' | 'build' }) => unknown>;
   configResolved: (config: { publicDir: string | false }) => void;
   buildStart: Hook<() => Promise<void>>;
   resolveId: Hook<(id: string) => string | undefined>;
@@ -161,7 +161,10 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
     await handler(plugin.buildStart)();
     const events = new Map<string, (path: string) => Promise<void>>();
     const moduleIds = ['\0virtual:void-pages-renderer', '\0virtual:void-pages-client'];
-    const invalidations = [vi.fn(), vi.fn()];
+    const invalidations = [
+      vi.fn<(module: { id: string }) => void>(),
+      vi.fn<(module: { id: string }) => void>(),
+    ];
     plugin.configureServer({
       watcher: {
         on(event: string, callback: (path: string) => Promise<void>) {

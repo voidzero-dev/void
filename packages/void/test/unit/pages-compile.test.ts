@@ -2,7 +2,8 @@ import { fileURLToPath } from 'node:url';
 import { parseSync } from 'vite';
 import { describe, expect, it } from 'vite-plus/test';
 import type { PageDefinition, PageScanResult } from '../../src/pages/types.ts';
-import { compileRouteTable, type PagesCompileOptions } from '../../src/router/compile.ts';
+import { compileRouteTable } from '../../src/router/compile.ts';
+import type { PagesCompileOptions } from '../../src/router/compile.ts';
 import type { ScanResult } from '../../src/router/scan.ts';
 
 const testOptions = {

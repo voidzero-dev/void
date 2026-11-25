@@ -48,7 +48,7 @@ describe('dashboard login discovery', () => {
       { headers: { Host: 'localhost:5173' } },
       { API_URL: 'http://localhost:8787' },
     );
-    const method = (await response.json<{ methods: Array<{ url: string }> }>()).methods[0]!;
+    const method = (await response.json<{ methods: Array<{ url: string }> }>()).methods[0];
     const login = new URL(method.url);
     expect(login.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(login.searchParams.get('code_challenge_method')).toBe('S256');
@@ -74,7 +74,7 @@ describe('dashboard login discovery', () => {
       { headers: { Host: 'localhost.attacker.example' } },
       { API_URL: 'https://api.example.com' },
     );
-    const method = (await response.json<{ methods: Array<{ url: string }> }>()).methods[0]!;
+    const method = (await response.json<{ methods: Array<{ url: string }> }>()).methods[0];
     const login = new URL(method.url);
     expect(login.searchParams.has('code_challenge')).toBe(false);
     expect(new URL(login.searchParams.get('redirect')!).origin).toBe(
@@ -114,8 +114,8 @@ describe('dashboard login discovery', () => {
         CF_ACCESS_CLIENT_SECRET: 'secret',
       },
     );
-    expect(binding.mock.calls[0]![0].toString()).toBe('https://dashboard.example.com/me');
-    const options = binding.mock.calls[0]![1] as RequestInit;
+    expect(binding.mock.calls[0][0].toString()).toBe('https://dashboard.example.com/me');
+    const options = binding.mock.calls[0][1] as RequestInit;
     expect((options.headers as Headers).get('Cf-Access-Jwt-Assertion')).toBe('human-proof');
     expect((options.headers as Headers).has('CF-Access-Client-Secret')).toBe(false);
     expect(options.redirect).toBe('manual');

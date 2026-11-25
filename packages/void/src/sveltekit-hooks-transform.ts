@@ -1,11 +1,7 @@
 import MagicString from 'magic-string';
 import { parseSync } from 'vite';
-import {
-  isIdentifier,
-  type AstExportNamedDeclaration,
-  type AstNode,
-  type AstProgram,
-} from './shared/ast.ts';
+import { asAstProgram, isIdentifier } from './shared/ast.ts';
+import type { AstExportNamedDeclaration, AstNode } from './shared/ast.ts';
 
 type HooksTransform = { code: string; map: ReturnType<MagicString['generateMap']> };
 
@@ -64,7 +60,7 @@ function editGetHooks(
   if (!code.includes('get_hooks')) {
     return undefined;
   }
-  const program = parseSync(id, code).program as unknown as AstProgram;
+  const program = asAstProgram(parseSync(id, code).program);
   const hooks = (program.body ?? [])
     .filter((node) => node.type === 'ExportNamedDeclaration')
     .map((node) => (node as AstExportNamedDeclaration).declaration)
@@ -77,7 +73,7 @@ function editGetHooks(
   if (hooks.length !== 1) {
     throw new Error('sveltekit: Expected one generated get_hooks function.');
   }
-  const body = hooks[0]!.body as AstNode | undefined;
+  const body = hooks[0].body as AstNode | undefined;
   const returns =
     (body?.body as Array<AstNode> | undefined)?.filter(
       (node) =>

@@ -1,6 +1,7 @@
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
-import { type DomainStatusResponse, PlatformClient } from './client.ts';
+import { PlatformClient } from './client.ts';
+import type { DomainStatusResponse } from './client.ts';
 import type { DomainArgs } from './domain-args.ts';
 import { printSuccess, note, pc } from './output.ts';
 import { readDeploymentPlatform } from './project.ts';
@@ -27,13 +28,13 @@ export async function runDomainCommand(root: string, args: DomainArgs): Promise<
 
   switch (args.subcommand) {
     case 'add':
-      return domainAdd(client, projectId, args.hostname!);
+      return domainAdd(client, projectId, args.hostname);
     case 'delete':
-      return domainRemove(client, projectId, args.hostname!);
+      return domainRemove(client, projectId, args.hostname);
     case 'list':
       return domainList(client, projectId);
     case 'status':
-      return domainStatus(client, projectId, args.hostname!, args.verbose === true);
+      return domainStatus(client, projectId, args.hostname, args.verbose === true);
   }
 }
 
@@ -47,7 +48,7 @@ async function runCloudflareDomainCommand(root: string, args: DomainArgs): Promi
     await import('./cloudflare-operations.ts');
 
   if (args.subcommand === 'add') {
-    const result = await changeCloudflareDomain(root, args.hostname!, 'add');
+    const result = await changeCloudflareDomain(root, args.hostname, 'add');
     note(
       'Cloudflare Custom Domains manages the DNS record and TLS certificate in the zone on your account.',
       'Cloudflare Domain',
@@ -60,7 +61,7 @@ async function runCloudflareDomainCommand(root: string, args: DomainArgs): Promi
     return;
   }
   if (args.subcommand === 'delete') {
-    const result = await changeCloudflareDomain(root, args.hostname!, 'delete');
+    const result = await changeCloudflareDomain(root, args.hostname, 'delete');
     if (result.modified) {
       printSuccess(`Domain ${args.hostname} removed from Cloudflare.`);
     } else {
@@ -236,9 +237,12 @@ async function domainStatus(
 
   if (verbose) {
     // `Hostname:` is already shown by the rollup above.
-    rollupLines.push('', 'Details:');
-    rollupLines.push(`  Status:      ${status.status}`);
-    rollupLines.push(`  SSL Status:  ${status.ssl_status}`);
+    rollupLines.push(
+      '',
+      'Details:',
+      `  Status:      ${status.status}`,
+      `  SSL Status:  ${status.ssl_status}`,
+    );
     if (status.ownership_verification) {
       rollupLines.push(`  Ownership:   pending`);
     }

@@ -11,7 +11,7 @@ function git(root: string, args: Array<string>, env?: NodeJS.ProcessEnv): string
   try {
     return execFileSync('git', args, {
       cwd: root,
-      encoding: 'utf-8',
+      encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       env,
     }).trim();

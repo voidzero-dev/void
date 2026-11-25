@@ -49,10 +49,12 @@ async function call(url: URL, path: string, params: Record<string, string>) {
 }
 
 function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 2_000) {
+async function waitFor(predicate: () => boolean, timeoutMs = 2000) {
   const started = Date.now();
   while (!predicate()) {
     if (Date.now() - started > timeoutMs) {
@@ -368,10 +370,10 @@ export default async function (batch) {
     const url = await miniflare.ready;
     const response = await call(url, '/helpers', {});
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
+    const body = await response.json<{
       errors: Record<string, string>;
       stats: { messages: number; hasBinding: boolean };
-    };
+    }>();
     for (const name of [
       'context',
       'handleFetch',

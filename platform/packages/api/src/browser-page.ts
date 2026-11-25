@@ -7,10 +7,14 @@ import {
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { ApiEnv } from './env.ts';
+
+type BrowserRequestContext = Pick<Context<ApiEnv>, 'env' | 'html' | 'header'> & {
+  req: Pick<Context<ApiEnv>['req'], 'url' | 'path'>;
+};
 import { getPlatformDisplayName } from './platform-identity.ts';
 
 export function platformBrowserPage(
-  context: Context<ApiEnv>,
+  context: BrowserRequestContext,
   title: string,
   content: string,
   status: ContentfulStatusCode = 200,
@@ -26,7 +30,7 @@ export function platformBrowserPage(
 }
 
 export function platformBrowserError(
-  context: Context<ApiEnv>,
+  context: BrowserRequestContext,
   title: string,
   message: string,
   status: ContentfulStatusCode,
@@ -75,7 +79,9 @@ export function platformBrowserError(
   );
 }
 
-export function acceptsBrowserHtml(context: Context<ApiEnv>): boolean {
+export function acceptsBrowserHtml(context: {
+  req: Pick<Context<ApiEnv>['req'], 'header'>;
+}): boolean {
   return (context.req.header('Accept') ?? '').split(',').some((type) => {
     const [media, ...parameters] = type.trim().toLowerCase().split(';');
     return (

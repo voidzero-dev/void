@@ -39,9 +39,10 @@ export function assertLinkPrefetchValue(
   }
 }
 
+// oxlint-disable-next-line quality/no-known-value-widening -- The duration regex restricts its string capture to supported units.
 const UNITS: Record<string, number> = {
   ms: 1,
-  s: 1_000,
+  s: 1000,
   m: 60_000,
   h: 3_600_000,
   d: 86_400_000,

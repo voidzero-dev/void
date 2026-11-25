@@ -54,6 +54,7 @@ export async function revalidate(options: RevalidateOptions): Promise<void> {
       try {
         // The DOM lib that the pages client modules reference declares
         // CacheStorage without `.default`, shadowing the Workers type here.
+        // oxlint-disable-next-line quality/no-chained-type-assertions -- Workers extends the standard CacheStorage interface with a default cache.
         const cache = (caches as unknown as { default: Cache }).default;
         await cache.delete(isrEdgeCacheUrlForToken(host, path, id, 'html', variantToken));
         await cache.delete(isrEdgeCacheUrlForToken(host, path, id, 'json', variantToken));

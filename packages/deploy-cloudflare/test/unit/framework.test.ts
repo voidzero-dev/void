@@ -66,7 +66,7 @@ describe('Cloudflare framework deployment', () => {
     expect(writeCloudflareFrameworkDeployConfig(input)).toBe(true);
     expect(writeCloudflareFrameworkDeployConfig(input)).toBe(false);
 
-    const raw = readFileSync(configPath, 'utf-8');
+    const raw = readFileSync(configPath, 'utf8');
     expect(raw).toContain('// retain operator context');
     expect(parseRootWranglerConfig(configPath)).toMatchObject({
       name: 'my-sveltekit-app',
@@ -86,11 +86,11 @@ describe('Cloudflare framework deployment', () => {
       triggers: { crons: ['0 * * * *'] },
       secrets: { required: ['MANUAL_SECRET', 'API_TOKEN'] },
     });
-    expect(JSON.parse(readFileSync(pointerPath, 'utf-8'))).toEqual({
+    expect(JSON.parse(readFileSync(pointerPath, 'utf8'))).toEqual({
       configPath: '../../wrangler.jsonc',
       auxiliaryWorkers: [],
     });
-    expect(readFileSync(join(root, assetsDirectory, '.assetsignore'), 'utf-8')).toBe(
+    expect(readFileSync(join(root, assetsDirectory, '.assetsignore'), 'utf8')).toBe(
       '# framework rule\n.keep-out\n_worker.js\n_routes.json\n',
     );
   });
@@ -168,6 +168,6 @@ describe('Cloudflare framework deployment', () => {
         requiredSecrets: ['API_TOKEN'],
       }),
     ).toThrow('malformed secrets.required');
-    expect(readFileSync(configPath, 'utf-8')).toBe(original);
+    expect(readFileSync(configPath, 'utf8')).toBe(original);
   });
 });

@@ -28,7 +28,7 @@ export function bindingRuntimePlugin(bindingNames: BindingNames | undefined): Pl
       },
     },
     load: {
-      // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
+      // Vite virtual module null-byte prefix
       filter: { id: /^\0virtual:void-(?:kv|storage)$/ },
       handler(id) {
         if (id === VIRTUAL_KV_ID) {

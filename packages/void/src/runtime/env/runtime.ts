@@ -13,8 +13,8 @@ import {
   INTERNAL_BINDING_EXACT_NAMES,
   INTERNAL_BINDING_PREFIXES,
   isIsrActive,
-  type RuntimeEnv,
 } from './raw.ts';
+import type { RuntimeEnv } from './raw.ts';
 
 export type { RuntimeEnv };
 
@@ -30,6 +30,7 @@ const runtimeRequestContext = shared[REQUEST_SCOPE_SYMBOL];
 
 /** @internal Reuse a resource only within the current runtime request. */
 export function getRuntimeRequestResource<T>(
+  // oxlint-disable-next-line quality/no-object-parameters -- The request cache keys entries by object identity.
   key: object,
   initialize: () => T,
   outsideScope?: () => T,
@@ -76,10 +77,11 @@ function filterEnvProxy(env: RuntimeEnv): RuntimeEnv {
   // The proxy target IS the raw env, so each trap consults `target` for the
   // ISR-active gate — no extra `getRawRuntimeEnv()` call needed.
   return new Proxy(env, {
-    get(target, prop, receiver) {
+    get(target, prop, receiver): unknown {
       if (typeof prop === 'string' && isInternalBinding(prop, target)) {
         return undefined;
       }
+      // oxlint-disable-next-line quality/no-reflect-get -- Forward the receiver for getters on the runtime environment.
       return Reflect.get(target, prop, receiver);
     },
     has(target, prop) {

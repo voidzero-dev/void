@@ -14,7 +14,8 @@ import {
   platformHumanSessions,
   platformLoginConnections,
 } from '../../src/schema.ts';
-import { clearTables, createTestUser, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { clearTables, createTestUser, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let actor: AuthenticationActor;
@@ -59,7 +60,7 @@ describe('live platform protection', () => {
     await expect(
       updatePlatformProtection(env.db, actor, {
         ...input,
-        proofExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+        proofExpiresAt: new Date(Date.now() - 1000).toISOString(),
       }),
     ).rejects.toMatchObject({ code: 'protection_verification_required' });
     await expect(
@@ -139,7 +140,7 @@ describe('live platform protection', () => {
   it('cannot reuse authority for another actor, revision, origin, configuration, or expired verification', async () => {
     const fields = {
       installationId: 'team',
-      origin: origins[0]!,
+      origin: origins[0],
       userId: actor.userId,
       sessionId: actor.sessionId,
       revision: 1,
@@ -154,11 +155,11 @@ describe('live platform protection', () => {
     for (const change of [
       { revision: 2 },
       { lifecycleVersion: 'installation-generation-2' },
-      { origin: origins[1]! },
+      { origin: origins[1] },
       { protection: null },
       { actor: { ...actor, sessionId: 'another-session' } },
       { actor: { ...actor, userId: 'another-user' } },
-      { expiresAt: new Date(Date.now() - 1_000).toISOString() },
+      { expiresAt: new Date(Date.now() - 1000).toISOString() },
       { secret: 'wrong-secret' },
     ]) {
       await expect(verifyProtectionAuthority({ ...input, ...change })).rejects.toMatchObject({
@@ -174,7 +175,7 @@ describe('live platform protection', () => {
     const input = {
       revision: 1,
       installationId: 'team',
-      lifecycleVersion: before.rows[0]!.version,
+      lifecycleVersion: before.rows[0].version,
       protection,
       origins,
       verifiedIdentity: identity,

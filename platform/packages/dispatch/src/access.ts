@@ -63,7 +63,10 @@ export class ProjectAccessVerifier {
       let keys = this.keys.get(teamDomain);
       if (!keys) {
         if (this.keys.size >= 16) {
-          this.keys.delete(this.keys.keys().next().value!);
+          const oldest = this.keys.keys().next();
+          if (!oldest.done) {
+            this.keys.delete(oldest.value);
+          }
         }
         keys = createRemoteJWKSet(new URL(`${teamDomain}/cdn-cgi/access/certs`), {
           timeoutDuration: 10_000,

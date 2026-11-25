@@ -2,11 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { FateClient, view } from 'react-fate';
 import { expect, it, vi } from 'vite-plus/test';
-import {
-  createAdminFateClient,
-  type AdminFateClient,
-  type AdminDeploymentDetail,
-} from '../../src/admin/fate/client.ts';
+import { createAdminFateClient } from '../../src/admin/fate/client.ts';
+import type { AdminFateClient, AdminDeploymentDetail } from '../../src/admin/fate/client.ts';
 import {
   DeploymentLogSettingsView,
   healthRequest,

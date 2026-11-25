@@ -7,10 +7,9 @@ import {
   recordInstallationResource,
   recordInstallationStep,
   setInstallationEndpoints,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
 } from '@void/platform';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import type { InstallationResourceKind, PlatformInstallationManifest } from '@void/platform';
+import { assert, describe, expect, it, vi } from 'vite-plus/test';
 import { pc } from '../../src/cli/output.ts';
 import {
   PlatformCloudflareApiError,
@@ -25,9 +24,13 @@ import {
   formatPlatformInstallPlan,
   platformProvisionIntentHash,
   revalidatePlatformInstallAction,
-  type PlatformInstallPlan,
 } from '../../src/cli/platform-plan.ts';
+import type { PlatformInstallPlan } from '../../src/cli/platform-plan.ts';
 import { ownershipMarker } from '../helpers/platform-installation.ts';
+
+const expectedRejection = (): never => {
+  throw new Error('expected a rejection');
+};
 
 function client(overrides: Record<string, unknown> = {}) {
   return {
@@ -648,7 +651,7 @@ describe('platform installation planning', () => {
     expect(inspected).toEqual(['routing-kv-id']);
     expect(resumed.actions.filter((action) => action.kind === 'kv-namespace')).toEqual(
       expect.arrayContaining(
-        manifest.resources.map((resource) =>
+        manifest.resources.map((resource): unknown =>
           expect.objectContaining({
             action: 'reuse',
             id: resource.id,
@@ -736,6 +739,42 @@ describe('platform installation planning', () => {
     );
   });
 
+  it('names the runtime token once when install cannot verify AI Gateway', async () => {
+    const preview = await createPlatformInstallPlan(
+      client({
+        listAiGateways: async () => {
+          throw new PlatformCloudflareApiError(
+            'Authentication error',
+            403,
+            '/accounts/account/ai-gateway/gateways',
+          );
+        },
+      }),
+      input,
+      null,
+      { allowUnverifiedAiGateway: true },
+    );
+    const gateway = new PlatformCloudflareClient('browser-login', {
+      credential: { role: 'management', source: 'oauth' },
+      fetcher: async () =>
+        Response.json(
+          { success: false, errors: [{ message: 'Authentication error' }] },
+          { status: 403 },
+        ),
+    }).withAiGatewayToken('runtime-token', { role: 'runtime', source: 'entered' });
+    const error = await verifyPlatformAiGatewayPlan(
+      client({ listAiGateways: gateway.listAiGateways.bind(gateway) }),
+      input,
+      null,
+      preview,
+      false,
+    ).then(expectedRejection, (error: unknown) => error);
+    assert.instanceOf(error, Error);
+    expect(error.message).toBe(
+      'platform: The runtime token could not verify AI Gateway access. Browser login cannot use AI Gateway, so Void used the runtime token you entered for it. Fix the runtime token (VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN), or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit. HTTP 403 means the token works but is missing Account → AI Gateway → Edit, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a runtime token that has it, then retry. No platform resources were created.',
+    );
+  });
+
   it('does not conceal other permission failures or AI Gateway service errors in previews', async () => {
     await expect(
       createPlatformInstallPlan(
@@ -769,7 +808,7 @@ describe('platform installation planning', () => {
       fetcher: async (input, init) => {
         const path = new URL(String(input)).pathname;
         requests.push({ path, method: init?.method ?? 'GET' });
-        const code = path.endsWith('/r2/buckets') ? 10042 : 10121;
+        const code = path.endsWith('/r2/buckets') ? 10_042 : 10_121;
         return Response.json(
           { success: false, errors: [{ code, message: 'Account prerequisite missing' }] },
           { status: 403 },
@@ -783,8 +822,8 @@ describe('platform installation planning', () => {
       }),
       input,
       null,
-    ).catch((error) => error);
-    expect(error).toBeInstanceOf(AggregateError);
+    ).catch((error: unknown) => error);
+    assert.instanceOf(error, AggregateError);
     expect(error.message).toContain('Cloudflare R2 is not enabled');
     expect(error.message).toContain('Workers for Platforms requires a paid subscription');
     expect(error.message).toContain('retry the same command');
@@ -816,25 +855,86 @@ describe('platform installation planning', () => {
       const provider = new PlatformCloudflareClient('token', {
         fetcher: async () =>
           Response.json(
-            { success: false, errors: [{ code: 10042, message: 'Please enable R2' }] },
+            { success: false, errors: [{ code: 10_042, message: 'Please enable R2' }] },
             { status: 403 },
           ),
       });
-      await expect(
-        createPlatformInstallPlan(
-          client({
-            listR2Buckets: provider.listR2Buckets.bind(provider),
-            listDispatchNamespaces: async () => {
-              await Promise.resolve();
-              throw unknown;
-            },
-          }),
-          input,
-          null,
-        ),
-      ).rejects.toBe(unknown);
+      const error = await createPlatformInstallPlan(
+        client({
+          listR2Buckets: provider.listR2Buckets.bind(provider),
+          listDispatchNamespaces: async () => {
+            await Promise.resolve();
+            throw unknown;
+          },
+        }),
+        input,
+        null,
+      ).catch((error: unknown) => error);
+      if (status === 500) {
+        expect(error).toBe(unknown);
+        return;
+      }
+      // A denied read is reported next to the prerequisite, and stays the
+      // first cause, so callers still find its status and path.
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).cause).toBe(unknown);
+      expect((error as AggregateError).message).toContain('Unrelated provider failure');
+      expect((error as AggregateError).message).toContain('Cloudflare R2 is not enabled');
     },
   );
+
+  it('lists every denied read in one error that names the credential', async () => {
+    const provider = new PlatformCloudflareClient('operator-token', {
+      credential: { role: 'management', source: 'saved' },
+      fetcher: async (request) => {
+        const { pathname } = new URL(String(request));
+        return pathname.includes('/storage/kv/') || pathname.endsWith('/queues')
+          ? Response.json(
+              { success: false, errors: [{ message: 'Authentication error' }] },
+              { status: 403 },
+            )
+          : Response.json({ success: true, result: [] });
+      },
+    });
+    const error = await createPlatformInstallPlan(
+      client({
+        listKvNamespaces: provider.listKvNamespaces.bind(provider),
+        listQueues: provider.listQueues.bind(provider),
+      }),
+      input,
+      null,
+    ).then(expectedRejection, (error: unknown) => error as AggregateError);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.errors).toHaveLength(5);
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+    expect(error.message).toBe(
+      [
+        'platform: Cloudflare denied reads the plan needs.',
+        '',
+        'Cloudflare denied the management token saved on this machine:',
+        '- Account → Workers KV Storage → Edit (HTTP 403; GET /accounts/account/storage/kv/namespaces)',
+        '- Account → Queues → Edit (HTTP 403; GET /accounts/account/queues)',
+        'HTTP 403 means the token works but is missing the permissions listed above, or is not scoped to this account or zone. Add them to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has them, then retry.',
+      ].join('\n'),
+    );
+  });
+
+  it('throws one denied read as it is', async () => {
+    const denied = new PlatformCloudflareApiError(
+      'Authentication error',
+      401,
+      '/accounts/account/queues',
+    );
+    await expect(
+      createPlatformInstallPlan(
+        client({
+          listQueues: vi.fn().mockRejectedValueOnce(denied).mockResolvedValue([]),
+        }),
+        input,
+        null,
+      ),
+    ).rejects.toBe(denied);
+  });
 
   it('names the DNS permission when the token cannot read DNS records', async () => {
     const deniedDns = async () => {

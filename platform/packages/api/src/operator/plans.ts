@@ -6,10 +6,12 @@ import {
   parsePlatformPlanCatalog,
   parsePlatformPlanId,
   PLAN_LIMITS,
-  type BuiltinPlanId,
-  type PlatformPlanCatalog,
-  type PlatformPlanDefinition,
-  type PlatformPlanReconciliation,
+} from '@void/platform/plans';
+import type {
+  BuiltinPlanId,
+  PlatformPlanCatalog,
+  PlatformPlanDefinition,
+  PlatformPlanReconciliation,
 } from '@void/platform/plans';
 import { and, asc, count, eq, gt, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -21,9 +23,10 @@ import {
   runPlanAiLoggingPublishPage,
   startPlanAiLoggingPublish,
   writePlanAiLoggingSettings,
-  type PlanAiLoggingPublishProgress,
 } from '../ai-logging-plans.ts';
-import { parsePlanAiLoggingInput, type PlanAiLoggingSettings } from '../ai-logging-policy.ts';
+import type { PlanAiLoggingPublishProgress } from '../ai-logging-plans.ts';
+import { parsePlanAiLoggingInput } from '../ai-logging-policy.ts';
+import type { PlanAiLoggingSettings } from '../ai-logging-policy.ts';
 import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import {
@@ -147,19 +150,21 @@ function loweredLimitKeys(
     .map(([key]) => key);
 }
 
+type PlanCatalogProposal = {
+  catalog: PlatformPlanCatalog;
+  affectedPlanIds: Array<string>;
+  removedPlanId?: string;
+  replacementPlanId?: string;
+  loweredLimits: Array<string>;
+};
+
 /** Build and validate a proposed catalog before either preview or database writes. */
 export function proposePlanCatalog(
   catalog: PlatformPlanCatalog,
   action: PlanCatalogAction,
   id: string | undefined,
   body: Record<string, unknown>,
-): {
-  catalog: PlatformPlanCatalog;
-  affectedPlanIds: Array<string>;
-  removedPlanId?: string;
-  replacementPlanId?: string;
-  loweredLimits: Array<string>;
-} {
+): PlanCatalogProposal {
   const plans = [...catalog.plans];
   let defaultPlanId = catalog.defaultPlanId;
   let affectedPlanIds: Array<string> = [];
@@ -563,13 +568,13 @@ async function previewQuotaOverages(
         if (!response.ok) {
           return null;
         }
-        const state = (await response.json()) as {
+        const state = await response.json<{
           ownerUserId?: unknown;
           billingPeriodStart?: unknown;
           totalRequests?: unknown;
           totalNeurons?: unknown;
           totalSandboxSeconds?: unknown;
-        };
+        }>();
         if (
           state.ownerUserId !== account.id ||
           typeof state.billingPeriodStart !== 'string' ||

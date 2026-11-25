@@ -13,6 +13,7 @@ function resolver(
   queueNames: Array<string>,
   cloudflareNames?: Array<string>,
 ): (queueName: unknown) => number {
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(
     `${generateQueueResolverSource(queueNames, cloudflareNames)}\nreturn __resolveQueueIndex;`,
   )() as (queueName: unknown) => number;

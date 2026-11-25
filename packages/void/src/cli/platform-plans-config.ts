@@ -1,10 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
-import {
-  AI_LOGGING_MODES,
-  parsePlanAiLoggingInput,
-  type AiLoggingMode,
-} from '@void/platform/ai-logging';
+import { AI_LOGGING_MODES, parsePlanAiLoggingInput } from '@void/platform/ai-logging';
+import type { AiLoggingMode } from '@void/platform/ai-logging';
 import {
   PLAN_EDITABLE_LIMIT_KEYS,
   PLAN_LIMITS,
@@ -12,16 +9,10 @@ import {
   parsePlanName,
   parseBuildInstanceType,
   parsePlatformPlanId,
-  type PlatformPlanCatalog,
-  type PlatformPlanDefinition,
 } from '@void/platform/plans';
-import {
-  type CANCEL_SYMBOL,
-  confirm,
-  isCancel,
-  select,
-  text,
-} from '@voidzero-dev/vite-plus-prompts';
+import type { PlatformPlanCatalog, PlatformPlanDefinition } from '@void/platform/plans';
+import { confirm, isCancel, select, text } from '@voidzero-dev/vite-plus-prompts';
+import type { CANCEL_SYMBOL } from '@voidzero-dev/vite-plus-prompts';
 import { utcTime } from './operator-ai-logging.ts';
 import { readOperatorToken, resolveOperatorOrigin } from './operator-auth.ts';
 import { OperatorClient, OperatorClientError } from './operator-client.ts';
@@ -132,9 +123,9 @@ function showListing(listing: Listing, json: boolean): void {
   if (listing.catalog.reconciliation && !listing.catalog.reconciliation.complete) {
     console.log('Account updates are pending. Run void platform config plans sync --yes.');
   }
-  if (aiLoggingPending(listing)) {
+  if (listing.aiLogging && aiLoggingPending(listing)) {
     console.log(
-      `AI logging publish is pending for ${listing.aiLogging!.remaining} projects. Run void platform config plans sync --yes.`,
+      `AI logging publish is pending for ${listing.aiLogging.remaining} projects. Run void platform config plans sync --yes.`,
     );
   }
 }
@@ -268,7 +259,7 @@ async function changesInput(
     try {
       parsePlanAiLoggingInput(object.aiLogging);
     } catch (error) {
-      throw new Error(`platform: ${(error as Error).message}`);
+      throw new Error(`platform: ${(error as Error).message}`, { cause: error });
     }
     if (object.allowShortSlugs !== undefined && typeof object.allowShortSlugs !== 'boolean') {
       throw new Error('platform: allowShortSlugs must be a boolean.');
@@ -299,6 +290,10 @@ async function changesInput(
       name: parsePlanName(value(await text({ message: 'Plan name:', initialValue: args.target }))),
     };
   }
+  if (!plan) {
+    throw new Error('platform: No plan selected.');
+  }
+  const aiLogging = listing?.aiLogging;
   const field = value(
     await select({
       message: 'What would you like to change?',
@@ -306,14 +301,14 @@ async function changesInput(
         { value: 'name', label: 'Plan name' },
         ...PLAN_EDITABLE_LIMIT_KEYS.map((key) => ({
           value: key,
-          label: `${limitLabels[key]}: ${limitValue(plan!.limits[key], key)}`,
+          label: `${limitLabels[key]}: ${limitValue(plan.limits[key], key)}`,
         })),
         { value: 'buildInstanceType', label: 'Build instance size' },
-        ...(listing?.aiLogging
+        ...(aiLogging
           ? [
               {
                 value: 'aiLogging',
-                label: `AI Gateway logging: ${planAiLogging(listing.aiLogging.modes, plan!.id)}`,
+                label: `AI Gateway logging: ${planAiLogging(aiLogging.modes, plan.id)}`,
               },
             ]
           : []),
@@ -321,11 +316,14 @@ async function changesInput(
     }),
   );
   if (field === 'aiLogging') {
+    if (!aiLogging) {
+      throw new Error('platform: AI Gateway logging is unavailable.');
+    }
     return {
       aiLogging: value(
         await select({
           message: 'AI Gateway logging for projects on this plan without a project setting:',
-          initialValue: planAiLogging(listing!.aiLogging!.modes, plan!.id),
+          initialValue: planAiLogging(aiLogging.modes, plan.id),
           options: AI_LOGGING_MODES.map((mode) => ({ value: mode, label: aiLoggingLabels[mode] })),
         }),
       ),
@@ -333,7 +331,7 @@ async function changesInput(
   }
   if (field === 'name') {
     return {
-      name: parsePlanName(value(await text({ message: 'Plan name:', initialValue: plan!.name }))),
+      name: parsePlanName(value(await text({ message: 'Plan name:', initialValue: plan.name }))),
     };
   }
   if (field === 'buildInstanceType') {
@@ -341,7 +339,7 @@ async function changesInput(
       buildInstanceType: value(
         await select({
           message: 'Build instance size:',
-          initialValue: plan!.buildInstanceType,
+          initialValue: plan.buildInstanceType,
           options: [
             { value: 'standard-3', label: 'Standard: 2 vCPU, 8 GiB' },
             { value: 'standard-4', label: 'Large: 4 vCPU, 12 GiB' },
@@ -350,7 +348,7 @@ async function changesInput(
       ),
     };
   }
-  const current = plan!.limits[field as (typeof PLAN_EDITABLE_LIMIT_KEYS)[number]];
+  const current = plan.limits[field as (typeof PLAN_EDITABLE_LIMIT_KEYS)[number]];
   const input = value(
     await text({
       message: `${limitLabels[field as (typeof PLAN_EDITABLE_LIMIT_KEYS)[number]]} (${field === 'buildTimeoutMinutes' ? '0 uses the platform maximum of 60 minutes' : '0 means unlimited'}):`,
@@ -415,8 +413,8 @@ async function apply(
   while (true) {
     const reconciliation = result.reconciliation as Progress | undefined;
     const aiLogging = result.aiLoggingPublish as Progress | undefined;
-    if (aiLogging && Number.isSafeInteger(aiLogging.processed)) {
-      published += aiLogging.processed!;
+    if (aiLogging?.processed !== undefined && Number.isSafeInteger(aiLogging.processed)) {
+      published += aiLogging.processed;
     }
     if (typeof aiLogging?.expectedBy === 'string') {
       expectedBy = aiLogging.expectedBy;
@@ -488,7 +486,7 @@ async function save(
       typeof details === 'object' &&
       'catalog' in details
     ) {
-      return details as Record<string, unknown>;
+      return details;
     }
     throw error;
   }
@@ -504,13 +502,18 @@ type Progress = {
 
 /** A sync step that wrote something and reported no error. */
 function progressed(progress: Progress): boolean {
-  return !progress.error && Number.isSafeInteger(progress.processed) && progress.processed! > 0;
+  return (
+    !progress.error &&
+    progress.processed !== undefined &&
+    Number.isSafeInteger(progress.processed) &&
+    progress.processed > 0
+  );
 }
 
 export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<void> {
   const origin = resolveOperatorOrigin(args.connection);
   const client = new OperatorClient(origin, readOperatorToken(origin));
-  const listing = (await client.request('/config/plans')) as unknown as Listing;
+  const listing = (await client.request('/config/plans')) as Listing;
   const { catalog } = listing;
   if (!args.action) {
     if (!process.stdin.isTTY || args.json) {
@@ -553,7 +556,10 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
       const copy = await choosePlan(catalog, 'Copy limits and build size from:');
       return runPlatformPlansConfig({ ...args, action: 'add', target, copy });
     }
-    const plan = catalog.plans.find((entry) => entry.id === selected)!;
+    const plan = catalog.plans.find((entry) => entry.id === selected);
+    if (!plan) {
+      throw new Error('platform: The selected plan is unavailable.');
+    }
     const action = value(
       await select({
         message: label(plan),
@@ -606,7 +612,14 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
     }
     return;
   }
-  let body: Record<string, unknown> = {};
+  type PlanMutationBody = {
+    id?: string;
+    copyFrom?: string;
+    planId?: string;
+    archived?: boolean;
+    replacementPlanId?: string;
+  } & Record<string, unknown>;
+  let body: PlanMutationBody = {};
   let path = `/config/plans/${encodeURIComponent(args.target)}/${args.action}`;
   const plan = catalog.plans.find((entry) => entry.id === args.target);
   if (args.action === 'add') {

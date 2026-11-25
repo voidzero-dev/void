@@ -123,7 +123,7 @@ export interface RoomDefinitionInput<
 export interface RoomDefinition<
   ClientSchema extends StandardSchemaV1 = StandardSchemaV1,
   ServerSchema extends StandardSchemaV1 = StandardSchemaV1,
-  Actions extends RoomActions = {},
+  Actions extends RoomActions = Record<never, never>,
 > extends RoomHooks<ClientSchema, ServerSchema> {
   readonly __kind: 'room';
   readonly actions?: Actions;
@@ -218,6 +218,8 @@ export type ConnectCommonOptions = {
 type ConnectOptions<P extends keyof WebSocketRouteMap> = ConnectCommonOptions &
   (HasParams<P> extends true ? { params: ParamsOf<P> } : { params?: never });
 
+type ListenerSets<Event> = { [K in keyof ListenerMap<Event>]: Set<ListenerMap<Event>[K]> };
+
 type ListenerMap<ServerEvent> = {
   message: (event: ServerEvent) => void;
   open: () => void;
@@ -227,9 +229,7 @@ type ListenerMap<ServerEvent> = {
 
 export class VoidSocket<P extends keyof WebSocketRouteMap & string> {
   private socket: WebSocket | null = null;
-  private readonly listeners: {
-    [K in keyof ListenerMap<ServerEventOf<P>>]: Set<ListenerMap<ServerEventOf<P>>[K]>;
-  } = {
+  private readonly listeners: ListenerSets<ServerEventOf<P>> = {
     message: new Set(),
     open: new Set(),
     close: new Set(),
@@ -296,15 +296,17 @@ export class VoidSocket<P extends keyof WebSocketRouteMap & string> {
         if (this.closedByUser || this.options.reconnect === false) {
           return;
         }
+        const { maxReconnectAttempts } = this.options;
         if (
-          this.options.maxReconnectAttempts != null &&
-          this.reconnectAttempts >= this.options.maxReconnectAttempts
+          maxReconnectAttempts !== null &&
+          maxReconnectAttempts !== undefined &&
+          this.reconnectAttempts >= maxReconnectAttempts
         ) {
           return;
         }
 
         this.reconnectAttempts += 1;
-        const delay = this.options.reconnectDelayMs ?? 1_000;
+        const delay = this.options.reconnectDelayMs ?? 1000;
         this.reconnectTimer = setTimeout(() => this.connect(), delay);
       },
     );

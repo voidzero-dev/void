@@ -4,8 +4,8 @@ import {
   PLATFORM_APP_ACCESS_TURN_OFF_PROOF_PREFIX,
   PLATFORM_DISABLED_KEY,
   PLATFORM_DISABLED_VALUE,
-  type PlatformAppAccessSetup,
 } from '@void/platform';
+import type { PlatformAppAccessSetup } from '@void/platform';
 import { sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { Db } from './db.ts';
@@ -13,10 +13,8 @@ import type { ApiEnv } from './env.ts';
 import { getPlatformSetting, setPlatformSetting } from './platform-settings.ts';
 import { users } from './schema.ts';
 import { ZeroTrustCloudflareError } from './zero-trust/cloudflare.ts';
-import {
-  readZeroTrustConfigurationStrict,
-  type ZeroTrustConfiguration,
-} from './zero-trust/configuration.ts';
+import { readZeroTrustConfigurationStrict } from './zero-trust/configuration.ts';
+import type { ZeroTrustConfiguration } from './zero-trust/configuration.ts';
 import { ZeroTrustUnavailableError } from './zero-trust/errors.ts';
 import { configurePlatformZeroTrust, disablePlatformZeroTrust } from './zero-trust/installation.ts';
 import { lockZeroTrustConfiguration } from './zero-trust/lock.ts';
@@ -136,8 +134,11 @@ export async function initializePlatformAppAccess(
       : setup.mode === 'protected'
         ? 'protected'
         : 'public';
+  if (!setup.apiToken) {
+    throw new Error('Managed app access requires an API token.');
+  }
   await configurePlatformZeroTrust(env, db, {
-    apiToken: setup.apiToken!,
+    apiToken: setup.apiToken,
     identityProviderIds: setup.identityProviderIds,
     policyIds: setup.policyIds,
     protectNewProjects: setup.mode === 'protected',
@@ -278,6 +279,7 @@ export async function platformAppAccessTurnOff(context: Context<ApiEnv>): Promis
   try {
     input = JSON.parse(body);
   } catch {
+    // oxlint-disable-next-line quality/no-known-value-widening -- Use the same validation path for malformed JSON and invalid fields.
     input = null;
   }
   if (!input || typeof input !== 'object' || (input as { version?: unknown }).version !== 1) {

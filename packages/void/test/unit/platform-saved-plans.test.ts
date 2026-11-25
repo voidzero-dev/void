@@ -9,10 +9,8 @@ import {
   removeSavedPlatformInstallPlan,
   savePlatformInstallChoices,
 } from '../../src/cli/platform-saved-plans.ts';
-import {
-  platformInstallCommandArguments,
-  type PlatformInstallCommandOptions,
-} from '../../src/cli/platform-setup.ts';
+import { platformInstallCommandArguments } from '../../src/cli/platform-setup.ts';
+import type { PlatformInstallCommandOptions } from '../../src/cli/platform-setup.ts';
 
 let directory: string;
 const options: PlatformInstallCommandOptions = {
@@ -69,13 +67,13 @@ describe('saved platform install choices', () => {
     ]);
     expect(listInstallationManifests(directory)).toEqual([]);
     if (process.platform !== 'win32') {
-      expect(statSync(join(directory, readdirSync(directory)[0]!)).mode & 0o777).toBe(0o600);
+      expect(statSync(join(directory, readdirSync(directory)[0])).mode & 0o777).toBe(0o600);
     }
   });
 
   it('replays minimal runtime logs in a saved plan', () => {
     savePlatformInstallChoices(argumentsFor({ runtimeLogs: 'minimal' }), 'Account', directory);
-    expect(listSavedPlatformInstallPlans(directory)[0]!.args).toMatchObject({
+    expect(listSavedPlatformInstallPlans(directory)[0].args).toMatchObject({
       runtimeLogs: 'minimal',
     });
     expect(argumentsFor()).not.toContain('--runtime-logs');
@@ -85,7 +83,7 @@ describe('saved platform install choices', () => {
     'replays storage location %s in a saved plan',
     (storageLocation) => {
       savePlatformInstallChoices(argumentsFor({ storageLocation }), 'Account', directory);
-      expect(listSavedPlatformInstallPlans(directory)[0]!.args.storageLocation).toBe(
+      expect(listSavedPlatformInstallPlans(directory)[0].args.storageLocation).toBe(
         storageLocation,
       );
       expect(argumentsFor()).not.toContain('--storage-location');
@@ -130,8 +128,8 @@ describe('saved platform install choices', () => {
 
   it('reports a corrupt or mismatched plan with its local path', () => {
     savePlatformInstallChoices(argumentsFor(), 'Account', directory);
-    const path = join(directory, readdirSync(directory)[0]!);
-    const value = JSON.parse(readFileSync(path, 'utf8'));
+    const path = join(directory, readdirSync(directory)[0]);
+    const value = JSON.parse(readFileSync(path, 'utf8')) as { arguments: Array<string> };
     value.arguments[value.arguments.indexOf('account')] = 'another-account';
     writeFileSync(path, JSON.stringify(value));
     expect(() => listSavedPlatformInstallPlans(directory)).toThrow(

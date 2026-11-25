@@ -1,19 +1,15 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  encodeCloudflareVersionMessage,
-  type CloudflareOperation,
-  type CloudflareTriggerConfig,
-} from '@void/deploy-cloudflare';
+import { encodeCloudflareVersionMessage } from '@void/deploy-cloudflare';
+import type { CloudflareOperation, CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import {
   createPlatformDeploymentManifest,
   createPlatformInstallationManifest,
   createPlatformResourceOwnershipMarker,
   recordInstallationResource,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { InstallationResourceKind, PlatformInstallationManifest } from '@void/platform';
 import { getPlatformRuntimeDirectory, resolvePlatformRuntime } from '@void/platform/installer';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
@@ -43,13 +39,13 @@ import {
   findPlatformWorkerOutsideChanges,
   reviewPlatformWorkerOutsideChanges,
   uploadPlatformWorkerOutsideChanges,
-  type PlatformOutsideChangeInstallation,
-  type PlatformWorkerOutsideChange,
 } from '../../src/cli/platform-installer-outside-changes.ts';
-import {
-  deployPlatformWorker,
-  type runPlatformWrangler,
-} from '../../src/cli/platform-installer-workers.ts';
+import type {
+  PlatformOutsideChangeInstallation,
+  PlatformWorkerOutsideChange,
+} from '../../src/cli/platform-installer-outside-changes.ts';
+import { deployPlatformWorker } from '../../src/cli/platform-installer-workers.ts';
+import type { runPlatformWrangler } from '../../src/cli/platform-installer-workers.ts';
 import type {
   PlatformInstallPlan,
   PlatformInstallPlanAction,
@@ -215,7 +211,7 @@ describe('Worker change source', () => {
         {
           success: false,
           result: null,
-          errors: [{ code: 10090, message: 'This Worker does not exist on this account.' }],
+          errors: [{ code: 10_090, message: 'This Worker does not exist on this account.' }],
         },
         { status: 404 },
       ),
@@ -228,7 +224,7 @@ describe('Worker change source', () => {
   it('reports other failed reads', async () => {
     const reader = client(() =>
       Response.json(
-        { success: false, errors: [{ code: 10000, message: 'Internal error' }] },
+        { success: false, errors: [{ code: 10_000, message: 'Internal error' }] },
         { status: 500 },
       ),
     );
@@ -380,7 +376,7 @@ describe('platform Workers changed outside Void', () => {
         answers: { source: [failure(403)] },
         reads: ['source'],
         waits: [],
-        message: `${notReadable('HTTP 403')} Make sure that the Cloudflare API token has Account → Workers Scripts → Edit for this account. Then run the command again.`,
+        message: `${notReadable('HTTP 403')} Make sure that the Cloudflare API token has Account → Workers → Admin for this account. Then run the command again.`,
       },
       {
         name: 'Cloudflare fails three times',
@@ -822,15 +818,15 @@ describe('platform Workers changed outside Void', () => {
         `Uploading a new version of ${names.apiWorker} without deploying it`,
       );
       expect(uploads).toHaveLength(1);
-      expect(uploads[0]!.operation).toEqual({
+      expect(uploads[0].operation).toEqual({
         type: 'versions.upload',
         configPath: expect.any(String),
         message: 'Void: replace changes made outside Void',
         interactive: true,
       });
-      expect(runner.mock.calls[0]!.slice(1)).toEqual(['account', expect.any(String), true]);
+      expect(runner.mock.calls[0].slice(1)).toEqual(['account', expect.any(String), true]);
       const { routes: _, ...uploaded } = config;
-      expect(uploads[0]!.config).toEqual(uploaded);
+      expect(uploads[0].config).toEqual(uploaded);
     });
 
     it('stops when the Cloudflare CLI does not replace the change', async () => {

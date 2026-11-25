@@ -1,13 +1,16 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { runPlatformLogin } from '../../src/cli/auth.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 vi.mock('../../src/cli/keyring.ts', () => ({
   readKeyringPassword: () => null,
   writeKeyringPassword: () => true,
 }));
 vi.mock('node:child_process', () => ({
-  execFile: (...args: Array<unknown>) => mockExecFile(...args),
+  execFile: (...args: Array<unknown>) => {
+    mockExecFile(...args);
+  },
 }));
 
 const accessJwt =
@@ -107,7 +110,7 @@ describe('runPlatformLogin', () => {
         code_verifier: expect.any(String),
       }),
     );
-    const codeVerifier = (exchange!.body as { code_verifier: string }).code_verifier;
+    const codeVerifier = (exchange.body as { code_verifier: string }).code_verifier;
 
     expect(exchangeRequests).toEqual([
       {

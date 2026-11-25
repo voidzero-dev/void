@@ -1,4 +1,5 @@
-import { type Context, Hono } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { ApiEnv } from '../env.ts';
 import {
   ProjectAccessDeniedError,

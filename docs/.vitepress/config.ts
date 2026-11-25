@@ -1,6 +1,7 @@
 import type { IconOption, VoidZeroThemeConfig } from '@voidzero-dev/vitepress-theme';
 import { extendConfig } from '@voidzero-dev/vitepress-theme/config.js';
-import { defineConfigWithTheme, type DefaultTheme } from 'vitepress';
+import { defineConfigWithTheme } from 'vitepress';
+import type { DefaultTheme } from 'vitepress';
 import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons';
 import llmstxt from 'vitepress-plugin-llms';
 import { createCodeHighlighter } from './highlight.ts';
@@ -402,7 +403,7 @@ export default extendConfig(
           },
         ],
         '/integrations/': (() => {
-          const frameworkIcons: Record<string, IconOption> = {
+          const frameworkIcons: Record<string, string | { light: string; dark: string }> = {
             'TanStack Start': 'simple-icons:tanstack',
             'React Router': {
               light: 'logos:react-router',
@@ -413,7 +414,7 @@ export default extendConfig(
             Nuxt: 'logos:nuxt-icon',
             Analog: 'logos:analog',
           };
-          const itemIcons: Record<string, IconOption> = {
+          const itemIcons: Record<string, string> = {
             'Coding Agents': 'lucide:bot',
             Hono: 'logos:hono',
             Cloudflare: 'devicon:cloudflare',

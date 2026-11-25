@@ -1,12 +1,11 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  createPlatformInstallationManifest,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { createPlatformInstallationManifest } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { resolvePlatformRuntime } from '@void/platform/installer';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { verifyPlatformDeploymentExecutionDrain } from '../../src/cli/platform-installer-health.ts';
 import {
   installPlatform,
@@ -181,6 +180,7 @@ it.each([1, 0])(
           createHyperdrive: provision,
           getHyperdriveConfig: provision,
           disableHyperdriveCaching: provision,
+          setHyperdriveOriginConnectionLimit: provision,
           createKvNamespace: provision,
           createQueue: provision,
           createR2Bucket: provision,

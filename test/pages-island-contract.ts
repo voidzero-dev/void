@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { Browser, Page } from 'playwright';
-import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { assert, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { waitForIslandsHydrated } from './browser-helpers.ts';
 import { waitForServer } from './integration-helpers.ts';
 
@@ -48,7 +48,8 @@ function registerIslandTests(
     const page = await newPage();
     try {
       const response = await page.goto(BASE + '/blog');
-      expect(response!.status()).toBe(200);
+      assert(response, 'Expected an HTML response for the blog.');
+      expect(response.status()).toBe(200);
       await waitForIslandsHydrated(page, 2);
       expect(await page.locator('nav a').count()).toBeGreaterThan(0);
       expect(await page.locator('nav a[aria-current], nav a[data-void-active]').count()).toBe(0);
@@ -175,7 +176,7 @@ export function defineSharedIslandHmrTests({
   it('island component HMR updates without full page reload', { retry: 2 }, async () => {
     const base = getBase();
     const counterFile = getCounterFile();
-    const original = readFileSync(counterFile, 'utf-8');
+    const original = readFileSync(counterFile, 'utf8');
 
     const context = await getBrowser().newContext();
     const page = await context.newPage();
@@ -218,7 +219,7 @@ export function defineSharedIslandHmrTests({
   it('island file edit triggers reload with updated content', { retry: 2 }, async () => {
     const base = getBase();
     const islandFile = getIslandFile();
-    const original = readFileSync(islandFile, 'utf-8');
+    const original = readFileSync(islandFile, 'utf8');
 
     try {
       const initialRes = await fetch(`${base}/blog`);
@@ -231,7 +232,9 @@ export function defineSharedIslandHmrTests({
       const start = Date.now();
       let updatedHtml = '';
       while (Date.now() - start < 10_000) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => {
+          setTimeout(r, 100);
+        });
         const res = await fetch(`${base}/blog`);
         expect(res.status).toBe(200);
         updatedHtml = await res.text();

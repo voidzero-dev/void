@@ -1,12 +1,15 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, type JSX } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import type { JSX } from 'react';
 import type {
   MouseEvent,
+  MouseEventHandler,
+  HTMLAttributes,
+  FocusEventHandler,
+  TouchEventHandler,
   TouchEvent,
   FocusEvent,
   AnchorHTMLAttributes,
   ButtonHTMLAttributes,
-  CSSProperties,
-  RefObject,
 } from 'react';
 import {
   handleLinkClick,
@@ -16,13 +19,18 @@ import {
   observeLinkVisible,
   prefetchLink,
   resolveLink,
-  type BaseLinkProps,
 } from 'void/pages-client';
+import type { BaseLinkProps } from 'void/pages-client';
 import { NavigationContext, RouterContext } from './context.ts';
 
 export type LinkProps = BaseLinkProps &
   Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof BaseLinkProps> &
   Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof BaseLinkProps>;
+
+type LinkEventHandlers = Pick<
+  HTMLAttributes<HTMLElement>,
+  'onClick' | 'onFocus' | 'onMouseDown' | 'onMouseEnter' | 'onMouseLeave' | 'onTouchStart'
+>;
 
 export function Link({
   href,
@@ -50,6 +58,9 @@ export function Link({
   const router = useContext(RouterContext);
   const navigation = useContext(NavigationContext);
   const elementRef = useRef<HTMLElement | null>(null);
+  const setElementRef = useCallback((element: HTMLElement | null) => {
+    elementRef.current = element;
+  }, []);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const link = useMemo(
     () => resolveLink({ href, method, data, prefetch, reloadDocument }),
@@ -79,8 +90,8 @@ export function Link({
 
   const onClick = useCallback(
     (event: MouseEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onClickProp?.(event as any);
+      const callback: MouseEventHandler | undefined = onClickProp;
+      callback?.(event);
       handleLinkClick(event, router, link, {
         data,
         preserveScroll,
@@ -107,8 +118,8 @@ export function Link({
 
   const onMouseEnter = useCallback(
     (event: MouseEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onMouseEnterProp?.(event as any);
+      const callback: MouseEventHandler | undefined = onMouseEnterProp;
+      callback?.(event);
       if (event.defaultPrevented) {
         return;
       }
@@ -122,8 +133,8 @@ export function Link({
 
   const onMouseLeave = useCallback(
     (event: MouseEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onMouseLeaveProp?.(event as any);
+      const callback: MouseEventHandler | undefined = onMouseLeaveProp;
+      callback?.(event);
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
         hoverTimerRef.current = null;
@@ -134,8 +145,8 @@ export function Link({
 
   const onFocus = useCallback(
     (event: FocusEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onFocusProp?.(event as any);
+      const callback: FocusEventHandler | undefined = onFocusProp;
+      callback?.(event);
       if (!event.defaultPrevented) {
         doPrefetch();
       }
@@ -145,8 +156,8 @@ export function Link({
 
   const onMouseDown = useCallback(
     (event: MouseEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onMouseDownProp?.(event as any);
+      const callback: MouseEventHandler | undefined = onMouseDownProp;
+      callback?.(event);
       if (!event.defaultPrevented) {
         doPrefetch();
       }
@@ -156,8 +167,8 @@ export function Link({
 
   const onTouchStart = useCallback(
     (event: TouchEvent) => {
-      // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
-      onTouchStartProp?.(event as any);
+      const callback: TouchEventHandler | undefined = onTouchStartProp;
+      callback?.(event);
       if (!event.defaultPrevented) {
         doPrefetch();
       }
@@ -188,10 +199,8 @@ export function Link({
     };
   }, [doPrefetch, strategies]);
 
-  // oxlint-disable-next-line no-explicit-any -- spread props need a loose cross-element event map
-  const eventHandlers = useMemo<Record<string, any>>(() => {
-    // oxlint-disable-next-line no-explicit-any -- spread props need a loose cross-element event map
-    const handlers: Record<string, any> = {
+  const eventHandlers = useMemo(() => {
+    const handlers: LinkEventHandlers = {
       onClick,
       onFocus: onFocusProp,
       onMouseDown: onMouseDownProp,
@@ -231,7 +240,7 @@ export function Link({
   const resolvedStyle = useMemo(
     () => ({
       touchAction: 'manipulation',
-      ...(style as CSSProperties | undefined),
+      ...style,
     }),
     [style],
   );
@@ -239,7 +248,7 @@ export function Link({
   if (link.isGet) {
     return (
       <a
-        ref={elementRef as RefObject<HTMLAnchorElement>}
+        ref={setElementRef}
         href={link.href}
         style={resolvedStyle}
         {...activeAttributes}
@@ -254,11 +263,11 @@ export function Link({
 
   return (
     <button
-      ref={elementRef as RefObject<HTMLButtonElement>}
+      ref={setElementRef}
       type="button"
       style={resolvedStyle}
       {...pendingAttributes}
-      {...(rest as ButtonHTMLAttributes<HTMLButtonElement>)}
+      {...rest}
       {...eventHandlers}
     >
       {children}

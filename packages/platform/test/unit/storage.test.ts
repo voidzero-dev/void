@@ -17,6 +17,7 @@ describe('platform storage location', () => {
         appAccess: 'public',
       });
       expect(deployment.schemaVersion).toBe(6);
+      // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
       expect(parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(deployment)))).toEqual(
         deployment,
       );

@@ -21,7 +21,8 @@ import {
 } from '../../pages/action-key.ts';
 import { pagesRedirectResponse } from '../../pages/redirect.ts';
 import { SHARED_CACHE_HEADERS, authDependentRequests } from '../auth/response.ts';
-import { VoidAssetRewriteError, type CloudContext } from '../handler/index.ts';
+import { VoidAssetRewriteError } from '../handler/index.ts';
+import type { CloudContext } from '../handler/index.ts';
 import { convertReturnValue } from '../handler/response.ts';
 import { ASSET_EXTENSIONS } from './assets.ts';
 import { markRouteHandler } from './pages.ts';
@@ -104,6 +105,7 @@ export function createRoutingRuntime(
     // Middleware such as Hono's compress() replaces the body with a transform
     // of this stream. That still carries a miss; an unrelated replacement does not.
     if (Object.isExtensible(body)) {
+      // oxlint-disable-next-line typescript/unbound-method -- The wrapper calls the original with its own receiver.
       const pipeThrough = body.pipeThrough;
       Object.defineProperty(body, 'pipeThrough', {
         configurable: true,
@@ -129,6 +131,7 @@ export function createRoutingRuntime(
     trackResponseCopies(c);
     // Fetch's clone tees the body, so neither clone shares its former stream.
     if (Object.isExtensible(response)) {
+      // oxlint-disable-next-line typescript/unbound-method -- The wrapper calls the original with its own receiver.
       const clone = response.clone;
       Object.defineProperty(response, 'clone', {
         configurable: true,
@@ -159,6 +162,7 @@ export function createRoutingRuntime(
     // Carry provenance to the response Hono exposes after assignment or a header edit.
     const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(c), 'res');
     if (descriptor?.get && descriptor.set) {
+      // oxlint-disable-next-line typescript/unbound-method -- The original setter is called with the Hono context below.
       const set = descriptor.set;
       Object.defineProperty(c, 'res', {
         ...descriptor,
@@ -299,7 +303,7 @@ export function createRoutingRuntime(
     }
     if (options.managedDispatch && !originalUrls.has(c.req.raw)) {
       const original = c.req.raw.headers.get('X-Void-Original-URL');
-      if (original != null) {
+      if (original !== null && original !== undefined) {
         try {
           originalUrls.set(c.req.raw, new URL(original));
         } catch {
@@ -567,11 +571,12 @@ export function markNoMatch(request: Request, response: Response): Response {
 }
 
 export function createHttpRouteHandler(
+  // oxlint-disable-next-line quality/no-unknown-returns -- App handlers can return arbitrary values for convertReturnValue to normalize.
   load: () => Promise<Record<string, (c: CloudContext) => unknown>>,
   method: string,
 ): (c: Context) => Promise<Response> {
   return markRouteHandler(async (c: Context) =>
-    convertReturnValue(await (await load())[method](c as unknown as CloudContext)),
+    convertReturnValue(await (await load())[method](c as CloudContext)),
   );
 }
 

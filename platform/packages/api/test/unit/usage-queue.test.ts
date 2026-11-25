@@ -1,19 +1,34 @@
 import { describe, it, expect, vi, beforeEach } from 'vite-plus/test';
 
 // Mock db.ts (createDb is called inside processUsageEventBatch).
-const getUserMock = vi.fn();
-const getProjectsByIdsMock = vi.fn();
-const getProjectOwnershipPeriodsByProjectIdsMock = vi.fn();
+type UsageQueries = typeof import('../../src/db.ts');
+type TestUser = Pick<NonNullable<Awaited<ReturnType<UsageQueries['getUser']>>>, 'id' | 'plan'>;
+type TestProject = Pick<
+  Awaited<ReturnType<UsageQueries['getProjectsByIds']>>[number],
+  'id' | 'user_id' | 'slug'
+> &
+  Partial<
+    Pick<Awaited<ReturnType<UsageQueries['getProjectsByIds']>>[number], 'created_at' | 'status'>
+  >;
+
+const getUserMock =
+  vi.fn<(...args: Parameters<UsageQueries['getUser']>) => Promise<TestUser | null>>();
+const getProjectsByIdsMock =
+  vi.fn<(...args: Parameters<UsageQueries['getProjectsByIds']>) => Promise<Array<TestProject>>>();
+const getProjectOwnershipPeriodsByProjectIdsMock =
+  vi.fn<UsageQueries['getProjectOwnershipPeriodsByProjectIds']>();
 vi.mock('../../src/db.ts', () => ({
   createDb: () => ({ __mock: 'db' }),
-  getUser: async (...args: Array<unknown>) => {
+  getUser: async (...args: Parameters<typeof getUserMock>) => {
     const user = await getUserMock(...args);
     return user ? { created_at: '2020-01-01T00:00:00.000Z', ...user } : user;
   },
-  getProjectsByIds: (...args: Array<unknown>) => getProjectsByIdsMock(...args),
-  getProjectOwnershipPeriodsByProjectIds: (...args: Array<unknown>) =>
-    getProjectOwnershipPeriodsByProjectIdsMock(...args),
-  getProjectUsageOwnershipSnapshot: async (...args: Array<unknown>) => ({
+  getProjectsByIds: (...args: Parameters<typeof getProjectsByIdsMock>) =>
+    getProjectsByIdsMock(...args),
+  getProjectOwnershipPeriodsByProjectIds: (
+    ...args: Parameters<typeof getProjectOwnershipPeriodsByProjectIdsMock>
+  ) => getProjectOwnershipPeriodsByProjectIdsMock(...args),
+  getProjectUsageOwnershipSnapshot: async (...args: Parameters<typeof getProjectsByIdsMock>) => ({
     projects: await getProjectsByIdsMock(...args),
     ownershipPeriods: await getProjectOwnershipPeriodsByProjectIdsMock(...args),
   }),
@@ -25,8 +40,8 @@ import {
   signUsageEvent,
   SANDBOX_USAGE_RETENTION_MS,
   USAGE_SIGNING_KEY_KV_KEY,
-  type UsageEventSource,
 } from '../../src/usage-auth.ts';
+import type { UsageEventSource } from '../../src/usage-auth.ts';
 import type { UsageEvent } from '../../src/usage-counter.ts';
 import { groupEventsByUser, processUsageEventBatch } from '../../src/usage-queue.ts';
 
@@ -192,10 +207,10 @@ describe('processUsageEventBatch — sandbox events', () => {
 
     expect(stubFetch).toHaveBeenCalledTimes(1);
     const callReq = fetchCalls(stubFetch)[0][0];
-    const payload = (await callReq.json()) as {
+    const payload = await callReq.json<{
       events: Array<UsageEvent>;
       userId: string;
-    };
+    }>();
     expect(payload.userId).toBe('u1');
     expect(payload.events).toHaveLength(1);
     expect(payload.events[0]).toMatchObject({
@@ -283,7 +298,7 @@ describe('processUsageEventBatch — trusted provenance', () => {
     await processUsageEventBatch(batch as never, makeEnv(stubFetch) as never);
 
     expect(getUserMock).toHaveBeenCalledWith(expect.anything(), 'owner');
-    const payload = (await fetchCalls(stubFetch)[0][0].json()) as { events: Array<UsageEvent> };
+    const payload = await fetchCalls(stubFetch)[0][0].json<{ events: Array<UsageEvent> }>();
     expect(payload.events[0]).toMatchObject({ userId: 'owner', slug: 'canonical-slug' });
     expect(batch.calls.ackAll).toBe(1);
   });
@@ -332,7 +347,7 @@ describe('processUsageEventBatch — trusted provenance', () => {
     expect(getUserMock).toHaveBeenCalledWith(expect.anything(), 'old-owner');
     expect(getUserMock).toHaveBeenCalledWith(expect.anything(), 'new-owner');
     const payloads = await Promise.all(
-      fetchCalls(stubFetch).map((call) => call[0].json() as Promise<{ events: Array<UsageEvent> }>),
+      fetchCalls(stubFetch).map((call) => call[0].json<Promise<{ events: Array<UsageEvent> }>>()),
     );
     expect(payloads.flatMap((payload) => payload.events)).toEqual(
       expect.arrayContaining([
@@ -379,9 +394,9 @@ describe('processUsageEventBatch — trusted provenance', () => {
 
     await processUsageEventBatch(batch as never, makeEnv(stubFetch) as never);
 
-    const payload = (await fetchCalls(stubFetch)[0][0].json()) as {
+    const payload = await fetchCalls(stubFetch)[0][0].json<{
       events: Array<UsageEvent>;
-    };
+    }>();
     expect(payload.events[0]).toMatchObject({ userId: 'owner', currentOwner: false });
     expect(batch.calls.ackAll).toBe(1);
   });
@@ -450,11 +465,11 @@ describe('processUsageEventBatch — 5xx alert window', () => {
     await processUsageEventBatch(batch as never, makeEnv(stubFetch, errorStubFetch) as never);
 
     expect(errorStubFetch).toHaveBeenCalledTimes(1);
-    const body = (await fetchCalls(errorStubFetch)[0][0].json()) as {
+    const body = await fetchCalls(errorStubFetch)[0][0].json<{
       count: number;
       firstAt: number;
       lastAt: number;
-    };
+    }>();
     expect(body.count).toBe(3);
     expect(body.firstAt).toBe(t0);
     expect(body.lastAt).toBe(t2);
@@ -472,8 +487,8 @@ describe('processUsageEventBatch — 5xx alert window', () => {
     await processUsageEventBatch(batch as never, makeEnv(stubFetch, errorStubFetch) as never);
 
     const bodies = await Promise.all(
-      fetchCalls(errorStubFetch).map(
-        (call) => call[0].json() as Promise<{ projectId: string; firstAt: number; lastAt: number }>,
+      fetchCalls(errorStubFetch).map((call) =>
+        call[0].json<Promise<{ projectId: string; firstAt: number; lastAt: number }>>(),
       ),
     );
     const p1 = bodies.find((b) => b.projectId === 'p1');
@@ -497,9 +512,9 @@ describe('processUsageEventBatch — 5xx alert window', () => {
     await processUsageEventBatch(batch as never, makeEnv(stubFetch, errorStubFetch) as never);
 
     expect(stubFetch).toHaveBeenCalledOnce();
-    const counterBody = (await fetchCalls(stubFetch)[0][0].json()) as {
+    const counterBody = await fetchCalls(stubFetch)[0][0].json<{
       events: Array<UsageEvent>;
-    };
+    }>();
     expect(counterBody.events).toEqual(
       platformFailures.map((event) => ({
         ...event,
@@ -526,10 +541,10 @@ describe('processUsageEventBatch — 5xx alert window', () => {
     await processUsageEventBatch(batch as never, makeEnv(stubFetch, errorStubFetch) as never);
 
     expect(errorStubFetch).toHaveBeenCalledOnce();
-    const alertBody = (await fetchCalls(errorStubFetch)[0][0].json()) as {
+    const alertBody = await fetchCalls(errorStubFetch)[0][0].json<{
       projectId: string;
       count: number;
-    };
+    }>();
     expect(alertBody).toMatchObject({ projectId: 'repl', count: 1 });
     expect(batch.calls.ackAll).toBe(1);
   });

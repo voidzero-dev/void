@@ -9,6 +9,7 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as database from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { scheduled } from '../../src/index.ts';
@@ -22,10 +23,11 @@ import {
   clearTables,
   createTestProject,
   createTestUser,
+  mockKvRead,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -144,7 +146,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return providerError('application not found', 404);
@@ -204,16 +206,9 @@ describe('legacy routing owner backfill', () => {
           ? { zeroTrust: { teamDomain: 'stale.cloudflareaccess.com', audiences: [] } }
           : {}),
       });
-      const get = env.ROUTING.get.bind(env.ROUTING);
-      const staleRead = vi.spyOn(env.ROUTING, 'get').mockImplementation((async (
-        key: string,
-        ...args: Array<unknown>
-      ) => {
-        if (key === project.slug || key === domainKey) {
-          return stale;
-        }
-        return Reflect.apply(get, env.ROUTING, [key, ...args]);
-      }) as typeof env.ROUTING.get);
+      const staleRead = mockKvRead(env.ROUTING, (key) =>
+        key === project.slug || key === domainKey ? stale : undefined,
+      );
       try {
         if (operation === 'backfill') {
           await runHourly();
@@ -327,7 +322,9 @@ describe('legacy routing owner backfill', () => {
       ).finally(() => {
         protectionSettled = true;
       });
-      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25);
+      });
       const settledBeforeRelease = protectionSettled;
       release.resolve();
       await Promise.all([rollover, protection]);

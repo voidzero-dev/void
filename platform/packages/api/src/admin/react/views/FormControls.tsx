@@ -5,15 +5,9 @@ import { NumberInput } from '@astryxdesign/core/NumberInput';
 import { Selector } from '@astryxdesign/core/Selector';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type InputHTMLAttributes,
-  type TextareaHTMLAttributes,
-} from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
+import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import { useResettableState } from '../use-resettable-state.ts';
 
 // Astryx forwards native validation attributes, but its field prop types omit them.
 
@@ -42,8 +36,7 @@ export function FormTextInput({
   autoComplete?: string;
   width?: number;
 }) {
-  const [value, setValue] = useState(initialValue);
-  useEffect(() => setValue(initialValue), [initialValue]);
+  const [value, setValue] = useResettableState(initialValue);
   return (
     <TextInput
       label={label}
@@ -51,7 +44,7 @@ export function FormTextInput({
       value={value}
       onChange={setValue}
       // Astryx forwards the type to the native input but its type union omits url.
-      type={type as 'text' | 'password' | 'email'}
+      type={type}
       isRequired={required}
       {...({ required, maxLength } satisfies InputHTMLAttributes<HTMLInputElement>)}
       placeholder={placeholder}
@@ -78,9 +71,8 @@ export function FormTextArea({
   placeholder?: string;
   width?: number;
 }) {
-  const [value, setValue] = useState(initialValue);
+  const [value, setValue] = useResettableState(initialValue);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => setValue(initialValue), [initialValue]);
   const resizeToFit = useCallback(() => {
     const textarea = textareaRef.current;
     if (textarea) {
@@ -138,8 +130,7 @@ export function FormSelector({
   width?: number;
   hasSearch?: boolean;
 }) {
-  const [value, setValue] = useState(initialValue);
-  useEffect(() => setValue(initialValue), [initialValue]);
+  const [value, setValue] = useResettableState(initialValue);
   return (
     <Selector
       label={label}
@@ -164,8 +155,7 @@ export function FormCheckbox({
   submitValue: string;
   initialValue?: boolean;
 }) {
-  const [checked, setChecked] = useState(initialValue);
-  useEffect(() => setChecked(initialValue), [initialValue]);
+  const [checked, setChecked] = useResettableState(initialValue);
   return (
     <>
       <CheckboxInput label={label} value={checked} onChange={setChecked} />
@@ -191,8 +181,7 @@ export function FormNumberInput({
   max?: number;
   required?: boolean;
 }) {
-  const [value, setValue] = useState<number | null>(initialValue);
-  useEffect(() => setValue(initialValue), [initialValue]);
+  const [value, setValue] = useResettableState(initialValue);
   return (
     <NumberInput
       label={label}

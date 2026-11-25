@@ -8,11 +8,8 @@ import {
   getWorkerBundleDir,
   readBuildOutput,
 } from '@cloudflare/build-output-utils';
-import {
-  convertToWranglerConfig,
-  type ParsedCloudflareConfig,
-  type ParsedBuildOutputWorkerConfig,
-} from '@cloudflare/config';
+import { convertToWranglerConfig } from '@cloudflare/config';
+import type { ParsedCloudflareConfig, ParsedBuildOutputWorkerConfig } from '@cloudflare/config';
 import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
 import ignore from 'ignore';
 import mime from 'mime';
@@ -96,15 +93,15 @@ async function readPackageDependencies(directory: string) {
   }
 }
 
-const moduleContentTypes: Record<string, string> = {
-  esm: 'application/javascript+module',
-  cjs: 'application/javascript',
-  wasm: 'application/wasm',
-  text: 'text/plain',
-  data: 'application/octet-stream',
-  json: 'text/plain',
-  sourcemap: 'application/source-map',
-};
+const moduleContentTypes = new Map([
+  ['esm', 'application/javascript+module'],
+  ['cjs', 'application/javascript'],
+  ['wasm', 'application/wasm'],
+  ['text', 'text/plain'],
+  ['data', 'application/octet-stream'],
+  ['json', 'text/plain'],
+  ['sourcemap', 'application/source-map'],
+]);
 
 function bindingsFromOutput(
   env: Json,
@@ -269,7 +266,11 @@ function bindingsFromOutput(
                 outbound: {
                   worker: { service: requiredString(outbound.worker, name) },
                   ...(Array.isArray(outbound.parameters)
-                    ? { params: outbound.parameters.map((parameter) => ({ name: parameter })) }
+                    ? {
+                        params: (outbound.parameters as Array<unknown>).map((parameter) => ({
+                          name: parameter,
+                        })),
+                      }
                     : {}),
                 },
               }
@@ -369,6 +370,7 @@ export function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json
   // The converter reads only `worker.exports` for this field.
   const converted =
     object(
+      // oxlint-disable-next-line quality/no-chained-type-assertions -- Only worker exports are projected here, so the unrelated required fields are omitted.
       convertToWranglerConfig({
         worker: { exports: entries },
         containers: [],
@@ -410,7 +412,7 @@ async function preflightWorkflowExports(options: {
         options.verifyUploader,
       );
     } catch (cause) {
-      if (cause instanceof CloudflareApiError && cause.status === 404 && cause.code === 10200) {
+      if (cause instanceof CloudflareApiError && cause.status === 404 && cause.code === 10_200) {
         continue;
       }
       throw cause;
@@ -528,7 +530,7 @@ async function apiResult(
   const result = object(parsed?.result);
   if (!response.ok || parsed?.success !== true || !result) {
     const error = Array.isArray(parsed?.errors) ? object(parsed.errors[0]) : null;
-    const code = Number.isSafeInteger(error?.code) ? ` [code: ${error!.code}]` : '';
+    const code = error && Number.isSafeInteger(error.code) ? ` [code: ${error.code}]` : '';
     throw new CloudflareApiError(
       `Cloudflare version upload failed (${response.status})${code}.`,
       response.status,
@@ -546,16 +548,16 @@ function localNamespaceBindings(
   className: string,
   workerName: string,
 ): Array<Json> {
-  return bindings
-    .map(object)
-    .filter(
-      (binding): binding is Json =>
-        binding?.type === 'durable_object_namespace' &&
-        binding.class_name === className &&
-        (binding.script_name === undefined || binding.script_name === workerName) &&
-        binding.environment === undefined &&
-        binding.dispatch_namespace === undefined,
-    );
+  return bindings.flatMap((item) => {
+    const binding = object(item);
+    return binding?.type === 'durable_object_namespace' &&
+      binding.class_name === className &&
+      (binding.script_name === undefined || binding.script_name === workerName) &&
+      binding.environment === undefined &&
+      binding.dispatch_namespace === undefined
+      ? [binding]
+      : [];
+  });
 }
 
 function assertContainerApplicationIdentity(
@@ -575,6 +577,12 @@ function assertContainerApplicationIdentity(
   }
 }
 
+function compareFlagValues(left: unknown, right: unknown): number {
+  const a = String(left);
+  const b = String(right);
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function assertContainerApplicationSettings(application: Json, plan: ContainerPlan): void {
   const desired = object(plan.settings.configuration) ?? {};
   const current = object(application.configuration) ?? {};
@@ -591,7 +599,13 @@ function assertContainerApplicationSettings(application: Json, plan: ContainerPl
     }
     if (key === 'experimental_flags' && Array.isArray(value)) {
       const flags = current.experimental_flags ?? [];
-      return !Array.isArray(flags) || !isDeepStrictEqual([...flags].sort(), [...value].sort());
+      return (
+        !Array.isArray(flags) ||
+        !isDeepStrictEqual(
+          [...(flags as Array<unknown>)].sort(compareFlagValues),
+          [...(value as Array<unknown>)].sort(compareFlagValues),
+        )
+      );
     }
     return !isDeepStrictEqual(current[key] ?? [], value);
   });
@@ -678,14 +692,14 @@ function containerPlansFromOutput(
       throw new Error(`Cloudflare Container ${config.name} needs exactly one local SQLite export.`);
     }
     const [className, raw] = classes[0];
-    const declaration = object(raw)!;
+    const declaration = object(raw);
     const localBindings = bindings.filter(
       (binding) =>
         binding.type === 'durable_object_namespace' &&
         binding.class_name === className &&
         binding.script_name === undefined,
     );
-    if (declaration.storage !== 'sqlite' || localBindings.length === 0) {
+    if (declaration?.storage !== 'sqlite' || localBindings.length === 0) {
       throw new Error(
         `Cloudflare Container ${config.name} needs a local SQLite Durable Object binding.`,
       );
@@ -698,7 +712,7 @@ function containerPlansFromOutput(
     ) {
       throw new Error(`Cloudflare Container ${config.name} has an unsupported setting.`);
     }
-    const settings: Json = {
+    const settings = {
       ...(configuration || config.ssh || config.authorizedKeys
         ? {
             configuration: {
@@ -726,7 +740,7 @@ function containerPlansFromOutput(
             },
           }
         : {}),
-    };
+    } satisfies Json;
     plans.push({ name: config.name, className, images: config.images ?? {}, settings });
   }
   for (const [name, raw] of Object.entries(exports ?? {})) {
@@ -806,15 +820,15 @@ async function prepareContainerMetadata(options: {
   for (const plan of options.plans) {
     const images: Json = {};
     for (const [name, raw] of Object.entries(plan.images)) {
-      const source = object(raw)!;
+      const source = object(raw);
       const reference = requiredString(
-        source.localReference ?? source.reference,
+        source?.localReference ?? source?.reference,
         `Container ${plan.name} image`,
       );
       let image = prepared.get(reference);
       if (!image) {
         image = reference;
-        if (source.localReference !== undefined) {
+        if (source?.localReference !== undefined) {
           if (!options.runCf || !options.verifyUploader()) {
             throw new Error('The verified Cloudflare Container image uploader is unavailable.');
           }
@@ -834,7 +848,7 @@ async function prepareContainerMetadata(options: {
           const remote = matches.length === 1 ? matches[0][1] : '';
           if (
             !remote.startsWith(`registry.cloudflare.com/${options.accountId}/`) ||
-            [...remote].some(
+            Array.from(remote).some(
               (character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127,
             )
           ) {
@@ -868,7 +882,7 @@ async function prepareContainerMetadata(options: {
               'Cloudflare Container image preparation failed or returned an unsupported state.',
             );
           }
-          await delay(Math.min(2_000, remaining()));
+          await delay(Math.min(2000, remaining()));
         }
         prepared.set(reference, image);
       }
@@ -911,12 +925,12 @@ async function ensureContainerApplications(options: {
     } catch (cause) {
       if (
         !(cause instanceof CloudflareApiError) ||
-        cause.code !== 100146 ||
+        cause.code !== 100_146 ||
         Date.now() >= deadline
       ) {
         throw cause;
       }
-      await delay(Math.min(2_000, deadline - Date.now()));
+      await delay(Math.min(2000, deadline - Date.now()));
     }
   }
   const versionBindings = object(version.resources)?.bindings;
@@ -936,9 +950,11 @@ async function ensureContainerApplications(options: {
             entry.name === expected.name &&
             entry.class_name === expected.class_name,
         );
+      const actual = matching[0];
       return (
         matching.length !== 1 ||
-        !isDeepStrictEqual(matching[0]!.images ?? {}, expected.images ?? {})
+        !actual ||
+        !isDeepStrictEqual(actual.images ?? {}, expected.images ?? {})
       );
     })
   ) {
@@ -1172,7 +1188,7 @@ export async function uploadPinnedCloudflareVersion(options: {
     throw new Error('The explicit Cloudflare secrets file was not readable.');
   }
   const bindings = bindingsFromOutput(
-    (config.env ?? {}) as Json,
+    config.env ?? {},
     options.workerName,
     activeSecrets,
     explicitSecrets,
@@ -1194,7 +1210,7 @@ export async function uploadPinnedCloudflareVersion(options: {
   }
   const activeBindingNames = new Set<string>();
   const candidateNames = new Set(bindings.map((binding) => String(binding.name)));
-  const keptTypes = new Set((metadata?.keep_bindings as Array<string> | undefined) ?? []);
+  const keptTypes = new Set(metadata?.keep_bindings ?? []);
   for (const entry of active.bindings) {
     const binding = object(entry);
     if (!binding || typeof binding.name !== 'string' || typeof binding.type !== 'string') {
@@ -1223,7 +1239,7 @@ export async function uploadPinnedCloudflareVersion(options: {
   }
   const modules: Array<Json> = [];
   for (const [name, entry] of Object.entries(config.manifest.modules)) {
-    const type = moduleContentTypes[entry.type];
+    const type = moduleContentTypes.get(entry.type);
     if (!type || name.startsWith('/') || name.split('/').includes('..')) {
       throw new Error(`Cloudflare Worker module ${name} cannot be uploaded with pinned secrets.`);
     }

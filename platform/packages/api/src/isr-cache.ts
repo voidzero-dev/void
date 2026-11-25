@@ -51,7 +51,7 @@ export async function resolveCurrentIsrDeployments(
     if (routingRaw) {
       try {
         const routingConfig = JSON.parse(routingRaw) as { version?: unknown };
-        if (routingConfig.version == null) {
+        if (routingConfig.version === null || routingConfig.version === undefined) {
           // `version` is missing or null — match dispatch's `routing.version ?? 'legacy'`.
           ids.add('legacy');
         } else {

@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
+import { isRecord } from '@void/deploy-core';
 import { desc, eq, sql } from 'drizzle-orm';
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
 import { drizzle } from 'drizzle-orm/pglite';
@@ -10,6 +11,7 @@ import type { Db } from '../../src/db.ts';
 import { generateId } from '../../src/id.ts';
 import { encryptProjectSecret } from '../../src/project-secrets.ts';
 import type { SandboxConcurrencyCounter } from '../../src/sandbox-concurrency-counter.ts';
+// oxlint-disable-next-line import/no-namespace -- Drizzle consumes the full schema module with its relations.
 import * as schema from '../../src/schema.ts';
 import {
   users,
@@ -45,10 +47,21 @@ export const CF_ACCOUNT_ID = 'test-account-id';
 export const CF_ZONE_ID = 'test-zone-id';
 export const PROJECT_SECRET_ACTIVE_KEY_VERSION = '1';
 export const PROJECT_SECRET_KEYS_JSON = JSON.stringify({
-  [PROJECT_SECRET_ACTIVE_KEY_VERSION]: Buffer.from('0123456789abcdef0123456789abcdef').toString(
-    'base64',
-  ),
+  [PROJECT_SECRET_ACTIVE_KEY_VERSION]: btoa('0123456789abcdef0123456789abcdef'),
 });
+
+/** Override transactions on one database view while forwarding all other reads. */
+export function withTestTransaction(database: Db, transaction: Db['transaction']): Db {
+  return new Proxy(database, {
+    get(target, property, receiver): unknown {
+      if (property === 'transaction') {
+        return transaction;
+      }
+      // oxlint-disable-next-line quality/no-reflect-get -- Preserve the receiver for forwarded database properties.
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
 
 export type TestEnv = {
   db: Db & { $client: pg.Pool | PGlite };
@@ -265,6 +278,22 @@ export class MemoryKVNamespace {
   }
 }
 
+/** Replace reads of selected keys while forwarding other reads to the fixture. */
+export function mockKvRead(
+  namespace: KVNamespace,
+  read: (key: string) => string | null | undefined,
+) {
+  if (!(namespace instanceof MemoryKVNamespace)) {
+    throw new Error('Expected an in-memory KV namespace.');
+  }
+  const memory: MemoryKVNamespace = namespace;
+  const get = memory.get.bind(memory);
+  return vi.spyOn(memory, 'get').mockImplementation(async (...args) => {
+    const replacement = read(args[0]);
+    return replacement === undefined ? get(...args) : replacement;
+  });
+}
+
 type MemoryR2Entry = {
   body: ArrayBuffer;
   httpMetadata?: unknown;
@@ -382,16 +411,22 @@ class MemoryR2Bucket {
     if (!entry) {
       return null;
     }
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(entry.body.slice(0)));
+        controller.close();
+      },
+    });
     return {
       key,
       customMetadata: entry.customMetadata,
       size: entry.body.byteLength,
       etag: entry.etag,
       uploaded: entry.uploaded,
-      body: new Response(entry.body).body!,
+      body,
       arrayBuffer: async () => entry.body.slice(0),
       text: async () => new TextDecoder().decode(entry.body),
-      json: async <T>() => JSON.parse(new TextDecoder().decode(entry.body)) as T,
+      json: <T>() => new Response(entry.body).json<T>(),
     };
   }
 
@@ -482,7 +517,7 @@ export function createCronSchedulerMock(): {
         const path = new URL(request.url).pathname;
         calls.push({ name, path });
         if (path === '/sync') {
-          states.set(name, (await request.json()) as CronSyncState);
+          states.set(name, await request.json<CronSyncState>());
         } else if (path === '/clear') {
           states.delete(name);
         } else if (path === '/snapshot') {
@@ -644,6 +679,7 @@ export async function clearTables(db: Db): Promise<void> {
 export function skipOrphanSweepDelay(): void {
   const schedule = globalThis.setTimeout;
   vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) =>
+    // oxlint-disable-next-line typescript/no-unsafe-argument -- Preserve the timer callback's variadic arguments.
     schedule(callback, delay === 2000 ? 0 : delay, ...args),
   );
 }
@@ -692,7 +728,7 @@ export async function createTestUser(
   role: 'user' | 'admin' = 'user',
 ): Promise<{ id: string; login: string; jwt: string; adminJwt: string }> {
   const id = `user_test${++userCounter}`;
-  const pid = providerId ?? String(10000 + userCounter);
+  const pid = providerId ?? String(10_000 + userCounter);
   await db.insert(users).values({
     id,
     provider,
@@ -942,40 +978,28 @@ async function readStreamedMultipartBody(init: RequestInit): Promise<void> {
   init.body = form;
 }
 
-/**
- * Best-effort multipart-body parser tailored to the platform's CF Workers
- * Upload API usage. Returns the parsed `metadata` JSON and the raw bindings
- * array if present. Returns `null` if the body is not a parseable multipart
- * form (e.g. tests overriding `uploadWorker` may supply opaque bodies).
- */
-async function parseMultipartMetadata(
-  init: RequestInit | undefined,
-): Promise<{ metadata: Record<string, unknown> } | null> {
-  if (!init?.body) {
+function parseJsonObject(body: string | null): Record<string, unknown> | null {
+  if (body === null) {
     return null;
   }
-  // Worker uploads send FormData.
-  if (init.body instanceof FormData) {
-    const metaEntry = init.body.get('metadata');
-    if (typeof metaEntry === 'string') {
-      try {
-        return { metadata: JSON.parse(metaEntry) };
-      } catch {
-        return null;
-      }
-    }
-    if (metaEntry instanceof Blob) {
-      try {
-        return { metadata: JSON.parse(await metaEntry.text()) };
-      } catch {
-        return null;
-      }
-    }
+  try {
+    const value: unknown = JSON.parse(body);
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
   }
-  // Some helpers serialize their own multipart string. We don't attempt to
-  // parse arbitrary multipart strings — tests that pass strings either don't
-  // need binding validation or they install a custom uploadWorker handler.
-  return null;
+}
+
+function readJsonRequest(init: RequestInit | undefined): Record<string, unknown> | null {
+  return parseJsonObject(typeof init?.body === 'string' ? init.body : null);
+}
+
+async function readJsonFormPart(
+  init: RequestInit | undefined,
+  name: string,
+): Promise<Record<string, unknown> | null> {
+  const part = init?.body instanceof FormData ? init.body.get(name) : null;
+  return parseJsonObject(part instanceof Blob ? await part.text() : part);
 }
 
 function mintNamespaceId(scriptName: string, className: string): string {
@@ -984,26 +1008,14 @@ function mintNamespaceId(scriptName: string, className: string): string {
   return `ns_${scriptName}_${className}`;
 }
 
-function extractBindings(metadata: Record<string, unknown>): Array<{
-  type: string;
-  name?: string;
-  class_name?: string;
-  script_name?: string;
-  [key: string]: unknown;
-}> {
-  const raw = (metadata as { bindings?: unknown }).bindings;
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  return raw.filter(
-    (b): b is Record<string, unknown> => typeof b === 'object' && b !== null,
-  ) as Array<{
-    type: string;
-    name?: string;
-    class_name?: string;
-    script_name?: string;
-    [key: string]: unknown;
-  }>;
+function isMockWorkerBinding(value: unknown): value is SandboxMockHostScript['bindings'][number] {
+  return (
+    isRecord(value) &&
+    typeof value.type === 'string' &&
+    ['name', 'class_name', 'namespace_id', 'script_name'].every(
+      (key) => value[key] === undefined || typeof value[key] === 'string',
+    )
+  );
 }
 
 function pushStringValues(into: Array<string>, src: unknown): void {
@@ -1019,36 +1031,19 @@ function pushStringValues(into: Array<string>, src: unknown): void {
 
 function extractNewSqliteClasses(metadata: Record<string, unknown>): Array<string> {
   const migrations = metadata.migrations;
-  if (!migrations) {
-    return [];
-  }
   const classes: Array<string> = [];
   // CF Workers Upload API shape: `{ new_tag, steps: [{ new_sqlite_classes, new_classes }] }`
-  if (typeof migrations === 'object' && !Array.isArray(migrations)) {
-    const obj = migrations as {
-      steps?: unknown;
-      new_sqlite_classes?: unknown;
-      new_classes?: unknown;
-    };
-    pushStringValues(classes, obj.new_sqlite_classes);
-    pushStringValues(classes, obj.new_classes);
-    if (Array.isArray(obj.steps)) {
-      for (const step of obj.steps) {
-        if (typeof step === 'object' && step !== null) {
-          const s = step as { new_sqlite_classes?: unknown; new_classes?: unknown };
-          pushStringValues(classes, s.new_sqlite_classes);
-          pushStringValues(classes, s.new_classes);
-        }
-      }
-    }
+  if (isRecord(migrations)) {
+    pushStringValues(classes, migrations.new_sqlite_classes);
+    pushStringValues(classes, migrations.new_classes);
   }
   // Wrangler config-array shape: `[{ tag, new_sqlite_classes }]`
-  if (Array.isArray(migrations)) {
-    for (const step of migrations) {
-      if (typeof step === 'object' && step !== null) {
-        const s = step as { new_sqlite_classes?: unknown; new_classes?: unknown };
-        pushStringValues(classes, s.new_sqlite_classes);
-        pushStringValues(classes, s.new_classes);
+  const steps = isRecord(migrations) ? migrations.steps : migrations;
+  if (Array.isArray(steps)) {
+    for (const step of steps) {
+      if (isRecord(step)) {
+        pushStringValues(classes, step.new_sqlite_classes);
+        pushStringValues(classes, step.new_classes);
       }
     }
   }
@@ -1057,27 +1052,20 @@ function extractNewSqliteClasses(metadata: Record<string, unknown>): Array<strin
 
 function extractMigrationTag(metadata: Record<string, unknown>): string | undefined {
   const migrations = metadata.migrations;
-  if (!migrations) {
-    return undefined;
-  }
-  if (typeof migrations === 'object' && !Array.isArray(migrations)) {
-    const obj = migrations as { new_tag?: unknown; tag?: unknown };
-    if (typeof obj.new_tag === 'string') {
-      return obj.new_tag;
+  if (isRecord(migrations)) {
+    if (typeof migrations.new_tag === 'string') {
+      return migrations.new_tag;
     }
-    if (typeof obj.tag === 'string') {
-      return obj.tag;
+    if (typeof migrations.tag === 'string') {
+      return migrations.tag;
     }
   }
   if (Array.isArray(migrations)) {
     // Wrangler config form — last `tag` wins.
     let tag: string | undefined;
     for (const step of migrations) {
-      if (typeof step === 'object' && step !== null) {
-        const s = step as { tag?: unknown };
-        if (typeof s.tag === 'string') {
-          tag = s.tag;
-        }
+      if (isRecord(step) && typeof step.tag === 'string') {
+        tag = step.tag;
       }
     }
     return tag;
@@ -1088,13 +1076,13 @@ function extractMigrationTag(metadata: Record<string, unknown>): string | undefi
 function parseScriptNameFromUrl(url: string): string | null {
   // .../workers/dispatch/namespaces/{ns}/scripts/{name}[/...]
   const m = /\/workers\/(?:dispatch\/namespaces\/[^/]+\/)?scripts\/([^/?#]+)/.exec(url);
-  return m ? decodeURIComponent(m[1]!) : null;
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 function parseAppIdFromUrl(url: string): string | null {
   // .../containers/applications/{id}[/...]
   const m = /\/containers\/applications\/([^/?#]+)/.exec(url);
-  return m ? decodeURIComponent(m[1]!) : null;
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 function parseAppNameQuery(url: string): string | null {
@@ -1177,24 +1165,15 @@ const baseDefaultMocks: Omit<CfApiMocks, 'uploadWorker' | 'listWorkerBindings' |
   assetUploadSession: async (_url: string, init?: RequestInit) => {
     // Echo the manifest hashes so the mock bucket matches what the deploy
     // route computed.
-    try {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
-      if (body?.manifest) {
-        const hashes = [
-          ...new Set(
-            Object.values(body.manifest as Record<string, unknown>).flatMap((entry) => {
-              if (typeof entry === 'object' && entry !== null && 'hash' in entry) {
-                const hash = (entry as { hash?: unknown }).hash;
-                return typeof hash === 'string' ? [hash] : [];
-              }
-              return [];
-            }),
-          ),
-        ];
-        return cfSuccess({ jwt: 'test-asset-jwt', buckets: [hashes] });
+    const manifest = readJsonRequest(init)?.manifest;
+    if (isRecord(manifest)) {
+      const hashes = new Set<string>();
+      for (const entry of Object.values(manifest)) {
+        if (isRecord(entry) && typeof entry.hash === 'string') {
+          hashes.add(entry.hash);
+        }
       }
-    } catch {
-      // fall through to default
+      return cfSuccess({ jwt: 'test-asset-jwt', buckets: [[...hashes]] });
     }
     return cfSuccess({ jwt: 'test-asset-jwt', buckets: [['hash1']] });
   },
@@ -1259,8 +1238,8 @@ const baseDefaultMocks: Omit<CfApiMocks, 'uploadWorker' | 'listWorkerBindings' |
   // is derived from the address so a test can predict it without capturing
   // the response.
   addEmailDestination: (_url: string, init?: RequestInit) => {
-    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
-    const email = typeof body.email === 'string' ? body.email : 'test@example.com';
+    const address = readJsonRequest(init)?.email;
+    const email = typeof address === 'string' ? address : 'test@example.com';
     return cfSuccess({
       tag: `cf-tag-${email}`,
       email,
@@ -1332,15 +1311,17 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return new Response('ok', { status: 200 });
     }
 
-    const parsed = await parseMultipartMetadata(init);
-    if (!parsed) {
+    const metadata = await readJsonFormPart(init, 'metadata');
+    if (!metadata) {
       // Opaque body (string or non-FormData): accept without recording state.
       // Tests that need state for these bodies install their own override.
       return new Response('ok', { status: 200 });
     }
 
-    const { metadata } = parsed;
-    const bindings = extractBindings(metadata);
+    const bindings = metadata.bindings ?? [];
+    if (!Array.isArray(bindings) || !bindings.every(isMockWorkerBinding)) {
+      return cfError('metadata.bindings must contain valid Worker bindings', 400);
+    }
 
     // Cross-script binding validation. CF empirically rejects ALL cross-script DO bindings between dispatch
     // namespace scripts, regardless of whether the target script exists or
@@ -1348,14 +1329,14 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     // future code that introduces cross-script DO bindings fails fast in CI
     // instead of shipping to production.
     for (const binding of bindings) {
-      const refScript = (binding as { script_name?: unknown }).script_name;
+      const refScript = binding.script_name;
       if (typeof refScript === 'string' && refScript !== scriptName) {
         return Response.json(
           {
             success: false,
             errors: [
               {
-                code: 10061,
+                code: 10_061,
                 message: `Cannot create binding for class in script '${refScript}' that does not exist.`,
               },
             ],
@@ -1411,8 +1392,8 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
   // PUT through the stateful path; otherwise returns a proxy-token binding.
   const defaultListWorkerBindings = (url: string): Response => {
     const scriptName = parseScriptNameFromUrl(url);
-    if (scriptName && state.hostScripts.has(scriptName)) {
-      const script = state.hostScripts.get(scriptName)!;
+    const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
+    if (script) {
       return cfSuccess(script.bindings);
     }
     return cfSuccess([
@@ -1440,16 +1421,16 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
   // `result.script.migration_tag`, not `result.migration_tag`.)
   const defaultGetDispatchScript = (url: string): Response => {
     const scriptName = parseScriptNameFromUrl(url);
-    if (!scriptName || !state.hostScripts.has(scriptName)) {
+    const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
+    if (!script || !scriptName) {
       return Response.json(
         {
           success: false,
-          errors: [{ code: 10007, message: 'workers.api.error.script_not_found' }],
+          errors: [{ code: 10_007, message: 'workers.api.error.script_not_found' }],
         },
         { status: 404 },
       );
     }
-    const script = state.hostScripts.get(scriptName)!;
     return cfSuccess({
       script: {
         id: scriptName,
@@ -1466,18 +1447,11 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     const scriptName = parseScriptNameFromUrl(url);
     const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
     if (!script) {
-      return cfError('workers.api.error.script_not_found', 404, 10007);
+      return cfError('workers.api.error.script_not_found', 404, 10_007);
     }
-    const part = init?.body instanceof FormData ? init.body.get('settings') : null;
-    const settings = (
-      part instanceof Blob
-        ? JSON.parse(await part.text())
-        : typeof part === 'string'
-          ? JSON.parse(part)
-          : null
-    ) as { bindings?: Array<{ type: string; name: string; [key: string]: unknown }> } | null;
-    if (!Array.isArray(settings?.bindings)) {
-      return cfError('settings.bindings is required', 400);
+    const settings = await readJsonFormPart(init, 'settings');
+    if (!Array.isArray(settings?.bindings) || !settings.bindings.every(isMockWorkerBinding)) {
+      return cfError('settings.bindings must contain valid Worker bindings', 400);
     }
     const bindings: SandboxMockHostScript['bindings'] = [];
     for (const binding of settings.bindings) {
@@ -1520,14 +1494,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
   };
 
   const defaultCreateContainerApp = async (_url: string, init?: RequestInit): Promise<Response> => {
-    let body: Record<string, unknown> = {};
-    if (typeof init?.body === 'string') {
-      try {
-        body = JSON.parse(init.body) as Record<string, unknown>;
-      } catch {
-        // ignore
-      }
-    }
+    const body = readJsonRequest(init) ?? {};
     const name = typeof body.name === 'string' ? body.name : '';
     if (!name) {
       return Response.json(
@@ -1546,9 +1513,8 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     // namespace_id with code 1608 DURABLE_OBJECT_ALREADY_HAS_APPLICATION
     // (verified against the real CF API). Each deploy mints a fresh
     // namespace_id, so healthy code never hits this.
-    const namespaceId = (body.durable_objects as { namespace_id?: string } | undefined)
-      ?.namespace_id;
-    if (namespaceId) {
+    const namespaceId = isRecord(body.durable_objects) ? body.durable_objects.namespace_id : null;
+    if (typeof namespaceId === 'string' && namespaceId) {
       const namespaceConflict = Array.from(state.containerApps.values()).find(
         (a) => a.durable_objects.namespace_id === namespaceId,
       );
@@ -1567,22 +1533,19 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
         );
       }
     }
-    const durableObjects = (body.durable_objects as { namespace_id?: string } | undefined) ?? {
-      namespace_id: '',
-    };
-    const configuration =
-      (body.configuration as { image?: string; instance_type?: string } | undefined) ?? {};
+    const configuration = isRecord(body.configuration) ? body.configuration : {};
     const app: SandboxMockContainerApp = {
       id: `app_${name}`,
       name,
       scheduling_policy:
         typeof body.scheduling_policy === 'string' ? body.scheduling_policy : 'default',
       configuration: {
-        image: configuration.image,
-        instance_type: configuration.instance_type ?? 'lite',
+        image: typeof configuration.image === 'string' ? configuration.image : undefined,
+        instance_type:
+          typeof configuration.instance_type === 'string' ? configuration.instance_type : 'lite',
       },
       max_instances: typeof body.max_instances === 'number' ? body.max_instances : 20,
-      durable_objects: { namespace_id: durableObjects.namespace_id ?? '' },
+      durable_objects: { namespace_id: typeof namespaceId === 'string' ? namespaceId : '' },
     };
     state.containerApps.set(app.id, app);
     return cfSuccess(app);
@@ -1590,26 +1553,20 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
 
   const defaultPatchContainerApp = async (url: string, init?: RequestInit): Promise<Response> => {
     const id = parseAppIdFromUrl(url);
-    if (!id || !state.containerApps.has(id)) {
+    const app = id ? state.containerApps.get(id) : undefined;
+    if (!id || !app) {
       return Response.json(
         { success: false, errors: [{ code: 1000, message: 'not found' }] },
         { status: 404 },
       );
     }
-    const app = state.containerApps.get(id)!;
-    let body: Record<string, unknown> = {};
-    if (typeof init?.body === 'string') {
-      try {
-        body = JSON.parse(init.body) as Record<string, unknown>;
-      } catch {
-        // ignore
-      }
-    }
-    if (body.configuration && typeof body.configuration === 'object') {
-      const cfg = body.configuration as { image?: string; instance_type?: string };
+    const body = readJsonRequest(init) ?? {};
+    if (isRecord(body.configuration)) {
+      const { image, instance_type } = body.configuration;
       app.configuration = {
-        image: cfg.image ?? app.configuration.image,
-        instance_type: cfg.instance_type ?? app.configuration.instance_type,
+        image: typeof image === 'string' ? image : app.configuration.image,
+        instance_type:
+          typeof instance_type === 'string' ? instance_type : app.configuration.instance_type,
       };
     }
     if (typeof body.max_instances === 'number') {
@@ -1635,7 +1592,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     return cfSuccess({ id: 'rollout-test-id' });
   };
 
-  const mocks: CfApiMocks = {
+  const mocks = {
     ...baseDefaultMocks,
     uploadWorker: defaultUploadWorker,
     listWorkerBindings: defaultListWorkerBindings,
@@ -1649,7 +1606,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     listContainerApps: defaultListContainerApps,
     postContainerAppRollout: defaultPostContainerAppRollout,
     ...overrides,
-  };
+  } satisfies CfApiMocks;
 
   const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url =
@@ -1730,13 +1687,13 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     }
 
     if (method === 'POST' && url.endsWith('/containers/image-preparations')) {
-      return (
-        mocks.prepareContainerImage?.(url, init) ??
-        cfSuccess({
-          image: JSON.parse(String(init?.body)).image,
-          status: 'ready',
-        })
-      );
+      if (mocks.prepareContainerImage) {
+        return mocks.prepareContainerImage(url, init);
+      }
+      const image = readJsonRequest(init)?.image;
+      return typeof image === 'string'
+        ? cfSuccess({ image, status: 'ready' })
+        : cfError('image is required', 400);
     }
 
     // Container application endpoints (must come before the generic dispatch
@@ -1746,22 +1703,22 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       url.includes('/containers/applications/') &&
       url.endsWith('/rollouts')
     ) {
-      return mocks.postContainerAppRollout!(url, init);
+      return mocks.postContainerAppRollout(url, init);
     }
     if (method === 'PATCH' && url.includes('/containers/applications/')) {
-      return mocks.patchContainerApp!(url, init);
+      return mocks.patchContainerApp(url, init);
     }
     if (method === 'DELETE' && url.includes('/containers/applications/')) {
-      return mocks.deleteContainerApp!(url, init);
+      return mocks.deleteContainerApp(url, init);
     }
     if (method === 'GET' && url.includes('/containers/applications/')) {
-      return mocks.getContainerApp!(url, init);
+      return mocks.getContainerApp(url, init);
     }
     if (method === 'GET' && url.includes('/containers/applications')) {
-      return mocks.listContainerApps!(url, init);
+      return mocks.listContainerApps(url, init);
     }
     if (method === 'POST' && url.includes('/containers/applications')) {
-      return mocks.createContainerApp!(url, init);
+      return mocks.createContainerApp(url, init);
     }
 
     if (method === 'GET' && url.includes('/workers/dispatch/') && url.includes('/secrets')) {
@@ -1784,7 +1741,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
               }),
             })
           : Response.json(
-              { success: false, errors: [{ code: 10007, message: 'script not found' }] },
+              { success: false, errors: [{ code: 10_007, message: 'script not found' }] },
               { status: 404 },
             );
       }
@@ -1808,7 +1765,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return mocks.listWorkerBindings(url, init);
     }
     if (method === 'PATCH' && url.includes('/workers/dispatch/') && url.endsWith('/settings')) {
-      return mocks.patchScriptSettings!(url, init);
+      return mocks.patchScriptSettings(url, init);
     }
     // GET on a dispatch script (no /bindings, no /secrets) — read the
     // script's metadata + migration_tag. Must come AFTER /bindings and
@@ -1817,7 +1774,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       method === 'GET' &&
       /\/workers\/dispatch\/namespaces\/[^/]+\/scripts\/[^/?#]+(?:[?#]|$)/.test(url)
     ) {
-      return mocks.getDispatchScript!(url, init);
+      return mocks.getDispatchScript(url, init);
     }
     if (method === 'DELETE' && url.includes('/workers/dispatch/')) {
       return mocks.deleteWorker(url, init);
@@ -1877,7 +1834,10 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
         classes.set(k, v);
       }
     }
-    const bindings = (args.bindings ?? []) as SandboxMockHostScript['bindings'];
+    const bindings = args.bindings ?? [];
+    if (!bindings.every(isMockWorkerBinding)) {
+      throw new Error(`Invalid fixture bindings for Worker '${args.scriptName}'`);
+    }
     const script: SandboxMockHostScript = {
       migration_tag: args.migrationTag,
       classes,
@@ -1927,13 +1887,12 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     }
   };
 
-  const handle = Object.assign(fn, {
+  return Object.assign(fn, {
     state,
     seedHostScript,
     seedContainerApp,
     expectCallOrder,
-  }) as MockCfApiHandle;
-  return handle;
+  });
 }
 
 export async function readAllEvents(res: Response): Promise<Array<unknown>> {
@@ -1941,5 +1900,5 @@ export async function readAllEvents(res: Response): Promise<Array<unknown>> {
   return text
     .split('\n')
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line));
+    .map((line): unknown => JSON.parse(line));
 }

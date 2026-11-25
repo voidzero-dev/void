@@ -10,7 +10,7 @@ const apiRoot = join(repositoryRoot, 'platform/packages/api');
 const dockerfile = readFileSync(join(apiRoot, 'container/Dockerfile'), 'utf8');
 const copies = Array.from(
   dockerfile.matchAll(/^COPY (\S+) (\S+)$/gm),
-  ([, source, destination]) => ({ source: source!, destination: destination! }),
+  ([, source, destination]) => ({ source, destination }),
 );
 
 it.each(['0.20.0', '0.20.1', '0.21.0-rc.2'])(
@@ -32,9 +32,9 @@ it.each(['0.20.0', '0.20.1', '0.21.0-rc.2'])(
           copyFileSync(join(repositoryRoot, source), target);
         }
       }
-      const entrypoint = JSON.parse(/^CMD (.+)$/m.exec(dockerfile)![1]!) as Array<string>;
+      const entrypoint = JSON.parse(/^CMD (.+)$/m.exec(dockerfile)![1]) as Array<string>;
       expect(entrypoint[0]).toBe('node');
-      const agentUrl = pathToFileURL(join(directory, entrypoint[1]!)).href;
+      const agentUrl = pathToFileURL(join(directory, entrypoint[1])).href;
       // The fallback must not depend on cwd or the application's package version.
       const untrusted = join(directory, 'app');
       mkdirSync(untrusted);
@@ -72,7 +72,7 @@ it('uses the root build context in every configured container and in CI', () => 
   const wrangler = readFileSync(join(apiRoot, 'wrangler.jsonc'), 'utf8');
   const contexts = Array.from(
     wrangler.matchAll(/"image": "\.\/container\/Dockerfile",\s*"image_build_context": "([^"]+)"/g),
-    (match) => match[1]!,
+    (match) => match[1],
   );
   // Both container sizes in the base, staging and production configurations.
   expect(contexts).toHaveLength(6);

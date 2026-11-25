@@ -33,6 +33,7 @@ function matchRouteFor(pattern: string): (url: string) => string | null {
     { pages: [page], layouts: [], namedLayouts: [] },
     '/project/pages',
   );
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return byUrl(new Function(`${source}\nreturn matchRoute;`)() as (path: string) => string | null);
 }
 
@@ -63,6 +64,7 @@ type GeneratedManifest = {
 
 function evaluateManifest(scan: PageScanResult): GeneratedManifest {
   const source = generateComponentManifest(scan, '/project/pages');
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   const manifest = new Function(
     `${source}\nreturn { components, layoutTree, routeMeta, matchRoute };`,
   )() as GeneratedManifest;

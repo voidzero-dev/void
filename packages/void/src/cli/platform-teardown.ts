@@ -2,13 +2,11 @@ import {
   PLATFORM_R2_OWNERSHIP_MARKER_KEY,
   recordInstallationResource,
   recordInstallationStep,
-  type InstallationResource,
-  type PlatformInstallationManifest,
 } from '@void/platform';
-import {
-  PlatformCloudflareApiError,
-  type PlatformCloudflareClient,
-} from './platform-cloudflare.ts';
+import type { InstallationResource, PlatformInstallationManifest } from '@void/platform';
+import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
+import { PLATFORM_WORKERS_PERMISSION } from './platform-credential-label.ts';
 import { platformTrafficAttachmentWorker } from './platform-traffic.ts';
 import { readPlatformDatabase } from './platform-zero-trust-uninstall.ts';
 
@@ -109,9 +107,9 @@ const PERMISSIONS = {
   kv: 'Account → Workers KV Storage → Edit',
   queues: 'Account → Queues → Edit',
   r2: 'Account → Workers R2 Storage → Edit',
-  routes: 'Zone → Workers Routes → Edit',
+  routes: 'Zone → Workers Routes → Write',
   serviceTokens: 'Account → Access: Service Tokens → Edit',
-  workers: 'Account → Workers Scripts → Edit',
+  workers: PLATFORM_WORKERS_PERMISSION,
 } as const;
 
 export function isPlatformTailWorker(
@@ -219,6 +217,11 @@ function emailRoutingZone(manifest: PlatformInstallationManifest): string | null
     : null;
 }
 
+const rank = (resource: InstallationResource) => {
+  const index = WORKER_ORDER.indexOf(resource.key);
+  return index < 0 ? WORKER_ORDER.length : index;
+};
+
 /** Everything --purge-resources will delete, in deletion order. */
 function purgeResourcesTargets(manifest: PlatformInstallationManifest): Array<Target> {
   const resources = manifest.resources;
@@ -275,10 +278,6 @@ function purgeResourcesTargets(manifest: PlatformInstallationManifest): Array<Ta
       targets.push({ phase: 'queue-consumers', resource });
     }
   }
-  const rank = (resource: InstallationResource) => {
-    const index = WORKER_ORDER.indexOf(resource.key);
-    return index < 0 ? WORKER_ORDER.length : index;
-  };
   for (const resource of workers
     .filter((worker) => !isPlatformTailWorker(manifest, worker))
     .sort((left, right) => rank(left) - rank(right) || left.key.localeCompare(right.key))) {
@@ -497,7 +496,7 @@ export async function checkPurgeResourcesCredentials(
       );
     }
   }
-  const probes: Array<[string, () => Promise<unknown>]> = [];
+  const probes: Array<[string, () => Promise<object | null>]> = [];
   if (has('worker') || has('worker-custom-domain')) {
     probes.push([PERMISSIONS.workers, () => client.listWorkerNames(manifest.account.id)]);
   }
@@ -646,12 +645,12 @@ function ownershipRefusal(
   );
 }
 
-function cloudflareRefusal(
+function cloudflareRefusal<Failure>(
   manifest: PlatformInstallationManifest,
   description: string,
-  error: unknown,
+  error: Failure,
   hint: string,
-): unknown {
+): Failure | Error {
   if (!(error instanceof PlatformCloudflareApiError)) {
     return error;
   }
@@ -677,7 +676,10 @@ export async function runPurgeResourcesTeardown(
     await context.checkpoint(next);
   };
   const markDeleted = async (key: string) => {
-    const resource = next.resources.find((entry) => entry.key === key)!;
+    const resource = next.resources.find((entry) => entry.key === key);
+    if (!resource) {
+      throw new Error(`platform: Missing teardown resource ${key}.`);
+    }
     await save(
       recordInstallationResource(next, { ...resource, state: 'deleted' }, new Date().toISOString()),
     );
@@ -785,14 +787,20 @@ export async function runPurgeResourcesTeardown(
       const dependents = await client
         .listWorkerDependents(accountId, resource.name)
         .catch(() => null);
-      const outside = dependents?.workers.filter((name) => !workerTarget(name)) ?? [];
+      const outside: Array<string> = [];
+      const keys: Array<string> = [];
       // Prove each dependent live, like the Worker itself: a name match alone
       // could be another Worker that took a recorded name.
-      const keys = outside.length
-        ? []
-        : (dependents?.workers.map((name) => workerTarget(name)!.key) ?? []);
+      for (const name of dependents?.workers ?? []) {
+        const worker = workerTarget(name);
+        if (worker) {
+          keys.push(worker.key);
+        } else {
+          outside.push(name);
+        }
+      }
       const missing =
-        dependents && !dependents.pagesFunction && keys.length
+        dependents && !dependents.pagesFunction && outside.length === 0 && keys.length
           ? await verify(new Set(['routing-kv', ...keys]))
           : null;
       if (
@@ -865,7 +873,10 @@ export async function runPurgeResourcesTeardown(
           break;
         }
         if (current.kind === 'worker-route') {
-          const live = (await client.listWorkerRoutes(zone!.id)).find(
+          if (!zone) {
+            throw new Error('platform: Cannot verify the route without its zone.');
+          }
+          const live = (await client.listWorkerRoutes(zone.id)).find(
             (route) => route.id === current.id,
           );
           if (live && (live.pattern !== current.name || live.script !== worker.name)) {
@@ -876,7 +887,7 @@ export async function runPurgeResourcesTeardown(
             break;
           }
           if (live) {
-            await client.deleteWorkerRoute(zone!.id, current.id);
+            await client.deleteWorkerRoute(zone.id, current.id);
           }
         } else {
           const live = (await client.listWorkerDomains(accountId)).find(
@@ -897,8 +908,11 @@ export async function runPurgeResourcesTeardown(
         break;
       }
       case 'dns':
+        if (!zone) {
+          throw new Error('platform: Cannot verify the DNS record without its zone.');
+        }
         try {
-          await remove(current, 'Check the record in the Cloudflare dashboard.', zone!.id);
+          await remove(current, 'Check the record in the Cloudflare dashboard.', zone.id);
         } catch (error) {
           if (
             !(error instanceof PlatformResourceChangedError && error.resourceKey === current.key)
@@ -914,7 +928,10 @@ export async function runPurgeResourcesTeardown(
         if (!(await prove(current))) {
           break;
         }
-        const zoneId = emailRoutingZone(next)!;
+        const zoneId = emailRoutingZone(next);
+        if (!zoneId) {
+          throw new Error('platform: Cannot verify Email Routing without its zone.');
+        }
         const hint =
           'Check the Email Routing rules for this zone in the Cloudflare dashboard. Never disable Email Routing for the zone.';
         try {

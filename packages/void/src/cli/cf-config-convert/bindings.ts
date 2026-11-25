@@ -11,8 +11,8 @@ import {
   objectFromRecord,
   optionsFromRecord,
   toOutputValue,
-  type UnknownRecord,
 } from './converter-helpers.ts';
+import type { UnknownRecord } from './converter-helpers.ts';
 import { WORKFLOW_SETTINGS, isLocalWorkflow } from './exports.ts';
 import {
   DURABLE_OBJECT_EXPORTS_DOCS_URL,

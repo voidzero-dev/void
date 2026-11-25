@@ -1,5 +1,6 @@
 import { getContext } from 'svelte';
-import { idleNavigationState, type NavigationState } from 'void/pages-client';
+import { idleNavigationState } from 'void/pages-client';
+import type { NavigationState } from 'void/pages-client';
 
 export function useNavigation(): NavigationState {
   const ctx = getContext<{ value: NavigationState }>('__void_navigation');

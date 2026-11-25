@@ -12,7 +12,8 @@ import { renderHeadToString } from '../../src/pages/head.ts';
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { scanPages } from '../../src/pages/scan.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
-import { defineHandler, type CloudEnv } from '../../src/runtime/handler/index.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
+import type { CloudEnv } from '../../src/runtime/handler/index.ts';
 import { createErrorRenderer } from '../../src/runtime/routing/errors.ts';
 import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
 import { createPageGetHandler, createPagesFallback } from '../../src/runtime/routing/pages.ts';
@@ -52,6 +53,7 @@ describe('client boundary errors', () => {
         '/settings',
       );
       expect(clientPageError(error)).toEqual({ status, message });
+      // oxlint-disable-next-line typescript/no-misused-spread -- Exercise classification after the error loses its prototype.
       expect(clientPageError({ ...error, message: error.message })).toEqual({ status, message });
     },
   );

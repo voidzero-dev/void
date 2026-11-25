@@ -38,6 +38,7 @@ function errorReplacer(): (key: string, value: unknown) => unknown {
     }
     seen.add(value);
     return {
+      // oxlint-disable-next-line typescript/no-misused-spread -- Copy enumerable custom error fields into the log record.
       ...value,
       name: value.name,
       message: value.message,
@@ -49,7 +50,7 @@ function errorReplacer(): (key: string, value: unknown) => unknown {
 
 function format(message: string, boundFields: ReadonlyArray<Fields> = [], fields?: Fields): string {
   try {
-    const payload: Record<string, unknown> = Object.create(null);
+    const payload = Object.create(null) as Record<string, unknown>;
     payload.msg = message;
 
     for (const source of [...boundFields, fields]) {

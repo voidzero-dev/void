@@ -24,7 +24,7 @@ import {
   projectZeroTrust,
   users,
 } from '../../src/schema.ts';
-import type { Domain, Project } from '../../src/types.ts';
+import type { Project } from '../../src/types.ts';
 import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
 import {
   setupEnv,
@@ -36,8 +36,8 @@ import {
   cfSuccess,
   cfError,
   captureQueries,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -130,14 +130,14 @@ describe('POST /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       id: string;
       hostname: string;
       status: string;
       cname_target: string;
       ownership_verification?: { name: string; value: string };
       ssl_validation_records?: Array<{ txt_name?: string; txt_value?: string }>;
-    };
+    }>();
     expect(body.id).toMatch(/^dom_/);
     expect(body.hostname).toBe('app.example.com');
     expect(body.status).toBe('pending');
@@ -401,10 +401,10 @@ describe('POST /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       hostname: string;
       ownership_verification?: { name: string; value: string };
-    };
+    }>();
     expect(body.hostname).toBe('orphan.example.com');
     expect(body.ownership_verification?.value).toBe('orphan-ownership-token');
 
@@ -446,7 +446,7 @@ describe('POST /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(429);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('rate limit exceeded');
 
     const [row] = await env.db
@@ -477,7 +477,7 @@ describe('POST /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('Duplicate custom hostname found.');
 
     const [row] = await env.db
@@ -521,7 +521,7 @@ describe('POST /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('Duplicate custom hostname found.');
 
     const [row] = await env.db
@@ -561,7 +561,7 @@ describe('POST /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('Duplicate custom hostname found.');
 
     const [row] = await env.db
@@ -683,7 +683,7 @@ describe('POST /projects/:id/domains', () => {
 
     const added = await addDomain('www.example.com');
     expect(added.status).toBe(200);
-    const body = (await added.json()) as { cname_target: string };
+    const body = await added.json<{ cname_target: string }>();
     expect(body.cname_target).toBe('cname.apps.example.com');
   });
 
@@ -733,7 +733,7 @@ describe('POST /projects/:id/domains', () => {
 
     expect(res.status).toBe(400);
     expect(res.headers.get('content-type')).toContain('application/json');
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('hostname is not a valid domain');
 
     // No orphan DB row when CF rejects.
@@ -771,7 +771,7 @@ describe('POST /projects/:id/domains', () => {
 
     expect(res.status).toBe(500);
     expect(res.headers.get('content-type')).toContain('application/json');
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toBe('Internal Server Error');
     // The raw exception message must NOT appear in the wire response.
     expect(JSON.stringify(body)).not.toContain('hunter2');
@@ -809,7 +809,7 @@ describe('POST /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toBe('Internal Server Error');
 
     // Still no orphan DB row.
@@ -855,7 +855,7 @@ describe('POST /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toBe('Internal Server Error');
     // CF auth text MUST NOT leak in the wire body.
     expect(JSON.stringify(body)).not.toContain('Authentication');
@@ -898,7 +898,7 @@ describe('POST /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(429);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('rate limit exceeded');
   });
 });
@@ -931,7 +931,7 @@ describe('GET /projects/:id/domains', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ hostname: string; status: string }>;
+    const body = await res.json<Array<{ hostname: string; status: string }>>();
     expect(body).toHaveLength(2);
     expect(body[0].hostname).toBe('a.example.com');
     expect(body[1].hostname).toBe('b.example.com');
@@ -984,14 +984,14 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       hostname: string;
       status: string;
       cname_target: string;
       ssl_status: string;
       ownership_verification?: { name: string; value: string };
       ssl_validation_records?: Array<{ txt_name?: string; txt_value?: string }>;
-    };
+    }>();
     expect(body.hostname).toBe('status.example.com');
     expect(body.status).toBe('pending');
     expect(body.cname_target).toBe('cname.void.app');
@@ -1038,7 +1038,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string };
+    const body = await res.json<{ status: string }>();
     expect(body.status).toBe('active');
 
     const [row] = await env.db
@@ -1105,11 +1105,11 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       status: string;
       ssl_status: string;
       ssl_validation_records?: Array<{ txt_name?: string; txt_value?: string }>;
-    };
+    }>();
     // Response status reflects the gate, not CF's raw status.
     expect(body.status).toBe('pending');
     expect(body.ssl_status).toBe('pending_validation');
@@ -1166,7 +1166,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('active');
+    expect((await res.json<{ status: string }>()).status).toBe('active');
 
     const [row] = await env.db
       .select({ status: domains.status })
@@ -1224,7 +1224,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('pending');
+    expect((await res.json<{ status: string }>()).status).toBe('pending');
 
     const [row] = await env.db
       .select({ status: domains.status })
@@ -1274,7 +1274,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('active');
+    expect((await res.json<{ status: string }>()).status).toBe('active');
 
     const [row] = await env.db
       .select({ status: domains.status })
@@ -1315,7 +1315,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { cf_status: string };
+    const body = await res.json<{ cf_status: string }>();
     expect(body.cf_status).toBe('pending_validation');
   });
 
@@ -1348,7 +1348,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; awaiting_deployment: boolean };
+    const body = await res.json<{ status: string; awaiting_deployment: boolean }>();
     expect(body.awaiting_deployment).toBe(true);
     expect(body.status).toBe('pending');
 
@@ -1395,7 +1395,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; awaiting_deployment: boolean };
+    const body = await res.json<{ status: string; awaiting_deployment: boolean }>();
     expect(body.awaiting_deployment).toBe(false);
     expect(body.status).toBe('active');
 
@@ -1437,7 +1437,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { awaiting_deployment: boolean };
+    const body = await res.json<{ awaiting_deployment: boolean }>();
     expect(body.awaiting_deployment).toBe(false);
   });
 
@@ -1477,7 +1477,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('pending');
+    expect((await res.json<{ status: string }>()).status).toBe('pending');
 
     const [row] = await env.db
       .select({ status: domains.status })
@@ -1522,7 +1522,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('pending');
+    expect((await res.json<{ status: string }>()).status).toBe('pending');
 
     // CF was still polled (GET), but no PATCH was issued from the status route.
     const getCalls = fetchMock.mock.calls.filter((call: Array<unknown>) => {
@@ -1575,7 +1575,7 @@ describe('GET /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: string }).status).toBe('active');
+    expect((await res.json<{ status: string }>()).status).toBe('active');
 
     // No PATCH — the gate is already satisfied.
     const patchCalls = fetchMock.mock.calls.filter((call: Array<unknown>) => {
@@ -1697,7 +1697,7 @@ describe('DELETE /projects/:id/domains/:domainId', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; warnings: Array<string> };
+    const body = await res.json<{ ok: boolean; warnings: Array<string> }>();
     expect(body.ok).toBe(true);
     expect(body.warnings).toHaveLength(1);
     expect(body.warnings[0]).toContain('CF API down');
@@ -1911,7 +1911,7 @@ describe('scheduled() — stale pending domain janitor', () => {
     const activation = await tryActivateDomain(
       bindings,
       env.db,
-      pendingDomain as unknown as Domain,
+      pendingDomain,
       project as unknown as Project,
     );
     expect(activation).toMatchObject({ activated: false, awaitingDeployment: true });
@@ -2942,7 +2942,7 @@ describe('scheduled() — cron-driven auto-activation reconciliation', () => {
     const result = await tryActivateDomain(
       makeBindings(env),
       env.db,
-      pendingRow as unknown as Domain,
+      pendingRow,
       project as unknown as Project,
     );
 

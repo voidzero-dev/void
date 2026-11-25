@@ -85,6 +85,7 @@ export type UploadProgress = Readonly<{
 /** A stream that remembers the first failure of the sources it reads. */
 export type TrackedStream = Readonly<{
   stream: ReadableStream<Uint8Array>;
+  // oxlint-disable-next-line quality/no-unknown-returns -- Keep the source rejection unchanged for the upload's error handling.
   failure(): unknown;
   /**
    * Stop reading and cancel every open source, including those opened ahead.
@@ -104,7 +105,7 @@ export function blobWorkerModule(name: string, content: Blob): WorkerModule {
     name,
     type: content.type,
     size: content.size,
-    open: async () => content.stream() as ReadableStream<Uint8Array>,
+    open: async () => content.stream(),
   };
 }
 
@@ -124,7 +125,12 @@ export function r2WorkerModule(
       if (!object) {
         throw new WorkerModuleIntegrityError(errors.missing);
       }
-      return verifiedStream(object.body, module.size, module.sha256, errors.changed);
+      return verifiedStream(
+        object.body as ReadableStream<Uint8Array>,
+        module.size,
+        module.sha256,
+        errors.changed,
+      );
     },
   };
 }
@@ -223,7 +229,7 @@ function sequence(
 
   const fill = () => {
     while (!canceled && nextToOpen < pieces.length) {
-      const piece = pieces[nextToOpen]!;
+      const piece = pieces[nextToOpen];
       if (piece instanceof Uint8Array) {
         nextToOpen++;
         continue;
@@ -293,6 +299,7 @@ function sequence(
         try {
           for (;;) {
             if (canceled) {
+              // oxlint-disable-next-line typescript/only-throw-error -- Streams propagate the original cancellation reason, which may be any value.
               throw released();
             }
             if (reader) {
@@ -309,15 +316,16 @@ function sequence(
               return;
             } else {
               const at = index++;
-              const piece = pieces[at]!;
+              const piece = pieces[at];
               if (piece instanceof Uint8Array) {
                 enqueue(controller, piece);
                 return;
               }
               sourcesStarted++;
               let opened: Promise<ReadableStream<Uint8Array>>;
-              if (ahead[0]?.index === at) {
-                const entry = ahead.shift()!;
+              const entry = ahead[0];
+              if (entry?.index === at) {
+                ahead.shift();
                 aheadBytes -= entry.size;
                 opened = entry.opened;
               } else {
@@ -328,6 +336,7 @@ function sequence(
               if (canceled) {
                 // Released while it opened: nothing else will cancel it.
                 stream.cancel(releaseReason).catch(noop);
+                // oxlint-disable-next-line typescript/only-throw-error -- Streams propagate the original cancellation reason, which may be any value.
                 throw released();
               }
               reader = stream.getReader();
@@ -440,9 +449,10 @@ export function uploadWatchdog(
     const state = progress();
     let kind: UploadTimeout = 'deadline';
     let at = limits.deadline;
-    const limit: [UploadTimeout, number] = state.done
-      ? ['response', state.doneAt! + limits.responseMs]
-      : ['idle', state.lastProgressAt + limits.idleMs];
+    const limit: [UploadTimeout, number] =
+      state.done && state.doneAt !== undefined
+        ? ['response', state.doneAt + limits.responseMs]
+        : ['idle', state.lastProgressAt + limits.idleMs];
     if (limit[1] < at) {
       [kind, at] = limit;
     }
@@ -486,7 +496,7 @@ export function withKnownLength(
   stream.pipeTo(fixed.writable).catch(() => {
     // The readable side reports the failed pipe to whoever reads it.
   });
-  return fixed.readable as ReadableStream<Uint8Array>;
+  return fixed.readable;
 }
 
 /** Every object under `prefix`, keyed by its full key, in paginated listings. */

@@ -20,4 +20,4 @@ type FetchErrorConstructor = new <T = unknown>(
   opts?: { cause: unknown },
 ) => FetchError<T>;
 
-export const FetchError = OFetchError as unknown as FetchErrorConstructor;
+export const FetchError = OFetchError as FetchErrorConstructor;

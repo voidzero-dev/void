@@ -1,4 +1,5 @@
-import { parsePlatformLoginConfiguration, type PlatformLoginConfiguration } from '@void/platform';
+import { parsePlatformLoginConfiguration } from '@void/platform';
+import type { PlatformLoginConfiguration } from '@void/platform';
 import { and, eq, sql } from 'drizzle-orm';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db } from '../db.ts';
@@ -84,7 +85,17 @@ export async function lockAuthSettings(db: Db): Promise<AuthSettings | null> {
 }
 
 export function loginIdentityIssuer(config: PlatformLoginConfiguration): string {
-  return config.kind === 'github' ? 'https://github.com' : config.issuer!;
+  if (config.kind === 'github') {
+    return 'https://github.com';
+  }
+  if (!config.issuer) {
+    throw new AuthenticationConfigurationError(
+      'The login provider has no issuer.',
+      'invalid_argument',
+      400,
+    );
+  }
+  return config.issuer;
 }
 
 export async function readLoginRevision(
@@ -320,6 +331,6 @@ export async function stageLoginConfiguration(
       .update(platformAuthSettings)
       .set({ revision: sql`${platformAuthSettings.revision} + 1` })
       .where(eq(platformAuthSettings.singleton, true));
-    return connection!;
+    return connection;
   });
 }

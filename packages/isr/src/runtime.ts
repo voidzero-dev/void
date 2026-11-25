@@ -19,10 +19,8 @@ import {
   SHARED_CACHE_POLICY_HEADER,
   serializeHeaders,
   shouldBypassIsr,
-  type IsrCacheEntry,
-  type IsrCacheMetadata,
-  type QueryAllowlist,
 } from './core.ts';
+import type { IsrCacheEntry, IsrCacheMetadata, QueryAllowlist } from './core.ts';
 import { isrCacheKey, isrCachePrefix, isrCacheVariantPrefix, isrEdgeCacheUrl } from './index.ts';
 
 export {

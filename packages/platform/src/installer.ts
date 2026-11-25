@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, isAbsolute, join, resolve } from 'pathslash';
+import { isAbsolute, join, resolve } from 'pathslash';
 import {
   isRecord,
   isSandboxDrainProtocol,
@@ -133,16 +132,15 @@ export function parsePlatformRuntimeManifest(value: unknown): PlatformRuntimeMan
   if (artifactsValue.emailGateway !== undefined && root.emailProtocolVersion !== 1) {
     throw new Error('An emailGateway runtime artifact requires email protocol version 1.');
   }
-  const artifactNames = [
-    'api',
-    'dispatch',
-    'proxy',
-    'tail',
-    ...(artifactsValue.emailGateway === undefined ? [] : ['emailGateway']),
-  ] as const;
-  const artifacts = Object.fromEntries(
-    artifactNames.map((name) => [name, parseArtifact(artifactsValue[name], name)]),
-  ) as PlatformRuntimeManifest['artifacts'];
+  const artifacts = {
+    api: parseArtifact(artifactsValue.api, 'api'),
+    dispatch: parseArtifact(artifactsValue.dispatch, 'dispatch'),
+    proxy: parseArtifact(artifactsValue.proxy, 'proxy'),
+    tail: parseArtifact(artifactsValue.tail, 'tail'),
+    ...(artifactsValue.emailGateway === undefined
+      ? {}
+      : { emailGateway: parseArtifact(artifactsValue.emailGateway, 'emailGateway') }),
+  } satisfies PlatformRuntimeManifest['artifacts'];
   let assets: PlatformRuntimeManifest['assets'];
   if (root.assets !== undefined) {
     const assetsValue = record(root.assets, 'runtime manifest assets');
@@ -288,7 +286,7 @@ function usageProtocolVersion(value: unknown): 0 | 1 | 2 {
 }
 
 export function getPlatformRuntimeDirectory(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), 'runtime');
+  return join(import.meta.dirname, 'runtime');
 }
 
 export function readPlatformRuntimeManifest(
@@ -316,6 +314,7 @@ export function resolvePlatformRuntime(
   } catch (error) {
     throw new Error(
       `Void Platform runtime directory is unavailable at ${requestedDirectory}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
   const { contents, manifest } = readRuntimeManifestFile(join(directory, 'manifest.json'));
@@ -327,10 +326,7 @@ export function resolvePlatformRuntime(
   };
 }
 
-function readRuntimeManifestFile(path: string): {
-  contents: Buffer;
-  manifest: PlatformRuntimeManifest;
-} {
+function readRuntimeManifestFile(path: string) {
   try {
     const contents = readFileSync(path);
     return {
@@ -340,6 +336,7 @@ function readRuntimeManifestFile(path: string): {
   } catch (error) {
     throw new Error(
       `Void Platform deployment artifacts are missing or invalid at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }

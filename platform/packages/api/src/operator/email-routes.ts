@@ -2,7 +2,8 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { capabilityMiddleware } from '../capabilities.ts';
-import { getProject, getProjectBySlug, type Db } from '../db.ts';
+import { getProject, getProjectBySlug } from '../db.ts';
+import type { Db } from '../db.ts';
 import {
   emailActionRecipients,
   emailProjectControls,
@@ -54,8 +55,8 @@ import {
   repairEmailRecipientPolicyMirror,
   setEmailDomainManagement,
   setEmailRecipientPolicy,
-  type EmailRecipientPolicy,
 } from '../email/settings.ts';
+import type { EmailRecipientPolicy } from '../email/settings.ts';
 import {
   inspectSharedEmailRecipientRecovery,
   resolveSharedEmailRecipientCreation,
@@ -595,7 +596,7 @@ async function operatorResult(
   action: string,
   target: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const body = (await response.json()) as Record<string, unknown>;
+  const body = await response.json<Record<string, unknown>>();
   if (!response.ok) {
     const message =
       typeof body.error === 'string' && body.error !== ''
@@ -745,7 +746,7 @@ export async function addOperatorEmailDomain(
 export async function getOperatorEmailDomain(context: Context<ApiEnv>, rawDomain: string) {
   const { row, project } = await requireDomainRow(context.get('db'), rawDomain);
   const response = await getEmailDomainStatusForProject(context, project, row.domain);
-  const body = (await response.json()) as Record<string, unknown>;
+  const body = await response.json<Record<string, unknown>>();
   if (!response.ok) {
     throw new OperatorError(response.status, String(body.error ?? 'status failed'));
   }

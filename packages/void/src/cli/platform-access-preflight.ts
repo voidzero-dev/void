@@ -1,8 +1,5 @@
-import {
-  parsePlatformAccessProtection,
-  type PlatformAccessProtection,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { parsePlatformAccessProtection } from '@void/platform';
+import type { PlatformAccessProtection, PlatformInstallationManifest } from '@void/platform';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import {
   inspectPlatformAccess,
@@ -11,8 +8,8 @@ import {
   platformAccessOverlapsOrigins,
   platformAccessPublicDestinations,
   verifyPlatformAccessApplication,
-  type PlatformAccessCheckpoint,
 } from './platform-access-provision.ts';
+import type { PlatformAccessCheckpoint } from './platform-access-provision.ts';
 import {
   parsePlatformAccessSetupSpec,
   platformAccessResourceInventory,

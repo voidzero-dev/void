@@ -75,11 +75,11 @@ describe('WebSocket resource names', () => {
     ['chat/index.dev.ws.js', 'chat-index', 'ChatIndexWs'],
     ['API_chat/roomID.ws.mjs', 'API-chat-roomID', 'APIChatRoomIDWs'],
     ['[...].ws.ts', 'WebSocket', 'WebSocketWs'],
-    ['chat\\[room].ws.ts', 'chat-room', 'ChatRoomWs'],
+    [String.raw`chat\[room].ws.ts`, 'chat-room', 'ChatRoomWs'],
     ['chat/[room].ws.tsx', 'chat-room', 'ChatRoomWs'],
     ['chat/[room].dev.ws.jsx', 'chat-room', 'ChatRoomWs'],
     ['(admin)/API/[...IDs].prod.ws.tsx', 'API-IDs', 'APIIDsWs'],
-    ['chat\\[room].ws.jsx', 'chat-room', 'ChatRoomWs'],
+    [String.raw`chat\[room].ws.jsx`, 'chat-room', 'ChatRoomWs'],
   ])('preserves legacy identity for %s', (path, name, className) => {
     expect(inferWebSocketResourceName(path)).toBe(name);
     expect(deriveWebSocketClassName(path)).toBe(className);
@@ -92,7 +92,7 @@ describe('WebSocket resource names', () => {
       const root = createRoot();
       const file = createRoute(root, 'chat/[room].ws.ts', `export default ${helper}({})`);
       const [original] = scanWebSocketRoutesSync(root);
-      const name = inferWebSocketResourceName(original!.filePath);
+      const name = inferWebSocketResourceName(original.filePath);
       writeFileSync(file, `export default ${helper}({ name: '${name}' })`);
       expect(scanWebSocketRoutesSync(root)[0]).toEqual({ ...original, name });
       const moved = join(root, 'routes', 'rooms', '[room].ws.ts');

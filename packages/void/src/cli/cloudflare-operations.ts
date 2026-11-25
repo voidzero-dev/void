@@ -11,8 +11,8 @@ import {
   readBindingFieldPresence,
   readWranglerTopLevelString,
   resolveD1MigrateTarget,
-  type CloudflareVersionMetadata,
 } from '@void/deploy-cloudflare';
+import type { CloudflareVersionMetadata } from '@void/deploy-cloudflare';
 import { join } from 'pathslash';
 import { materializeCloudflareConfig, persistCloudflareConfig } from '../cloudflare-config.ts';
 import { createCloudflareProcessRunner } from './cloudflare-process.ts';
@@ -30,8 +30,8 @@ import {
   readWranglerPublishedTrafficSnapshot,
   writeWranglerPublishedTrafficSnapshot,
   updateWranglerCustomDomain,
-  type WranglerCustomDomain,
 } from './wrangler.ts';
+import type { WranglerCustomDomain } from './wrangler.ts';
 
 export type CloudflareOperationRunner = (
   args: CloudflareOperation,
@@ -140,7 +140,7 @@ export async function putCloudflareSecret(
     context,
     {
       type: 'secret.put',
-      name: name,
+      name,
       configPath: context.configPath,
       workerName: context.workerName,
     },
@@ -168,7 +168,7 @@ export async function deleteCloudflareSecret(
 ): Promise<void> {
   await run(context, {
     type: 'secret.delete',
-    name: name,
+    name,
     configPath: context.configPath,
     workerName: context.workerName,
   });
@@ -280,7 +280,7 @@ export async function executeCloudflareD1Sql(
 export async function readCloudflareD1Migrations(
   context: CloudflareD1Context,
 ): Promise<Array<string>> {
-  const table = context.migrationsTable.replace(/"/g, '""');
+  const table = context.migrationsTable.replaceAll('"', '""');
   try {
     const rows = await executeCloudflareD1Sql(context, `SELECT name FROM "${table}" ORDER BY name`);
     return rows
@@ -397,16 +397,21 @@ export function parseCloudflareVersions(value: unknown): Array<CloudflareWorkerV
   if (!Array.isArray(parsed)) {
     throw new Error('Cloudflare version list returned an unexpected response.');
   }
-  return parsed.map((entry, index) => {
-    if (typeof entry !== 'object' || entry === null || typeof entry.id !== 'string') {
+  return (parsed as Array<unknown>).map((entry, index) => {
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      !('id' in entry) ||
+      typeof entry.id !== 'string'
+    ) {
       throw new Error(`Cloudflare version list entry ${index + 1} is malformed.`);
     }
     const metadata =
-      typeof entry.metadata === 'object' && entry.metadata !== null
+      'metadata' in entry && typeof entry.metadata === 'object' && entry.metadata !== null
         ? (entry.metadata as Record<string, unknown>)
         : undefined;
     const annotations =
-      typeof entry.annotations === 'object' && entry.annotations !== null
+      'annotations' in entry && typeof entry.annotations === 'object' && entry.annotations !== null
         ? (entry.annotations as Record<string, unknown>)
         : undefined;
     const message =
@@ -429,7 +434,7 @@ export function parseActiveVersionId(value: unknown): string | null {
   if (!Array.isArray(deployment.versions)) {
     throw new Error('Cloudflare deployment status returned an unexpected response.');
   }
-  const versions = deployment.versions;
+  const versions = deployment.versions as Array<unknown>;
   const active = versions.find(
     (entry) =>
       typeof entry === 'object' &&
@@ -505,14 +510,14 @@ export async function activateCloudflareExistingVersion(
       versions: [{ versionId: target.id, percentage: 100 }],
       configPath: context.configPath,
       workerName: context.workerName,
-      message: message,
+      message,
     },
     { capture: false },
   );
-  const knownTriggerConfigs: Record<string, typeof targetTriggerConfig> = {
+  const knownTriggerConfigs = {
     [target.id]: targetTriggerConfig,
     [current.id]: currentTriggerConfig,
-  };
+  } satisfies Record<string, typeof targetTriggerConfig>;
   const stabilizeTriggers = (
     targetVersionId: string,
     targetConfig: typeof targetTriggerConfig,
@@ -638,7 +643,7 @@ export async function changeCloudflareDomain(
 ): Promise<{ modified: boolean; domains: Array<WranglerCustomDomain> }> {
   const context = resolveCloudflareOperationContext(root, runner);
   const before = readWranglerCustomDomains(root);
-  const original = readFileSync(before.configPath, 'utf-8');
+  const original = readFileSync(before.configPath, 'utf8');
   const update = updateWranglerCustomDomain(root, hostname, action);
   if (!update.modified) {
     return update;
@@ -665,12 +670,14 @@ export async function changeCloudflareDomain(
     try {
       await deployRoutes();
     } catch (restoreError) {
+      // oxlint-disable-next-line preserve-caught-error -- The message retains the rollout and restoration failures without attaching provider details.
       throw new Error(
         `Cloudflare rejected the domain trigger update and also rejected the automatic remote restore. ` +
           `The local Wrangler config was restored, but remote route state may be partially applied. ` +
           `${getErrorMessage(error)} Restore failed: ${getErrorMessage(restoreError)}`,
       );
     }
+    // oxlint-disable-next-line preserve-caught-error -- The message retains the rollout and restoration failures without attaching provider details.
     throw new Error(
       `Cloudflare rejected the domain trigger update; both the local config and remote triggers were restored. ${getErrorMessage(error)}`,
     );
@@ -747,13 +754,22 @@ export function createCloudflareEmptyCronPublisher(
  * this command owns and the workers.dev switches that route reconciliation
  * also evaluates.
  */
+type DomainTriggerConfig = {
+  name: string;
+  account_id: string;
+  routes: Array<unknown>;
+  workers_dev?: boolean;
+  preview_urls?: boolean;
+  compatibility_date?: string;
+};
+
 function writeDomainTriggerConfig(
   context: CloudflareOperationContext,
   sourceConfigPath: string,
   triggerConfigPath: string,
 ): void {
   const source = parseRootWranglerConfig(sourceConfigPath);
-  const config: Record<string, unknown> = {
+  const config: DomainTriggerConfig = {
     name: context.workerName,
     account_id: context.accountId,
     routes: Array.isArray(source.routes) ? source.routes : [],
@@ -783,7 +799,7 @@ async function run(
   );
   if (
     result.status !== 0 ||
-    result.signal != null ||
+    (result.signal !== null && result.signal !== undefined) ||
     (result.error !== undefined && result.error !== null && result.error !== '')
   ) {
     const detail = result.stderr.trim() || result.stdout.trim() || result.error || 'unknown error';
@@ -829,7 +845,7 @@ function assertNoOperationConfigOverride(root: string): void {
   }
 }
 
-function requireData(value: unknown, label: string): unknown {
+function requireData<Data>(value: Data, label: string) {
   if (value === undefined) {
     throw new Error(label + ' did not return structured data.');
   }

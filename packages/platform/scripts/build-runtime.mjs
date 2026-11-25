@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { basename, dirname, join } from 'pathslash';
 import { buildSandboxController } from '../../../platform/packages/api/scripts/build-sandbox-controller.mjs';
 
-const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const packageRoot = join(import.meta.dirname, '..');
 const repositoryRoot = join(packageRoot, '..', '..');
 const runtimeRoot = join(packageRoot, 'dist', 'runtime');
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'void-platform-runtime-'));
@@ -204,6 +204,7 @@ function buildDatabaseManifest() {
     } catch (error) {
       throw new Error(
         `Void Platform migration ${tag} is missing: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
     return {
@@ -224,18 +225,20 @@ function buildDatabaseManifest() {
 }
 
 function parseObjectJson(contents, path) {
+  /** @type {unknown} */
   let value;
   try {
     value = JSON.parse(contents.toString('utf8'));
   } catch (error) {
     throw new Error(
       `Void Platform metadata is invalid at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`Void Platform metadata at ${path} must be an object.`);
   }
-  return value;
+  return /** @type {Record<string, unknown>} */ (value);
 }
 
 function sha256(value) {

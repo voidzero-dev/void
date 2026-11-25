@@ -2,20 +2,25 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, relative } from 'pathslash';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin } from 'vite';
 import { DRIZZLE_OPERATORS, generateDbDts } from './codegen/db-types.ts';
-import { ensureProjectTsconfig } from './codegen/project-tsconfig.ts';
+import {
+  AUTH_SCHEMA_FILE,
+  AUTH_SCHEMA_ID,
+  ensureProjectTsconfig,
+} from './codegen/project-tsconfig.ts';
 import {
   getDatabaseCasing,
   getDatabaseDialect,
   readConfig,
   resolveBindingNames,
-  type DatabaseCasing,
-  type VoidConfig,
 } from './config.ts';
+import type { DatabaseCasing, VoidConfig } from './config.ts';
 import { discoverSchema } from './drizzle/discover.ts';
 import { voidWarn } from './log.ts';
-import { readProjectPaths, resolveProjectPaths, type ProjectPaths } from './project-paths.ts';
+import { readProjectPaths, resolveProjectPaths } from './project-paths.ts';
+import type { ProjectPaths } from './project-paths.ts';
 
 // Resolve drizzle-orm paths from void's own deps so they work in any project
 // (including metaframeworks where drizzle-orm isn't a direct dependency).
@@ -84,7 +89,7 @@ function createVoidDbModule(
   // It cannot apply `database.casing` either, which also names the columns of tables that an
   // app keeps outside its schema.
   const hasDbRuntime =
-    schema != null ||
+    (schema !== null && schema !== undefined) ||
     options.forceVirtualDb === true ||
     options.casing !== undefined ||
     dialect !== 'sqlite';
@@ -130,10 +135,17 @@ function createVoidDbModule(
         }
         return join(schema.path, id.slice('@schema/'.length));
       }
+
+      // `@auth-schema` is the auth tables Void generates, for foreign keys from the app's
+      // own tables. Resolved here like `@schema`, so dev and builds need no tsconfig `paths`
+      // or `resolve.tsconfigPaths` for it (the type side is in .void/tsconfig.json).
+      if (id === AUTH_SCHEMA_ID) {
+        return join(root, '.void', AUTH_SCHEMA_FILE);
+      }
     },
 
     load: {
-      // oxlint-disable-next-line no-control-regex -- \0 prefix is Vite's virtual module convention
+      // \0 prefix is Vite's virtual module convention
       filter: { id: /^\0virtual:void-db(?:-schema)?$/ },
       handler(id: string): string {
         if (id === VIRTUAL_SCHEMA_DB_ID) {
@@ -371,10 +383,16 @@ export function drizzlePlugin(
   const { schema, hasDbRuntime } = dbModule;
 
   // Always write tsconfig (for routes.d.ts, queues.d.ts, etc.)
-  ensureProjectTsconfig(root, hasRouteTypes, hasDbRuntime, schema != null, {
-    redirectDbModule: options.redirectDbTypePaths,
-    paths,
-  });
+  ensureProjectTsconfig(
+    root,
+    hasRouteTypes,
+    hasDbRuntime,
+    schema !== null && schema !== undefined,
+    {
+      redirectDbModule: options.redirectDbTypePaths,
+      paths,
+    },
+  );
 
   // Generate db.d.ts when void/db is available, even without a user schema.
   if (hasDbRuntime) {
@@ -400,7 +418,7 @@ export function drizzlePlugin(
     },
 
     resolveId: {
-      filter: { id: /^(void\/db|@schema)/ },
+      filter: { id: /^(void\/db|@schema|@auth-schema$)/ },
       handler(id, importer) {
         // Only intercept void/db in server/worker environments (not client)
         if (id === 'void/db' && this.environment?.name === 'client') {
@@ -509,7 +527,13 @@ export function voidDbBundlerPlugin(
         const resolved = await this.resolve(id, importer, {
           ...resolveOptions,
           skipSelf: true,
-          custom: { ...custom, 'node-resolve': { ...custom?.['node-resolve'], isRequire: true } },
+          custom: {
+            ...custom,
+            'node-resolve': {
+              ...(custom?.['node-resolve'] as Record<string, unknown> | undefined),
+              isRequire: true,
+            },
+          },
         });
         const entry =
           resolved && !resolved.external

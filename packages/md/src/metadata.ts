@@ -49,9 +49,12 @@ export type MetadataResult = Readonly<{
   title: string;
 }>;
 
-export function parseFrontmatter(
-  source: string,
-): Readonly<{ frontmatter: Record<string, unknown>; content: string }> {
+type FrontmatterDocument = Readonly<{
+  frontmatter: Record<string, unknown>;
+  content: string;
+}>;
+
+export function parseFrontmatter(source: string): FrontmatterDocument {
   try {
     // Passing options skips gray-matter's cache. It stores a source before parsing it,
     // so without them a second read of invalid frontmatter returns empty data and

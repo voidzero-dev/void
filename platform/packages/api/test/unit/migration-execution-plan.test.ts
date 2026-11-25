@@ -18,7 +18,7 @@ async function buildPlan(input: {
     dialect: 'sqlite',
     kind: input.kind,
     name: input.name,
-    sqlHash: await sha256Hex(input.sql.replace(/\r\n?/g, '\n')),
+    sqlHash: await sha256Hex(input.sql.replaceAll(/\r\n?/g, '\n')),
     stability: input.stability,
   };
   if (input.kind === 'breakpoint-framed') {

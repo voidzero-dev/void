@@ -1,5 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth';
+import { betterAuth } from 'better-auth';
+import type { BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { createAuthMiddleware } from 'better-auth/api';
 import type { Context } from 'hono';
 import type { VoidAuthMigrationSchema } from '../../auth/drizzle.ts';
@@ -8,11 +9,12 @@ import {
   getVoidAuthProviderEnvNames,
   getVoidAuthProviderSettingEnvNames,
   isVoidSocialAuthProvider,
-  type VoidAuthProvider,
-  type VoidSocialAuthProvider,
 } from '../../auth/providers.ts';
+import type { VoidAuthProvider, VoidSocialAuthProvider } from '../../auth/providers.ts';
+import { Buffer } from '../../cli/node-buffer.ts';
 import { isUnchangedStaticAsset } from '../routing/static-asset-marker.ts';
-import { authContext, type AuthState, type VoidAuthConfig } from './index.ts';
+import { authContext } from './index.ts';
+import type { AuthState, VoidAuthConfig } from './index.ts';
 import { SHARED_CACHE_HEADERS, authDependentRequests } from './response.ts';
 
 export type VoidAuthDialect = 'sqlite' | 'postgresql' | 'mysql';
@@ -45,35 +47,41 @@ type VoidAuthPasswordOptions = PasswordOptions & {
 
 export type VoidAuthRuntimeApi = {
   resolveVoidAuthOptions(
+    this: void,
     request: Request,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<BetterAuthOptions>;
   createVoidAuth(
+    this: void,
     request: Request,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<ReturnType<typeof betterAuth>>;
   resolveVoidAuthState(
+    this: void,
     request: Request,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<AuthState | null>;
   runVoidAuthMiddleware(
+    this: void,
     c: Context,
     next: () => Promise<void>,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<void>;
   handleVoidAuthRequest(
+    this: void,
     c: Context,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<Response>;
   runVoidAuthMigrations(
+    this: void,
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     migrationSchema: VoidAuthMigrationSchema,
@@ -235,7 +243,7 @@ function assertSocialProviderSettings(
 
 /** `a`, `a and b`, `a, b and c`. */
 function joinNames(names: Array<string>): string {
-  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]!;
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
 }
 
 function resolveSocialProviders(
@@ -379,16 +387,19 @@ function setsAuthCookie(
 }
 
 export function privateCachePolicy(policy: string | null): string {
-  const directives = splitCacheDirectives(policy ?? '');
+  if (policy === null) {
+    return 'private, no-store';
+  }
+  const directives = splitCacheDirectives(policy);
   if (directives.length === 0) {
     return 'private, no-store';
   }
   const lowered = directives.map((directive) => directive.toLowerCase());
   if (lowered.includes('private') || lowered.includes('no-store')) {
-    return policy!;
+    return policy;
   }
   const kept = directives.filter((_directive, index) => {
-    const directive = lowered[index]!;
+    const directive = lowered[index];
     const equals = directive.indexOf('=');
     const name = (equals === -1 ? directive : directive.slice(0, equals)).trim();
     return !['public', 'proxy-revalidate', 's-maxage', 'private'].includes(name);
@@ -413,7 +424,10 @@ function splitCacheDirectives(policy: string): Array<string> {
     }
   }
   directives.push(policy.slice(start));
-  return directives.map((directive) => directive.trim()).filter(Boolean);
+  return directives.flatMap((directive) => {
+    const value = directive.trim();
+    return value ? [value] : [];
+  });
 }
 
 function resolveUserConfig(
@@ -448,17 +462,19 @@ function resolveUserConfig(
   return mergeEmailAndPasswordDefaults({ ...defaults, ...userConfig });
 }
 
+type CookieForwarder = {
+  plugin: BetterAuthPlugin;
+  start(): void;
+  cookies(): Array<string>;
+};
+
 /**
  * Collects cookies that `auth.api.*` calls set while a request runs. Router
  * calls (`auth.handler`) return their cookies on their own response. Better
  * Auth runs plugin `after` hooks in array order, so the plugin goes last to
  * see cookies set by earlier hooks.
  */
-function createCookieForwarder(): {
-  plugin: BetterAuthPlugin;
-  start(): void;
-  cookies(): Array<string>;
-} {
+function createCookieForwarder(): CookieForwarder {
   let collecting = false;
   const cookies: Array<string> = [];
   const plugin: BetterAuthPlugin = {
@@ -712,6 +728,7 @@ export function createVoidAuthRuntime(
       baseURL: origin,
       basePath: '/api/auth',
       secret: resolveSecret(env, runtime.dev === true),
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- The package typecheck resolves Better Auth's database options.
       database,
       ...(emailAndPassword ? { emailAndPassword } : {}),
       ...(socialProviders ? { socialProviders } : {}),
@@ -755,7 +772,7 @@ export function createVoidAuthRuntime(
       returnHeaders: true,
     });
 
-    return (result.response ?? null) as AuthState | null;
+    return result.response ?? null;
   }
 
   async function runVoidAuthMiddleware(
@@ -786,7 +803,7 @@ export function createVoidAuthRuntime(
       returnHeaders: true,
     });
 
-    const state = (result.response ?? null) as AuthState | null;
+    const state = result.response ?? null;
     c.set('user', state?.user ?? null);
     c.set('session', state?.session ?? null);
 

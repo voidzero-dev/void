@@ -15,6 +15,10 @@ import { CODE_COPY_SCRIPT, preWrapperPlugin } from './plugins/pre-wrapper.ts';
 import { taskListPlugin } from './plugins/task-lists.ts';
 import { tocPlugin } from './plugins/toc.ts';
 
+interface MarkdownRenderEnvironment {
+  codeCopy?: boolean;
+}
+
 export type Heading = Readonly<{
   depth: number;
   slug: string;
@@ -55,6 +59,16 @@ async function getCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   return compilerPromise;
 }
 
+// Save the raw fence info (e.g. `ts {1,3-5}`) before `markdown-it-attrs` strips the
+// `{…}`, so the highlighter still gets the line ranges.
+const stashFenceInfo: RuleCore = (state) => {
+  for (const token of state.tokens) {
+    if (token.type === 'fence') {
+      token.meta = { ...(token.meta as Record<string, unknown> | undefined), rawInfo: token.info };
+    }
+  }
+};
+
 async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   const markdown = new MarkdownExit({ html: true, linkify: true });
 
@@ -79,16 +93,6 @@ async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   markdown.use(linkPlugin);
   markdown.use(lineNumberPlugin);
   markdown.use(gitHubAlertsPlugin);
-
-  // Save the raw fence info (e.g. `ts {1,3-5}`) before `markdown-it-attrs` strips the
-  // `{…}`, so the highlighter still gets the line ranges.
-  const stashFenceInfo: RuleCore = (state) => {
-    for (const token of state.tokens) {
-      if (token.type === 'fence') {
-        token.meta = { ...token.meta, rawInfo: token.info };
-      }
-    }
-  };
   markdown.core.ruler.after('block', 'stash_fence_info', stashFenceInfo);
 
   markdown.use(attrs);
@@ -111,7 +115,7 @@ export async function compile(source: string, options?: CompileOptions): Promise
   const { frontmatter, content } = parseFrontmatter(source);
   const compiler = await getCompiler(options);
 
-  const env: { codeCopy?: boolean } = {};
+  const env: MarkdownRenderEnvironment = {};
   const tokens = compiler.parse(content, env);
   const headings = extractHeadings(tokens);
   let html = await compiler.renderer.renderAsync(tokens, compiler.options, env);

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 // Dev-only Vite plugin: owns the in-memory email buffer and serves
 // `/__void/inbox` routes for browsing captured messages. Activated when
 // binding inference detected `void/email` usage.
@@ -11,9 +12,8 @@
 // only rejects DNS-rebinding hostnames: any IP-literal `Host` passes, so with
 // `--host` (or a shared port) every peer on the network could otherwise read
 // raw MIME (Bcc, attachments), clear the buffer, or plant captures.
-
-import { timingSafeEqual } from 'node:crypto';
 import type { Plugin } from 'vite';
+import { Buffer } from './cli/node-buffer.ts';
 import { voidLog } from './log.ts';
 import { afterServerReady } from './plugin-dev-config.ts';
 import {
@@ -29,8 +29,8 @@ import {
   listDevMessages,
   parseCapturedMessage,
   pushToDevBuffer,
-  type CapturedMessage,
 } from './runtime/email/dev-inbox.ts';
+import type { CapturedMessage } from './runtime/email/dev-inbox.ts';
 
 const SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
@@ -68,7 +68,7 @@ export function emailDevInboxPlugin(options: EmailDevInboxPluginOptions): Plugin
       const printInboxUrl = () => {
         const address = server.httpServer?.address();
         const port = typeof address === 'object' && address ? address.port : null;
-        if (port == null) {
+        if (port === null || port === undefined) {
           return;
         }
         voidLog(`Email inbox: http://localhost:${port}${inboxHref('')}`);
@@ -126,7 +126,7 @@ export function emailDevInboxPlugin(options: EmailDevInboxPluginOptions): Plugin
         if (wantsRaw) {
           // The id arrives in the capture payload; strip quotes and line
           // breaks before it goes into a header value.
-          const safeId = id.replace(/["\r\n]/g, '');
+          const safeId = id.replaceAll(/["\r\n]/g, '');
           res.writeHead(200, {
             ...SECURITY_HEADERS,
             'Content-Type': 'message/rfc822',
@@ -167,8 +167,8 @@ interface CaptureRequest extends AsyncIterable<Uint8Array | string> {
   headers: Record<string, string | Array<string> | undefined>;
 }
 interface CaptureResponse {
-  writeHead(status: number, headers?: Record<string, string>): unknown;
-  end(chunk?: string | Buffer): unknown;
+  writeHead(status: number, headers?: Record<string, string>): void;
+  end(chunk?: string | Buffer): void;
 }
 
 /**
@@ -228,11 +228,11 @@ async function handleCapture(req: CaptureRequest, res: CaptureResponse): Promise
 
 function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function formatAddress(a: { email: string; name?: string }): string {

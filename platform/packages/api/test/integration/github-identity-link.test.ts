@@ -7,7 +7,8 @@ import {
 } from '../../src/db.ts';
 import type { Db } from '../../src/db.ts';
 import { oauthAccounts } from '../../src/schema.ts';
-import { clearTables, createTestUser, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { clearTables, createTestUser, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -48,9 +49,9 @@ describe('linkGitHubIdentity', () => {
 
     const rows = await getGitHubRows(env.db, '12345');
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.provider).toBe('github');
-    expect(rows[0]!.provider_id).toBe('12345');
-    expect(rows[0]!.user_id).toBe(user.id);
+    expect(rows[0].provider).toBe('github');
+    expect(rows[0].provider_id).toBe('12345');
+    expect(rows[0].user_id).toBe(user.id);
   });
 
   it('is idempotent on re-link (no duplicate row)', async () => {
@@ -64,7 +65,7 @@ describe('linkGitHubIdentity', () => {
 
     const rows = await getGitHubRows(env.db, '12345');
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.user_id).toBe(user.id);
+    expect(rows[0].user_id).toBe(user.id);
   });
 
   it('throws GitHubIdentityConflictError when the identity belongs to another user', async () => {
@@ -81,7 +82,7 @@ describe('linkGitHubIdentity', () => {
     // Ownership is unchanged — the identity still belongs to user A.
     const rows = await getGitHubRows(env.db, '12345');
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.user_id).toBe(userA.id);
+    expect(rows[0].user_id).toBe(userA.id);
   });
 
   it('throws GitHubIdentityAlreadyLinkedError when the same user links a different identity', async () => {
@@ -99,7 +100,7 @@ describe('linkGitHubIdentity', () => {
     // No second row was created — the user still has exactly one github row ('A').
     const rows = await getGitHubRowsForUser(env.db, user.id);
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.provider_id).toBe('A');
+    expect(rows[0].provider_id).toBe('A');
 
     // 'B' was never inserted.
     expect(await getGitHubRows(env.db, 'B')).toHaveLength(0);

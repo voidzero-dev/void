@@ -1,5 +1,7 @@
-import { createDeployIntent, isR2LocationHint, type R2LocationHint } from '@void/deploy-core';
-import { getProjectResources, createResource, type Db } from '../db.ts';
+import { createDeployIntent, isR2LocationHint } from '@void/deploy-core';
+import type { R2LocationHint } from '@void/deploy-core';
+import { getProjectResources, createResource } from '../db.ts';
+import type { Db } from '../db.ts';
 import { getProjectQueueName } from '../naming.ts';
 import type { DeployManifest, Resource } from '../types.ts';
 import {
@@ -163,15 +165,17 @@ export async function provisionBindings(
   // Always inject proxy bindings — used by AI, revalidation, email, and future
   // platform features. The AI-specific usage limit check stays in the proxy
   // (/ai/* middleware).
-  bindings.push({ type: 'service', name: '__VOID_PROXY', service: aiProxyService });
-  bindings.push({ type: 'plain_text', name: '__PROJECT_ID', text: projectId });
-  bindings.push({ type: 'plain_text', name: '__VOID_PROXY_TOKEN', text: platform.proxyToken });
-  // Project slug — the SINGLE producer of `__VOID_PROJECT_SLUG`. `void/email`
-  // needs it on every worker to default an outbound `from` to
-  // `<slug>+noreply@<domain>`, and the sandbox runtime reads the same name.
-  // Emitted after the user's vars in the upload array, so it cannot be
-  // shadowed — see `reserved-bindings.ts`.
-  bindings.push({ type: 'plain_text', name: '__VOID_PROJECT_SLUG', text: platform.projectSlug });
+  bindings.push(
+    { type: 'service', name: '__VOID_PROXY', service: aiProxyService },
+    { type: 'plain_text', name: '__PROJECT_ID', text: projectId },
+    { type: 'plain_text', name: '__VOID_PROXY_TOKEN', text: platform.proxyToken },
+    // Project slug — the SINGLE producer of `__VOID_PROJECT_SLUG`. `void/email`
+    // needs it on every worker to default an outbound `from` to
+    // `<slug>+noreply@<domain>`, and the sandbox runtime reads the same name.
+    // Emitted after the user's vars in the upload array, so it cannot be
+    // shadowed — see `reserved-bindings.ts`.
+    { type: 'plain_text', name: '__VOID_PROJECT_SLUG', text: platform.projectSlug },
+  );
   if (manifest.emailProtocolVersion === 1) {
     if (!platform.deploymentId) {
       throw new Error('email delivery requires a deployment identity');

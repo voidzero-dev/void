@@ -46,8 +46,8 @@ import {
   createMockExecutionContext,
   mockCfApi,
   readAllEvents,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv & { DEPLOYMENTS_QUEUE?: Queue };
 let user: Awaited<ReturnType<typeof createTestUser>>;
@@ -150,12 +150,12 @@ async function connect(extra: Record<string, string> = {}) {
   expect(token.status).toBe(200);
   return {
     code,
-    token: (await token.json()) as {
+    token: await token.json<{
       access_token: string;
       refresh_token: string;
       scope: string;
       expires_in: number;
-    },
+    }>(),
   };
 }
 async function publishApproval(profile: string, slug: string, prepared = artifact) {
@@ -173,7 +173,7 @@ async function publishApproval(profile: string, slug: string, prepared = artifac
     }),
   });
   expect(pending.status).toBe(201);
-  const { request_id: id } = (await pending.json()) as { request_id: string };
+  const { request_id: id } = await pending.json<{ request_id: string }>();
   const opened = await request('/oauth/authorize?request=' + id, {
     headers: { Cookie: 'void_oauth_user=' + user.jwt },
   });
@@ -220,13 +220,13 @@ describe('registered OAuth applications', () => {
       Authorization: 'Bearer ' + token.access_token,
       'Content-Type': 'application/json',
     };
-    const project = (await (
+    const project = await (
       await request('/oauth/previews', {
         method: 'POST',
         headers,
         body: JSON.stringify({ workspace: 'asset-preview' }),
       })
-    ).json()) as { project_id: string };
+    ).json<{ project_id: string }>();
     const asset = {
       blake3: computeAssetHash(new TextEncoder().encode('app').buffer, '/app.js'),
       md5: 'a'.repeat(32),
@@ -261,7 +261,7 @@ describe('registered OAuth applications', () => {
         artifact: prepared,
       }),
     });
-    const receipt = (await issued.json()) as { access_token: string; approval_id: string };
+    const receipt = await issued.json<{ access_token: string; approval_id: string }>();
     const upload = (...assets: Array<typeof asset>) =>
       request('/projects/' + project.project_id + '/deploy/upload-urls', {
         method: 'POST',
@@ -296,9 +296,9 @@ describe('registered OAuth applications', () => {
     expect(token.scope).toBe('profile preview:deploy');
     const created = await create(token.access_token);
     expect(created.status).toBe(201);
-    const preview = (await created.json()) as { project_id: string };
+    const preview = await created.json<{ project_id: string }>();
     expect(
-      ((await (await create(token.access_token)).json()) as { project_id: string }).project_id,
+      (await (await create(token.access_token)).json<{ project_id: string }>()).project_id,
     ).toBe(preview.project_id);
     const [row] = await env.db.select().from(projects).where(eq(projects.id, preview.project_id));
     expect(row.preview_client_id).toBe(registration.client.id);
@@ -339,7 +339,7 @@ describe('registered OAuth applications', () => {
     failing.mockRestore();
     const created = await create('logged-preview');
     expect(created.status).toBe(201);
-    const { project_id } = (await created.json()) as { project_id: string };
+    const { project_id } = await created.json<{ project_id: string }>();
     expect(await env.ROUTING.getWithMetadata(aiLoggingKey(project_id))).toMatchObject({
       value: 'off',
       metadata: { mode: 'off' },
@@ -352,13 +352,13 @@ describe('registered OAuth applications', () => {
       Authorization: 'Bearer ' + token.access_token,
       'Content-Type': 'application/json',
     };
-    const preview = (await (
+    const preview = await (
       await request('/oauth/previews', {
         method: 'POST',
         headers,
         body: JSON.stringify({ workspace: 'checkpoint-app' }),
       })
-    ).json()) as { project_id: string; url: string };
+    ).json<{ project_id: string; url: string }>();
     const production = await createTestProject(env.db, user.id, 'production-app');
     const credential = (id: string, prepared = artifact) =>
       request('/oauth/preview-deployment-requests', {
@@ -380,7 +380,7 @@ describe('registered OAuth applications', () => {
     ).toBe(400);
     const issued = await credential(preview.project_id);
     expect(issued.status).toBe(201);
-    const approval = (await issued.json()) as { access_token: string; approval_id: string };
+    const approval = await issued.json<{ access_token: string; approval_id: string }>();
     await expect(
       verifyOAuthDeployment(
         env.db,
@@ -422,13 +422,13 @@ describe('registered OAuth applications', () => {
       Authorization: 'Bearer ' + token.access_token,
       'Content-Type': 'application/json',
     };
-    const preview = (await (
+    const preview = await (
       await request('/oauth/previews', {
         method: 'POST',
         headers,
         body: JSON.stringify({ workspace: 'ready-app' }),
       })
-    ).json()) as { project_id: string; url: string };
+    ).json<{ project_id: string; url: string }>();
     await env.db
       .update(projects)
       .set({ active_deployment_id: 'ready' })
@@ -438,7 +438,7 @@ describe('registered OAuth applications', () => {
       headers,
     });
     expect(launch.status).toBe(200);
-    const { url } = (await launch.json()) as { url: string };
+    const { url } = await launch.json<{ url: string }>();
     let forwarded: Request | undefined;
     (env as unknown as ApiEnv['Bindings']).PREVIEW_DISPATCH = {
       fetch: async (req: Request) => {
@@ -509,20 +509,20 @@ describe('registered OAuth applications', () => {
       Authorization: 'Bearer ' + token.access_token,
       'Content-Type': 'application/json',
     };
-    const preview = (await (
+    const preview = await (
       await request('/oauth/previews', {
         method: 'POST',
         headers,
         body: JSON.stringify({ workspace: 'deployed-preview' }),
       })
-    ).json()) as { project_id: string };
-    const issued = (await (
+    ).json<{ project_id: string }>();
+    const issued = await (
       await request('/oauth/preview-deployment-requests', {
         method: 'POST',
         headers,
         body: JSON.stringify({ project_id: preview.project_id, checkpoint: 'head', artifact }),
       })
-    ).json()) as { access_token: string; approval_id: string };
+    ).json<{ access_token: string; approval_id: string }>();
     mockCfApi();
     const init = {
       method: 'POST',
@@ -582,9 +582,9 @@ describe('registered OAuth applications', () => {
     });
     const flow = await publishApproval(token.access_token, project.slug, prepared);
     const consent = await approve(flow.id, flow.cookie);
-    const { access_token: access } = (await (
+    const { access_token: access } = await (
       await exchange(new URL(consent.headers.get('Location')!).searchParams.get('code')!)
-    ).json()) as { access_token: string };
+    ).json<{ access_token: string }>();
     const headers = { Authorization: 'Bearer ' + access, 'Content-Type': 'application/json' };
     const upload = await request('/projects/' + project.id + '/deploy/upload-urls', {
       method: 'POST',
@@ -596,17 +596,17 @@ describe('registered OAuth applications', () => {
       }),
     });
     expect(upload.status).toBe(200);
-    const { urls } = (await upload.json()) as {
+    const { urls } = await upload.json<{
       urls: Record<string, { url: string; headers: Record<string, string> }>;
-    };
-    expect(urls[hash]!.headers).toMatchObject({
+    }>();
+    expect(urls[hash].headers).toMatchObject({
       'If-None-Match': '*',
       'Content-Length': String(bytes.length),
     });
-    expect(new URL(urls[hash]!.url).searchParams.get('X-Amz-SignedHeaders')).toContain(
+    expect(new URL(urls[hash].url).searchParams.get('X-Amz-SignedHeaders')).toContain(
       'if-none-match',
     );
-    expect(new URL(urls[hash]!.url).searchParams.get('X-Amz-SignedHeaders')).toContain(
+    expect(new URL(urls[hash].url).searchParams.get('X-Amz-SignedHeaders')).toContain(
       'content-length',
     );
     const undeclared = await request('/projects/' + project.id + '/deploy/upload-urls', {
@@ -637,9 +637,9 @@ describe('registered OAuth applications', () => {
     await env.STATIC_ASSETS_R2.put('assets/' + project.id + '/' + hash, bytes);
     const retry = await publishApproval(token.access_token, project.slug, prepared);
     const accepted = await approve(retry.id, retry.cookie);
-    const renewed = (await (
+    const renewed = await (
       await exchange(new URL(accepted.headers.get('Location')!).searchParams.get('code')!)
-    ).json()) as { access_token: string };
+    ).json<{ access_token: string }>();
     const verified = await request('/projects/' + project.id + '/deploy', {
       method: 'POST',
       headers: {
@@ -673,13 +673,13 @@ describe('registered OAuth applications', () => {
           headers,
           body: JSON.stringify({ workspace: 'revoked-preview' }),
         });
-        projectId = ((await created.json()) as { project_id: string }).project_id;
+        projectId = (await created.json<{ project_id: string }>()).project_id;
         const issued = await request('/oauth/preview-deployment-requests', {
           method: 'POST',
           headers,
           body: JSON.stringify({ project_id: projectId, checkpoint: 'abc', artifact }),
         });
-        const receipt = (await issued.json()) as { access_token: string; approval_id: string };
+        const receipt = await issued.json<{ access_token: string; approval_id: string }>();
         access = receipt.access_token;
         approvalId = receipt.approval_id;
       } else {
@@ -688,9 +688,9 @@ describe('registered OAuth applications', () => {
         const flow = await publishApproval(token.access_token, project.slug);
         const consent = await approve(flow.id, flow.cookie);
         access = (
-          (await (
+          await (
             await exchange(new URL(consent.headers.get('Location')!).searchParams.get('code')!)
-          ).json()) as { access_token: string }
+          ).json<{ access_token: string }>()
         ).access_token;
         approvalId = flow.id;
       }
@@ -723,9 +723,9 @@ describe('registered OAuth applications', () => {
     const prepared = createDeployArtifact({ manifest: artifact.manifest, assetManifest: {} });
     const flow = await publishApproval(token.access_token, project.slug, prepared);
     const consent = await approve(flow.id, flow.cookie);
-    const { access_token: access } = (await (
+    const { access_token: access } = await (
       await exchange(new URL(consent.headers.get('Location')!).searchParams.get('code')!)
-    ).json()) as { access_token: string };
+    ).json<{ access_token: string }>();
     const headers = { Authorization: 'Bearer ' + access, 'Content-Type': 'application/json' };
     const module = { name: 'index.js', size: 18, sha256: 'a'.repeat(64) };
     const urls = await request('/projects/' + project.id + '/deploy/worker-upload-urls', {
@@ -785,12 +785,12 @@ describe('registered OAuth applications', () => {
       body: input,
     });
     expect(response.status).toBe(200);
-    const page = (await response.json()) as {
+    const page = await response.json<{
       props: { credentials: { clientId: string; clientSecret: string } };
-    };
+    }>();
     const { clientId, clientSecret } = page.props.credentials;
     const [stored] = await env.db.select().from(oauthClients).where(eq(oauthClients.id, clientId));
-    expect(stored!.secret_hash).not.toBe(clientSecret);
+    expect(stored.secret_hash).not.toBe(clientSecret);
     const listed = await request('/admin/connected-apps', { headers });
     expect(await listed.text()).not.toContain(clientSecret);
     expect(
@@ -816,7 +816,7 @@ describe('registered OAuth applications', () => {
     });
     const started = await request('/oauth/authorize?' + params);
     const html = await started.text();
-    const requestId = html.match(/\/oauth\/login\?request=([^&"]+)/)![1]!;
+    const requestId = html.match(/\/oauth\/login\?request=([^&"]+)/)![1];
     const proof = cookies(started);
     const bridge = await request('/oauth/login?request=' + requestId + '&provider=github', {
       headers: { Cookie: proof },
@@ -839,7 +839,7 @@ describe('registered OAuth applications', () => {
           return Response.json([{ email: 'alice@example.com', primary: true, verified: true }]);
         }
         if (url.endsWith('/user')) {
-          return Response.json({ id: 12345, login: 'alice', email: null });
+          return Response.json({ id: 12_345, login: 'alice', email: null });
         }
         throw new Error('Unexpected provider URL');
       }),
@@ -971,12 +971,12 @@ describe('registered OAuth applications', () => {
     expect(token.refresh_token).toBeTruthy();
     const refreshed = await refresh(token.refresh_token);
     expect(refreshed.status).toBe(200);
-    const next = (await refreshed.json()) as {
+    const next = await refreshed.json<{
       access_token: string;
       refresh_token: string;
       scope: string;
       expires_in: number;
-    };
+    }>();
     expect(next.access_token).not.toBe(token.access_token);
     expect(next.refresh_token).not.toBe(token.refresh_token);
     expect(next.scope).toBe('profile');
@@ -999,11 +999,11 @@ describe('registered OAuth applications', () => {
     const { token } = await connect();
     const first = await refresh(token.refresh_token);
     expect(first.status).toBe(200);
-    const firstBody = (await first.json()) as { access_token: string; refresh_token: string };
+    const firstBody = await first.json<{ access_token: string; refresh_token: string }>();
     // Replaying the already-rotated refresh token is treated as theft.
     const replay = await refresh(token.refresh_token);
     expect(replay.status).toBe(400);
-    expect((await replay.json()) as { error: string }).toMatchObject({ error: 'invalid_grant' });
+    expect(await replay.json<{ error: string }>()).toMatchObject({ error: 'invalid_grant' });
     // The entire grant family is now revoked, including the token issued by the first refresh.
     const second = await refresh(firstBody.refresh_token);
     expect(second.status).toBe(400);
@@ -1021,10 +1021,10 @@ describe('registered OAuth applications', () => {
       refresh(token.refresh_token),
       refresh(token.refresh_token),
     ]);
-    expect(responses.map((response) => response.status).sort()).toEqual([200, 400]);
+    expect(responses.map((response) => response.status).sort((a, b) => a - b)).toEqual([200, 400]);
     // The second redemption is reuse, so the grant it raced is revoked.
     const [grant] = await env.db.select().from(oauthGrants);
-    expect(grant!.revoked_at).not.toBeNull();
+    expect(grant.revoked_at).not.toBeNull();
   });
   it.runIf(Boolean(process.env.VOID_TEST_DATABASE_URL))(
     'lets exactly one of many concurrent PostgreSQL redemptions rotate the token',
@@ -1033,7 +1033,7 @@ describe('registered OAuth applications', () => {
       const responses = await Promise.all(
         Array.from({ length: 6 }, () => refresh(token.refresh_token)),
       );
-      const statuses = responses.map((response) => response.status).sort();
+      const statuses = responses.map((response) => response.status).sort((a, b) => a - b);
       expect(statuses).toEqual([200, 400, 400, 400, 400, 400]);
       expect(
         await env.db.select().from(oauthRefreshTokens).where(isNull(oauthRefreshTokens.used_at)),
@@ -1047,20 +1047,22 @@ describe('registered OAuth applications', () => {
     const { token } = await connect();
     const [first] = await env.db.select().from(oauthRefreshTokens);
     const [grant] = await env.db.select().from(oauthGrants);
-    expect(Date.parse(first!.expires_at)).toBeLessThanOrEqual(grant!.session.exp * 1000);
-    const rotated = (await (await refresh(token.refresh_token)).json()) as {
+    expect(Date.parse(first.expires_at)).toBeLessThanOrEqual(grant.session.exp * 1000);
+    const rotated = await (
+      await refresh(token.refresh_token)
+    ).json<{
       refresh_token: string;
-    };
+    }>();
     const [next] = await env.db
       .select()
       .from(oauthRefreshTokens)
       .where(isNull(oauthRefreshTokens.used_at));
-    expect(next!.id).not.toBe(first!.id);
-    expect(next!.expires_at).toBe(first!.expires_at);
+    expect(next.id).not.toBe(first.id);
+    expect(next.expires_at).toBe(first.expires_at);
     await env.db
       .update(oauthRefreshTokens)
       .set({ expires_at: new Date(Date.now() - 1000).toISOString() })
-      .where(eq(oauthRefreshTokens.id, next!.id));
+      .where(eq(oauthRefreshTokens.id, next.id));
     expect((await refresh(rotated.refresh_token)).status).toBe(400);
   });
   it('refreshes after the access token has expired', async () => {
@@ -1071,7 +1073,7 @@ describe('registered OAuth applications', () => {
     expect((await userinfo(token.access_token)).status).toBe(401);
     const refreshed = await refresh(token.refresh_token);
     expect(refreshed.status).toBe(200);
-    const next = (await refreshed.json()) as { access_token: string; expires_in: number };
+    const next = await refreshed.json<{ access_token: string; expires_in: number }>();
     expect(next.expires_in).toBeGreaterThan(3000);
     expect((await userinfo(next.access_token)).status).toBe(200);
   });
@@ -1079,7 +1081,7 @@ describe('registered OAuth applications', () => {
     const { token } = await connect();
     const rejected = await refresh(token.refresh_token, { scope: 'preview:deploy' });
     expect(rejected.status).toBe(400);
-    expect((await rejected.json()) as { error: string }).toMatchObject({
+    expect(await rejected.json<{ error: string }>()).toMatchObject({
       error: 'invalid_scope',
     });
     expect((await refresh(token.refresh_token)).status).toBe(200);
@@ -1093,16 +1095,18 @@ describe('registered OAuth applications', () => {
         await request('/oauth/connections', { headers: { Cookie: 'void_oauth_user=' + user.jwt } })
       ).text();
     const [grant] = await env.db.select().from(oauthGrants);
-    expect(await connections()).toContain(grant!.id);
+    expect(await connections()).toContain(grant.id);
     await purgeExpiredOAuthRequests(env.db);
     expect(await env.db.select().from(oauthGrants)).toHaveLength(1);
-    const refreshed = (await (await refresh(token.refresh_token)).json()) as {
+    const refreshed = await (
+      await refresh(token.refresh_token)
+    ).json<{
       refresh_token: string;
-    };
+    }>();
 
     await env.db.update(oauthGrants).set({ expires_at: longAgo });
     await env.db.update(oauthRefreshTokens).set({ expires_at: longAgo });
-    expect(await connections()).not.toContain(grant!.id);
+    expect(await connections()).not.toContain(grant.id);
     await purgeExpiredOAuthRequests(env.db);
     expect(await env.db.select().from(oauthGrants)).toHaveLength(0);
     expect(await env.db.select().from(oauthRefreshTokens)).toHaveLength(0);
@@ -1121,14 +1125,14 @@ describe('registered OAuth applications', () => {
     expect(token.scope).toBe('profile preview:deploy');
     const narrowed = await refresh(token.refresh_token, { scope: 'profile' });
     expect(narrowed.status).toBe(200);
-    const narrowedBody = (await narrowed.json()) as { refresh_token: string; scope: string };
+    const narrowedBody = await narrowed.json<{ refresh_token: string; scope: string }>();
     expect(narrowedBody.scope).toBe('profile');
     const widenAttempt = await refresh(narrowedBody.refresh_token, {
       scope: 'profile preview:deploy',
     });
     expect(widenAttempt.status).toBe(400);
     const [grant] = await env.db.select().from(oauthGrants);
-    expect(grant!.scopes).toEqual(['profile']);
+    expect(grant.scopes).toEqual(['profile']);
   });
   it('rejects a refresh token presented to a different client without spending it', async () => {
     const { token } = await connect();
@@ -1144,7 +1148,7 @@ describe('registered OAuth applications', () => {
     expect(rotated.status).toBe(200);
     // Another client presenting the rotated-out token does not revoke the grant.
     expect((await refresh(token.refresh_token, {}, otherBasic)).status).toBe(400);
-    const { refresh_token } = (await rotated.json()) as { refresh_token: string };
+    const { refresh_token } = await rotated.json<{ refresh_token: string }>();
     expect((await refresh(refresh_token)).status).toBe(200);
   });
   it('blocks refresh once the grant is revoked, client disabled, account suspended, or the session is invalidated', async () => {
@@ -1211,13 +1215,13 @@ describe('registered OAuth applications', () => {
     const code = new URL(consent.headers.get('Location')!).searchParams.get('code')!;
     const exchanged = await exchange(code, {}, basic());
     expect(exchanged.status).toBe(200);
-    const body = (await exchanged.json()) as { scope: string; refresh_token?: string };
+    const body = await exchanged.json<{ scope: string; refresh_token?: string }>();
     expect(body.scope).toBe('deploy:approve');
     expect(body.refresh_token).toBeUndefined();
   });
   it('advertises the refresh_token grant in authorization server metadata', async () => {
     const metadata = await request('/.well-known/oauth-authorization-server');
-    const body = (await metadata.json()) as { grant_types_supported: Array<string> };
+    const body = await metadata.json<{ grant_types_supported: Array<string> }>();
     expect(body.grant_types_supported).toContain('refresh_token');
   });
   it('requires approval by the grant owner and limits a publish to the chosen artifact and project', async () => {
@@ -1231,11 +1235,11 @@ describe('registered OAuth applications', () => {
     const code = new URL(consent.headers.get('Location')!).searchParams.get('code')!;
     const response = await exchange(code);
     expect(response.status, await response.clone().text()).toBe(200);
-    const deployment = (await response.json()) as {
+    const deployment = await response.json<{
       access_token: string;
       project_id: string;
       approval_id: string;
-    };
+    }>();
     expect(deployment.project_id).toBe(project.id);
     expect(deployment.approval_id).toBe(flow.id);
     const headers = { Authorization: 'Bearer ' + deployment.access_token };
@@ -1291,9 +1295,11 @@ describe('registered OAuth applications', () => {
     const flow = await publishApproval(token.access_token, project.slug);
     const consent = await approve(flow.id, flow.cookie);
     const code = new URL(consent.headers.get('Location')!).searchParams.get('code')!;
-    const { access_token: access } = (await (await exchange(code)).json()) as {
+    const { access_token: access } = await (
+      await exchange(code)
+    ).json<{
       access_token: string;
-    };
+    }>();
     mockCfApi();
     const init = {
       method: 'POST',

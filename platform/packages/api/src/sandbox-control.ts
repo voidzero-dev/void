@@ -108,9 +108,10 @@ export class SandboxControl extends WorkerEntrypoint<
     ) {
       return { ok: false, reason: 'unavailable' };
     }
-    let manifest: { sandbox?: { runtime?: { protocol?: unknown } } };
+    type SandboxManifest = { sandbox?: { runtime?: { protocol?: unknown } } };
+    let manifest: SandboxManifest | null;
     try {
-      manifest = JSON.parse(deployment.manifest ?? 'null');
+      manifest = JSON.parse(deployment.manifest ?? 'null') as SandboxManifest | null;
     } catch {
       return { ok: false, reason: 'unavailable' };
     }
@@ -139,6 +140,7 @@ export class SandboxControl extends WorkerEntrypoint<
     generation: string,
   ): Promise<SandboxControlResult> {
     const identity = this.identity();
+    // oxlint-disable-next-line quality/no-known-value-widening -- Validate RPC arguments at runtime even when TypeScript callers see strings.
     if (!identity || !validIdentifier(instance) || !validIdentifier(generation)) {
       return unavailable;
     }
@@ -171,6 +173,7 @@ export class SandboxControl extends WorkerEntrypoint<
 
   async stopped(instance: string, generation: string): Promise<void> {
     const identity = this.identity();
+    // oxlint-disable-next-line quality/no-known-value-widening -- Validate RPC arguments at runtime even when TypeScript callers see strings.
     if (!identity || !validIdentifier(instance) || !validIdentifier(generation)) {
       throw new Error('Invalid Sandbox controller identity.');
     }

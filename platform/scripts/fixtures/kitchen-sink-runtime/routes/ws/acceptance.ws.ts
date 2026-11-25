@@ -1,12 +1,12 @@
-import * as v from 'valibot';
+import { literal, object, pipe, regex, string } from 'valibot';
 import { defineWebSocket } from 'void/ws';
 
-const marker = v.pipe(v.string(), v.regex(/^void-e2e-[a-f0-9]{16}$/));
+const marker = pipe(string(), regex(/^void-e2e-[a-f0-9]{16}$/));
 
 export default defineWebSocket({
   messages: {
-    client: v.object({ marker }),
-    server: v.object({ kind: v.literal('echo'), marker }),
+    client: object({ marker }),
+    server: object({ kind: literal('echo'), marker }),
   },
   onBeforeConnect(ctx) {
     const secret = ctx.env.SECRET_KEY;

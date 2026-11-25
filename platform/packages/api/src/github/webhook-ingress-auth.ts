@@ -31,10 +31,20 @@ export class GitHubWebhookRequestError extends Error {
   }
 }
 
+type GitHubWebhookHeaders = { event: string; deliveryId: string | null; signature: string };
+
+export function readGitHubWebhookHeaders(
+  headers: Headers,
+  options: { requireDelivery: true },
+): GitHubWebhookHeaders & { deliveryId: string };
 export function readGitHubWebhookHeaders(
   headers: Headers,
   options: { requireDelivery: boolean },
-): { event: string; deliveryId: string | null; signature: string } {
+): GitHubWebhookHeaders;
+export function readGitHubWebhookHeaders(
+  headers: Headers,
+  options: { requireDelivery: boolean },
+): GitHubWebhookHeaders {
   const contentType = headers.get('Content-Type');
   if (contentType?.toLowerCase() !== 'application/json') {
     throw new GitHubWebhookRequestError('invalid_content_type', 400);
@@ -85,7 +95,7 @@ export async function readBoundedGitHubWebhookBody(request: Request): Promise<Ui
   }
 
   const chunks: Array<Uint8Array> = [];
-  const reader = request.body.getReader();
+  const reader = (request.body as ReadableStream<Uint8Array>).getReader();
   let total = 0;
   while (true) {
     const { done, value } = await reader.read();

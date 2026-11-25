@@ -2,13 +2,13 @@ import { mkdirSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'pathslash';
 import { findEnvFile } from './codegen/env-types.ts';
 import { writeFileIfChanged } from './codegen/write-if-changed.ts';
-import { type DatabaseDialect, type NotFoundHandling } from './config.ts';
+import type { DatabaseDialect, NotFoundHandling } from './config.ts';
 import { isViteBuildOrPreview } from './plugin-dev-config.ts';
 import {
   frameworkTriggersDispatchPath,
   writeFrameworkTriggersDispatch,
 } from './plugin-framework-triggers.ts';
-import { type Framework } from './plugin-inference.ts';
+import type { Framework } from './plugin-inference.ts';
 import { compileAssetFallbackHelper } from './router/compile.ts';
 
 /**
@@ -186,7 +186,7 @@ export function generateClassATriggerWrapper(
   const fetchMethod = scoped
     ? `  fetch(request, env, ctx) {
     return withRuntimeEnv(env, async () => {
-${fetchBody.replace(/^/gm, '  ')}
+${fetchBody.replaceAll(/^/gm, '  ')}
     });
   },`
     : `  async fetch(request, env, ctx) {

@@ -1,5 +1,4 @@
 import {
-  VoidActionError,
   changedFormErrorKeys,
   cloneFormValue,
   formErrorKeysWithin,
@@ -10,10 +9,13 @@ import {
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
-  type FormResetOptions,
-  type FormState,
-  type FormSubmitOptions,
-  type VoidRouter,
+} from 'void/pages-client';
+import type {
+  FormResetOptions,
+  FormState,
+  FormSubmitOptions,
+  VoidRouter,
+  VoidActionError,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { computed, reactive, ref, shallowRef, inject, watch } from 'vue';
@@ -39,7 +41,7 @@ export function useForm(
 ): FormReturn<Record<string, unknown>> {
   const initialDefaults = cloneFormValue(defaults);
   const router = inject<VoidRouter | null>('__void_router', null);
-  const data = reactive(cloneFormValue(initialDefaults)) as Record<string, unknown>;
+  const data = reactive<Record<string, unknown>>(cloneFormValue(initialDefaults));
   const errors = reactive<Record<string, string>>({});
   const error = ref<VoidActionError | null>(null);
   const pending = ref(false);

@@ -1,9 +1,11 @@
 import { sql as drizzleSql } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { findMissingR2Assets, persistedR2AssetSizes } from '../asset-inventory.ts';
 import { activeOAuthApproval, OAuthError } from '../auth/oauth.ts';
 import { uploadPool } from '../concurrency.ts';
-import { getProject, getUser, getDeployment, updateDeploymentStatus, type Db } from '../db.ts';
+import { getProject, getUser, getDeployment, updateDeploymentStatus } from '../db.ts';
+import type { Db } from '../db.ts';
 import { handleManifestOnlyDeploy } from '../deploy/execute.ts';
 import { requireActiveDeployAccess } from '../deploy/recovery.ts';
 import {
@@ -11,9 +13,8 @@ import {
   MAX_UPLOAD_URLS_BATCH,
   moduleContentType,
   workerUploadModulesProblem,
-  type UploadUrlsRequestAsset,
-  type WorkerUploadModule,
 } from '../deploy/shared.ts';
+import type { UploadUrlsRequestAsset, WorkerUploadModule } from '../deploy/shared.ts';
 import {
   appendDeploymentEvent,
   assertDeploymentExecutionAuthority,
@@ -21,15 +22,17 @@ import {
   deploymentInputModule,
   deploymentInputPrefix,
   getDeploymentOperation,
-  type DeploymentOperation,
 } from '../deployment-execution.ts';
+import type { DeploymentOperation } from '../deployment-execution.ts';
 import type { ApiEnv } from '../env.ts';
 import { checkCliVersionOrRespond } from '../middleware/cli-version.ts';
-import { createDeployLogger, type DeployLogger } from '../observability/logger.ts';
+import { createDeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import { ProjectAccessDeniedError, projectAccessErrorBody } from '../project-access.ts';
 import { ProjectRequiresNormalizationError, requireNormalizedProject } from '../project-state.ts';
 import { presignAssetPut } from '../r2-presign.ts';
-import { listR2Objects, type WorkerModule } from '../worker-upload.ts';
+import { listR2Objects } from '../worker-upload.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
 
 export {
@@ -66,7 +69,7 @@ const PRESIGN_BATCH_CONCURRENCY = 50;
  * platform boundary rather than inside `presignAssetPut`.
  */
 function validateUploadUrlsAsset(asset: unknown, index: number): string | null {
-  if (asset == null || typeof asset !== 'object' || Array.isArray(asset)) {
+  if (asset === null || asset === undefined || typeof asset !== 'object' || Array.isArray(asset)) {
     return `invalid assets[${index}]: must be an object`;
   }
   const assetObject = asset as Record<string, unknown>;
@@ -94,6 +97,12 @@ function validateUploadUrlsAsset(asset: unknown, index: number): string | null {
 // Caught at the awaiting site to surface a 410 to the CLI. Mirrors the
 // `PROJECT_DELETING_ERROR_MESSAGE` pattern used by `handleManifestOnlyDeploy`.
 const UPLOAD_URLS_PROJECT_DELETING = 'upload_urls:project_deleting';
+
+// JSON preserves tuple boundaries and field types, including malformed
+// approval metadata that must not match a valid upload through coercion.
+function assetApprovalKey(asset: Pick<UploadUrlsRequestAsset, 'blake3' | 'md5' | 'size'>): string {
+  return JSON.stringify([asset.blake3, asset.md5, asset.size]);
+}
 
 /**
  * Issue presigned R2 PUT URLs for a batch of declared assets.
@@ -156,23 +165,27 @@ app.post('/:id/deploy/upload-urls', async (context) => {
     logger,
     { step: 'upload_urls', assetCount: assets.length },
     async (tx, signingKeyCache) => {
-      if (context.get('oauthApproval')) {
+      const oauthApproval = context.get('oauthApproval');
+      const expiresAt = context.get('deployTokenExpiresAt');
+      if (oauthApproval) {
+        if (expiresAt === undefined) {
+          throw new OAuthError('invalid_token', 'Deployment approval has no token expiry.', 401);
+        }
         const { approval } = await activeOAuthApproval(
           tx,
-          context.get('oauthApproval')!,
+          oauthApproval,
           context.get('companyIdentity'),
           true,
         );
-        // JSON preserves tuple boundaries and field types, including malformed
-        // approval metadata that must not match a valid upload through coercion.
-        function assetApprovalKey(
-          asset: Pick<UploadUrlsRequestAsset, 'blake3' | 'md5' | 'size'>,
-        ): string {
-          return JSON.stringify([asset.blake3, asset.md5, asset.size]);
+        const { artifact } = approval.data;
+        if (!artifact) {
+          throw new OAuthError(
+            'invalid_token',
+            'The approved deployment artifact is unavailable.',
+            401,
+          );
         }
-        const approved = new Set(
-          Object.values(approval.data.artifact!.assetManifest).map(assetApprovalKey),
-        );
+        const approved = new Set(Object.values(artifact.assetManifest).map(assetApprovalKey));
         if (
           approval.data.projectId !== projectId ||
           assets.some((asset) => !approved.has(assetApprovalKey(asset)))
@@ -194,18 +207,11 @@ app.post('/:id/deploy/upload-urls', async (context) => {
             key: `assets/${projectId}/${asset.blake3}`,
             md5: asset.md5,
             contentType: asset.contentType,
-            ttlSeconds: context.get('oauthApproval')
-              ? Math.max(
-                  1,
-                  Math.min(
-                    900,
-                    context.get('deployTokenExpiresAt')! - Math.floor(Date.now() / 1000),
-                  ),
-                )
-              : UPLOAD_URL_TTL_SECONDS,
-            ...(context.get('oauthApproval')
-              ? { ifNoneMatch: '*' as const, contentLength: asset.size }
-              : {}),
+            ttlSeconds:
+              oauthApproval && expiresAt !== undefined
+                ? Math.max(1, Math.min(900, expiresAt - Math.floor(Date.now() / 1000)))
+                : UPLOAD_URL_TTL_SECONDS,
+            ...(oauthApproval ? { ifNoneMatch: '*' as const, contentLength: asset.size } : {}),
           },
           signingKeyCache,
         );
@@ -274,7 +280,7 @@ app.post('/:id/deploy/worker-upload-urls', async (context) => {
     { step: 'worker_upload_urls', moduleCount: modules.length },
     async (_tx, signingKeyCache) => {
       await uploadPool([...modules.keys()], PRESIGN_BATCH_CONCURRENCY, async (index) => {
-        const module = modules[index]!;
+        const module = modules[index];
         urls[index] = await presignAssetPut(
           {
             accountId: context.env.CF_ACCOUNT_ID,
@@ -408,7 +414,12 @@ async function beginUploadUrlsRequest(context: Context<ApiEnv>): Promise<
       400,
     );
   }
-  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (
+    parsed === null ||
+    parsed === undefined ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed)
+  ) {
     return context.json({ error: 'request body must be a JSON object' }, 400);
   }
   const body = parsed as Record<string, unknown>;
@@ -483,12 +494,70 @@ async function presignUnderProjectLock(
 // Deploy to a project
 app.post('/:id/deploy', handleManifestOnlyDeploy);
 
+const ADMISSION_REJECTED_MESSAGE = 'Admitted deployment is no longer authorized or valid';
+const ADMISSION_REASON_MAX_BYTES = 8192;
+const ADMISSION_REASON_MAX_CHARS = 4096;
+
+/**
+ * Read why the deploy handler refused an admitted input, for example a Zero
+ * Trust change that landed while the deploy waited. Its JSON body carries the
+ * same `message` (or bare `error`) a direct deploy would show, so the user
+ * learns whether a retry fixes it. Only a small JSON body is read.
+ */
+async function rejectedAdmissionReason(response: Response): Promise<string | null> {
+  const type = response.headers.get('content-type') ?? '';
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
+  if (!reader) {
+    return null;
+  }
+  const bytes = new Uint8Array(ADMISSION_REASON_MAX_BYTES);
+  let size = 0;
+  try {
+    if (type.split(';')[0].trim().toLowerCase() !== 'application/json') {
+      return null;
+    }
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      if (size + chunk.value.byteLength > bytes.byteLength) {
+        return null;
+      }
+      bytes.set(chunk.value, size);
+      size += chunk.value.byteLength;
+    }
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(new TextDecoder().decode(bytes.subarray(0, size)));
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== 'object') {
+    return null;
+  }
+  const { message, error } = body as { message?: unknown; error?: unknown };
+  for (const candidate of [message, error]) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim().slice(0, ADMISSION_REASON_MAX_CHARS);
+    }
+  }
+  return null;
+}
+
 export async function executeQueuedDeployment(
   env: ApiEnv['Bindings'],
   db: Db,
   operation: DeploymentOperation,
   deadline: number,
 ): Promise<void> {
+  const ownerId = operation.owner_id;
+  if (!ownerId) {
+    throw new Error('Queued deployment has no recorded owner.');
+  }
   const actor = await getUser(db, operation.actor_id);
   if (!actor) {
     await updateDeploymentStatus(
@@ -498,7 +567,7 @@ export async function executeQueuedDeployment(
       'Deployment actor is no longer active',
       { force: true },
     );
-    await appendDeploymentEvent(db, operation.id, operation.owner_id!, {
+    await appendDeploymentEvent(db, operation.id, ownerId, {
       event: 'error',
       message: 'Deployment actor is no longer active',
       step: 'authorization',
@@ -508,7 +577,7 @@ export async function executeQueuedDeployment(
   const initial = await getDeployment(db, operation.id);
   if (initial?.status === 'canceling' || initial?.status === 'canceled') {
     await updateDeploymentStatus(db, operation.id, 'canceled', undefined, { force: true });
-    await appendDeploymentEvent(db, operation.id, operation.owner_id!, {
+    await appendDeploymentEvent(db, operation.id, ownerId, {
       event: 'error',
       message: initial.error_message ?? 'Deployment was canceled',
       step: 'canceled',
@@ -525,7 +594,7 @@ export async function executeQueuedDeployment(
       'Deployment actor or credential is no longer active',
       { force: true },
     );
-    await appendDeploymentEvent(db, operation.id, operation.owner_id!, {
+    await appendDeploymentEvent(db, operation.id, ownerId, {
       event: 'error',
       message: 'Deployment actor or credential is no longer active',
       step: 'authorization',
@@ -583,6 +652,7 @@ export async function executeQueuedDeployment(
     env,
   );
   if (response.status !== 204) {
+    const reason = (await rejectedAdmissionReason(response)) ?? ADMISSION_REJECTED_MESSAGE;
     // A rejected admitted input never entered the pipeline. No provider write
     // occurred, so its placeholder can be finalized without replaying it.
     await db.transaction(async (tx) => {
@@ -593,17 +663,11 @@ export async function executeQueuedDeployment(
       if (!candidate || candidate.manifest !== null || candidate.status !== 'pending') {
         throw new Error('Admitted deployment needs reconciliation');
       }
-      await updateDeploymentStatus(
-        tx,
-        operation.id,
-        'failed',
-        'Admitted deployment is no longer authorized or valid',
-        { force: true },
-      );
+      await updateDeploymentStatus(tx, operation.id, 'failed', reason, { force: true });
     });
-    await appendDeploymentEvent(db, operation.id, operation.owner_id!, {
+    await appendDeploymentEvent(db, operation.id, ownerId, {
       event: 'error',
-      message: 'Admitted deployment is no longer authorized or valid',
+      message: reason,
       step: 'authorization',
     });
   }

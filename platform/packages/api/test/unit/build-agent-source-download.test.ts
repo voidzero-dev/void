@@ -1,8 +1,10 @@
-import { type ChildProcess, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -120,7 +122,9 @@ describe('build-agent source download bounds', () => {
         // per-attempt wall clock or a throughput floor would kill this; the stall
         // guard must not, or every large repo on a slow link starts failing.
         for (let i = 0; i < 10; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 20);
+          });
           options?.onBytes?.(4096);
         }
       },
@@ -266,7 +270,10 @@ describe('build-agent source download bounds', () => {
       agent.downloadSource({
         fetchImpl: okFetch,
         resetWorkDir: () => {},
-        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        sleep: (ms) =>
+          new Promise((resolve) => {
+            setTimeout(resolve, ms);
+          }),
         stallTimeoutMs: 30,
         phaseBudgetMs: 120,
         maxAttempts: 10,
@@ -320,7 +327,9 @@ describe('build-agent source download bounds', () => {
       progressIntervalMs: 10,
       extract: async (_body, options) => {
         for (let i = 0; i < 4; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 15));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 15);
+          });
           options?.onBytes?.(512 * 1024);
         }
       },
@@ -346,7 +355,10 @@ describe('build-agent source download bounds', () => {
       agent.downloadSource({
         fetchImpl: okFetch,
         // Slower than the whole budget.
-        resetWorkDir: () => new Promise((resolve) => setTimeout(resolve, 80)),
+        resetWorkDir: () =>
+          new Promise((resolve) => {
+            setTimeout(resolve, 80);
+          }),
         sleep: () => Promise.resolve(),
         stallTimeoutMs: 5000,
         phaseBudgetMs: 30,
@@ -899,13 +911,17 @@ describe('build-agent source download, real stream + tar', () => {
       }
       res.end(archive);
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
     const address = server.address();
     origin = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
     rmSync(fixtureRoot, { recursive: true, force: true });
     rmSync(WORK_DIR, { recursive: true, force: true });
   });
@@ -924,7 +940,7 @@ describe('build-agent source download, real stream + tar', () => {
 
     await agent.downloadSource({
       stallTimeoutMs: 400,
-      phaseBudgetMs: 20000,
+      phaseBudgetMs: 20_000,
       maxAttempts: 2,
       backoffMs: [0],
       progressIntervalMs: 50,
@@ -946,7 +962,7 @@ describe('build-agent source download, real stream + tar', () => {
       expect.stringContaining('source download attempt 1 failed (source download aborted: no data'),
     );
     expect(lines).toContainEqual(expect.stringContaining('[build-agent] source extracted ('));
-  }, 30000);
+  }, 30_000);
 
   it("reaps the failed attempt's tar before resetting, leaving no mixed tree", async () => {
     // A mid-body reset makes `pipeline` reject while `tar` is STILL RUNNING and
@@ -961,8 +977,8 @@ describe('build-agent source download, real stream + tar', () => {
     agent.clearBufferedLogLines();
 
     await agent.downloadSource({
-      stallTimeoutMs: 10000,
-      phaseBudgetMs: 20000,
+      stallTimeoutMs: 10_000,
+      phaseBudgetMs: 20_000,
       maxAttempts: 2,
       backoffMs: [0],
       progressIntervalMs: 50,
@@ -976,10 +992,12 @@ describe('build-agent source download, real stream + tar', () => {
 
     // Give any surviving child a window to write; the tree must not move.
     const before = readdirSync(WORK_DIR).sort();
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 300);
+    });
     expect(readdirSync(WORK_DIR).sort()).toEqual(before);
     expect(readFileSync(join(WORK_DIR, 'big.bin'))).toHaveLength(2 * 1024 * 1024);
-  }, 30000);
+  }, 30_000);
 });
 
 // The child's LIFECYCLE, which the harness test above cannot pin. A real `tar`
@@ -1086,7 +1104,9 @@ describe('build-agent extractTarball child lifecycle', () => {
         () => 'resolved',
         () => 'rejected',
       ),
-      new Promise((resolve) => setTimeout(() => resolve(pending), 60)),
+      new Promise((resolve) => {
+        setTimeout(() => resolve(pending), 60);
+      }),
     ]);
     return result === pending ? null : (result as string);
   };
@@ -1099,7 +1119,7 @@ describe('build-agent extractTarball child lifecycle', () => {
     });
     const rejected = promise.then(
       () => null,
-      (err: Error) => err,
+      (err: unknown) => err,
     );
 
     // If broken: `.catch(reject)` settles here, while the child still runs.
@@ -1107,7 +1127,7 @@ describe('build-agent extractTarball child lifecycle', () => {
     expect(child.signals).toEqual(['SIGTERM']);
 
     child.settle(143, 'SIGTERM');
-    expect((await rejected)?.message).toBe('connection reset');
+    expect(await rejected).toMatchObject({ message: 'connection reset' });
   });
 
   it('escalates SIGTERM to SIGKILL when the child ignores it', async () => {
@@ -1118,13 +1138,15 @@ describe('build-agent extractTarball child lifecycle', () => {
     });
     const rejected = promise.then(
       () => null,
-      (err: Error) => err,
+      (err: unknown) => err,
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 80);
+    });
     expect(child.signals).toEqual(['SIGTERM', 'SIGKILL']);
     // The fake exits on SIGKILL, which is what finally settles the promise.
-    expect((await rejected)?.message).toBe('connection reset');
+    expect(await rejected).toMatchObject({ message: 'connection reset' });
   });
 
   it('clears the kill timer on close, so no SIGKILL follows a cooperative exit', async () => {
@@ -1136,7 +1158,9 @@ describe('build-agent extractTarball child lifecycle', () => {
     await promise.catch(() => {});
 
     // Past the grace: a timer left armed would have fired by now.
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 60);
+    });
     expect(child.signals).toEqual(['SIGTERM']);
   });
 

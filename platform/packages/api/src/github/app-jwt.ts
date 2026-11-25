@@ -8,7 +8,7 @@ const keyCache = new Map<string, CryptoKey>();
 async function getSigningKey(privateKeyPem: string): Promise<CryptoKey> {
   let key = keyCache.get(privateKeyPem);
   if (!key) {
-    key = (await importPKCS8(privateKeyPem, 'RS256')) as CryptoKey;
+    key = await importPKCS8(privateKeyPem, 'RS256');
     keyCache.set(privateKeyPem, key);
   }
   return key;
@@ -21,12 +21,16 @@ async function getSigningKey(privateKeyPem: string): Promise<CryptoKey> {
  * (GitHub caps App JWTs at 10 minutes).
  */
 export async function createAppJwt(env: ApiEnv['Bindings']): Promise<string> {
-  const key = await getSigningKey(env.GITHUB_APP_PRIVATE_KEY!);
+  const { GITHUB_APP_PRIVATE_KEY: privateKey, GITHUB_APP_ID: appId } = env;
+  if (!privateKey || !appId) {
+    throw new Error('GitHub App credentials are not configured.');
+  }
+  const key = await getSigningKey(privateKey);
   const now = Math.floor(Date.now() / 1000);
 
   return new SignJWT({})
     .setProtectedHeader({ alg: 'RS256' })
-    .setIssuer(env.GITHUB_APP_ID!)
+    .setIssuer(appId)
     .setIssuedAt(now - 60)
     .setExpirationTime('9m')
     .sign(key);

@@ -20,20 +20,17 @@ function empty(value: unknown): boolean {
     value === undefined ||
     value === null ||
     (Array.isArray(value) && value.length === 0) ||
-    (record(value) !== null && Object.keys(value as JsonObject).length === 0)
+    (record(value) !== null && Object.keys(value).length === 0)
   );
 }
 
-function normalizeQueueConcurrency(raw: JsonObject): JsonObject {
-  const queues = record(raw.queues);
-  if (!Array.isArray(queues?.consumers)) {
-    return { ...raw };
-  }
-  return {
-    ...raw,
-    queues: {
+function normalizeQueueConcurrency(raw: JsonObject) {
+  const result = { ...raw };
+  const queues = record(result.queues);
+  if (Array.isArray(queues?.consumers)) {
+    result.queues = {
       ...queues,
-      consumers: queues.consumers.map((value) => {
+      consumers: queues.consumers.map((value: unknown) => {
         const consumer = record(value);
         // Wrangler's null and cf's omitted limit both mean automatic concurrency.
         if (consumer?.max_concurrency !== null) {
@@ -42,8 +39,9 @@ function normalizeQueueConcurrency(raw: JsonObject): JsonObject {
         const { max_concurrency: _automatic, ...rest } = consumer;
         return rest;
       }),
-    },
-  };
+    };
+  }
+  return result;
 }
 
 /** Remove build-only fields and settings translated into cf's typed config below. */
@@ -230,15 +228,21 @@ function assertHandledFollowUps(followUps: Array<MigrationFollowUp>): void {
   }
 }
 
-function durableObjectExports(raw: JsonObject): JsonObject {
+type DurableObjectExport = { type: 'durable-object' } & (
+  | { storage: 'legacy-kv' | 'sqlite' }
+  | { state: 'renamed'; renamedTo: string }
+  | { state: 'deleted' }
+);
+
+function durableObjectExports(raw: JsonObject) {
+  const exports: Record<string, DurableObjectExport> = {};
   const migrations = raw.migrations;
   if (migrations === undefined || (Array.isArray(migrations) && migrations.length === 0)) {
-    return {};
+    return exports;
   }
   if (!Array.isArray(migrations) || !migrations.every((entry) => record(entry))) {
     throw new Error('Invalid Durable Object migrations in the built Cloudflare config.');
   }
-  const exports: JsonObject = {};
   for (const migration of migrations as Array<JsonObject>) {
     const known = new Set([
       'tag',
@@ -326,7 +330,7 @@ function containersFromWrangler(raw: JsonObject, exports: JsonObject): Array<Jso
       return {
         name: value.name,
         schedulingPolicy: 'durable-object',
-        images: Object.fromEntries(
+        images: Object.fromEntries<Record<string, unknown>>(
           Object.entries(images).map(([name, image]) => {
             const source = record(image);
             if (
@@ -370,12 +374,15 @@ function containersFromWrangler(raw: JsonObject, exports: JsonObject): Array<Jso
   });
 }
 
+// oxlint-disable-next-line quality/no-chained-type-assertions, quality/no-known-value-widening -- The config converter supplies the arguments for the dynamically selected Cloudflare helper.
 const configHelpers = { bindings, exports: workerExports, triggers } as unknown as Record<
   string,
+  // oxlint-disable-next-line quality/no-unknown-returns -- The selected helper determines its output at runtime.
   Record<string, (...args: Array<unknown>) => unknown>
 >;
 
 /** Build the value that the converter describes, calling cf's config helpers where it names one. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Preserve the selected helper's output in the generated config.
 function outputValue(value: OutputValue): unknown {
   if (value === null || typeof value !== 'object') {
     return value;
@@ -398,17 +405,21 @@ function outputValue(value: OutputValue): unknown {
   );
 }
 
+interface WranglerTranslation {
+  config: unknown;
+  followUps: Array<MigrationFollowUp>;
+}
+
 /**
  * Translate Wrangler-format settings to a parsed cf configuration and the follow-ups that the
  * converter could not translate. `mode` selects a Wrangler environment by name.
  */
-export function translateWranglerConfig(
-  raw: JsonObject,
-  mode: string,
-): { config: unknown; followUps: Array<MigrationFollowUp> } {
+export function translateWranglerConfig(raw: JsonObject, mode: string): WranglerTranslation {
   // Settings are JSON: a key without a value is absent. The copy also keeps the converter from
   // sharing objects with the caller.
-  const converted = convertWranglerConfig(JSON.parse(JSON.stringify(raw)), 'vite', []);
+  // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the value to the JSON configuration written to disk.
+  const serialized = JSON.parse(JSON.stringify(raw)) as JsonObject;
+  const converted = convertWranglerConfig(serialized, 'vite', []);
   const branch = converted.environments.get(mode) ?? converted.base;
   const input = record(outputValue(branch.config));
   const worker = record(input?.worker);
@@ -429,6 +440,7 @@ export function translateWranglerConfig(
     throw new Error('cf could not translate the built Cloudflare configuration.');
   }
   // Only JSON values, as the settings will be written to a file.
+  // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the value to the JSON configuration written to disk.
   return { config: JSON.parse(JSON.stringify(parsed.data)), followUps: converted.followUps };
 }
 
@@ -465,9 +477,13 @@ export function migrateBuiltWranglerConfig(raw: JsonObject, mode = 'production')
       const className = (effective.containers as Array<JsonObject>).find(
         (entry) => entry.name === container.name,
       )?.class_name;
-      const binding = durableBindings.find((entry) => record(entry)?.class_name === className);
+      const binding = record(
+        (durableBindings as Array<unknown>).find(
+          (entry) => record(entry)?.class_name === className,
+        ),
+      );
       if (
-        !record(binding) ||
+        !binding ||
         typeof binding.name !== 'string' ||
         (binding.script_name !== undefined && binding.script_name !== worker.name)
       ) {

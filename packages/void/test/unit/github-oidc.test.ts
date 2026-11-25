@@ -7,18 +7,20 @@ const accessJwt =
   Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url') +
   '.signature';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import {
   exchangeGithubOidcForDeployToken,
   isGithubActionsOidcAvailable,
   maskGithubActionsSecret,
 } from '../../src/cli/github-oidc.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 const fetchMock = vi.fn();
 let originalFetch: typeof globalThis.fetch | undefined;
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
-  globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  globalThis.fetch = fetchMock;
   fetchMock.mockReset();
 });
 
@@ -45,7 +47,7 @@ function oidcEnv(overrides: Record<string, string | undefined> = {}): NodeJS.Pro
     ACTIONS_ID_TOKEN_REQUEST_URL: REQUEST_URL,
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: REQUEST_TOKEN,
     ...overrides,
-  } as unknown as NodeJS.ProcessEnv;
+  };
 }
 
 describe('isGithubActionsOidcAvailable', () => {
@@ -210,7 +212,7 @@ describe('exchangeGithubOidcForDeployToken', () => {
 });
 
 describe('maskGithubActionsSecret', () => {
-  let writeSpy: ReturnType<typeof vi.spyOn>;
+  let writeSpy: MockInstance;
 
   beforeEach(() => {
     writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -221,17 +223,17 @@ describe('maskGithubActionsSecret', () => {
   });
 
   it('emits an ::add-mask:: workflow command inside GitHub Actions', () => {
-    maskGithubActionsSecret('secret-token', { GITHUB_ACTIONS: 'true' } as NodeJS.ProcessEnv);
+    maskGithubActionsSecret('secret-token', { GITHUB_ACTIONS: 'true' });
     expect(writeSpy).toHaveBeenCalledWith('::add-mask::secret-token\n');
   });
 
   it('is a no-op when not running in GitHub Actions', () => {
-    maskGithubActionsSecret('secret-token', {} as NodeJS.ProcessEnv);
+    maskGithubActionsSecret('secret-token', {});
     expect(writeSpy).not.toHaveBeenCalled();
   });
 
   it('is a no-op for an empty value', () => {
-    maskGithubActionsSecret('', { GITHUB_ACTIONS: 'true' } as NodeJS.ProcessEnv);
+    maskGithubActionsSecret('', { GITHUB_ACTIONS: 'true' });
     expect(writeSpy).not.toHaveBeenCalled();
   });
 });

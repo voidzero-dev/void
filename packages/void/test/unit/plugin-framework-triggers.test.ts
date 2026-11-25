@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   analogDevTriggerInjectPlugin,
   astroDevTriggerInjectPlugin,
@@ -37,8 +38,7 @@ function callConfigResolved(plugin: ReturnType<typeof frameworkTriggersPlugin>) 
   if (typeof fn !== 'function') {
     throw new Error('configResolved not callable');
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (fn as any)({} as never);
+  void fn.call({} as ThisParameterType<typeof fn>, {} as Parameters<typeof fn>[0]);
 }
 
 type DevTrigger = (
@@ -63,7 +63,11 @@ async function loadDevTrigger(root: string): Promise<DevTrigger> {
       rollupOptions: { output: { entryFileNames: 'dev-triggers.mjs' } },
     },
   });
-  return (await import(pathToFileURL(join(outDir, 'dev-triggers.mjs')).href)).handleDevTrigger;
+  return (
+    (await import(pathToFileURL(join(outDir, 'dev-triggers.mjs')).href)) as {
+      handleDevTrigger: DevTrigger;
+    }
+  ).handleDevTrigger;
 }
 
 function triggerRequest(kind: 'scheduled' | 'queue', payload: unknown): Request {
@@ -75,10 +79,7 @@ function triggerRequest(kind: 'scheduled' | 'queue', payload: unknown): Request 
 }
 
 function callConfigureServer(
-  plugin:
-    | ReturnType<typeof nitroDevTriggerInjectPlugin>
-    | ReturnType<typeof astroDevTriggerInjectPlugin>
-    | ReturnType<typeof analogDevTriggerInjectPlugin>,
+  plugin: ReturnType<typeof nitroDevTriggerInjectPlugin>,
   serverOverrides: Record<string, unknown> = {},
 ) {
   const hook = plugin.configureServer;
@@ -86,12 +87,12 @@ function callConfigureServer(
   if (typeof fn !== 'function') {
     throw new Error('configureServer not callable');
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (fn as any)({
+  const server = {
     httpServer: { once() {} },
     middlewares: { use() {} },
     ...serverOverrides,
-  });
+  };
+  void fn.call({} as ThisParameterType<typeof fn>, server as unknown as Parameters<typeof fn>[0]);
 }
 
 afterEach(() => {
@@ -312,7 +313,7 @@ export default (controller, env) => env.run();`,
     const root = createTempRoot();
     callConfigResolved(frameworkTriggersPlugin(root, { devTriggerToken: 'dev-token-test' }));
 
-    expect(readFileSync(frameworkTriggersDispatchPath(root), 'utf-8')).toContain('@ts-nocheck');
+    expect(readFileSync(frameworkTriggersDispatchPath(root), 'utf8')).toContain('@ts-nocheck');
   });
 
   // The generated module embeds the dev trigger token, which is the whole
@@ -342,7 +343,7 @@ export default (controller, env) => env.run();`,
       callConfigResolved(plugin);
 
       expect(statSync(target).mode & 0o777).toBe(0o600);
-      expect(readFileSync(target, 'utf-8')).toContain(`__DEV_TRIGGER_TOKEN = "dev-token-test"`);
+      expect(readFileSync(target, 'utf8')).toContain(`__DEV_TRIGGER_TOKEN = "dev-token-test"`);
     },
   );
 
@@ -484,7 +485,7 @@ describe('nitroDevTriggerInjectPlugin', () => {
 
     const middlewarePath = join(root, 'server', 'middleware', '__void-dev-trigger.ts');
     expect(existsSync(middlewarePath)).toBe(true);
-    const code = readFileSync(middlewarePath, 'utf-8');
+    const code = readFileSync(middlewarePath, 'utf8');
     expect(code).toContain('@ts-nocheck');
     expect(code).toContain(`from "${frameworkTriggersDispatchPath(root)}"`);
     expect(code).toContain('event.context?.cloudflare');
@@ -505,7 +506,7 @@ describe('nitroDevTriggerInjectPlugin', () => {
     const plugin = nitroDevTriggerInjectPlugin(root, { serverDir: 'server' });
     callConfigureServer(plugin);
 
-    const gitignore = readFileSync(join(root, '.gitignore'), 'utf-8');
+    const gitignore = readFileSync(join(root, '.gitignore'), 'utf8');
     expect(gitignore).toContain('server/middleware/__void-dev-trigger.ts');
   });
 
@@ -518,7 +519,7 @@ describe('nitroDevTriggerInjectPlugin', () => {
     const plugin = nitroDevTriggerInjectPlugin(root, { serverDir: 'server' });
     callConfigureServer(plugin);
 
-    const gitignore = readFileSync(join(root, '.gitignore'), 'utf-8');
+    const gitignore = readFileSync(join(root, '.gitignore'), 'utf8');
     const occurrences = gitignore
       .split('\n')
       .filter((l) => l.trim() === 'server/middleware/__void-dev-trigger.ts').length;
@@ -534,7 +535,7 @@ describe('astroDevTriggerInjectPlugin', () => {
 
     const middlewarePath = join(root, 'src', 'middleware.ts');
     expect(existsSync(middlewarePath)).toBe(true);
-    const code = readFileSync(middlewarePath, 'utf-8');
+    const code = readFileSync(middlewarePath, 'utf8');
     expect(code).toContain("from 'cloudflare:workers'");
     expect(code).toContain(`from "${frameworkTriggersDispatchPath(root)}"`);
   });
@@ -557,7 +558,7 @@ describe('astroDevTriggerInjectPlugin', () => {
 
       callConfigureServer(astroDevTriggerInjectPlugin(root));
 
-      expect(readFileSync(join(root, 'src', 'middleware.ts'), 'utf-8')).toBe(existing);
+      expect(readFileSync(join(root, 'src', 'middleware.ts'), 'utf8')).toBe(existing);
       const output = log.mock.calls.map((call) => String(call[0])).join('\n');
       if (warns) {
         expect(output).toContain('its own Worker entry (./src/worker.ts)');
@@ -607,11 +608,11 @@ describe('astroDevTriggerInjectPlugin', () => {
     });
 
     expect(existsSync(join(root, 'src', 'middleware.ts'))).toBe(true);
-    expect(readFileSync(join(root, '.gitignore'), 'utf-8')).toContain('src/middleware.ts');
+    expect(readFileSync(join(root, '.gitignore'), 'utf8')).toContain('src/middleware.ts');
 
     onClose!();
     expect(existsSync(join(root, 'src', 'middleware.ts'))).toBe(false);
-    expect(readFileSync(join(root, '.gitignore'), 'utf-8')).toBe('node_modules/\n');
+    expect(readFileSync(join(root, '.gitignore'), 'utf8')).toBe('node_modules/\n');
   });
 
   // A restart sets up the new dev server, with a new plugin, before it closes the old one.
@@ -641,14 +642,14 @@ describe('astroDevTriggerInjectPlugin', () => {
         rmSync(middlewarePath);
       }
       startServer();
-      closeServer[0]!();
+      closeServer[0]();
       expect(existsSync(middlewarePath)).toBe(true);
-      expect(readFileSync(join(root, '.gitignore'), 'utf-8')).toContain('src/middleware.ts');
+      expect(readFileSync(join(root, '.gitignore'), 'utf8')).toContain('src/middleware.ts');
       expect(log).not.toHaveBeenCalled();
 
-      closeServer[1]!();
+      closeServer[1]();
       expect(existsSync(middlewarePath)).toBe(false);
-      expect(readFileSync(join(root, '.gitignore'), 'utf-8')).toBe('node_modules/\n');
+      expect(readFileSync(join(root, '.gitignore'), 'utf8')).toBe('node_modules/\n');
     },
   );
 
@@ -672,12 +673,12 @@ describe('astroDevTriggerInjectPlugin', () => {
 
     startServer();
     startServer();
-    closeServer[0]!();
+    closeServer[0]();
     expect(existsSync(middlewarePath)).toBe(true);
 
-    closeServer[1]!();
+    closeServer[1]();
     expect(existsSync(middlewarePath)).toBe(false);
-    expect(readFileSync(join(root, '.gitignore'), 'utf-8')).toBe('node_modules/\n');
+    expect(readFileSync(join(root, '.gitignore'), 'utf8')).toBe('node_modules/\n');
   });
 });
 
@@ -692,7 +693,7 @@ describe('analogDevTriggerInjectPlugin', () => {
     expect(existsSync(cron)).toBe(true);
     expect(existsSync(queue)).toBe(true);
 
-    const cronCode = readFileSync(cron, 'utf-8');
+    const cronCode = readFileSync(cron, 'utf8');
     expect(cronCode).toContain('@ts-nocheck');
     expect(cronCode).toContain(`from "${frameworkTriggersDispatchPath(root)}"`);
     expect(cronCode).toContain("from 'h3'");
@@ -705,7 +706,7 @@ describe('analogDevTriggerInjectPlugin', () => {
     const plugin = analogDevTriggerInjectPlugin(root);
     callConfigureServer(plugin);
 
-    const gitignore = readFileSync(join(root, '.gitignore'), 'utf-8');
+    const gitignore = readFileSync(join(root, '.gitignore'), 'utf8');
     expect(gitignore).toContain('src/server/routes/api/__void/cron-trigger.ts');
     expect(gitignore).toContain('src/server/routes/api/__void/queue-trigger.ts');
   });
@@ -753,11 +754,11 @@ describe('analogDevTriggerInjectPlugin', () => {
     const { fetchSpy, res, next } = await proxyTrigger({
       address: '::',
       family: 'IPv6',
-      port: 51234,
+      port: 51_234,
     });
     expect(next).not.toHaveBeenCalled();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0]![0]).toBe('http://localhost:51234/api/__void/cron-trigger');
+    expect(fetchSpy.mock.calls[0][0]).toBe('http://localhost:51234/api/__void/cron-trigger');
     expect(res.statusCode).toBe(202);
     expect(res.body?.toString()).toBe('ok');
   });
@@ -767,8 +768,8 @@ describe('analogDevTriggerInjectPlugin', () => {
     ['127.0.0.1', 'IPv4', 'http://127.0.0.1:51234/api/__void/cron-trigger'],
     ['::1', 'IPv6', 'http://[::1]:51234/api/__void/cron-trigger'],
   ])('proxies to the dev server bound to %s', async (bound, family, expected) => {
-    const { fetchSpy } = await proxyTrigger({ address: bound, family, port: 51234 });
-    expect(fetchSpy.mock.calls[0]![0]).toBe(expected);
+    const { fetchSpy } = await proxyTrigger({ address: bound, family, port: 51_234 });
+    expect(fetchSpy.mock.calls[0][0]).toBe(expected);
   });
 
   it('leaves trigger requests alone when the dev server is not listening', async () => {

@@ -191,7 +191,9 @@ describe('account usage query bounds', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
       active++;
       peak = Math.max(peak, active);
-      await new Promise((resolve) => setTimeout(resolve, 1));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1);
+      });
       active--;
       return Response.json(payload([{ sum: { cost: 0.000011 } }]));
     });
@@ -199,7 +201,7 @@ describe('account usage query bounds', () => {
     await expect(
       sumAiUsageForWindows('account-1', apiToken, 'void', jwtSecret, [
         { projectId: 'one', intervals },
-        { projectId: 'two', intervals: [intervals[0]!] },
+        { projectId: 'two', intervals: [intervals[0]] },
       ]),
     ).resolves.toEqual([12, 1]);
     expect(peak).toBeLessThanOrEqual(4);
@@ -222,7 +224,7 @@ describe('account usage query bounds', () => {
       queryBatchProjectUsageWindows('account-1', apiToken, 'void_requests', windows, true),
     ).resolves.toEqual(new Map([['one', { requests: 6, bandwidthBytes: 14 }]]));
     expect(queries).toHaveLength(2);
-    expect(queries[0]!.match(/blob1 =/g)).toHaveLength(50);
-    expect(queries[1]!.match(/blob1 =/g)).toHaveLength(1);
+    expect(queries[0].match(/blob1 =/g)).toHaveLength(50);
+    expect(queries[1].match(/blob1 =/g)).toHaveLength(1);
   });
 });

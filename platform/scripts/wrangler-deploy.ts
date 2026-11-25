@@ -59,7 +59,7 @@ function readEmailSigningSecret(): string {
     console.error(`${EMAIL_SIGNING_SECRET} is required for ${env} platform deployments.`);
     process.exit(1);
   }
-  if (value !== value.trim() || Buffer.byteLength(value, 'utf8') < 32) {
+  if (value !== value.trim() || (Buffer as BufferConstructor).byteLength(value, 'utf8') < 32) {
     console.error(
       `${EMAIL_SIGNING_SECRET} must have at least 32 bytes and no leading or trailing whitespace.`,
     );

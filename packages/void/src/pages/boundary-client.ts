@@ -2,17 +2,17 @@ import { isVoidActionError } from './action-result.ts';
 import type { BoundaryManifest } from './boundary-plans.ts';
 import type { PageError } from './types.ts';
 
-export type ClientPageBoundary = {
+export type ClientPageBoundary<Component = unknown> = {
   id: string;
   key: string;
   depth: number;
-  load: () => Promise<{ default: unknown }>;
+  load: () => Promise<{ default: Component }>;
 };
-export function pageBoundarySlots(
+export function pageBoundarySlots<Component>(
   manifest: BoundaryManifest | undefined,
   component: string,
-  components: Record<string, () => Promise<{ default: unknown }>>,
-): Array<ClientPageBoundary> {
+  components: Record<string, () => Promise<{ default: Component }>>,
+): Array<ClientPageBoundary<Component>> {
   if (!manifest) {
     return [];
   }
@@ -60,6 +60,7 @@ export function showTerminalPageError(url: string = window.location.href): void 
   const main = document.createElement('main');
   const heading = document.createElement('h1');
   heading.textContent = 'Something went wrong';
+  // oxlint-disable-next-line unicorn/prefer-dom-node-append -- Workers types give append a different signature.
   main.appendChild(heading);
   for (const [label, href] of [
     ['Try again', target.href],
@@ -69,6 +70,7 @@ export function showTerminalPageError(url: string = window.location.href): void 
     link.textContent = label;
     link.href = href;
     link.style.marginRight = '1rem';
+    // oxlint-disable-next-line unicorn/prefer-dom-node-append -- Workers types give append a different signature.
     main.appendChild(link);
   }
   main.style.cssText = 'font-family:system-ui,sans-serif;padding:2rem';
