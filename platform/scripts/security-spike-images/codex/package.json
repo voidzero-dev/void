@@ -1,9 +1,0 @@
-{
-  "name": "void-spike-sa-codex-image",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@openai/codex": "0.169.0",
-    "@openai/codex-sdk": "0.169.0"
-  }
-}

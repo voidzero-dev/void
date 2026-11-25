@@ -159,7 +159,7 @@ platform/packages/api/src/
 packages/void/src/cli/
   project-security.ts, deploy-security-notice.ts, platform-security-audits.ts (runtime guard)
 platform/scripts/
-  security-spike-*.ts + fixtures/security-seeded-apps/   (Phase 0, below)
+  publish-security-scanner-images.ts   release: publish the Engine A / C images
 ```
 
 Edited (main touch points; file:line refs are in the four maps kept with the PRD):
@@ -2146,7 +2146,7 @@ docs table "Phase 2/3" row
 
 - Verification (2026-11-20, worktree at `fdee96c7b` + these doc edits): `vp check` clean
   (3230 files formatted, 2675 linted and typechecked). `vp run test --base origin/main` picked the
-  full selection (the spike scripts under `platform/scripts/` have no ownership rule), rebuilt the
+  full selection (the Phase 0 spike scripts, since removed, had no ownership rule), rebuilt the
   public packages and ran 896 files passed, 2 skipped (898), 19309 tests passed, 38 skipped, 225 s.
   `vp test run`: the same counts, 228 s. No failing file in either run. The 2 skipped files are
   opt-in by env (for example the Docker recorded run, `VOID_SCANNER_E2E=1`). The docs build passes
@@ -2208,406 +2208,151 @@ platform cap banner at 100%         "used up" once the next default-model scan's
 | Engine A / C images                      | Digests stay `null` until the images are published at release (ghcr, then copied by the probe); until then probe check 5 keeps `openai/*` and `anthropic/*` unpickable        |
 | Release smoke (`security-smoke-test.ts`) | Not written; to do before release                                                                                                                                             |
 
-## Phase 0 spikes
+## Phase 0 spike conclusions
 
-Scripts are Node TypeScript in `platform/scripts/` (top level, so the existing
-`tsconfig.json` `include: ["*.ts"]` covers them). Seeded apps go in
-`platform/scripts/fixtures/security-seeded-apps/` (5 apps: React+D1, Vue+KV,
-Svelte+auth, Solid+R2, plain Void API), each with `bugs.json` (planted crit/high and
-decoys). Every script prints one JSON report and a PASS/FAIL line, and exits non-zero
-on FAIL.
+The Phase 0 spikes were one-off scripts. They ran from 2026-11-18 to 2026-11-20 on
+scratch accounts (never production) against five seeded apps with planted bugs
+(React+D1, Vue+KV, Svelte+auth, Solid+R2, plain Void API). Once their results were
+built into the code, the scripts, images and seeded apps were removed. This section
+keeps only what they settled. "Live check status" above lists what is still open.
 
-| Spike             | Script                                                                                                   | Runs                                                                              | Measures                                                                                                                                                                                                                                   | Pass (PRD §15.2 / spec §20)                                                                     | Fail                                                                     |
-| ----------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| S1 egress         | `security-spike-s1-egress.ts`                                                                            | **live** (Workers Paid, Containers)                                               | deploy a scratch controller + app; model call via `ScanModelOutbound`; `fetch https://example.com` and unknown DNS fail fast (< 2 s with `DenyAll`); env + FS have no token; identity reaches API props; cold start p50/p95 over 10 starts | call works, internet blocked, no token, cold start < 60 s                                       | Sandbox outbound pattern; still failing → stop (no MVP)                  |
-| S1b image         | `security-spike-s1-image.ts`                                                                             | **live**                                                                          | copy a digest-pinned image into `registry.cloudflare.com/<acct>` from a Worker (credentials API, streaming), then `prepareContainerImage`; also test `default` scheduling policy pulling `docker.io`                                       | one of the two works with a scoped token, < 15 min, Worker memory OK                            | raise R1 to the user                                                     |
-| S2 Agent SDK      | `security-spike-engine.ts --engine claude`                                                               | lockdown **local** (Docker + fake model), quality **live** (credits)              | tools list, planted config files, valid output 10/10 on 3 apps, time                                                                                                                                                                       | lockdown holds; 10/10 valid; ≤ 20 min                                                           | stop and ask the user (D37)                                              |
-| S3 Codex          | `security-spike-engine.ts --engine codex` + `security-spike-codex-lockdown.ts`                           | items 1, 2, 5, 7 **local**; 3, 4, 6, 8 **live**                                   | the 8 items in spec §20                                                                                                                                                                                                                    | all 8 hold                                                                                      | stop and ask the user (D37)                                              |
-| S4 Engine B       | `security-spike-engine.ts --engine void-loop --model @cf/deepseek-ai/deepseek-v4.1-flash-1017 --tier t2` | **live** (Workers Paid / AI credits); harness checked locally with the fake model | recall on 10 planted bugs, false confirmed, valid runs, calls, p95 at 10 req/min                                                                                                                                                           | ≥ 7/10, ≤ 2 false, ≥ 95% valid, ≤ 80 calls, p95 < 20 min                                        | done: deepseek is default; glm-5.3 fails                                 |
-| S5 static confirm | same script, `--report confirmations`                                                                    | **live**                                                                          | share of seeded bugs reaching `confirmed` with a trace                                                                                                                                                                                     | seeded issues confirm                                                                           | define "confirmed (static)", re-run S2/S4; none → every result is a lead |
-| S6 parity         | `security-spike-parity.ts`                                                                               | **live** (3 engines)                                                              | same issue → same key over 3 repeats                                                                                                                                                                                                       | ≥ 80%                                                                                           | server key normalization                                                 |
-| S7 inputs         | `security-spike-inputs.ts`                                                                               | **local**                                                                         | builds `playground/*` React/Vue/Svelte/Solid; `sourcesContent` coverage; lockfile identity; workspace packages kept; snapshot size in R2 terms; lists every go-live call site                                                              | ≥ 90% server files readable; one cutover path covers all (or the extra paths are listed for M8) | more T3 / `no-source-maps`                                               |
-| S8 cost/time      | `security-spike-engine.ts --all-models --report cost`                                                    | **live**                                                                          | tokens, calls, $, minutes per tier and model, T3 gate scans                                                                                                                                                                                | glm median ≤ $3 per ~2k-line diff, p95 ≤ 20 min                                                 | tighten caps; the default is deepseek                                    |
-| S9 refusals       | `security-spike-refusals.ts`                                                                             | mapping **local** (recorded fixtures), rates **live**                             | 10 runs × 4 third-party models                                                                                                                                                                                                             | 100% refusals → `refused`, 0 → `succeeded`                                                      | fix mapping, badges                                                      |
-| S10 gateway       | `security-spike-gateway.ts`                                                                              | **live**                                                                          | payload off and skip-cache on binding and REST paths; cost by `securityScan` tag; meter vs gateway                                                                                                                                         | no bodies, no cache, cost readable, ±10%                                                        | dedicated scan gateway with logs off; fix prices; Engine B moves to REST |
-| S11 red team      | `security-spike-redteam.ts`                                                                              | server rules and tool escapes **local** (fake model); model misses **live**       | fixtures listed in spec §20 S11                                                                                                                                                                                                            | no escape, no egress, server rules and caps hold                                                | fix before MVP                                                           |
-| S12 legal         | none (document review)                                                                                   | –                                                                                 | Agent SDK terms for operators and image redistribution, OpenAI terms, naming                                                                                                                                                               | written OK                                                                                      | raise to the user                                                        |
-| S13 copy          | `security-spike-copy.ts`                                                                                 | **live** (Workers for Platforms)                                                  | copy serves a seeded app, outbound fails, not reachable from the internet, < 60 s, no leftovers, cost                                                                                                                                      | all hold                                                                                        | Phase 2 stays static-only (M30 not built)                                |
+| Spike                  | Result                                     | What it settled                                                                                     |
+| ---------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| S1 egress, cold start  | not recorded                               | the egress lock is in M6; S2, S3 and S11 check egress again                                         |
+| S1b image source       | works with a ~2 MB image only              | option A of R1 (copy a digest-pinned image into the operator registry); full-size copy time unknown |
+| S2 Engine A lockdown   | PASS locally through a real gateway        | live quality, cost and time BLOCKED (no Unified Billing credits)                                    |
+| S3 Engine C lockdown   | PASS locally through a real gateway        | same block; Codex retries set to 0                                                                  |
+| S4 Engine B quality    | PASS on deepseek, FAIL on glm-5.3          | `@cf/deepseek-ai/deepseek-v4.1-flash-1017` is the default model everywhere                          |
+| S5 static confirmation | PASS (20/20 planted bugs, with a trace)    | "confirmed (static)" stays; not every result is a lead                                              |
+| S6 engine parity       | not run                                    | needs Engines A / C live                                                                            |
+| S7 scan input          | PASS (26/26)                               | source maps cover every first-party server file; M8 covers every go-live path                       |
+| S8 cost and time       | PASS (median $0.18, p95 15.7 min, default) | caps 1.2M input / 120k output tokens                                                                |
+| S9 refusals            | PASS after fixes (24/24)                   | refusal mapping rules below; live refusal rates not run                                             |
+| S10 gateway            | PASS for no bodies, no cache               | cost by `securityScan` tag cannot be read back, so the spend meter is the only cost source          |
+| S11 red team           | PASS after fixes (160/160)                 | no escape, no egress, no token; caps and server rules hold                                          |
+| S12 legal              | open                                       | checklist below                                                                                     |
+| S13 runtime copy       | PASS with a copy guard                     | a copy is ready in ~9 s and costs ~$0.00001; Durable Objects need the guard                         |
 
-Spike results, 2026-11-18 (S2/S3 local runs through the gateway, S10). Scratch
-account (not VoidZero), gateway `void-spike-sa-gw`, deleted afterwards (gateway list
-empty). The engines ran in local Docker: the scan network has no route out, and
-`model.scan.internal` is a model-proxy stand-in (`security-spike-images/model-proxy.mjs`)
-that adds the token and calls REST `/ai/v1/messages` or `/ai/v1/responses` with
-`cf-aig-gateway-id`, payload logging off, cache skipped. Scripts:
-`security-spike-s2.ts --local-gateway`, `security-spike-s3.ts --local-gateway`,
-`security-spike-s10.ts` (token and account from env or `~/.config/void-spike/`).
+### Engines A and C (S2, S3)
 
-- Gateway sent `collect_logs: false`, `cache_ttl: 0`, `cache_invalidate_on_update: false`,
-  rate limit 0; read back the same plus `authentication: true`, `logpush: false`,
-  `log_classification: false`, `zdr: false`, `workers_ai_billing_mode: postpaid`.
-- The account has no Unified Billing credits. Both third-party models answer 402
-  (no charge): Messages `{"type":"error","error":{"type":"invalid_request_error","message":"Insufficient unified billing credits. Please add additional credits on the AI Gateway Cloudflare dashboard to continue using provider models."}}`,
-  Responses the same message with `"code":"invalid_prompt"`. So model quality, findings,
-  tokens, cost and scan time for `anthropic/claude-sonnet-5.5` and `openai/gpt-6.1-terra`
-  stay BLOCKED. `@cf` models do not work on `/ai/v1/messages` or `/ai/v1/responses`
-  (400 "Anthropic Messages API is not supported", schema error), so no free stand-in.
-- Held for both engines: the names route (`claude-sonnet-5.5` → `anthropic/…`,
-  `gpt-6.1-terra` → `openai/…`; an unknown name answers 404 "Model not found", these
-  answer 402); the container sends only a placeholder key or none; without the proxy
-  token the gateway answers 401 (code 10000); the engine cannot reach
-  `gateway.ai.cloudflare.com` or `api.cloudflare.com` (DNS `EAI_AGAIN`) or `1.1.1.1`
-  (`ENETUNREACH`); the token is in no process env and nowhere in the exported file
-  system (600–670 MB searched); the lockdown checks of `--local` still pass.
-- Engine A (Claude Code 2.1.324) on 402: one call, stops in 1.5 s, result `subtype:
-  "success"` with `is_error: true` and text `API Error: 402 Insufficient unified
-  billing credits…`. M13 maps by `is_error` + the 402, not by `subtype`. On 401 it
-  retries: 9 calls in 120 s until the wall clock stopped it, so the proxy must never pass
-  a 401 through (answer a stop instead).
-- Engine C (Codex 0.169.0) on 402: 6 calls (1 + "Reconnecting... 1/5" to 5/5) in 8.4 s,
-  then `turn.failed` "unexpected status 402 Payment Required: …". Same on 401. Mitigation,
-  both confirmed: `request_max_retries = 0` and `stream_max_retries = 0` on the
-  `void-proxy` provider (1 call, 0.6 s); and the proxy answering every repeat after a
-  credits stop itself (1 upstream call, 5 answered locally). M13 sets both.
-- S10 (`@cf/zai-org/glm-5.3-flash`, ~50 tokens a call): no call was cached
-  (`cf-aig-cache-status: MISS` on every repeat, also with a caller `cf-aig-cache-ttl: 60`
-  and on the provider-native `compat` endpoint). With logs off, `@cf` calls leave no log
-  entry. Third-party calls are always logged (Unified Billing): metadata only, stored
-  request and response read 404, `metadata: null` although `cf-aig-metadata` was sent,
-  cost 0. A control call with payload logging forced on stored both bodies, so the
-  reads work. Result: no bodies, no cache (PASS). Cost by `securityScan` tag is not
-  readable from the logs, so the spend meter stays the only cost source (the fail
-  branch). Not covered: the binding path and meter vs gateway (needs credits).
+They ran in local Docker with no route out. A local model proxy added the token and
+called the gateway's `/ai/v1/messages` and `/ai/v1/responses`.
 
-S4/S8 follow-up (2026-11-19, first run on VoidZero: glm-5.3 found 2/10 with 25% valid
-runs, deepseek 8/10 with 75% valid; both stopped at the caps). Changes:
+- The engines cannot reach `gateway.ai.cloudflare.com`, `api.cloudflare.com` or
+  `1.1.1.1`. The token is in no process env and in no file of the container.
+- Model names route as planned (`claude-sonnet-5.5` → `anthropic/…`, `gpt-6.1-terra` →
+  `openai/…`). `@cf` models do not work on `/ai/v1/*`, so there is no free stand-in for
+  a quality run.
+- Engine A on a 402 returns `subtype: "success"` with `is_error: true`, so M13 maps by
+  `is_error` and the status, not by `subtype`. On a 401 it retries until the wall clock
+  stops it, so the proxy never passes a 401 through.
+- Engine C retries a 402 or 401 five times. M13 sets `request_max_retries = 0` and
+  `stream_max_retries = 0`, and the proxy answers repeats after a credits stop itself.
 
-- Runner. One unreadable verify session no longer drops the scan: that candidate stays a
-  lead, the other candidates still get a session, and the scan ends `incomplete
-  (run_incomplete)` (only confirmed findings are stored, so the gate does not pass it).
-  Engine B repairs harmless slips before the strict check (`coerce.ts`: enum case,
-  fields the schema lacks, a severity on a lead, line numbers as strings), takes a report
-  sent as JSON text (also in a fence), gives the no-tool-call nudge and the invalid-report
-  repair a retry each, and tells the model "your last output was invalid: <reason>". The
-  API ingest still uses the strict validator.
-- Controller. `EXEC_ENV.PATH` now ends with `/usr/sbin:/sbin`; without it `useradd`
-  failed with ENOENT, so no live scan could start.
-- Caps. Defaults go to 1.2M input and 120k output tokens (ranges unchanged). At the cap
-  the worst-case reserve is $2.21 for glm-5.3 and $0.50 for deepseek (was $1.10 / $0.25);
-  S8 measured a median $0.99 (glm) and $0.22 (deepseek) when a scan stops at the old cap.
+### Gateway (S10)
 
-S4 rerun after those changes (2026-11-19, VoidZero, runner at HEAD, caps 1.2M / 120k; `security-spike-s4.ts
---live`, T2 input, 5 seeded + 3 clean apps, n = 8 scans per model; glm-5.3 ran in two
-batches because the harness budget guard skipped four of its apps in the first). Spend
-$7.49 at list prices; `void-spike-sa-s4` Worker and container app deleted, lists back to
-the baseline (20 Workers, 87 container apps).
+- With logs off and the cache skipped, no request or response body is stored and no
+  call is cached (also with a caller cache header).
+- Third-party calls are always logged (Unified Billing), with metadata only.
+- Not run: the binding path, and meter vs gateway cost (needs credits).
 
-|                                      | glm-5.3                 | deepseek-v4.1-flash-1017 (default) |
-| ------------------------------------ | ----------------------- | ---------------------------------- |
-| Planted crit/high found (bar ≥ 7/10) | 4/10, all confirmed     | 10/10, all confirmed               |
-| False confirmed crit/high (bar ≤ 2)  | 0                       | 0                                  |
-| Valid runs (bar ≥ 95%)               | 4/8 (50%)               | 8/8 (100%)                         |
-| Calls per scan (bar ≤ 80)            | median 28, max 78       | median 54, max 72                  |
-| Cost per scan at list price          | median $0.74, max $1.34 | median $0.18, max $0.29            |
-| Wall time (bar p95 < 20 min)         | p95 19.2 min            | p95 15.7 min                       |
-| Result                               | FAIL                    | PASS                               |
+### Engine B quality and cost (S4, S5, S8)
 
-- Before the fix, deepseek was 8/10 with 75% valid runs: the tolerant parsing and the
-  separate retry for a bad report took it to 10/10 and 100%. One deepseek scan ended
-  `incomplete (token_cap)` and still kept its confirmed findings.
-- glm-5.3 still fails in the hunt session in 4 of 8 scans (`bad_output`: three
-  `shape`, one `no_submit`), so those scans have nothing to keep. Both seeded apps that got
-  through the hunt (react-d1, svelte-auth) had all 4 planted bugs found and confirmed; the
-  three seeded apps whose hunt failed (api-plain, solid-r2, vue-kv) count as missed.
-- The cost bar (median ≤ $3) passes for both. Stopping at the cap is rarer: glm-5.3
-  hit it in 2 of 8 scans, deepseek in 1 of 8.
-- Decision: `@cf/deepseek-ai/deepseek-v4.1-flash-1017` is the default model everywhere
-  (`DEFAULT_SECURITY_MODEL`, policy default, probe fallback, first in the model list so it
-  is also the first `@cf/*` fallback). On this harness it meets every S4 bar and glm-5.3
-  does not. glm-5.3 stays in the list and can be picked.
+T2 input, 5 seeded and 3 clean apps, 8 scans per model, runner at the final code:
 
-Live spikes need one scratch account with Workers Paid, Containers, Workers AI or
-AI Gateway credits, Unified Billing for third-party hosts, and a runtime token with
-Containers Edit, Cloudchamber Edit and AI Gateway / Workers AI permissions. Scripts read
-`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` and delete everything they create.
+|                                    | glm-5.3                 | deepseek-v4.1-flash-1017 (default) |
+| ---------------------------------- | ----------------------- | ---------------------------------- |
+| Planted crit/high found (bar 7/10) | 4/10                    | 10/10                              |
+| False confirmed crit/high (bar 2)  | 0                       | 0                                  |
+| Valid runs (bar 95%)               | 4/8                     | 8/8                                |
+| Calls per scan (bar 80)            | median 28, max 78       | median 54, max 72                  |
+| Cost per scan at list price        | median $0.74, max $1.34 | median $0.18, max $0.29            |
+| Wall time (bar p95 < 20 min)       | p95 19.2 min            | p95 15.7 min                       |
 
-S13 throwaway copy (2026-11-19, VoidZero, `security-spike-copy.ts`; the account has
-Workers for Platforms). Per run the script makes a dispatch namespace, a sandbox Worker
-(no workers.dev; it is the namespace's outbound Worker, serves the AI / email / queue
-stubs as RPC entrypoints and keeps a call log) and a scratch controller (workers.dev +
-key header; the only way in, as `https://copy.void.internal/...`). Per copy: the built
-seeded app uploaded unchanged into the namespace, a new empty D1 / KV / R2 per binding,
-`db/migrations` applied, fake values for secrets (and for text vars with a secret name),
-stubs for AI / email / queue, cron and queue-consumer triggers dropped. Apps: react-d1
-(D1, Durable Object, assets, a secret), api-plain (D1, KV, vars, a cron, a real outbound
-call), solid-r2 (R2), and react-d1 again (warm). Result: **PASS**, with one design change
-(the copy guard below).
+- The first run (glm 2/10, deepseek 8/10) led to these runner changes: one unreadable
+  verify session keeps that candidate as a lead and ends the scan `incomplete` instead
+  of dropping it; Engine B repairs harmless output slips before the strict check
+  (`coerce.ts`) and gets one retry for a bad report; the controller's `PATH` includes
+  `/usr/sbin:/sbin` (`useradd` failed without it).
+- glm-5.3 still fails the hunt session in half of its scans. It stays in the list and
+  can be picked.
+- S5: two "false" confirmed were in decoy files and are debatable (no idempotency key; an
+  HMAC key of `"undefined"` when the secret is unset).
+- `sink_path` is sometimes an expression (`fetch(url)`), not a file path, so ingest and
+  the UI do not treat it as one.
 
-| Measure                      | Result                                                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Copy serves the app          | 17/17 route checks; pages, assets, migrated tables, fake-secret cookie accepted                                           |
-| Time to ready (bar < 60 s)   | 9.0 / 9.1 / 9.3 s cold, 9.3 s warm (first create call → first 200)                                                        |
-| Where the time goes          | stores 0.7–1.2 s, migrations 0.2–0.5 s, assets 3.8–4.1 s (3 buckets in parallel), script upload 3.0–3.4 s, first hit ~1 s |
-| Outbound blocked             | yes, with the copy guard (see below); without it a Durable Object reaches the internet                                    |
-| Not reachable from internet  | workers.dev name 404, not an account script (10007), controller 403 without or with a wrong key                           |
-| Delete                       | 2.1–3.6 s per copy (script + its stores); lists back to baseline                                                          |
-| Cost per copy (list prices)  | $0.000006–0.000014 (requests, D1 rows, one KV write, prorated script); WfP's $25/month base is already paid here          |
-| One-time setup (per install) | namespace 1.2 s, sandbox Worker 11.5 s, controller 12.6 s                                                                 |
+### Scan input (S7)
 
-- Egress from the copy's Worker code: `fetch` to https, http, a bare IP,
-  `api.cloudflare.com` and another workers.dev Worker all end in the outbound Worker
-  (403); `connect()` fails ("proxy request failed"); a `waitUntil` fetch is blocked too.
-- **Durable Objects bypass the outbound Worker** (Cloudflare documents this; measured with
-  `--no-guard`): from a Durable Object in the copy, `fetch` reached example.com,
-  1.1.1.1 and `api.cloudflare.com`, and an outbound WebSocket opened. `connect()` still
-  failed there. So M30 adds a **copy guard**: a module loaded before the app's entry that
-  replaces `globalThis.fetch` (non-writable) with a call to the sandbox through a service
-  binding, and `WebSocket` with a constructor that throws. With it, every probe from the
-  Worker and from the Durable Object was blocked, and the sandbox log still names each
-  call. The guard runs in the app's own isolate: it stops the app's own calls, it is not a
-  boundary against code written to escape it; the outbound Worker stays as the second
-  layer.
-- Real app code: api-plain's charge route called its payments API; the call reached the
-  sandbox (403) carrying the fake key, never the real `sk_live_…` var. react-d1 with test
-  rows seeded through the D1 API: the planted SQL injection returned another owner's
-  invoice and the planted IDOR returned owner 2's invoice to user 1, so `confirmed
-  (runtime)` checks are possible on a copy.
-- Stubs: `AI.run`, `EMAIL.send`, `QUEUE.send` from the copy to the sandbox entrypoints work
-  (service-binding RPC from a namespace script to an account Worker).
-- Findings for M30: assets are uploaded again for every copy (no reuse across scripts,
-  about 4 s; the copy could skip assets when no check needs them); a KV key written through
-  the API was visible to the copy after ~10 s, so seed KV through the copy or wait;
-  `kv.map('sid:')` stores under `sid::<key>`; a fresh copy's Durable Object answered its
-  first call with "internal error" in 2 of 17 copies (one retry worked); Void does not
-  catch a thrown `Response` in a handler, so the dispatcher sees `#<Response>` (same on a
-  native deploy); the solid-r2 build has no `KV` binding although its code uses `void/kv`
-  (fixture/inference gap, not the copy).
-- Cleanup: every `void-spike-sa-s13-*` namespace, namespace script, Worker, D1, KV and R2
-  deleted; final lists show none, and the account totals match the baseline (4 dispatch
-  namespaces, 21 Workers, 80 KV namespaces, 40 R2 buckets). Other `void-spike-sa-*`
-  resources are never listed for deletion.
+Real builds of the React, Vue, Svelte and Solid playgrounds:
 
-S5 static confirmations (2026-11-19, VoidZero, `security-spike-s4.ts --live --report
-confirmations`, deepseek-v4.1-flash-1017, T2 input, the 5 seeded apps × 2 runs = 10
-scans, harness Worker `void-spike-sa-s5`). A planted bug counts when its best match is
-`confirmed` (the runner keeps that verdict only after the separate verify session reported
-it again), has a sink_path and a trace step in the planted file. Result: **PASS**.
+- Every map entry has `sourcesContent`, and 100% of first-party server files are
+  readable. Modules with no map go in as built code.
+- Workspace packages count as first-party. Registry code matches the installed package
+  byte for byte.
+- With no lockfile all registry code is sent (input about 2× larger). With one, registry
+  files are dropped and 1–5 files an app stay `unverified`, because `parsePnpmLock`
+  reads only direct deps.
+- A snapshot is 67–106 R2 objects per deployment, plus 3 per scan.
+- GitHub compare lists at most 300 files. At that limit the scan falls back to T2.
+- Go-live paths: cutover, protected promotion and post-routing recovery all enqueue a
+  scan. Rollback and operator repair are not scanned (no new code).
 
-| Measure                                       | Result                                                       |
-| --------------------------------------------- | ------------------------------------------------------------ |
-| Planted bugs confirmed with a trace (bar 70%) | 20/20 (100%); all 20 traces have 2+ steps, median 11         |
-| Leads / missed among planted bugs             | 0 / 0                                                        |
-| All findings                                  | 38 confirmed, 4 needs_validation, 25 rejected                |
-| Verify sessions per scan                      | 3–7                                                          |
-| False confirmed crit/high                     | 2 (both in decoy files, see below)                           |
-| Runs                                          | 9 succeeded, 1 `incomplete (run_incomplete)`                 |
-| Calls / cost / wall time per scan             | median 52 (max 62) / median $0.15 (max $0.25) / p95 12.7 min |
-| Spend                                         | $1.68 (cap $3)                                               |
+### Refusals (S9)
 
-- "confirmed (static)" works on this input: no planted bug stayed a lead, so the
-  fail branch (every result is a lead) does not apply. The S4 bars also pass on this run.
-- The two false confirmed are in decoy files and are debatable rather than wrong:
-  api-plain's charge route has no idempotency key (repeat charges), and react-d1's HMAC
-  key becomes the string "undefined" when `SESSION_SECRET` is unset.
-- `sink_path` is sometimes an expression, not a path (`fetch(url)`,
-  `void/storage:storage.get(key)`); the trace still names the file, so ingest and the UI
-  should not treat `sink_path` as a file path.
-- Cleanup: `void-spike-sa-s5` Worker and its container app deleted; the lists are back to
-  the baseline (21 Workers, 88 container apps). The harness now deletes only its own
-  container apps (`<worker>-*`), not every `void-spike-sa-*` app, because other spikes can
-  run on the account at the same time.
+Recorded fixtures for the 3 engines, run through the real scanner, proxy and API
+mapping. The first run (15/20) found these, all fixed:
 
-### Spike results S7 / S9 / S11 (local, 2026-11-19)
+- Codex prints `cyber policy: <msg>` with no code. `classifyCodexRun` compares letters and
+  digits only, so every spelling ends `refused`.
+- The proxy hid the provider's `cyber_policy` 400 as "the model call failed". It now
+  passes the policy code on and records a refusal. A 402 stays a credits stop.
+- Engine A takes the refusal category from the assistant message when the result has
+  none. A refused turn with no report ends `refused`, and fallback to another model is
+  off.
+- A session that read no code cannot clear the scan (`bad_output (nothing_read)`), so an
+  empty report no longer passes the public gate. Only reads that returned non-blank code
+  under `/scan/input` count.
 
-Scripts: `security-spike-inputs.ts` (S7), `security-spike-refusals.ts` with
-`fixtures/security-refusals.json` (S9), `security-spike-redteam.ts` (S11). They share
-`security-spike-local.ts`, which runs the script again with a small loader: stand-ins for
-`cloudflare:workers` and the build-time `void:*` sources, and the DB packages resolved from
-the API package. They run the real runner, engines, MCP server, controller, model proxy,
-budget SQL and ingest (PGlite) in plain Node with the fake model. No product code changed.
+Remaining risk: a model that reads one file and then declines still looks clean.
+Handed back as a product call: Codex `bio policy`, `misalignment policy violation`,
+`invalid prompt` and `content_filter` end `failed (infrastructure)` and are retried.
+Spec §8.4 names only the two cyber codes. None of them opens the gate.
 
-| Spike        | Result           | Numbers                                                                                         |
-| ------------ | ---------------- | ----------------------------------------------------------------------------------------------- |
-| S7 inputs    | **PASS** 26/26   | 100% of first-party server files readable in all 4 apps; 8 go-live sites, 6 enqueue, 2 excluded |
-| S9 refusals  | **FAIL** 15/20   | 9/12 refusals end `refused` (75%), 0 end `succeeded`; 3 mapping bugs                            |
-| S11 red team | **FAIL** 149/150 | no escape, no egress, no token, caps and server rules hold; 1 tool-path gap (Engine A Glob)     |
+### Red team (S11)
 
-**S7.** Each Pages playground is copied to `playground-local/security-spike-s7/<app>` and
-built with `vp build`. The worker files come from the CLI's own `collectWorkerFiles`, the
-scan input from the real `bundleSources` / `buildSecurityScanInput`.
+160 checks with a hostile fake model: tool paths, tar input, MCP, engines, output,
+reviewer phrases, egress, caps and ingest. The one gap found (Engine A's Glob `pattern`
+and untrimmed Glob/Grep `path` could list names outside the scan folders) is fixed.
+Known risks, recorded and accepted:
 
-| App    | Build | Modules (code / maps), bytes | First-party readable (app + workspace) | Registry sources (same as disk), packages | Full input (no lockfile) | With repo lockfile           | Snapshot          |
-| ------ | ----- | ---------------------------- | -------------------------------------- | ----------------------------------------- | ------------------------ | ---------------------------- | ----------------- |
-| React  | 1.9 s | 103 (52 / 51), 4.49 MB       | 81/81 (46 + 35)                        | 43 (43/43), 6                             | 163 files, 2.34 MB       | 122 files, 41 dropped, 2 unv | 4.52 MB, 106 objs |
-| Vue    | 1.6 s | 70 (35 / 35), 2.08 MB        | 57/57 (33 + 24)                        | 34 (34/34), 8                             | 115 files, 1.28 MB       | 86 files, 29 dropped, 5 unv  | 2.11 MB, 73 objs  |
-| Svelte | 3.7 s | 64 (32 / 32), 1.50 MB        | 62/62 (31 + 31)                        | 55 (55/55), 6                             | 141 files, 0.89 MB       | 87 files, 54 dropped, 1 unv  | 1.52 MB, 67 objs  |
-| Solid  | 2.4 s | 65 (34 / 31), 1.67 MB        | 63/63 (32 + 31)                        | 35 (35/35), 6                             | 129 files, 0.94 MB       | 96 files, 33 dropped, 2 unv  | 1.70 MB, 68 objs  |
-
-- Every map entry has `sourcesContent`. First-party text equals the file on disk, except
-  virtual modules (`virtual:void-routes`, `@void-island-wrap/*`) and 9 Vue SFCs (the Vue
-  plugin's text is a few bytes off, e.g. 353 vs 360 bytes for `pages/index.vue`).
-- Modules with no map go in as built code (`_worker/…`, note `no-source-maps`): React 1
-  (`rolldown-runtime`), Solid 3 (two tiny island chunks, `pages-client.js`). Coverage
-  stays `complete`.
-- Workspace packages (`packages/*/dist/…`, the map path after `..` is dropped) are
-  first-party and always sent. Registry code under `node_modules/.pnpm/<pkg>@<ver>/` is
-  byte-equal to the installed package in all 167 cases.
-- Lockfile: the platform gets none today, so all registry code is `unverified` and sent
-  (input about 2× larger). With the repo's `pnpm-lock.yaml`, registry files are dropped
-  and coverage turns `partial (partial-third-party-only)`; 1–5 files an app stay
-  `unverified` because `parsePnpmLock` reads only direct `importers` deps (transitive
-  ones such as `scheduler`, `devalue`).
-- Snapshot per deployment: the module bytes + `modules.json` + `sources.json` (+
-  `assets.json`), 67–106 R2 objects; 3 more per scan (`backlog`, `server-leads`, `scope`).
-- T2 after a one-line change to `routes/api/health.ts`: `built_diff`, 2 modules changed
-  (the chunk's map and `index.js.map`), focus = that file + `virtual:void-routes`.
-- GitHub compare lists at most 300 files (`GITHUB_COMPARE_MAX_FILES`): at or above that
-  it counts as truncated and the scan falls back to T2.
-- Go-live sites (plain-text search of `platform/packages/api/src`; every write of status
-  `live` or of the active pointer):
-
-  ```
-  deploy/recovery.ts:111,114     commitCutoverLive (publish-static :237, publish-worker :437)
-                                   └─► enqueueSecurityScanInTx                   trigger deploy
-  deploy/execute.ts:875,884      promoteProtectedDeployment ─► enqueueSecurityScanInTx  recovery
-  deploy/compensate.ts:492,501   post-routing recovery ─► finishLiveSecurityScan
-                                   └─► enqueueSecurityScanForLiveDeployment ─► …InTx
-  routes/projects.ts:1286        rollback                 not scanned (spec §6.1)
-  operator/project-normalization.ts:162  operator repair  not scanned (no new code)
-  ```
-
-  Managed builds run `void deploy` in the build container, so they take the same path.
-  M8 covers every site; nothing to add.
-
-**S9.** 18 recorded fixtures (refusal, plain-text refusal, controls) for the 3 engines, run
-through the real `runScan` and engine code, then the API's `parseRunnerStatus` /
-`securityScanOutcome` / `shouldRetrySecurityScan`; plus 3 provider refusals sent through the
-real model proxy. Live refusal rates stay BLOCKED (no Unified Billing credits, see S2/S3).
-
-| Engine      | Refusals → `refused` | Notes                                                                        |
-| ----------- | -------------------- | ---------------------------------------------------------------------------- |
-| B void-loop | 1/1                  | plain-text refusals (2) end `failed (bad_output)`, never `succeeded`         |
-| A Agent SDK | 4/4                  | the refusal category is lost (bug 3)                                         |
-| C Codex SDK | 4/7                  | `cyber policy:` text (bug 1) and proxy-hidden 400 (bug 2) end infrastructure |
-
-- Controls hold: 402 → `failed (credits)` for A and C, a dropped stream → `failed
-  (infrastructure)`, clean submits → `succeeded`.
-- A model that "declines" by sending an empty report (`B5`) ended `succeeded`, the same
-  as a clean scan, so it would pass the public gate. Fixed after the spikes (item 5 below).
-
-**S11.** 150 checks in 10 groups: tools 30, tar 20, MCP 8, engines 24, output 12, phrases
-7, input 9, egress 19, caps 12, ingest 9. All hold except one.
-
-- Held: every path trick (`..`, absolute, `/proc/self/environ`, symlinks, backslashes,
-  NUL, long paths) is refused by the Engine B tools and the MCP server; `bash` / `fetch` /
-  `web_search` / `shell` do not exist; all 20 bad tars end `failed (input_invalid)` with
-  nothing written outside the root (planted `out/status.json` included); planted
-  `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `.codex/config.toml`, `.agents/skills`,
-  `.claude/settings.json` are not read (no setting sources, project docs off); the
-  controller locks egress before start, `DenyAll` answers 403, scan identity comes from
-  props; the proxy refuses provider-run tools, `mcp_servers`, `container`, `background`,
-  `additional_tools`, filters `anthropic-beta`, replaces caller auth and `cf-aig-*`, and
-  never answers with the token; 30 concurrent calls → exactly 10 reach the model; the
-  session cap (40), token cap, `max_tokens` clamp, $0.01 project cap under concurrency,
-  worst-case charge for a stream with no usage, fences (409) and 16 MiB (413) hold; a
-  forged `server:reviewer_text` fingerprint gets its own row; scan N+1 writing `rejected`
-  or a weaker lead does not close, demote or hide scan N's confirmed high bug; a status
-  for another scan ends `bad_output`; a 300-record flood stores ≤ 100; `incomplete`
-  keeps confirmed only; a secret and its base64 form never reach the tar.
-- Known risks (recorded, not fails): the reviewer-text check misses split, spaced,
-  homoglyph, zero-width and other-word forms (8 tried); a hard link in `/scan/input` is
-  readable (not reachable: the tar refuses links); after two refused reports the MCP
-  server still takes a third submit (bounded by the 40-call session cap); app code placed
-  under a registry package's `node_modules/` path is dropped when a lockfile is used (a
+- The reviewer-text check misses split, spaced, homoglyph and zero-width forms.
+- A hard link in `/scan/input` would be readable, but the tar input refuses links.
+- After two refused reports the MCP server still takes a third (bounded by the 40-call
+  session cap).
+- With a lockfile, app code placed under a registry package path is dropped (a
   malicious owner is a non-goal).
 
-**Product bugs found** (not fixed here):
+### Runtime copy (S13)
 
-1. `platform/packages/security-scanner/src/runner/status.ts:214` (`CODEX_POLICY_CODES`,
-   used at :224). Codex 0.162.1 prints `CodexErr::CyberPolicy` as `cyber policy: <msg>`
-   (space, no code). Repro: fixture C1 (`turn.failed` "cyber policy: This request has been
-   flagged…"). Got `failed (infrastructure, codex_turn_failed)`, retried once and blamed
-   on the install. Expected `refused`.
-2. `platform/packages/api/src/security/model-proxy.ts:1096-1102` (upstream-failed branch of
-   `handleSecurityModelRequest`). The provider body is kept only for the log, so an OpenAI
-   400 `code: cyber_policy` reaches Codex as `upstream_failed` "The model call failed.",
-   and the last failure says `upstream`. Repro: chain P1. Got `failed (infrastructure)`.
-   Expected `refused` (pass the policy code on, or record a refusal as the last failure).
-3. `platform/packages/security-scanner/src/runner/engines/claude.ts:293` reads
-   `result.stop_details?.category`. In Claude Code 2.1.328 `stop_details` is on the
-   assistant message, not on the result. Repro: fixtures A1, P3. Got `refusal_category:
-   null`. Expected `cyber`.
-4. `platform/packages/security-scanner/src/runner/engines/claude.ts:148`
-   (`createPathHook`): `pattern` is checked only when it starts with `/`. Repro:
-   `createPathHook(root)({ tool_name: 'Glob', tool_input: { pattern: '../../**/*' } })`
-   answers `{}` (allowed). Glob could list file names outside `/scan/input` and
-   `/scan/memory` (Read stays blocked). Expected deny: resolve a relative pattern against
-   the cwd, or refuse a `..` segment.
+A Workers for Platforms namespace with a sandbox outbound Worker, per copy: the built
+app unchanged, new empty stores, migrations applied, fake secrets, stubbed AI / email /
+queue, no triggers.
 
-**Fixed after the spikes** (re-run: S7 26/26, S9 21/21, S11 150/150):
+- 17/17 route checks pass. Ready in about 9 s (cold or warm), deleted in 2–4 s, cost
+  about $0.00001 per copy. The copy is not reachable from the internet.
+- Durable Objects bypass the outbound Worker. M30 adds a copy guard loaded before the
+  app's entry that replaces `fetch` and `WebSocket`. It stops the app's own calls; it is
+  not a boundary against code written to escape it, so the outbound Worker stays as the
+  second layer.
+- Runtime checks work on a copy: the planted SQL injection and IDOR returned another
+  owner's rows. A real outbound call carried the fake key, never the real one.
+- Notes for M30: assets upload again for every copy (about 4 s); KV written through the
+  API shows up in the copy after ~10 s; a fresh Durable Object can fail its first call
+  (one retry works).
 
-1. `classifyCodexRun` reads spaces and dashes as `_` before it looks for a policy code,
-   so `cyber policy: <msg>` ends `refused (cyber_policy)`.
-2. The proxy reads the provider error body: `error.code` `cyber_policy` or
-   `trusted_access_for_cyber` is answered with that code as the `error` (same HTTP
-   status) and recorded as last failure `refused`, so Codex shows the code and the scan
-   ends `refused`, not retried.
-3. Engine A takes the refusal category from the last assistant message that stopped with
-   `refusal` when the result has no `stop_details`.
-4. The Engine A hook reads every Glob `pattern` as a path: a `..`, `~`, backslash or a
-   brace choice that starts a new root (`{/etc,x}`) is refused; otherwise the fixed
-   leading part, under the search `path` or `/scan/input`, must stay in the scan folders.
-   A Grep `pattern` is search text and is not read as a path. A path that starts with
-   `~` (the CLI's home, its config folder) is refused for every tool.
-5. A session that read no file cannot clear code (`phases.ts` `readNothing`): the prompt
-   names files but never holds their text. Each engine counts the scan tool calls that
-   answered (`stats.reads`: Engine B's own tools, Engine A's hook allows, Engine C's
-   void-scan MCP calls). A report with only rejections from a session with no read is
-   `bad_output (nothing_read)`: a hunt fails the scan (a `standard` focus hunt costs its
-   area, the scan ends `incomplete`), a verify keeps the candidate as a lead and ends the
-   scan `incomplete`. Either way the public gate stays closed. B5 is now an `unsignalled`
-   fixture; the clean controls (B4, A5, C7) read a file first.
-
-The S11 egress harness now expects the M30 copy-host intercept (`copy.void.internal`)
-between the model host and the catch-alls.
-
-**Fixed after a review of those fixes** (re-run: S9 24/24, S11 160/160):
-
-1. Glob and Grep `path` with whitespace at either end is refused. Claude Code trims a
-   Glob or Grep `path` before it reads `~` or resolves it, and those two tools reach
-   the hook untrimmed (Read reaches it already made absolute). `path: " /"` passed as a
-   folder named ` ` under input and searched `/`; `" ~"` and `".. "` the same way.
-   Checked live against Claude Code 2.1.328 with a fake Messages API. A `path` that is
-   not a string is refused too.
-2. `stats.reads` now counts only reads that returned code: a read of a file under
-   `/scan/input` with non-blank lines. Reading the memory index (the hunt prompt asks for
-   it first), listing, searching, a failed read or a Glob that matched nothing does not
-   count, so "obey step 1, then decline" no longer passes. Engine B: `FsTools.readFile`
-   marks such a result. Engine C: the void-scan server writes the count to
-   `<out>.reads`; Codex events are not read for it. Engine A: a PostToolUse hook on Read
-   reads `tool_response.file.content` (PreToolUse runs before the tool, so it cannot
-   see whether the read worked). S9 fixtures B6, A6 and C9 cover the three engines.
-   Remaining risk: a model that reads one file and then declines still looks like a
-   clean scan. A deployment whose `/scan/input` holds no non-blank file cannot end clean.
-3. Engine A: a turn that stopped with `refusal` and no report ends `refused`, even when
-   the result after it says `is_error` or `end_turn`. The env pins
-   `CLAUDE_CODE_REFUSAL_FALLBACK_CATCH_ALL=0` so a refused turn is not retried on
-   another model (no `fallbackModel` is set either).
-4. `classifyCodexRun` compares letters and digits only, so `cyber  policy`, a line break
-   between the words and the Debug form `CyberPolicy { … }` all end `refused`.
-5. The proxy looks for `cyber_policy` / `trusted_access_for_cyber` in any `code` or
-   `type` field at any depth (a Cloudflare `errors[]` envelope, `error[]`, a provider
-   body held as JSON text in a message), keeps 8000 characters of the body instead of
-   2000, and searches a body that does not parse for the quoted code. A 402 stays a
-   credits stop even with a policy code in its body (the dead 402 mapping is gone).
-   Release check: compare with a recorded `/ai/v1` refusal 400 once credits allow; the
-   real shape has not been seen.
-
-Handed back, not changed: Codex also prints `bio policy: …`, `misalignment policy
-violation: …`, `invalid prompt: …` and `Incomplete response returned, reason:
-content_filter`, and the provider can answer `invalid_prompt` / `bio_policy`. These end
-`failed (infrastructure)` and are retried. Spec §8.4 names only the two cyber codes, so
-whether they count as refusals is a product decision. None of them opens the gate.
+The release smoke check still needs one scratch account with Workers Paid, Containers,
+Workers AI or AI Gateway credits, Unified Billing, and a token with Containers,
+Cloudchamber and AI Gateway / Workers AI permissions.
 
 ### S12 legal checklist (open questions for the user)
 
@@ -2659,8 +2404,7 @@ Keeping tests fast:
   `catalogMode: strict`). The runner imports an engine interface; SDKs install only in
   `image/` from their own lockfile. Docker e2e runs only with `VOID_SCANNER_E2E=1` and in
   the CI image job.
-- No live Cloudflare call in `vp test run`. Live checks are the spike scripts plus one
-  release smoke script, `platform/scripts/security-smoke-test.ts` (probe, one scan on a
+- No live Cloudflare call in `vp test run`. Live checks are one release smoke script, `platform/scripts/security-smoke-test.ts` (probe, one scan on a
   seeded app, one gate request, cleanup), run by hand before release.
 - Watch the scheduled and zero-trust suites: they are already the slowest; new cases go
   in new files so the forks runner spreads them.
@@ -2686,28 +2430,28 @@ Verification per AGENTS.md: exact file first (`-t` for a case), `vp run test --l
 Items that need a user call are marked **(user)**. The rest are decided here and can
 be pushed back on.
 
-| #   | Item                                                                                                                                                                                                                                                                                                    | Plan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1  | **(user)** Image source. A container app with the `durable_object` scheduling policy (the Sandbox pattern) only runs `registry.cloudflare.com/<operator account>/…` images. "An image Void publishes at a pinned digest" cannot be used as is, and PRD §5.1 forbids building on the operator's machine. | Engine B (default `@cf` model) uses the managed `cloudflare/debian-trixie` image plus the runner streamed in at start (like `sandbox-shim.ts`): nothing to publish. Engines A/C: the API copies a digest-pinned Void image into the operator registry (option A), or the app uses the `default` policy (option B). **Status:** S1b (`security-spike-s1b.ts`) tested option A only with a ~2 MB busybox image (Worker copy by digest with short-lived registry credentials, then `image-preparations`); its numbers were not written down. A full-size engine image has not been copied live with the M13b code, so copy time per probe window is unmeasured. M13b builds option A with public images at `ghcr.io/voidzero-dev/void-security-scanner-engine-{a,c}` and both pins `null`. **Still open for the user:** OK on option A and on that publish location before the first push. |
-| R2  | One PR vs spec "DO migration one release before the feature". **Decided: single PR.**                                                                                                                                                                                                                   | The `SecurityScanScheduler` class and its `security-audits-v1` migration tag ship in the same release as the feature. The feature is off by default (capability off, policy Off), so the class stays idle. A Worker rollback cannot cross that release (Cloudflare does not roll back past a DO migration): after it, a bad release is fixed by rolling forward. Release notes and the M24 docs say so.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| R3  | **(user)** All three phases in one PR.                                                                                                                                                                                                                                                                  | Very large review. Phase 2 M30 depends on S13 and Phase 3 M32 is a new privacy promise (code leaves the developer machine). If S13 fails, M30 is dropped and noted. Suggest a stacked PR per phase if review load is too high.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| R4  | Deploy `--json` does not exist today, so spec "deploy result gains `security` in `--json`" has nothing to attach to.                                                                                                                                                                                    | Not built; noted in docs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| R5  | **(user)** Skill upstream repo URL for "security-audit-skill @ c1c8a8c" is not in the spec or repo.                                                                                                                                                                                                     | Needed before M13 vendoring. M5 ships the Void companion + profile with a stub skill.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| R6  | **(user)** Sonnet 5.5 price is missing; the meter needs a price for every model.                                                                                                                                                                                                                        | Ship Sonnet in the list but not pickable (treated as blocked) until a price is filled in.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| R7  | **(user)** Legal (S12): Agent SDK native binary in a Void-published image; OpenAI terms.                                                                                                                                                                                                                | M13 code lands; A/C models stay unpickable until S12 is OK. Fallback per PRD: ship `@cf` + Engine B first.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| R8  | "No live deploy is missed" is weaker on one path: compensate `post_routing_recovery` writes `live` outside any transaction with errors swallowed.                                                                                                                                                       | Enqueue there in its own short tx, logged on failure. The gap is accepted and listed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| R9  | Codex SDK cannot pass the lockdown flags. Spec pins 0.167.1; latest is 0.170.0.                                                                                                                                                                                                                         | Wrapper script via `codexPathOverride`, covered by the drift test. Pin the version current at M13.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| R10 | REST `/ai/v1/*` needs an AI permission on the runtime token and the `cf-aig-gateway-id` header. Binding calls may ignore the payload-off header (0094 live check A still pending).                                                                                                                      | `@cf` on the binding (no new permission); third party on REST; probe check 5 names a missing permission; S10 can move `@cf` to REST. `credentials.md` gains the row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| R11 | Uninstall keeps platform Workers unless `--purge-resources`; the PRD says uninstall removes the scanner.                                                                                                                                                                                                | Follow the PRD: uninstall always deletes the scanner Worker and container app (they hold no data; R2 data follows the bucket rule). Found by name + ownership marker, since the installer record does not list API-created resources.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| R12 | Input build runs in the API Worker (redaction needs secrets). Large T3 inputs may hit Worker CPU limits.                                                                                                                                                                                                | S7/S8 measure; if too slow, build in the scheduler DO alarm in chunks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| R13 | Phase 3 local checks: findings would break reopen and gate rules that assume a deployment.                                                                                                                                                                                                              | Separate short-lived result; never touches project findings or the gate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| R14 | Phase 3 BYOK: does BYOK spend count toward caps?                                                                                                                                                                                                                                                        | Yes, metered and counted (installation still pays compute; one rule).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| R15 | Per-plan caps: catalog parser needs the exact key set; two-release rule cannot fit one PR.                                                                                                                                                                                                              | Separate settings key `plans:security-caps` (0094 precedent). No `PlanLimits` change.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| R16 | Paging: spec asks for cursors; operator API uses page/limit.                                                                                                                                                                                                                                            | Operator routes keep page/limit (CLI consistency); project routes use a `before` cursor on `number`/`created_at`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| R17 | Old CLI on `void platform upgrade` drops the flag.                                                                                                                                                                                                                                                      | Manifest v7 when on (old CLIs refuse).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| R18 | Cron: fast tier is missing on some self-hosted installs and returns early.                                                                                                                                                                                                                              | All security jobs in the hourly tier only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| R19 | Admin shell has no banner or badge slot.                                                                                                                                                                                                                                                                | New props through `renderAdminPage` and fate renders (M18).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| R20 | Model ids and prices are for models that may change before release.                                                                                                                                                                                                                                     | One list in `@void/platform/security-models`, updated per release; S10 checks prices.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| #   | Item                                                                                                                                                                                                                                                                                                    | Plan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | **(user)** Image source. A container app with the `durable_object` scheduling policy (the Sandbox pattern) only runs `registry.cloudflare.com/<operator account>/…` images. "An image Void publishes at a pinned digest" cannot be used as is, and PRD §5.1 forbids building on the operator's machine. | Engine B (default `@cf` model) uses the managed `cloudflare/debian-trixie` image plus the runner streamed in at start (like `sandbox-shim.ts`): nothing to publish. Engines A/C: the API copies a digest-pinned Void image into the operator registry (option A), or the app uses the `default` policy (option B). **Status:** S1b tested option A only with a ~2 MB busybox image (Worker copy by digest with short-lived registry credentials, then `image-preparations`); its numbers were not written down. A full-size engine image has not been copied live with the M13b code, so copy time per probe window is unmeasured. M13b builds option A with public images at `ghcr.io/voidzero-dev/void-security-scanner-engine-{a,c}` and both pins `null`. **Still open for the user:** OK on option A and on that publish location before the first push. |
+| R2  | One PR vs spec "DO migration one release before the feature". **Decided: single PR.**                                                                                                                                                                                                                   | The `SecurityScanScheduler` class and its `security-audits-v1` migration tag ship in the same release as the feature. The feature is off by default (capability off, policy Off), so the class stays idle. A Worker rollback cannot cross that release (Cloudflare does not roll back past a DO migration): after it, a bad release is fixed by rolling forward. Release notes and the M24 docs say so.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| R3  | **(user)** All three phases in one PR.                                                                                                                                                                                                                                                                  | Very large review. Phase 2 M30 depends on S13 and Phase 3 M32 is a new privacy promise (code leaves the developer machine). If S13 fails, M30 is dropped and noted. Suggest a stacked PR per phase if review load is too high.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| R4  | Deploy `--json` does not exist today, so spec "deploy result gains `security` in `--json`" has nothing to attach to.                                                                                                                                                                                    | Not built; noted in docs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| R5  | **(user)** Skill upstream repo URL for "security-audit-skill @ c1c8a8c" is not in the spec or repo.                                                                                                                                                                                                     | Needed before M13 vendoring. M5 ships the Void companion + profile with a stub skill.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| R6  | **(user)** Sonnet 5.5 price is missing; the meter needs a price for every model.                                                                                                                                                                                                                        | Ship Sonnet in the list but not pickable (treated as blocked) until a price is filled in.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| R7  | **(user)** Legal (S12): Agent SDK native binary in a Void-published image; OpenAI terms.                                                                                                                                                                                                                | M13 code lands; A/C models stay unpickable until S12 is OK. Fallback per PRD: ship `@cf` + Engine B first.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| R8  | "No live deploy is missed" is weaker on one path: compensate `post_routing_recovery` writes `live` outside any transaction with errors swallowed.                                                                                                                                                       | Enqueue there in its own short tx, logged on failure. The gap is accepted and listed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| R9  | Codex SDK cannot pass the lockdown flags. Spec pins 0.167.1; latest is 0.170.0.                                                                                                                                                                                                                         | Wrapper script via `codexPathOverride`, covered by the drift test. Pin the version current at M13.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| R10 | REST `/ai/v1/*` needs an AI permission on the runtime token and the `cf-aig-gateway-id` header. Binding calls may ignore the payload-off header (0094 live check A still pending).                                                                                                                      | `@cf` on the binding (no new permission); third party on REST; probe check 5 names a missing permission; S10 can move `@cf` to REST. `credentials.md` gains the row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| R11 | Uninstall keeps platform Workers unless `--purge-resources`; the PRD says uninstall removes the scanner.                                                                                                                                                                                                | Follow the PRD: uninstall always deletes the scanner Worker and container app (they hold no data; R2 data follows the bucket rule). Found by name + ownership marker, since the installer record does not list API-created resources.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| R12 | Input build runs in the API Worker (redaction needs secrets). Large T3 inputs may hit Worker CPU limits.                                                                                                                                                                                                | S7/S8 measure; if too slow, build in the scheduler DO alarm in chunks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| R13 | Phase 3 local checks: findings would break reopen and gate rules that assume a deployment.                                                                                                                                                                                                              | Separate short-lived result; never touches project findings or the gate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| R14 | Phase 3 BYOK: does BYOK spend count toward caps?                                                                                                                                                                                                                                                        | Yes, metered and counted (installation still pays compute; one rule).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| R15 | Per-plan caps: catalog parser needs the exact key set; two-release rule cannot fit one PR.                                                                                                                                                                                                              | Separate settings key `plans:security-caps` (0094 precedent). No `PlanLimits` change.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| R16 | Paging: spec asks for cursors; operator API uses page/limit.                                                                                                                                                                                                                                            | Operator routes keep page/limit (CLI consistency); project routes use a `before` cursor on `number`/`created_at`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| R17 | Old CLI on `void platform upgrade` drops the flag.                                                                                                                                                                                                                                                      | Manifest v7 when on (old CLIs refuse).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| R18 | Cron: fast tier is missing on some self-hosted installs and returns early.                                                                                                                                                                                                                              | All security jobs in the hourly tier only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| R19 | Admin shell has no banner or badge slot.                                                                                                                                                                                                                                                                | New props through `renderAdminPage` and fate renders (M18).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| R20 | Model ids and prices are for models that may change before release.                                                                                                                                                                                                                                     | One list in `@void/platform/security-models`, updated per release; S10 checks prices.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Hard or impossible as written in the PRD (flagged, not silently changed): R1 (image),
 R2 (release order), R4 (deploy `--json`), R8 (one go-live path outside a transaction),
