@@ -21,7 +21,7 @@ Inject the following values from protected CI secrets. Do not commit them in a w
 | `VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER`       | Hyperdrive runtime database user                                                            |
 | `VOID_PLATFORM_HYPERDRIVE_ORIGIN_SERVICE_ID` | Workers VPC service ID, for a private database origin                                       |
 | `VOID_PLATFORM_R2_ACCESS_KEY_ID`             | R2 Access Key ID                                                                            |
-| `VOID_PLATFORM_R2_SECRET_ACCESS_KEY`         | R2 Secret Access Key                                                                        |
+| `VOID_PLATFORM_R2_SECRET_ACCESS_KEY`         | R2 Secret Access Key (not the token value)                                                  |
 | `VOID_PLATFORM_JWT_SECRET`                   | Original JWT signing secret                                                                 |
 | `VOID_PLATFORM_EMAIL_SIGNING_SECRET`         | Dedicated email signing secret when email is enabled                                        |
 | `VOID_PLATFORM_PROJECT_SECRET_KEY`           | Original base64-encoded project-encryption key                                              |

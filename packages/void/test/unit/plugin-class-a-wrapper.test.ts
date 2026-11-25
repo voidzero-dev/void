@@ -15,7 +15,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { toSlash } from 'pathslash';
-import { createServer, normalizePath, type Plugin, type ResolvedConfig } from 'vite';
+import { createServer, normalizePath } from 'vite';
+import type { Plugin, ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { bundleEntry } from '../../src/cli/wrapper.ts';
 import {
@@ -63,8 +64,7 @@ function callConfigResolved(plugin: Plugin, config: Partial<ResolvedConfig>) {
   if (typeof fn !== 'function') {
     throw new Error('configResolved not callable');
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (fn as any)(config);
+  (fn as (options: typeof config) => void)(config);
 }
 
 afterEach(() => {
@@ -131,10 +131,13 @@ describe('Class A framework custom entry', () => {
           join(root, '.void/tanstack-start-trigger-wrapper.ts'),
         );
         const original = await server.ssrLoadModule(join(root, 'server.mjs'));
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
         const response = await wrapped.default.fetch(new Request('https://example.test/'), {}, {});
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
         expect(await response.text()).toBe('custom entry');
         expect(wrapped.Counter).toBe(original.Counter);
         expect(wrapped.marker).toBe('custom entry');
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
         expect(wrapped.default.scheduled()).toBe('scheduled');
       } finally {
         await server.close();
@@ -217,9 +220,9 @@ describe('Class A framework build wrapper', () => {
       callConfigResolved(wrapperPlugin, {
         command: 'build',
         build: { assetsDir: 'static' } as ResolvedConfig['build'],
-      } as Partial<ResolvedConfig>);
+      });
 
-      const code = readFileSync(join(root, '.void', 'tanstack-start-trigger-wrapper.ts'), 'utf-8');
+      const code = readFileSync(join(root, '.void', 'tanstack-start-trigger-wrapper.ts'), 'utf8');
       expect(code).toContain('return serveWithAssets(request, env, await original.fetch');
       expect(code).toContain('import { createAssetFallback as __createAssetFallback }');
       expect(code).toContain(
@@ -295,7 +298,7 @@ describe('Class A bare void imports', () => {
         server: { middlewareMode: true, ws: false, preTransformRequests: false },
       });
       try {
-        const resolved = await server.environments[environment]!.pluginContainer.resolveId(
+        const resolved = await server.environments[environment].pluginContainer.resolveId(
           'void',
           join(root, 'crons/tick.ts'),
         );
@@ -326,12 +329,12 @@ describe('Class A framework request scope', () => {
       throw new Error('Expected Class A wrapper plugin.');
     }
     const wrapperPath = join(root, '.void', 'tanstack-start-trigger-wrapper.ts');
-    const dev = readFileSync(wrapperPath, 'utf-8');
+    const dev = readFileSync(wrapperPath, 'utf8');
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'assets' } as ResolvedConfig['build'],
-    } as Partial<ResolvedConfig>);
-    const build = readFileSync(wrapperPath, 'utf-8');
+    });
+    const build = readFileSync(wrapperPath, 'utf8');
     // The asset fallback helper that ends the build wrapper is covered above.
     return { dev, build: build.slice(0, build.indexOf('import { createAssetFallback')) };
   }
@@ -524,15 +527,15 @@ export default defineEnv({
       (plugin) => plugin.name === 'void:framework-build-wrapper',
     )!;
     const wrapperPath = join(root, '.void', 'tanstack-start-trigger-wrapper.ts');
-    const dev = readFileSync(wrapperPath, 'utf-8');
+    const dev = readFileSync(wrapperPath, 'utf8');
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'assets' } as ResolvedConfig['build'],
-    } as Partial<ResolvedConfig>);
-    return { root, wrapperPath, dev, build: readFileSync(wrapperPath, 'utf-8') };
+    });
+    return { root, wrapperPath, dev, build: readFileSync(wrapperPath, 'utf8') };
   }
 
-  const MISSING_VALUES = [
+  const MISSING_VALUES: Array<{ path: string; expected: unknown }> = [
     { path: '/', expected: '200 ok' },
     { path: '/SCHEMA_DEFAULT', expected: '200 {"SCHEMA_DEFAULT":48213}' },
     { path: '/STRIPE_KEY', expected: expect.stringMatching(/^500 Invalid env "STRIPE_KEY"/) },
@@ -580,7 +583,9 @@ registerHooks({
         '}\n' +
         'process.stdout.write(JSON.stringify(results));\n',
     );
-    return JSON.parse(execFileSync(process.execPath, [runner], { cwd: root, encoding: 'utf8' }));
+    return JSON.parse(
+      execFileSync(process.execPath, [runner], { cwd: root, encoding: 'utf8' }),
+    ) as Array<string>;
   }
 
   /** Bundle a wrapper for workerd and answer each request there, with `bindings` as its env. */
@@ -664,7 +669,7 @@ export default {
         ...VALID_VALUES.map((request) => ({ ...request, env: VALID_ENV })),
       ];
       expect(fetchInNode(app.root, app[mode], requests)).toEqual(
-        requests.map(({ expected }) => expected),
+        requests.map(({ expected }): unknown => expected),
       );
     },
   );
@@ -754,7 +759,7 @@ describe('Class A routing.notFound self-host warning', () => {
     callConfigResolved(wrapperPlugin, {
       command: 'build',
       build: { assetsDir: 'static' } as ResolvedConfig['build'],
-    } as Partial<ResolvedConfig>);
+    });
 
     expect(notFoundWarnings(logSpy.mock.calls.map((args) => args.join(' ')))).toEqual([]);
   });

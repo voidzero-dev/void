@@ -7,6 +7,8 @@ it('delivers platform batches to a generated framework consumer and applies its 
     '../../../../../packages/void/test/helpers/framework-queue-contract.ts',
     (import.meta as ImportMeta & { url: string }).url,
   );
-  const { assertFrameworkQueueDelivery } = await import(source.href);
+  const { assertFrameworkQueueDelivery } = (await import(source.href)) as {
+    assertFrameworkQueueDelivery(dispatcher: typeof dispatch): Promise<void>;
+  };
   await assertFrameworkQueueDelivery(dispatch);
 });

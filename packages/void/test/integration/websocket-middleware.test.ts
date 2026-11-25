@@ -169,8 +169,6 @@ export default { __kind: "socket", messages: { client: schema, server: schema } 
     writeFileSync(
       routeTablePath,
       compileRouteTable(scan, routesDir, middlewareDir, temporary, temporary, null, {
-        honoPath: import.meta.resolve('hono'),
-        honoRoutePath: import.meta.resolve('hono/route'),
         runtimeEnvPath,
         webSocketRuntimePath: join(root, 'packages/void/src/runtime/ws/server.ts'),
         projectRoot: temporary,
@@ -315,7 +313,7 @@ export default { __kind: "socket", messages: { client: schema, server: schema } 
       });
       expect(allowed.status).toBe(mode === 'upgrade-only' ? 426 : 200);
       if (mode !== 'upgrade-only') {
-        expect(((await allowed.json()) as { requests: number }).requests).toBe(1);
+        expect((await allowed.json<{ requests: number }>()).requests).toBe(1);
       }
     },
   );

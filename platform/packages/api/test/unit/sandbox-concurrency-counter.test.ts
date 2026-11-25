@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import {
-  SandboxConcurrencyCounter,
-  type SandboxUsageAttribution,
-} from '../../src/sandbox-concurrency-counter.ts';
+import { SandboxConcurrencyCounter } from '../../src/sandbox-concurrency-counter.ts';
+import type { SandboxUsageAttribution } from '../../src/sandbox-concurrency-counter.ts';
 import { verifyUsageEnvelope } from '../../src/usage-auth.ts';
 import type { UsageEvent } from '../../src/usage-counter.ts';
 
@@ -145,7 +143,7 @@ describe('trusted Sandbox capacity and metering', () => {
     await reserve('pending', 'run', 2);
     await reserve('running', 'run', 2);
     await counter.started('running', 'run', 2);
-    vi.setSystemTime(START + 30 * 24 * 3600_000);
+    vi.setSystemTime(START + 30 * 24 * 3_600_000);
     await counter.alarm();
     expect(await reserve('third', 'run', 2)).toEqual({ ok: false, reason: 'concurrency' });
     expect(sent).toEqual([]);

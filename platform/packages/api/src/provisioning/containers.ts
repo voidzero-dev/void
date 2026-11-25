@@ -33,7 +33,9 @@ export async function prepareContainerImage(
     if (result.status !== 'pending') {
       throw new Error('Cloudflare Container image preparation failed. Retry the deployment.');
     }
-    await new Promise((resolve) => setTimeout(resolve, Math.min(2_000, remaining)));
+    await new Promise((resolve) => {
+      setTimeout(resolve, Math.min(2000, remaining));
+    });
   }
 }
 

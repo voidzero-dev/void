@@ -11,5 +11,5 @@ export const statusMessages = {
 } as const;
 
 export function parseStatus(c: CloudContext) {
-  return parseInt(c.req.param('status')!) as keyof typeof statusMessages;
+  return Number.parseInt(c.req.param('status') ?? '') as keyof typeof statusMessages;
 }

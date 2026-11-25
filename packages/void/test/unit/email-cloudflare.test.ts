@@ -17,10 +17,12 @@ import {
   renderEmailChecklist,
   subdomainDashboardFallback,
   SENDING_FREE_PLAN_HINT,
-  type EmailCloudflareInputs,
-  type EmailDns,
-  type EmailPreflight,
-  type EmailWranglerRunResult,
+} from '../../src/cli/email-cloudflare.ts';
+import type {
+  EmailCloudflareInputs,
+  EmailDns,
+  EmailPreflight,
+  EmailWranglerRunResult,
 } from '../../src/cli/email-cloudflare.ts';
 import type { EmailHandlersScan } from '../../src/router/email.ts';
 import { compileEmailPattern } from '../../src/shared/email-pattern.ts';
@@ -94,7 +96,7 @@ function routingSettings(
   return {
     status: 0,
     stdout: '',
-    data: { name, enabled: enabled, status, tag: tag },
+    data: { name, enabled, status, tag },
     stderr: BETA_WARNING,
   };
 }
@@ -204,7 +206,7 @@ function fakeFetch(
   table: Record<string, (call: FetchCall) => Response | Promise<Response>>,
   calls: Array<FetchCall>,
 ): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries((init?.headers ?? {}) as Record<string, string>)) {
@@ -224,7 +226,7 @@ function fakeFetch(
       throw new Error(`unexpected fetch: ${key}`);
     }
     return hit(call);
-  }) as typeof fetch;
+  };
 }
 
 function zonesOk(name: string, extra: Partial<{ type: string; account: string }> = {}) {
@@ -644,7 +646,7 @@ describe('preflightEmail', () => {
           data: { loggedIn: true, authType: 'Account API Token' },
           stderr: '',
         },
-        'email routing settings mail.acme.com': apiFailure(10000, '/zones'),
+        'email routing settings mail.acme.com': apiFailure(10_000, '/zones'),
       },
     });
     const pre = await preflightEmail(inputs);
@@ -853,7 +855,7 @@ describe('preflightEmail', () => {
       const pre = await preflightEmail(inputs);
       expect(pre.session.state).toBe(session.state);
       expect(pre.blockers).toEqual([{ scope: 'all', message: session.message }]);
-      const message = pre.blockers[0]!.message;
+      const message = pre.blockers[0].message;
       expect(message).toContain('`void cloudflare login`');
       expect(message).not.toMatch(/wrangler/i);
       // The checklist carries the row verbatim on both printing paths.
@@ -1418,8 +1420,8 @@ describe('sending-only Cloudflare email', () => {
     expect(out.lines).toContain('  ✔ sending   mail.acme.com onboarded');
     expect(calls).toEqual([]);
     expect(paths(fetchCalls)).toEqual([`POST ${SUBDOMAINS}`]);
-    expect(fetchCalls[0]!.body).toBe(JSON.stringify({ name: 'mail.acme.com' }));
-    expect(fetchCalls[0]!.headers.Authorization).toBe(`Bearer ${BEARER}`);
+    expect(fetchCalls[0].body).toBe(JSON.stringify({ name: 'mail.acme.com' }));
+    expect(fetchCalls[0].headers.Authorization).toBe(`Bearer ${BEARER}`);
   });
 
   it('names a missing session bearer instead of the Workers Paid plan when onboarding cannot start', async () => {
@@ -1445,10 +1447,10 @@ describe('sending-only Cloudflare email', () => {
     expect(out.ready).toBe(true);
   });
 
-  it.each([notListed, refused(10000)])(
+  it.each([notListed, refused(10_000)])(
     'does not mistake a binding for verified sending',
     async (list) => {
-      const { inputs } = sendingOnly('mail.acme.com', { list, enable: refused(10105) });
+      const { inputs } = sendingOnly('mail.acme.com', { list, enable: refused(10_105) });
       const pre = await preflightEmail(inputs);
       expect(pre.ready).toBe(false);
       const out = await applyEmailSetup(pre, inputs);
@@ -1459,7 +1461,7 @@ describe('sending-only Cloudflare email', () => {
   );
 
   it('names Workers Paid, its link and the token permissions when onboarding is refused', async () => {
-    const { inputs } = sendingOnly('mail.acme.com', { list: notListed, enable: refused(10105) });
+    const { inputs } = sendingOnly('mail.acme.com', { list: notListed, enable: refused(10_105) });
     const pre = await preflightEmail(inputs);
     expect(isAwaitingSendingOnboarding(pre)).toBe(true);
     const checklist = renderEmailChecklist(pre);
@@ -1481,7 +1483,7 @@ describe('sending-only Cloudflare email', () => {
   });
 
   it('does not treat an unreadable sending row as waiting for onboarding', async () => {
-    const { inputs } = sendingOnly('mail.acme.com', { list: refused(10000) });
+    const { inputs } = sendingOnly('mail.acme.com', { list: refused(10_000) });
     const pre = await preflightEmail(inputs);
     expect(isAwaitingSendingOnboarding(pre)).toBe(false);
     // Without a saved binding the app was never set up: deploy offers setup as usual.
@@ -1492,7 +1494,7 @@ describe('sending-only Cloudflare email', () => {
 
   it('reports an unreadable zone as unknown without proposing routing setup', async () => {
     const { inputs } = sendingOnly();
-    inputs.fetchImpl = (async () => jsonResponse(403, { success: false })) as typeof fetch;
+    inputs.fetchImpl = async () => jsonResponse(403, { success: false });
     const pre = await preflightEmail(inputs);
     expect(pre.zone.state).toBe('unknown');
     expect(pre.ready).toBe(false);
@@ -1738,7 +1740,7 @@ describe('applyEmailSetup', () => {
         [ROUTING_PATCH]: () =>
           jsonResponse(403, {
             success: false,
-            errors: [{ code: 10000, message: 'Authentication error' }],
+            errors: [{ code: 10_000, message: 'Authentication error' }],
           }),
       },
     });
@@ -1900,7 +1902,7 @@ describe('applyEmailSetup', () => {
     const { inputs } = transcriptInputs({
       runnerTable: {
         'email sending enable mail.acme.com': apiFailure(
-          10105,
+          10_105,
           `/zones/${ZONE_ID}/email/sending/subdomains`,
         ),
       },
@@ -2024,7 +2026,7 @@ describe('applyEmailSetup', () => {
     const echo = () =>
       jsonResponse(403, {
         success: false,
-        errors: [{ code: 10000, message: `bad token Bearer ${BEARER}` }],
+        errors: [{ code: 10_000, message: `bad token Bearer ${BEARER}` }],
       });
     const tables: Array<Record<string, (call: FetchCall) => Response>> = [
       { [ROUTING_DNS_POST]: leaky },
@@ -2091,9 +2093,9 @@ describe('fetchWithSessionBearer', () => {
     expect(fetchCalls[0]?.body).toBeUndefined();
 
     const boom = await fetchWithSessionBearer(
-      (async () => {
+      async () => {
         throw new Error('ECONNRESET');
-      }) as unknown as typeof fetch,
+      },
       BEARER,
       'POST',
       '/zones/x/email/routing/dns',
@@ -2107,7 +2109,7 @@ describe('fetchWithSessionBearer', () => {
     });
 
     const html = await fetchWithSessionBearer(
-      (async () => new Response('<html>', { status: 502 })) as unknown as typeof fetch,
+      async () => new Response('<html>', { status: 502 }),
       BEARER,
       'GET',
       '/zones',

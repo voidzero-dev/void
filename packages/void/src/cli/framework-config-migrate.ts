@@ -76,7 +76,7 @@ function applyEdits(source: string, edits: Array<Edit>): string {
 }
 
 function parseSource(source: string, file: string): Expression {
-  return parseSync(file, source).program as unknown as Expression;
+  return parseSync(file, source).program as Expression;
 }
 
 function asNode(value: unknown): Expression | undefined {
@@ -90,13 +90,17 @@ function asNode(value: unknown): Expression | undefined {
 function walk(root: Expression): Array<Expression> {
   const result: Array<Expression> = [];
   const pending = [root];
-  while (pending.length > 0) {
-    const node = pending.pop()!;
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
     result.push(node);
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) {
-        for (const child of value) {
-          if (child && typeof child === 'object' && typeof child.type === 'string') {
+        for (const child of value as Array<unknown>) {
+          if (
+            child &&
+            typeof child === 'object' &&
+            'type' in child &&
+            typeof child.type === 'string'
+          ) {
             pending.push(child as Expression);
           }
         }
@@ -229,7 +233,7 @@ function patchAdapterCall(
   if (calls.length !== 1) {
     throw adapterPathError(file);
   }
-  const call = calls[0]!;
+  const call = calls[0];
   const args = call.arguments ?? [];
   if (args.length > 1 || (args.length === 1 && args[0]?.type !== 'ObjectExpression')) {
     throw adapterPathError(file);
@@ -241,7 +245,7 @@ function patchAdapterCall(
         : `{ configPath: '${GENERATED_PATH}' }`;
     return `${source.slice(0, call.end - 1)}${options}${source.slice(call.end - 1)}`;
   }
-  const options = args[0]!;
+  const options = args[0];
   const edits: Array<Edit> = [];
   if (kind === 'astro') {
     setPath(options, 'configPath', file, edits, legacyName);
@@ -310,8 +314,8 @@ export function planFrameworkConfigMigration(
       if (nitroConfigurations.length !== 1) {
         throw nitroPathError(file);
       }
-      const nitro = asNode(nitroConfigurations[0]!.value)!;
-      if (property(nitro, 'preset')?.value !== 'cloudflare-module') {
+      const nitro = asNode(nitroConfigurations[0].value);
+      if (!nitro || property(nitro, 'preset')?.value !== 'cloudflare-module') {
         throw nitroPathError(file);
       }
       const dev = property(nitro, 'cloudflareDev');

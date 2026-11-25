@@ -1,4 +1,5 @@
-import { createDefaultPlanCatalog, type PlatformPlanCatalog } from '@void/platform/plans';
+import { createDefaultPlanCatalog } from '@void/platform/plans';
+import type { PlatformPlanCatalog } from '@void/platform/plans';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
 import { signDeployToken } from '../../src/auth/deploy-token.ts';
@@ -19,8 +20,8 @@ import {
   createTestProject,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -184,7 +185,7 @@ describe('dynamic plan enforcement', () => {
       env,
     );
     expect(response.status, await response.clone().text()).toBe(200);
-    const body = (await response.json()) as { token: string };
+    const body = await response.json<{ token: string }>();
     const parent = await verifyDeployToken(token, env.JWT_SECRET);
     const derived = await verifyPrerenderToken(body.token, env.JWT_SECRET);
     expect(derived!.exp).toBeLessThanOrEqual(parent!.exp);

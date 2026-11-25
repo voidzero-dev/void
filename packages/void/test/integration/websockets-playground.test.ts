@@ -2,15 +2,16 @@ import type { ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import spawn from 'cross-spawn';
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
   createIsolatedPlayground,
   killChild,
   spawnFixtureServer,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 
@@ -47,7 +48,9 @@ async function goto(page: Page, url: string) {
       }
       // Windows can keep recently closed browser sockets in rundown long enough for Chromium's
       // next navigation to fail before it reaches the dev server. Retry only that OS error.
-      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+      await new Promise((resolve) => {
+        setTimeout(resolve, attempt * 500);
+      });
     }
   }
 }
@@ -100,7 +103,12 @@ describe('playground/websockets', () => {
   });
 
   it('builds WebSocket routes as SQLite-backed Durable Objects', () => {
-    const config = JSON.parse(readFileSync(join(fixture.root, 'dist/ssr/wrangler.json'), 'utf8'));
+    const config = JSON.parse(
+      readFileSync(join(fixture.root, 'dist/ssr/wrangler.json'), 'utf8'),
+    ) as {
+      migrations: Array<Record<string, unknown>>;
+      durable_objects: { bindings: Array<{ name: string; class_name: string }> };
+    };
     expect(config.durable_objects.bindings).toEqual(
       expect.arrayContaining([
         { name: 'WsChatRoomWs', class_name: 'WsChatRoomWs' },

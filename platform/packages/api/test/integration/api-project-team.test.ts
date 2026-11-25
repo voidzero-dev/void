@@ -11,6 +11,7 @@ import {
 } from 'vite-plus/test';
 import { createGitHubConnection, getBuild, upsertGitHubInstallation } from '../../src/db.ts';
 import app from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
 import {
   proxyTokenRotationStuckWarning,
@@ -33,8 +34,8 @@ import {
   recordingBuildManager,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -88,11 +89,11 @@ async function invite(
     env,
   );
   expect([200, 201]).toContain(response.status);
-  const body = (await response.json()) as {
+  const body = await response.json<{
     invitation: { id: string };
     refreshed: boolean;
     delivery: { status: string };
-  };
+  }>();
   return { id: body.invitation.id, refreshed: body.refreshed, delivery: body.delivery };
 }
 
@@ -674,7 +675,7 @@ describe('project team API', () => {
 
     const created = await createOrRefresh('reader');
     expect(created.status).toBe(201);
-    const invitationId = ((await created.json()) as { invitation: { id: string } }).invitation.id;
+    const invitationId = (await created.json<{ invitation: { id: string } }>()).invitation.id;
 
     const refreshed = await createOrRefresh('admin');
     expect(refreshed.status).toBe(200);
@@ -890,7 +891,7 @@ describe('project team API', () => {
     const expired = await invite(project.id, owner.jwt, 'target@example.com', 'reader');
     await env.db
       .update(projectInvitations)
-      .set({ expires_at: new Date(Date.now() - 1_000).toISOString() })
+      .set({ expires_at: new Date(Date.now() - 1000).toISOString() })
       .where(eq(projectInvitations.id, expired.id));
 
     const pending = await app.fetch(request('/me/project-invitations', target.jwt), env);
@@ -933,7 +934,7 @@ describe('project team API', () => {
     const expiredPending = await invite(project.id, owner.jwt, 'target@example.com', 'reader');
     await env.db
       .update(projectInvitations)
-      .set({ expires_at: new Date(Date.now() - 1_000).toISOString() })
+      .set({ expires_at: new Date(Date.now() - 1000).toISOString() })
       .where(eq(projectInvitations.id, expiredPending.id));
 
     const refreshed = await invite(project.id, owner.jwt, 'target@example.com', 'admin');
@@ -986,7 +987,7 @@ describe('project team API', () => {
             gt(projectInvitations.expires_at, sql`now()`),
           ),
         );
-      return result!.count;
+      return result.count;
     }
 
     it.each(['create', 'refresh', 'resend'] as const)(
@@ -1115,8 +1116,8 @@ describe('project team API', () => {
           .select()
           .from(projectInvitations)
           .where(eq(projectInvitations.id, invitationId));
-        expect(Date.parse(after!.expires_at)).toBeGreaterThan(Date.parse(before!.expires_at));
-        expect(after!.role).toBe(action === 'resend' ? 'reader' : 'admin');
+        expect(Date.parse(after.expires_at)).toBeGreaterThan(Date.parse(before.expires_at));
+        expect(after.role).toBe(action === 'resend' ? 'reader' : 'admin');
         expect(await liveInvitationCount(project.id)).toBe(100);
         expect(await env.db.select().from(projectInvitations)).toHaveLength(101);
         expect(await env.db.select().from(projectAccessEvents)).toHaveLength(1);
@@ -1156,7 +1157,9 @@ describe('project team API', () => {
         ),
       ]);
 
-      expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+      expect(responses.map((response) => response.status).sort((a, b) => a - b)).toEqual([
+        200, 409,
+      ]);
       expect(await liveInvitationCount(project.id)).toBe(100);
       expect(await env.db.select().from(projectAccessEvents)).toHaveLength(1);
     });

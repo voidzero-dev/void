@@ -1,4 +1,5 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import {
   createOrRefreshProjectInvitation,
   getPendingProjectInvitationsByUserId,
@@ -487,9 +488,13 @@ export const myProjectInvitationRoutes = new Hono<ApiEnv>().get(
 );
 
 async function respond(context: Context<ApiEnv>, response: 'accept' | 'decline') {
+  const invitationId = context.req.param('invitationId');
+  if (!invitationId) {
+    return context.json({ error: 'Invitation not found' }, 404);
+  }
   try {
     const result = await respondToProjectInvitation(context.get('db'), {
-      invitationId: context.req.param('invitationId')!,
+      invitationId,
       actorUserId: context.get('user').id,
       response,
     });

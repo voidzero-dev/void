@@ -1,13 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'pathslash';
-import {
-  isCSSRequest,
-  normalizePath,
-  type Plugin,
-  type ResolvedConfig,
-  type UserConfig,
-  type ViteDevServer,
-} from 'vite';
+import { isCSSRequest, normalizePath } from 'vite';
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { createBoundaryManifest } from './boundary-plans.ts';
 import { findIslandImports, findStaticCssImports } from './island-imports.ts';
 import { toLayoutId } from './layout-resolution.ts';
@@ -31,10 +25,11 @@ export {
 } from './island-imports.ts';
 
 type VoidMdPluginApi = {
+  clientEntryId?: string;
   getClientScripts?(): Map<string, unknown>;
 };
 
-type VoidMdPlugin = {
+export type VoidMdPlugin = {
   name: string;
   api?: VoidMdPluginApi;
 };
@@ -101,11 +96,9 @@ export function createIslandManifest(
   const entries = new Map<string, IslandEntry>();
   let server: ViteDevServer | null = null;
 
-  function register(
-    specifier: string,
-    importerDir: string,
-    hydrate: string,
-  ): { absPath: string | null; islandId: string } {
+  type RegisteredIsland = { absPath: string | null; islandId: string };
+
+  function register(specifier: string, importerDir: string, hydrate: string): RegisteredIsland {
     const absPath = resolveSpecifier(specifier, importerDir, extensions);
     if (!absPath) {
       return { absPath, islandId: specifier };
@@ -138,7 +131,7 @@ export function createIslandManifest(
           continue;
         }
         const filePath = resolve(pagesDir, entry.filePath);
-        const code = readFileSync(filePath, 'utf-8');
+        const code = readFileSync(filePath, 'utf8');
         for (const islandImport of findIslandImports(code, filePath)) {
           register(islandImport.specifier, dirname(filePath), islandImport.hydrate);
         }
@@ -292,7 +285,10 @@ export function collectIslandStyles(
   const seen = new Set<string>();
   const pending = [...roots].reverse();
   while (pending.length > 0) {
-    const id = pending.pop()!;
+    const id = pending.pop();
+    if (id === undefined) {
+      break;
+    }
     if (seen.has(id)) {
       continue;
     }
@@ -432,7 +428,7 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
     }
   } else if (!options.isDev) {
     for (const file of options.cssFiles) {
-      const content = readFileSync(file, 'utf-8');
+      const content = readFileSync(file, 'utf8');
       lines.push(...(options.styleBlockImports?.(file, content) ?? []));
       for (const item of findStaticCssImports(content, file)) {
         lines.push(rewriteCssImportForVirtualModule(item.statement, item.specifier, file));
@@ -447,14 +443,11 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
     return lines.join('\n');
   }
 
-  lines.push('import { initIslands } from "void/pages-client";');
-  lines.push('const islands = {');
+  lines.push('import { initIslands } from "void/pages-client";', 'const islands = {');
   for (const [id, path] of uniqueIslands) {
     lines.push(`  ${JSON.stringify(id)}: () => import(${JSON.stringify(path)}),`);
   }
-  lines.push('};');
-  lines.push(options.hydrateIsland);
-  lines.push('initIslands(islands, hydrateIsland);');
+  lines.push('};', options.hydrateIsland, 'initIslands(islands, hydrateIsland);');
 
   return lines.join('\n');
 }
@@ -465,7 +458,7 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
  * Use findStaticCssImports to inspect authored imports. Removed in the next major version.
  */
 export function extractCssImports(filePath: string): string {
-  const code = readFileSync(filePath, 'utf-8');
+  const code = readFileSync(filePath, 'utf8');
   return findStaticCssImports(code, filePath)
     .map(({ specifier }) => `@import ${JSON.stringify(specifier)};`)
     .join('\n');
@@ -485,7 +478,7 @@ export function computePagesNeedingClientJS(
       continue;
     }
     const filePath = resolve(pagesDir, layout.filePath);
-    const code = readFileSync(filePath, 'utf-8');
+    const code = readFileSync(filePath, 'utf8');
     if (hasIslandImports(code, filePath)) {
       layoutDirsWithIslands.add(layout.directory);
     }
@@ -503,7 +496,7 @@ export function computePagesNeedingClientJS(
     }
 
     const filePath = resolve(pagesDir, page.componentPath);
-    const code = readFileSync(filePath, 'utf-8');
+    const code = readFileSync(filePath, 'utf8');
     if (hasIslandImports(code, filePath)) {
       result.add(page.componentId);
       continue;
@@ -520,19 +513,21 @@ export function computePagesNeedingClientJS(
 
   const pageIds = new Set(pageScan.pages.map((page) => page.componentId));
   const interactiveLayouts = new Set(
-    [...pageScan.layouts, ...pageScan.namedLayouts]
-      .filter(
-        (layout) =>
+    [...pageScan.layouts, ...pageScan.namedLayouts].flatMap((layout) => {
+      if (
+        !(
           layout.island &&
           hasIslandImports(
             readFileSync(resolve(pagesDir, layout.filePath), 'utf8'),
             layout.filePath,
-          ),
-      )
-      .map((layout) => {
-        const id = toLayoutId(layout);
-        return pageIds.has(id) ? id.replace(/(^|\/)([^/]+)$/, '$1_$2') : id;
-      }),
+          )
+        )
+      ) {
+        return [];
+      }
+      const id = toLayoutId(layout);
+      return [pageIds.has(id) ? id.replace(/(^|\/)([^/]+)$/, '$1_$2') : id];
+    }),
   );
   for (const plan of Object.values(createBoundaryManifest(pageScan).plans)) {
     if (plan.layouts.some((id) => interactiveLayouts.has(id))) {
@@ -541,6 +536,8 @@ export function computePagesNeedingClientJS(
   }
   return result;
 }
+
+type PagesRescan = { flush: () => Promise<void> };
 
 /**
  * Watch the pages directory for structural changes (add/remove) and .md content
@@ -555,7 +552,7 @@ export function watchPagesForRescan(
   pagesDir: string,
   root: string,
   onRescan: (pageScan: PageScanResult) => void,
-): { flush: () => Promise<void> } {
+): PagesRescan {
   let pending: Promise<void> | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   const normalizedPagesDir = normalizePath(pagesDir);

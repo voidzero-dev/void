@@ -11,7 +11,7 @@ function base64urlEncode(data: Uint8Array): string {
   for (const byte of data) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 async function signAiToken(projectId: string, secret: string): Promise<string> {
@@ -222,7 +222,7 @@ describe('R2 proxy endpoints', () => {
           value: 'new',
           onlyIf: { etagMatches: 'old' },
         }),
-        env as never,
+        env,
       );
       expect(res.status).toBe(501);
       expect(await res.text()).toContain('conditional');
@@ -375,10 +375,10 @@ describe('R2 proxy endpoints', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as {
+      const data = await res.json<{
         objects: Array<{ key: string; size: number }>;
         truncated: boolean;
-      };
+      }>();
       expect(data.objects).toHaveLength(2);
       expect(data.objects[0].key).toBe('file1.txt');
       expect(data.truncated).toBe(false);
@@ -408,7 +408,7 @@ describe('R2 proxy endpoints', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { truncated: boolean; cursor: string };
+      const data = await res.json<{ truncated: boolean; cursor: string }>();
       expect(data.truncated).toBe(true);
       expect(data.cursor).toBe('next-page');
 
@@ -462,14 +462,14 @@ describe('R2 proxy endpoints', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as {
+      const data = await res.json<{
         key: string;
         size: number;
         etag: string;
         contentType: string;
-      };
+      }>();
       expect(data.key).toBe('avatar.png');
-      expect(data.size).toBe(12345);
+      expect(data.size).toBe(12_345);
       expect(data.etag).toBe('"abc"');
       expect(data.contentType).toBe('image/png');
     });

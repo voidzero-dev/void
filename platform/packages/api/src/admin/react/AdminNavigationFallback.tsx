@@ -5,7 +5,8 @@ import { Heading } from '@astryxdesign/core/Text';
 import { useNavigation } from '@void/react';
 import type { PageObject } from 'void/pages-protocol';
 import { AdminUiProviders } from './AdminProviders.tsx';
-import { matchAdminRoute, type AdminPageId } from './pages.ts';
+import { matchAdminRoute } from './pages.ts';
+import type { AdminPageId } from './pages.ts';
 import { Layout } from './views/Layout.tsx';
 import { SectionStack } from './views/SectionStack.tsx';
 

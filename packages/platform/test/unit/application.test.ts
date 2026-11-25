@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  parsePlatformApplication,
   platformProjectHostname,
   platformProjectHostnames,
   platformProjectIngressName,
@@ -24,6 +25,14 @@ const application = {
 };
 
 describe('platform application addressing', () => {
+  it('validates the dedicated-zone flag on standalone application settings', () => {
+    expect(parsePlatformApplication(application)).toEqual(application);
+    expect(parsePlatformApplication({ ...application, dedicatedZone: null })).toEqual(application);
+    expect(() => parsePlatformApplication({ ...application, dedicatedZone: 'false' })).toThrow(
+      'dedicatedZone must be a boolean',
+    );
+  });
+
   it('version-gates discovery and verifies its application identity', () => {
     const manifest = createPlatformDeploymentManifest({
       installationSlug: 'team',

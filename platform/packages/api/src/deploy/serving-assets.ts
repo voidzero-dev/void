@@ -1,20 +1,28 @@
-import { KV_THRESHOLD, type AssetManifestEntry } from '../assets.ts';
+import { isRecord } from '@void/deploy-core';
+import { KV_THRESHOLD } from '../assets.ts';
+import type { AssetManifestEntry } from '../assets.ts';
 import type { ApiEnv } from '../env.ts';
-import { type DeployManifest, type Deployment } from '../types.ts';
+import { readServingAssetManifest } from '../routing-records.ts';
+import type { Deployment } from '../types.ts';
 
 export function sortUnique(values: ReadonlyArray<string> | undefined): ReadonlyArray<string> {
   return [...new Set(values ?? [])].sort((left, right) => left.localeCompare(right));
 }
 
-export function parseManifest(raw: string | null | undefined): DeployManifest | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw) as DeployManifest;
-  } catch {
-    return null;
-  }
+function isAssetManifestEntry(value: unknown): value is AssetManifestEntry {
+  return (
+    isRecord(value) &&
+    typeof value.hash === 'string' &&
+    typeof value.size === 'number' &&
+    Number.isFinite(value.size) &&
+    value.size >= 0 &&
+    (value.store === undefined || value.store === 'kv' || value.store === 'r2') &&
+    (value.scope === undefined || value.scope === 'project')
+  );
+}
+
+function isAssetManifest(value: unknown): value is AssetManifest {
+  return isRecord(value) && Object.values(value).every(isAssetManifestEntry);
 }
 
 export function parseAssetManifest(raw: string | null): Record<string, AssetManifestEntry> | null {
@@ -22,11 +30,8 @@ export function parseAssetManifest(raw: string | null): Record<string, AssetMani
     return null;
   }
   try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') {
-      return null;
-    }
-    return parsed as Record<string, AssetManifestEntry>;
+    const parsed: unknown = JSON.parse(raw);
+    return isAssetManifest(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -61,19 +66,16 @@ export class StaticAssetDisappearedError extends Error {
 }
 
 function inferPersistedAssetStore(
-  entry: { size?: unknown; store?: unknown },
-  manifest: DeployManifest | null,
+  entry: AssetManifestEntry,
+  requiresPersistedStore: boolean,
 ): 'kv' | 'r2' | null {
-  if (entry.store === 'kv' || entry.store === 'r2') {
+  if (entry.store !== undefined) {
     return entry.store;
-  }
-  if (typeof entry.size !== 'number' || !Number.isFinite(entry.size) || entry.size < 0) {
-    return null;
   }
   // New JSON/direct-upload cutovers persist placement before publishing the
   // ready marker. A v2 row without it is incomplete/corrupt: it may contain a
   // small legacy KV carry-forward, so guessing R2 would publish a broken path.
-  if (manifest?.assetManifestVersion === 2) {
+  if (requiresPersistedStore) {
     return null;
   }
   // Older multipart deployments did not persist placement and deterministically
@@ -81,11 +83,15 @@ function inferPersistedAssetStore(
   return entry.size >= KV_THRESHOLD ? 'r2' : 'kv';
 }
 
+interface AssetManifest {
+  [key: string]: AssetManifestEntry;
+}
+
 export function attachServingStoreMetadata(
   assetManifest: Readonly<Record<string, AssetManifestEntry>>,
   servingManifest: Readonly<Record<string, string>>,
   scopedR2 = false,
-): Record<string, AssetManifestEntry> {
+): AssetManifest {
   const persisted: Record<string, AssetManifestEntry> = {};
   const missing: Array<string> = [];
   for (const [path, entry] of Object.entries(assetManifest)) {
@@ -111,19 +117,25 @@ export function attachServingStoreMetadata(
   return persisted;
 }
 
+interface ServingManifest {
+  [key: string]: string;
+}
+
 function reconstructPersistedServingManifest(
   deployment: Deployment,
-  assetManifest: Readonly<Record<string, { hash?: unknown; size?: unknown; store?: unknown }>>,
-): Record<string, string> {
-  const deployManifest = parseManifest(deployment.manifest);
+  assetManifest: Readonly<AssetManifest>,
+): ServingManifest {
+  const deployManifest: unknown = deployment.manifest ? JSON.parse(deployment.manifest) : null;
+  const requiresPersistedStore =
+    isRecord(deployManifest) && deployManifest.assetManifestVersion === 2;
   const servingManifest: Record<string, string> = {};
   const invalid: Array<string> = [];
   for (const [path, entry] of Object.entries(assetManifest)) {
     if (path.startsWith('/.void-deploy/')) {
       continue;
     }
-    const store = inferPersistedAssetStore(entry, deployManifest);
-    if (typeof entry.hash !== 'string' || !store) {
+    const store = inferPersistedAssetStore(entry, requiresPersistedStore);
+    if (!store) {
       invalid.push(path);
       continue;
     }
@@ -139,17 +151,25 @@ export async function assertPersistedDeploymentServingAssetsExist(
   env: ApiEnv['Bindings'],
   deployment: Deployment,
 ): Promise<void> {
-  const assetManifest = deployment.asset_hashes
-    ? (JSON.parse(deployment.asset_hashes) as Record<string, { hash?: unknown }>)
-    : null;
-  if (!assetManifest || Object.keys(assetManifest).length === 0) {
+  if (!deployment.asset_hashes) {
+    return;
+  }
+  const assetManifest = parseAssetManifest(deployment.asset_hashes);
+  if (!assetManifest) {
+    throw new Error('Invalid persisted deployment asset manifest');
+  }
+  if (Object.keys(assetManifest).length === 0) {
     return;
   }
   const servingManifestKey = `manifest:${deployment.id}`;
   const servingManifestRaw = await env.ROUTING.get(servingManifestKey);
   let servingManifest: Record<string, string>;
   if (servingManifestRaw) {
-    servingManifest = JSON.parse(servingManifestRaw) as Record<string, string>;
+    const persisted = readServingAssetManifest(servingManifestRaw);
+    if (!persisted) {
+      throw new Error('Invalid persisted serving manifest');
+    }
+    servingManifest = persisted;
   } else {
     // The ready marker and serving manifest are separate KV keys and can
     // propagate at different speeds. Reconstruct a missing read from the
@@ -163,5 +183,5 @@ export async function assertPersistedDeploymentServingAssetsExist(
   // serialized on the project row and protects every nonterminal deployment;
   // legacy unscoped keys are never collected. Out-of-band bucket deletion
   // cannot be diagnosed with bounded per-request probes for a 5,000-file app.
-  attachServingStoreMetadata(assetManifest as Record<string, AssetManifestEntry>, servingManifest);
+  attachServingStoreMetadata(assetManifest, servingManifest);
 }

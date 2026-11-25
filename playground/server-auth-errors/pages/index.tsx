@@ -1,5 +1,6 @@
 import { Link } from '@void/react';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { SourceLink } from '../src/source-link.tsx';
 
 const loaders = [
@@ -152,7 +153,9 @@ function ProfileRequest() {
     <>
       <p>
         <a href="/api/profile">Document load</a> |{' '}
-        <button onClick={request}>Fetch API response</button>
+        <button type="button" onClick={request}>
+          Fetch API response
+        </button>
       </p>
       <pre role="status">{result}</pre>
     </>

@@ -2,11 +2,13 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { compile } from 'svelte/compiler';
-import { build, normalizePath, type Rolldown } from 'vite';
+import { build, normalizePath } from 'vite';
+import type { Rolldown } from 'vite';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_islands_plugin__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_islands_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 type HookWithHandler<T> = { handler: T };
 type IslandsPluginHooks = {
@@ -29,8 +31,8 @@ function setupPlugin(options?: { dev?: boolean }) {
   const plugins = islandsPlugin(PAGES_DIR);
   const plugin = plugins[0] as IslandsPluginHooks;
 
-  const command = options?.dev ? 'serve' : 'build';
-  const config = { root: TMP, command: command as 'serve' | 'build', plugins: [] };
+  const command: 'build' | 'serve' = options?.dev ? 'serve' : 'build';
+  const config = { root: TMP, command, plugins: [] };
   plugin.configResolved?.(config);
 
   return {
@@ -246,7 +248,10 @@ describe('islandsPlugin — island style loader', () => {
     const plugins = islandsPlugin(PAGES_DIR, { root: TMP });
     const stylePlugin = plugins.find((plugin) => plugin.name === 'void-svelte:islands-style')!;
     const load = stylePlugin.load as HookWithHandler<
-      (this: Rolldown.PluginContext, id: string) => unknown
+      (
+        this: Rolldown.PluginContext,
+        id: string,
+      ) => Rolldown.LoadResult | Promise<Rolldown.LoadResult>
     >;
     const handler = load.handler;
     load.handler = function (id) {
@@ -258,8 +263,9 @@ describe('islandsPlugin — island style loader', () => {
               target.addWatchFile(file);
             };
           }
-          const value = Reflect.get(target, key, target);
-          return typeof value === 'function' ? value.bind(target) : value;
+          // oxlint-disable-next-line quality/no-reflect-get -- Delegate Vite plugin context members to the original context.
+          const value: unknown = Reflect.get(target, key, target);
+          return typeof value === 'function' ? (value.bind(target) as unknown) : value;
         },
       });
       return handler.call(context, id);

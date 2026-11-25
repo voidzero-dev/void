@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import {
   _resetUnmaskCacheForTests,
   isUnmaskActive,
@@ -22,7 +23,7 @@ describe('redactMessage', () => {
 
 describe('isUnmaskActive', () => {
   const origValue = process.env.VOID_ENV_UNMASK;
-  let errSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: MockInstance;
 
   beforeEach(() => {
     _resetUnmaskCacheForTests();

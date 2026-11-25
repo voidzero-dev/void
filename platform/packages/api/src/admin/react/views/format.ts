@@ -15,7 +15,7 @@ export function formatAbsoluteDate(iso: string): string {
 
 export function formatDateTime(iso: string, tz?: string) {
   const d = parseUtcDate(iso);
-  if (isNaN(d.getTime())) {
+  if (Number.isNaN(d.getTime())) {
     return createElement('span', { suppressHydrationWarning: true }, iso);
   }
   const formatted = d.toLocaleString('en-US', {
@@ -31,10 +31,10 @@ export function formatDateTime(iso: string, tz?: string) {
     ago = `${seconds}s ago`;
   } else if (seconds < 3600) {
     ago = `${Math.floor(seconds / 60)}m ago`;
-  } else if (seconds < 86400) {
+  } else if (seconds < 86_400) {
     ago = `${Math.floor(seconds / 3600)}h ago`;
   } else {
-    ago = `${Math.floor(seconds / 86400)}d ago`;
+    ago = `${Math.floor(seconds / 86_400)}d ago`;
   }
   // The relative age may tick between SSR and hydration. Preserve the server
   // text until the next React render without treating that tick as a mismatch.
@@ -69,7 +69,11 @@ export function formatLimit(value: number, unit?: string): string {
   return formatNumber(value);
 }
 
-export const STATUS_COLORS: Record<string, string> = {
+type StatusColors = Record<'success' | 'failed' | 'pending' | 'skipped', string> & {
+  [status: string]: string | undefined;
+};
+
+export const STATUS_COLORS: StatusColors = {
   success: '#16a34a',
   failed: '#dc2626',
   pending: '#d97706',
@@ -94,7 +98,11 @@ function expectedBy(publishedAt: string | null): string | null {
   return Number.isNaN(time) ? null : `${new Date(time + 120_000).toISOString().slice(11, 19)} UTC`;
 }
 
-const aiLoggingStates: Record<string, (status: AiLoggingStatusDisplay) => string> = {
+interface AiLoggingLabels {
+  [key: string]: (status: AiLoggingStatusDisplay) => string;
+}
+
+const aiLoggingStates: AiLoggingLabels = {
   applied: () => 'applied',
   pending: (status) => {
     const by = expectedBy(status.publishedAt);
@@ -124,7 +132,7 @@ export function formatAiLoggingStatus(status: AiLoggingStatusDisplay | null): st
         ? `from ${plan}`
         : `AI Gateway setting; ${planDefault}`;
   const state = Object.hasOwn(aiLoggingStates, status.state)
-    ? aiLoggingStates[status.state]!(status)
+    ? aiLoggingStates[status.state](status)
     : status.state;
   return `${status.effective} (${source}) — ${state}`;
 }

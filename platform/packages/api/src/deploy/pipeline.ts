@@ -1,6 +1,6 @@
 import { platformProjectHostnames, readPlatformApplication } from '@void/platform';
 import { and, eq, or, sql as drizzleSql } from 'drizzle-orm';
-import { type Context } from 'hono';
+import type { Context } from 'hono';
 import { findR2Assets, persistedR2AssetSizes } from '../asset-inventory.ts';
 import {
   computeAssetHash,
@@ -8,21 +8,16 @@ import {
   deleteWorkerBundle,
   scanProjectAssetOrphanCandidates,
   deleteUnreferencedAssets,
-  type AssetEntry,
-  type AssetManifestEntry,
 } from '../assets.ts';
+import type { AssetEntry, AssetManifestEntry } from '../assets.ts';
 import { activeOAuthApproval } from '../auth/oauth.ts';
 import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
-import {
-  restoreCronScheduler,
-  snapshotCronScheduler,
-  type CronSyncState,
-} from '../cron-scheduler-client.ts';
+import { restoreCronScheduler, snapshotCronScheduler } from '../cron-scheduler-client.ts';
+import type { CronSyncState } from '../cron-scheduler-client.ts';
 import {
   getProject,
   getUser,
   getDeployment,
-  createDeployment,
   updateDeploymentManifest,
   updateDeploymentStatus,
   updateProjectWebSocketVersion,
@@ -30,32 +25,29 @@ import {
   countUserDeploymentsToday,
   getActiveDeployment,
   getInFlightDeploymentsExcluding,
-  type Db,
 } from '../db.ts';
+import type { Db, createDeployment } from '../db.ts';
 import {
   appendDeploymentEvent,
   assertDeploymentExecutionAuthority,
 } from '../deployment-execution.ts';
 import type { ApiEnv } from '../env.ts';
-import { type DeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import { PLAN_CATALOG_SETTING, resolvePlanLimits } from '../plans.ts';
 import { getPlatformSetting } from '../platform-settings.ts';
 import { ensureProjectIngress } from '../project-ingress.ts';
-import {
-  restoreQueueConsumer,
-  snapshotQueueConsumer,
-  type QueueConsumerInfo,
-} from '../provisioning/cloudflare-api.ts';
+import { restoreQueueConsumer, snapshotQueueConsumer } from '../provisioning/cloudflare-api.ts';
+import type { QueueConsumerInfo } from '../provisioning/cloudflare-api.ts';
 import { computeDispatchLimits, resolveRoutingUndo } from '../routing.ts';
 import { deployments } from '../schema.ts';
 import { routingSuspensionReason } from '../suspension.ts';
 import { isWithinLimit } from '../tiers.ts';
-import {
-  type DeployManifest,
-  type DeployEvent,
-  type Deployment,
-  type Project,
-  type DeploymentStatus,
+import type {
+  DeployManifest,
+  DeployEvent,
+  Deployment,
+  Project,
+  DeploymentStatus,
 } from '../types.ts';
 import type { WorkerModule } from '../worker-upload.ts';
 import {
@@ -72,10 +64,11 @@ import {
   assertDeploymentCanProceed,
 } from './guards.ts';
 import { migrateDeploymentWorker } from './migrate-worker.ts';
+import { readPreviousDeployManifest } from './persisted-manifest.ts';
 import { publishStaticDeployment } from './publish-static.ts';
 import { publishWorkerDeployment } from './publish-worker.ts';
 import { requireActiveDeployAccess, cutoverIntentKey, parseCutoverMarker } from './recovery.ts';
-import { parseManifest, equalAssetManifests, parseAssetManifest } from './serving-assets.ts';
+import { equalAssetManifests, parseAssetManifest } from './serving-assets.ts';
 import {
   ASSET_GC_MAX_HASHES_PER_DEPLOY,
   ASSET_GC_LOCK_BATCH,
@@ -178,11 +171,11 @@ export async function runDeploymentPipeline(input: {
       });
       return;
     }
-    logger.info('emit', 'ndjson_event', event as unknown as Record<string, unknown>);
+    logger.info('emit', 'ndjson_event', event);
     if (!streamOpen) {
       return;
     }
-    writer.write(encoder.encode(JSON.stringify(event) + '\n')).catch((err) => {
+    writer.write(encoder.encode(JSON.stringify(event) + '\n')).catch((err: unknown) => {
       streamOpen = false;
       logger.warn('emit', 'stream_closed', { event: event.event, err: String(err) });
     });
@@ -194,6 +187,167 @@ export async function runDeploymentPipeline(input: {
     heartbeatOverride > 0
       ? Math.max(1, heartbeatOverride)
       : 15_000;
+
+  const evictStoredWorkerBundle = async (deploymentId: string): Promise<void> => {
+    await deleteWorkerBundle(context.env.STATIC_ASSETS_R2, projectId, deploymentId);
+    // Stored history protects its migrated asset copy until the bundle is
+    // actually gone. The following orphan sweep can now collect those bytes.
+    await context
+      .get('db')
+      .update(deployments)
+      .set({ bundle_stored: false })
+      .where(and(eq(deployments.id, deploymentId), eq(deployments.project_id, projectId)));
+  };
+
+  const withProjectAssetGcFence = async <T>(
+    knownRetainedHashes: ReadonlySet<string>,
+    cleanup: (retainedHashes: Set<string>) => Promise<T>,
+  ): Promise<T | null> => {
+    return await context.get('db').transaction(async (tx) => {
+      await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
+      const lockedProject = await getProject(tx, projectId);
+      if (!lockedProject || lockedProject.status === 'deleting') {
+        return null;
+      }
+
+      // Retention selection happens after go-live, so another deployment or
+      // rollback can become authoritative before external GC begins. Rebuild
+      // the protected hash set under the same lock used by final cutover and
+      // keep that lock through R2 deletion. A following static deploy performs
+      // its last R2 existence check under this lock before committing live.
+      const protectedHashes = new Set(knownRetainedHashes);
+      // Migrated stored bundles still reference their asset copies even when
+      // their historical deployment failed or is no longer retained.
+      const retained = await tx
+        .select()
+        .from(deployments)
+        .where(
+          and(
+            eq(deployments.project_id, projectId),
+            or(eq(deployments.retained, true), eq(deployments.bundle_stored, true)),
+          ),
+        );
+      if (
+        lockedProject.active_deployment_id &&
+        !retained.some((deployment) => deployment.id === lockedProject.active_deployment_id)
+      ) {
+        const active = await getDeployment(tx, lockedProject.active_deployment_id);
+        if (active) {
+          retained.push(active);
+        }
+      }
+      // A direct upload lands in R2 before its deployment can become live.
+      // Once the row has placement-bearing asset_hashes, protect it through
+      // every nonterminal state (including canceling/compensating). The
+      // recent-upload timestamp guard covers the short pre-persistence gap.
+      for (const inFlight of await getInFlightDeploymentsExcluding(tx, projectId)) {
+        if (!retained.some((deployment) => deployment.id === inFlight.id)) {
+          retained.push(inFlight);
+        }
+      }
+      for (const protectedDeployment of retained) {
+        if (!protectedDeployment.asset_hashes) {
+          if (protectedDeployment.id === lockedProject.active_deployment_id) {
+            return null;
+          }
+          continue;
+        }
+        try {
+          const retainedManifest = JSON.parse(protectedDeployment.asset_hashes) as Record<
+            string,
+            { hash: string }
+          >;
+          for (const entry of Object.values(retainedManifest)) {
+            protectedHashes.add(entry.hash);
+          }
+        } catch {
+          // Corrupt retained metadata cannot prove an object is unreferenced.
+          return null;
+        }
+      }
+      return await cleanup(protectedHashes);
+    });
+  };
+
+  // Compensation must serialize with every project cutover, not only
+  // teardown. Once a newer deploy or rollback owns the project, restoring
+  // this attempt's snapshots would overwrite its routing, cron, and queue
+  // state while PostgreSQL points at the newer deployment. Under the shared
+  // project lock, require both the original active deployment provenance and
+  // the absence of a competing in-flight operation. Teardown's `deleting`
+  // state and a missing row likewise make absence authoritative.
+  const withProjectCompensationFence = async (
+    restore: (txDb: Db) => Promise<void>,
+  ): Promise<void> => {
+    await context.get('db').transaction(async (tx) => {
+      await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
+      const lockedProject = await getProject(tx, projectId);
+      if (!lockedProject || lockedProject.status === 'deleting') {
+        return;
+      }
+      if (lockedProject.active_deployment_id !== originalActiveDeploymentId) {
+        return;
+      }
+      if (cutoverProtected) {
+        const ownedDeployment = await getDeployment(tx, currentDeploymentId);
+        if (ownedDeployment?.status !== 'compensating') {
+          return;
+        }
+        const intent = parseCutoverMarker(
+          await context.env.ROUTING.get(cutoverIntentKey(currentDeploymentId)),
+        );
+        if (intent?.projectId !== projectId || intent.ownerId !== cutoverOwnerId) {
+          return;
+        }
+      }
+      const competingOperation = await getActiveDeployment(tx, projectId);
+      if (competingOperation && competingOperation.id !== currentDeploymentId) {
+        return;
+      }
+      await restore(tx);
+    });
+  };
+
+  const withProjectCutoverFence = async <T>(
+    deploymentId: string,
+    mutate: (
+      txDb: Db,
+      currentOwner: Awaited<ReturnType<typeof requireActiveDeployAccess>>['owner'],
+    ) => Promise<T>,
+  ): Promise<T> => {
+    return await context.get('db').transaction(async (tx) => {
+      await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
+      const lockedProject = await getProject(tx, projectId);
+      if (!lockedProject || lockedProject.status === 'deleting') {
+        throw new Error(PROJECT_DELETING_ERROR_MESSAGE);
+      }
+      const currentAccess = await requireActiveDeployAccess(tx, projectId, actor.id);
+      const oauthApproval = context.get('oauthApproval');
+      if (execution) {
+        await assertDeploymentExecutionAuthority(tx, execution.operation);
+      } else if (oauthApproval) {
+        const { approval, user } = await activeOAuthApproval(
+          tx,
+          oauthApproval,
+          context.get('companyIdentity'),
+          true,
+        );
+        if (approval.data.projectId !== projectId || user.id !== actor.id) {
+          throw new Error('Deployment approval is no longer active');
+        }
+      }
+      await assertDeploymentNotCanceled(tx, deploymentId);
+      if (cutoverProtected) {
+        const intent = parseCutoverMarker(
+          await context.env.ROUTING.get(cutoverIntentKey(deploymentId)),
+        );
+        if (intent?.ownerId !== cutoverOwnerId || intent.projectId !== projectId) {
+          throw new Error(SUPERSEDED_BUILD_ERROR_MESSAGE);
+        }
+      }
+      return await mutate(tx, currentAccess.owner);
+    });
+  };
 
   const pipeline = (async () => {
     logger.info('json_validate', 'phase_start');
@@ -222,162 +376,6 @@ export async function runDeploymentPipeline(input: {
       await snapshotRoutingValue(key);
       routingValuesWritten.set(key, null);
       await context.env.ROUTING.delete(key);
-    };
-    const withProjectCutoverFence = async <T>(
-      deploymentId: string,
-      mutate: (
-        txDb: Db,
-        currentOwner: Awaited<ReturnType<typeof requireActiveDeployAccess>>['owner'],
-      ) => Promise<T>,
-    ): Promise<T> => {
-      return await context.get('db').transaction(async (tx) => {
-        await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
-        const lockedProject = await getProject(tx, projectId);
-        if (!lockedProject || lockedProject.status === 'deleting') {
-          throw new Error(PROJECT_DELETING_ERROR_MESSAGE);
-        }
-        const currentAccess = await requireActiveDeployAccess(tx, projectId, actor.id);
-        if (execution) {
-          await assertDeploymentExecutionAuthority(tx, execution.operation);
-        } else if (context.get('oauthApproval')) {
-          const { approval, user } = await activeOAuthApproval(
-            tx,
-            context.get('oauthApproval')!,
-            context.get('companyIdentity'),
-            true,
-          );
-          if (approval.data.projectId !== projectId || user.id !== actor.id) {
-            throw new Error('Deployment approval is no longer active');
-          }
-        }
-        await assertDeploymentNotCanceled(tx, deploymentId);
-        if (cutoverProtected) {
-          const intent = parseCutoverMarker(
-            await context.env.ROUTING.get(cutoverIntentKey(deploymentId)),
-          );
-          if (intent?.ownerId !== cutoverOwnerId || intent.projectId !== projectId) {
-            throw new Error(SUPERSEDED_BUILD_ERROR_MESSAGE);
-          }
-        }
-        return await mutate(tx, currentAccess.owner);
-      });
-    };
-    // Compensation must serialize with every project cutover, not only
-    // teardown. Once a newer deploy or rollback owns the project, restoring
-    // this attempt's snapshots would overwrite its routing, cron, and queue
-    // state while PostgreSQL points at the newer deployment. Under the shared
-    // project lock, require both the original active deployment provenance and
-    // the absence of a competing in-flight operation. Teardown's `deleting`
-    // state and a missing row likewise make absence authoritative.
-    const withProjectCompensationFence = async (
-      restore: (txDb: Db) => Promise<void>,
-    ): Promise<void> => {
-      await context.get('db').transaction(async (tx) => {
-        await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
-        const lockedProject = await getProject(tx, projectId);
-        if (!lockedProject || lockedProject.status === 'deleting') {
-          return;
-        }
-        if (lockedProject.active_deployment_id !== originalActiveDeploymentId) {
-          return;
-        }
-        if (cutoverProtected) {
-          const ownedDeployment = await getDeployment(tx, currentDeploymentId);
-          if (ownedDeployment?.status !== 'compensating') {
-            return;
-          }
-          const intent = parseCutoverMarker(
-            await context.env.ROUTING.get(cutoverIntentKey(currentDeploymentId)),
-          );
-          if (intent?.projectId !== projectId || intent.ownerId !== cutoverOwnerId) {
-            return;
-          }
-        }
-        const competingOperation = await getActiveDeployment(tx, projectId);
-        if (competingOperation && competingOperation.id !== currentDeploymentId) {
-          return;
-        }
-        await restore(tx);
-      });
-    };
-    const withProjectAssetGcFence = async <T>(
-      knownRetainedHashes: ReadonlySet<string>,
-      cleanup: (retainedHashes: Set<string>) => Promise<T>,
-    ): Promise<T | null> => {
-      return await context.get('db').transaction(async (tx) => {
-        await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
-        const lockedProject = await getProject(tx, projectId);
-        if (!lockedProject || lockedProject.status === 'deleting') {
-          return null;
-        }
-
-        // Retention selection happens after go-live, so another deployment or
-        // rollback can become authoritative before external GC begins. Rebuild
-        // the protected hash set under the same lock used by final cutover and
-        // keep that lock through R2 deletion. A following static deploy performs
-        // its last R2 existence check under this lock before committing live.
-        const protectedHashes = new Set(knownRetainedHashes);
-        // Migrated stored bundles still reference their asset copies even when
-        // their historical deployment failed or is no longer retained.
-        const retained = await tx
-          .select()
-          .from(deployments)
-          .where(
-            and(
-              eq(deployments.project_id, projectId),
-              or(eq(deployments.retained, true), eq(deployments.bundle_stored, true)),
-            ),
-          );
-        if (
-          lockedProject.active_deployment_id &&
-          !retained.some((deployment) => deployment.id === lockedProject.active_deployment_id)
-        ) {
-          const active = await getDeployment(tx, lockedProject.active_deployment_id);
-          if (active) {
-            retained.push(active);
-          }
-        }
-        // A direct upload lands in R2 before its deployment can become live.
-        // Once the row has placement-bearing asset_hashes, protect it through
-        // every nonterminal state (including canceling/compensating). The
-        // recent-upload timestamp guard covers the short pre-persistence gap.
-        for (const inFlight of await getInFlightDeploymentsExcluding(tx, projectId)) {
-          if (!retained.some((deployment) => deployment.id === inFlight.id)) {
-            retained.push(inFlight);
-          }
-        }
-        for (const protectedDeployment of retained) {
-          if (!protectedDeployment.asset_hashes) {
-            if (protectedDeployment.id === lockedProject.active_deployment_id) {
-              return null;
-            }
-            continue;
-          }
-          try {
-            const retainedManifest = JSON.parse(protectedDeployment.asset_hashes) as Record<
-              string,
-              { hash: string }
-            >;
-            for (const entry of Object.values(retainedManifest)) {
-              protectedHashes.add(entry.hash);
-            }
-          } catch {
-            // Corrupt retained metadata cannot prove an object is unreferenced.
-            return null;
-          }
-        }
-        return await cleanup(protectedHashes);
-      });
-    };
-    const evictStoredWorkerBundle = async (deploymentId: string): Promise<void> => {
-      await deleteWorkerBundle(context.env.STATIC_ASSETS_R2, projectId, deploymentId);
-      // Stored history protects its migrated asset copy until the bundle is
-      // actually gone. The following orphan sweep can now collect those bytes.
-      await context
-        .get('db')
-        .update(deployments)
-        .set({ bundle_stored: false })
-        .where(and(eq(deployments.id, deploymentId), eq(deployments.project_id, projectId)));
     };
     let remainingAssetGcHashBudget = ASSET_GC_MAX_HASHES_PER_DEPLOY;
     let orphanSweepAfterResponse: (() => Promise<void>) | null = null;
@@ -461,14 +459,11 @@ export async function runDeploymentPipeline(input: {
         const errors: Array<unknown> = [];
         for (const [key, previous] of [...routingValuesBeforeWrite].reverse()) {
           try {
-            if (!routingValuesWritten.has(key)) {
+            const written = routingValuesWritten.get(key);
+            if (written === undefined) {
               continue;
             }
-            const undo = resolveRoutingUndo(
-              await context.env.ROUTING.get(key),
-              routingValuesWritten.get(key)!,
-              previous,
-            );
+            const undo = resolveRoutingUndo(await context.env.ROUTING.get(key), written, previous);
             if (!undo.restore) {
               continue;
             }
@@ -507,8 +502,9 @@ export async function runDeploymentPipeline(input: {
     };
     const restoreTrackedCronState = async (): Promise<void> => {
       if (cronSchedulerWriteAttempted && cronStateBeforeWrite !== undefined) {
+        const cronState = cronStateBeforeWrite;
         await withProjectCompensationFence(() =>
-          restoreCronScheduler(context.env, projectId, cronStateBeforeWrite!),
+          restoreCronScheduler(context.env, projectId, cronState),
         );
       }
     };
@@ -654,10 +650,14 @@ export async function runDeploymentPipeline(input: {
             throw new Error('Approved asset is missing.');
           }
           const size = declaredSizeByHash.get(hash);
-          if (size == null) {
+          if (size === null || size === undefined) {
             throw new Error('Approved asset has conflicting sizes.');
           }
-          const verified = await computeAssetStreamHashes(object.body, paths, size);
+          const verified = await computeAssetStreamHashes(
+            object.body as ReadableStream<Uint8Array>,
+            paths,
+            size,
+          );
           if (verified.size !== size || verified.hashes.some((value) => value !== hash)) {
             emit({
               event: 'error',
@@ -675,7 +675,7 @@ export async function runDeploymentPipeline(input: {
       currentStep = 'validating';
       markPhase('manifest_validate');
 
-      const previousManifest = parseManifest(currentLiveDeployment?.manifest);
+      const previousManifest = readPreviousDeployManifest(currentLiveDeployment?.manifest);
       const websocketManifestResult = enrichWebSocketManifest(
         incomingManifest,
         previousManifest,
@@ -708,9 +708,13 @@ export async function runDeploymentPipeline(input: {
         for (const d of projectDomains) {
           boundHosts.add(d.hostname);
         }
-        const unbound = [...(manifest.redirectRules ?? []), ...(manifest.fallbackRules ?? [])]
-          .map((r) => r.host)
-          .filter((h): h is string => typeof h === 'string' && !boundHosts.has(h));
+        const unbound = [
+          ...(manifest.redirectRules ?? []),
+          ...(manifest.fallbackRules ?? []),
+        ].flatMap((r) => {
+          const h = r.host;
+          return typeof h === 'string' && !boundHosts.has(h) ? [h] : [];
+        });
         if (unbound.length > 0) {
           const unique = Array.from(new Set(unbound));
           emit({
@@ -738,7 +742,7 @@ export async function runDeploymentPipeline(input: {
           emit({
             event: 'done',
             deployment: currentLiveDeployment.id,
-            url: urls[0]!,
+            url: urls[0],
             urls,
             assets: 0,
             workers: 0,
@@ -826,7 +830,7 @@ export async function runDeploymentPipeline(input: {
         // preflight-skipped paths; no server-side fill-in needed. Clone so
         // the cache-buster injection below mutates a fresh object rather
         // than the validated incoming map.
-        const assetManifest: Record<string, AssetManifestEntry> = { ...incomingAssetManifest };
+        const assetManifest = { ...incomingAssetManifest };
 
         const isStaticOnly = !hasWorkerFiles;
         logger = logger.with({ branch: isStaticOnly ? 'static' : 'wfp' });
@@ -867,7 +871,7 @@ export async function runDeploymentPipeline(input: {
           // routing entry under `project.slug`.
           return await publishStaticDeployment({
             get currentStep() {
-              return currentStep!;
+              return currentStep;
             },
             set currentStep(value: string) {
               currentStep = value;
@@ -882,13 +886,13 @@ export async function runDeploymentPipeline(input: {
             cutoverOwnerId,
             deployBuild,
             get cutoverProtected() {
-              return cutoverProtected!;
+              return cutoverProtected;
             },
             set cutoverProtected(value: boolean) {
               cutoverProtected = value;
             },
             get currentStatus() {
-              return currentStatus!;
+              return currentStatus;
             },
             set currentStatus(value: DeploymentStatus) {
               currentStatus = value;
@@ -902,26 +906,26 @@ export async function runDeploymentPipeline(input: {
             project,
             putTrackedRouting,
             get routingSwitched() {
-              return routingSwitched!;
+              return routingSwitched;
             },
             set routingSwitched(value: boolean) {
               routingSwitched = value;
             },
             get logger() {
-              return logger!;
+              return logger;
             },
             set logger(value: DeployLogger) {
               logger = value;
             },
             get cronSchedulerWriteAttempted() {
-              return cronSchedulerWriteAttempted!;
+              return cronSchedulerWriteAttempted;
             },
             set cronSchedulerWriteAttempted(value: boolean) {
               cronSchedulerWriteAttempted = value;
             },
             actor,
             get cutoverCommitted() {
-              return cutoverCommitted!;
+              return cutoverCommitted;
             },
             set cutoverCommitted(value: boolean) {
               cutoverCommitted = value;
@@ -930,7 +934,7 @@ export async function runDeploymentPipeline(input: {
             deleteAssetHashesWithProjectFence,
             evictStoredWorkerBundle,
             get orphanSweepAfterResponse() {
-              return orphanSweepAfterResponse!;
+              return orphanSweepAfterResponse;
             },
             set orphanSweepAfterResponse(value: (() => Promise<void>) | null) {
               orphanSweepAfterResponse = value;
@@ -950,7 +954,7 @@ export async function runDeploymentPipeline(input: {
         // matches the existing R2 head verify pool.
         const uploadDeploymentWorkerResult = await uploadDeploymentWorker({
           get currentStep() {
-            return currentStep!;
+            return currentStep;
           },
           set currentStep(value: string) {
             currentStep = value;
@@ -971,27 +975,27 @@ export async function runDeploymentPipeline(input: {
           assetsByHash,
           incomingAssetManifest,
           get wfpMirroredManifestDeploymentId() {
-            return wfpMirroredManifestDeploymentId!;
+            return wfpMirroredManifestDeploymentId;
           },
           set wfpMirroredManifestDeploymentId(value: string | null) {
             wfpMirroredManifestDeploymentId = value;
           },
           workerFiles,
           get sandboxControllerAttempted() {
-            return sandboxControllerAttempted!;
+            return sandboxControllerAttempted;
           },
           set sandboxControllerAttempted(value: boolean) {
             sandboxControllerAttempted = value;
           },
           owner,
           get workerUploadUrl() {
-            return workerUploadUrl!;
+            return workerUploadUrl;
           },
           set workerUploadUrl(value: string | undefined) {
             workerUploadUrl = value;
           },
           get workerUploaded() {
-            return workerUploaded!;
+            return workerUploaded;
           },
           set workerUploaded(value: boolean) {
             workerUploaded = value;
@@ -1005,7 +1009,7 @@ export async function runDeploymentPipeline(input: {
         const migrateDeploymentWorkerResult = await migrateDeploymentWorker({
           manifest,
           get currentStep() {
-            return currentStep!;
+            return currentStep;
           },
           set currentStep(value: string) {
             currentStep = value;
@@ -1013,7 +1017,7 @@ export async function runDeploymentPipeline(input: {
           markPhase,
           logger,
           get currentStatus() {
-            return currentStatus!;
+            return currentStatus;
           },
           set currentStatus(value: DeploymentStatus) {
             currentStatus = value;
@@ -1034,7 +1038,7 @@ export async function runDeploymentPipeline(input: {
         // terminalize a request whose queue/routing cutover may have landed.
         await publishWorkerDeployment({
           get currentStep() {
-            return currentStep!;
+            return currentStep;
           },
           set currentStep(value: string) {
             currentStep = value;
@@ -1045,13 +1049,13 @@ export async function runDeploymentPipeline(input: {
           context,
           deployment,
           get cutoverProtected() {
-            return cutoverProtected!;
+            return cutoverProtected;
           },
           set cutoverProtected(value: boolean) {
             cutoverProtected = value;
           },
           get currentStatus() {
-            return currentStatus!;
+            return currentStatus;
           },
           set currentStatus(value: DeploymentStatus) {
             currentStatus = value;
@@ -1067,7 +1071,7 @@ export async function runDeploymentPipeline(input: {
           previousManifest,
           deleteTrackedRouting,
           get logger() {
-            return logger!;
+            return logger;
           },
           set logger(value: DeployLogger) {
             logger = value;
@@ -1078,20 +1082,20 @@ export async function runDeploymentPipeline(input: {
           deployedAssetCount,
           assetConfig,
           get routingSwitched() {
-            return routingSwitched!;
+            return routingSwitched;
           },
           set routingSwitched(value: boolean) {
             routingSwitched = value;
           },
           get cronSchedulerWriteAttempted() {
-            return cronSchedulerWriteAttempted!;
+            return cronSchedulerWriteAttempted;
           },
           set cronSchedulerWriteAttempted(value: boolean) {
             cronSchedulerWriteAttempted = value;
           },
           actor,
           get cutoverCommitted() {
-            return cutoverCommitted!;
+            return cutoverCommitted;
           },
           set cutoverCommitted(value: boolean) {
             cutoverCommitted = value;
@@ -1102,7 +1106,7 @@ export async function runDeploymentPipeline(input: {
           deleteAssetHashesWithProjectFence,
           evictStoredWorkerBundle,
           get orphanSweepAfterResponse() {
-            return orphanSweepAfterResponse!;
+            return orphanSweepAfterResponse;
           },
           set orphanSweepAfterResponse(value: (() => Promise<void>) | null) {
             orphanSweepAfterResponse = value;
@@ -1118,27 +1122,27 @@ export async function runDeploymentPipeline(input: {
         return await recoverFailedDeployment({
           err,
           logger,
-          workerName,
+          workerName: pipelineWorkerName,
           currentStep,
           routingSwitched,
           workerUploaded,
           get wfpMirroredManifestDeploymentId() {
-            return wfpMirroredManifestDeploymentId!;
+            return wfpMirroredManifestDeploymentId;
           },
           set wfpMirroredManifestDeploymentId(value: string | null) {
             wfpMirroredManifestDeploymentId = value;
           },
           context,
-          deployment,
-          manifest,
-          dispatchNamespace,
+          deployment: pipelineDeployment,
+          manifest: pipelineManifest,
+          dispatchNamespace: pipelineDispatchNamespace,
           cutoverCommitted,
           projectId,
           cutoverOwnerId,
           cutoverProtected,
           writtenRoutingKeys,
           get currentStatus() {
-            return currentStatus!;
+            return currentStatus;
           },
           set currentStatus(value: DeploymentStatus) {
             currentStatus = value;
@@ -1200,7 +1204,7 @@ export async function runDeploymentPipeline(input: {
       }
       if (input.releaseWorkerInput) {
         // Before the stream closes: closing the response can end the request.
-        await input.releaseWorkerInput().catch((err) =>
+        await input.releaseWorkerInput().catch((err: unknown) =>
           logger.warn('worker_input', 'delete_failed', {
             err: err instanceof Error ? err.message : String(err),
           }),
@@ -1220,11 +1224,11 @@ export async function runDeploymentPipeline(input: {
 
   if (execution) {
     await pipeline;
-    if (terminalEvent) {
+    const event = terminalEvent;
+    if (event) {
       await context.get('db').transaction(async (tx) => {
         await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
         const candidate = await getDeployment(tx, preDeployment.id);
-        const event = terminalEvent!;
         if (event.event === 'done') {
           const completed = await getDeployment(tx, event.deployment);
           if (completed?.status === 'live') {

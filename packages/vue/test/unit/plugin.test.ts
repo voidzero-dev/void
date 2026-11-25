@@ -2,9 +2,10 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Plugin } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { voidVue } from '../../src/plugin.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_vue_plugin__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_vue_plugin__');
 
 type LoadHook = (id: string) => Promise<string | undefined> | string | undefined;
 

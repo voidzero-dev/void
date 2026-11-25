@@ -355,7 +355,6 @@
   },
   "dependencies": {
     "@cloudflare/build-output-utils": "catalog:",
-    "@cloudflare/codemods": "catalog:",
     "@cloudflare/config": "catalog:",
     "@cloudflare/sandbox": "catalog:",
     "@cloudflare/vite-plugin": "catalog:",
@@ -379,6 +378,8 @@
     "drizzle-valibot": "^0.4.2",
     "drizzle-zod": "^0.8.3",
     "email-validator": "^2.0.4",
+    "esbuild": "^0.28.2",
+    "get-tsconfig": "^4.14.3",
     "gray-matter": "^4.0.3",
     "hono": "catalog:",
     "ignore": "catalog:",
@@ -396,6 +397,7 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@cloudflare/codemods": "catalog:",
     "@electric-sql/pglite": "catalog:",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "catalog:",

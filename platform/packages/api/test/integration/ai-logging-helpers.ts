@@ -1,5 +1,6 @@
 import { expect, vi } from 'vite-plus/test';
-import { aiLoggingKey, type PublishedAiLoggingMode } from '../../src/ai-logging-policy.ts';
+import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
+import type { PublishedAiLoggingMode } from '../../src/ai-logging-policy.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
 import type { TestEnv } from './helpers.ts';
@@ -49,9 +50,9 @@ export function recordAiLoggingWrites(kv: KVNamespace): () => Array<string> {
   const put = vi.spyOn(kv, 'put');
   const remove = vi.spyOn(kv, 'delete');
   return () =>
-    [...put.mock.calls, ...remove.mock.calls]
-      .map(([key]) => key)
-      .filter((key) => key.startsWith(PREFIX));
+    [...put.mock.calls, ...remove.mock.calls].flatMap(([key]) =>
+      key.startsWith(PREFIX) ? [key] : [],
+    );
 }
 
 /** Writes a key the way the platform publishes it. */
@@ -69,7 +70,7 @@ export function putAiLoggingKey(
  * AI logging inputs must be read through write statements. Returns each statement's verb.
  */
 export function expectNoCacheableReads(queries: ReadonlyArray<string>): Array<string> {
-  const verbs = queries.map((query) => query.trim().split(' ')[0]!.toLowerCase());
+  const verbs = queries.map((query) => query.trim().split(' ')[0].toLowerCase());
   expect(verbs).not.toContain('select');
   return verbs;
 }

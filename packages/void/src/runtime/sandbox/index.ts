@@ -2,14 +2,12 @@ import type { Files } from '@cloudflare/sandbox';
 import { getRawRuntimeEnv } from '../env/raw.ts';
 import { requireRuntimeBinding } from '../env/runtime.ts';
 import { UsageLimit } from '../limits/index.ts';
-import {
-  SandboxContainer,
-  SANDBOX_PORT_HEADER,
-  validateSandboxOptions,
-  type SandboxCapability,
-  type SandboxOptions,
-  type SandboxExecOptions,
-  type SandboxProcessWire,
+import { SandboxContainer, SANDBOX_PORT_HEADER, validateSandboxOptions } from './container.ts';
+import type {
+  SandboxCapability,
+  SandboxOptions,
+  SandboxExecOptions,
+  SandboxProcessWire,
 } from './container.ts';
 
 export * from '@cloudflare/sandbox';
@@ -74,7 +72,9 @@ function rethrowSandboxError(error: unknown): never {
   throw error;
 }
 
-function encodeOptions(value: unknown): { options: unknown; finish(): void } {
+type EncodedSandboxOptions = { options: unknown; finish(): void };
+
+function encodeOptions(value: unknown): EncodedSandboxOptions {
   if (!value || typeof value !== 'object') {
     return { options: value, finish() {} };
   }
@@ -199,7 +199,7 @@ function client(
       if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
         return (await call('fetch', [port, request])) as Response;
       }
-      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      if (!Number.isInteger(port) || port < 1 || port > 65_535) {
         throw new TypeError('Invalid Sandbox TCP port.');
       }
       if (!nativeFetch) {
@@ -270,4 +270,6 @@ export async function getSandbox(
   await stub.configure(sandboxOptions);
   return client(stub, (request) => stub.fetch(request));
 }
-export const sandbox: { get: typeof getSandbox } = { get: getSandbox };
+type SandboxFactory = { get: typeof getSandbox };
+
+export const sandbox: SandboxFactory = { get: getSandbox };

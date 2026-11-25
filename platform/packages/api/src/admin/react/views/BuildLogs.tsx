@@ -18,6 +18,7 @@ export function BuildLogs({ build }: { build: Build }) {
     let cursor = 0;
     let polling = false;
     let terminalSince: number | null = null;
+    // oxlint-disable-next-line react/set-state-in-effect -- Reset the visible log when replacing the external polling session.
     setLines(null);
     setError(null);
 
@@ -60,7 +61,7 @@ export function BuildLogs({ build }: { build: Build }) {
         clearInterval(timer);
         return;
       }
-      if (page.logsComplete == null) {
+      if (page.logsComplete === null || page.logsComplete === undefined) {
         clearInterval(timer);
         setError(
           'Final log completion is unavailable. Upgrade the platform runtime to follow the complete log tail.',
@@ -76,7 +77,7 @@ export function BuildLogs({ build }: { build: Build }) {
       }
     };
 
-    const timer = setInterval(() => void poll(), 2_000);
+    const timer = setInterval(() => void poll(), 2000);
     void poll();
     return () => {
       active = false;

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { isRecord } from '@void/deploy-core';
 import { parse } from 'jsonc-parser';
 import { dirname, join, relative } from 'pathslash';
 import { setJsoncValue } from './config.ts';
@@ -36,22 +37,30 @@ export function writeCloudflareFrameworkDeployConfig(
   options: CloudflareFrameworkDeployConfig,
 ): boolean {
   const initial = existsSync(options.configPath)
-    ? readFileSync(options.configPath, 'utf-8')
+    ? readFileSync(options.configPath, 'utf8')
     : '{}\n';
   let content = initial;
   const upsert = (path: Array<string>, value: unknown): void => {
     content = setJsoncValue(content, path, value);
   };
 
+  const readConfig = (): Record<string, unknown> => {
+    const parsed: unknown = parse(content);
+    if (!isRecord(parsed)) {
+      throw new Error('Cloudflare framework config must be a JSON object.');
+    }
+    return parsed;
+  };
+
   upsert(['name'], options.name);
   upsert(['account_id'], options.accountId);
   upsert(['main'], options.main);
   upsert(['compatibility_date'], options.compatibilityDate);
-  if (options.versionMetadataBinding && parse(content).version_metadata === undefined) {
+  if (options.versionMetadataBinding && readConfig().version_metadata === undefined) {
     upsert(['version_metadata'], { binding: options.versionMetadataBinding });
   }
   if (options.compatibilityFlags && options.compatibilityFlags.length > 0) {
-    const config = parse(content) as { compatibility_flags?: unknown };
+    const config = readConfig();
     const current = Array.isArray(config.compatibility_flags)
       ? config.compatibility_flags.filter((flag): flag is string => typeof flag === 'string')
       : [];
@@ -66,32 +75,28 @@ export function writeCloudflareFrameworkDeployConfig(
     upsert(['triggers', 'crons'], [...options.crons]);
   }
   if (options.requiredSecrets && options.requiredSecrets.length > 0) {
-    const config = parse(content) as { secrets?: unknown };
-    if (
-      config.secrets !== undefined &&
-      (typeof config.secrets !== 'object' ||
-        config.secrets === null ||
-        Array.isArray(config.secrets))
-    ) {
+    const { secrets } = readConfig();
+    if (secrets !== undefined && !isRecord(secrets)) {
       throw new Error('Cloudflare framework config has a malformed secrets field.');
     }
-    const required = (config.secrets as { required?: unknown } | undefined)?.required;
+    const required = secrets?.required;
     if (
       required !== undefined &&
       (!Array.isArray(required) || !required.every((name) => typeof name === 'string'))
     ) {
       throw new Error('Cloudflare framework config has a malformed secrets.required field.');
     }
-    const current = (required as Array<string> | undefined) ?? [];
+    const current = required ?? [];
     upsert(['secrets', 'required'], [...new Set([...current, ...options.requiredSecrets])]);
   }
 
   if (options.ai) {
-    const config = parse(content) as { ai?: { binding?: unknown }; vars?: Record<string, unknown> };
-    if (config.ai === undefined) {
+    const { ai } = readConfig();
+    if (ai === undefined) {
       upsert(['ai'], { binding: options.ai.binding });
     }
-    const binding = typeof config.ai?.binding === 'string' ? config.ai.binding : options.ai.binding;
+    const binding =
+      isRecord(ai) && typeof ai.binding === 'string' ? ai.binding : options.ai.binding;
     if (binding !== 'AI') {
       upsert(['vars', '__VOID_AI_BINDING'], binding);
     }
@@ -114,7 +119,7 @@ export function writeCloudflareFrameworkDeployConfig(
     2,
   )}\n`;
   const previousPointer = existsSync(options.deployPointerPath)
-    ? readFileSync(options.deployPointerPath, 'utf-8')
+    ? readFileSync(options.deployPointerPath, 'utf8')
     : null;
   if (previousPointer !== pointer) {
     mkdirSync(dirname(options.deployPointerPath), { recursive: true });
@@ -124,7 +129,7 @@ export function writeCloudflareFrameworkDeployConfig(
 
   if (options.assetsIgnore && options.assetsIgnore.length > 0) {
     const ignorePath = join(dirname(options.configPath), options.assetsDirectory, '.assetsignore');
-    const previousIgnore = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf-8') : null;
+    const previousIgnore = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : null;
     const existingLines = new Set((previousIgnore ?? '').split(/\r?\n/));
     let ignore = previousIgnore ?? '';
     if (ignore.length > 0 && !ignore.endsWith('\n') && !ignore.endsWith('\r')) {

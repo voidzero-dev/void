@@ -1,12 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { join } from 'pathslash';
+import { join, toSlash } from 'pathslash';
 
 export function getPackageDir(): string {
-  let dir = join(fileURLToPath(import.meta.url), '..');
+  let dir = toSlash(import.meta.dirname);
   for (let i = 0; i < 5; i++) {
     if (existsSync(join(dir, 'package.json'))) {
-      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name?: unknown };
       if (pkg.name === 'void') {
         return dir;
       }
@@ -17,7 +16,13 @@ export function getPackageDir(): string {
 }
 
 export function getOwnVersion(): string {
-  return JSON.parse(readFileSync(join(getPackageDir(), 'package.json'), 'utf-8')).version;
+  const manifest = JSON.parse(readFileSync(join(getPackageDir(), 'package.json'), 'utf8')) as {
+    version?: unknown;
+  };
+  if (typeof manifest.version !== 'string') {
+    throw new Error('The installed Void package is missing its version.');
+  }
+  return manifest.version;
 }
 
 // Agent configs: project-local skillsDir and how to detect presence in the project root.
@@ -29,7 +34,7 @@ export type AgentConfig = {
   detect: (root: string) => boolean;
 };
 
-const agents: Record<string, AgentConfig> = {
+const agents = {
   'claude-code': {
     displayName: 'Claude Code',
     skillsDir: '.claude/skills',
@@ -120,7 +125,7 @@ const agents: Record<string, AgentConfig> = {
     skillsDir: '.qwen/skills',
     detect: (root) => existsSync(join(root, '.qwen')),
   },
-};
+} satisfies Record<string, AgentConfig>;
 
 export function detectAgents(root: string): Array<AgentConfig> {
   return Object.values(agents).filter((a) => a.detect(root));

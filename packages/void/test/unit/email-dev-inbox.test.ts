@@ -1,11 +1,12 @@
+import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 /**
  * In `void dev`, `sendEmail` runs in workerd while the inbox lives in the Vite
  * (Node) process, so these tests drive the wire boundary: the capture POST reaches
  * the real dev-inbox middleware through a fake `ASSETS` fetcher.
  */
-import { EventEmitter } from 'node:events';
-import { Readable } from 'node:stream';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { shouldInjectEmailDevInboxVar } from '../../src/plugin-binding-utils.ts';
 import { emailDevInboxPlugin } from '../../src/plugin-email-dev-inbox.ts';
 import {
@@ -24,8 +25,8 @@ import {
   parseCapturedMessage,
   pushToDevBuffer,
   serializeCapturedMessage,
-  type CapturedMessage,
 } from '../../src/runtime/email/dev-inbox.ts';
+import type { CapturedMessage } from '../../src/runtime/email/dev-inbox.ts';
 import { sendEmail } from '../../src/runtime/email/index.ts';
 import {
   buildMime,
@@ -227,7 +228,7 @@ describe('dev inbox capture cap (sized for the serialized capture)', () => {
   // A control byte is `=01` in the quoted-printable MIME but `\u0001` in the
   // JSON text, so this legal message serializes past three MIME budgets.
   it('captures a legal message whose serialized capture exceeds three MIME budgets', async () => {
-    const text = '\x01'.repeat(Math.floor(MAX_MESSAGE_BYTES / 3.15));
+    const text = '\u0001'.repeat(Math.floor(MAX_MESSAGE_BYTES / 3.15));
     const server = createFakeViteServer();
     const assets = fakeAssetsBinding(server);
     const result = await withRuntimeEnv(devEnv(assets), () =>
@@ -252,14 +253,14 @@ describe('dev inbox capture cap (sized for the serialized capture)', () => {
     expect(DEV_INBOX_MAX_CAPTURE_BYTES).toBeGreaterThan(bound);
 
     const base = { from: 'a@x.dev', to: 'b@y.dev', subject: 's' };
-    const control = '\x01'.repeat(30_000);
+    const control = '\u0001'.repeat(30_000);
     const shapes: Array<[string, Parameters<typeof normalizeEmail>[0]]> = [
       // encoded-word header: base64 plus framing (1.6) in the MIME, 6 in JSON — 3.75x
       ['control subject', { ...base, subject: control, text: 't' }],
       ['control display name', { ...base, to: [{ email: 'b@y.dev', name: control }], text: 't' }],
       [
         'control custom header value',
-        { ...base, headers: { 'X-Note': control.slice(0, 8_192) }, text: 't' },
+        { ...base, headers: { 'X-Note': control.slice(0, 8192) }, text: 't' },
       ],
       // body: `=01` (3) in the MIME, `\u0001` (6) in JSON — 2x
       ['control text', { ...base, text: control }],
@@ -461,10 +462,12 @@ describe('dev inbox auth (dev-trigger token on every route)', () => {
       expect(body).toContain(`?${DEV_INBOX_TOKEN_QUERY}=`);
       expect(body).not.toContain(TOKEN);
 
+      const headers = new Headers(init.headers);
+      headers.set(DEV_INBOX_TOKEN_HEADER, 'nope');
       const wrongHeader = await server.dispatch(
         new Request(url, {
           ...init,
-          headers: { ...init.headers, [DEV_INBOX_TOKEN_HEADER]: 'nope' },
+          headers,
         }),
       );
       expect(wrongHeader.status).toBe(401);
@@ -477,7 +480,7 @@ describe('dev inbox auth (dev-trigger token on every route)', () => {
       const wrongHeaderRightQuery = await server.dispatch(
         new Request(`${url}?${DEV_INBOX_TOKEN_QUERY}=${TOKEN}`, {
           ...init,
-          headers: { ...init.headers, [DEV_INBOX_TOKEN_HEADER]: 'nope' },
+          headers,
         }),
       );
       expect(wrongHeaderRightQuery.status).toBe(401);
@@ -593,7 +596,9 @@ describe('dev inbox auth (dev-trigger token on every route)', () => {
       (plugin.configureServer as (this: unknown, s: unknown) => void).call(plugin, server);
       expect(log).not.toHaveBeenCalled();
       httpServer.emit('listening');
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => {
+        setTimeout(r, 150);
+      });
       const output = log.mock.calls.map((c) => String(c[0] ?? '')).join('\n');
       expect(output).toContain(
         `Email inbox: http://localhost:5173/__void/inbox?${DEV_INBOX_TOKEN_QUERY}=${TOKEN}`,

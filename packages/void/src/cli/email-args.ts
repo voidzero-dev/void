@@ -73,12 +73,8 @@ export interface EmailArgs {
  * option — the same rule `parseArgs` applies for `void deploy`, so `--platform --limit 3`
  * is a missing value, not a value of `--limit`.
  */
-function readFlagValue(
-  rest: ReadonlyArray<string>,
-  i: number,
-  flag: string,
-): { value: string | undefined; next: number } {
-  const token = rest[i]!;
+function readFlagValue(rest: ReadonlyArray<string>, i: number, flag: string) {
+  const token = rest[i];
   if (token.startsWith(`${flag}=`)) {
     return { value: token.slice(flag.length + 1), next: i };
   }
@@ -123,7 +119,7 @@ export function parseEmailArgs(args: Array<string>): EmailArgs {
       if (raw === undefined) {
         throw new Error('email: --limit requires a value (a positive integer).');
       }
-      const n = parseInt(raw, 10);
+      const n = Number.parseInt(raw, 10);
       if (!Number.isFinite(n) || n <= 0) {
         throw new Error(`email: --limit must be a positive integer (got '${raw}').`);
       }

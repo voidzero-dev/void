@@ -133,7 +133,7 @@ describe('createCheckRun', () => {
           expect(methodOf(input, init)).toBe('POST');
           postCount += 1;
           postBody = JSON.parse(init!.body as string) as Record<string, unknown>;
-          return Response.json({ id: 99001 }, { status: 201 });
+          return Response.json({ id: 99_001 }, { status: 201 });
         }
         throw new Error(`Unmocked fetch: ${url}`);
       }),
@@ -313,7 +313,7 @@ describe('completeCheckRun', () => {
           patchCount += 1;
           patchUrl = url;
           patchBody = JSON.parse(init!.body as string) as Record<string, unknown>;
-          return Response.json({ id: 99001 }, { status: 200 });
+          return Response.json({ id: 99_001 }, { status: 200 });
         }
         throw new Error(`Unmocked fetch: ${url}`);
       }),
@@ -346,7 +346,7 @@ describe('completeCheckRun', () => {
         }
         if (isCheckRun(url)) {
           patchBody = JSON.parse(init!.body as string) as Record<string, unknown>;
-          return Response.json({ id: 99001 }, { status: 200 });
+          return Response.json({ id: 99_001 }, { status: 200 });
         }
         throw new Error(`Unmocked fetch: ${url}`);
       }),
@@ -378,7 +378,7 @@ describe('completeCheckRun', () => {
         }
         if (isCheckRun(url)) {
           patchBody = JSON.parse(init!.body as string) as Record<string, unknown>;
-          return Response.json({ id: 99001 }, { status: 200 });
+          return Response.json({ id: 99_001 }, { status: 200 });
         }
         throw new Error(`Unmocked fetch: ${url}`);
       }),
@@ -467,7 +467,7 @@ describe('completeCheckRun', () => {
               { status: 422, statusText: 'Unprocessable Entity' },
             );
           }
-          return Response.json({ id: 99001 }, { status: 200 });
+          return Response.json({ id: 99_001 }, { status: 200 });
         }
         throw new Error(`Unmocked fetch: ${url}`);
       }),

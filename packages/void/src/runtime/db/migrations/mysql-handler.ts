@@ -1,10 +1,7 @@
 import type { Connection } from 'mysql2/promise';
 import type { MigrationEntry, MigrationResponse, MigrationResult } from './d1-handler.ts';
-import {
-  acquireMySqlMigrationLease,
-  holdMySqlMigrationLease,
-  type MySqlMigrationLease,
-} from './mysql-lock.ts';
+import { acquireMySqlMigrationLease, holdMySqlMigrationLease } from './mysql-lock.ts';
+import type { MySqlMigrationLease } from './mysql-lock.ts';
 import { splitMySqlMigrationStatements } from './mysql-sql.ts';
 
 export function createMigrationHandler(
@@ -126,7 +123,7 @@ async function runMySqlMigrations(
  * at position", or 1149 for several statements it can parse. A syntax error inside the body looks
  * the same, so the note says "if".
  */
-function withBreakpointNote(error: unknown, name: string): unknown {
+function withBreakpointNote<T>(error: T, name: string): T | Error {
   if (!(error instanceof Error)) {
     return error;
   }

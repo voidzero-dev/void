@@ -1,4 +1,5 @@
-import { parsePlatformAccessProtection, type PlatformAccessProtection } from '@void/platform';
+import { parsePlatformAccessProtection } from '@void/platform';
+import type { PlatformAccessProtection } from '@void/platform';
 import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import { boundedIdentityResponse } from './identity-network.ts';
 import type { CompanyIdentity } from './sessions.ts';
@@ -26,7 +27,10 @@ export class PlatformAccessVerifier {
     input: PlatformAccessProtection,
   ): Promise<PlatformAccessActor> {
     try {
-      const protection = parsePlatformAccessProtection(input)!;
+      const protection = parsePlatformAccessProtection(input);
+      if (!protection) {
+        throw new PlatformAccessError();
+      }
       const origin = new URL(url).origin;
       const application = protection.applications.find((entry) => entry.origin === origin);
       if (!application || !assertion || assertion.length > 32 * 1024) {
@@ -35,7 +39,10 @@ export class PlatformAccessVerifier {
       let keys = this.keys.get(protection.teamDomain);
       if (!keys) {
         if (this.keys.size >= 16) {
-          this.keys.delete(this.keys.keys().next().value!);
+          const oldest = this.keys.keys().next();
+          if (!oldest.done) {
+            this.keys.delete(oldest.value);
+          }
         }
         keys = createRemoteJWKSet(new URL(`${protection.teamDomain}/cdn-cgi/access/certs`), {
           timeoutDuration: 10_000,

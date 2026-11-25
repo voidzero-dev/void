@@ -35,6 +35,20 @@ integration. Vite Task records the files each group reads and replays a group wh
 changed, so a platform-only change does not rerun the SDK groups and an unchanged checkout replays
 all three. A failed group is never replayed. `vpr test:all` adds formatting, lint, and typechecks.
 
+Each group is itself a set of cached tasks, so a change reruns part of a group:
+
+- The integration group caches every test file on its own, generated from the directories in
+  `test/integration-files.ts`. A framework adapter change reruns the files that build with that
+  adapter, and an edited test file reruns alone.
+- The unit group caches chunks of related files: one per directory and, in a large directory, one
+  per file name prefix such as `deploy-*.test.ts` (see `test/test-chunks.ts`). A change reruns the
+  chunks whose tests import it.
+- The platform group caches one chunk per test directory. Every API integration test loads the
+  whole API, so a change to the API source reruns that directory (about 36 of the group's 42
+  seconds); a change to another package's tests or to the API unit tests does not.
+
+A check after each group fails when a collected test file has no task.
+
 ```sh
 vp run test                        # Build, then run or replay each test group
 vp run test:group:platform         # One group; also test:group:unit, test:group:integration
@@ -61,7 +75,10 @@ there. Use `vp run test` for integration coverage and before handing off.
 Integration tests never build, serve, or write files inside `playground/<name>`. Copy the app with
 `createIsolatedPlayground()` and run `vp` from the copy, for example through `spawnFixtureServer()`.
 Output written into a source playground changes the inputs of the workspace build and of the
-cached test groups, so the next run would rebuild and rerun them.
+cached test groups, so the next run would rebuild and rerun them. For the same reason, create an
+app or directory that a test writes from scratch with `createPackageFixtureDir()` or
+`packageFixturePath()`, not inside a test directory or a package root: Vitest lists those
+directories, and an entry that comes and goes there reruns every cached test task.
 
 For a leaf-module edit with known import-based consumers, Vitest's native related command is useful:
 
@@ -110,8 +127,9 @@ Browser suites with independent variants (`page-errors-*`, `server-auth-errors-*
 per variant, so the variants spread across workers. Add a new variant as another thin file and give
 it an estimate in `test/integration-timings.ts`.
 Unit files and most API integration files use isolated worker threads to reduce startup time. On Linux and macOS,
-API integration files and the PGlite unit files (`unit-pglite`, `platform-unit-pglite`) use forks to isolate PGlite's
-WebAssembly JIT allocations after native Node 24 crashes in shared worker processes. API tests
+API integration files and platform PGlite unit files (`platform-unit-pglite`) use forks to isolate PGlite's
+WebAssembly JIT allocations after native Node 24 crashes in shared worker processes.
+SDK PGlite units (`unit-pglite`) use forks on every platform; Windows also exhibits the JIT teardown crash. API tests
 that change the process timezone also use forks, because threads cannot change Node's timezone. Select every
 API file with `vp test run --project 'platform-api-integration*'`. SDK integration files use forks.
 This keeps database engines from competing with all framework compilers at startup. Keep module

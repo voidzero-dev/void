@@ -80,8 +80,8 @@ describe('awaitBrowserCallback', () => {
     // finalize ran inside the request handler with the callback params, and the
     // outer promise resolves with finalize's return value.
     expect(finalize).toHaveBeenCalledTimes(1);
-    expect(finalize.mock.calls[0]![0].get('link_code')).toBe('abc');
-    expect(finalize.mock.calls[0]![0].get('state')).toBe(state);
+    expect(finalize.mock.calls[0][0].get('link_code')).toBe('abc');
+    expect(finalize.mock.calls[0][0].get('state')).toBe(state);
 
     await expect(resultPromise).resolves.toEqual({ linked: 'abc' });
   });

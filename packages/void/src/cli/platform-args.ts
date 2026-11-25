@@ -1,13 +1,13 @@
-import {
-  normalizePlatformDashboardUrl,
-  PLATFORM_LOGIN_KINDS,
-  type PlatformLoginKind,
-  type PlatformAppAccess,
-} from '@void/platform';
-import { operatorGroups, parseOperatorArgs, type OperatorArgs } from './operator-args.ts';
-import { parsePlatformConfigArgs, type PlatformConfigArgs } from './platform-config-args.ts';
-import { parsePlatformPlansArgs, type PlatformPlansArgs } from './platform-plans-args.ts';
-import { parsePlatformStorageLocation, type PlatformStorageLocation } from './platform-storage.ts';
+import { normalizePlatformDashboardUrl, PLATFORM_LOGIN_KINDS } from '@void/platform';
+import type { PlatformLoginKind, PlatformAppAccess } from '@void/platform';
+import { operatorGroups, parseOperatorArgs } from './operator-args.ts';
+import type { OperatorArgs } from './operator-args.ts';
+import { parsePlatformConfigArgs } from './platform-config-args.ts';
+import type { PlatformConfigArgs } from './platform-config-args.ts';
+import { parsePlatformPlansArgs } from './platform-plans-args.ts';
+import type { PlatformPlansArgs } from './platform-plans-args.ts';
+import { parsePlatformStorageLocation } from './platform-storage.ts';
+import type { PlatformStorageLocation } from './platform-storage.ts';
 import type { SubcommandDef } from './subcommand-prompt.ts';
 
 export const platformSubcommands: Array<SubcommandDef> = [
@@ -152,7 +152,7 @@ function parseSelector(
   rest: Array<string>,
   subcommand: string,
   options: { allowYes?: boolean } = {},
-): { selector: string; plan: boolean; yes: boolean } {
+) {
   let selector = '';
   let plan = false;
   let yes = false;
@@ -178,18 +178,7 @@ function parseSelector(
 function parseLifecycleSelector(
   rest: Array<string>,
   subcommand: 'upgrade' | 'rollback' | 'repair' | 'disable' | 'enable',
-): {
-  selector: string;
-  plan: boolean;
-  runtime: string;
-  fromRuntime: string;
-  yes: boolean;
-  authConfig?: string;
-  dashboardUrl?: string;
-  customDomains?: true;
-  runtimeLogs?: PlatformRuntimeLogsChoice;
-  storageLocation?: PlatformStorageLocation;
-} {
+) {
   const positional: Array<string> = [];
   let runtimeLogs: PlatformRuntimeLogsChoice | undefined;
   let storageLocation: PlatformStorageLocation | undefined;
@@ -199,7 +188,7 @@ function parseLifecycleSelector(
   let dashboardUrl: string | undefined;
   let customDomains = false;
   for (let index = 0; index < rest.length; index++) {
-    const arg = rest[index]!;
+    const arg = rest[index];
     if (arg === '--runtime') {
       if (subcommand === 'disable') {
         throw new Error("platform: Unknown flag '--runtime'.");
@@ -291,7 +280,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     let yes = false;
     let dedicatedZone = false;
     for (let index = 1; index < rest.length; index++) {
-      const arg = rest[index]!;
+      const arg = rest[index];
       if (arg === '--installation' || arg === '--zone') {
         const [value, next] = readValue(rest, index, arg);
         index = next;
@@ -335,7 +324,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     let account = '';
     let selector = '';
     for (let index = 0; index < rest.length; index++) {
-      const arg = rest[index]!;
+      const arg = rest[index];
       if (arg === '--account' || arg === '--installation') {
         const [value, next] = readValue(rest, index, arg);
         if (arg === '--account') {
@@ -430,7 +419,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     let workersDev = false;
     let customDomains = false;
     for (let i = 0; i < rest.length; i++) {
-      const arg = rest[i]!;
+      const arg = rest[i];
       if (valueFlags.has(arg)) {
         const [value, next] = readValue(rest, i, arg);
         values.set(arg, value);
@@ -481,12 +470,17 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     if (appAccess !== undefined && !['public', 'platform', 'custom'].includes(appAccess)) {
       throw new Error('platform: --app-access accepts public, platform, or custom.');
     }
-    const runtimeLogs = values.has('--runtime-logs')
-      ? parseRuntimeLogs(values.get('--runtime-logs')!)
-      : undefined;
-    const storageLocation = values.has('--storage-location')
-      ? parsePlatformStorageLocation(values.get('--storage-location')!)
-      : undefined;
+    const runtimeLogsInput = values.get('--runtime-logs');
+    const runtimeLogs =
+      runtimeLogsInput === undefined ? undefined : parseRuntimeLogs(runtimeLogsInput);
+    const storageLocationInput = values.get('--storage-location');
+    const storageLocation =
+      storageLocationInput === undefined
+        ? undefined
+        : parsePlatformStorageLocation(storageLocationInput);
+    const hyperdrive = values.get('--hyperdrive');
+    const authConfig = values.get('--auth-config');
+    const dashboardUrl = values.get('--dashboard-url');
     const loginMethods = values.get('--login-methods')?.split(',');
     if (
       loginMethods &&
@@ -514,7 +508,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       ...(noControlPlaneDomain ? { noControlPlaneDomain: true as const } : {}),
       ...(noDedicatedZone ? { dedicatedZoneSpecified: true as const } : {}),
       ...(customDomains ? { customDomains: true as const } : {}),
-      ...(values.has('--hyperdrive') ? { hyperdrive: values.get('--hyperdrive')! } : {}),
+      ...(hyperdrive !== undefined ? { hyperdrive } : {}),
       ...(loginMethods
         ? { loginMethods: [...new Set(loginMethods)] as Array<PlatformLoginKind> }
         : {}),
@@ -523,12 +517,12 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       ...(workersDev ? { workersDev: true } : {}),
       ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
       ...(storageLocation !== undefined ? { storageLocation } : {}),
-      ...(values.has('--auth-config') ? { authConfig: values.get('--auth-config')! } : {}),
+      ...(authConfig !== undefined ? { authConfig } : {}),
       account: values.get('--account') ?? '',
       applicationDomain: values.get('--application-domain') ?? '',
       controlPlaneDomain: values.get('--control-plane-domain') ?? '',
-      ...(values.has('--dashboard-url')
-        ? { dashboardUrl: normalizePlatformDashboardUrl(values.get('--dashboard-url')!) }
+      ...(dashboardUrl !== undefined
+        ? { dashboardUrl: normalizePlatformDashboardUrl(dashboardUrl) }
         : {}),
       dedicatedZone,
       displayName: values.get('--display-name') ?? '',

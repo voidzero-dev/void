@@ -191,7 +191,7 @@ describe('redaction', () => {
     defineEnv({ PORT: number() });
     const bad = await validateAllEnv({ PORT: 'sk_live_abc123' });
     expect(bad.valid).toBe(false);
-    const msg = bad.invalid[0]!.messages.join(' ');
+    const msg = bad.invalid[0].messages.join(' ');
     expect(msg).not.toContain('sk_live_abc123');
     expect(msg).toContain('<redacted>');
   });
@@ -667,11 +667,11 @@ describe('_prepareEnv (framework Worker entries)', () => {
   beforeEach(resetSchema);
 
   it('serves defaults, converted values and async results to synchronous reads', async () => {
-    defineEnv({ PORT: number().default(48213), DEBUG: boolean(), TOKEN: asyncUpper().validator });
+    defineEnv({ PORT: number().default(48_213), DEBUG: boolean(), TOKEN: asyncUpper().validator });
     const rawEnv = { DEBUG: 'false', TOKEN: 'sk_test' };
     await _prepareEnv(rawEnv);
     withRuntimeEnv(rawEnv, () => {
-      expect([env.PORT, env.DEBUG, env.TOKEN]).toEqual([48213, false, 'SK_TEST']);
+      expect([env.PORT, env.DEBUG, env.TOKEN]).toEqual([48_213, false, 'SK_TEST']);
     });
   });
 
@@ -820,11 +820,11 @@ describe('several copies of void/env in one Worker', () => {
   it('reads the values that the copy holding the schema prepared', async () => {
     const copy = await secondCopy();
     expect(copy.defineEnv).not.toBe(defineEnv);
-    defineEnv({ TOKEN: asyncUpper().validator, PORT: number().default(48213) });
+    defineEnv({ TOKEN: asyncUpper().validator, PORT: number().default(48_213) });
     const rawEnv = { TOKEN: 'sk_test' };
     await registry()?.prepare?.(rawEnv);
     withRuntimeEnv(rawEnv, () => {
-      expect([copy.env.TOKEN, copy.env.PORT]).toEqual(['SK_TEST', 48213]);
+      expect([copy.env.TOKEN, copy.env.PORT]).toEqual(['SK_TEST', 48_213]);
     });
   });
 

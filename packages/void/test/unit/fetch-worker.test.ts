@@ -104,7 +104,7 @@ describe('worker fetch runtime behavior', () => {
       }),
     );
 
-    const err = await workerFetch('/api/hello').catch((e: Error) => e);
+    const err = await workerFetch('/api/hello').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(FetchError);
     expect((err as RuntimeFetchError).status).toBe(404);
     expect((err as RuntimeFetchError).statusText).toBe('Not Found');
@@ -255,18 +255,21 @@ describe('worker fetch runtime behavior', () => {
   });
 });
 
+type EvaluatedClient = {
+  fetch: (path: string, options?: Record<string, unknown>) => Promise<unknown>;
+  FetchError: typeof RuntimeFetchError;
+};
+
 function evaluateClient(
   compile: typeof compileWorkerClient,
   fetch: (...args: Array<unknown>) => Promise<Response>,
   env: Record<string, unknown>,
   requestContext: Pick<AsyncLocalStorage<unknown>, 'getStore'>,
-): {
-  fetch: (path: string, options?: Record<string, unknown>) => Promise<unknown>;
-  FetchError: typeof RuntimeFetchError;
-} {
+): EvaluatedClient {
   const code = compile('/auth.mjs')
-    .replace(/^(import .*|export \{.*)\n/gm, '')
+    .replaceAll(/^(import .*|export \{.*)\n/gm, '')
     .replaceAll('export ', '');
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(
     'app',
     'env',
@@ -274,7 +277,7 @@ function evaluateClient(
     'createServerFetch',
     'FetchError',
     code + '\nreturn { fetch, FetchError };',
-  )({ fetch }, env, requestContext, createServerFetch, RuntimeFetchError);
+  )({ fetch }, env, requestContext, createServerFetch, RuntimeFetchError) as EvaluatedClient;
 }
 
 describe.each([false, true])('server fetch documented options (nodeTarget: %s)', (nodeTarget) => {
@@ -362,7 +365,7 @@ describe.each([false, true])('server fetch documented options (nodeTarget: %s)',
       cause: { name: 'AbortError' },
     });
     expect(dispatch).toHaveBeenCalledTimes(1);
-    expect((dispatch.mock.calls[0]![0] as Request).signal.aborted).toBe(true);
+    expect((dispatch.mock.calls[0][0] as Request).signal.aborted).toBe(true);
   });
 
   it.each([
@@ -375,7 +378,7 @@ describe.each([false, true])('server fetch documented options (nodeTarget: %s)',
       app.get('/api/unavailable', (c) => c.json({ attempts: ++count }, 503));
       const result = client
         .fetch('/api/unavailable', retry === undefined ? undefined : { retry })
-        .catch((error: RuntimeFetchError) => error);
+        .catch((error: unknown) => error);
 
       const error = (await result) as RuntimeFetchError;
 
@@ -395,7 +398,7 @@ describe.each([false, true])('server fetch documented options (nodeTarget: %s)',
 
     const error = (await client
       .fetch('/api/unavailable', { retry: 0 })
-      .catch((error: RuntimeFetchError) => error)) as RuntimeFetchError;
+      .catch((error: unknown) => error)) as RuntimeFetchError;
 
     expect(error).toBeInstanceOf(client.FetchError);
     expect(error.status).toBe(503);
@@ -447,7 +450,7 @@ describe.each([false, true])('server fetch documented options (nodeTarget: %s)',
 
     expect(dispatch).not.toHaveBeenCalled();
     expect(networkFetch).toHaveBeenCalledTimes(1);
-    const external = networkFetch.mock.calls[0]![0] as Request;
+    const external = networkFetch.mock.calls[0][0] as Request;
     expect(external.url).toBe('https://external.example/prefix/api/hello');
     expect(external.headers.get('cookie')).toBeNull();
     expect(external.headers.get('authorization')).toBeNull();
@@ -482,7 +485,7 @@ it.each([false, true])(
     await client.fetch('/files/:id2/:id/:path{.+}', {
       params: { id: 'one', id2: 'two', path: 'docs/start here' },
     });
-    const req = fetch.mock.calls[0]![0] as Request;
+    const req = fetch.mock.calls[0][0] as Request;
     expect(new URL(req.url).pathname).toBe('/files/two/one/docs/start%20here');
   },
 );

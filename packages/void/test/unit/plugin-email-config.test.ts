@@ -19,7 +19,7 @@ type MockCloudflarePluginConfig = {
   config: (resolved: Record<string, unknown>) => Record<string, unknown>;
 };
 
-type MockCloudflarePlugin = Plugin & {
+type MockCloudflarePlugin = Omit<Plugin, 'api'> & {
   api: {
     pluginConfig: MockCloudflarePluginConfig;
   };
@@ -84,10 +84,9 @@ async function resolveCloudflareConfig(
   const plugins = voidPlugin();
 
   const envPlugin = plugins.find((plugin) => plugin.name === 'void:env');
-  const config = getHookHandler(envPlugin?.config) as (
-    config: import('vite').UserConfig,
-    env: import('vite').ConfigEnv,
-  ) => void;
+  const config = getHookHandler<
+    (config: import('vite').UserConfig, env: import('vite').ConfigEnv) => void
+  >(envPlugin?.config);
   config({}, configEnv);
 
   const cloudflarePlugin = plugins.find(

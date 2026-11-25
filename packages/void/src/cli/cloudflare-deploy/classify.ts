@@ -1,5 +1,5 @@
-import { type ApplicationAnalysis } from '../../application-analysis.ts';
-import { type VoidConfig } from '../../config.ts';
+import type { ApplicationAnalysis } from '../../application-analysis.ts';
+import type { VoidConfig } from '../../config.ts';
 import { assertNoRootSourceConventionConflicts } from '../../project-paths.ts';
 import { validateSsrEntry } from '../../ssr/entry.ts';
 import { getErrorMessage } from '../output.ts';
@@ -27,14 +27,15 @@ export function classifyCloudflareDeployApp(
   application: ApplicationAnalysis,
 ): CloudflareDeployAppClassification {
   const framework = application.framework;
+  const configuredAppType = voidConfig.inference?.appType;
 
-  // Frameworks have their own Worker output. Their Vite dependency does not
-  // imply that the project is a standalone SPA.
-  const staticPreset = framework
-    ? null
-    : detectPreset(root, { dir: options.dir, spa: options.spa });
-  const configuredStatic =
-    voidConfig.inference?.appType === 'static' || voidConfig.inference?.appType === 'spa';
+  // Infer a static preset only when neither the config nor a framework determines
+  // the app type, just as in the static deployment path.
+  const staticPreset =
+    framework || configuredAppType
+      ? null
+      : detectPreset(root, { dir: options.dir, spa: options.spa });
+  const configuredStatic = configuredAppType === 'static' || configuredAppType === 'spa';
   if (staticPreset || configuredStatic || options.dir || options.spa) {
     const appType = staticPreset?.appType ?? (options.spa ? 'spa' : 'static');
     return unsupported(

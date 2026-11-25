@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { readKeyringPassword, writeKeyringPassword } from './keyring.ts';
+import { Buffer } from './node-buffer.ts';
 import { normalizePlatformApiUrl, platformCredentialAccount } from './platform-registry.ts';
 
 const ACCESS_KEYRING_SERVICE = 'dev.void.cli.access';
@@ -8,7 +9,7 @@ const keyringTokens = new Map<string, string | null>();
 
 function usableToken(token: string): boolean {
   try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')) as {
       exp?: unknown;
     };
     return typeof payload.exp === 'number' && payload.exp > Date.now() / 1000 + 60;
@@ -83,7 +84,10 @@ export function ensurePlatformAccessToken(
   const account = platformCredentialAccount(origin);
   if (!keyringTokens.has(origin)) {
     if (keyringTokens.size >= 64) {
-      keyringTokens.delete(keyringTokens.keys().next().value!);
+      const oldest = keyringTokens.keys().next();
+      if (!oldest.done) {
+        keyringTokens.delete(oldest.value);
+      }
     }
     keyringTokens.set(origin, readKeyringPassword(ACCESS_KEYRING_SERVICE, account));
   }
@@ -137,9 +141,9 @@ function runCloudflared(
 ): string | null {
   try {
     const result = spawnSync('cloudflared', args, {
-      encoding: 'utf-8',
+      encoding: 'utf8',
       stdio: opts?.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
-      timeout: opts?.timeoutMs ?? 5_000,
+      timeout: opts?.timeoutMs ?? 5000,
     });
     if (result.error || result.status !== 0) {
       return null;

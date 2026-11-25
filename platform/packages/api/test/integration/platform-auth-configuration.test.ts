@@ -18,7 +18,8 @@ import {
   platformLoginConnections,
   platformLoginIdentities,
 } from '../../src/schema.ts';
-import { clearTables, createTestUser, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { clearTables, createTestUser, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -139,7 +140,7 @@ describe('platform authentication storage', () => {
       ...env,
       PROJECT_SECRET_KEYS_JSON: JSON.stringify({
         ...JSON.parse(env.PROJECT_SECRET_KEYS_JSON),
-        next: Buffer.alloc(32, 9).toString('base64'),
+        next: (Buffer as BufferConstructor).alloc(32, 9).toString('base64'),
       }),
       PROJECT_SECRET_ACTIVE_KEY_VERSION: 'next',
     };
@@ -151,7 +152,7 @@ describe('platform authentication storage', () => {
       ['installation', 'company:2'],
     ]) {
       await expect(
-        decryptPlatformCredential(rotated, installation!, id!, credential),
+        decryptPlatformCredential(rotated, installation, id, credential),
       ).rejects.toThrow('Failed to decrypt');
     }
     await expect(

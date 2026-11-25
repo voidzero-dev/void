@@ -19,10 +19,11 @@ export type GitHubWebhookIngressEnv = {
 };
 
 function json(body: Record<string, unknown>, status: number, extraHeaders?: HeadersInit): Response {
-  return Response.json(body, {
-    status,
-    headers: { 'Cache-Control': 'no-store', ...extraHeaders },
-  });
+  const headers = new Headers(extraHeaders);
+  if (!headers.has('Cache-Control')) {
+    headers.set('Cache-Control', 'no-store');
+  }
+  return Response.json(body, { status, headers });
 }
 
 export async function githubWebhookIngressFetch(
@@ -54,7 +55,7 @@ export async function githubWebhookIngressFetch(
   try {
     const headers = readGitHubWebhookHeaders(request.headers, { requireDelivery: true });
     event = headers.event;
-    deliveryId = headers.deliveryId!;
+    deliveryId = headers.deliveryId;
     signature = headers.signature;
     raw = await readBoundedGitHubWebhookBody(request);
   } catch (error) {

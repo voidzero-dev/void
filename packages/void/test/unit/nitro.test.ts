@@ -121,10 +121,10 @@ describe('void/nitro', () => {
     expect(options.cloudflare?.nodeCompat).toBe(true);
     expect(options.noExternals).toContain('app-package');
     expect(options.noExternals).toContain('drizzle-orm');
-    const driver = await resolve(plugin!, 'mysql2', drizzleMysqlFile);
+    const driver = await resolve(plugin, 'mysql2', drizzleMysqlFile);
     expect(typeof driver).toBe('string');
     expect(existsSync(driver as string)).toBe(true);
-    expect(await resolve(asyncHooks!, 'node:async_hooks', envModuleFile)).toEqual({
+    expect(await resolve(asyncHooks, 'node:async_hooks', envModuleFile)).toEqual({
       id: 'node:async_hooks',
       external: true,
     });
@@ -139,13 +139,13 @@ describe('void/nitro', () => {
 
     const route = join(root, 'server', 'api', 'users.ts');
     const schema = toSlash(join(root, 'db', 'schema.ts'));
-    const id = await resolve(plugin!, 'void/db', route);
-    const code = (plugin!.load as (id: string) => string | null)(id as string);
+    const id = await resolve(plugin, 'void/db', route);
+    const code = (plugin.load as (id: string) => string | null)(id as string);
     expect(code).toMatch(/drizzle-orm[\\/]+node-postgres/);
     expect(code).toContain(JSON.stringify(schema));
-    expect(await resolve(plugin!, '@schema', route)).toEqual({ id: schema });
+    expect(await resolve(plugin, '@schema', route)).toEqual({ id: schema });
     // Development runs in Node, which loads the driver itself.
-    expect(await resolve(plugin!, 'pg', route)).toBeNull();
+    expect(await resolve(plugin, 'pg', route)).toBeNull();
   });
 
   it('serves a workerd build of the driver to a Worker build', async () => {
@@ -153,23 +153,23 @@ describe('void/nitro', () => {
     const [plugin, asyncHooks] = setUp(root, { dev: false }).rollupConfig.plugins as Array<Plugin>;
     const route = join(root, 'server', 'api', 'users.ts');
 
-    const driver = await resolve(plugin!, 'mysql2', drizzleMysqlFile);
+    const driver = await resolve(plugin, 'mysql2', drizzleMysqlFile);
     expect(typeof driver).toBe('string');
     expect(existsSync(driver as string)).toBe(true);
     expect(readFileSync(driver as string, 'utf8')).toContain('export {');
     // mysql2's promise API comes from the same build.
-    const promiseApi = await resolve(plugin!, 'mysql2/promise', drizzleMysqlFile);
+    const promiseApi = await resolve(plugin, 'mysql2/promise', drizzleMysqlFile);
     expect(dirname(promiseApi as string)).toBe(dirname(driver as string));
     // The driver and Void's request scope keep workerd's Node modules instead of Nitro's stubs.
-    expect(await resolve(plugin!, 'node:net', driver as string)).toEqual({
+    expect(await resolve(plugin, 'node:net', driver as string)).toEqual({
       id: 'node:net',
       external: true,
     });
-    expect(await resolve(asyncHooks!, 'node:async_hooks', envModuleFile)).toEqual({
+    expect(await resolve(asyncHooks, 'node:async_hooks', envModuleFile)).toEqual({
       id: 'node:async_hooks',
       external: true,
     });
-    expect(await resolve(asyncHooks!, 'node:async_hooks', route)).toBeNull();
+    expect(await resolve(asyncHooks, 'node:async_hooks', route)).toBeNull();
   });
 
   it("gives the app's own driver import the app's copy, built for workerd", async () => {
@@ -187,11 +187,11 @@ describe('void/nitro', () => {
     const [plugin] = setUp(root, { dev: false }).rollupConfig.plugins as Array<Plugin>;
 
     const appDriver = (await resolve(
-      plugin!,
+      plugin,
       'mysql2',
       join(root, 'server', 'api', 'raw.ts'),
     )) as string;
-    const voidDriver = (await resolve(plugin!, 'mysql2', drizzleMysqlFile)) as string;
+    const voidDriver = (await resolve(plugin, 'mysql2', drizzleMysqlFile)) as string;
     expect(appDriver).not.toBe(voidDriver);
     // Each is named by its native path, as Nitro's Rollup names modules: on Windows, Nitro's
     // lookup of the `global` polyfill that pg imports never ends from a forward-slash name.
@@ -202,13 +202,13 @@ describe('void/nitro', () => {
     expect(readFileSync(appDriver, 'utf8')).toMatch(/export \{[^}]*\bappCopy\b/);
     expect(readFileSync(voidDriver, 'utf8')).not.toContain('appCopy');
     for (const driver of [appDriver, voidDriver]) {
-      expect(await resolve(plugin!, 'node:util', driver)).toEqual({
+      expect(await resolve(plugin, 'node:util', driver)).toEqual({
         id: 'node:util',
         external: true,
       });
     }
     // An import the bundler cannot resolve stays its error.
-    expect(await resolve(plugin!, 'mysql2', join(tmpdir(), 'elsewhere.ts'))).toBeNull();
+    expect(await resolve(plugin, 'mysql2', join(tmpdir(), 'elsewhere.ts'))).toBeNull();
   });
 
   it("serves mysql2/promise from the build of the copy's driver", async () => {
@@ -238,15 +238,15 @@ describe('void/nitro', () => {
     const [plugin] = setUp(root, { dev: false }).rollupConfig.plugins as Array<Plugin>;
     const route = join(root, 'server', 'api', 'raw.ts');
 
-    const promiseApi = await resolve(plugin!, 'mysql2/promise', route);
+    const promiseApi = await resolve(plugin, 'mysql2/promise', route);
     expect(typeof promiseApi).toBe('string');
-    const driver = (await resolve(plugin!, 'mysql2', route)) as string;
+    const driver = (await resolve(plugin, 'mysql2', route)) as string;
     const [promiseModule, driverModule] = (await Promise.all(
       [promiseApi as string, driver].map((file) => import(pathToFileURL(file).href)),
     )) as Array<{ default: Record<string, unknown>; state: object; createPool?: unknown }>;
-    expect(typeof promiseModule!.createPool).toBe('function');
-    expect(promiseModule!.default.createPool).toBe(promiseModule!.createPool);
-    expect(promiseModule!.state).toBe(driverModule!.state);
+    expect(typeof promiseModule.createPool).toBe('function');
+    expect(promiseModule.default.createPool).toBe(promiseModule.createPool);
+    expect(promiseModule.state).toBe(driverModule.state);
   });
 
   it.each([
@@ -285,7 +285,7 @@ describe('void/nitro', () => {
       }
       const [plugin] = setUp(root, { dev: false }).rollupConfig.plugins as Array<Plugin>;
 
-      await expect(resolve(plugin!, id, join(root, 'server', 'api', 'raw.ts'))).rejects.toThrow(
+      await expect(resolve(plugin, id, join(root, 'server', 'api', 'raw.ts'))).rejects.toThrow(
         `${name} ${version} cannot run in Cloudflare Workers, which need ${name} ${minimum} or later. ` +
           `Upgrade ${name}. Imported by server/api/raw.ts.`,
       );
@@ -328,8 +328,8 @@ describe('void/nitro', () => {
   it('runs each PostgreSQL or MySQL request in one Void request scope', async () => {
     const options = setUp(createApp('pg'), { dev: true });
     expect(options.plugins).toHaveLength(1);
-    const source = options.virtual[options.plugins[0]!] as string;
-    const pluginFile = join(roots[0]!, 'request-scope.mjs');
+    const source = options.virtual[options.plugins[0]] as string;
+    const pluginFile = join(roots[0], 'request-scope.mjs');
     writeFileSync(
       pluginFile,
       source.replace(
@@ -347,7 +347,9 @@ describe('void/nitro', () => {
         // A route that reads its request's resource before and after an await.
         async handler(event: string) {
           const first = getRuntimeRequestResource(key, () => ({ event }));
-          await new Promise((resolve) => setTimeout(resolve, 5));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 5);
+          });
           return [first, getRuntimeRequestResource(key, () => ({ event }))];
         },
       },
@@ -368,8 +370,8 @@ describe('void/nitro', () => {
 
   it('runs Nitro 3 fetch requests in isolated Void scopes and preserves arguments and receiver', async () => {
     const options = setUp(createApp('pg'), { dev: true });
-    const source = options.virtual[options.plugins[0]!] as string;
-    const pluginFile = join(roots[0]!, 'request-scope-v3.mjs');
+    const source = options.virtual[options.plugins[0]] as string;
+    const pluginFile = join(roots[0], 'request-scope-v3.mjs');
     writeFileSync(
       pluginFile,
       source.replace(
@@ -387,10 +389,13 @@ describe('void/nitro', () => {
         const first = getRuntimeRequestResource(key, () => ({
           path: new URL(request.url).pathname,
         }));
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5);
+        });
         return [first, getRuntimeRequestResource(key, () => ({}))];
       },
     };
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the fixture hook with the partial shape this test provides.
     requestScope(nitroApp);
     (globalThis as { __env__?: unknown }).__env__ = Promise.resolve({ DATABASE_URL: 'x' });
     const [a, b] = await Promise.all(

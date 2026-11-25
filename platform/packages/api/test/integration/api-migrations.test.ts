@@ -11,8 +11,9 @@ import {
   afterEach,
   vi,
 } from 'vite-plus/test';
-import { deleteRollbackLease, type Db } from '../../src/db.ts';
+import { deleteRollbackLease } from '../../src/db.ts';
 import app from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
 import {
   deployments,
@@ -33,8 +34,9 @@ import {
   mockCfApi,
   cfSuccess,
   cfError,
-  type TestEnv,
+  withTestTransaction,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
 
 let env: TestEnv;
@@ -328,13 +330,14 @@ async function insertHyperdriveResource(db: TestEnv['db'], projectId: string): P
 }
 
 function authedReq(path: string, jwt: string, init?: RequestInit): Request {
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${jwt}`);
+  if (init?.body) {
+    headers.set('Content-Type', 'application/json');
+  }
   return new Request(`http://localhost${path}`, {
     ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      Authorization: `Bearer ${jwt}`,
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-    },
+    headers,
   });
 }
 
@@ -354,7 +357,7 @@ function buildTestExecutionPlan(input: {
     dialect: 'sqlite',
     kind: input.kind,
     name: input.name,
-    sqlHash: sha256Hex(input.sql.replace(/\r\n?/g, '\n')),
+    sqlHash: sha256Hex(input.sql.replaceAll(/\r\n?/g, '\n')),
     stability: input.stability,
   };
   if (input.kind === 'breakpoint-framed') {
@@ -483,9 +486,9 @@ describe('GET /projects/:id/migrations', () => {
 
     const res = await app.fetch(authedReq(`/projects/${project.id}/migrations`, user.jwt), env);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       applied: Array<{ name: string; applied_at: string }>;
-    };
+    }>();
     // Sorted by name; _void_migrations is primary so duplicate keeps its timestamp
     expect(body.applied).toEqual([
       { name: '001_init.sql', applied_at: '2024-12-31T00:00:00Z' },
@@ -546,7 +549,7 @@ describe('GET /projects/:id/migrations', () => {
 
     const res = await app.fetch(authedReq(`/projects/${project.id}/migrations`, user.jwt), env);
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('Authentication error');
   });
 
@@ -615,7 +618,7 @@ describe('GET /projects/:id/migrations', () => {
 
     const res = await app.fetch(authedReq(`/projects/${project.id}/migrations`, user.jwt), env);
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('network timeout');
   });
 });
@@ -849,7 +852,7 @@ describe('POST /projects/:id/migrations/apply', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { warnings?: Array<string>; applied: Array<string> };
+    const body = await res.json<{ warnings?: Array<string>; applied: Array<string> }>();
     expect(body.applied).toEqual(['001_breakpoints.sql']);
     expect(body.warnings?.[0]).toContain('legacy compensating runner');
     expect(state.trackingRows.has('001_breakpoints.sql')).toBe(true);
@@ -886,7 +889,7 @@ describe('POST /projects/:id/migrations/apply', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain(
+    expect((await res.json<{ error: string }>()).error).toContain(
       'kind does not match server classification',
     );
   });
@@ -1156,7 +1159,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('001_drop.sql');
     expect(body.error).toContain('void:allow-destructive');
@@ -1193,7 +1196,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('001_drop.sql');
     // Nothing reached D1 — the destructive guard short-circuited before
@@ -1232,7 +1235,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('001_sneaky.sql');
     expect(body.error).toContain('void:allow-destructive');
@@ -1464,7 +1467,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     // The DDL must not have been dispatched — the guard short-circuits.
     expect(state.queries.find((q) => /DROP\s+VIEW/i.test(q.sql))).toBeUndefined();
@@ -1496,7 +1499,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /RENAME/i.test(q.sql))).toBeUndefined();
   });
@@ -1530,7 +1533,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /DROP\s+TABLE\s+users/i.test(q.sql))).toBeUndefined();
   });
@@ -1562,7 +1565,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /DROP\s+TABLE\s+users/i.test(q.sql))).toBeUndefined();
   });
@@ -1589,7 +1592,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     // The DDL must not have been dispatched — the guard short-circuits before
     // any application SQL hits the mock.
@@ -1622,7 +1625,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /RENAME/i.test(q.sql))).toBeUndefined();
   });
@@ -1656,7 +1659,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /DROP\s+TABLE\s+users/i.test(q.sql))).toBeUndefined();
   });
@@ -1750,7 +1753,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /RENAME\s+COLUMN/i.test(q.sql))).toBeUndefined();
   });
@@ -1781,7 +1784,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('void:allow-destructive');
+    expect((await res.json<{ error: string }>()).error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /RENAME/i.test(q.sql))).toBeUndefined();
   });
 
@@ -1837,7 +1840,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('void:allow-destructive');
+    expect((await res.json<{ error: string }>()).error).toContain('void:allow-destructive');
   });
 
   it('blocks legacy ALTER TABLE RENAME with bracketed identifiers', async () => {
@@ -1862,7 +1865,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('void:allow-destructive');
+    expect((await res.json<{ error: string }>()).error).toContain('void:allow-destructive');
   });
 
   it('does NOT block ALTER TABLE ADD COLUMN rename TEXT under the widened regex', async () => {
@@ -1944,7 +1947,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /RENAME\s+TO/i.test(q.sql))).toBeUndefined();
   });
@@ -1975,7 +1978,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /RENAME\s+COLUMN/i.test(q.sql))).toBeUndefined();
   });
@@ -2006,7 +2009,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /RENAME\s+TO/i.test(q.sql))).toBeUndefined();
   });
@@ -2099,7 +2102,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('001_delete.sql');
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /DELETE\s+FROM\s+users/i.test(q.sql))).toBeUndefined();
@@ -2125,7 +2128,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('001_update.sql');
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /UPDATE\s+users\s+SET/i.test(q.sql))).toBeUndefined();
@@ -2154,7 +2157,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('void:allow-destructive');
+    expect((await res.json<{ error: string }>()).error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /DELETE\s+FROM\s+users/i.test(q.sql))).toBeUndefined();
   });
 
@@ -2181,7 +2184,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('void:allow-destructive');
+    expect((await res.json<{ error: string }>()).error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /UPDATE\s+users\s+SET/i.test(q.sql))).toBeUndefined();
   });
 
@@ -2211,7 +2214,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('001_replace.sql');
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /INSERT\s+OR\s+REPLACE\s+INTO/i.test(q.sql))).toBeUndefined();
@@ -2244,7 +2247,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('001_trigger.sql');
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /DELETE\s+FROM\s+old_logs/i.test(q.sql))).toBeUndefined();
@@ -2276,7 +2279,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('001_temp_trigger.sql');
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /UPDATE\s+x\s+SET/i.test(q.sql))).toBeUndefined();
@@ -2309,7 +2312,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('001_trigger_drop.sql');
     expect(body.error).toContain('void:allow-destructive');
     expect(state.queries.find((q) => /DROP\s+TABLE\s+legacy/i.test(q.sql))).toBeUndefined();
@@ -2585,7 +2588,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('already exists');
     // No tracking row was written — the error propagated before the INSERT
@@ -2652,8 +2655,8 @@ describe('POST /projects/:id/migrations/apply', () => {
 
     // Union of both responses: one applied, the other skipped. Order
     // is racy so sort before comparing.
-    const bodyA = (await resA.json()) as { applied: Array<string>; skipped: Array<string> };
-    const bodyB = (await resB.json()) as { applied: Array<string>; skipped: Array<string> };
+    const bodyA = await resA.json<{ applied: Array<string>; skipped: Array<string> }>();
+    const bodyB = await resB.json<{ applied: Array<string>; skipped: Array<string> }>();
     expect([...bodyA.applied, ...bodyB.applied].sort()).toEqual(['001_init.sql']);
     expect([...bodyA.skipped, ...bodyB.skipped].sort()).toEqual(['001_init.sql']);
   });
@@ -2705,8 +2708,8 @@ describe('POST /projects/:id/migrations/apply', () => {
 
     // Exactly one of the responses applied the migration; the other
     // skipped it. Order is racy, so check the union.
-    const bodyA = (await resA.json()) as { applied: Array<string>; skipped: Array<string> };
-    const bodyB = (await resB.json()) as { applied: Array<string>; skipped: Array<string> };
+    const bodyA = await resA.json<{ applied: Array<string>; skipped: Array<string> }>();
+    const bodyB = await resB.json<{ applied: Array<string>; skipped: Array<string> }>();
     expect([...bodyA.applied, ...bodyB.applied]).toEqual(['001_init.sql']);
     expect([...bodyA.skipped, ...bodyB.skipped]).toEqual(['001_init.sql']);
 
@@ -2742,7 +2745,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('syntax error');
     expect(state.trackingRows.has('001_init.sql')).toBe(false);
@@ -2776,7 +2779,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       .from(deployments)
       .where(eq(deployments.id, deployment.id));
     expect(updated[0]?.applied_migrations).not.toBeNull();
-    expect(JSON.parse(updated[0]!.applied_migrations!)).toEqual(['001_init.sql', '002_posts.sql']);
+    expect(JSON.parse(updated[0].applied_migrations!)).toEqual(['001_init.sql', '002_posts.sql']);
   });
 
   it('merges newly-applied migrations with existing deployment metadata without duplicates', async () => {
@@ -2814,7 +2817,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(updated[0]!.applied_migrations!)).toEqual(['001_init.sql', '002_posts.sql']);
+    expect(JSON.parse(updated[0].applied_migrations!)).toEqual(['001_init.sql', '002_posts.sql']);
   });
 
   it('two concurrent /apply requests union their names into applied_migrations without lost updates', async () => {
@@ -2867,7 +2870,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, deployment.id));
-    const merged: Array<string> = JSON.parse(updated[0]!.applied_migrations!);
+    const merged: Array<string> = JSON.parse(updated[0].applied_migrations!);
     expect(merged.slice().sort()).toEqual(['001_a.sql', '002_b.sql']);
   });
 
@@ -2903,7 +2906,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       .where(eq(deployments.id, deployment.id));
     // Healed from the skipped set — pg now matches D1's source of truth.
     expect(updated[0]?.applied_migrations).not.toBeNull();
-    expect(JSON.parse(updated[0]!.applied_migrations!)).toEqual(['001_init.sql']);
+    expect(JSON.parse(updated[0].applied_migrations!)).toEqual(['001_init.sql']);
   });
 
   it('applies even when there is no active deployment yet (first-deploy edge case)', async () => {
@@ -2968,13 +2971,13 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(res.status).toBe(500);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       ok: boolean;
       error: string;
       applied: Array<string>;
       skipped: Array<string>;
       failed?: { name: string; error: string };
-    };
+    }>();
     expect(body.ok).toBe(false);
     expect(body.applied).toEqual(['001_users.sql']);
     expect(body.skipped).toEqual([]);
@@ -2987,7 +2990,7 @@ describe('POST /projects/:id/migrations/apply', () => {
     // pg metadata reflects the SAME committed prefix — healing write
     // landed inside the locked tx BEFORE the error outcome returned.
     const row = await env.db.select().from(deployments).where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(row[0]!.applied_migrations!)).toEqual(['001_users.sql']);
+    expect(JSON.parse(row[0].applied_migrations!)).toEqual(['001_users.sql']);
 
     // Retry with the SAME payload: the runner now classifies 001 as
     // skipped (tracking row already present) and still fails on 002.
@@ -3006,12 +3009,12 @@ describe('POST /projects/:id/migrations/apply', () => {
       env,
     );
     expect(retry.status).toBe(500);
-    const retryBody = (await retry.json()) as {
+    const retryBody = await retry.json<{
       ok: boolean;
       applied: Array<string>;
       skipped: Array<string>;
       failed?: { name: string };
-    };
+    }>();
     // 001 is classified as skipped on the retry (already in applied set).
     expect(retryBody.skipped).toEqual(['001_users.sql']);
     expect(retryBody.applied).toEqual([]);
@@ -3023,7 +3026,7 @@ describe('POST /projects/:id/migrations/apply', () => {
       .where(eq(deployments.id, deployment.id));
     // Still [001], no duplicates — appendAppliedMigrations dedupes under
     // FOR UPDATE so retries are safe.
-    expect(JSON.parse(afterRetry[0]!.applied_migrations!)).toEqual(['001_users.sql']);
+    expect(JSON.parse(afterRetry[0].applied_migrations!)).toEqual(['001_users.sql']);
   });
 });
 
@@ -3172,7 +3175,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(updated[0]!.applied_migrations!)).toEqual([
+    expect(JSON.parse(updated[0].applied_migrations!)).toEqual([
       '001_create_users.sql',
       '002_add_email.sql',
     ]);
@@ -3230,7 +3233,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('database is locked');
   });
@@ -3257,7 +3260,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await res.json<{ error: string }>();
     expect(body.error).toContain('does_not_exist.sql');
     // No UPDATEs fired — only the ensure/select queries.
     expect(state.queries.find((q) => /UPDATE\s+_void_migrations/i.test(q.sql))).toBeUndefined();
@@ -3321,7 +3324,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, activeDeployment.id));
-    expect(JSON.parse(activeRow[0]!.applied_migrations!)).toEqual([
+    expect(JSON.parse(activeRow[0].applied_migrations!)).toEqual([
       '001_create_users.sql',
       '002_users.sql',
     ]);
@@ -3329,7 +3332,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, retainedDeployment.id));
-    expect(JSON.parse(retainedRow[0]!.applied_migrations!)).toEqual(['001_create_users.sql']);
+    expect(JSON.parse(retainedRow[0].applied_migrations!)).toEqual(['001_create_users.sql']);
   });
 
   it('rejects a duplicate "from" in the rename batch', async () => {
@@ -3352,7 +3355,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('duplicate "from"');
+    expect((await res.json<{ error: string }>()).error).toContain('duplicate "from"');
     // Short-circuited before any D1 calls.
     expect(state.queries.length).toBe(0);
   });
@@ -3377,7 +3380,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('duplicate "to"');
+    expect((await res.json<{ error: string }>()).error).toContain('duplicate "to"');
     expect(state.queries.length).toBe(0);
   });
 
@@ -3409,7 +3412,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('chains not supported');
+    expect((await res.json<{ error: string }>()).error).toContain('chains not supported');
     // Batch validation happens before any D1 calls.
     expect(state.queries.length).toBe(0);
     // D1 tracking rows untouched.
@@ -3441,7 +3444,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('already exist');
+    expect((await res.json<{ error: string }>()).error).toContain('already exist');
     // D1 tracking rows untouched — no UPDATE fired.
     expect(state.queries.find((q) => /UPDATE\s+_void_migrations/i.test(q.sql))).toBeUndefined();
     expect(state.trackingRows.has('001_init.sql')).toBe(true);
@@ -3574,7 +3577,7 @@ describe('POST /projects/:id/migrations/rename', () => {
     expect(state.trackingRows.get('002_add_email.sql')).toBe('2024-01-02T00:00:00Z');
 
     const activeRow = await env.db.select().from(deployments).where(eq(deployments.id, active.id));
-    expect(JSON.parse(activeRow[0]!.applied_migrations!)).toEqual([
+    expect(JSON.parse(activeRow[0].applied_migrations!)).toEqual([
       '001_create_users.sql',
       '002_add_email.sql',
     ]);
@@ -3582,7 +3585,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, retained.id));
-    expect(JSON.parse(retainedRow[0]!.applied_migrations!)).toEqual([
+    expect(JSON.parse(retainedRow[0].applied_migrations!)).toEqual([
       '001_create_users.sql',
       '002_add_email.sql',
     ]);
@@ -3655,7 +3658,7 @@ describe('POST /projects/:id/migrations/rename', () => {
     );
 
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('rename conflict');
     expect(body.error).toContain('old.sql');
@@ -3669,7 +3672,7 @@ describe('POST /projects/:id/migrations/rename', () => {
     // pg applied_migrations was NOT rewritten — the loser's 409 path must
     // not touch metadata for a rename that did not commit.
     const row = await env.db.select().from(deployments).where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(row[0]!.applied_migrations!)).toEqual(['old.sql']);
+    expect(JSON.parse(row[0].applied_migrations!)).toEqual(['old.sql']);
   });
 
   it('persists committed prefix to pg metadata when a later rename pair conflicts', async () => {
@@ -3744,11 +3747,11 @@ describe('POST /projects/:id/migrations/rename', () => {
 
     // 409 from the second pair's conflict classification.
     expect(res.status).toBe(409);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       ok: boolean;
       error: string;
       committed: Array<{ from: string; to: string }>;
-    };
+    }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('rename conflict');
     expect(body.error).toContain('b.sql');
@@ -3769,7 +3772,7 @@ describe('POST /projects/:id/migrations/rename', () => {
     // the thrown error would roll back the row-locked tx and pg would
     // still have ['a.sql', 'b.sql'].
     const row = await env.db.select().from(deployments).where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(row[0]!.applied_migrations!)).toEqual(['a1.sql', 'b.sql']);
+    expect(JSON.parse(row[0].applied_migrations!)).toEqual(['a1.sql', 'b.sql']);
   });
 
   it('same-payload retry reaches uncommitted suffix after partial-failure heal', async () => {
@@ -3850,11 +3853,11 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(firstRes.status).toBe(409);
-    const firstBody = (await firstRes.json()) as {
+    const firstBody = await firstRes.json<{
       ok: boolean;
       error: string;
       committed: Array<{ from: string; to: string }>;
-    };
+    }>();
     expect(firstBody.ok).toBe(false);
     expect(firstBody.committed).toEqual([{ from: 'a.sql', to: 'a1.sql' }]);
 
@@ -3868,7 +3871,7 @@ describe('POST /projects/:id/migrations/rename', () => {
     // deployment — the post-heal state where only the audit log can
     // corroborate the idempotent classification on retry.
     const midRow = await env.db.select().from(deployments).where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(midRow[0]!.applied_migrations!)).toEqual(['a1.sql', 'b.sql']);
+    expect(JSON.parse(midRow[0].applied_migrations!)).toEqual(['a1.sql', 'b.sql']);
 
     // ---- second request: same payload, interceptor now disabled ----
     const secondRes = await app.fetch(
@@ -3884,7 +3887,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(secondRes.status).toBe(200);
-    const secondBody = (await secondRes.json()) as { ok: boolean };
+    const secondBody = await secondRes.json<{ ok: boolean }>();
     expect(secondBody.ok).toBe(true);
 
     // Pair 2's real UPDATE fired this time. Pair 1 must NOT have fired
@@ -3915,7 +3918,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(finalRow[0]!.applied_migrations!)).toEqual(['a1.sql', 'b1.sql']);
+    expect(JSON.parse(finalRow[0].applied_migrations!)).toEqual(['a1.sql', 'b1.sql']);
   });
 
   it('invalidates stale audit rows when a prior landing is recycled as a new source', async () => {
@@ -4001,7 +4004,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(step4.status).toBe(400);
-    const body = (await step4.json()) as { ok: boolean; error: string };
+    const body = await step4.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('ambiguous');
     expect(body.error).toContain('a.sql');
@@ -4073,7 +4076,9 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     // Give /apply a tick to enter its transaction and hit the hold.
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => {
+      setTimeout(r, 20);
+    });
     const renamePromise = app.fetch(
       authedReq(`/projects/${project.id}/migrations/rename`, user.jwt, {
         method: 'POST',
@@ -4083,7 +4088,9 @@ describe('POST /projects/:id/migrations/rename', () => {
     );
     // Give /rename a tick to issue its transaction call so it is queued
     // behind /apply's lock, then release.
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => {
+      setTimeout(r, 20);
+    });
     release();
 
     const [applyRes, renameRes] = await Promise.all([applyPromise, renamePromise]);
@@ -4098,7 +4105,7 @@ describe('POST /projects/:id/migrations/rename', () => {
     // pg state: active deployment's applied_migrations has the NEW name,
     // not the old. Without the lock this would be `['001_old.sql']`.
     const row = await env.db.select().from(deployments).where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(row[0]!.applied_migrations!)).toEqual(['001_new.sql']);
+    expect(JSON.parse(row[0].applied_migrations!)).toEqual(['001_new.sql']);
   });
 
   it('rejects an ambiguous rename when pg has no reference to "from"', async () => {
@@ -4133,7 +4140,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('ambiguous');
     expect(body.error).toContain('001_init.sql');
@@ -4147,7 +4154,7 @@ describe('POST /projects/:id/migrations/rename', () => {
 
     // pg untouched — still the unrelated entry.
     const row = await env.db.select().from(deployments).where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(row[0]!.applied_migrations!)).toEqual(['999_unrelated.sql']);
+    expect(JSON.parse(row[0].applied_migrations!)).toEqual(['999_unrelated.sql']);
   });
 
   it('heals a legitimate retry where pg still references "from" on the active deployment', async () => {
@@ -4187,7 +4194,7 @@ describe('POST /projects/:id/migrations/rename', () => {
 
     // pg rewritten from `001_init.sql` to `001_create_users.sql`.
     const row = await env.db.select().from(deployments).where(eq(deployments.id, deployment.id));
-    expect(JSON.parse(row[0]!.applied_migrations!)).toEqual(['001_create_users.sql']);
+    expect(JSON.parse(row[0].applied_migrations!)).toEqual(['001_create_users.sql']);
   });
 
   it('rejects rename when "from" only appears on a retained deployment', async () => {
@@ -4232,7 +4239,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('ambiguous');
     expect(body.error).toContain('001_init.sql');
@@ -4247,13 +4254,13 @@ describe('POST /projects/:id/migrations/rename', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, activeDeployment.id));
-    expect(JSON.parse(activeRow[0]!.applied_migrations!)).toEqual(['001_create_users.sql']);
+    expect(JSON.parse(activeRow[0].applied_migrations!)).toEqual(['001_create_users.sql']);
 
     const retainedRow = await env.db
       .select()
       .from(deployments)
       .where(eq(deployments.id, retainedDeployment.id));
-    expect(JSON.parse(retainedRow[0]!.applied_migrations!)).toEqual(['001_init.sql']);
+    expect(JSON.parse(retainedRow[0].applied_migrations!)).toEqual(['001_init.sql']);
   });
 
   it('rejects fat-fingered rename targeting a historically-present migration', async () => {
@@ -4304,7 +4311,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = await res.json<{ ok: boolean; error: string }>();
     expect(body.ok).toBe(false);
     expect(body.error).toContain('ambiguous');
     expect(body.error).toContain('001_init.sql');
@@ -4321,13 +4328,13 @@ describe('POST /projects/:id/migrations/rename', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, activeDeployment.id));
-    expect(JSON.parse(activeRow[0]!.applied_migrations!)).toEqual(['001_create_users.sql']);
+    expect(JSON.parse(activeRow[0].applied_migrations!)).toEqual(['001_create_users.sql']);
 
     const retainedRow = await env.db
       .select()
       .from(deployments)
       .where(eq(deployments.id, retainedDeployment.id));
-    expect(JSON.parse(retainedRow[0]!.applied_migrations!)).toEqual(['001_init.sql']);
+    expect(JSON.parse(retainedRow[0].applied_migrations!)).toEqual(['001_init.sql']);
   });
 
   it('rollback/apply interleave: row lock keeps setActiveDeployment atomic with apply metadata', async () => {
@@ -4390,7 +4397,9 @@ describe('POST /projects/:id/migrations/rename', () => {
     );
     // Give rollback a small head start so it reaches its locked
     // critical section before /apply tries to enter its own lock.
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => {
+      setTimeout(r, 20);
+    });
     const applyPromise = app.fetch(
       authedReq(`/projects/${project.id}/migrations/apply`, user.jwt, {
         method: 'POST',
@@ -4419,8 +4428,8 @@ describe('POST /projects/:id/migrations/rename', () => {
     // One of the two deployments MUST have the new name appended, and
     // it MUST be the one the project now points at — the lock guarantees
     // this consistency.
-    const targetMigrations: Array<string> = JSON.parse(targetRow[0]!.applied_migrations!);
-    const oldActiveMigrations: Array<string> = JSON.parse(oldActiveRow[0]!.applied_migrations!);
+    const targetMigrations: Array<string> = JSON.parse(targetRow[0].applied_migrations!);
+    const oldActiveMigrations: Array<string> = JSON.parse(oldActiveRow[0].applied_migrations!);
 
     // The new migration landed on the current active deployment (target),
     // which matches the post-rollback project.active_deployment_id.
@@ -4489,7 +4498,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       .select()
       .from(deployments)
       .where(eq(deployments.id, oldActive.id));
-    expect(JSON.parse(oldActiveMid[0]!.applied_migrations!)).toEqual(['m1.sql', 'm3.sql']);
+    expect(JSON.parse(oldActiveMid[0].applied_migrations!)).toEqual(['m1.sql', 'm3.sql']);
 
     // Now /rollback enters its locked tx, re-reads currentActive
     // (which now has [m1, m3]), computes diff, commits the flip, and
@@ -4510,11 +4519,11 @@ describe('POST /projects/:id/migrations/rename', () => {
     );
     expect(rollbackRes.status).toBe(200);
 
-    const rollbackBody = (await rollbackRes.json()) as {
+    const rollbackBody = await rollbackRes.json<{
       ok: boolean;
       deploymentId: string;
       migrationDiff: Array<string>;
-    };
+    }>();
     expect(rollbackBody.ok).toBe(true);
     expect(rollbackBody.deploymentId).toBe(target.id);
     // diff contains m3.sql because rollback's in-lock currentActive
@@ -4633,21 +4642,13 @@ describe('POST /projects/:id/migrations/rename', () => {
       releaseB = r;
     });
     let bHoldFired = false;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(target, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return (async (fn: any) => {
-            if (!bHoldFired) {
-              bHoldFired = true;
-              await bHold;
-            }
-            return realTransaction(fn);
-          }) as unknown as typeof realDb.transaction;
-        }
-        return Reflect.get(target, prop, receiver);
-      },
-    }) as Db;
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      if (!bHoldFired) {
+        bHoldFired = true;
+        await bHold;
+      }
+      return realTransaction(fn);
+    });
     setTestDb(wrappedDb);
 
     // Kick rollback B to C. It does its pre-lock reads, then waits at the
@@ -4670,16 +4671,16 @@ describe('POST /projects/:id/migrations/rename', () => {
     setTestDb(realDb);
     expect(resB.status).toBe(200);
 
-    const bodyA = (await resA.json()) as {
+    const bodyA = await resA.json<{
       ok: boolean;
       deploymentId: string;
       migrationDiff: Array<string>;
-    };
-    const bodyB = (await resB.json()) as {
+    }>();
+    const bodyB = await resB.json<{
       ok: boolean;
       deploymentId: string;
       migrationDiff: Array<string>;
-    };
+    }>();
     // A: current was A[m1,m2,m3], target B[m1,m2] → diff=[m3]
     expect(bodyA.deploymentId).toBe(depB.id);
     expect(bodyA.migrationDiff).toEqual(['m3.sql']);
@@ -4692,7 +4693,7 @@ describe('POST /projects/:id/migrations/rename', () => {
     // so running B after A guarantees pg and ROUTING converge on the same
     // terminal state.
     const finalPg = await env.db.select().from(projects).where(eq(projects.id, project.id));
-    expect(finalPg[0]!.active_deployment_id).toBe(depC.id);
+    expect(finalPg[0].active_deployment_id).toBe(depC.id);
 
     const finalRouting = (await env.ROUTING.get(project.slug, 'json')) as {
       workerName: string;
@@ -4753,24 +4754,16 @@ describe('POST /projects/:id/migrations/rename', () => {
       beforeTxReached = r;
     });
     let beforeTxHoldFired = false;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(target, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return (async (fn: any) => {
-            if (!beforeTxHoldFired) {
-              beforeTxHoldFired = true;
-              beforeTxReached?.();
-              await new Promise<void>((r) => {
-                beforeTxResolver = r;
-              });
-            }
-            return realTransaction(fn);
-          }) as unknown as typeof realDb.transaction;
-        }
-        return Reflect.get(target, prop, receiver);
-      },
-    }) as Db;
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      if (!beforeTxHoldFired) {
+        beforeTxHoldFired = true;
+        beforeTxReached?.();
+        await new Promise<void>((r) => {
+          beforeTxResolver = r;
+        });
+      }
+      return realTransaction(fn);
+    });
     setTestDb(wrappedDb);
 
     try {
@@ -4814,11 +4807,11 @@ describe('POST /projects/:id/migrations/rename', () => {
       beforeTxResolver?.();
       const rollbackRes = await rollbackPromise;
       expect(rollbackRes.status).toBe(200);
-      const body = (await rollbackRes.json()) as {
+      const body = await rollbackRes.json<{
         ok: boolean;
         deploymentId: string;
         migrationDiff: Array<string>;
-      };
+      }>();
       expect(body.ok).toBe(true);
       expect(body.deploymentId).toBe(depB.id);
       // The in-lock re-read of target sees [m1x, m2x] and currentActive
@@ -4863,50 +4856,42 @@ describe('POST /projects/:id/migrations/rename', () => {
     let transactionCount = 0;
     const lateHostname = 'late-rollback-domain.example.com';
     const commitRejection = new Error('injected commit rejection');
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(targetDb, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return (async (fn: any) => {
-            transactionCount++;
-            const rejectsCutover = transactionCount === 2;
-            try {
-              return await realTransaction(async (tx) => {
-                const result = await fn(tx);
-                if (rejectsCutover) {
-                  // The cutover callback completed and wrote external state,
-                  // but PostgreSQL rejects before committing its project flip.
-                  throw commitRejection;
-                }
-                return result;
-              });
-            } catch (error) {
-              if (error === commitRejection) {
-                // Model domain activation winning the gap between the failed
-                // rollback tx releasing the project lock and outer
-                // compensation reacquiring it. It copies target routing that
-                // the rollback wrote externally even though PostgreSQL stayed
-                // on current.
-                await realTransaction(async (tx) => {
-                  await tx.insert(domains).values({
-                    id: 'dom_late_rollback_compensation',
-                    project_id: project.id,
-                    hostname: lateHostname,
-                    cf_hostname_id: 'ch-late-rollback-compensation',
-                    status: 'active',
-                  });
-                  const temporaryTargetRouting = await env.ROUTING.get(project.slug);
-                  expect(temporaryTargetRouting).toContain(target.id);
-                  await env.ROUTING.put(`domain:${lateHostname}`, temporaryTargetRouting!);
-                });
-              }
-              throw error;
-            }
-          }) as unknown as typeof realDb.transaction;
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      transactionCount++;
+      const rejectsCutover = transactionCount === 2;
+      try {
+        return await realTransaction(async (tx) => {
+          const result = await fn(tx);
+          if (rejectsCutover) {
+            // The cutover callback completed and wrote external state,
+            // but PostgreSQL rejects before committing its project flip.
+            throw commitRejection;
+          }
+          return result;
+        });
+      } catch (error) {
+        if (error === commitRejection) {
+          // Model domain activation winning the gap between the failed
+          // rollback tx releasing the project lock and outer
+          // compensation reacquiring it. It copies target routing that
+          // the rollback wrote externally even though PostgreSQL stayed
+          // on current.
+          await realTransaction(async (tx) => {
+            await tx.insert(domains).values({
+              id: 'dom_late_rollback_compensation',
+              project_id: project.id,
+              hostname: lateHostname,
+              cf_hostname_id: 'ch-late-rollback-compensation',
+              status: 'active',
+            });
+            const temporaryTargetRouting = await env.ROUTING.get(project.slug);
+            expect(temporaryTargetRouting).toContain(target.id);
+            await env.ROUTING.put(`domain:${lateHostname}`, temporaryTargetRouting!);
+          });
         }
-        return Reflect.get(targetDb, prop, receiver);
-      },
-    }) as Db;
+        throw error;
+      }
+    });
     setTestDb(wrappedDb);
 
     try {
@@ -4957,29 +4942,21 @@ describe('POST /projects/:id/migrations/rename', () => {
     const realDb = env.db;
     const realTransaction = realDb.transaction.bind(realDb);
     let transactionCount = 0;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(targetDb, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return (async (fn: any) => {
-            transactionCount++;
-            if (transactionCount === 3) {
-              // Lease creation is #1, rollback cutover is #2, and the guarded
-              // outer compensation lock is #3.
-              throw new Error('injected compensation transaction failure');
-            }
-            return realTransaction(async (tx) => {
-              const result = await fn(tx);
-              if (transactionCount === 2) {
-                throw new Error('injected rollback commit rejection');
-              }
-              return result;
-            });
-          }) as unknown as typeof realDb.transaction;
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      transactionCount++;
+      if (transactionCount === 3) {
+        // Lease creation is #1, rollback cutover is #2, and the guarded
+        // outer compensation lock is #3.
+        throw new Error('injected compensation transaction failure');
+      }
+      return realTransaction(async (tx) => {
+        const result = await fn(tx);
+        if (transactionCount === 2) {
+          throw new Error('injected rollback commit rejection');
         }
-        return Reflect.get(targetDb, prop, receiver);
-      },
-    }) as Db;
+        return result;
+      });
+    });
     setTestDb(wrappedDb);
 
     try {
@@ -5000,7 +4977,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       .from(deployments)
       .where(eq(deployments.source, 'rollback-lease'));
     expect(lease).toBeDefined();
-    expect(JSON.parse(lease!.manifest!)).toMatchObject({
+    expect(JSON.parse(lease.manifest!)).toMatchObject({
       targetDeploymentId: target.id,
       state: 'retryable',
     });
@@ -5038,22 +5015,14 @@ describe('POST /projects/:id/migrations/rename', () => {
     const realDb = env.db;
     const realTransaction = realDb.transaction.bind(realDb);
     let transactionCount = 0;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(targetDb, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return (async (fn: any) => {
-            transactionCount++;
-            const result = await realTransaction(fn);
-            if (transactionCount === 2) {
-              throw new Error('database connection lost after COMMIT');
-            }
-            return result;
-          }) as unknown as typeof realDb.transaction;
-        }
-        return Reflect.get(targetDb, prop, receiver);
-      },
-    }) as Db;
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      transactionCount++;
+      const result = await realTransaction(fn);
+      if (transactionCount === 2) {
+        throw new Error('database connection lost after COMMIT');
+      }
+      return result;
+    });
     setTestDb(wrappedDb);
 
     try {
@@ -5143,7 +5112,7 @@ describe('POST /projects/:id/migrations/rename', () => {
       .from(deployments)
       .where(eq(deployments.id, lease.id));
     expect(preservedLease?.id).toBe(lease.id);
-    expect(JSON.parse(preservedLease!.manifest!)).toMatchObject({
+    expect(JSON.parse(preservedLease.manifest!)).toMatchObject({
       targetDeploymentId: target.id,
       state: 'retryable',
     });
@@ -5273,21 +5242,21 @@ describe('POST /projects/:id/migrations/rename', () => {
     expect(rollbackRes.status).toBe(200);
 
     // q2 — still bound by B: KV entry rewritten to point at B's worker.
-    const q2Entry = (await env.ROUTING.get(queueKey('q2'), 'json')) as {
+    const q2Entry = await env.ROUTING.get<{
       workerName: string;
       projectId: string;
       queueName: string;
-    } | null;
+    } | null>(queueKey('q2'), 'json');
     expect(q2Entry).not.toBeNull();
     expect(q2Entry!.workerName).toBe(workerB);
     expect(q2Entry!.queueName).toBe('q2');
 
     // q3 — newly bound by B: KV entry created pointing at B's worker.
-    const q3Entry = (await env.ROUTING.get(queueKey('q3'), 'json')) as {
+    const q3Entry = await env.ROUTING.get<{
       workerName: string;
       projectId: string;
       queueName: string;
-    } | null;
+    } | null>(queueKey('q3'), 'json');
     expect(q3Entry).not.toBeNull();
     expect(q3Entry!.workerName).toBe(workerB);
     expect(q3Entry!.queueName).toBe('q3');
@@ -5364,7 +5333,7 @@ describe('POST /projects/:id/migrations/rename', () => {
           });
           return new Response('{}', { status: 200 });
         },
-      } as unknown as DurableObjectStub;
+      };
     });
 
     const rollbackRes = await app.fetch(
@@ -5381,7 +5350,7 @@ describe('POST /projects/:id/migrations/rename', () => {
     // manifest with no schedules, so it calls `/clear` regardless of
     // the stale KV `hasCrons: false`.
     expect(doCalls.map((call) => call.url)).toEqual(['/snapshot', '/clear']);
-    expect(doCalls[1]!.method).toBe('POST');
+    expect(doCalls[1].method).toBe('POST');
   });
 
   it('rollback queue sweep unions manifests from activated deployments and deletes historical orphans', async () => {
@@ -5487,11 +5456,11 @@ describe('POST /projects/:id/migrations/rename', () => {
     expect(rollbackRes.status).toBe(200);
 
     // q3 — newly bound by B: KV entry created pointing at B's worker.
-    const q3Entry = (await env.ROUTING.get(queueKey('q3'), 'json')) as {
+    const q3Entry = await env.ROUTING.get<{
       workerName: string;
       projectId: string;
       queueName: string;
-    } | null;
+    } | null>(queueKey('q3'), 'json');
     expect(q3Entry).not.toBeNull();
     expect(q3Entry!.workerName).toBe(workerB);
 
@@ -5905,7 +5874,7 @@ describe('POST /projects/:id/migrations/rename', () => {
           doCalls.push({ url: url.pathname, method: req.method });
           return new Response('{}', { status: 200 });
         },
-      } as unknown as DurableObjectStub;
+      };
     });
 
     const rollbackRes = await app.fetch(
@@ -5921,7 +5890,7 @@ describe('POST /projects/:id/migrations/rename', () => {
     // even though neither manifest lists schedules — idempotent against
     // an already-empty DO and healing stale schedules from a partial cutover.
     expect(doCalls.map((call) => call.url)).toEqual(['/snapshot', '/clear']);
-    expect(doCalls[1]!.method).toBe('POST');
+    expect(doCalls[1].method).toBe('POST');
   });
 
   it('rollback destructive diff is rejected server-side without explicit override', async () => {
@@ -6000,10 +5969,10 @@ describe('POST /projects/:id/migrations/rename', () => {
 
     // 1. Handler rejects with 400.
     expect(rollbackRes.status).toBe(400);
-    const body = (await rollbackRes.json()) as {
+    const body = await rollbackRes.json<{
       error?: string;
       destructiveMigrations?: Array<string>;
-    };
+    }>();
     // 2. Error message names the destructive migration(s) and tells the
     //    caller how to override.
     expect(body.error).toBeTruthy();
@@ -6016,13 +5985,13 @@ describe('POST /projects/:id/migrations/rename', () => {
 
     // 3. project.active_deployment_id must NOT have flipped to B.
     const proj = await env.db.select().from(projects).where(eq(projects.id, project.id));
-    expect(proj[0]!.active_deployment_id).toBe(depA.id);
+    expect(proj[0].active_deployment_id).toBe(depA.id);
 
     // 4. Neither deployment's applied_migrations was mutated.
     const rowA = await env.db.select().from(deployments).where(eq(deployments.id, depA.id));
     const rowB = await env.db.select().from(deployments).where(eq(deployments.id, depB.id));
-    expect(JSON.parse(rowA[0]!.applied_migrations!)).toEqual(['m1.sql', 'm2.sql']);
-    expect(JSON.parse(rowB[0]!.applied_migrations!)).toEqual(['m1.sql']);
+    expect(JSON.parse(rowA[0].applied_migrations!)).toEqual(['m1.sql', 'm2.sql']);
+    expect(JSON.parse(rowB[0].applied_migrations!)).toEqual(['m1.sql']);
 
     // 5. NO external write surface was touched. This is the load-bearing
     //    invariant the guard exists to enforce: the rejection path must
@@ -6072,18 +6041,18 @@ describe('POST /projects/:id/migrations/rename', () => {
       env,
     );
     expect(rollbackRes.status).toBe(200);
-    const body = (await rollbackRes.json()) as {
+    const body = await rollbackRes.json<{
       ok: boolean;
       deploymentId: string;
       migrationDiff: Array<string>;
-    };
+    }>();
     expect(body.ok).toBe(true);
     expect(body.deploymentId).toBe(depB.id);
     expect(body.migrationDiff).toEqual(['m2.sql']);
 
     // Flip DID happen — pg now points at B.
     const proj = await env.db.select().from(projects).where(eq(projects.id, project.id));
-    expect(proj[0]!.active_deployment_id).toBe(depB.id);
+    expect(proj[0].active_deployment_id).toBe(depB.id);
   });
 
   it('rollback destructive diff rejects allowDestructive snapshot mismatch', async () => {
@@ -6148,10 +6117,10 @@ describe('POST /projects/:id/migrations/rename', () => {
 
     // 1. Handler rejects with 400.
     expect(rollbackRes.status).toBe(400);
-    const body = (await rollbackRes.json()) as {
+    const body = await rollbackRes.json<{
       error?: string;
       destructiveMigrations?: Array<string>;
-    };
+    }>();
     // 2. Error message names the full server-computed diff (both m2 and
     //    m3) and tells the caller how to override.
     expect(body.error).toBeTruthy();
@@ -6164,13 +6133,13 @@ describe('POST /projects/:id/migrations/rename', () => {
 
     // 4. project.active_deployment_id must NOT have flipped to B.
     const proj = await env.db.select().from(projects).where(eq(projects.id, project.id));
-    expect(proj[0]!.active_deployment_id).toBe(depA.id);
+    expect(proj[0].active_deployment_id).toBe(depA.id);
 
     // 5. Neither deployment's applied_migrations was mutated.
     const rowA = await env.db.select().from(deployments).where(eq(deployments.id, depA.id));
     const rowB = await env.db.select().from(deployments).where(eq(deployments.id, depB.id));
-    expect(JSON.parse(rowA[0]!.applied_migrations!)).toEqual(['m1.sql', 'm2.sql', 'm3.sql']);
-    expect(JSON.parse(rowB[0]!.applied_migrations!)).toEqual(['m1.sql']);
+    expect(JSON.parse(rowA[0].applied_migrations!)).toEqual(['m1.sql', 'm2.sql', 'm3.sql']);
+    expect(JSON.parse(rowB[0].applied_migrations!)).toEqual(['m1.sql']);
 
     // 6. NO external write surface was touched.
     expect(routingPutSpy).not.toHaveBeenCalled();
@@ -6228,10 +6197,10 @@ describe('POST /projects/:id/migrations/rename', () => {
     );
 
     expect(rollbackRes.status).toBe(400);
-    const body = (await rollbackRes.json()) as {
+    const body = await rollbackRes.json<{
       error?: string;
       destructiveMigrations?: Array<string>;
-    };
+    }>();
 
     // The structured diff must round-trip the exotic name byte-for-byte.
     // This is the load-bearing contract: a programmatic caller echoes

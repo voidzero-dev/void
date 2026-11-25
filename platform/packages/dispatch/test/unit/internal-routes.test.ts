@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import type { Env } from '../../src/env.ts';
 import app from '../../src/index.ts';
 import { PLATFORM_DISABLED_KEY } from '../../src/platform-lifecycle.ts';
+import { createMockExecutionContext as createCtx } from '../execution-context.ts';
 
 vi.stubGlobal('caches', {
   default: {
@@ -10,10 +11,6 @@ vi.stubGlobal('caches', {
     delete: async () => false,
   },
 });
-
-function createCtx(): ExecutionContext {
-  return { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
-}
 
 function createEnv(
   disabled = false,

@@ -9,21 +9,24 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as db from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
+import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
 import app, { FAST_CRON, scheduled } from '../../src/index.ts';
 import { domains, platformSettings, projectZeroTrust } from '../../src/schema.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustConfiguration from '../../src/zero-trust/configuration.ts';
-import {
-  type ZeroTrustConfigureInput,
-  readZeroTrustConfigurationStrict,
-} from '../../src/zero-trust/configuration.ts';
+import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
+import type { ZeroTrustConfigureInput } from '../../src/zero-trust/configuration.ts';
 import {
   configurePlatformZeroTrust,
   disablePlatformZeroTrust,
 } from '../../src/zero-trust/installation.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustLock from '../../src/zero-trust/lock.ts';
 import { reconcilePendingProjectZeroTrust } from '../../src/zero-trust/maintenance.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustProject from '../../src/zero-trust/project.ts';
 import {
   reconcileProjectZeroTrust,
@@ -42,8 +45,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -140,7 +143,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return providerError('application not found', 404);
@@ -241,6 +244,7 @@ describe('Zero Trust operation failures', () => {
       })
       .where(eq(platformSettings.key, 'zeroTrust.configuration'));
     cloudflare.revoke(true);
+    await env.ROUTING.put(FAST_MAINTENANCE_KEY, 'armed');
     const pendingDomains = vi.spyOn(db, 'getPendingDomainsNewerThan');
     const fast = () =>
       scheduled(
@@ -600,7 +604,7 @@ describe('Zero Trust operation failures', () => {
     );
 
     expect(response.status).toBe(201);
-    const body = (await response.json()) as { id: string; warnings?: Array<string> };
+    const body = await response.json<{ id: string; warnings?: Array<string> }>();
     expect(body.warnings).toBeUndefined();
     const row = await getProjectZeroTrustState(env.db, body.id);
     expect(row).toMatchObject({

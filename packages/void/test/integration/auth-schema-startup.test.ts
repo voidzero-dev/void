@@ -7,8 +7,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const repository = join(import.meta.dirname, '../../../..');
 let fixture: IsolatedPlayground;
@@ -45,16 +45,13 @@ function freshAuthApp() {
   };
   write(
     'vite.config.ts',
-    "import { voidPlugin } from 'void'; export default { plugins: [voidPlugin()], resolve: { tsconfigPaths: true } };",
+    // No tsconfig `paths` and no `resolve.tsconfigPaths`: Void provides `@auth-schema` itself.
+    "import { voidPlugin } from 'void'; export default { plugins: [voidPlugin()] };",
   );
   write('void.config.ts', "export default { auth: { providers: ['email'] } };");
   write(
     'tsconfig.json',
-    JSON.stringify({
-      extends: './.void/tsconfig.json',
-      compilerOptions: { paths: { '@auth-schema': ['./.void/better-auth-schema.ts'] } },
-      include: ['**/*.ts'],
-    }),
+    JSON.stringify({ extends: './.void/tsconfig.json', include: ['**/*.ts'] }),
   );
   write(
     'auth.ts',

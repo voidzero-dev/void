@@ -1,4 +1,5 @@
-import { getUser, type AuthUser } from '../auth/index.ts';
+import { getUser } from '../auth/index.ts';
+import type { AuthUser } from '../auth/index.ts';
 import { getRawRuntimeEnv } from '../env/raw.ts';
 import type { CloudContext, CloudEnv } from '../handler/index.ts';
 import { connectionInstanceName, internalUrl, topicDigest, topicInstanceName } from './names.ts';
@@ -157,7 +158,7 @@ const DEFAULT_LIMITS: LiveLimits = {
   maxOperationsPerControlRequest: 100,
   maxQueuedEventsPerConnection: 100,
   maxEncodedEventSize: 64 * 1024,
-  deliveryAttemptTimeoutMs: 1_500,
+  deliveryAttemptTimeoutMs: 1500,
 };
 const MAX_SUBSCRIPTIONS_PER_TOPIC = 256;
 
@@ -199,8 +200,8 @@ export function defineLiveStream(options: LiveStreamOptions): LiveStream {
         ? connectOptions.owner
         : await options.identifyConnection?.(hookContext);
     const owner = identified ?? defaultOwner(resolvedUser);
-    if (owner == null && !options.allowAnonymousControl) {
-      throw liveResponseError('FORBIDDEN', 'live: anonymous control is not enabled.', 403);
+    if ((owner === null || owner === undefined) && !options.allowAnonymousControl) {
+      throw new LiveResponseError('FORBIDDEN', 'live: anonymous control is not enabled.', 403);
     }
     assertOwner(owner);
     return { owner, user: resolvedUser ?? null };
@@ -259,7 +260,7 @@ export function defineLiveStream(options: LiveStreamOptions): LiveStream {
         }
         const binding = getLiveBinding(ctx.env);
         const id = binding.idFromName(connectionInstanceName(streamId, connectionId));
-        return binding.get(id).fetch(internalUrl('/connect'), {
+        return await binding.get(id).fetch(internalUrl('/connect'), {
           method: 'POST',
           body: JSON.stringify({ streamId, connectionId, owner, limits }),
         });
@@ -319,7 +320,7 @@ export function defineLiveStream(options: LiveStreamOptions): LiveStream {
               limits,
             }),
           });
-          const controlResponse = (await response.json()) as LiveControlResponse;
+          const controlResponse = await response.json<LiveControlResponse>();
           if (!controlResponse.accepted) {
             return Response.json(controlResponse, { status: response.status });
           }
@@ -406,18 +407,22 @@ async function readControlRequest(
   try {
     body = await request.json();
   } catch {
-    throw liveResponseError('BAD_REQUEST', 'live: control request body must be JSON.', 400);
+    throw new LiveResponseError('BAD_REQUEST', 'live: control request body must be JSON.', 400);
   }
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    throw liveResponseError('BAD_REQUEST', 'live: control request body must be an object.', 400);
+    throw new LiveResponseError(
+      'BAD_REQUEST',
+      'live: control request body must be an object.',
+      400,
+    );
   }
   const record = body as Record<string, unknown>;
   const connectionId = assertConnectionId(record.connectionId);
   if (!Array.isArray(record.operations)) {
-    throw liveResponseError('BAD_REQUEST', 'live: operations must be an array.', 400);
+    throw new LiveResponseError('BAD_REQUEST', 'live: operations must be an array.', 400);
   }
   if (record.operations.length > limits.maxOperationsPerControlRequest) {
-    throw liveResponseError(
+    throw new LiveResponseError(
       'BAD_REQUEST',
       'live: too many operations in one control request.',
       400,
@@ -429,16 +434,16 @@ async function readControlRequest(
 
 function parseOperation(value: unknown, index: number): ParsedControlOperation {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw liveResponseError('BAD_REQUEST', 'live: operation must be an object.', 400);
+    throw new LiveResponseError('BAD_REQUEST', 'live: operation must be an object.', 400);
   }
   const record = value as Record<string, unknown>;
   if (record.kind === 'subscribe') {
     const id = parseBoundedString(record.id, 1, 256);
-    if (id == null) {
+    if (id === null || id === undefined) {
       return invalidOperation(index, 'subscribe', record.id, 'INVALID_SUBSCRIPTION_ID');
     }
     const topic = parseBoundedString(record.topic, 1, 512);
-    if (topic == null) {
+    if (topic === null || topic === undefined) {
       return invalidOperation(index, 'subscribe', id, 'INVALID_TOPIC');
     }
     let lastEventId: string | undefined;
@@ -461,12 +466,12 @@ function parseOperation(value: unknown, index: number): ParsedControlOperation {
   }
   if (record.kind === 'unsubscribe') {
     const id = parseBoundedString(record.id, 1, 256);
-    if (id == null) {
+    if (id === null || id === undefined) {
       return invalidOperation(index, 'unsubscribe', record.id, 'INVALID_SUBSCRIPTION_ID');
     }
     return { ok: true, index, operation: { kind: 'unsubscribe', id } };
   }
-  throw liveResponseError('BAD_REQUEST', 'live: operation kind is invalid.', 400);
+  throw new LiveResponseError('BAD_REQUEST', 'live: operation kind is invalid.', 400);
 }
 
 const INVALID_OPERATION_MESSAGES = {
@@ -563,8 +568,8 @@ function resolveLiveLimits(input: Partial<LiveLimits> | undefined): LiveLimits {
 
 function assertBoundedString(name: string, value: unknown, min: number, max: number): string {
   const parsed = parseBoundedString(value, min, max);
-  if (parsed == null) {
-    throw liveResponseError('BAD_REQUEST', `live: invalid ${name}.`, 400);
+  if (parsed === null || parsed === undefined) {
+    throw new LiveResponseError('BAD_REQUEST', `live: invalid ${name}.`, 400);
   }
   return parsed;
 }
@@ -591,6 +596,7 @@ function assertJsonSerializable(value: unknown): void {
   } catch (error) {
     throw new Error(
       `live: payload must be JSON-serializable. ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }
@@ -603,10 +609,6 @@ class LiveResponseError extends Error {
   ) {
     super(message);
   }
-}
-
-function liveResponseError(code: LiveControlErrorCode, message: string, status: number): never {
-  throw new LiveResponseError(code, message, status);
 }
 
 function errorToResponse(error: unknown): Response {

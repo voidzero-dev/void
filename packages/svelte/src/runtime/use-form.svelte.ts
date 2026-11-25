@@ -1,6 +1,5 @@
 import { getContext, untrack } from 'svelte';
 import {
-  VoidActionError,
   cloneFormValue,
   getValidationErrors,
   interpolateRouteParams,
@@ -9,10 +8,13 @@ import {
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
-  type FormResetOptions,
-  type FormState,
-  type FormSubmitOptions,
-  type VoidRouter,
+} from 'void/pages-client';
+import type {
+  FormResetOptions,
+  FormState,
+  FormSubmitOptions,
+  VoidRouter,
+  VoidActionError,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 
@@ -113,6 +115,7 @@ export function useForm(
 
   function setError(field: string, message: string) {
     snapshotField(field);
+    // oxlint-disable-next-line quality/no-known-value-widening -- Field names come from dynamic form data.
     errors = { ...errors, [field]: message };
   }
 

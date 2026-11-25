@@ -38,7 +38,7 @@ describe('FRAMEWORK_PRESETS', () => {
     expect(preset.assetsDir).toBe('dist/client');
   });
 
-  it.each([
+  it.each<readonly [keyof typeof FRAMEWORK_PRESETS, string]>([
     ['tanstack-start', 'dist/server'],
     ['react-router', 'build/server'],
     ['vinext-app', 'dist/server'],

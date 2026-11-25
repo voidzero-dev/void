@@ -1,6 +1,7 @@
 import MagicString from 'magic-string';
 import { parseSync } from 'vite';
-import { isIdentifier, isLiteral, type AstNode, type AstProgram } from '../shared/ast.ts';
+import { asAstProgram, isIdentifier, isLiteral } from '../shared/ast.ts';
+import type { AstNode } from '../shared/ast.ts';
 
 export type IslandImportSource = {
   start: number;
@@ -54,7 +55,7 @@ export function scriptBlocks(code: string, filename: string): Array<ScriptBlock>
     if (!match) {
       return [];
     }
-    const source = match[1]!;
+    const source = match[1];
     return [
       { source, offset: match[0].indexOf(source), filename: filename.replace(/\.md$/, '.ts') },
     ];
@@ -65,13 +66,13 @@ export function scriptBlocks(code: string, filename: string): Array<ScriptBlock>
   const scriptFilename = filename.replace(/\.(?:vue|svelte)$/, '.ts');
   const svelte = filename.endsWith('.svelte');
   return [...code.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)].map((match) => {
-    const source = match[2]!;
+    const source = match[2];
     const block: ScriptBlock = {
       source,
-      offset: match.index! + match[0].indexOf(source),
+      offset: match.index + match[0].indexOf(source),
       filename: scriptFilename,
     };
-    if (svelte && !isSvelteModuleScript(match[1]!)) {
+    if (svelte && !isSvelteModuleScript(match[1])) {
       block.instance = true;
     }
     return block;
@@ -88,7 +89,7 @@ export function findStaticCssImports(code: string, filename: string): Array<Stat
     if (!script.source.includes('import')) {
       continue;
     }
-    const program = parseSync(script.filename, script.source).program as unknown as AstProgram;
+    const program = asAstProgram(parseSync(script.filename, script.source).program);
     for (const node of program.body ?? []) {
       const source = node.source as AstNode | undefined;
       if (
@@ -110,6 +111,8 @@ export function findStaticCssImports(code: string, filename: string): Array<Stat
   return imports;
 }
 
+type EditedIslandSource = { code: string; map: ReturnType<MagicString['generateMap']> };
+
 export function editIslandSource(
   code: string,
   edits: ReadonlyArray<IslandSourceEdit>,
@@ -118,7 +121,7 @@ export function editIslandSource(
     append?: string;
     insert?: ReadonlyArray<{ offset: number; text: string }>;
   },
-): { code: string; map: ReturnType<MagicString['generateMap']> } {
+): EditedIslandSource {
   const ms = new MagicString(code);
   for (const edit of edits) {
     ms.overwrite(edit.start, edit.end, edit.text);
@@ -145,7 +148,7 @@ export function findIslandImports(code: string, filename: string): Array<IslandI
     if (!script.source.includes('island')) {
       continue;
     }
-    const program = parseSync(script.filename, script.source).program as unknown as AstProgram;
+    const program = asAstProgram(parseSync(script.filename, script.source).program);
     for (const node of program.body ?? []) {
       if (node.type !== 'ImportDeclaration') {
         continue;

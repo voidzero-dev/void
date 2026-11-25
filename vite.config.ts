@@ -1,8 +1,16 @@
+import { globSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import cloudflare from '@cloudflare/oxlint-config/vite-plus';
 import { defineConfig } from 'vite-plus';
+import { integrationTestDirs, listIntegrationTestFiles } from './test/integration-files.ts';
 import { SuiteSequencer } from './test/sequencer.ts';
+import { chunkTestFiles } from './test/test-chunks.ts';
 
+const typeScriptTestFiles = [
+  '**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}',
+  '**/__tests__/**/*.{ts,tsx,mts,cts}',
+];
 const maxWorkers = process.env.CI ? 2 : Math.max(2, Math.floor(availableParallelism() * 0.75));
 const apiTimezoneTests = [
   'platform/packages/api/test/integration/api-delete-accounting.test.ts',
@@ -40,7 +48,6 @@ const sdkPgliteUnitTests = [
 // (packages/void/test/e2e/cloudflare-deploy-live.test.ts) needs all three, so forward them into the
 // core-markdown workers explicitly from this main config process (which has the runner's step env).
 // Absent credentials become empty strings so ordinary test runs skip the live suite.
-const testGroupInput = [{ auto: true }, '!node_modules/.cache/**'];
 const e2eWorkerEnv = {
   VOID_TEST_BROWSER: process.env.VOID_TEST_BROWSER ?? 'chromium',
   VOID_E2E_CF_TOKEN: process.env.VOID_E2E_CF_TOKEN ?? '',
@@ -87,9 +94,63 @@ const testGroups = {
   integration: ['parallel-integration'],
 };
 
+// The files a cached test task reads are its inputs. Two trees are left out: Node's compile
+// cache, which every run rewrites, and the temporary playground copies. A copy is made from
+// tracked files, and some frameworks list the directory that holds the copies of other tests.
+const testGroupInput = [{ auto: true }, '!node_modules/.cache/**', '!playground-local/**'];
+
 function testGroupCommand(group: keyof typeof testGroups): string {
   return `vp test run ${testGroups[group].map((name) => `--project ${name}`).join(' ')}`;
 }
+
+// The integration group runs one cached task per test file. Each task records the files its test
+// reads, so a change reruns only the files that depend on it and the others are replayed.
+const e2eEnvNames = ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'];
+const integrationFileTasks = Object.fromEntries(
+  listIntegrationTestFiles(import.meta.dirname).map((file) => [
+    `test:integration:${file}`,
+    {
+      command: `vp test run --project parallel-integration ${file}`,
+      cache: { input: testGroupInput, output: [], untrackedEnv: e2eEnvNames },
+    },
+  ]),
+);
+
+// The unit and platform groups run as cached chunks of related files. One Vitest run per file
+// would cost more than the tests themselves, so files are chunked by directory instead.
+//
+// A large directory of unit tests is divided further by file name: a source change then reruns
+// the chunks that import it. The platform group is not divided, because every API integration
+// test loads the whole API and an API change reruns all of them anyway.
+//
+// Chunks run side by side. A chunk gets workers for its size, and at least two: most are small.
+const unitTestGlobs = ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'];
+const platformTestGlobs = ['platform/packages/*/test/**/*.test.ts'];
+const chunkConcurrency = Math.max(2, maxWorkers - 1);
+
+function chunkTasks(group: 'unit' | 'platform', globs: Array<string>) {
+  const files = globSync(globs, { cwd: import.meta.dirname }).map((file) =>
+    file.replaceAll('\\', '/'),
+  );
+  const divideLargeDirectories = group === 'unit';
+  return Object.fromEntries(
+    [...chunkTestFiles(files, { divideLargeDirectories })].map(([chunk, chunkFiles]) => {
+      const workers = divideLargeDirectories
+        ? 2
+        : Math.min(maxWorkers, Math.max(2, Math.ceil(chunkFiles.length / 12)));
+      return [
+        `test:${group}:${chunk}`,
+        {
+          command: `${testGroupCommand(group)} --maxWorkers ${workers} ${chunkFiles.join(' ')}`,
+          cache: { input: testGroupInput, output: [] },
+        },
+      ];
+    }),
+  );
+}
+
+const unitChunkTasks = chunkTasks('unit', unitTestGlobs);
+const platformChunkTasks = chunkTasks('platform', platformTestGlobs);
 
 const config = defineConfig({
   run: {
@@ -101,24 +162,33 @@ const config = defineConfig({
       'lint:platform': {
         command: 'vp lint platform --type-aware --tsconfig platform/tsconfig.json',
       },
-      // Node's compile cache is shared and rewritten by every run, so it is not an input.
       // One cached task per test group, so `test:all` replays a group whose inputs did not change.
       // Test output is not restored on a hit.
+      ...platformChunkTasks,
+      'test:platform:chunks': {
+        command: 'node test/check-test-tasks.mjs platform',
+        dependsOn: Object.keys(platformChunkTasks),
+      },
       'test:group:platform': {
-        command: testGroupCommand('platform'),
-        cache: { input: testGroupInput, output: [] },
+        command: `vp run --concurrency-limit ${chunkConcurrency} test:platform:chunks`,
+      },
+      ...unitChunkTasks,
+      'test:unit:chunks': {
+        command: 'node test/check-test-tasks.mjs unit',
+        dependsOn: Object.keys(unitChunkTasks),
       },
       'test:group:unit': {
-        command: testGroupCommand('unit'),
-        cache: { input: testGroupInput, output: [] },
+        command: `vp run --concurrency-limit ${chunkConcurrency} test:unit:chunks`,
+      },
+      ...integrationFileTasks,
+      // The check runs after every file passed and fails when a collected file has no task.
+      'test:integration:files': {
+        command: 'node test/check-test-tasks.mjs integration',
+        dependsOn: Object.keys(integrationFileTasks),
       },
       'test:group:integration': {
-        command: testGroupCommand('integration'),
-        cache: {
-          input: testGroupInput,
-          output: [],
-          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
-        },
+        command: `vp run --concurrency-limit ${maxWorkers} test:integration:files`,
+        cache: { untrackedEnv: e2eEnvNames },
       },
       // Local verification without the static checks: build the packages, then the cached test
       // groups. Tests copy and build the playgrounds they use, so the playground builds of
@@ -174,15 +244,8 @@ const config = defineConfig({
     ],
   },
   lint: {
-    categories: {
-      correctness: 'off',
-    },
-    env: {
-      browser: true,
-      builtin: true,
-      es2024: true,
-      node: true,
-    },
+    extends: [cloudflare],
+    env: cloudflare.env,
     jsPlugins: [
       {
         name: 'vite-plus',
@@ -193,110 +256,16 @@ const config = defineConfig({
         specifier: 'eslint-plugin-react-hooks',
       },
     ],
-    plugins: ['typescript', 'import', 'react', 'unicorn', 'vitest', 'node', 'jsdoc', 'oxc'],
-    ignorePatterns: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/.void/**',
-      '**/.vite-cloud/**',
-      '**/.wrangler/**',
-      '**/.tanstack/**',
-      '**/.vitepress/cache/**',
-      '**/*.tsbuildinfo',
-      '.pnpm-store/**',
-      'playground-local/**',
-      '.worktrees/**',
-    ],
     overrides: [
       {
-        // Fate may emit unused imports; still lint and typecheck the generated client.
-        files: ['platform/packages/api/src/admin/fate/client.generated.ts'],
-        rules: { 'no-unused-vars': 'off' },
+        // Platform scripts and build config operate on native host paths.
+        files: ['platform/**/scripts/**/*', 'platform/**/vite.config.ts'],
+        rules: { 'no-restricted-imports': 'off' },
       },
       {
-        files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
+        // Filesystem assertions use Node paths independently of the production wrapper.
+        files: ['**/test/**/*'],
         rules: {
-          'constructor-super': 'off',
-          'getter-return': 'off',
-          'no-class-assign': 'off',
-          'no-const-assign': 'off',
-          'no-dupe-class-members': 'off',
-          'no-dupe-keys': 'off',
-          'no-func-assign': 'off',
-          'no-import-assign': 'off',
-          'no-new-native-nonconstructor': 'off',
-          'no-obj-calls': 'off',
-          'no-redeclare': 'off',
-          'no-setter-return': 'off',
-          'no-this-before-super': 'off',
-          'no-undef': 'off',
-          'no-unreachable': 'off',
-          'no-unsafe-negation': 'off',
-          'no-with': 'off',
-          'prefer-rest-params': 'error',
-          'prefer-spread': 'error',
-        },
-      },
-      {
-        files: [
-          'packages/react/**/*',
-          'playground/named-layouts/**/*',
-          'playground/node-app/**/*',
-          'playground/node-static/**/*',
-          'playground/pg-test/**/*',
-          'playground/react-pages/**/*',
-          'playground/react-router/**/*',
-          'playground/spa/**/*',
-          'playground/ssr/**/*',
-          'playground/tanstack-start/**/*',
-          'playground/vinext-app/**/*',
-          'playground/vinext-pages/**/*',
-          'playground/websockets/**/*',
-        ],
-        rules: {
-          'react-hooks-js/component-hook-factories': 'error',
-          'react-hooks-js/config': 'error',
-          'react-hooks-js/error-boundaries': 'error',
-          'react-hooks-js/gating': 'error',
-          'react-hooks-js/globals': 'error',
-          'react-hooks-js/immutability': 'error',
-          'react-hooks-js/incompatible-library': 'error',
-          'react-hooks-js/preserve-manual-memoization': 'error',
-          'react-hooks-js/purity': 'error',
-          'react-hooks-js/refs': 'error',
-          'react-hooks-js/set-state-in-effect': 'error',
-          'react-hooks-js/set-state-in-render': 'error',
-          'react-hooks-js/static-components': 'error',
-          'react-hooks-js/unsupported-syntax': 'error',
-          'react-hooks-js/use-memo': 'error',
-        },
-      },
-      {
-        files: ['**/*.svelte'],
-        rules: {
-          'no-undef': 'off',
-          'prefer-const': 'off',
-        },
-      },
-      {
-        files: ['**/*.vue'],
-        rules: {
-          'no-undef': 'off',
-        },
-      },
-      {
-        files: ['platform/**/*'],
-        rules: {
-          // The hosted platform historically used Node's native path module.
-          // Keep its existing lint contract while shared SDK code uses pathslash.
-          'no-restricted-imports': 'off',
-        },
-      },
-      {
-        files: ['**/test/**/*.{js,jsx,ts,tsx,mjs,cjs}'],
-        rules: {
-          // Tests must derive expected paths independently of production's
-          // forward-slash wrapper, including on Windows.
           'no-restricted-imports': [
             'error',
             {
@@ -321,74 +290,219 @@ const config = defineConfig({
         },
       },
       {
-        files: ['playground/vinext-app/.next/**/*.ts'],
+        // Keep fixture builders and partial runtime mocks next to their tests.
+        files: [
+          '**/test/**/*',
+          '**/*.test.*',
+          '**/*.typecheck.*',
+          'platform/scripts/fixtures/**/*',
+        ],
         rules: {
-          '@typescript-eslint/array-type': 'off',
+          'quality/no-chained-type-assertions': 'off',
+          'unicorn/consistent-function-scoping': 'off',
         },
+      },
+      {
+        // Guard explicit any in TypeScript tests as well as production.
+        files: ['**/*.{ts,tsx,mts,cts}'],
+        rules: { 'typescript/no-explicit-any': 'error' },
+      },
+      {
+        files: typeScriptTestFiles,
+        rules: { 'typescript/only-throw-error': 'error' },
+      },
+      {
+        files: typeScriptTestFiles,
+        excludeFiles: ['packages/void/test/**/*', 'platform/packages/api/test/**/*'],
+        rules: { 'typescript/no-unsafe-argument': 'error' },
+      },
+      {
+        // These adapters accept objects as weak keys or opaque identities.
+        files: [
+          'packages/void/src/{plugin-cloudflare-config,runtime/env/runtime,runtime/env/public}.ts',
+        ],
+        rules: { 'quality/no-object-parameters': 'off' },
+      },
+      {
+        // Proxy traps use Reflect.get to preserve the receiver.
+        files: [
+          'packages/void/src/runtime/{db/index,db/session,env/runtime,routing/worker,storage/index}.ts',
+        ],
+        rules: { 'quality/no-reflect-get': 'off' },
+      },
+      {
+        // Code generation augments these interfaces with app-specific types.
+        files: [
+          'packages/void/src/routes-stub.ts',
+          'packages/void/src/runtime/{auth,queues}/index.ts',
+        ],
+        rules: {
+          'typescript/no-empty-object-type': [
+            'error',
+            {
+              allowWithName:
+                '^(RoutePathMap|PagePathMap|EncodedRoutePathMap|RouteTypesConfig|RouteMap|WebSocketRouteMap|PageActionMap|VoidAuthTypes|QueueMap)$',
+            },
+          ],
+        },
+      },
+      {
+        // Fate emits imports and empty route shapes. Keep checking the generated client.
+        files: ['platform/packages/api/src/admin/fate/client.generated.ts'],
+        rules: {
+          'import/consistent-type-specifier-style': 'off',
+          'no-unused-vars': 'off',
+          'typescript/no-empty-object-type': 'off',
+        },
+      },
+      {
+        // The import resolver cannot follow these dependency re-exports.
+        files: [
+          'packages/void/src/runtime/db/{schema/{d1,mysql,postgres},validators/drizzle-{arktype,valibot,zod}}.ts',
+          'packages/void/src/runtime/sandbox/index.ts',
+        ],
+        rules: { 'import/export': 'off' },
+      },
+      {
+        // Workers types give DOM append a different signature in these modules.
+        files: ['packages/void/src/pages/{boundary-client,navigation-engine}.ts'],
+        rules: { 'unicorn/prefer-dom-node-append': 'off' },
+      },
+      {
+        files: ['**/*.{svelte,vue}'],
+        rules: { 'no-undef': 'off' },
+      },
+      {
+        // Signals, composition helpers, and compile-only hook calls follow other conventions.
+        files: ['packages/{svelte,solid,vue}/**/*', '**/*.typecheck.ts'],
+        rules: { 'react/rules-of-hooks': 'off' },
+      },
+      {
+        // Solid uses native DOM names, mutable refs, and one-time initializers.
+        files: ['packages/solid/**/*', 'playground/solid-pages/**/*'],
+        rules: {
+          'react/immutability': 'off',
+          'react/no-unknown-property': 'off',
+          'react/purity': 'off',
+        },
+      },
+      {
+        files: [
+          'packages/react/**/*',
+          'playground/{named-layouts,node-app,node-static,pg-test,react-pages,react-router,spa,ssr,tanstack-start,vinext-app,vinext-pages,websockets}/**/*',
+        ],
+        rules: {
+          'react-hooks-js/component-hook-factories': 'error',
+          'react-hooks-js/config': 'error',
+          'react-hooks-js/error-boundaries': 'error',
+          'react-hooks-js/gating': 'error',
+          'react-hooks-js/globals': 'error',
+          'react-hooks-js/immutability': 'error',
+          'react-hooks-js/incompatible-library': 'error',
+          'react-hooks-js/preserve-manual-memoization': 'error',
+          'react-hooks-js/purity': 'error',
+          'react-hooks-js/refs': 'error',
+          'react-hooks-js/set-state-in-effect': 'error',
+          'react-hooks-js/set-state-in-render': 'error',
+          'react-hooks-js/static-components': 'error',
+          'react-hooks-js/unsupported-syntax': 'error',
+          'react-hooks-js/use-memo': 'error',
+        },
+      },
+      {
+        files: ['**/*.{js,jsx,mjs,cjs}'],
+        rules: { 'typescript/no-unsafe-return': 'error' },
+      },
+      {
+        files: [
+          'packages/void/src/runtime/routing/error-pages/script.js',
+          'platform/packages/api/container/build-agent.mjs',
+        ],
+        rules: {
+          'typescript/no-unsafe-argument': 'error',
+          'typescript/no-unsafe-assignment': 'error',
+          'typescript/no-unsafe-call': 'error',
+          'typescript/no-unsafe-member-access': 'error',
+        },
+      },
+      // Enforce the staged type rules where the SDK and platform have typed contracts.
+      {
+        files: ['packages/**/*', 'platform/packages/{dashboard,email-gateway,tail}/**/*'],
+        excludeFiles: ['packages/void/**/*'],
+        rules: {
+          'quality/no-known-value-widening': 'error',
+          'quality/no-unknown-returns': 'error',
+        },
+      },
+      {
+        files: [
+          'packages/void/src/**/*',
+          'platform/packages/dispatch/**/*',
+          'platform/packages/proxy/src/**/*',
+          'platform/packages/api/src/**/*',
+        ],
+        excludeFiles: ['packages/void/src/{pages,runtime}/**/*'],
+        rules: { 'quality/no-unknown-returns': 'error' },
+      },
+      {
+        files: [
+          'packages/void/src/pages/{dev-css-assets,scan}.ts',
+          'packages/void/src/runtime/routing/assets.ts',
+        ],
+        rules: { 'quality/no-unknown-returns': 'error' },
+      },
+      {
+        files: ['packages/void/src/**/*', 'platform/packages/*/src/**/*'],
+        rules: { 'quality/no-known-value-widening': 'error' },
+      },
+      {
+        files: [
+          'packages/{create-void,deploy-core,edge,isr}/src/**/*',
+          'platform/packages/{dashboard,dispatch,email-gateway,tail}/src/**/*',
+        ],
+        rules: { 'quality/no-unsafe-dictionary-type': 'error' },
+      },
+      {
+        files: [
+          'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,platform,react,svelte}/src/**/*',
+          'packages/void/src/{client-asset-manifest,runtime/routing/assets,shared/client-manifest}.ts',
+          'packages/void/src/runtime/db/migrations/mysql-lock.ts',
+          'platform/packages/{dispatch,email-gateway,proxy}/src/**/*',
+          'platform/packages/api/src/deploy/{persisted-manifest,serving-assets}.ts',
+          'platform/packages/api/src/email/ingress-resolution.ts',
+          'platform/packages/api/src/routing-records.ts',
+          'platform/packages/api/test/unit/build-manager.test.ts',
+        ],
+        rules: { 'typescript/no-unsafe-type-assertion': 'error' },
       },
     ],
     rules: {
-      '@typescript-eslint/array-type': [
+      // Framework callback and JSX types use void for handlers that may be async.
+      'typescript/no-misused-promises': [
         'error',
-        {
-          default: 'generic',
-        },
+        { checksVoidReturn: { arguments: false, attributes: false } },
       ],
-      '@typescript-eslint/no-duplicate-enum-values': 'error',
-      '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/no-extra-non-null-assertion': 'error',
-      // Enforced across the workspace by both `vp check` and `vp lint`.
-      '@typescript-eslint/no-floating-promises': 'error',
-      '@typescript-eslint/no-misused-new': 'error',
-      '@typescript-eslint/no-non-null-asserted-optional-chain': 'error',
-      '@typescript-eslint/no-require-imports': 'error',
-      '@typescript-eslint/no-unnecessary-type-constraint': 'error',
-      '@typescript-eslint/no-unsafe-declaration-merging': 'error',
-      '@typescript-eslint/no-wrapper-object-types': 'error',
-      '@typescript-eslint/prefer-as-const': 'error',
-      '@typescript-eslint/prefer-namespace-keyword': 'error',
-      '@typescript-eslint/triple-slash-reference': 'error',
-      curly: 'error',
-      'for-direction': 'error',
-      'getter-return': 'error',
+      // Keep type queries for ambient declarations and inferred mock module types.
+      'typescript/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
+      // Project-wide exceptions for existing code.
+      // Keep runtime dispatch and error classification based on native and framework class identity. Review cross-realm cases separately.
+      '@nkzw/no-instanceof': 'off',
+      // CLI output, platform Worker logging, and output-capture fixtures intentionally use the console across the workspace.
+      'no-console': 'off',
+      // Conditional spreads are used to omit optional config and manifest keys. Preserve omission and property order in follow-up refactors.
+      'quality/no-conditional-empty-object-spread': 'off',
+      // Validation helpers deliberately accept unknown, including when tests pass values whose concrete types are known.
+      'quality/no-known-value-widening': 'off',
+      // Decoders and dynamic adapters expose unknown until the caller validates it against the relevant schema.
+      'quality/no-unknown-returns': 'off',
+      // Environment dictionaries, manifest parsers, and schema inputs carry unknown values until each entry has been validated.
+      'quality/no-unsafe-dictionary-type': 'off',
+      // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
+      'typescript/no-unsafe-type-assertion': 'off',
+      // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.
+      'unicorn/catch-error-name': 'off',
       'import/default': 'error',
       'import/namespace': 'error',
-      'no-array-constructor': 'error',
-      'no-async-promise-executor': 'error',
-      'no-case-declarations': 'error',
-      'no-class-assign': 'error',
-      'no-compare-neg-zero': 'error',
-      'no-cond-assign': 'error',
-      'no-const-assign': 'error',
-      'no-constant-binary-expression': 'error',
-      'no-constant-condition': 'error',
-      'no-control-regex': 'error',
-      'no-debugger': 'error',
-      'no-delete-var': 'error',
-      'no-dupe-class-members': 'error',
-      'no-dupe-else-if': 'error',
-      'no-dupe-keys': 'error',
-      'no-duplicate-case': 'error',
-      'no-empty-character-class': 'error',
-      'no-empty-pattern': 'error',
-      'no-empty-static-block': 'error',
-      'no-empty': 'error',
-      'no-ex-assign': 'error',
-      'no-extra-boolean-cast': 'error',
-      'no-fallthrough': 'error',
-      'no-func-assign': 'error',
-      'no-global-assign': 'error',
-      'no-import-assign': 'error',
-      'no-invalid-regexp': 'error',
-      'no-irregular-whitespace': 'error',
-      'no-loss-of-precision': 'error',
-      'no-misleading-character-class': 'error',
-      'no-new-native-nonconstructor': 'error',
-      'no-nonoctal-decimal-escape': 'error',
-      'no-obj-calls': 'error',
-      'no-prototype-builtins': 'error',
-      'no-redeclare': 'error',
-      'no-regex-spaces': 'error',
       'no-restricted-imports': [
         'error',
         {
@@ -406,76 +520,15 @@ const config = defineConfig({
           ],
         },
       ],
-      'no-self-assign': 'error',
-      'no-setter-return': 'error',
-      'no-shadow-restricted-names': 'error',
-      'no-sparse-arrays': 'error',
-      'no-this-before-super': 'error',
-      'no-undef': 'error',
-      'no-unexpected-multiline': 'error',
-      'no-unreachable': 'error',
-      'no-unsafe-finally': 'error',
-      'no-unsafe-negation': 'error',
-      'no-unsafe-optional-chaining': 'error',
-      'no-unused-expressions': 'error',
-      'no-unused-labels': 'error',
-      'no-unused-private-class-members': 'error',
       // Also covers packages without TypeScript's `noUnusedLocals` and plain JS scripts.
       // An options object drops oxlint's default `^_` ignore pattern, so restate it.
       'no-unused-vars': ['error', { args: 'none', varsIgnorePattern: '^_' }],
-      'no-useless-backreference': 'error',
-      'no-useless-catch': 'error',
-      'no-useless-escape': 'error',
-      'no-useless-rename': 'error',
-      'no-var': 'error',
-      'no-warning-comments': [
-        'error',
-        {
-          terms: ['@nocommit'],
-        },
-      ],
-      'no-with': 'error',
-      'oxc/no-accumulating-spread': 'error',
-      'prefer-const': 'error',
-      'react/exhaustive-deps': 'error',
-      'react/jsx-key': 'error',
-      'react/jsx-no-duplicate-props': 'error',
-      'react/jsx-no-target-blank': 'error',
-      'react/jsx-no-undef': 'error',
-      'react/no-children-prop': 'error',
-      'react/no-danger-with-children': 'error',
-      'react/no-direct-mutation-state': 'error',
-      'react/no-find-dom-node': 'error',
-      'react/no-is-mounted': 'error',
-      'react/no-render-return-value': 'error',
-      'react/no-string-refs': 'error',
-      'react/require-render-return': 'error',
-      'require-yield': 'error',
-      'unicorn/consistent-empty-array-spread': 'error',
-      'unicorn/no-abusive-eslint-disable': 'error',
-      'unicorn/no-invalid-fetch-options': 'error',
-      'unicorn/no-typeof-undefined': 'error',
-      'unicorn/no-unnecessary-slice-end': 'error',
-      'unicorn/no-useless-promise-resolve-reject': 'error',
-      'unicorn/no-useless-spread': 'error',
-      'unicorn/prefer-array-flat-map': 'error',
-      'unicorn/prefer-array-index-of': 'error',
-      'unicorn/prefer-array-some': 'error',
-      'unicorn/prefer-native-coercion-functions': 'error',
-      'unicorn/prefer-node-protocol': 'error',
-      'unicorn/prefer-optional-catch-binding': 'error',
-      'unicorn/prefer-set-size': 'error',
-      'use-isnan': 'error',
-      'valid-typeof': 'error',
       // Import test APIs from `vite-plus/test`, not `vitest`.
       'vite-plus/prefer-vite-plus-imports': 'error',
       // Vitest rejects `.only` only in CI; catch it locally and in pre-commit too.
       'vitest/no-focused-tests': 'error',
     },
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
+    options: { typeCheck: true },
   },
   resolve: { alias: platformAlias },
   test: {
@@ -521,7 +574,7 @@ const config = defineConfig({
           name: 'unit',
           fsModuleCache: true,
           css: { include: [/starter-ui\.css(?:\?|$)/] },
-          include: ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'],
+          include: unitTestGlobs,
           exclude: [...cliUnitTests, ...sdkPgliteUnitTests],
           sequence: { groupOrder: 2 },
           pool: 'threads',
@@ -538,9 +591,9 @@ const config = defineConfig({
           fsModuleCache: true,
           include: sdkPgliteUnitTests,
           sequence: { groupOrder: 2 },
-          // Native Node 24 worker crashes can abort the run on Linux and macOS.
-          // Keep PGlite's Wasm heap in a separate process for each database.
-          pool: ['linux', 'darwin'].includes(process.platform) ? 'forks' : 'threads',
+          // PGlite's Wasm JIT teardown can crash Node 24 worker threads, including Windows.
+          // Keep each database in a separate process on every platform.
+          pool: 'forks',
           maxWorkers,
           ...(process.platform === 'win32' ? { testTimeout: 20_000 } : {}),
         },
@@ -552,7 +605,7 @@ const config = defineConfig({
           name: 'platform-unit',
           fsModuleCache: true,
           pool: 'threads',
-          include: ['platform/packages/*/test/**/*.test.ts'],
+          include: platformTestGlobs,
           exclude: ['platform/packages/api/test/integration/**', ...pgliteUnitTests],
           maxWorkers,
         },
@@ -624,17 +677,7 @@ const config = defineConfig({
           // existing e2e file drives playground/spa, while the other SPA integration uses an
           // isolated playground-local copy so both remain safe when credentials are present.
           env: e2eWorkerEnv,
-          include: [
-            'packages/void/test/integration/**/*.test.ts',
-            // Gated live-account e2e (test/e2e/**). Collected here so it is skipped cleanly in CI
-            // (no token) rather than silently undiscovered; runs only when its env vars are set.
-            'packages/void/test/e2e/**/*.test.ts',
-            'packages/md/test/integration/**/*.test.ts',
-            'packages/react/test/integration/**/*.test.ts',
-            'packages/vue/test/integration/**/*.test.ts',
-            'packages/svelte/test/integration/**/*.test.ts',
-            'packages/solid/test/integration/**/*.test.ts',
-          ],
+          include: integrationTestDirs.map((dir) => `${dir}/**/*.test.ts`),
           maxWorkers,
         },
       },

@@ -11,9 +11,8 @@ import {
   workerUploadBody,
   workerUploadDeadline,
   WorkerModuleIntegrityError,
-  type UploadProgress,
-  type WorkerModule,
 } from '../../src/worker-upload.ts';
+import type { UploadProgress, WorkerModule } from '../../src/worker-upload.ts';
 
 const encoder = new TextEncoder();
 
@@ -56,7 +55,9 @@ function bucket(
       state.maxPending = Math.max(state.maxPending, state.pending);
       try {
         if (options.hold?.(key)) {
-          await new Promise<void>((resolve) => state.held.set(key, resolve));
+          await new Promise<void>((resolve) => {
+            state.held.set(key, resolve);
+          });
         }
       } finally {
         state.pending--;
@@ -80,8 +81,8 @@ function bucket(
             }
             const value = bytes.slice(offset, offset + chunk);
             offset += value.byteLength;
-            state.pulledChunks[key]!++;
-            state.pulledBytes[key]! += value.byteLength;
+            state.pulledChunks[key]++;
+            state.pulledBytes[key] += value.byteLength;
             controller.enqueue(value);
           },
           cancel() {
@@ -264,7 +265,7 @@ describe('workerUploadBody', () => {
     const decoder = new TextDecoder();
     const text =
       received.map((chunk) => decoder.decode(chunk, { stream: true })).join('') + decoder.decode();
-    const boundary = upload.contentType.split('boundary=')[1]!;
+    const boundary = upload.contentType.split('boundary=')[1];
     expect(text).not.toContain(`--${boundary}--`);
     // A longer object never passes more bytes than the declared size.
     expect(text).not.toContain('more');
@@ -362,7 +363,9 @@ describe('workerUploadBody', () => {
       }
       const pulled = Object.values(r2.pulledBytes).reduce((total, value) => total + value, 0);
       expect(pulled - received).toBeLessThanOrEqual((1 + 4) * 2 * kib);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     await expectSameForm(concat(chunks), upload.contentType, contents);
   });
@@ -391,11 +394,11 @@ describe('workerUploadBody', () => {
     }
     expect(failure).toBeInstanceOf(WorkerModuleIntegrityError);
     expect(upload.failure()).toBe(failure);
-    const text = Buffer.from(concat(received)).toString('latin1');
+    const text = (Buffer as BufferConstructor).from(concat(received)).toString('latin1');
     for (const bytes of contents.slice(0, 3)) {
-      expect(text).toContain(Buffer.from(bytes).toString('latin1'));
+      expect(text).toContain((Buffer as BufferConstructor).from(bytes).toString('latin1'));
     }
-    const boundary = upload.contentType.split('boundary=')[1]!;
+    const boundary = upload.contentType.split('boundary=')[1];
     expect(text).not.toContain(`--${boundary}--`);
   });
 
@@ -522,7 +525,9 @@ describe('uploadWatchdog', () => {
     drained.catch(() => {});
     // Let the body run up to m1, whose get never answers.
     while (upload.progress().sourcesStarted < 3) {
-      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => {
+        setImmediate(resolve);
+      });
     }
     expect(upload.progress().lastProgressAt).toBe(0);
     await vi.advanceTimersByTimeAsync(59_999);
@@ -580,7 +585,7 @@ describe('uploadWatchdog', () => {
       await vi.advanceTimersByTimeAsync(10_000);
       progress = progressAt(Date.now());
     }
-    await vi.advanceTimersByTimeAsync(9_999);
+    await vi.advanceTimersByTimeAsync(9999);
     expect(watchdog.signal.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(watchdog.fired()).toBe('deadline');
@@ -598,25 +603,25 @@ describe('uploadWatchdog', () => {
 
 describe('workerUploadDeadline', () => {
   it('gives the full budget outside a deployment run', () => {
-    vi.useFakeTimers({ now: 1_000 });
-    expect(workerUploadDeadline(undefined)).toBe(1_000 + WORKER_UPLOAD_BUDGET_MS);
+    vi.useFakeTimers({ now: 1000 });
+    expect(workerUploadDeadline(undefined)).toBe(1000 + WORKER_UPLOAD_BUDGET_MS);
   });
 
   it('ends at the run deadline when that comes first', () => {
-    vi.useFakeTimers({ now: 1_000 });
-    expect(workerUploadDeadline(1_000 + 90_000)).toBe(1_000 + 90_000);
-    expect(workerUploadDeadline(1_000 + WORKER_UPLOAD_BUDGET_MS + 1)).toBe(
-      1_000 + WORKER_UPLOAD_BUDGET_MS,
+    vi.useFakeTimers({ now: 1000 });
+    expect(workerUploadDeadline(1000 + 90_000)).toBe(1000 + 90_000);
+    expect(workerUploadDeadline(1000 + WORKER_UPLOAD_BUDGET_MS + 1)).toBe(
+      1000 + WORKER_UPLOAD_BUDGET_MS,
     );
   });
 
   it('refuses to start with less than one attempt left in the run', () => {
-    vi.useFakeTimers({ now: 1_000 });
-    expect(() => workerUploadDeadline(1_000 + WORKER_UPLOAD_MIN_ATTEMPT_MS - 1)).toThrow(
+    vi.useFakeTimers({ now: 1000 });
+    expect(() => workerUploadDeadline(1000 + WORKER_UPLOAD_MIN_ATTEMPT_MS - 1)).toThrow(
       WORKER_UPLOAD_OUT_OF_TIME,
     );
-    expect(workerUploadDeadline(1_000 + WORKER_UPLOAD_MIN_ATTEMPT_MS)).toBe(
-      1_000 + WORKER_UPLOAD_MIN_ATTEMPT_MS,
+    expect(workerUploadDeadline(1000 + WORKER_UPLOAD_MIN_ATTEMPT_MS)).toBe(
+      1000 + WORKER_UPLOAD_MIN_ATTEMPT_MS,
     );
   });
 });

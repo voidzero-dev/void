@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Plugin } from 'vite';
+import type { Plugin, UserConfig } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { voidMarkdown } from '../../src/plugin.ts';
 
@@ -49,9 +49,9 @@ describe('voidMarkdown sourceDir support', () => {
     );
 
     const plugin = createPlugin();
-    const configResolved = getHookHandler(plugin.configResolved) as (
-      config: import('vite').ResolvedConfig,
-    ) => void;
+    const configResolved = getHookHandler<(config: import('vite').ResolvedConfig) => void>(
+      plugin.configResolved,
+    );
     const buildStart = getHookHandler(plugin.buildStart) as () => Promise<void>;
     const load = getHookHandler(plugin.load) as (id: string) => string | undefined;
 
@@ -70,10 +70,10 @@ describe('voidMarkdown sourceDir support', () => {
     const config = getHookHandler(plugin.config) as (
       config: { root: string },
       env: { command: 'serve' | 'build'; isPreview?: boolean },
-    ) => unknown;
-    const configResolved = getHookHandler(plugin.configResolved) as (
-      config: import('vite').ResolvedConfig,
-    ) => void;
+    ) => Promise<UserConfig | undefined>;
+    const configResolved = getHookHandler<(config: import('vite').ResolvedConfig) => void>(
+      plugin.configResolved,
+    );
     const buildStart = getHookHandler(plugin.buildStart) as () => Promise<void>;
     const load = getHookHandler(plugin.load) as (id: string) => string | undefined;
 
@@ -121,7 +121,7 @@ describe('voidMarkdown sourceDir support', () => {
     expect((await scanForCommand(root, 'build')).paths).toEqual(['/posts/stats']);
   });
 
-  function buildConfigFor(pages: Record<string, string>): Promise<unknown> {
+  function buildConfigFor(pages: Record<string, string>) {
     const root = createTempRoot();
     for (const [file, content] of Object.entries(pages)) {
       writeFileSync(join(root, 'src', 'pages', file), content);
@@ -129,7 +129,7 @@ describe('voidMarkdown sourceDir support', () => {
     const config = getHookHandler(createPlugin().config) as (
       config: { root: string },
       env: { command: 'build' },
-    ) => Promise<unknown>;
+    ) => Promise<UserConfig | undefined>;
     return config({ root }, { command: 'build' });
   }
 

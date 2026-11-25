@@ -1,7 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
@@ -132,8 +131,6 @@ export { mutate as "action" };
           join(directory, 'queues'),
           null,
           {
-            honoPath: fileURLToPath(import.meta.resolve('hono')),
-            honoRoutePath: fileURLToPath(import.meta.resolve('hono/route')),
             runtimeEnvPath: source('env/runtime.ts'),
             projectRoot: directory,
             homeDir: tmpdir(),
@@ -301,7 +298,7 @@ renderPage.preambleScript = ${JSON.stringify(preambleScript)};`;
       const protocol = await runtime.dispatchFetch('https://app.test/', {
         headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       });
-      expect((decodePageData(await protocol.json()) as { props: unknown }).props).toEqual({
+      expect(decodePageData<{ props: unknown }>(await protocol.json()).props).toEqual({
         title: 'real page loader',
       });
       expect(

@@ -1,6 +1,5 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path/posix';
-import { fileURLToPath } from 'node:url';
 
 const fullSuitePaths = [
   /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.node-version|\.npmrc|\.pnpmfile\.cjs|vite\.config\.[jt]s)$/,
@@ -31,11 +30,15 @@ export function selectPackedSuite(paths) {
     : 'smoke';
 }
 
+/** @param {unknown} files */
 function pathsFromFiles(files) {
   if (!Array.isArray(files) || files.some((file) => typeof file.filename !== 'string')) {
     throw new Error('Invalid changed-file response');
   }
-  return files.flatMap((file) =>
+  const changedFiles = /** @type {Array<{ filename: string, previous_filename?: string }>} */ (
+    files
+  );
+  return changedFiles.flatMap((file) =>
     file.previous_filename ? [file.filename, file.previous_filename] : [file.filename],
   );
 }
@@ -97,7 +100,7 @@ export async function resolvePackedSuite({ eventName, event, requested = 'auto',
   return 'full';
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   const suite = await resolvePackedSuite({
     eventName: process.env.GITHUB_EVENT_NAME,
     event: JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')),
@@ -109,12 +112,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           Accept: 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28',
         },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(15_000),
       });
       if (!response.ok) {
         throw new Error('Could not read changed files');
       }
-      return response.json();
+      /** @type {Promise<unknown>} */
+      const payload = response.json();
+      return payload;
     },
   });
   appendFileSync(process.env.GITHUB_OUTPUT, `suite=${suite}\n`);

@@ -14,12 +14,15 @@ import {
   recordInstallationResource,
   recordInstallationStep,
   transitionInstallation,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
-  type ResourceOwnership,
+} from '@void/platform';
+import type {
+  InstallationResourceKind,
+  PlatformInstallationManifest,
+  ResourceOwnership,
 } from '@void/platform';
 import { note } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { printSuccess } from '../../src/cli/output.ts';
 import {
   disablePlatform,
@@ -1275,7 +1278,7 @@ describe('platform lifecycle management', () => {
     expect(fake.disabledWrites).toEqual([PLATFORM_DISABLED_VALUE]);
     expect(fake.deleted).toEqual([]);
     expect(listInstallationManifests()[0]?.status).toBe('disabled');
-    expect(JSON.parse(fake.remoteWrites[0]!)).toMatchObject({ status: 'disabling' });
+    expect(JSON.parse(fake.remoteWrites[0])).toMatchObject({ status: 'disabling' });
     expect(JSON.parse(fake.remoteWrites.at(-1)!)).toMatchObject({ status: 'disabled' });
     expect(databaseCheckpoints.at(-1)?.status).toBe('disabled');
   });
@@ -1317,7 +1320,7 @@ describe('platform lifecycle management', () => {
     const first = client(manifest);
     await disablePlatform(first, manifest, false);
 
-    let reenabled = listInstallationManifests()[0]!;
+    let reenabled = listInstallationManifests()[0];
     reenabled = recordInstallationStep(
       reenabled,
       {
@@ -1430,8 +1433,10 @@ describe('platform lifecycle management', () => {
     const fake = client(manifest);
     await uninstallPlatform(fake, manifest, uninstallArgs, uninstallDependencies);
     expect(fake.deleted).toEqual([]);
-    expect(fake.remoteWrites.map((value) => JSON.parse(value).status)).toContain('uninstalled');
-    const result = listInstallationManifests()[0]!;
+    expect(
+      fake.remoteWrites.map((value) => (JSON.parse(value) as { status?: unknown }).status),
+    ).toContain('uninstalled');
+    const result = listInstallationManifests()[0];
     expect(result.status).toBe('uninstalled');
     expect(result.resources.filter((resource) => resource.state === 'retained')).toHaveLength(15);
     expect(readInstallationRecoverySecrets(result)).toEqual({
@@ -1651,7 +1656,7 @@ describe('platform lifecycle management', () => {
     expect(fake.deleted).toHaveLength(5);
     expect(fake.deleted).not.toContainEqual(['ai-gateway', 'ai-gateway-id']);
     expect(fake.deleted.some(([kind]) => kind === 'zone')).toBe(false);
-    expect(readInstallationRecoverySecrets(listInstallationManifests()[0]!)).toBeNull();
+    expect(readInstallationRecoverySecrets(listInstallationManifests()[0])).toBeNull();
   });
 
   it('refuses every mutation when the remote installation identity changed', async () => {
@@ -1707,7 +1712,7 @@ describe('platform lifecycle management', () => {
     expect(fake.emptiedBuckets).toEqual([]);
     expect(fake.deletedBucketMarkers).toEqual([]);
     expect(fake.deleted).not.toContainEqual(['r2-bucket', 'assets-bucket-id']);
-    const result = listInstallationManifests()[0]!;
+    const result = listInstallationManifests()[0];
     expect(result.status).toBe('uninstalled');
     expect(result.resources.find((resource) => resource.key === 'assets-bucket')?.state).toBe(
       'retained',
@@ -1733,7 +1738,7 @@ describe('platform lifecycle management', () => {
         uninstallDependencies,
       ),
     ).rejects.toThrow('temporary deletion failure');
-    const checkpoint = listInstallationManifests()[0]!;
+    const checkpoint = listInstallationManifests()[0];
     expect(checkpoint.status).toBe('failed');
     expect(checkpoint.resources.filter((resource) => resource.state === 'deleted')).toHaveLength(0);
 
@@ -1761,7 +1766,7 @@ describe('platform lifecycle management', () => {
     );
 
     expect(fake.deleted.some(([kind]) => kind === 'queue')).toBe(false);
-    const result = listInstallationManifests()[0]!;
+    const result = listInstallationManifests()[0];
     expect(result.status).toBe('uninstalled');
     expect(
       result.resources
@@ -1798,7 +1803,7 @@ describe('platform lifecycle management', () => {
     );
 
     expect(fake.deleted.some(([kind]) => kind === 'queue')).toBe(false);
-    const result = listInstallationManifests()[0]!;
+    const result = listInstallationManifests()[0];
     expect(result.status).toBe('uninstalled');
     expect(
       result.resources
@@ -1844,7 +1849,7 @@ describe('platform lifecycle management', () => {
         uninstallDependencies,
       ),
     ).rejects.toThrow('connection closed after routing deletion');
-    const checkpoint = listInstallationManifests()[0]!;
+    const checkpoint = listInstallationManifests()[0];
     expect(checkpoint.status).toBe('failed');
     expect(checkpoint.resources.find((resource) => resource.key === 'routing-kv')?.state).toBe(
       'ready',
@@ -1901,7 +1906,7 @@ describe('platform lifecycle management', () => {
     await uninstallPlatform(fake, manifest, uninstallArgs, uninstallDependencies);
     expect(fake.deleted).toEqual([]);
     expect(listInstallationManifests()[0]).toMatchObject({ status: 'uninstalled' });
-    expect(listInstallationManifests()[0]!.resources[0]).toMatchObject({ state: 'retained' });
+    expect(listInstallationManifests()[0].resources[0]).toMatchObject({ state: 'retained' });
   });
 
   it('resumes after routes were removed but remote disable checkpointing failed', async () => {
@@ -1914,7 +1919,7 @@ describe('platform lifecycle management', () => {
     await expect(disablePlatform(first, manifest, false)).rejects.toThrow('temporary KV failure');
     expect(listInstallationManifests()[0]?.status).toBe('failed');
 
-    const failed = listInstallationManifests()[0]!;
+    const failed = listInstallationManifests()[0];
     const second = client(failed);
     await disablePlatform(second, failed, false);
     expect(trafficRetentionSteps()).toEqual(['disable:0:routes']);
@@ -1927,7 +1932,7 @@ describe('platform lifecycle management', () => {
     const first = client(manifest);
     await disablePlatform(first, manifest, false);
 
-    const disabled = listInstallationManifests()[0]!;
+    const disabled = listInstallationManifests()[0];
     const second = client(disabled);
     await disablePlatform(second, disabled, false);
 

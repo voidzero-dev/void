@@ -28,11 +28,8 @@
 
 import { join } from 'pathslash';
 import { globSync } from 'tinyglobby';
-import {
-  compareEmailRoutes,
-  compileEmailPattern,
-  type CompiledEmailPattern,
-} from '../shared/email-pattern.ts';
+import { compareEmailRoutes, compileEmailPattern } from '../shared/email-pattern.ts';
+import type { CompiledEmailPattern } from '../shared/email-pattern.ts';
 
 const EMAIL_EXTENSIONS = ['ts', 'mts', 'js', 'mjs'];
 
@@ -52,10 +49,12 @@ export interface EmailHandlersScan {
   defaultHandler?: string;
 }
 
-function parseEmailFiles(files: Array<string>): {
+type ParsedEmailFiles = {
   addresses: Array<EmailHandlerDefinition>;
   defaultHandler?: string;
-} {
+};
+
+function parseEmailFiles(files: Array<string>): ParsedEmailFiles {
   const addresses: Array<EmailHandlerDefinition> = [];
   let defaultHandler: string | undefined;
 

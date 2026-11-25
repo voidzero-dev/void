@@ -145,13 +145,18 @@ export function planWebSocketMigrations(input: {
   };
 }
 
+type SqliteClassMigrationResult = {
+  migrations: ReadonlyArray<DurableObjectMigrationStep>;
+  added: boolean;
+};
+
 /** Append one SQLite class step without reclassifying an existing namespace. */
 export function appendSqliteClassMigration(
   migrations: ReadonlyArray<DurableObjectMigrationStep>,
   classes: ReadonlyArray<string>,
   baseTag: string,
   knownExistingClasses: ReadonlyArray<string> = [],
-): { migrations: ReadonlyArray<DurableObjectMigrationStep>; added: boolean } {
+): SqliteClassMigrationResult {
   const existingClasses = new Set<string>(knownExistingClasses);
   for (const migration of migrations) {
     for (const name of migration.new_classes ?? []) {
@@ -176,7 +181,12 @@ export function appendSqliteClassMigration(
     return { migrations, added: false };
   }
 
-  const tags = new Set(migrations.map((migration) => migration.tag).filter(Boolean));
+  const tags = new Set(
+    migrations.flatMap((migration) => {
+      const value = migration.tag;
+      return value ? [value] : [];
+    }),
+  );
   let tag = baseTag;
   for (let suffix = 2; tags.has(tag); suffix++) {
     tag = `${baseTag}-${suffix}`;
@@ -196,7 +206,11 @@ function sameStringSet(a: ReadonlyArray<string>, b: ReadonlyArray<string>): bool
 }
 
 export type WebSocketManifestMeta = {
-  routes: ReadonlyArray<WebSocketRouteMeta>;
+  // Hosted deployments only require binding metadata. Older manifests can omit the other fields.
+  routes: ReadonlyArray<
+    Pick<WebSocketRouteMeta, 'className' | 'bindingName'> &
+      Partial<Omit<WebSocketRouteMeta, 'className' | 'bindingName'>>
+  >;
   classes: ReadonlyArray<string>;
   migrations?: ReadonlyArray<WebSocketMigrationMeta>;
 };

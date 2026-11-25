@@ -13,9 +13,8 @@ import {
 // The link must use native filesystem paths so Windows launchers and symlink targets stay valid.
 // oxlint-disable-next-line no-restricted-imports
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repositoryRoot = resolve(import.meta.dirname, '..');
 const localCliPath = join(repositoryRoot, 'packages/void/dist/cli/cli.mjs');
 
 export function resolvePnpmGlobalBin(runPnpm = defaultRunPnpm) {
@@ -160,7 +159,7 @@ function run() {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   try {
     run();
   } catch (error) {

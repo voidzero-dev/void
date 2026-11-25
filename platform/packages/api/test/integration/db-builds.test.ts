@@ -52,8 +52,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -752,7 +752,7 @@ describe('builds', () => {
     )) as {
       rows: ReadonlyArray<{ now: string }>;
     };
-    const fence = fenceRes.rows[0]!.now;
+    const fence = fenceRes.rows[0].now;
 
     // SAME-SHA recreate: a push for commit 'A' arrives and REUSES the in-flight row.
     const reused = await supersedeAndCreateContainerBuild(env.db, {
@@ -847,7 +847,7 @@ describe('builds', () => {
     const c1Builds = await getProjectBuilds(env.db, project.id);
     const queuedC1 = c1Builds.filter((b) => b.commit_sha === 'C1' && b.status === 'queued');
     expect(queuedC1).toHaveLength(1);
-    expect(queuedC1[0]!.id).toBe(rollback.build!.id);
+    expect(queuedC1[0].id).toBe(rollback.build!.id);
 
     // Same-commit redelivery of the rollback now reuses the freshly-queued C1
     // build (it is active/in-flight) — no self-cancel, no re-enqueue.
@@ -913,7 +913,7 @@ describe('builds', () => {
       .select({ active: projects.active_deployment_id })
       .from(projects)
       .where(eq(projects.id, project.id));
-    expect(projRow!.active).toBe(depB.id);
+    expect(projRow.active).toBe(depB.id);
 
     // Force-push back to A → A is not live → REBUILD (new queued A build).
     const rollback = await supersedeAndCreateContainerBuild(env.db, {
@@ -2198,7 +2198,7 @@ describe('createGithubActionsBuildWithinLimit', () => {
     // No duplicate row, and the single build stays active (not superseded).
     const all = await getProjectBuilds(env.db, project.id);
     expect(all).toHaveLength(1);
-    expect(all[0]!.status).toBe('building');
+    expect(all[0].status).toBe('building');
   });
 
   it('does NOT supersede an active Actions build on a DIFFERENT branch', async () => {
@@ -3181,7 +3181,7 @@ describe('github_installations', () => {
 
     const byUser = await getGitHubInstallationsByUser(env.db, user.id);
     expect(byUser).toHaveLength(1);
-    expect(byUser[0]!.installation_id).toBe('555');
+    expect(byUser[0].installation_id).toBe('555');
   });
 
   it('setGitHubInstallationRepositories replaces the repo list', async () => {

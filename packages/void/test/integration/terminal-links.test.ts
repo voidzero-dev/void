@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vite-plus/test';
 const outputModule = new URL('../../src/cli/output.ts', import.meta.url).href;
 const url = 'https://app.example.com/hello?name=void&mode=preview#content';
 
-function render(hyperlinks: boolean, columns = 80): { url: string; named: string; box: string } {
+type TerminalOutput = { url: string; named: string; box: string };
+
+function render(hyperlinks: boolean, columns = 80): TerminalOutput {
   const script = `
 import { formatLink, formatUrl, note } from ${JSON.stringify(outputModule)};
 const url = ${JSON.stringify(url)};
@@ -27,7 +29,7 @@ console.log(JSON.stringify({ url: formatUrl(url), named: formatLink('Dashboard',
       env,
       timeout: 10_000,
     }),
-  );
+  ) as TerminalOutput;
 }
 
 describe('terminal links (real capability detection)', () => {

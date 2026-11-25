@@ -1,8 +1,5 @@
-import {
-  cloudflareCommandDiagnostic,
-  type CloudflareCommandResult,
-  type CloudflareOperation,
-} from '@void/deploy-cloudflare';
+import { cloudflareCommandDiagnostic } from '@void/deploy-cloudflare';
+import type { CloudflareCommandResult, CloudflareOperation } from '@void/deploy-cloudflare';
 import { redactMessage } from '../shared/env-mask.ts';
 import { WRANGLER_AUTH_CREDENTIAL_ENV_VARS } from '../shared/untrusted-env.ts';
 import type { CfCommand } from './cf-version-api.ts';

@@ -15,6 +15,7 @@ export default defineConfig({
     },
     meta: [
       {
+        // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
         charset: 'utf-8',
       },
       {

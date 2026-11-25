@@ -1,7 +1,8 @@
-import { execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
@@ -10,8 +11,8 @@ import {
   spawnFixtureServer,
   startServer,
   waitForServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
   registerSharedClientTests,
@@ -116,7 +117,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     page.on('pageerror', (error) => errors.push(error.message));
     try {
       await page.goto(BASE + '/form-records/first');
-      await waitForHydration(page).catch((error) => {
+      await waitForHydration(page).catch((error: unknown) => {
         throw new Error(`${String(error)}\n${errors.join('\n')}`);
       });
       await page.evaluate(() => {
@@ -203,7 +204,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await waitForHydration(page);
 
       await page.evaluate(() => {
-        (document.querySelector('nav') as NavElement | null)!.__stamp = 1;
+        document.querySelector<NavElement>('nav')!.__stamp = 1;
       });
 
       await page.click('a[href="/users"]');
@@ -211,9 +212,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         document.querySelector('h1')?.textContent?.includes('Users'),
       );
 
-      const stamp = await page.evaluate(
-        () => (document.querySelector('nav') as NavElement | null)?.__stamp,
-      );
+      const stamp = await page.evaluate(() => document.querySelector<NavElement>('nav')?.__stamp);
       expect(stamp).toBe(1);
 
       const navText = await page.textContent('nav');
@@ -259,7 +258,7 @@ describe('vue-pages client (dev)', () => {
     { retry: 2 },
     async () => {
       const pageFile = join(fixture.root, 'pages/deferred.vue');
-      const original = readFileSync(pageFile, 'utf-8');
+      const original = readFileSync(pageFile, 'utf8');
 
       const context = await browser.newContext();
       const page = await context.newPage();
@@ -305,13 +304,13 @@ describe('vue-pages client (dev)', () => {
         // No error overlay — the stripDefinePropsTypeArgument worked during HMR
         expect(
           await page.evaluate(() => {
-            const overlay = document.querySelector('vite-error-overlay') as HTMLElement | null;
+            const overlay = document.querySelector<HTMLElement>('vite-error-overlay');
             if (!overlay) {
               return '';
             }
             return (
-              overlay.shadowRoot?.textContent?.replace(/\s+/g, ' ').trim() ??
-              overlay.textContent?.replace(/\s+/g, ' ').trim() ??
+              overlay.shadowRoot?.textContent?.replaceAll(/\s+/g, ' ').trim() ??
+              overlay.textContent?.replaceAll(/\s+/g, ' ').trim() ??
               ''
             );
           }),

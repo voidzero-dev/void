@@ -121,6 +121,7 @@ describe('guided installation app access', () => {
     prompts.select.mockResolvedValue('public');
     await selectInstallationAppAccess({ authentication: { providers: ['github'] } });
     expect(
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       prompts.select.mock.calls[1]?.[0].options.map((v: { value: string }) => v.value),
     ).toEqual(['public', 'custom']);
   });
@@ -254,7 +255,7 @@ describe('guided installation app access', () => {
     const { input, fetcher } = fixture('public');
     fetcher.mockResolvedValueOnce(
       Response.json(
-        { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
+        { success: false, errors: [{ code: 10_000, message: 'Authentication error' }] },
         { status: 403 },
       ),
     );
@@ -342,7 +343,7 @@ describe('guided installation app access', () => {
       Response.json({ installationId: 'team', turnedOff: true }),
     );
     await turnOffInstalledProjectZeroTrust(input, fetcher);
-    const [url, init] = fetcher.mock.calls[0]!;
+    const [url, init] = fetcher.mock.calls[0];
     expect(String(url)).toBe('https://platform.example.test/internal/platform/app-access/turn-off');
     expect(init).toMatchObject({
       method: 'POST',

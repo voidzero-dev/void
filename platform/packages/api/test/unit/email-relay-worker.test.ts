@@ -136,7 +136,7 @@ describe('RELAY_SOURCE', () => {
     await loadRelayWorker().email(message, env, ctx);
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://gateway.example.test/email/ingress');
     expect(init.method).toBe('POST');
     // No hand-set Content-Length: the runtime ignores one on a stream body
@@ -260,14 +260,14 @@ describe('RELAY_SOURCE', () => {
       env,
     );
     expect(response.status).toBe(200);
-    const proof = (await response.json()) as {
+    const proof = await response.json<{
       accountId: string;
       zoneId: string;
       ingressName: string;
       generation: number;
       challenge: string;
       proof: string;
-    };
+    }>();
     expect(proof).toMatchObject({
       accountId: 'acct_1',
       zoneId: 'zone_1',

@@ -21,7 +21,7 @@ function capture(isTTY = false) {
   const output = Object.assign(
     new Writable({
       write(chunk, _encoding, done) {
-        text += chunk.toString();
+        text += (chunk as string | Uint8Array).toString();
         done();
       },
     }),

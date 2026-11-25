@@ -32,8 +32,8 @@ import {
   VOID_BUILD_CHECK_RUN_NAME,
   completeCheckRun,
   preservedCheckRunConclusion,
-  type CheckRunConclusion,
 } from '../github/check-run.ts';
+import type { CheckRunConclusion } from '../github/check-run.ts';
 import { listInstallationRepositories } from '../github/installation-repos.ts';
 import {
   getBranchExistence,
@@ -1296,7 +1296,12 @@ export async function handleVerifiedGitHubWebhook(
       }
       const orgId = data.organization?.id;
       const removedGithubUserId = data.membership?.user?.id;
-      if (orgId == null || removedGithubUserId == null) {
+      if (
+        orgId === null ||
+        orgId === undefined ||
+        removedGithubUserId === null ||
+        removedGithubUserId === undefined
+      ) {
         return context.json({ ok: true, ignored: 'organization: missing ids' });
       }
 

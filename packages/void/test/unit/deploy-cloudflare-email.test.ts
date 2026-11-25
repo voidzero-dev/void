@@ -6,7 +6,8 @@ import { log } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { runCloudflareEmailStep } from '../../src/cli/deploy-cloudflare-email.ts';
 import type { DeployWranglerRunResult } from '../../src/cli/deploy-types.ts';
-import { renderAddressMap, type EmailDns } from '../../src/cli/email-cloudflare.ts';
+import { renderAddressMap } from '../../src/cli/email-cloudflare.ts';
+import type { EmailDns } from '../../src/cli/email-cloudflare.ts';
 
 /**
  * A sending-only app (no `email/` handlers) deployed from CI with an API token, shaped like
@@ -118,18 +119,18 @@ function cpojerAccount() {
 function captureOutput(): { lines: Array<string>; restore: () => void } {
   const lines: Array<string> = [];
   const spies = (['message', 'info', 'warn', 'error', 'success', 'step'] as const).map((level) =>
-    vi.spyOn(log, level).mockImplementation(((message: unknown) => {
+    vi.spyOn(log, level).mockImplementation((message: unknown) => {
       lines.push(`${level}: ${String(message)}`);
-    }) as never),
+    }),
   );
-  const out = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => {
+  const out = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
     lines.push(`stdout: ${String(chunk)}`);
     return true;
-  }) as never);
-  const err = vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: unknown) => {
+  });
+  const err = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
     lines.push(`stderr: ${String(chunk)}`);
     return true;
-  }) as never);
+  });
   return {
     lines,
     restore: () => {

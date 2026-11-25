@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { validateManifestShape, type DeployManifest } from '../../src/index.ts';
+import { validateManifestShape } from '../../src/index.ts';
+import type { DeployManifest } from '../../src/index.ts';
 
 describe('D1 read replication', () => {
   it.each([undefined, false, true])('accepts readReplication %s', (readReplication) => {
@@ -45,7 +46,7 @@ describe('queue concurrency', () => {
     ).toBeNull();
   });
 
-  it.each([0, -1, 251, 1.5, Infinity, NaN, '2', null])(
+  it.each([0, -1, 251, 1.5, Infinity, Number.NaN, '2', null])(
     'rejects invalid maxConcurrency = %s',
     (maxConcurrency) => {
       expect(

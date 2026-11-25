@@ -8,7 +8,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
@@ -50,7 +51,9 @@ beforeEach(async () => {
     response.writeHead(result.status ?? 200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify(result.body));
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
   const address = server.address();
   if (!address || typeof address === 'string') {
     throw new Error('Missing server address');
@@ -60,7 +63,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   server.closeAllConnections();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  });
   rmSync(directory, { recursive: true, force: true });
 });
 
@@ -329,6 +334,43 @@ describe('operator CLI (real subprocess and HTTP)', () => {
     expect(result.stderr).toContain('"status": "skipped"');
     expect(requests).toHaveLength(2);
   });
+  it('prints data keys such as worker names as they are', async () => {
+    reply = () => ({
+      body: {
+        dryRun: true,
+        action: 'worker.rollback-all',
+        target: 'production',
+        versions: { 'email-gateway': 'version-gateway', 'void-api-staging': 'version-api' },
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    });
+
+    const result = await run(['worker', 'rollback-all', '--plan']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('email-gateway: version-gateway');
+    expect(result.stdout).toContain('void-api-staging: version-api');
+    expect(result.stdout).not.toContain('Email gateway');
+    expect(result.stdout).toContain('Created at: 2026-01-01T00:00:00Z');
+  });
+  it('labels refusal details as details, not as a partial result', async () => {
+    reply = () => ({
+      status: 501,
+      body: {
+        error: 'capability_unavailable',
+        message: 'Manage this self-hosted Void platform with `void platform upgrade`.',
+        details: { capability: 'hosted-platform-operations' },
+      },
+    });
+
+    const result = await run(['worker', 'list']);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('Manage this self-hosted Void platform');
+    expect(result.stderr).toContain('Details:');
+    expect(result.stderr).toContain('"capability": "hosted-platform-operations"');
+    expect(result.stderr).not.toContain('Partial result');
+  });
   it('exchanges piped API sessions only on explicit auth token invocation', async () => {
     reply = () => ({
       body: {
@@ -369,7 +411,7 @@ describe('operator CLI (real subprocess and HTTP)', () => {
       result.stdout
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line)),
+        .map((line): unknown => JSON.parse(line)),
     ).toEqual([expect.objectContaining({ lastSeq: 1, terminal: true, logsComplete: true })]);
     expect(requests).toEqual([
       expect.objectContaining({ path: '/operator/v1/builds/build-1/logs?since=0' }),

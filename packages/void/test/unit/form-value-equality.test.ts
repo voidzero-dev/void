@@ -5,7 +5,7 @@ describe('isEqualFormValue (shared by every useForm adapter)', () => {
   it.each([
     ['equal strings', 'name', 'name', true],
     ['different strings', 'name', 'other', false],
-    ['NaN', NaN, NaN, true],
+    ['NaN', Number.NaN, Number.NaN, true],
     ['signed zero', -0, 0, false],
     ['null and undefined', null, undefined, false],
     ['equal nested arrays', ['one', { count: 2 }], ['one', { count: 2 }], true],

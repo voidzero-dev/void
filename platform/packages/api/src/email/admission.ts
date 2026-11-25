@@ -78,7 +78,7 @@ export class EmailAdmissionError extends Error {
 }
 
 /** Operator recovery is never based on elapsed time alone. This excludes recent calls. */
-export const EMAIL_ATTEMPT_RECOVERY_MIN_AGE_MS = 24 * 60 * 60 * 1_000;
+export const EMAIL_ATTEMPT_RECOVERY_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
 export async function resolveEmailUnresolvedAttempt(
   db: Db,
@@ -200,7 +200,7 @@ async function ensureControls(tx: Tx, projectId: string) {
     .from(emailProjectControls)
     .where(eq(emailProjectControls.project_id, projectId))
     .for('update');
-  return row!;
+  return row;
 }
 
 export async function setProjectEmailLimits(
@@ -210,11 +210,12 @@ export async function setProjectEmailLimits(
 ) {
   return withProjectEmailControlLock(db, projectId, async (tx) => {
     await ensureControls(tx, projectId);
-    const update: {
+    type EmailLimitUpdate = {
       monthly_limit?: number;
       burst_limit?: number;
       version: ReturnType<typeof sql>;
-    } = { version: sql`${emailProjectControls.version} + 1` };
+    };
+    const update: EmailLimitUpdate = { version: sql`${emailProjectControls.version} + 1` };
     if (limits.monthly !== undefined) {
       update.monthly_limit = limits.monthly ?? DEFAULT_EMAIL_MONTHLY_LIMIT;
     }
@@ -234,7 +235,7 @@ export async function setProjectEmailLimits(
       .set(update)
       .where(eq(emailProjectControls.project_id, projectId))
       .returning();
-    return row!;
+    return row;
   });
 }
 
@@ -249,7 +250,7 @@ export async function setProjectEmailSuspended(db: Db, projectId: string, suspen
       })
       .where(eq(emailProjectControls.project_id, projectId))
       .returning();
-    return row!;
+    return row;
   });
 }
 
@@ -361,7 +362,7 @@ export async function admitEmailAction(
       .where(eq(users.id, project.user_id))
       .limit(1);
     const policy = await getEmailRecipientPolicy(tx);
-    const senderDomain = input.from.toLowerCase().split('@')[1]!;
+    const senderDomain = input.from.toLowerCase().split('@')[1];
     const shared = senderDomain === input.sharedSenderDomain.toLowerCase();
     if (shared && !/^[a-z0-9._-]+(?:\+[a-z0-9._=/-]+)*@[a-z0-9.-]+$/i.test(input.from)) {
       throw new EmailAdmissionError('INVALID_REQUEST', 'invalid shared sender');
@@ -384,10 +385,10 @@ export async function admitEmailAction(
     if (input.transport !== expectedTransport && !nativeCustomTransport && !sharedBindingReply) {
       throw new EmailAdmissionError('INVALID_REQUEST', 'invalid email transport');
     }
-    let senderAllowed = false;
+    let senderAllowed: boolean;
     let verifiedOnlyTransport = input.transport === 'native_forward';
     if (shared) {
-      const name = input.from.toLowerCase().split('@')[0]!.split('+')[0]!;
+      const name = input.from.toLowerCase().split('@')[0].split('+')[0];
       senderAllowed =
         !isReservedEmailSlug(project.slug) &&
         projectMailboxNames(project).some((candidate) => candidate.toLowerCase() === name);
@@ -474,12 +475,12 @@ export async function admitEmailAction(
       transport: input.transport,
       policy_version: controls.version,
     });
-    const recipientDomains = [...new Set(recipients.map((recipient) => recipient.split('@')[1]!))];
+    const recipientDomains = [...new Set(recipients.map((recipient) => recipient.split('@')[1]))];
     const destinationRoutes = await resolveEmailDomains(tx, recipientDomains);
     let admittedCount = 0;
     const recipientRows: Array<typeof emailActionRecipients.$inferInsert> = [];
     for (const recipient of recipients) {
-      const domain = recipient.split('@')[1]!;
+      const domain = recipient.split('@')[1];
       const consent = verified.has(recipient);
       const allowedByMode =
         policy.mode === 'any' || (policy.mode === 'domains' && policy.domains.includes(domain));
@@ -536,7 +537,7 @@ export async function admitEmailAction(
       replay: false,
       recipients: await currentRecipients(tx, actionId),
       ...(!shared && senderAllowed
-        ? { accountId: (await resolveEmailDomain(tx, senderDomain))!.connection.account_id }
+        ? { accountId: (await resolveEmailDomain(tx, senderDomain)).connection.account_id }
         : {}),
     };
   });
@@ -639,11 +640,15 @@ export async function transitionEmailRecipients(
       .select()
       .from(emailActionRecipients)
       .where(eq(emailActionRecipients.action_id, actionId));
-    if (normalized.some((r) => !rows.some((row) => row.recipient === r))) {
+    const rowsByRecipient = new Map(rows.map((row) => [row.recipient, row]));
+    if (normalized.some((recipient) => !rowsByRecipient.has(recipient))) {
       throw new EmailAdmissionError('INVALID_REQUEST', 'recipient is not in action');
     }
     for (const recipient of normalized) {
-      const current = rows.find((row) => row.recipient === recipient)!;
+      const current = rowsByRecipient.get(recipient);
+      if (!current) {
+        throw new EmailAdmissionError('INVALID_REQUEST', 'recipient is not in action');
+      }
       const expected =
         next === 'attempt_started' || next === 'cancelled' ? 'reserved' : 'attempt_started';
       if (current.state !== expected) {
@@ -853,8 +858,9 @@ function validReceiptRouteFence(value: unknown): value is EmailReceiptRouteFence
     typeof route.routeId === 'string' &&
     route.routeId.length > 0 &&
     route.routeId.length <= 128 &&
+    typeof route.routeGeneration === 'number' &&
     Number.isSafeInteger(route.routeGeneration) &&
-    route.routeGeneration! >= 1 &&
+    route.routeGeneration >= 1 &&
     typeof route.connectionId === 'string' &&
     route.connectionId.length > 0 &&
     route.connectionId.length <= 128 &&
@@ -948,7 +954,7 @@ export async function recordEmailReceipt(
         .insert(emailReceipts)
         .values({ id: input.receiptId, project_id: input.projectId, status: input.status })
         .returning({ createdAt: emailReceipts.created_at });
-      await incrementInboundReceiptUsage(tx, input.projectId, inserted!.createdAt);
+      await incrementInboundReceiptUsage(tx, input.projectId, inserted.createdAt);
     }
   });
 }
@@ -1015,7 +1021,7 @@ export async function claimRelayedEmailReceipt(
       .onConflictDoNothing()
       .returning({ id: emailReceipts.id, createdAt: emailReceipts.created_at });
     if (inserted.length) {
-      await incrementInboundReceiptUsage(tx, input.projectId, inserted[0]!.createdAt);
+      await incrementInboundReceiptUsage(tx, input.projectId, inserted[0].createdAt);
       return { state: 'claimed' };
     }
     const [concurrent] = await tx

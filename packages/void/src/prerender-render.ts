@@ -82,7 +82,7 @@ export async function readPrerenderPathsResponse(response: Response): Promise<Ar
     throw new Error(`prerender: Failed to collect prerender paths. ${detail}`);
   }
 
-  const payload = (await response.json()) as { paths?: unknown } | null;
+  const payload = await response.json<{ paths?: unknown } | null>();
   if (
     !payload ||
     !Array.isArray(payload.paths) ||
@@ -155,7 +155,7 @@ function renderConcurrency(
   const outputs = paths.map((path) => generatedFiles(path, clientDir, host));
   const ownerByOutput = new Map<string, number>();
   for (let index = 0; index < outputs.length; index++) {
-    for (const output of outputs[index]!) {
+    for (const output of outputs[index]) {
       if (ownerByOutput.has(output)) {
         return 1;
       }
@@ -177,7 +177,7 @@ function renderConcurrency(
   // original serial order for the whole list when either request could observe
   // the other's output, including canonical foo.html/foo/index.html lookups.
   for (let index = 0; index < paths.length; index++) {
-    for (const candidate of requestAssetCandidates(paths[index]!, clientDir)) {
+    for (const candidate of requestAssetCandidates(paths[index], clientDir)) {
       const owner = ownerByOutput.get(candidate);
       if (owner !== undefined && owner !== index) {
         return 1;
@@ -204,8 +204,8 @@ export async function renderPrerenderPaths(
       async () => {
         while (next < paths.length) {
           const index = next++;
-          const path = paths[index]!;
-          const result = results[index]!;
+          const path = paths[index];
+          const result = results[index];
           const outputFile = outputFileForPath(path, host);
           const outputPath = join(clientDir, outputFile);
           const pageDataPath = join(clientDir, pageDataFileForPath(path, host));

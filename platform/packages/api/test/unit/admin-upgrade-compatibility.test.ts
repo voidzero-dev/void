@@ -59,7 +59,7 @@ it('upgrades the OAuth schema without elevating existing grants or changing prod
   } finally {
     await db.close();
   }
-}, 30000);
+}, 30_000);
 
 it('normalizes worker project modes without changing deployment pointers and retains rollback to 0.22.0', async () => {
   const root = resolve(import.meta.dirname, '../../drizzle');
@@ -280,7 +280,9 @@ it('allows upgrading the 0.25.0 and 0.26.0 schema after adding the proxy token g
 // 0.27.0 ignores OAuth tables and rejects the new deployment token audience.
 it('retains rollback to 0.27.0 after adding registered OAuth clients', () => {
   const root = resolve(import.meta.dirname, '../../drizzle');
-  const journal = JSON.parse(readFileSync(resolve(root, 'meta/_journal.json'), 'utf8'));
+  const journal = JSON.parse(readFileSync(resolve(root, 'meta/_journal.json'), 'utf8')) as {
+    entries: Array<{ tag: string; idx: number; when: number }>;
+  };
   const compatibility = JSON.parse(readFileSync(resolve(root, 'compatibility.json'), 'utf8'));
   expect(journal.entries.some((entry: { tag: string }) => entry.tag === '0059_oauth_clients')).toBe(
     true,

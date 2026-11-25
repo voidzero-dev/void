@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,14 +10,15 @@ import {
   createPlatformDeploymentManifest,
   PLATFORM_DISABLED_KEY,
   PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { hyperdriveOriginFromConnectionString } from '../../src/cli/platform-cloudflare.ts';
 import { verifyPlatformWorkerCutoverVersions } from '../../src/cli/platform-installer-cutover.ts';
-import {
-  type PlatformInstallerDependencies,
-  type PlatformInstallationSecrets,
+import type {
+  PlatformInstallerDependencies,
+  PlatformInstallationSecrets,
 } from '../../src/cli/platform-installer-types.ts';
 import {
   createPlatformInstallationSecrets,
@@ -90,7 +92,9 @@ async function createFakeCloudflare() {
     });
   });
   servers.push(upstream);
-  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => {
+    upstream.listen(0, '127.0.0.1', resolve);
+  });
   const apiBaseUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}/client/v4`;
   const workers = new Map<
     string,
@@ -106,7 +110,9 @@ async function createFakeCloudflare() {
   let failUpload: string | null = null;
 
   const configOf = (operation: CloudflareOperation): Record<string, unknown> | null => {
-    return operation.configPath ? JSON.parse(readFileSync(operation.configPath, 'utf8')) : null;
+    return operation.configPath
+      ? (JSON.parse(readFileSync(operation.configPath, 'utf8')) as Record<string, unknown>)
+      : null;
   };
   const workerOf = (operation: CloudflareOperation) =>
     ('workerName' in operation ? operation.workerName : undefined) ??
@@ -224,17 +230,21 @@ async function createFakeCloudflare() {
       };
     };
   const list = (kind: string, name?: string) =>
-    [...(named.get(kind) ?? new Map<string, string>())]
-      .filter(([entry]) => name === undefined || entry === name)
-      .map(([entry, id]) => ({
-        id,
-        name: entry,
-        ...(kind === 'r2' ? { fingerprint: '2026-10-01T00:00:00.000Z' } : {}),
-      }));
+    [...(named.get(kind) ?? new Map<string, string>())].flatMap(([entry, id]) =>
+      name === undefined || entry === name
+        ? [
+            {
+              id,
+              name: entry,
+              ...(kind === 'r2' ? { fingerprint: '2026-10-01T00:00:00.000Z' } : {}),
+            },
+          ]
+        : [],
+    );
   const plainTextBindings = async (_account: string, name: string) => {
     const entry = workers.get(name);
     const active = entry?.deployments[0]?.versions[0]?.version_id;
-    const version = active ? entry!.versions.get(active) : undefined;
+    const version = active ? entry.versions.get(active) : undefined;
     return Object.fromEntries(
       (version?.resources.bindings ?? []).map((binding) => [binding.name, binding.text]),
     );
@@ -263,6 +273,7 @@ async function createFakeCloudflare() {
       kv.delete(`${namespace}/${key}`);
     },
     disableHyperdriveCaching: async () => {},
+    setHyperdriveOriginConnectionLimit: async () => {},
     getHyperdriveConfig: async (_account: string, id: string) => ({
       cachingDisabled: true,
       id,
@@ -271,9 +282,9 @@ async function createFakeCloudflare() {
     }),
     getWorkerPlainTextBindings: plainTextBindings,
     listKvKeys: async (_account: string, namespace: string, prefix: string) =>
-      [...kv.keys()]
-        .filter((key) => key.startsWith(`${namespace}/${prefix}`))
-        .map((key) => ({ name: key.slice(namespace.length + 1) })),
+      [...kv.keys()].flatMap((key) =>
+        key.startsWith(`${namespace}/${prefix}`) ? [{ name: key.slice(namespace.length + 1) }] : [],
+      ),
     listWorkerDomains: async () => [],
     listWorkerNames: async () => [...workers.keys()],
     listWorkerRoutes: async () => [],
@@ -338,13 +349,13 @@ async function createFakeCloudflare() {
     secretUploads,
     replaceActiveVersion: (name: string) => {
       const worker = workers.get(name)!;
-      const active = worker.versions.get(worker.deployments[0]!.versions[0]!.version_id)!;
+      const active = worker.versions.get(worker.deployments[0].versions[0].version_id)!;
       const replacement = { ...structuredClone(active), id: randomUUID() };
       worker.versions.set(replacement.id, replacement);
       activate(name, replacement.id);
     },
     restorePreviousVersion: (name: string) => {
-      activate(name, workers.get(name)!.deployments[1]!.versions[0]!.version_id);
+      activate(name, workers.get(name)!.deployments[1].versions[0].version_id);
     },
   };
 }
@@ -430,7 +441,7 @@ async function runInstall(
 }
 
 function currentManifest(): PlatformInstallationManifest {
-  return listInstallationManifests(process.env.VOID_PLATFORM_REGISTRY_DIR!)[0]!;
+  return listInstallationManifests(process.env.VOID_PLATFORM_REGISTRY_DIR)[0];
 }
 
 function workerStepKeys(manifest: PlatformInstallationManifest) {

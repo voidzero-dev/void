@@ -3,12 +3,8 @@ import { getToken } from './auth.ts';
 import { PlatformClient } from './client.ts';
 import { promptAndCreateProject } from './create-project.ts';
 import { promptForLoginToken } from './login.ts';
-import {
-  attachSelectedPlatform,
-  readProjectConfig,
-  writeProjectConfig,
-  type ProjectConfig,
-} from './project.ts';
+import { attachSelectedPlatform, readProjectConfig, writeProjectConfig } from './project.ts';
+import type { ProjectConfig } from './project.ts';
 import { promptProjectSelection } from './prompt.ts';
 
 export async function maybeSetupDeployProject(root: string): Promise<ProjectConfig | null> {

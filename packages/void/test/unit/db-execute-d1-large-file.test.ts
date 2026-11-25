@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { cleanups, temporaryDirectory } from '../helpers/cloudflare-operation-process.ts';
 
 // Record what the CLI hands to each child process, without changing what runs.
@@ -25,11 +26,11 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
-const mockConfirm = vi.fn();
+const mockConfirm = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').confirm>();
 const mockWarn = vi.fn();
 vi.mock('@voidzero-dev/vite-plus-prompts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@voidzero-dev/vite-plus-prompts')>()),
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
   log: { error: vi.fn(), info: vi.fn(), step: vi.fn(), success: vi.fn(), warn: mockWarn },
 }));
 
@@ -72,7 +73,7 @@ async function startFakeD1Api(directory: string) {
   const entries: Array<Record<string, unknown>> = [];
   const port = await new Promise<number>((resolve, reject) => {
     child.once('exit', (code) => reject(new Error(`fake D1 API exited with ${code}`)));
-    createInterface({ input: child.stdout! }).on('line', (line) => {
+    createInterface({ input: child.stdout }).on('line', (line) => {
       const entry = JSON.parse(line) as Record<string, unknown>;
       if (typeof entry.port === 'number') {
         resolve(entry.port);
@@ -84,7 +85,9 @@ async function startFakeD1Api(directory: string) {
   // The last report can still be in the pipe when the CLI returns.
   const settled = async (count: number) => {
     for (let attempt = 0; entries.length < count && attempt < 100; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
     }
     return entries;
   };

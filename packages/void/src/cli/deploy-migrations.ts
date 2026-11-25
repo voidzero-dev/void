@@ -3,7 +3,7 @@ import { cloudflareCommandDiagnostic, readBindingFieldPresence } from '@void/dep
 import { Minimatch } from 'minimatch';
 import { dirname, join, normalize, resolve } from 'pathslash';
 import type { VoidAuthMigrationSchema } from '../auth/drizzle.ts';
-import { type DatabaseDialect } from '../config.ts';
+import type { DatabaseDialect } from '../config.ts';
 import { openMigrationValidationDatabase } from '../migrations/sqlite-validation.ts';
 import { assertJournalCoherence, validateMigrations } from '../migrations/validate.ts';
 import { readProjectPaths } from '../project-paths.ts';
@@ -11,15 +11,22 @@ import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import { hasDeploySchemaDrift, getDeploySchemaDriftMessage } from './deploy-drift.ts';
 import { log } from './deploy-helpers.ts';
 import { CLOUDFLARE_RESOURCE_LABELS } from './deploy-resources.ts';
-import {
-  type RequiredAuthTable,
-  type TableInfoRow,
-  type DeployWranglerRun,
-  type DeployWranglerRunResult,
+import type {
+  RequiredAuthTable,
+  TableInfoRow,
+  DeployWranglerRun,
+  DeployWranglerRunResult,
 } from './deploy-types.ts';
 import { formatCount, getErrorMessage } from './output.ts';
 import type { ProvisionDriftEntry } from './provision.ts';
 import { sanitizeTerminalLogText } from './terminal-log-text.ts';
+
+// SQLite matches identifiers case-insensitively, but PRAGMAs echo the declared casing.
+const foldIdentifier = (identifier: string): string => identifier.toLowerCase();
+
+const quote = (identifier: string): string => `"${identifier.replaceAll('"', '""')}"`;
+
+const sameIdentifier = (a: string, b: string): boolean => foldIdentifier(a) === foldIdentifier(b);
 
 /**
  * Apply the checked-in migrations to an in-memory SQLite database and assert the resulting
@@ -36,10 +43,6 @@ export async function assertMigrationsProduceAuthSchema(
   required: Array<RequiredAuthTable>,
 ): Promise<void> {
   const db = await openMigrationValidationDatabase(migrations);
-  const quote = (identifier: string): string => `"${identifier.replace(/"/g, '""')}"`;
-  // SQLite matches identifiers case-insensitively, but PRAGMAs echo the declared casing.
-  const foldIdentifier = (identifier: string): string => identifier.toLowerCase();
-  const sameIdentifier = (a: string, b: string): boolean => foldIdentifier(a) === foldIdentifier(b);
   // Foreign keys need the parent table's info too. A table no migration created yields `[]`.
   const tableInfoCache = new Map<string, Array<TableInfoRow>>();
   const tableInfoFor = (table: string): Array<TableInfoRow> => {
@@ -240,7 +243,7 @@ export async function assertMigrationsProduceAuthSchema(
         // whether SQLite accepts the parent key. A null `to` (`REFERENCES "user"`) means the
         // parent's single-column PRIMARY KEY.
         const satisfied = matching.some((fk) => {
-          if (fk.to != null) {
+          if (fk.to !== null && fk.to !== undefined) {
             return sameIdentifier(String(fk.to), reference.column);
           }
           const parentPrimaryKey = singleColumnPrimaryKey(fk.table);
@@ -255,7 +258,7 @@ export async function assertMigrationsProduceAuthSchema(
                   `child columns is NULL, so a row naming a "${reference.table}" that does not ` +
                   `exist is still accepted. This reference needs its own single-column foreign ` +
                   `key on "${required.column}"`
-              : matching.some((fk) => fk.to == null)
+              : matching.some((fk) => fk.to === null || fk.to === undefined)
                 ? `table "${req.table}" column "${required.column}" references "${reference.table}" ` +
                   `without naming a target column, but "${reference.table}"."${reference.column}" ` +
                   `is not that table's single-column PRIMARY KEY — SQLite resolves an omitted ` +
@@ -320,7 +323,7 @@ function readEmittedAuthMigrationSchema(root: string): Array<RequiredAuthTable> 
       `the build did not emit ${schemaPath}, so the generated auth schema could not be read from the build output.`,
     );
   }
-  const content = readFileSync(schemaPath, 'utf-8');
+  const content = readFileSync(schemaPath, 'utf8');
   const marker = 'export const migrationSchema = ';
   const start = content.indexOf(marker);
   if (start === -1) {
@@ -410,7 +413,7 @@ export function assertRemoteMigrationsDeployable(
  */
 function leadingWranglerMigrationNumber(relativePath: string): number {
   const firstSegment = relativePath.split('/')[0] ?? '';
-  return parseInt(firstSegment.split('_')[0] ?? '', 10);
+  return Number.parseInt(firstSegment.split('_')[0] ?? '', 10);
 }
 
 function compareWranglerMigrationSegments(a: string, b: string): number {
@@ -441,7 +444,7 @@ export function compareWranglerMigrationPaths(a: string, b: string): number {
   const bSegments = b.split('/');
   const shared = Math.min(aSegments.length, bSegments.length);
   for (let i = 0; i < shared; i++) {
-    const cmp = compareWranglerMigrationSegments(aSegments[i] as string, bSegments[i] as string);
+    const cmp = compareWranglerMigrationSegments(aSegments[i], bSegments[i]);
     if (cmp !== 0) {
       return cmp;
     }
@@ -455,7 +458,7 @@ export function resolveWranglerMigrationPattern(
   migrationsDirRaw: string,
 ): { ok: true; pattern: string } | { ok: false; reason: string } {
   const field = readBindingFieldPresence(config, 'd1_databases', binding, 'migrations_pattern');
-  const migrationsDir = normalize(migrationsDirRaw.replace(/\\/g, '/')).replace(/\/$/, '');
+  const migrationsDir = normalize(migrationsDirRaw.replaceAll('\\', '/')).replace(/\/$/, '');
   if (!field.present) {
     return { ok: true, pattern: '*.sql' };
   }
@@ -479,7 +482,7 @@ export function resolveWranglerMigrationPattern(
       reason: `deploy: migrations_pattern for D1 binding ${binding} must be a non-empty string.`,
     };
   }
-  const normalized = normalize(field.value.replace(/\\/g, '/')).replace(/\/$/, '');
+  const normalized = normalize(field.value.replaceAll('\\', '/')).replace(/\/$/, '');
   const prefix = migrationsDir === '.' ? '' : `${migrationsDir}/`;
   if (prefix && !normalized.startsWith(prefix)) {
     return {
@@ -549,10 +552,10 @@ export async function checkWranglerMigrationApplySet(
   }
   const wranglerNames = listWranglerMigrationFiles(absDir, resolvedPattern.pattern);
   const wranglerContent = new Map(
-    wranglerNames.map((name) => [name, readFileSync(join(absDir, name), 'utf-8')]),
+    wranglerNames.map((name) => [name, readFileSync(join(absDir, name), 'utf8')]),
   );
-  const gatedNames = gated.map((m) => m.name.replace(/\\/g, '/'));
-  const gatedContent = new Map(gatedNames.map((name, i) => [name, gated[i]!.sql]));
+  const gatedNames = gated.map((m) => m.name.replaceAll('\\', '/'));
+  const gatedContent = new Map(gatedNames.map((name, i) => [name, gated[i].sql]));
 
   const wranglerSet = new Set(wranglerNames);
   const extra = wranglerNames.filter((k) => !gatedContent.has(k));
@@ -648,7 +651,7 @@ export async function applyAndVerifyRemoteD1Migrations(
       );
       const pending = (listed.data as { pending?: unknown } | undefined)?.pending;
       if (isCleanCloudflareExit(listed) && Array.isArray(pending)) {
-        return pending;
+        return pending as Array<unknown>;
       }
       log.error(
         `deploy: could not read the pending D1 migrations for "${d1MigrateToken}" before applying them ` +

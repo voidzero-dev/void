@@ -1,9 +1,4 @@
-import {
-  matchLiteralPattern,
-  PAGES_PROTOCOL_VERSION,
-  redirectToHttps,
-  type ProjectZeroTrustRouting,
-} from '@void/edge';
+import { matchLiteralPattern, PAGES_PROTOCOL_VERSION, redirectToHttps } from '@void/edge';
 import { clientRevalidateResponse, isEventStreamResponse } from '@void/isr/runtime';
 import {
   PLATFORM_HEALTH_HOSTNAME_LABEL,
@@ -11,11 +6,17 @@ import {
   readPlatformApplication,
   resolvePlatformApplicationEnvironment,
 } from '@void/platform';
+import {
+  readQueueRoute,
+  readRoutingEntry,
+  readServingAssetManifest,
+} from '@voidcloud/api/routing-records';
+import type { RoutingEntry } from '@voidcloud/api/routing-records';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { projectAccessVerifier } from './access.ts';
 import type { Env } from './env.ts';
 import { createErrorResponse, createMaintenanceResponse } from './error-page.ts';
-import { applyHeaderRules, type HeaderRule } from './headers.ts';
+import { applyHeaderRules } from './headers.ts';
 import {
   readIsrCache,
   writeIsrCache,
@@ -38,24 +39,18 @@ import {
   normalizePageDataForJsonCache,
 } from './isr.ts';
 import { createLimitResponse } from './limit-response.ts';
-import {
-  recordPlatformLog,
-  recordRequest,
-  sendUsageEvent,
-  type FailureKind,
-  type RequestType,
-} from './metering.ts';
+import { recordPlatformLog, recordRequest, sendUsageEvent } from './metering.ts';
+import type { FailureKind, RequestType } from './metering.ts';
 import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from './platform-lifecycle.ts';
 import { applicationEdgeCache, resolveProjectHostname } from './project-hostname.ts';
 import { classifyDynamicRequestType, hasExtension, isApiPath } from './request-type.ts';
-import { applyRoutingRules, mergeQueryIntoLocation, type RedirectRule } from './routing-rules.ts';
+import { applyRoutingRules, mergeQueryIntoLocation } from './routing-rules.ts';
 import { resolveStaticPath, resolveAssetContentType, safeDecodePathname } from './static.ts';
 import type { AssetConfig } from './static.ts';
 import {
   buildVariantOriginalUrl,
   exactQueryAllowlist,
   hasUnlistedQueryParams,
-  type QueryAllowlist,
 } from './variant-key.ts';
 import {
   DispatchTimeoutError,
@@ -63,40 +58,6 @@ import {
   withDelayedHedge,
   withTimeout,
 } from './with-timeout.ts';
-
-type RoutingEntry = Readonly<{
-  workerName: string;
-  projectId: string;
-  userId?: string;
-  type?: 'void' | 'spa' | 'static' | 'framework';
-  ssr?: boolean;
-  revalidate?: number | Record<string, number>;
-  pages?: ReadonlyArray<{ pattern: string; revalidate?: number }>;
-  // RAW per-path `routing.revalidate` OBJECT config (pages mode). Resolved at
-  // the edge against the real request path for a matched inherit-eligible page
-  // (a `pages` entry with no baked `revalidate`) — honors per-path `0` opt-outs
-  // a dynamic pattern straddles. Distinct from the folded `revalidate` map.
-  pathRevalidate?: Record<string, number>;
-  version?: string;
-  limits?: Record<string, number>;
-  suspended?: string;
-  hashedAssetsPrefix?: string;
-  headerRules?: ReadonlyArray<HeaderRule>;
-  // `redirectRules` fires pre-asset, `fallbackRules` fires post-asset.
-  // List identity encodes the pre-vs-post-asset semantic.
-  redirectRules?: ReadonlyArray<RedirectRule>;
-  alwaysUseHttps?: boolean;
-  fallbackRules?: ReadonlyArray<RedirectRule>;
-  // Per-pathname allowlist of query params that are part of the ISR variant
-  // key on a rewrite. Default (no entry / no allowlist) drops every param,
-  // so an attacker can't fan out the cache by varying `?utm`/`?cb`/etc.
-  queryAllowlist?: QueryAllowlist;
-  staticDeploymentId?: string;
-  assetManifestId?: string;
-  assetConfig?: AssetConfig;
-  zeroTrust?: ProjectZeroTrustRouting;
-  privatePreview?: boolean;
-}>;
 
 // Written by the API (suspension.ts projectSuspensionKey) while an administrator
 // has suspended the project's owner.
@@ -109,16 +70,10 @@ async function isProjectSuspended(env: Env, projectId: string): Promise<boolean>
   }
 }
 
-type QueueRoutingEntry = Readonly<{
-  workerName: string;
-  projectId: string;
-  queueName: string;
-  // HMAC-signed proxy token matching the user worker's __VOID_PROXY_TOKEN
-  // binding. The framework-generated /__void/queue handler rejects relays
-  // without a matching `x-void-internal` header with 401. Absent on entries
-  // written by older API versions.
-  proxyToken?: string;
-}>;
+type QueueRelayHeaders = {
+  'Content-Type': 'application/json';
+  'x-void-internal'?: string;
+};
 
 const CLIENT_REVALIDATE_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
 const STATIC_ASSET_HEDGE_DELAY_MS = 1000;
@@ -166,7 +121,7 @@ function platformHealthExceptionPath(request: Request, url: URL): boolean {
       // Malformed escapes are matched as sent.
     }
     return decoded
-      .replace(/[\\/]+/g, '/')
+      .replaceAll(/[\\/]+/g, '/')
       .toLowerCase()
       .startsWith('/health');
   });
@@ -409,7 +364,7 @@ async function fetchAssetManifest(
   const hedgeDelayMs = staticAssetHedgeDelayMs(timeoutMs);
   try {
     const raw = await withDelayedHedge(
-      () => env.ROUTING.get(`manifest:${deploymentId}`, { cacheTtl: 86400 }),
+      () => env.ROUTING.get(`manifest:${deploymentId}`, { cacheTtl: 86_400 }),
       {
         delayMs: hedgeDelayMs,
         timeoutMs,
@@ -430,7 +385,11 @@ async function fetchAssetManifest(
     if (!raw) {
       return null;
     }
-    return JSON.parse(raw) as Record<string, string>;
+    const manifest = readServingAssetManifest(raw);
+    if (!manifest) {
+      throw new Error('Invalid persisted serving manifest');
+    }
+    return manifest;
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -465,7 +424,7 @@ async function serveWfpAssetFallback(
   env: Env,
   routing: RoutingEntry,
   pathname: string,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
   fallbackPathname?: string,
 ): Promise<{ response: Response; pathname: string } | null> {
   if (!routing.assetManifestId) {
@@ -551,7 +510,7 @@ async function maybeServeWfpAssetFallback(opts: {
   fallbackPathname?: string;
 }): Promise<{ response: Response; failureKind?: FailureKind; pathname: string }> {
   const startedAt = opts.deadline?.startedAt ?? Date.now();
-  const timeoutMs = opts.deadline?.timeoutMs ?? opts.timeoutMs ?? 10000;
+  const timeoutMs = opts.deadline?.timeoutMs ?? opts.timeoutMs ?? 10_000;
   if (isEventStreamResponse(opts.response)) {
     return { response: opts.response, pathname: opts.pathname };
   }
@@ -752,7 +711,13 @@ const dispatcher = {
       });
     }
 
-    const routing: RoutingEntry = JSON.parse(routingRaw);
+    const routing = readRoutingEntry(routingRaw);
+    if (!routing) {
+      console.error('Invalid persisted routing entry', { routingKey });
+      return createErrorResponse(request, 503, 'Service Unavailable', {
+        'Cache-Control': 'no-store',
+      });
+    }
     if (selected.projectId && selected.projectId !== routing.projectId) {
       return createErrorResponse(request, 404, 'Not Found');
     }
@@ -895,13 +860,15 @@ const dispatcher = {
     // it was the one that hung up, so it says so in the project's log stream.
     // Metering is unchanged; this only adds the explanation.
     const meterWorkerTimeout = () => {
-      recordPlatformLog(env, {
-        workerName: routing.workerName,
-        method: request.method,
-        url: request.url,
-        status: 503,
-        timeoutMs: workerTimeoutMs,
-      });
+      if (routing.workerName) {
+        recordPlatformLog(env, {
+          workerName: routing.workerName,
+          method: request.method,
+          url: request.url,
+          status: 503,
+          timeoutMs: workerTimeoutMs,
+        });
+      }
       return meter(timeoutResponse(503, 'dispatch'));
     };
 
@@ -1226,7 +1193,7 @@ const dispatcher = {
           isrDeploymentId,
           isrOriginalUrlVariant,
         );
-        sharedIsrEntry = {
+        const isrEntry = {
           projectId: routing.projectId,
           deploymentId: isrDeploymentId,
           host: url.hostname,
@@ -1235,6 +1202,7 @@ const dispatcher = {
           htmlKey: cacheKey,
           jsonKey: jsonCacheKey,
         };
+        sharedIsrEntry = isrEntry;
 
         // Pages protocol: check JSON edge cache, fall through on miss
         if (isPagesRequest) {
@@ -1250,7 +1218,7 @@ const dispatcher = {
         } else {
           // HTML path: Edge → KV → Worker
           const purgePoisonedIsrEntry = async (): Promise<void> => {
-            await deleteSharedIsrEntry(env, sharedIsrEntry!);
+            await deleteSharedIsrEntry(env, isrEntry);
           };
 
           // L1: Edge cache (per-colo)
@@ -2036,16 +2004,15 @@ const dispatcher = {
 
     // Look up which user worker handles this queue
     const routingRaw = await env.ROUTING.get(`queue:${batch.queue}`, { cacheTtl: 60 });
-    if (!routingRaw) {
+    const routing = routingRaw ? readQueueRoute(routingRaw) : null;
+    if (!routing) {
       console.error(
-        `[queue-relay] missing routing entry for queue="${batch.queue}"; retrying all messages`,
+        `[queue-relay] ${routingRaw ? 'invalid' : 'missing'} routing entry for queue="${batch.queue}"; retrying all messages`,
       );
       batch.retryAll();
       return;
     }
-    const { workerName, projectId, queueName, proxyToken } = JSON.parse(
-      routingRaw,
-    ) as QueueRoutingEntry;
+    const { workerName, projectId, queueName, proxyToken } = routing;
     if (projectId && (await isProjectSuspended(env, projectId))) {
       console.warn(
         `[queue-relay] project suspended; retrying queue="${batch.queue}" in ${SUSPENDED_PROJECT_QUEUE_RETRY_DELAY_SECONDS}s`,
@@ -2064,7 +2031,7 @@ const dispatcher = {
     const worker = env.DISPATCH.get(workerName);
     try {
       const body = JSON.stringify({ queue: queueName, messages });
-      const queueHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      const queueHeaders: QueueRelayHeaders = { 'Content-Type': 'application/json' };
       if (proxyToken) {
         queueHeaders['x-void-internal'] = proxyToken;
       }
@@ -2144,7 +2111,9 @@ const dispatcher = {
           cfMessage.ack();
         } else if (decision.action === 'retry') {
           cfMessage.retry(
-            decision.delaySeconds != null ? { delaySeconds: decision.delaySeconds } : undefined,
+            decision.delaySeconds !== null && decision.delaySeconds !== undefined
+              ? { delaySeconds: decision.delaySeconds }
+              : undefined,
           );
         }
       }
@@ -2213,7 +2182,7 @@ async function fetchStaticAsset(
   path: string,
   projectId?: string,
   deploymentId?: string,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
 ): Promise<Response | null> {
   const hedgeDelayMs = staticAssetHedgeDelayMs(timeoutMs);
   const startedAt = Date.now();
@@ -2312,7 +2281,7 @@ async function fetchStaticAssetOnce(
       ...(obj.size ? { 'Content-Length': String(obj.size) } : {}),
     };
     if (contentType) {
-      (headers as Record<string, string>)['Content-Type'] = contentType;
+      headers['Content-Type'] = contentType;
     }
     return new Response(obj.body, { headers });
   }
@@ -2320,17 +2289,17 @@ async function fetchStaticAssetOnce(
   const readKvAsset = async (key: string): Promise<Response | null> => {
     const { value, metadata } = await env.STATIC_ASSETS.getWithMetadata<{ ct: string }>(key, {
       type: 'arrayBuffer',
-      cacheTtl: 86400,
+      cacheTtl: 86_400,
     });
     if (!value) {
       return null;
     }
     const contentType = resolveAssetContentType(metadata?.ct, path);
     const headers: HeadersInit = {
-      'Content-Length': String((value as ArrayBuffer).byteLength),
+      'Content-Length': String(value.byteLength),
     };
     if (contentType) {
-      (headers as Record<string, string>)['Content-Type'] = contentType;
+      headers['Content-Type'] = contentType;
     }
     return new Response(value, { headers });
   };
@@ -2341,6 +2310,9 @@ async function fetchStaticAssetOnce(
 
 /** Get a dispatch worker, applying custom limits if configured. */
 function getWorker(env: Env, routing: RoutingEntry): Fetcher {
+  if (routing.workerName === undefined) {
+    throw new Error('Worker routing entry is missing a Worker name');
+  }
   if (routing.limits) {
     return env.DISPATCH.get(routing.workerName, {}, { limits: routing.limits });
   }
@@ -2364,7 +2336,7 @@ async function revalidateInBackground(
   jsonCacheKey: Request,
   staleSinceMs: number,
   originalUrl?: string | null,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
 ): Promise<boolean> {
   try {
     const worker = getWorker(env, routing);

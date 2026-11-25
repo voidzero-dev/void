@@ -90,6 +90,7 @@ function NavigationFallback() {
   return React.createElement('main', null, React.createElement('h1', null, 'Loading dashboard'));
 }
 
+// oxlint-disable-next-line unicorn/prefer-top-level-await -- Keep browser fixture startup compatible with the supported Vite build targets.
 void startReactPages({
   components: {
     layout: async () => ({ default: ShellLayout }),

@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from 'vite-plus/test';
-import { routeUrl, type RouteOptions, type RoutePath } from '../../src/routes-stub.ts';
+import { routeUrl } from '../../src/routes-stub.ts';
+import type { RouteOptions, RoutePath } from '../../src/routes-stub.ts';
 
 declare module 'void/routes' {
   interface RoutePathMap {

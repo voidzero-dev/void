@@ -7,7 +7,7 @@ export function safePositional(value: unknown): value is string {
     typeof value === 'string' &&
     value.length > 0 &&
     !value.startsWith('-') &&
-    ![...value].some((character) => {
+    !Array.from(value).some((character) => {
       const code = character.charCodeAt(0);
       return code < 32 || code === 127;
     })

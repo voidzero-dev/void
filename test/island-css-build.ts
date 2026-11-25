@@ -1,8 +1,9 @@
 import { execSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, it } from 'vite-plus/test';
+import { createPackageFixtureDir } from './integration-helpers.ts';
 
 const MD_PLUGIN = join(import.meta.dirname, '../packages/md/dist/plugin.mjs');
 
@@ -41,7 +42,7 @@ export function buildIslandApp(app: Omit<IslandCssApp, 'expectedCss' | 'check' |
   output(dir: 'client' | 'ssr'): Map<string, string>;
   cleanup(): void;
 } {
-  const root = mkdtempSync(join(app.packageDir, 'test/integration/__tmp_island_css_'));
+  const root = createPackageFixtureDir(app.packageDir, '__tmp_island_css_');
   try {
     const plugin = pathToFileURL(join(app.packageDir, 'dist/plugin.mjs')).href;
     const files: Record<string, string> = {
@@ -70,18 +71,18 @@ export default defineConfig({ output: 'static', worker: { compatibility_date: '2
   return {
     root,
     page(file) {
-      const html = readFileSync(join(client, file), 'utf-8');
+      const html = readFileSync(join(client, file), 'utf8');
       const css = stylesheetHrefs(html)
-        .map((href) => readFileSync(join(client, href), 'utf-8'))
+        .map((href) => readFileSync(join(client, href), 'utf8'))
         .join('\n');
       return { html, css };
     },
     output(dir) {
       const out = join(root, 'dist', dir);
       const files = new Map<string, string>();
-      for (const file of readdirSync(out, { recursive: true, encoding: 'utf-8' })) {
+      for (const file of readdirSync(out, { recursive: true, encoding: 'utf8' })) {
         if (file.endsWith('.js') || file.endsWith('.css') || file.endsWith('.html')) {
-          files.set(file, readFileSync(join(out, file), 'utf-8'));
+          files.set(file, readFileSync(join(out, file), 'utf8'));
         }
       }
       return files;
@@ -116,8 +117,7 @@ export function defineIslandCssBuildTest(app: IslandCssApp): void {
       }
       // Rolldown keeps each stylesheet module in one chunk, so no rule repeats.
       const clientCss = [...build.output('client')]
-        .filter(([file]) => file.endsWith('.css'))
-        .map(([, text]) => text)
+        .flatMap(([file, text]) => (file.endsWith('.css') ? [text] : []))
         .join('\n');
       for (const rule of app.expectedCss) {
         expect(countOf(clientCss, rule), rule).toBe(1);

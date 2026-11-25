@@ -12,7 +12,9 @@ export default function Counter({
     <div>
       <span data-testid="island-date">{createdAt?.toISOString()}</span>
       <span data-testid="count">Count: {count}</span>
-      <button onClick={() => setCount((c) => c + 1)}>Increment</button>
+      <button type="button" onClick={() => setCount((c) => c + 1)}>
+        Increment
+      </button>
     </div>
   );
 }

@@ -1,10 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import {
-  parsePlatformAccessProtection,
-  platformProtectionProofMessage,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { parsePlatformAccessProtection, platformProtectionProofMessage } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { ensurePlatformAccessToken } from './cf-access.ts';
@@ -16,7 +13,10 @@ import {
   parsePlatformAccessSetupSpec,
   preparePlatformAccessSetup,
 } from './platform-access-setup.ts';
-import { resolvePlatformCloudflareCredential } from './platform-auth.ts';
+import {
+  platformOperatorCredentialLabel,
+  resolvePlatformCloudflareCredential,
+} from './platform-auth.ts';
 import { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import type { PlatformConfigArgs } from './platform-config-args.ts';
 import { acquirePlatformDatabaseLifecycleLock } from './platform-installer.ts';
@@ -90,7 +90,7 @@ export async function verifyProtectionWorkerOrigins(
       }
     }
     for (const route of await client.listWorkerServiceRoutes(manifest.account.id, worker)) {
-      const hostname = route.pattern.replace(/^https?:\/\//, '').split('/')[0]!;
+      const hostname = route.pattern.replace(/^https?:\/\//, '').split('/')[0];
       if (!allowed.has(hostname)) {
         throw new Error(
           'platform: A control-plane Worker has an additional or wildcard route. Protect or remove it before enabling Access.',
@@ -237,7 +237,9 @@ export async function runPlatformProtectionConfig(args: PlatformConfigArgs): Pro
       );
     }
     const credential = await resolvePlatformCloudflareCredential();
-    const cloudflare = new PlatformCloudflareClient(credential.token);
+    const cloudflare = new PlatformCloudflareClient(credential.token, {
+      credential: platformOperatorCredentialLabel(credential),
+    });
     let protection = null;
     const checkpoint = { ...recovery };
     const save = (values: Record<string, string>) => {
@@ -293,7 +295,7 @@ export async function runPlatformProtectionConfig(args: PlatformConfigArgs): Pro
               account: currentManifest.account,
               installationId: currentManifest.id,
               apiUrl: origin,
-              proxyUrl: currentManifest.endpoints.proxyUrl!,
+              proxyUrl: currentManifest.endpoints.proxyUrl,
             },
             ownershipNonce: currentManifest.ownershipNonce,
             protection: true,

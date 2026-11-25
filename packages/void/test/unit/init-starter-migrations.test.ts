@@ -10,9 +10,11 @@ import {
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { hasDeploySchemaDrift } from '../../src/cli/deploy-drift.ts';
 import { generateStarterMigration } from '../../src/cli/init.ts';
-import { createPagesStarterTemplate, type ScaffoldStarterMode } from '../../src/cli/template.ts';
+import { createPagesStarterTemplate } from '../../src/cli/template.ts';
+import type { ScaffoldStarterMode } from '../../src/cli/template.ts';
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   intro: vi.fn(),
@@ -63,7 +65,9 @@ describe('starter migration generation', { timeout: 30_000 }, () => {
 });
 
 function createStarterApp(starterMode: Exclude<ScaffoldStarterMode, 'static'>): string {
-  const root = mkdtempSync(join(packageRoot, '.tmp-init-starter-'));
+  const root = mkdtempSync(
+    packageFixturePath(join(packageRoot, 'test/unit'), '.tmp-init-starter-'),
+  );
   tempDirs.push(root);
 
   const template = createPagesStarterTemplate({

@@ -1,8 +1,5 @@
-import {
-  categorizeActionError,
-  createActionErrorFromResponse,
-  type VoidActionError,
-} from './action-result.ts';
+import { categorizeActionError, createActionErrorFromResponse } from './action-result.ts';
+import type { VoidActionError } from './action-result.ts';
 import { getValidationErrors } from './adapter-helpers.ts';
 import { fetchPages } from './redirect.ts';
 

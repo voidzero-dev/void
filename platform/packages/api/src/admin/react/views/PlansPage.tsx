@@ -10,12 +10,8 @@ import {
   TableRow,
 } from '@astryxdesign/core/Table';
 import { useToast } from '@astryxdesign/core/Toast';
-import {
-  PLAN_EDITABLE_LIMIT_KEYS,
-  PLAN_LIMITS,
-  type EditablePlanLimit,
-  type PlatformPlanDefinition,
-} from '@void/platform/plans';
+import { PLAN_EDITABLE_LIMIT_KEYS, PLAN_LIMITS } from '@void/platform/plans';
+import type { EditablePlanLimit, PlatformPlanDefinition } from '@void/platform/plans';
 import { Link } from '@void/react';
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
@@ -73,7 +69,7 @@ const aiLoggingLabels: Record<AiLoggingMode, string> = {
   full: 'Full (prompts and responses)',
 };
 function aiLoggingMode(modes: PlanAiLoggingSettings['modes'], planId: string): AiLoggingMode {
-  return Object.hasOwn(modes, planId) ? modes[planId]! : 'inherit';
+  return Object.hasOwn(modes, planId) ? modes[planId] : 'inherit';
 }
 function usePlans(path: string) {
   const { plans: ref } = useRequest(plansRequest(path), { mode: 'stale-while-revalidate' });
@@ -88,7 +84,10 @@ function usePlanConfirmation(path: string) {
   const toast = useToast();
   useEffect(() => {
     const url = new URL(window.location.href);
-    const messages: Record<string, string> = {
+    interface PlanNotices {
+      [notice: string]: string | undefined;
+    }
+    const messages: PlanNotices = {
       'plan-saved': 'Plan saved.',
       'plan-removed': 'Plan removed.',
       'plans-updated': 'Account updates complete.',
@@ -439,7 +438,7 @@ function differences(
   aiLogging: Readonly<{ before: AiLoggingMode | undefined; after: AiLoggingMode }>,
 ) {
   if (!after) {
-    return [{ label: 'Plan', before: before!.name, after: 'Removed' }];
+    return [{ label: 'Plan', before: before?.name ?? '—', after: 'Removed' }];
   }
   const rows = [
     { label: 'Display name', before: before?.name ?? '—', after: after.name },
@@ -602,6 +601,7 @@ export function PlanProgressPage({
   const [counts, setCounts] = useState({ accounts: initial.accounts, projects: initial.projects });
   const [running, setRunning] = useState(false);
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- Reset the visible progress when restarting the server sync session.
     setState(initial);
     setCounts({ accounts: initial.accounts, projects: initial.projects });
     setRunning(!initial.complete && !initial.error);
@@ -614,7 +614,7 @@ export function PlanProgressPage({
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ expectedRevision: initial.revision }),
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(300000)]),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(300_000)]),
           redirect: 'error',
         });
         if (!response.ok) {
@@ -622,7 +622,7 @@ export function PlanProgressPage({
             'Account updates paused. Reload plans to inspect the saved configuration, then retry.',
           );
         }
-        const next = (await response.json()) as AdminPlanProgress;
+        const next = await response.json<AdminPlanProgress>();
         if (
           next.revision !== initial.revision ||
           typeof next.complete !== 'boolean' ||

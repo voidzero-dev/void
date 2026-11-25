@@ -83,7 +83,7 @@ describe('withDelayedHedge', () => {
     }> = {},
   ) => ({
     delayMs: 1000,
-    timeoutMs: 10000,
+    timeoutMs: 10_000,
     label: 'hedged-read',
     ...overrides,
   });
@@ -261,7 +261,7 @@ describe('withDelayedHedge', () => {
     const result = withDelayedHedge(operation, { ...options(), discard });
     const caught = result.catch((error: unknown) => error);
 
-    await vi.advanceTimersByTimeAsync(10000);
+    await vi.advanceTimersByTimeAsync(10_000);
     await expect(caught).resolves.toBeInstanceOf(DispatchTimeoutError);
 
     const lateFirst = { id: 'late-first' };
@@ -278,7 +278,7 @@ describe('withDelayedHedge', () => {
 
 describe('resolveTimeoutMs', () => {
   it('returns the 10s default when the env var is unset', () => {
-    expect(resolveTimeoutMs(undefined)).toBe(10000);
+    expect(resolveTimeoutMs(undefined)).toBe(10_000);
   });
 
   it('parses a valid numeric override', () => {

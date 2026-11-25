@@ -1,13 +1,14 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { analyzeApplication } from '../../src/application-routing.ts';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { readConfig } from '../../src/config.ts';
 import type { RouteEnvironment } from '../../src/router/parse-filename.ts';
 import { scanRoutePatternsSync } from '../../src/router/scan.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_scan_test__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_scan_test__');
 
 async function scanRoutes(root: string, options?: { environment?: RouteEnvironment }) {
   const config = readConfig(root);
@@ -132,7 +133,7 @@ describe('scanRoutes', () => {
         join(TMP, '.void'),
         join(TMP, 'pages'),
       );
-      const actionMap = dts.split('  interface PageActionMap {')[1]!;
+      const actionMap = dts.split('  interface PageActionMap {')[1];
       expect(actionMap.split('"/home": {')).toHaveLength(2);
       for (const env of ['dev', 'prod'] as const) {
         const companion = `typeof import("../pages/home.${env}.server.ts")`;

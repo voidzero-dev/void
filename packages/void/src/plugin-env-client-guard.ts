@@ -1,14 +1,14 @@
 import { relative } from 'pathslash';
-import { parseSync, type Plugin } from 'vite';
+import { parseSync } from 'vite';
+import type { Plugin } from 'vite';
 import { bindingResolver } from './shared/ast-bindings.ts';
-import {
-  isIdentifier,
-  isMemberExpression,
-  type AstImportDeclaration,
-  type AstImportNamespaceSpecifier,
-  type AstImportSpecifier,
-  type AstMemberExpression,
-  type AstProgram,
+import { asAstProgram, isIdentifier, isMemberExpression } from './shared/ast.ts';
+import type {
+  AstImportDeclaration,
+  AstImportNamespaceSpecifier,
+  AstImportSpecifier,
+  AstMemberExpression,
+  AstProgram,
 } from './shared/ast.ts';
 import { isClientEnvKey } from './shared/env.ts';
 
@@ -51,7 +51,7 @@ export function isVoidEnvScriptCandidate(id: string, code: string): boolean {
     return false;
   }
   const langMatch = SCRIPT_LANG_RE.exec(id);
-  const isScriptQuery = langMatch !== null && /^(?:m?[jt]sx?|cjs)$/i.test(langMatch[1]!);
+  const isScriptQuery = langMatch !== null && /^(?:m?[jt]sx?|cjs)$/i.test(langMatch[1]);
   const isPlainScript = /\.(?:[mc]?[jt]sx?)(?:\?|$)/.test(id);
   const isSfc = /\.(?:svelte|vue|astro)(?:\?|$)/.test(id);
   if (!isScriptQuery && !isPlainScript && !isSfc) {
@@ -119,20 +119,20 @@ function buildOffsetIndex(code: string): OffsetIndex {
   return { lineStarts };
 }
 
-function offsetToLineCol(index: OffsetIndex, offset: number): { line: number; column: number } {
+function offsetToLineCol(index: OffsetIndex, offset: number) {
   // Binary search for the largest lineStarts[i] <= offset.
   const lineStarts = index.lineStarts;
   let lowerBound = 0;
   let upperBound = lineStarts.length - 1;
   while (lowerBound < upperBound) {
     const midpoint = (lowerBound + upperBound + 1) >>> 1;
-    if (lineStarts[midpoint]! <= offset) {
+    if (lineStarts[midpoint] <= offset) {
       lowerBound = midpoint;
     } else {
       upperBound = midpoint - 1;
     }
   }
-  return { line: lowerBound + 1, column: offset - lineStarts[lowerBound]! + 1 };
+  return { line: lowerBound + 1, column: offset - lineStarts[lowerBound] + 1 };
 }
 
 /**
@@ -195,15 +195,11 @@ export function walkEnvReads(
   }
 }
 
-type Hit = {
-  kind: 'error' | 'warn';
-  property: string | null;
-  start: number;
-};
+type Hit = { start: number } & ({ kind: 'error'; property: string } | { kind: 'warn' });
 
 /**
- * Collect every `void/env` read. Computed access produces a warning hit
- * with `property === null`; everything else carries the property name.
+ * Collect every `void/env` read. Computed access produces a warning hit;
+ * statically known reads carry the property name.
  */
 function findHits(program: AstProgram, bindings: ImportBindings): Array<Hit> {
   const hits: Array<Hit> = [];
@@ -212,14 +208,17 @@ function findHits(program: AstProgram, bindings: ImportBindings): Array<Hit> {
 }
 
 function recordHit(node: AstMemberExpression, hits: Array<Hit>): void {
+  if (node.start === undefined) {
+    throw new Error('Expected an offset for a parsed environment read.');
+  }
   if (node.computed) {
-    hits.push({ kind: 'warn', property: null, start: node.start! });
+    hits.push({ kind: 'warn', start: node.start });
     return;
   }
   if (!isIdentifier(node.property)) {
     return;
   }
-  hits.push({ kind: 'error', property: node.property.name, start: node.start! });
+  hits.push({ kind: 'error', property: node.property.name, start: node.start });
 }
 
 /**
@@ -274,7 +273,7 @@ export function envClientGuardPlugin(root: string): Plugin {
         return;
       }
 
-      const program = parsed.program as unknown as AstProgram;
+      const program = asAstProgram(parsed.program);
       const bindings = extractEnvBindings(program);
       if (!bindings) {
         return;
@@ -286,7 +285,7 @@ export function envClientGuardPlugin(root: string): Plugin {
       }
 
       const offsets = buildOffsetIndex(code);
-      const relPath = relative(root, id.split('?')[0]!) || id;
+      const relPath = relative(root, id.split('?')[0]) || id;
 
       for (const hit of hits) {
         const { line, column } = offsetToLineCol(offsets, hit.start);
@@ -302,7 +301,7 @@ export function envClientGuardPlugin(root: string): Plugin {
           continue;
         }
 
-        const key = hit.property!;
+        const key = hit.property;
         // Unknown to the schema? Could be a CF binding or a typo — neither
         // is the guard's concern. The runtime proxy still catches misuse.
         if (!(key in schema)) {

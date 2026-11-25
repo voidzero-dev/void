@@ -1,5 +1,6 @@
 import { HTTPException } from 'hono/http-exception';
-import { defineHandler, type CloudContext, type InferProps } from 'void';
+import { defineHandler } from 'void';
+import type { CloudContext, InferProps } from 'void';
 import { getUser, requireAuth } from 'void/auth';
 import { requirePageUser } from '../../src/require-page-user.ts';
 

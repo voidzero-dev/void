@@ -3,10 +3,8 @@ import { buildVoidManifest, buildFrameworkManifest } from '../../src/cli/package
 import type { InferredBindings } from '../../src/inference/walk.ts';
 import { buildMigrationPlanBundle } from '../../src/migrations/plan.ts';
 import type { MigrationFile } from '../../src/migrations/validate.ts';
-import {
-  createMigrationHandler,
-  type MigrationResponse,
-} from '../../src/runtime/db/migrations/d1-handler.ts';
+import { createMigrationHandler } from '../../src/runtime/db/migrations/d1-handler.ts';
+import type { MigrationResponse } from '../../src/runtime/db/migrations/d1-handler.ts';
 
 const noBindings: InferredBindings = {
   needsD1: false,
@@ -171,7 +169,7 @@ describe('createMigrationHandler with missing D1 binding', () => {
     const handler = createMigrationHandler({ __VOID_PROXY_TOKEN: proxyToken }, sampleMigrations);
 
     const response = await handler(makeRequest());
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(500);
     expect(body.ok).toBe(false);
@@ -186,7 +184,7 @@ describe('createMigrationHandler with missing D1 binding', () => {
     );
 
     const response = await handler(makeRequest());
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(500);
     expect(body.ok).toBe(false);
@@ -201,7 +199,7 @@ describe('createMigrationHandler with missing D1 binding', () => {
       headers: { 'x-void-internal': 'wrong-token' },
     });
     const response = await handler(badRequest);
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(401);
     expect(body.ok).toBe(false);
@@ -301,21 +299,21 @@ describe('createMigrationHandler D1 execution', () => {
               attempts.set(attemptId, {
                 attempt_id: attemptId,
                 completed_at: null,
-                deployment_id: bound[1] as string | null,
+                deployment_id: bound[1],
                 error: null,
-                migration_list_hash: bound[2] as string,
-                plan_hashes_json: bound[4] as string,
-                planned_names_json: bound[3] as string,
-                started_at: bound[5] as string,
+                migration_list_hash: bound[2],
+                plan_hashes_json: bound[4],
+                planned_names_json: bound[3],
+                started_at: bound[5],
                 status: 'running',
               });
             }
             if (sql.includes('UPDATE _void_migration_attempts')) {
               const attempt = attempts.get(bound[3] as string);
               if (attempt) {
-                attempt.status = bound[0] as string;
-                attempt.completed_at = bound[1] as string;
-                attempt.error = bound[2] as string | null;
+                attempt.status = bound[0];
+                attempt.completed_at = bound[1];
+                attempt.error = bound[2];
               }
             }
             if (
@@ -358,7 +356,7 @@ describe('createMigrationHandler D1 execution', () => {
         headers: { 'x-void-internal': proxyToken },
       }),
     );
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
@@ -393,7 +391,7 @@ describe('createMigrationHandler D1 execution', () => {
         headers: { 'x-void-internal': proxyToken },
       }),
     );
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
@@ -425,7 +423,7 @@ describe('createMigrationHandler D1 execution', () => {
         method: 'POST',
       }),
     );
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
@@ -461,7 +459,7 @@ describe('createMigrationHandler D1 execution', () => {
         headers: { 'x-void-internal': proxyToken },
       }),
     );
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
@@ -502,7 +500,7 @@ describe('createMigrationHandler D1 execution', () => {
         headers: { 'x-void-internal': proxyToken },
       }),
     );
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
@@ -542,7 +540,7 @@ describe('createMigrationHandler D1 execution', () => {
         headers: { 'x-void-internal': proxyToken },
       }),
     );
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
@@ -578,7 +576,7 @@ describe('createMigrationHandler D1 execution', () => {
         method: 'POST',
       }),
     );
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
@@ -610,7 +608,7 @@ describe('createMigrationHandler D1 execution', () => {
         method: 'POST',
       }),
     );
-    const body = (await response.json()) as MigrationResponse;
+    const body = await response.json<MigrationResponse>();
 
     expect(response.status).toBe(409);
     expect(body.ok).toBe(false);

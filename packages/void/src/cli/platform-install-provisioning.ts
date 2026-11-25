@@ -1,12 +1,10 @@
-import {
-  recordInstallationStep,
-  transitionInstallation,
-  type PlatformLifecycleOperation,
-} from '@void/platform';
+import { recordInstallationStep, transitionInstallation } from '@void/platform';
+import type { PlatformLifecycleOperation } from '@void/platform';
 import type { PlatformRuntimeManifest } from '@void/platform/installer';
 import { join } from 'pathslash';
 import { publishInstallationAiLogging } from './platform-ai-logging-projection.ts';
 import { verifyPlatformAuthenticationDatabase } from './platform-auth-database.ts';
+import { fitPlatformHyperdriveToDatabase } from './platform-hyperdrive-connections.ts';
 import { preparePlatformDatabaseSchema } from './platform-installer-database.ts';
 import {
   requireId,
@@ -18,14 +16,14 @@ import {
   reconcilePlatformInstallationResources,
   hash,
 } from './platform-installer-resources.ts';
-import {
-  type InstallationCheckpointWriter,
-  type PlatformDatabaseLifecycleLock,
-  type PlatformInstallerDependencies,
-  type PlatformInstallationResult,
-  type PlatformInstallRunState,
+import type {
+  InstallationCheckpointWriter,
+  PlatformDatabaseLifecycleLock,
+  PlatformInstallerDependencies,
+  PlatformInstallationResult,
+  PlatformInstallRunState,
 } from './platform-installer-types.ts';
-import { type PlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformInstallPlan } from './platform-plan.ts';
 import { writeInstallationManifest } from './platform-registry.ts';
 
 export async function provisionInstallationServices(input: {
@@ -68,7 +66,10 @@ export async function provisionInstallationServices(input: {
   } = input;
   const { plan, secrets } = state;
 
-  const routingAction = plan.actions.find((action) => action.key === 'routing-kv')!;
+  const routingAction = plan.actions.find((action) => action.key === 'routing-kv');
+  if (!routingAction) {
+    throw new Error('platform: The plan is missing the routing checkpoint action.');
+  }
   if (routingAction.action === 'adopt') {
     throw new Error('platform: The routing checkpoint cannot be adopted.');
   }
@@ -173,6 +174,13 @@ export async function provisionInstallationServices(input: {
     authenticationDatabase,
     secrets.databaseUrl,
   );
+  await fitPlatformHyperdriveToDatabase({
+    client: dependencies.client,
+    accountId: plan.account.id,
+    resource: authenticationDatabase,
+    readConnectionSlots: releaseDatabaseLock.readConnectionSlots,
+    onProgress: dependencies.onProgress,
+  });
 
   state.manifest = await preparePlatformDatabaseSchema(
     state.manifest,
@@ -212,8 +220,8 @@ export async function provisionInstallationServices(input: {
     );
   }
   const sandboxDrainPreparation =
-    targetSandboxDrainProtocol >= 1
-      ? await prepareSandboxDrain!(
+    targetSandboxDrainProtocol >= 1 && prepareSandboxDrain
+      ? await prepareSandboxDrain(
           targetSandboxDrainProtocol >= 3 ? 3 : targetSandboxDrainProtocol >= 2 ? 2 : 0,
         )
       : null;

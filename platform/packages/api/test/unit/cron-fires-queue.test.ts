@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { type CronFireMessage, processCronFiresBatch } from '../../src/cron-fires-queue.ts';
+import { processCronFiresBatch } from '../../src/cron-fires-queue.ts';
+import type { CronFireMessage } from '../../src/cron-fires-queue.ts';
 import type { ApiEnv } from '../../src/env.ts';
 
 type QueueMessageStub = {
