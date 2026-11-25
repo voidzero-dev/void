@@ -132,16 +132,15 @@ export function parsePlatformRuntimeManifest(value: unknown): PlatformRuntimeMan
   if (artifactsValue.emailGateway !== undefined && root.emailProtocolVersion !== 1) {
     throw new Error('An emailGateway runtime artifact requires email protocol version 1.');
   }
-  const artifactNames = [
-    'api',
-    'dispatch',
-    'proxy',
-    'tail',
-    ...(artifactsValue.emailGateway === undefined ? [] : ['emailGateway']),
-  ] as const;
-  const artifacts = Object.fromEntries(
-    artifactNames.map((name) => [name, parseArtifact(artifactsValue[name], name)]),
-  ) as PlatformRuntimeManifest['artifacts'];
+  const artifacts = {
+    api: parseArtifact(artifactsValue.api, 'api'),
+    dispatch: parseArtifact(artifactsValue.dispatch, 'dispatch'),
+    proxy: parseArtifact(artifactsValue.proxy, 'proxy'),
+    tail: parseArtifact(artifactsValue.tail, 'tail'),
+    ...(artifactsValue.emailGateway === undefined
+      ? {}
+      : { emailGateway: parseArtifact(artifactsValue.emailGateway, 'emailGateway') }),
+  } satisfies PlatformRuntimeManifest['artifacts'];
   let assets: PlatformRuntimeManifest['assets'];
   if (root.assets !== undefined) {
     const assetsValue = record(root.assets, 'runtime manifest assets');

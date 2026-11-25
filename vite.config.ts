@@ -458,7 +458,7 @@ const config = defineConfig({
       {
         files: [
           'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,react,svelte}/src/**/*',
-          'packages/platform/src/{email-protocol,plans}.ts',
+          'packages/platform/src/{ai-logging,app-access,authentication,discovery,email-protocol,installer,plans}.ts',
           'platform/packages/email-gateway/src/**/*',
         ],
         rules: { 'typescript/no-unsafe-type-assertion': 'error' },

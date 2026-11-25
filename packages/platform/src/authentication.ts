@@ -4,6 +4,10 @@ import { isPrintableText, record } from './validate.ts';
 export const PLATFORM_LOGIN_KINDS = ['github', 'google', 'oidc', 'cloudflare-access'] as const;
 export type PlatformLoginKind = (typeof PLATFORM_LOGIN_KINDS)[number];
 
+function isPlatformLoginKind(value: unknown): value is PlatformLoginKind {
+  return PLATFORM_LOGIN_KINDS.some((kind) => kind === value);
+}
+
 export type PlatformLoginConfiguration = Readonly<{
   id: string;
   kind: PlatformLoginKind;
@@ -168,10 +172,11 @@ export function parsePlatformAuthenticationSetup(value: unknown): PlatformAuthen
   }
   const connections = input.connections.map((value) => {
     const entry = record(value, 'Login connection');
-    string(entry.clientSecret, 'Client secret', 8192);
+    const { clientSecret } = entry;
+    assertPrintableText(clientSecret, 'Client secret', 8192);
     return {
       configuration: parsePlatformLoginConfiguration(entry.configuration),
-      clientSecret: entry.clientSecret as string,
+      clientSecret,
     };
   });
   if (new Set(connections.map((entry) => entry.configuration.id)).size !== connections.length) {
@@ -211,10 +216,18 @@ export const DEFAULT_PLATFORM_SESSION_SECONDS: number = 30 * 24 * 60 * 60;
 export const GOOGLE_OIDC_ISSUER = 'https://accounts.google.com';
 export const PLATFORM_AUTH_SETUP_PROOF_PREFIX = 'void.platform.auth.setup.v1';
 
-function string(value: unknown, name: string, maximum = 512): string {
+function assertPrintableText(
+  value: unknown,
+  name: string,
+  maximum: number,
+): asserts value is string {
   if (!isPrintableText(value, maximum)) {
     throw new Error(`${name} must be a nonempty string of at most ${maximum} characters.`);
   }
+}
+
+function string(value: unknown, name: string, maximum = 512): string {
+  assertPrintableText(value, name, maximum);
   return value.trim();
 }
 
@@ -266,10 +279,10 @@ export function parsePlatformIdentityUrl(value: unknown, name: string, originOnl
 export function parsePlatformLoginDescriptor(value: unknown): PlatformLoginDescriptor {
   const entry = record(value, 'Login connection');
   const id = parsePlatformLoginId(entry.id);
-  if (!PLATFORM_LOGIN_KINDS.includes(entry.kind as PlatformLoginKind)) {
+  const { kind } = entry;
+  if (!isPlatformLoginKind(kind)) {
     throw new Error('Login kind must be github, google, oidc, or cloudflare-access.');
   }
-  const kind = entry.kind as PlatformLoginKind;
   if ((id === 'github' || id === 'google') && id !== kind) {
     throw new Error(`Connection ID ${id} is reserved for ${id} login.`);
   }
