@@ -171,6 +171,7 @@ describe('init scaffold arguments', () => {
       install: false,
       git: false,
     });
+    expect(parseInitArgs(['--package-manager', 'pnpm'])).toMatchObject({ packageManager: 'pnpm' });
   });
 
   it('scaffolds with --no-install without running the package manager install', async () => {
@@ -201,6 +202,32 @@ describe('init scaffold arguments', () => {
           (message) => typeof message === 'string' && message.startsWith('Installed dependencies'),
         ),
       ).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the delegated package manager for a plain Vite starter', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-delegated-pm-'));
+    try {
+      await runInitCommand(
+        root,
+        parseInitArgs([
+          '--package-manager',
+          'pnpm',
+          '--toolchain',
+          'vite',
+          '--framework',
+          'react',
+          '--starter',
+          'static',
+          '--deploy',
+          'none',
+          '--no-install',
+        ]),
+      );
+
+      expect(summaryMessages('→').join('\n')).toContain('pnpm install --no-frozen-lockfile');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

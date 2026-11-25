@@ -81,6 +81,7 @@ export type InitArgs = {
   github: boolean;
   install?: boolean;
   git?: boolean;
+  packageManager?: ProjectState['packageManager'];
   toolchain?: ScaffoldToolchain;
   framework?: ScaffoldFramework;
   starter?: ScaffoldStarterMode;
@@ -119,6 +120,7 @@ export function parseInitArgs(args: Array<string>): InitArgs {
         github: { type: 'boolean' },
         install: { type: 'boolean' },
         git: { type: 'boolean' },
+        'package-manager': { type: 'string' },
         toolchain: { type: 'string' },
         framework: { type: 'string' },
         starter: { type: 'string' },
@@ -137,6 +139,12 @@ export function parseInitArgs(args: Array<string>): InitArgs {
     github: parsed.values.github === true,
     install: parsed.values.install as boolean | undefined,
     git: parsed.values.git as boolean | undefined,
+    packageManager: parseChoice('package-manager', parsed.values['package-manager'], [
+      'npm',
+      'pnpm',
+      'yarn',
+      'bun',
+    ]),
     toolchain: parseChoice(
       'toolchain',
       parsed.values.toolchain,
@@ -1107,7 +1115,10 @@ function resolveWorkspaceDeferral(
   return { workspaceRoot };
 }
 
-export function detectProjectState(root: string): ProjectState {
+export function detectProjectState(
+  root: string,
+  fallbackPackageManager?: ProjectState['packageManager'],
+): ProjectState {
   let hasTypescript = false;
   let pkg: unknown;
   try {
@@ -1138,7 +1149,7 @@ export function detectProjectState(root: string): ProjectState {
     if (field === 'pnpm' || field === 'yarn' || field === 'bun') {
       packageManager = field;
     } else {
-      packageManager = 'npm';
+      packageManager = fallbackPackageManager ?? 'npm';
     }
   }
 
@@ -2884,7 +2895,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     !workspaceSubpackage && (!targeted || initArgs?.git !== undefined)
       ? await setupGit(root, initArgs?.git)
       : false;
-  const preScaffoldState = detectProjectState(root);
+  const preScaffoldState = detectProjectState(root, initArgs?.packageManager);
   const detectedPagesFramework = detectPagesFramework(root);
   let scaffoldedPagesFramework: ScaffoldFramework | undefined;
   let scaffoldedStarterMode: Exclude<ScaffoldStarterMode, 'static'> | undefined;
@@ -2954,7 +2965,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     didScaffoldStarter = true;
   }
 
-  const state = detectProjectState(root);
+  const state = detectProjectState(root, initArgs?.packageManager);
   const pagesFramework = scaffoldedPagesFramework ?? detectPagesFramework(root);
 
   if (!targeted && !didScaffoldStarter) {

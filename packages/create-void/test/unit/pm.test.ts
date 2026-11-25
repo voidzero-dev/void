@@ -27,10 +27,23 @@ describe('create-void package manager delegation', () => {
   });
 
   it.each([
-    ['npm', ['npm', 'exec', '--yes', '--package=void@1.2.3', '--', 'void', 'init']],
-    ['pnpm', ['pnpm', 'dlx', 'void@1.2.3', 'init']],
-    ['yarn', ['yarn', 'dlx', 'void@1.2.3', 'init']],
-    ['bun', ['bunx', 'void@1.2.3', 'init']],
+    [
+      'npm',
+      [
+        'npm',
+        'exec',
+        '--yes',
+        '--package=void@1.2.3',
+        '--',
+        'void',
+        'init',
+        '--package-manager',
+        'npm',
+      ],
+    ],
+    ['pnpm', ['pnpm', 'dlx', 'void@1.2.3', 'init', '--package-manager', 'pnpm']],
+    ['yarn', ['yarn', 'dlx', 'void@1.2.3', 'init', '--package-manager', 'yarn']],
+    ['bun', ['bunx', 'void@1.2.3', 'init', '--package-manager', 'bun']],
   ] as const)('builds the %s void init command', (pm, expected) => {
     vi.stubEnv('npm_config_user_agent', '');
     expect(pmInitCommand(pm, '1.2.3', [])).toEqual(expected);
@@ -46,6 +59,8 @@ describe('create-void package manager delegation', () => {
       '--',
       'void',
       'init',
+      '--package-manager',
+      'yarn',
       '--no-install',
     ]);
   });
@@ -58,6 +73,8 @@ describe('create-void package manager delegation', () => {
       'dlx',
       'void@1.2.3',
       'init',
+      '--package-manager',
+      'pnpm',
       '--framework',
       'react',
       '--no-install',

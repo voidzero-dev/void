@@ -61,7 +61,7 @@ export function pmInitCommand(
   version: string,
   initArgs: ReadonlyArray<string>,
 ): ReadonlyArray<string> {
-  return [...pmDlx(pm, version), 'init', ...initArgs];
+  return [...pmDlx(pm, version), 'init', '--package-manager', pm, ...initArgs];
 }
 
 export type InitCommandRunner = (argv: ReadonlyArray<string>, cwd?: string) => Promise<void>;

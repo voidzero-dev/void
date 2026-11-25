@@ -52,6 +52,8 @@ describe('create-void delegation', () => {
             'dlx',
             `void@${VOID_VERSION.version}`,
             'init',
+            '--package-manager',
+            'pnpm',
             '--toolchain',
             'vite',
             '--framework',
