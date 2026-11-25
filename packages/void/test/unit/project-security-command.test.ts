@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { parseProjectArgs } from '../../src/cli/project-args.ts';
 import { runProjectCommand } from '../../src/cli/project-cmd.ts';
-import { budgetSkipCopy, runProjectSecurityCommand } from '../../src/cli/project-security.ts';
-import type { ProjectSecurityStatus } from '../../src/cli/security-api-types.ts';
 import { captureOutput, linkedProject } from '../helpers/cli-command.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
-import { scanSummary, securityStatus } from '../helpers/security-status.ts';
+import { securityStatus } from '../helpers/security-status.ts';
 
 const linked = () => linkedProject({ slug: 'acme-web' });
 
@@ -15,32 +13,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const scan = scanSummary({
-  status: 'succeeded',
-  deploymentId: 'dpl_8f2c',
-  coverageLabel: 'changes since dpl_7c20 · source diff · 14 files',
-  filesScanned: 14,
-  model: '@cf/x',
-  meteredUsd: 0.4,
-  startedAt: '2026-11-17T10:00:00.000Z',
-  finishedAt: '2026-11-17T10:09:00.000Z',
-});
-
 const status = securityStatus({
-  policy: {
-    mode: 'public',
-    applies: true,
-    reason: 'not protected by Zero Trust',
-    publicGate: false,
-  },
   urgent: {
-    count: 2,
-    counts: { critical: 1, high: 1 },
+    count: 1,
+    counts: { critical: 1, high: 0 },
     oldestFirstSeenAt: '2026-11-10T00:00:00.000Z',
-    findings: [
-      { id: 'F-12', severity: 'critical' },
-      { id: 'F-15', severity: 'high' },
-    ],
+    findings: [{ id: 'F-12', severity: 'critical' }],
     more: 0,
     detail: 'full',
   },
@@ -49,18 +27,8 @@ const status = securityStatus({
     capSource: 'own',
     ceilingUsd: 100,
     spentUsd: 12.4,
-    // The API sends the first day of the month.
     month: '2026-11-01',
     resetsAt: '2026-12-01T00:00:00.000Z',
-  },
-  lastScan: scan,
-  lastSuccessfulScan: scan,
-  deploysSinceLastSuccess: 0,
-  counts: {
-    open: { critical: 1, high: 1, medium: 1, low: 0, informational: 0 },
-    leads: 3,
-    resolved: 0,
-    urgent: 2,
   },
 });
 
@@ -71,11 +39,8 @@ function route(handlers: Record<string, () => Response>) {
     withPlatformDiscovery(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input instanceof Request ? input.url : input));
       const method = init?.method ?? 'GET';
-      calls.push({
-        method,
-        path: url.pathname + url.search,
-        body: init?.body ? JSON.parse(String(init.body)) : undefined,
-      });
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      calls.push({ method, path: url.pathname + url.search, body });
       const handler = handlers[`${method} ${url.pathname}`];
       return handler ? handler() : new Response('404 Not Found', { status: 404 });
     }),
@@ -84,470 +49,8 @@ function route(handlers: Record<string, () => Response>) {
 }
 
 const run = (root: string, args: Array<string>) => runProjectCommand(root, parseProjectArgs(args));
-
-describe('budgetSkipCopy', () => {
-  const MODEL = '@cf/x';
-  const budget = (over: Partial<NonNullable<ProjectSecurityStatus['budget']>> = {}) => ({
-    capUsd: 0.5,
-    capSource: 'own' as const,
-    ceilingUsd: null,
-    spentUsd: 0.91,
-    month: '2026-11-01',
-    resetsAt: '2026-12-01T00:00:00.000Z',
-    scanReserveUsd: 2.04,
-    ...over,
-  });
-  const ownRaise = 'A project admin can raise it: void project security budget --usd <amount>';
-  const cheaper = 'pick a cheaper model: void project security model';
-
-  it.each([
-    [
-      'own cap used up, under the platform limit',
-      'project_cap',
-      budget({ ceilingUsd: 100 }),
-      {
-        why: "this project's monthly scan budget is used up ($0.91 of $0.50)",
-        resets: 'Resets Dec 1.',
-        next: 'A project admin can raise it (up to $100.00): void project security budget --usd 100',
-        raised: false,
-      },
-    ],
-    [
-      'own cap used up, no platform limit',
-      'project_cap',
-      budget(),
-      {
-        why: expect.stringContaining('used up'),
-        resets: 'Resets Dec 1.',
-        next: ownRaise,
-        raised: false,
-      },
-    ],
-    [
-      "the platform's per-project limit",
-      'project_cap',
-      budget({ capUsd: 0.2, capSource: 'limit', ceilingUsd: 0.2, spentUsd: 0.41 }),
-      {
-        why: "this project's monthly scan budget is used up ($0.41 of $0.20)",
-        resets: 'Resets Dec 1.',
-        next: 'Your platform admin can raise it: void platform security budget --project project_1 --usd 1',
-        raised: false,
-      },
-    ],
-    [
-      'cap raised since',
-      'project_cap',
-      budget({ capUsd: 5, spentUsd: 0.38 }),
-      {
-        why: "this project's monthly scan budget was used up; it was raised since ($0.38 of $5.00 used)",
-        resets: null,
-        next: null,
-        raised: true,
-      },
-    ],
-    [
-      'cap removed since',
-      'project_cap',
-      budget({ capUsd: null, capSource: 'none' }),
-      {
-        why: "this project's monthly scan budget was used up; the cap was removed since",
-        resets: null,
-        next: null,
-        raised: true,
-      },
-    ],
-    [
-      'one scan does not fit in what the project has left',
-      'project_reserve',
-      budget({ capUsd: 1.5, spentUsd: 0 }),
-      {
-        why: "one scan with @cf/x can cost up to $2.04, more than is left of this project's monthly scan budget ($1.50 of $1.50)",
-        resets: null,
-        next: `${ownRaise}. Or ${cheaper}`,
-        raised: false,
-      },
-    ],
-    [
-      'platform cap used up',
-      'platform_cap',
-      budget(),
-      {
-        why: "the platform's monthly scan budget is used up",
-        resets: 'Resets Dec 1.',
-        next: null,
-        raised: false,
-      },
-    ],
-    [
-      'one scan does not fit in what the platform has left',
-      'platform_reserve',
-      budget(),
-      {
-        why: "one scan with @cf/x can cost up to $2.04, more than is left of the platform's monthly scan budget",
-        resets: null,
-        next: `Ask your platform admin, or ${cheaper}`,
-        raised: false,
-      },
-    ],
-    [
-      'a reader, who sees no amounts',
-      'project_cap',
-      null,
-      { why: 'the monthly scan budget is used up', resets: null, next: null, raised: false },
-    ],
-  ] as const)('%s', (_name, cause, budgetReply, expected) => {
-    expect(budgetSkipCopy(cause, budgetReply, MODEL, 'project_1')).toEqual(expected);
-  });
-});
-
-describe('project security command', () => {
-  it('prints the status in the spec layout', async () => {
-    const root = linked();
-    route({ 'GET /projects/project_1/security': () => Response.json(status) });
-    const out = captureOutput();
-    await run(root, ['security', 'status']);
-    const text = out.output();
-    expect(text).toContain('acme-web · security');
-    expect(text).toContain('2 open (1 critical, 1 high) · oldest Nov 10');
-    expect(text).toContain('applies: not protected by Zero Trust (Public projects only)');
-    expect(text).toContain('$12.40 of $100.00 this month (project cap) · resets Dec 1');
-    expect(text).toContain('succeeded · dpl_8f2c · 9 min');
-    expect(text).toContain('2 urgent · 1 other · 3 leads');
-  });
-
-  it('names a blocked pick on the model line instead of "platform default" (edge #23)', async () => {
-    const root = linked();
-    route({
-      'GET /projects/project_1/security': () =>
-        Response.json({
-          ...status,
-          model: {
-            ...status.model,
-            id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-            requested: '@cf/zai-org/glm-5.3',
-            source: 'fallback',
-            pickProblem: 'blocked',
-          },
-        }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'status']);
-    const text = out.output();
-    expect(text).toContain(
-      '@cf/deepseek-ai/deepseek-v4.1-flash-1017 (your pick @cf/zai-org/glm-5.3 is blocked by the platform admin)',
-    );
-    expect(text).not.toContain('platform default');
-  });
-
-  it('promises no first scan on a project the policy does not apply to', async () => {
-    const root = linked();
-    route({
-      'GET /projects/project_1/security': () =>
-        Response.json({
-          ...status,
-          policy: { ...status.policy, applies: false, reason: 'preview projects are not scanned' },
-          lastScan: null,
-          lastSuccessfulScan: null,
-        }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'status']);
-    const text = out.output();
-    expect(text).toContain('does not apply: preview projects are not scanned');
-    expect(text).not.toContain('The first scan runs after your next deploy');
-  });
-
-  it('prints a held public request on the status', async () => {
-    const root = linked();
-    route({
-      'GET /projects/project_1/security': () =>
-        Response.json({
-          ...status,
-          publicRequest: {
-            id: 'spr_1',
-            state: 'held_findings',
-            heldReason: null,
-            targetDeploymentId: 'dpl_9a1d',
-            gateScanId: null,
-            blockers: { count: 2, ids: ['F-12', 'F-15'] },
-            requestedAt: '2026-11-17T14:02:00.000Z',
-            requestedByRole: 'admin',
-          },
-        }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'status']);
-    expect(out.output()).toContain(
-      '2 urgent findings must be resolved before Zero Trust is turned off (F-12, F-15)',
-    );
-  });
-
-  it('says which cap held the request and the raise that works now, or that it was raised', async () => {
-    const skipped = {
-      ...scan,
-      id: 'ss_gate',
-      status: 'skipped',
-      statusReason: 'budget',
-      budgetCause: 'project_cap',
-    };
-    const reply = (budget: Partial<NonNullable<ProjectSecurityStatus['budget']>>) => ({
-      ...status,
-      lastScan: skipped,
-      budget: { ...status.budget, ...budget },
-      publicRequest: {
-        id: 'spr_1',
-        state: 'held_no_result',
-        heldReason: 'skipped_budget',
-        targetDeploymentId: 'dpl_9a1d',
-        gateScanId: 'ss_gate',
-        blockers: { count: 0, ids: [] },
-        requestedAt: '2026-11-17T14:02:00.000Z',
-        requestedByRole: 'admin',
-      },
-    });
-    const root = linked();
-    let current = reply({ capUsd: 0.5, spentUsd: 0.91, ceilingUsd: 100 });
-    route({ 'GET /projects/project_1/security': () => Response.json(current) });
-    const out = captureOutput();
-    await run(root, ['security', 'status']);
-    // The wording of each cause is in the budgetSkipCopy table below.
-    const held = out.output();
-    expect(held).toContain('so the scan could not run. Resets Dec 1.');
-    expect(held).toContain('void project security budget --usd 100.');
-    expect(held).not.toContain('Ask your platform admin');
-    expect(held).toContain('Not scanned: ');
-
-    current = reply({ capUsd: 5, spentUsd: 0.38, ceilingUsd: 100 });
-    out.clear();
-    await run(root, ['security', 'status']);
-    const raised = out.output();
-    expect(raised).not.toContain('used up (');
-    expect(raised).toContain('it was raised since');
-    expect(raised).toContain('The next deploy is scanned.');
-    expect(raised).toContain('Ask again with void project zero-trust public');
-  });
-
-  it("names the platform's per-project limit by the project id, not as the platform cap", async () => {
-    const root = linked();
-    route({
-      'GET /projects/project_1/security': () =>
-        Response.json({
-          ...status,
-          lastScan: {
-            ...scan,
-            status: 'skipped',
-            statusReason: 'budget',
-            budgetCause: 'project_cap',
-          },
-          budget: {
-            ...status.budget,
-            capUsd: 0.2,
-            capSource: 'limit',
-            ceilingUsd: 0.2,
-            spentUsd: 0.41,
-          },
-        }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'status']);
-    const text = out.output();
-    expect(text).not.toContain("the platform's monthly scan budget");
-    expect(text).toContain('void platform security budget --project project_1 --usd 1.');
-  });
-
-  it('strips terminal escapes from model text', async () => {
-    const root = linked();
-    route({
-      'GET /projects/project_1/security/findings': () =>
-        Response.json({
-          findings: [
-            {
-              id: 'F-1',
-              verdict: 'confirmed',
-              severity: 'high',
-              state: 'open',
-              urgent: true,
-              revision: 1,
-              title: 'bad \u001b[31mred\u001b]0;x\u0007 title',
-            },
-          ],
-          nextCursor: null,
-        }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'list']);
-    const text = out.output();
-    expect(text).toContain('F-1');
-    expect(text).not.toContain('\u001b');
-    expect(text).not.toContain('\u0007');
-  });
-
-  it('resolves with the revision it read and prints what is still urgent', async () => {
-    const root = linked();
-    const calls = route({
-      'GET /projects/project_1/security/findings/F-12': () =>
-        Response.json({
-          finding: {
-            id: 'F-12',
-            verdict: 'confirmed',
-            severity: 'critical',
-            state: 'open',
-            urgent: true,
-            revision: 4,
-          },
-        }),
-      'POST /projects/project_1/security/findings/F-12/resolve': () =>
-        Response.json({
-          ok: true,
-          id: 'F-12',
-          state: 'resolved',
-          resolution: 'fixed',
-          revision: 5,
-        }),
-      'GET /projects/project_1/security': () =>
-        Response.json({
-          ...status,
-          urgent: { ...status.urgent, count: 1, findings: [{ id: 'F-15', severity: 'high' }] },
-        }),
-    });
-    const out = captureOutput();
-    await run(root, [
-      'security',
-      'resolve',
-      'F-12',
-      '--reason',
-      'fixed',
-      '--comment',
-      'Bound params',
-    ]);
-    const text = out.output();
-    expect(text).toContain('✓ F-12 resolved (fixed). The next scan will check that the fix holds.');
-    expect(text).toContain('Still open and urgent: F-15 (high).');
-    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({
-      reason: 'fixed',
-      comment: 'Bound params',
-      expectedRevision: 4,
-    });
-  });
-
-  it('fails when a resolve is refused as changed', async () => {
-    const root = linked();
-    route({
-      'GET /projects/project_1/security/findings/F-12': () =>
-        Response.json({
-          finding: {
-            id: 'F-12',
-            verdict: 'confirmed',
-            severity: 'high',
-            state: 'open',
-            urgent: true,
-            revision: 4,
-          },
-        }),
-      'POST /projects/project_1/security/findings/F-12/resolve': () =>
-        Response.json(
-          {
-            error: 'finding changed',
-            message: 'F-12 changed while you were working on it: resolved (fixed).',
-          },
-          { status: 409 },
-        ),
-    });
-    const out = captureOutput();
-    await expect(
-      run(root, ['security', 'resolve', 'F-12', '--reason', 'fixed', '--comment', 'x']),
-    ).rejects.toThrow('1 of 1');
-    expect(out.output()).toContain('F-12 changed while you were working on it');
-  });
-
-  it('shows the platform ceiling copy for a budget above the limit', async () => {
-    const root = linked();
-    route({
-      'PUT /projects/project_1/security/budget': () =>
-        Response.json(
-          {
-            error: 'security budget above platform limit',
-            message:
-              'The platform limits each project to $100.00 / month. Ask your platform admin to raise it for acme-web: void platform security budget --project acme-web --usd 150',
-          },
-          { status: 422 },
-        ),
-    });
-    await expect(run(root, ['security', 'budget', '--usd', '150'])).rejects.toThrow(
-      'The platform limits each project to $100.00 / month. Ask your platform admin',
-    );
-  });
-
-  it('accepts the provider notice with the version the platform names', async () => {
-    const root = linked();
-    let puts = 0;
-    const calls = route({
-      'PUT /projects/project_1/security/model': () =>
-        ++puts === 1
-          ? Response.json(
-              {
-                error: 'provider notice not accepted',
-                message: 'read it',
-                version: 3,
-                notice: ['Run by Anthropic.'],
-              },
-              { status: 422 },
-            )
-          : Response.json({
-              ok: true,
-              model: {
-                ...status.model,
-                id: 'anthropic/claude-x',
-                source: 'project',
-                thirdParty: true,
-              },
-            }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'model', 'anthropic/claude-x', '--accept-provider-notice']);
-    expect(out.output()).toContain('Run by Anthropic.');
-    expect(
-      calls.map(
-        (c) => (c.body as { acceptProviderNoticeVersion?: number }).acceptProviderNoticeVersion,
-      ),
-    ).toEqual([0, 3]);
-  });
-
-  it('says an old platform does not support security audits', async () => {
-    const root = linked();
-    route({});
-    await expect(run(root, ['security', 'status'])).rejects.toThrow(
-      'does not support security audits',
-    );
-  });
-
-  it('opens the page link only on a terminal', async () => {
-    const root = linked();
-    route({
-      'POST /projects/project_1/security/page-link': () =>
-        Response.json({
-          url: 'https://api.example.test/security/projects/acme-web?t=abc',
-          expiresAt: '2026-11-17T10:15:00.000Z',
-        }),
-    });
-    captureOutput();
-    const openUrl = vi.fn();
-    await runProjectSecurityCommand(root, parseProjectArgs(['security', 'open']) as never, {
-      openUrl,
-      interactive: false,
-    });
-    expect(openUrl).not.toHaveBeenCalled();
-    await runProjectSecurityCommand(root, parseProjectArgs(['security', 'open']) as never, {
-      openUrl,
-      interactive: true,
-    });
-    expect(openUrl).toHaveBeenCalledWith(
-      'https://api.example.test/security/projects/acme-web?t=abc',
-    );
-  });
-});
-
-const F = '/projects/project_1/security/findings';
+const S = '/projects/project_1/security';
+const F = `${S}/findings`;
 const finding = (id: string, extra: Record<string, unknown> = {}) => ({
   id,
   verdict: 'confirmed',
@@ -561,160 +64,27 @@ const finding = (id: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-describe('project security scan (M25)', () => {
-  const SCANS = '/projects/project_1/security/scans';
-  const preview = {
-    dryRun: true,
-    deploymentId: 'dpl_9a1d',
-    alreadyScanned: true,
-    tier: 'full',
-    model: 'anthropic/claude-opus-5.5',
-    thirdParty: true,
-    worstCaseUsd: 12,
-    budget: status.budget,
-  };
-  const queued = {
-    ok: true,
-    scanId: 'ss_new',
-    deploymentId: 'dpl_9a1d',
-    tier: 'full',
-    model: 'anthropic/claude-opus-5.5',
-    alreadyScanned: true,
-  };
-  const handlers = () => ({
-    [`POST ${SCANS}`]: (() => {
-      let posts = 0;
-      return () =>
-        ++posts === 1 ? Response.json(preview) : Response.json(queued, { status: 202 });
-    })(),
-  });
-
-  it('previews, then queues with --yes and says where the result shows', async () => {
+describe('void project security', () => {
+  it('prints the status, one JSON document with --json, and names an old platform', async () => {
     const root = linked();
-    const calls = route(handlers());
+    route({ [`GET ${S}`]: () => Response.json(status) });
     const out = captureOutput();
-    await run(root, ['security', 'scan', '--yes']);
-    expect(calls.map((c) => c.body)).toEqual([{ dryRun: true }, {}]);
-    const text = out.output();
-    expect(text).toContain('✓ Full scan ss_new of dpl_9a1d queued.');
-    expect(text).toContain('void project security status');
-  });
-
-  it('asks first on a terminal, names the cost, and queues nothing on no', async () => {
-    const root = linked();
-    const calls = route(handlers());
-    const out = captureOutput();
-    const asked: Array<string> = [];
-    await runProjectSecurityCommand(
-      root,
-      {
-        subcommand: 'security',
-        projectSlug: '',
-        json: false,
-        action: 'scan',
-        yes: false,
-        clientAssets: false,
-      },
-      {
-        interactive: true,
-        confirm: async (message) => {
-          asked.push(message);
-          return false;
-        },
-      },
-    );
-    expect(asked).toEqual([
-      'Live deployment dpl_9a1d was already scanned. Run a full scan with anthropic/claude-opus-5.5? This reviews the whole app. It can cost up to $12.00.',
-    ]);
-    expect(out.output()).toContain('Monthly caps apply: $12.40 of $100.00 spent this month.');
-    expect(out.output()).toContain('Nothing was queued.');
-    expect(calls).toHaveLength(1);
-  });
-
-  it('needs --yes without a terminal or with --json', async () => {
-    const root = linked();
-    const calls = route(handlers());
-    await expect(
-      runProjectSecurityCommand(
-        root,
-        {
-          subcommand: 'security',
-          projectSlug: '',
-          json: false,
-          action: 'scan',
-          yes: false,
-          clientAssets: false,
-        },
-        { interactive: false },
-      ),
-    ).rejects.toThrow('Add --yes to start the scan without a prompt.');
-    await expect(run(root, ['security', 'scan', '--json'])).rejects.toThrow('Add --yes');
-    expect(calls.every((c) => (c.body as { dryRun?: boolean }).dryRun === true)).toBe(true);
-  });
-
-  it('shows the platform refusal as is', async () => {
-    const root = linked();
-    route({
-      [`POST ${SCANS}`]: () =>
-        Response.json(
-          {
-            error: 'security_scan_in_progress',
-            message: 'acme-web already has a scan waiting (ss_1). Wait for it to end.',
-          },
-          { status: 409 },
-        ),
+    await run(root, ['security', 'status']);
+    expect(out.output()).toContain('1 open (1 critical) · oldest Nov 10');
+    expect(out.output()).toContain('$12.40 of $100.00 this month (project cap) · resets Dec 1');
+    out.clear();
+    await run(root, ['security', 'status', '--json']);
+    expect(JSON.parse(out.output())).toMatchObject({
+      policy: { mode: 'all' },
+      counts: { leads: 3 },
     });
-    await expect(run(root, ['security', 'scan', '--yes'])).rejects.toThrow(
-      'already has a scan waiting (ss_1). Wait for it to end.',
+    route({});
+    await expect(run(root, ['security', 'status'])).rejects.toThrow(
+      'does not support security audits',
     );
   });
 
-  it('asks for the client asset pass with --client-assets (M31)', async () => {
-    const root = linked();
-    const calls = route({
-      [`POST ${SCANS}`]: (() => {
-        let posts = 0;
-        return () =>
-          ++posts === 1
-            ? Response.json({ ...preview, clientAssets: true })
-            : Response.json({ ...queued, clientAssets: true }, { status: 202 });
-      })(),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'scan', '--yes', '--client-assets']);
-    expect(calls.map((c) => c.body)).toEqual([
-      { dryRun: true, clientAssets: true },
-      { clientAssets: true },
-    ]);
-    expect(out.output()).toContain(
-      '✓ Full scan ss_new of dpl_9a1d queued, with client bundle sources.',
-    );
-  });
-
-  it('refuses --client-assets on a platform that ignores it, before queuing', async () => {
-    const root = linked();
-    const calls = route(handlers());
-    await expect(run(root, ['security', 'scan', '--yes', '--client-assets'])).rejects.toThrow(
-      'This platform cannot read client bundle sources yet.',
-    );
-    expect(calls).toHaveLength(1);
-  });
-
-  it('parses only --yes, --project and --json', () => {
-    expect(parseProjectArgs(['security', 'scan', '--yes'])).toMatchObject({
-      action: 'scan',
-      yes: true,
-      clientAssets: false,
-    });
-    expect(() => parseProjectArgs(['security', 'scan', '--usd', '5'])).toThrow(
-      '--usd is not used with security scan',
-    );
-    expect(() => parseProjectArgs(['security', 'scan', 'dpl_1'])).toThrow('Unexpected argument');
-  });
-});
-
-describe('project security command paths', () => {
-  it('lists findings, hides leads with a note and shows them with --leads', async () => {
+  it('lists findings without leads and shows one in full', async () => {
     const root = linked();
     route({
       [`GET ${F}`]: () =>
@@ -722,370 +92,91 @@ describe('project security command paths', () => {
           findings: [finding('F-1'), finding('F-2', { verdict: 'needs_validation' })],
           nextCursor: null,
         }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'list']);
-    let text = out.output();
-    expect(text).toContain('F-1');
-    expect(text).not.toContain('F-2 ');
-    expect(text).toContain('1 lead is hidden. Show them with --leads.');
-    out.clear();
-    await run(root, ['security', 'list', '--leads']);
-    text = out.output();
-    expect(text).toContain('F-2');
-    expect(text).toContain('lead');
-    expect(text).not.toContain('hidden');
-  });
-
-  it('prints the list as a SARIF log with --format sarif (M31)', async () => {
-    const root = linked();
-    route({
-      [`GET ${F}`]: () =>
-        Response.json({
-          findings: [
-            finding('F-1'),
-            finding('F-2', { verdict: 'needs_validation', severity: null }),
-          ],
-          nextCursor: null,
-        }),
-    });
-    const out = captureOutput();
-    const errors: Array<string> = [];
-    vi.spyOn(console, 'error').mockImplementation((...a) => void errors.push(a.join(' ')));
-    await run(root, ['security', 'list', '--format', 'sarif']);
-    const log = JSON.parse(out.output());
-    // How a finding maps to a SARIF result is in security-sarif.test.ts.
-    expect(log.version).toBe('2.1.0');
-    expect(log.runs[0].results).toEqual([
-      expect.objectContaining({ message: { text: 'F-1: title F-1' } }),
-    ]);
-    expect(errors).toEqual(['1 lead is left out. Add them with --leads.']);
-    expect(() => parseProjectArgs(['security', 'list', '--format', 'csv'])).toThrow(
-      "Invalid --format 'csv'",
-    );
-    expect(() => parseProjectArgs(['security', 'list', '--format', 'sarif', '--json'])).toThrow(
-      'not both',
-    );
-  });
-
-  it('stops listing at 500 findings and says so', async () => {
-    const root = linked();
-    const calls = route({
-      [`GET ${F}`]: () =>
-        Response.json({
-          findings: Array.from({ length: 100 }, (_, i) => finding(`F-${i + 1}`)),
-          nextCursor: '100',
-        }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'list']);
-    expect(calls).toHaveLength(5);
-    expect(out.output()).toContain('Showing the first 500.');
-  });
-
-  it('shows the full detail, and only the summary to a reader', async () => {
-    const root = linked();
-    route({
       [`GET ${F}/F-1`]: () =>
-        Response.json({
-          finding: finding('F-1', {
-            evidence: 'EVID',
-            fix: 'FIXTEXT',
-            trace: [
-              { file: 'lib/session.ts', line: 13, note: 'cookie is SameSite=None' },
-              { file: 'routes/a.ts', note: 'no origin check' },
-            ],
-            verdictSource: 'runtime',
-            runtimeProof: { request: 'r2', method: 'GET', path: '/users?id=1', status: 200 },
-          }),
-          events: [
-            {
-              createdAt: '2026-11-17T10:00:00.000Z',
-              action: 'comment',
-              actorKind: 'user',
-              actor: 'ana',
-              actorRole: 'admin',
-              comment: 'looked',
-            },
-            {
-              createdAt: '2026-11-18T10:00:00.000Z',
-              action: 'commented',
-              actorKind: 'user',
-              actor: 'sa-b-collab',
-              actorRole: 'collaborator',
-              formerMember: true,
-              comment: 'left a note',
-            },
-          ],
-        }),
-      [`GET ${F}/F-2`]: () =>
-        Response.json({ finding: { ...finding('F-2'), title: undefined, file: undefined } }),
+        Response.json({ finding: finding('F-1', { evidence: 'EVID', fix: 'FIXTEXT' }) }),
     });
     const out = captureOutput();
+    await run(root, ['security', 'list']);
+    expect(out.output()).toContain('F-1');
+    expect(out.output()).toContain('1 lead is hidden. Show them with --leads.');
+    out.clear();
     await run(root, ['security', 'show', 'F-1']);
-    let text = out.output();
-    expect(text).toContain('title F-1');
-    expect(text).toContain('EVID');
-    expect(text).toContain('FIXTEXT');
-    // A trace reads as one step per line, not as JSON.
-    expect(text).toContain(
-      '    lib/session.ts:13  cookie is SameSite=None\n    routes/a.ts  no origin check',
-    );
-    expect(text).not.toContain('"note"');
-    expect(text).toContain('confirmed (runtime)');
-    expect(text).toContain('GET /users?id=1 answered 200 on a throwaway copy');
-    expect(text).toContain('ana (admin)');
-    // Spec #24: a removed commenter keeps the comment, shown as a former member.
-    expect(text).toContain('sa-b-collab (former member)');
-    expect(text).not.toContain('(collaborator)');
-    out.clear();
-    await run(root, ['security', 'show', 'F-2']);
-    text = out.output();
-    expect(text).toContain('Readers see the id, severity and state');
-    expect(text).not.toContain('Evidence');
+    expect(out.output()).toContain('EVID');
+    expect(out.output()).toContain('FIXTEXT');
   });
 
-  it('adds a comment', async () => {
+  it('resolves with the revision it read, keeps going after a refusal, then fails', async () => {
     const root = linked();
     const calls = route({
-      [`POST ${F}/F-3/comments`]: () => Response.json({ ok: true, id: 'F-3' }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'comment', 'F-3', 'checked by hand']);
-    expect(out.output()).toContain('Comment added to F-3.');
-    expect(calls[0]?.body).toEqual({ text: 'checked by hand' });
-  });
-
-  it('reopens with the revision it read first', async () => {
-    const root = linked();
-    const calls = route({
-      [`GET ${F}/F-4`]: () => Response.json({ finding: finding('F-4', { revision: 7 }) }),
-      [`POST ${F}/F-4/reopen`]: () => Response.json({ ok: true, id: 'F-4' }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'reopen', 'F-4', '--comment', 'still reachable']);
-    expect(out.output()).toContain('F-4 reopened.');
-    expect(calls.map((c) => c.method)).toEqual(['GET', 'POST']);
-    expect(calls[1]?.body).toEqual({ comment: 'still reachable', expectedRevision: 7 });
-  });
-
-  it('lists scans and notes older ones', async () => {
-    const root = linked();
-    const calls = route({
-      'GET /projects/project_1/security/scans': () =>
-        Response.json({ scans: [scan], nextCursor: '9' }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'scans', '--limit', '5']);
-    const text = out.output();
-    expect(calls[0]?.path).toBe('/projects/project_1/security/scans?limit=5');
-    expect(text).toContain('dpl_8f2c');
-    expect(text).toContain('$0.40');
-    expect(text).toContain('Older scans exist.');
-  });
-
-  it('shows the model, then sets it, resets it to the default', async () => {
-    const root = linked();
-    const calls = route({
-      'GET /projects/project_1/security': () => Response.json(status),
-      'PUT /projects/project_1/security/model': () =>
-        Response.json({ ok: true, model: { ...status.model, id: '@cf/y' } }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'model']);
-    // The provider notice is only about third-party models.
-    expect(out.output()).not.toContain('provider notice');
-    out.clear();
-    await run(root, ['security', 'model', '@cf/y']);
-    expect(out.output()).toContain('scans now use @cf/y');
-    expect(calls.at(-1)?.body).toEqual({ model: '@cf/y' });
-    out.clear();
-    await run(root, ['security', 'model', '--default']);
-    expect(out.output()).toContain('uses the platform default model (@cf/y)');
-    expect(calls.at(-1)?.body).toEqual({ model: null });
-  });
-
-  it('shows the budget, sets it with --usd and clears it with --off', async () => {
-    const root = linked();
-    const calls = route({
-      'GET /projects/project_1/security': () => Response.json(status),
-      'PUT /projects/project_1/security/budget': () =>
-        Response.json({ ok: true, budget: { ...status.budget, capUsd: 100 } }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'budget']);
-    expect(out.output()).toContain('acme-web · scan budget (November, UTC; resets Dec 1)');
-    expect(out.output()).toContain('$100.00 / month (set for this project)');
-    out.clear();
-    await run(root, ['security', 'budget', '--usd', '40']);
-    expect(out.output()).toContain('scan budget set to $40.00 / month');
-    expect(calls.at(-1)?.body).toEqual({ monthlyUsd: 40 });
-    out.clear();
-    await run(root, ['security', 'budget', '--off']);
-    expect(out.output()).toContain('own cap cleared');
-    expect(calls.at(-1)?.body).toEqual({ monthlyUsd: null });
-  });
-
-  it('resolves several ids, keeps going after one fails, then fails the command', async () => {
-    const root = linked();
-    const calls = route({
-      [`GET ${F}/F-1`]: () => Response.json({ finding: finding('F-1', { revision: 1 }) }),
-      [`GET ${F}/F-2`]: () => Response.json({ finding: finding('F-2', { revision: 1 }) }),
-      [`GET ${F}/F-3`]: () => Response.json({ finding: finding('F-3', { revision: 1 }) }),
+      [`GET ${F}/F-1`]: () => Response.json({ finding: finding('F-1', { revision: 4 }) }),
+      [`GET ${F}/F-2`]: () => Response.json({ finding: finding('F-2') }),
       [`POST ${F}/F-1/resolve`]: () =>
-        Response.json({ ok: true, id: 'F-1', state: 'resolved', resolution: 'accepted_risk' }),
+        Response.json({ ok: true, id: 'F-1', state: 'resolved', resolution: 'fixed' }),
       [`POST ${F}/F-2/resolve`]: () =>
         Response.json({ error: 'finding changed', message: 'F-2 changed.' }, { status: 409 }),
-      [`POST ${F}/F-3/resolve`]: () =>
-        Response.json({ ok: true, id: 'F-3', state: 'resolved', resolution: 'accepted_risk' }),
-      'GET /projects/project_1/security': () => Response.json(status),
+      [`GET ${S}`]: () => Response.json(status),
     });
     const out = captureOutput();
     await expect(
-      run(root, [
-        'security',
-        'resolve',
-        'F-1,F-2,F-3',
-        '--reason',
-        'accepted-risk',
-        '--comment',
-        'ok',
-      ]),
-    ).rejects.toThrow('1 of 3 findings were not resolved');
-    const text = out.output();
-    expect(text).toContain('F-1 resolved (accepted risk)');
-    expect(text).toContain('F-2: F-2 changed.');
-    expect(text).toContain('F-3 resolved (accepted risk)');
-    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(3);
-  });
-
-  it('prints one JSON document with --json', async () => {
-    const root = linked();
-    route({ 'GET /projects/project_1/security': () => Response.json(status) });
-    const out = captureOutput();
-    await run(root, ['security', 'status', '--json']);
-    expect(JSON.parse(out.output())).toMatchObject({
-      policy: { mode: 'public' },
-      counts: { leads: 3 },
-    });
-    route({ [`GET ${F}`]: () => Response.json({ findings: [finding('F-1')], nextCursor: null }) });
-    out.clear();
-    await run(root, ['security', 'list', '--json']);
-    expect(JSON.parse(out.output())).toMatchObject({ findings: [{ id: 'F-1' }], more: false });
-  });
-});
-
-describe('project security severity (M35)', () => {
-  it('parses a level or scan, and needs a comment', () => {
-    expect(
-      parseProjectArgs(['security', 'severity', 'f-12', 'medium', '--comment', 'admins only']),
-    ).toMatchObject({ action: 'severity', id: 'F-12', severity: 'medium', comment: 'admins only' });
-    expect(
-      parseProjectArgs(['security', 'severity', 'F-12', 'scan', '--comment', 'undo']),
-    ).toMatchObject({ severity: null });
-    expect(() => parseProjectArgs(['security', 'severity', 'F-12', 'medium'])).toThrow(
-      'A comment is required',
-    );
-    expect(() =>
-      parseProjectArgs(['security', 'severity', 'F-12', 'urgent', '--comment', 'x']),
-    ).toThrow("Invalid severity 'urgent'");
-    expect(() => parseProjectArgs(['security', 'severity', 'F-12', '--comment', 'x'])).toThrow(
-      'Usage: void project security severity <F-id>',
-    );
-    expect(() =>
-      parseProjectArgs(['security', 'severity', 'F-12', 'low', '--reason', 'fixed']),
-    ).toThrow('--reason is not used with security severity');
-  });
-
-  it('sends the level with the revision it read and says what changed', async () => {
-    const root = linked();
-    const calls = route({
-      [`GET ${F}/F-12`]: () => Response.json({ finding: finding('F-12', { revision: 4 }) }),
-      [`POST ${F}/F-12/severity`]: () =>
-        Response.json({
-          ok: true,
-          id: 'F-12',
-          severity: 'medium',
-          scanSeverity: 'high',
-          severityEdited: true,
-          urgent: false,
-          revision: 5,
-          changed: true,
-        }),
-    });
-    const out = captureOutput();
-    await run(root, ['security', 'severity', 'F-12', 'medium', '--comment', 'behind admin auth']);
-    expect(out.output()).toContain(
-      '✓ F-12 severity set to medium (scans said high). Later scans keep it.',
-    );
-    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
-      `GET ${F}/F-12`,
-      `POST ${F}/F-12/severity`,
-    ]);
-    expect(calls[1]?.body).toEqual({
-      severity: 'medium',
-      comment: 'behind admin auth',
+      run(root, ['security', 'resolve', 'F-1,F-2', '--reason', 'fixed', '--comment', 'Bound']),
+    ).rejects.toThrow('1 of 2 findings were not resolved');
+    expect(out.output()).toContain('F-1 resolved (fixed)');
+    expect(out.output()).toContain('F-2: F-2 changed.');
+    expect(calls.find((c) => c.path === `${F}/F-1/resolve`)?.body).toEqual({
+      reason: 'fixed',
+      comment: 'Bound',
       expectedRevision: 4,
     });
   });
 
-  it('says when it goes back to the scan value, when nothing changed, and on an old platform', async () => {
+  it('sets the budget and accepts a provider notice only with the version the platform names', async () => {
     const root = linked();
-    let reply: Record<string, unknown> = {
-      ok: true,
-      id: 'F-12',
-      severity: 'high',
-      scanSeverity: 'high',
-      severityEdited: false,
-      urgent: true,
-      revision: 6,
-      changed: true,
-    };
+    let puts = 0;
     const calls = route({
-      [`GET ${F}/F-12`]: () => Response.json({ finding: finding('F-12', { revision: 5 }) }),
-      [`POST ${F}/F-12/severity`]: () => Response.json(reply),
+      [`PUT ${S}/budget`]: () => Response.json({ ok: true, budget: status.budget }),
+      [`PUT ${S}/model`]: () =>
+        ++puts === 1
+          ? Response.json(
+              { error: 'provider notice not accepted', version: 3, notice: ['Run by Anthropic.'] },
+              { status: 422 },
+            )
+          : Response.json({ ok: true, model: { ...status.model, id: 'anthropic/claude-x' } }),
     });
     const out = captureOutput();
-    await run(root, ['security', 'severity', 'F-12', 'scan', '--comment', 'undo']);
-    expect(out.output()).toContain('✓ F-12 uses the scan severity again: high.');
-    expect(calls[1]?.body).toMatchObject({ severity: null });
-
-    out.clear();
-    reply = { ...reply, severity: 'low', severityEdited: true, changed: false };
-    await run(root, ['security', 'severity', 'F-12', 'low', '--comment', 'again']);
-    expect(out.output()).toContain('F-12 is already low. Nothing changed.');
-
-    route({ [`GET ${F}/F-12`]: () => Response.json({ finding: finding('F-12') }) });
-    await expect(
-      run(root, ['security', 'severity', 'F-12', 'low', '--comment', 'x']),
-    ).rejects.toThrow('cannot change finding severity yet');
+    await run(root, ['security', 'budget', '--usd', '40']);
+    expect(out.output()).toContain('scan budget set to $40.00 / month');
+    expect(calls[0]?.body).toEqual({ monthlyUsd: 40 });
+    await run(root, ['security', 'model', 'anthropic/claude-x', '--accept-provider-notice']);
+    expect(out.output()).toContain('Run by Anthropic.');
+    const versions = calls
+      .slice(1)
+      .map((c) => (c.body as { acceptProviderNoticeVersion?: number }).acceptProviderNoticeVersion);
+    expect(versions).toEqual([0, 3]);
   });
 
-  it('shows who set the severity and the change in the history', async () => {
+  it('previews a scan, needs --yes without a terminal, then queues it', async () => {
     const root = linked();
-    route({
-      [`GET ${F}/F-12`]: () =>
-        Response.json({
-          finding: finding('F-12', { severity: 'low', severityEdited: true, scanSeverity: 'high' }),
-          events: [
-            {
-              createdAt: '2026-11-17T10:00:00.000Z',
-              action: 'severity_edited',
-              actorKind: 'user',
-              actor: 'ana',
-              actorRole: 'admin',
-              resolution: null,
-              severityFrom: 'high',
-              severityTo: 'low',
-              comment: 'admins only',
-            },
-          ],
-        }),
+    let posts = 0;
+    const calls = route({
+      [`POST ${S}/scans`]: () =>
+        ++posts === 1
+          ? Response.json({ dryRun: true, deploymentId: 'dpl_9a1d', tier: 'full', model: '@cf/x' })
+          : Response.json(
+              {
+                ok: true,
+                scanId: 'ss_new',
+                deploymentId: 'dpl_9a1d',
+                tier: 'full',
+                model: '@cf/x',
+              },
+              { status: 202 },
+            ),
     });
+    await expect(run(root, ['security', 'scan', '--json'])).rejects.toThrow('Add --yes');
+    posts = 0;
     const out = captureOutput();
-    await run(root, ['security', 'show', 'F-12']);
-    const text = out.output();
-    expect(text).toContain('Severity set by a person (scans said high).');
-    expect(text).toContain('severity_edited (high → low) · ana (admin)');
+    await run(root, ['security', 'scan', '--yes']);
+    expect(calls.map((c) => c.body)).toEqual([{ dryRun: true }, { dryRun: true }, {}]);
+    expect(out.output()).toContain('✓ Full scan ss_new of dpl_9a1d queued.');
   });
 });

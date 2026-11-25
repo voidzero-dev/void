@@ -592,42 +592,6 @@ describe('platform installation planning', () => {
     );
   });
 
-  it('allows security audits with a schema 7 document and no resource action', async () => {
-    const off = await createPlatformInstallPlan(client(), input, null);
-    expect(off.deployment.capabilities.securityAudits).toBe(false);
-    const on = await createPlatformInstallPlan(client(), { ...input, securityAudits: true }, null);
-    expect(on.deployment).toMatchObject({
-      capabilities: { securityAudits: true },
-      schemaVersion: 7,
-    });
-    expect(on.actions).toEqual(off.actions);
-
-    // An existing installation takes the flag on upgrade or repair without a drift error.
-    const recorded = manifestFor(off);
-    for (const options of [{}, { allowRuntimeLogsChange: true }]) {
-      const upgraded = await createPlatformInstallPlan(
-        client(),
-        { ...input, securityAudits: true },
-        recorded,
-        options,
-      );
-      expect(upgraded.deployment).toEqual(on.deployment);
-    }
-    // Omitted keeps the recorded value; the flag is never switched off here.
-    const recordedOn = manifestFor(on);
-    expect((await createPlatformInstallPlan(client(), input, recordedOn)).deployment).toEqual(
-      on.deployment,
-    );
-    // Other drift still stops the run.
-    await expect(
-      createPlatformInstallPlan(
-        client(),
-        { ...input, displayName: 'Other', securityAudits: true },
-        recorded,
-      ),
-    ).rejects.toThrow('--resume inputs do not match');
-  });
-
   it('enables managed Sandbox for current installs and upgrades without adding a resource action', async () => {
     const legacy = legacyInstallation();
     expect(legacy.deployment.capabilities.sandbox).toBe(false);

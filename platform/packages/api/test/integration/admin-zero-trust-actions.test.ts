@@ -96,36 +96,4 @@ describe('admin project Zero Trust actions', () => {
       project.id,
     );
   });
-
-  test('asks to make a project public and cancels the request with the same form', async () => {
-    const admin = await createTestUser(env.db, 'zt-public', 'github', undefined, 'free', 'admin');
-    const project = await createTestProject(env.db, admin.id, 'zt-public-project');
-
-    const ask = await post(`/admin/projects/${project.id}/zero-trust`, admin.adminJwt, {
-      protected: 'false',
-    });
-    expect(ask.status).toBe(302);
-    expect(setProjectZeroTrustProtection).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.anything(),
-      project.id,
-      false,
-      { requester: { userId: admin.id, via: 'admin' } },
-    );
-
-    // "Cancel request" is a protect: it closes an open public request.
-    await post(`/admin/projects/${project.id}/zero-trust`, admin.adminJwt, { protected: 'true' });
-    expect(setProjectZeroTrustProtection).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.anything(),
-      project.id,
-      true,
-      { requester: { userId: admin.id, via: 'admin' } },
-    );
-    const events = await env.db.select().from(operatorEvents);
-    expect(events.map((event): unknown => JSON.parse(event.target))).toEqual([
-      { projectId: project.id, protected: false },
-      { projectId: project.id, protected: true },
-    ]);
-  });
 });

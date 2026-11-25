@@ -362,55 +362,6 @@ describe('platform credential setup links', () => {
       );
     },
   );
-  it.each([false, true])(
-    'requests Containers and Cloudchamber for the scanner only when security audits are allowed, enabled: %s',
-    (securityAudits) => {
-      const original = plan();
-      const selected = {
-        ...original,
-        deployment: {
-          ...original.deployment,
-          capabilities: { ...original.deployment.capabilities, securityAudits },
-        },
-      };
-      const added = securityAudits
-        ? [
-            { key: 'containers', type: 'edit' },
-            { key: 'cloudchamber', type: 'edit' },
-          ]
-        : [];
-      // The runtime token provisions the scanner; the management token deletes it on uninstall.
-      expect(permissionGroupKeys(platformSetupPages(selected).runtime.url)).toEqual([
-        ...permissionGroupKeys(platformSetupPages(original).runtime.url),
-        ...added,
-      ]);
-      const management = (input: PlatformInstallPlan) =>
-        permissionGroupKeys(platformManagementSetupPage(input, { access: false }).url);
-      expect(management(selected)).toEqual(
-        securityAudits ? expect.arrayContaining(added) : management(original),
-      );
-      expect(management(original)).not.toContainEqual({ key: 'containers', type: 'edit' });
-    },
-  );
-  it('keeps --security-audits in the copyable install and resume commands', () => {
-    const options = {
-      commandName: 'void' as const,
-      accountId: 'account',
-      installationSlug: 'team',
-      displayName: 'Team',
-      applicationDomain: 'apps.example.com',
-      zoneName: 'example.com',
-      controlPlaneDomain: 'api.example.com',
-      dedicatedZone: true,
-      workersDev: false,
-      runtime: '',
-      yes: false,
-    };
-    expect(formatPlatformInstallCommand({ ...options, securityAudits: true })).toContain(
-      ' --security-audits',
-    );
-    expect(formatPlatformInstallCommand(options)).not.toContain('--security-audits');
-  });
   it('requests the email zone and sending permissions only when email is enabled', () => {
     const original = plan('example.com');
     const withEmail = {

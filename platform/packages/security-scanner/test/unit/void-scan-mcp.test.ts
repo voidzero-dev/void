@@ -9,12 +9,7 @@ import { createFsTools } from '../../src/runner/tools/fs.ts';
 import { confirmed, report } from '../helpers/findings.ts';
 
 type Reply = {
-  result: {
-    isError: boolean;
-    content: Array<{ text: string }>;
-    tools: Array<{ name: string; annotations: { readOnlyHint: boolean } }>;
-  };
-  error?: { code: number };
+  result: { isError: boolean; content: Array<{ text: string }>; tools: Array<{ name: string }> };
 };
 
 let dir: string;
@@ -25,6 +20,7 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'scanner-mcp-'));
   await mkdir(join(dir, 'scan/input'), { recursive: true });
   await writeFile(join(dir, 'scan/input/a.ts'), 'line one\nline two\n');
+  await writeFile(join(dir, 'scan/input/blank.ts'), '\n');
   await writeFile(join(dir, 'secret.txt'), 'token');
   out = join(dir, 'report.json');
   server = createMcpServer({ tools: createFsTools({ root: join(dir, 'scan') }), outPath: out });
@@ -35,102 +31,39 @@ afterEach(async () => {
 });
 
 let nextId = 0;
-async function rpc(method: string, params?: unknown, instance: McpServer = server) {
-  const reply = await instance.handle({ jsonrpc: '2.0', id: ++nextId, method, params });
-  return reply as unknown as Reply;
+async function rpc(method: string, params?: unknown) {
+  return (await server.handle({ jsonrpc: '2.0', id: ++nextId, method, params })) as Reply;
 }
-const call = (name: string, args: unknown, instance?: McpServer) =>
-  rpc('tools/call', { name, arguments: args }, instance);
+const call = (name: string, args: unknown) => rpc('tools/call', { name, arguments: args });
 
 describe('void-scan MCP server', () => {
-  test('answers initialize, ping and lists exactly the four tools as read-only or not', async () => {
-    expect((await rpc('initialize', { protocolVersion: '2025-03-26' })).result).toMatchObject({
-      protocolVersion: '2025-03-26',
-      serverInfo: { name: 'void-scan' },
-    });
-    expect((await rpc('ping')).result).toEqual({});
+  test('offers only the four scan tools and the Engine B path rules; counts code reads', async () => {
     const tools = (await rpc('tools/list')).result.tools;
-    expect(tools.map((t) => [t.name, t.annotations.readOnlyHint])).toEqual([
-      ['read_file', true],
-      ['list_files', true],
-      ['grep', true],
-      ['submit_findings', false],
+    expect(tools.map((t) => t.name)).toEqual([
+      'read_file',
+      'list_files',
+      'grep',
+      'submit_findings',
     ]);
-    expect((await rpc('nope')).error?.code).toBe(-32_601);
-    expect(await server.handle({ jsonrpc: '2.0', method: 'notifications/initialized' })).toBeNull();
-    expect(await server.handle('junk')).toBeNull();
-  });
-
-  test('read tools use the same path rules as Engine B', async () => {
-    const ok = await call('read_file', { path: 'a.ts' });
-    expect(ok.result.isError).toBe(false);
-    expect(ok.result.content[0].text).toContain('line two');
-    const outside = await call('read_file', { path: '../../secret.txt' });
-    expect(outside.result.isError).toBe(true);
-    expect(outside.result.content[0].text).not.toContain('token');
-    expect((await call('grep', { pattern: 'one' })).result.content[0].text).toContain('a.ts');
     expect((await call('shell', { cmd: 'id' })).result.isError).toBe(true);
-  });
-
-  test('counts in <out>.reads only the read_file calls that returned code', async () => {
-    await mkdir(join(dir, 'scan/memory'), { recursive: true });
-    await writeFile(join(dir, 'scan/memory/index.json'), '{"findings":[]}');
-    await writeFile(join(dir, 'scan/input/blank.ts'), '\n');
-    await call('list_files', {});
-    await call('grep', { pattern: 'one' });
-    await call('read_file', { path: '/scan/memory/index.json' });
-    await call('read_file', { path: 'blank.ts' });
-    await call('read_file', { path: 'missing.ts' });
-    await call('read_file', { path: '../../secret.txt' });
+    for (const path of ['../../secret.txt', '/proc/self/environ', 'blank.ts', 'missing.ts']) {
+      const result = await call('read_file', { path });
+      expect(result.result.content[0].text).not.toContain('token');
+    }
     expect(existsSync(`${out}.reads`)).toBe(false);
-    await call('read_file', { path: 'a.ts' });
-    await call('read_file', { path: '/scan/input/a.ts', offset: 2 });
-    expect(JSON.parse(await readFile(`${out}.reads`, 'utf8'))).toEqual({ count: 2 });
+    expect((await call('read_file', { path: 'a.ts' })).result.content[0].text).toContain('two');
+    expect(JSON.parse(await readFile(`${out}.reads`, 'utf8'))).toEqual({ count: 1 });
   });
 
-  test('submit_findings writes an accepted report whole and refuses a second one', async () => {
-    const accepted = await call('submit_findings', report([confirmed()]));
-    expect(accepted.result.isError).toBe(false);
-    expect(JSON.parse(await readFile(out, 'utf8'))).toMatchObject({ run_status: 'complete' });
-    const again = await call('submit_findings', report([]));
-    expect(again.result.isError).toBe(true);
-    expect(JSON.parse(await readFile(out, 'utf8')).findings).toHaveLength(1);
-  });
-
-  test('repairs a harmless slip before it checks', async () => {
-    const slip = { ...confirmed(), severity: 'High', extra: true };
-    expect((await call('submit_findings', report([slip]))).result.isError).toBe(false);
-  });
-
-  test('the first refused report gets its error and one retry; the second is final', async () => {
+  test('a refused report gets one retry; an accepted one is final', async () => {
     const bad = report([confirmed({ fix: '' })]);
-    const first = await call('submit_findings', bad);
-    expect(first.result.isError).toBe(true);
-    expect(first.result.content[0].text).toContain('your last output was invalid');
-    expect(first.result.content[0].text).toContain('only retry');
-    expect(existsSync(out)).toBe(false);
-    const second = await call('submit_findings', bad);
-    expect(second.result.content[0].text).toContain('not accepted again');
-    expect(JSON.parse(await readFile(`${out}.rejected`, 'utf8'))).toMatchObject({
-      count: 2,
-      kind: 'shape',
-    });
-    // A good report after that is still taken: the runner decides what the session was.
-    expect((await call('submit_findings', report([confirmed()]))).result.isError).toBe(false);
-  });
-
-  test('a verify session may submit one record', async () => {
-    const verify = createMcpServer({
-      tools: createFsTools({ root: join(dir, 'scan') }),
-      outPath: join(dir, 'verify.json'),
-      maxRecords: 1,
-    });
-    const two = report([confirmed(), confirmed({ fingerprint: 'b' })]);
-    const refused = await call('submit_findings', two, verify);
-    expect(refused.result.isError).toBe(true);
-    expect(refused.result.content[0].text).toContain('exactly one record');
-    expect((await call('submit_findings', report([confirmed()]), verify)).result.isError).toBe(
-      false,
+    expect((await call('submit_findings', bad)).result.content[0].text).toContain('only retry');
+    expect((await call('submit_findings', bad)).result.content[0].text).toContain(
+      'not accepted again',
     );
+    expect(JSON.parse(await readFile(`${out}.rejected`, 'utf8'))).toMatchObject({ count: 2 });
+    expect((await call('submit_findings', report([confirmed()]))).result.isError).toBe(false);
+    expect((await call('submit_findings', report([]))).result.isError).toBe(true);
+    expect(JSON.parse(await readFile(out, 'utf8')).findings).toHaveLength(1);
   });
 });

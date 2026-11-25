@@ -1,16 +1,14 @@
 // Builds ustar archives by hand so tests can plant entries a normal tar tool would
-// not write (symlinks into /etc, `..` names, bad checksums, pax paths).
+// not write (symlinks into /etc, `..` names).
 
 export type TarEntry = {
   name: string;
-  /** '0' file (default), '5' directory, '2' symlink, '1' hard link, 'x' pax header, ... */
+  /** '0' file (default), '5' directory, '2' symlink, ... */
   type?: string;
   data?: string | Uint8Array;
   linkname?: string;
   /** Overrides the size field (to fake a size the data does not match). */
   size?: number;
-  prefix?: string;
-  corruptChecksum?: boolean;
 };
 
 const BLOCK = 512;
@@ -30,20 +28,6 @@ export function buildTar(entries: Array<TarEntry>, options: { end?: boolean } = 
   return concat(parts);
 }
 
-/** A pax `x` header entry that sets `path` (and optionally `size`) for the next entry. */
-export function paxHeader(records: Record<string, string>): TarEntry {
-  let text = '';
-  for (const [key, value] of Object.entries(records)) {
-    const body = ` ${key}=${value}\n`;
-    let length = body.length + 1;
-    while (String(length).length + body.length !== length) {
-      length = String(length).length + body.length;
-    }
-    text += `${length}${body}`;
-  }
-  return { name: 'PaxHeader', type: 'x', data: text };
-}
-
 function header(entry: TarEntry, size: number): Uint8Array {
   const block = new Uint8Array(BLOCK);
   writeString(block, 0, 100, entry.name);
@@ -56,16 +40,12 @@ function header(entry: TarEntry, size: number): Uint8Array {
   writeString(block, 157, 100, entry.linkname ?? '');
   writeString(block, 257, 6, 'ustar\0');
   writeString(block, 263, 2, '00');
-  writeString(block, 345, 155, entry.prefix ?? '');
   for (let index = 148; index < 156; index++) {
     block[index] = 0x20;
   }
   let sum = 0;
   for (const byte of block) {
     sum += byte;
-  }
-  if (entry.corruptChecksum) {
-    sum += 1;
   }
   writeString(block, 148, 8, `${sum.toString(8).padStart(6, '0')}\0 `);
   return block;

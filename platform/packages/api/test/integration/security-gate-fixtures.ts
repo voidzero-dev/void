@@ -17,16 +17,14 @@ import {
   securityBindings,
 } from './security-fixtures.ts';
 
-export { freshEntitlement };
-
-export function gateBindings(env: TestEnv): ApiEnv['Bindings'] {
+function gateBindings(env: TestEnv): ApiEnv['Bindings'] {
   return {
     ...securityBindings(env),
     SITE_DOMAIN: 'apps.example.com',
     PLATFORM_INSTALLATION_ID: 'installation-test',
   } as unknown as ApiEnv['Bindings'];
 }
-export const gateZeroTrustInput = {
+const gateZeroTrustInput = {
   apiToken: 'access-management-token',
   identityProviderIds: ['idp-1'],
   policyIds: ['policy-1'],
@@ -34,7 +32,7 @@ export const gateZeroTrustInput = {
   existingProjects: 'public' as const,
 };
 
-export function gateAccessApi() {
+function gateAccessApi() {
   const applications = new Map<string, Record<string, unknown>>();
   let nextApplication = 1;
   const fetcher = vi.fn(async (request: string | URL | Request, init?: RequestInit) => {
@@ -92,25 +90,18 @@ export function gateAccessApi() {
   return { applications, fetcher };
 }
 
-export async function saveGatePolicy(env: TestEnv, publicGate: boolean) {
-  await saveSecurityPolicy(env, { publicGate, entitlement: freshEntitlement() });
-}
-
-/** Zero Trust configured on the fake Access API and the gate policy saved (on by default). */
-export async function gatePlatform(env: TestEnv, options: { gateOn?: boolean } = {}) {
-  const cloudflare = gateAccessApi();
-  vi.stubGlobal('fetch', cloudflare.fetcher);
-  const platform = gateBindings(env);
-  await configurePlatformZeroTrust(platform, env.db, gateZeroTrustInput);
-  await saveGatePolicy(env, options.gateOn ?? true);
-  return { platform, cloudflare };
-}
-
 export type GateSetup = Awaited<ReturnType<typeof setupGate>>;
 
 /** A protected project with a live deployment, the gate on (or off with `gateOn: false`). */
 export async function setupGate(env: TestEnv, options: { gateOn?: boolean } = {}) {
-  const { platform, cloudflare } = await gatePlatform(env, options);
+  const cloudflare = gateAccessApi();
+  vi.stubGlobal('fetch', cloudflare.fetcher);
+  const platform = gateBindings(env);
+  await configurePlatformZeroTrust(platform, env.db, gateZeroTrustInput);
+  await saveSecurityPolicy(env, {
+    publicGate: options.gateOn ?? true,
+    entitlement: freshEntitlement(),
+  });
   const user = await createTestUser(env.db, `gate-${crypto.randomUUID()}`);
   const project = await createTestProject(env.db, user.id);
   const deployment = await createTestDeployment(env.db, project.id, 'live');

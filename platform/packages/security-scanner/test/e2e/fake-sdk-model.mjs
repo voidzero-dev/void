@@ -1,23 +1,15 @@
-// Scripted model for the Docker recorded run (test/e2e/recorded-run.e2e.test.ts). Plain
-// Node, no imports beyond built-ins: it runs inside the scanner container next to the
-// engine (the container has no network, so it listens on 127.0.0.1).
-//
-//   node fake-sdk-model.mjs <port> <log.jsonl>
-//
-// It answers what the real SDKs send: Anthropic Messages (Engine A, Claude Agent SDK) and
-// OpenAI Responses (Engine C, Codex SDK). Every hunt or verify session plays the same two
-// rounds, read from the conversation the engine sends back (tool call ids carry the round):
-//   round 0: read the seeded file, and try /etc/passwd (the engine must refuse it)
-//   round 1: hand in the report (StructuredOutput / submit_findings) with the seeded finding
-//   round 2: Codex only: the final message its --output-schema asks for
-// One JSON line per request goes to the log: tool names, whether a planted marker or a
-// credential reached the model, and what the engine answered for /etc/passwd.
+// Scripted model for the Docker recorded run: `node fake-sdk-model.mjs <port> <log.jsonl>`
+// inside the scanner container (built-ins only, 127.0.0.1). It answers Anthropic Messages
+// (Engine A) and OpenAI Responses (Engine C). Each session plays rounds read from the tool
+// call ids: 0 reads the seeded file and /etc/passwd, 1 submits the report, 2 ends.
+// It logs one JSON line per request: tools offered, planted text or credential seen, and
+// the /etc/passwd answer.
 
 import { appendFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-export const PLANT_MARKER = 'VOID-E2E-PLANTED';
-export const SEEDED_FILE = 'src/routes/api/notes.ts';
+const PLANT_MARKER = 'VOID-E2E-PLANTED';
+const SEEDED_FILE = 'src/routes/api/notes.ts';
 const SEEDED_NEEDLE = "WHERE owner = '";
 
 const [port, logPath] = process.argv.slice(2);
@@ -30,149 +22,96 @@ function textOf(value) {
   if (Array.isArray(value)) {
     return value.map((part) => textOf(part)).join('\n');
   }
-  if (value && typeof value === 'object') {
-    return textOf(value.text ?? value.content ?? value.output ?? '');
-  }
-  return '';
+  return value && typeof value === 'object'
+    ? textOf(value.text ?? value.content ?? value.output ?? '')
+    : '';
 }
 
 /** Tool call ids look like `toolu_r1_0` / `call_r1_0`. */
 function roundOf(id) {
   const text = String(id);
   const at = text.indexOf('_r');
-  if (at < 0) {
-    return -1;
-  }
-  const rest = text.slice(at + 2);
-  const end = rest.indexOf('_');
-  const round = Number(end < 0 ? rest : rest.slice(0, end));
+  const round = at < 0 ? Number.NaN : Number.parseInt(text.slice(at + 2), 10);
   return Number.isInteger(round) ? round : -1;
 }
 
 /** The line number of the needle in a read result ("4\tcode" or "     4\tcode"). */
 function lineOf(text) {
-  for (const raw of String(text).split('\n')) {
-    if (!raw.includes(SEEDED_NEEDLE)) {
-      continue;
-    }
-    let digits = '';
-    for (const char of raw.trimStart()) {
-      if (char >= '0' && char <= '9') {
-        digits += char;
-      } else {
-        break;
-      }
-    }
-    return digits ? Number(digits) : 1;
-  }
-  return 1;
+  const raw = String(text)
+    .split('\n')
+    .find((line) => line.includes(SEEDED_NEEDLE));
+  const line = raw === undefined ? Number.NaN : Number.parseInt(raw.trimStart(), 10);
+  return Number.isInteger(line) ? line : 1;
 }
 
 function report(line) {
+  const at = { file: SEEDED_FILE, line_start: line, line_end: line };
+  const trace = [{ file: SEEDED_FILE, line, note: 'owner from the query reaches the SQL' }];
   return {
     run_status: 'complete',
-    notes: 'fake model',
     findings: [
       {
+        ...at,
         fingerprint: 'sqli-notes-owner',
         verdict: 'confirmed',
         severity: 'critical',
-        confidence: 'high',
         title: 'SQL injection in the notes query',
         category: 'sql_injection',
         cwe: 'CWE-89',
-        file: SEEDED_FILE,
-        line_start: line,
-        line_end: line,
         sink_path: 'c.env.DB.prepare',
-        outside_diff: false,
-        trace: [
-          { file: SEEDED_FILE, line, note: 'owner from the query string reaches the SQL text' },
-        ],
+        trace,
         evidence: 'owner is concatenated into the D1 SQL text',
-        conditions: 'none',
         fix: 'bind owner as a parameter',
-        reason: 'source to sink in one function',
       },
     ],
   };
 }
 
-/** @param {Array<[string, unknown]>} events */
+/** SSE events, each `[type, fields]`; the data repeats the type. */
 function sse(events) {
-  return events
-    .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+  const text = events
+    .map(([type, data]) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`)
     .join('');
+  return { status: 200, type: 'text/event-stream', text };
 }
 
 // ---------- Anthropic Messages (Engine A) ----------
 
+const STOP_NONE = { stop_reason: null, stop_sequence: null };
+
 function anthropicMessage(blocks, stopReason) {
-  const message = {
-    id: `msg_${Date.now()}`,
-    type: 'message',
-    role: 'assistant',
-    model: 'fake-model',
-    content: [],
-    stop_reason: null,
-    stop_sequence: null,
-    usage: { input_tokens: 100, output_tokens: 1 },
-  };
-  const events = [['message_start', { type: 'message_start', message }]];
+  const usage = { input_tokens: 100, output_tokens: 1 };
+  const message = { id: `msg_${Date.now()}`, type: 'message', role: 'assistant', usage };
+  const events = [
+    ['message_start', { message: { ...message, ...STOP_NONE, model: 'fake-model', content: [] } }],
+  ];
   blocks.forEach((block, index) => {
-    if (block.type === 'text') {
-      events.push(
-        [
-          'content_block_start',
-          { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
-        ],
-        [
-          'content_block_delta',
-          { type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text } },
-        ],
-      );
-    } else {
-      events.push(
-        [
-          'content_block_start',
-          {
-            type: 'content_block_start',
-            index,
-            content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} },
-          },
-        ],
-        [
-          'content_block_delta',
-          {
-            type: 'content_block_delta',
-            index,
-            delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) },
-          },
-        ],
-      );
-    }
-    events.push(['content_block_stop', { type: 'content_block_stop', index }]);
+    const text = block.type === 'text';
+    const start = text
+      ? { type: 'text', text: '' }
+      : { type: 'tool_use', id: block.id, name: block.name, input: {} };
+    const delta = text
+      ? { type: 'text_delta', text: block.text }
+      : { type: 'input_json_delta', partial_json: JSON.stringify(block.input) };
+    events.push(
+      ['content_block_start', { index, content_block: start }],
+      ['content_block_delta', { index, delta }],
+      ['content_block_stop', { index }],
+    );
   });
   events.push(
     [
       'message_delta',
-      {
-        type: 'message_delta',
-        delta: { stop_reason: stopReason, stop_sequence: null },
-        usage: { output_tokens: 50 },
-      },
+      { delta: { ...STOP_NONE, stop_reason: stopReason }, usage: { output_tokens: 50 } },
     ],
-    ['message_stop', { type: 'message_stop' }],
+    ['message_stop', {}],
   );
-  return { status: 200, type: 'text/event-stream', text: sse(events) };
+  return sse(events);
 }
 
 function anthropicReply(body, entry) {
-  /** @type {Array<{ name: string }>} */
-  const offered = body.tools ?? [];
-  const names = offered.map((tool) => tool.name);
-  entry.tools = names;
-  if (!names.includes('Read')) {
+  entry.tools = (body.tools ?? []).map((tool) => String(tool.name));
+  if (!entry.tools.includes('Read')) {
     // A side request (title, classifier): answer plainly.
     return anthropicMessage([{ type: 'text', text: 'ok' }], 'end_turn');
   }
@@ -189,9 +128,7 @@ function anthropicReply(body, entry) {
     }
   }
   const round = last + 1;
-  if (results.has('toolu_r0_1')) {
-    entry.passwd = results.get('toolu_r0_1').slice(0, 200);
-  }
+  entry.passwd = results.get('toolu_r0_1')?.slice(0, 200);
   const toolUse = (n, name, input) => ({
     type: 'tool_use',
     id: `toolu_r${round}_${n}`,
@@ -199,11 +136,9 @@ function anthropicReply(body, entry) {
     input,
   });
   if (round === 0) {
+    const read = (file_path, n) => toolUse(n, 'Read', { file_path });
     return anthropicMessage(
-      [
-        toolUse(0, 'Read', { file_path: `/scan/input/${SEEDED_FILE}` }),
-        toolUse(1, 'Read', { file_path: '/etc/passwd' }),
-      ],
+      [read(`/scan/input/${SEEDED_FILE}`, 0), read('/etc/passwd', 1)],
       'tool_use',
     );
   }
@@ -216,25 +151,24 @@ function anthropicReply(body, entry) {
 
 // ---------- OpenAI Responses (Engine C) ----------
 
-/** @typedef {{ name: string, namespace?: string, inner: string }} FlatTool */
-
 /** Tools in body.tools (maybe in namespaces), named "<namespace>.<tool>". */
 function flattenTools(body) {
-  /** @type {Array<FlatTool>} */
-  const out = [];
   const groups = [...(body.tools ?? [])];
   for (const item of Array.isArray(body.input) ? body.input : []) {
     if (item.type === 'additional_tools') {
       groups.push(...(item.tools ?? []));
     }
   }
+  /** @type {Array<{ name: string, namespace?: string, inner: string }>} */
+  const out = [];
   for (const tool of groups) {
-    if (Array.isArray(tool.tools)) {
-      for (const inner of tool.tools) {
-        out.push({ name: `${tool.name}.${inner.name}`, namespace: tool.name, inner: inner.name });
-      }
-    } else {
-      out.push({ name: tool.name ?? tool.type, inner: tool.name ?? tool.type });
+    const name = String(tool.name ?? tool.type);
+    for (const inner of Array.isArray(tool.tools) ? tool.tools : [null]) {
+      out.push(
+        inner
+          ? { name: `${name}.${inner.name}`, namespace: name, inner: String(inner.name) }
+          : { name, inner: name },
+      );
     }
   }
   return out;
@@ -242,37 +176,21 @@ function flattenTools(body) {
 
 function responsesStream(items) {
   const id = `resp_${Date.now()}`;
-  const events = [['response.created', { type: 'response.created', response: { id } }]];
-  items.forEach((item, index) => {
-    events.push(
-      [
-        'response.output_item.added',
-        { type: 'response.output_item.added', output_index: index, item },
-      ],
-      [
-        'response.output_item.done',
-        { type: 'response.output_item.done', output_index: index, item },
-      ],
-    );
-  });
-  events.push([
-    'response.completed',
-    {
-      type: 'response.completed',
-      response: {
-        id,
-        output: items,
-        usage: {
-          input_tokens: 100,
-          input_tokens_details: { cached_tokens: 0 },
-          output_tokens: 50,
-          output_tokens_details: { reasoning_tokens: 0 },
-          total_tokens: 150,
-        },
-      },
-    },
+  const usage = {
+    input_tokens: 100,
+    input_tokens_details: { cached_tokens: 0 },
+    output_tokens: 50,
+    output_tokens_details: { reasoning_tokens: 0 },
+    total_tokens: 150,
+  };
+  return sse([
+    ['response.created', { response: { id } }],
+    ...items.flatMap((item, output_index) => [
+      ['response.output_item.added', { output_index, item }],
+      ['response.output_item.done', { output_index, item }],
+    ]),
+    ['response.completed', { response: { id, output: items, usage } }],
   ]);
-  return { status: 200, type: 'text/event-stream', text: sse(events) };
 }
 
 function responsesReply(body, entry) {
@@ -292,9 +210,7 @@ function responsesReply(body, entry) {
     }
   }
   const round = last + 1;
-  if (outputs.has('call_r0_1')) {
-    entry.passwd = outputs.get('call_r0_1').slice(0, 200);
-  }
+  entry.passwd = outputs.get('call_r0_1')?.slice(0, 200);
   const call = (n, tool, args) => ({
     type: 'function_call',
     id: `fc_r${round}_${n}`,
@@ -315,42 +231,33 @@ function responsesReply(body, entry) {
   if (round === 1 && submit) {
     return responsesStream([call(0, submit, report(lineOf(outputs.get('call_r0_0') ?? '')))]);
   }
+  const text = JSON.stringify({ run_status: 'complete', finding_count: 1 });
+  const content = [{ type: 'output_text', text, annotations: [] }];
   return responsesStream([
-    {
-      type: 'message',
-      id: `msg_r${round}`,
-      role: 'assistant',
-      status: 'completed',
-      content: [
-        {
-          type: 'output_text',
-          text: JSON.stringify({ run_status: 'complete', finding_count: 1 }),
-          annotations: [],
-        },
-      ],
-    },
+    { type: 'message', id: `msg_r${round}`, role: 'assistant', status: 'completed', content },
   ]);
 }
 
 function credentialShape(value) {
-  if (!value) {
-    return 'none';
-  }
-  return value.includes('placeholder') ? 'placeholder' : 'other';
+  return !value ? 'none' : value.includes('placeholder') ? 'placeholder' : 'other';
+}
+
+function json(text, status = 200) {
+  return { status, type: 'application/json', text };
 }
 
 function answer(method, path, bodyText, entry) {
   if (path.startsWith('/v1/void/last-failure')) {
-    return { status: 200, type: 'application/json', text: '{"failure":null}' };
+    return json('{"failure":null}');
   }
   let body;
   try {
     body = bodyText ? JSON.parse(bodyText) : {};
   } catch {
-    return { status: 400, type: 'application/json', text: '{"error":"bad json"}' };
+    return json('{"error":"bad json"}', 400);
   }
   if (method === 'POST' && path.includes('/messages/count_tokens')) {
-    return { status: 200, type: 'application/json', text: '{"input_tokens":100}' };
+    return json('{"input_tokens":100}');
   }
   if (method === 'POST' && path.includes('/messages')) {
     entry.api = 'messages';
@@ -361,13 +268,9 @@ function answer(method, path, bodyText, entry) {
     return responsesReply(body, entry);
   }
   if (path.endsWith('/models')) {
-    return {
-      status: 200,
-      type: 'application/json',
-      text: '{"object":"list","data":[],"models":[]}',
-    };
+    return json('{"object":"list","data":[],"models":[]}');
   }
-  return { status: 404, type: 'application/json', text: '{"error":"fake model: unknown route"}' };
+  return json('{"error":"fake model: unknown route"}', 404);
 }
 
 createServer((request, response) => {
@@ -382,7 +285,6 @@ createServer((request, response) => {
       planted: bodyText.includes(PLANT_MARKER),
       authorization: credentialShape(request.headers.authorization),
       apiKey: credentialShape(request.headers['x-api-key']),
-      session: request.headers['x-void-scan-session'] ?? null,
     };
     const reply = answer(request.method, path, bodyText, entry);
     entry.status = reply.status;

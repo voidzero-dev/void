@@ -2156,8 +2156,7 @@ docs table "Phase 2/3" row
   `cli/platform-config.md` and the dashboard README were already written by M25–M35, so M36 only
   checked them. The test strategy's `security-capability-off.test.ts` and
   `platform/scripts/security-smoke-test.ts` were never written: capability-off cases live in
-  `security-enqueue.test.ts`, `api-project-security.test.ts` and the operator probe and policy
-  tests, and the smoke script is still open (listed below). No code change in M36.
+  `security-enqueue.test.ts`, `api-project-security.test.ts` and `admin-security.test.ts`, and the smoke script is still open (listed below). No code change in M36.
 
 ### Completeness review (2026-11-20)
 
@@ -2417,10 +2416,15 @@ Native and Workers Free regression (AGENTS.md rule):
 - `packages/platform/test/unit/worker-config.test.ts`: capability off → only the DO binding
   and tag are new; capability on → only `ai` added on the API Worker; no scanner Worker in
   `workerConfigs`.
-- `platform/packages/api/test/integration/security-capability-off.test.ts`: capability off
-  → no probe, no provisioning call, no scan row on deploy, write routes 501.
-- `packages/void/test/unit/project-cmd.test.ts`: `project security` and `zero-trust bypass`
-  on a `cloudflare` target throw before any network call.
+- `security-enqueue.test.ts`, `api-project-security.test.ts`, `admin-security.test.ts`
+  (API integration): capability off → no scan row on deploy, write routes 501.
+- `packages/void/test/unit/project-zero-trust-command.test.ts`: `project security` and
+  `zero-trust bypass` on a `cloudflare` target throw before any network call.
+
+Test size: the PR keeps its new tests under 10k lines (cut on 2026-11-25 from about
+41k). Each invariant above keeps one strong test; wording, email text, display and
+repeated validation cases were dropped. The milestone `Tests:` lines above name the files
+as first written; several were merged into the files in the invariants table or removed.
 
 Verification per AGENTS.md: exact file first (`-t` for a case), `vp run test --list`,
 `vp run test` per milestone batch, `vp check` per batch, `vp test run` once at M36.

@@ -17,10 +17,7 @@ export function spec(overrides: Partial<SessionSpec> = {}): SessionSpec {
   };
 }
 
-/**
- * The proxy's last-failure route at `http://model.test`: each read answers the next
- * failure, then keeps answering the last one.
- */
+/** The proxy last-failure route at `http://model.test`: the next failure, then the last. */
 export function fetchOf(failures: Array<unknown>): typeof fetch {
   let index = 0;
   return async (input: string | URL | Request) => {
@@ -51,20 +48,12 @@ export function unread(body: OutcomeBody): OutcomeBody {
 
 type Scripted = OutcomeBody | ((spec: SessionSpec) => OutcomeBody | Promise<OutcomeBody>);
 
-/**
- * An engine that answers sessions from a script and records the specs it got.
- * `sessionTools` says whether it can offer session tools (the copy tool); a
- * runtime copy is only used when the task and the runner ask for one too.
- */
-export function scriptedEngine(
-  script: Array<Scripted>,
-  sessionTools = true,
-): Engine & { specs: Array<SessionSpec> } {
+/** An engine that answers sessions from a script and records the specs it got. */
+export function scriptedEngine(script: Array<Scripted>): Engine & { specs: Array<SessionSpec> } {
   const specs: Array<SessionSpec> = [];
   return {
     id: 'void_loop',
     version: 'test',
-    sessionTools,
     specs,
     async runSession(spec) {
       specs.push(spec);

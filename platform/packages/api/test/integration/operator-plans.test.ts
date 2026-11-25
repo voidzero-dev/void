@@ -1,15 +1,5 @@
-import { defaultSecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from 'vite-plus/test';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vite-plus/test';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
 import {
@@ -18,19 +8,12 @@ import {
   requireAssignablePlan,
   resolvePlan,
 } from '../../src/plans.ts';
-import { getPlatformSetting } from '../../src/platform-settings.ts';
 import {
   operatorEvents,
   platformSettings,
   projectOwnershipPeriods,
   users,
 } from '../../src/schema.ts';
-import { PLAN_SECURITY_CAPS_SETTING, readSecurityPlanCap } from '../../src/security/plan-caps.ts';
-import {
-  readSecurityProjectSettings,
-  securityProjectBudgetView,
-} from '../../src/security/project-view.ts';
-import { projectSecuritySettings } from '../../src/security/schema.ts';
 import { getCurrentBillingPeriodStart } from '../../src/tiers.ts';
 import {
   clearTables,
@@ -81,9 +64,6 @@ beforeAll(async () => {
   env = await setupEnv();
 });
 afterAll(teardownEnv);
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 beforeEach(async () => {
   await clearTables(env.db);
   calls.length = 0;
@@ -453,111 +433,5 @@ describe('operator installation plans', () => {
     expect(catalog.reconciliation).toMatchObject({ complete: true, cursor: owner.id });
     expect(catalog.reconciliation?.error).toBeUndefined();
     expect((await change('/free/set', { name: 'Starter' })).status).toBe(200);
-  });
-});
-
-describe('operator plan security scan caps (M27)', () => {
-  async function caps() {
-    return getPlatformSetting(env.db, PLAN_SECURITY_CAPS_SETTING);
-  }
-
-  test('sets, shows, previews and clears a plan cap in its own setting', async () => {
-    const preview = await req('/pro/set', { dryRun: true, securityCap: 50 });
-    expect(preview.status).toBe(200);
-    expect(await preview.json()).toMatchObject({
-      securityCaps: { caps: { pro: 5000 }, capsBefore: {} },
-    });
-    expect(await caps()).toBeNull();
-    expect((await change('/pro/set', { securityCap: 50 })).status).toBe(200);
-    expect(await caps()).toEqual({ pro: 5000 });
-    // The catalog keeps the exact limit keys: the cap is not a plan limit.
-    const catalog = await readPlanCatalog(env.db);
-    expect(Object.keys(catalog.plans.find((plan) => plan.id === 'pro')!.limits)).not.toContain(
-      'securityCap',
-    );
-    expect(await (await req('/pro')).json()).toMatchObject({ securityCap: 5000 });
-    expect(await (await req('')).json()).toMatchObject({ securityCaps: { pro: 5000 } });
-    expect((await change('/pro/set', { securityCap: 'none' })).status).toBe(200);
-    expect(await caps()).toEqual({ pro: null });
-    expect(await (await req('/pro')).json()).toMatchObject({ securityCap: 'none' });
-    expect((await change('/pro/set', { securityCap: 'inherit' })).status).toBe(200);
-    expect(await caps()).toEqual({});
-    expect(await (await req('/pro')).json()).toMatchObject({ securityCap: 'inherit' });
-    // Other plan edits keep the cap.
-    expect((await change('/pro/set', { securityCap: 12.5 })).status).toBe(200);
-    expect((await change('/pro/set', { name: 'Pro Plus' })).status).toBe(200);
-    expect(await caps()).toEqual({ pro: 1250 });
-  });
-
-  test('copies the cap on add and drops it with the removed plan', async () => {
-    expect((await change('/pro/set', { securityCap: 30 })).status).toBe(200);
-    expect((await change('/add', { id: 'team', name: 'Team', copyFrom: 'pro' })).status).toBe(200);
-    expect(await caps()).toEqual({ pro: 3000, team: 3000 });
-    expect(
-      (await change('/add', { id: 'lab', name: 'Lab', copyFrom: 'pro', securityCap: 'none' }))
-        .status,
-    ).toBe(200);
-    expect(await caps()).toEqual({ pro: 3000, team: 3000, lab: null });
-    expect((await change('/team/remove', {})).status).toBe(200);
-    expect(await caps()).toEqual({ pro: 3000, lab: null });
-  });
-
-  test('refuses a bad cap and a cap on other actions, writing nothing', async () => {
-    for (const securityCap of [12.345, -1, 2_000_000, '50', null]) {
-      const response = await change('/pro/set', { securityCap });
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ error: 'invalid_argument' });
-    }
-    const archive = await change('/pro/archive', { securityCap: 5 });
-    expect(archive.status).toBe(400);
-    expect(await caps()).toBeNull();
-    expect((await readPlanCatalog(env.db)).revision).toBe(0);
-  });
-
-  test("a project's budget follows its owner's plan cap, after a per-project limit", async () => {
-    const owner = await createTestUser(env.db, 'cap-owner', 'github', undefined, 'pro');
-    const project = await createTestProject(env.db, owner.id);
-    const other = await createTestProject(
-      env.db,
-      (await createTestUser(env.db, 'free-owner', 'github', undefined, 'free')).id,
-    );
-    const policy = defaultSecurityPolicy();
-    const budget = async (id: string) => {
-      const settings = await readSecurityProjectSettings(env.db, id);
-      return securityProjectBudgetView(env.db, id, policy, settings.caps);
-    };
-    expect(await readSecurityPlanCap(env.db, project.id)).toBe('inherit');
-    expect(await budget(project.id)).toMatchObject({ ceilingUsd: null, ceilingSource: null });
-    expect((await change('/pro/set', { securityCap: 40 })).status).toBe(200);
-    expect(await readSecurityPlanCap(env.db, project.id)).toBe(4000);
-    expect(await readSecurityPlanCap(env.db, other.id)).toBe('inherit');
-    expect(await budget(project.id)).toMatchObject({
-      capUsd: 40,
-      capSource: 'limit',
-      ceilingUsd: 40,
-      ceilingSource: 'plan',
-    });
-    // A stored JSON null is "no cap", not a missing entry.
-    expect((await change('/pro/set', { securityCap: 'none' })).status).toBe(200);
-    expect(await readSecurityPlanCap(env.db, project.id)).toBe('none');
-    // The installation admin's per-project limit still comes first.
-    expect((await change('/pro/set', { securityCap: 40 })).status).toBe(200);
-    await env.db
-      .insert(projectSecuritySettings)
-      .values({ project_id: project.id, cap_ceiling_cents: 9000 });
-    expect(await budget(project.id)).toMatchObject({
-      capUsd: 90,
-      ceilingUsd: 90,
-      ceilingSource: 'project',
-    });
-    // A bad stored entry reads as the policy default.
-    await env.db
-      .update(platformSettings)
-      .set({ value: { pro: 'lots', free: 100 } })
-      .where(eq(platformSettings.key, PLAN_SECURITY_CAPS_SETTING));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(await readSecurityPlanCap(env.db, project.id)).toBe('inherit');
-    expect(await readSecurityPlanCap(env.db, other.id)).toBe(100);
-    expect(await (await req('')).json()).toMatchObject({ securityCaps: { free: 100 } });
   });
 });

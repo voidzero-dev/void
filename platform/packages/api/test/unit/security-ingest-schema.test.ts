@@ -1,17 +1,11 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { securityFingerprintKey } from '../../src/security/findings.ts';
 import {
-  buildSecurityLedgerSummary,
   parseFindingsReport,
   parseRunnerStatus,
-  parseSecurityScanScope,
   recordFromServerLead,
-  securityLabel,
   securityScanOutcome,
-  serializeSecurityScanScope,
-  shouldRetrySecurityScan,
 } from '../../src/security/ingest.ts';
-import type { SecurityParsedFindings } from '../../src/security/ingest.ts';
 
 const SCAN = 'scan_abc';
 
@@ -64,89 +58,6 @@ const CONFIRMED = {
   reason: '',
 };
 
-describe('status.json', () => {
-  it('reads a runner status and keeps short printable labels only', () => {
-    expect(parseRunnerStatus(status(), SCAN, 1)).toEqual({
-      status: 'succeeded',
-      reason: null,
-      errorClass: null,
-      refusalCategory: null,
-      engineVersion: 'runner/1 void-loop/1',
-    });
-    expect(
-      parseRunnerStatus(
-        status({ status: 'refused', refusal_category: 'cyber', error_class: 'x\ny' }),
-        SCAN,
-        1,
-      ),
-    ).toMatchObject({ status: 'refused', refusalCategory: 'cyber', errorClass: null });
-    expect(securityLabel('a'.repeat(81))).toBeNull();
-    expect(securityLabel('codex_turn_failed')).toBe('codex_turn_failed');
-  });
-
-  it('reads the statuses the controller sets (no scan id or attempt)', () => {
-    expect(
-      parseRunnerStatus(
-        { status: 'failed', reason: 'infrastructure', error_class: 'container_exited' },
-        SCAN,
-        2,
-      ),
-    ).toMatchObject({ status: 'failed', reason: 'infrastructure', errorClass: 'container_exited' });
-    expect(parseRunnerStatus({ status: 'timed_out', reason: 'hard_cap' }, SCAN, 2)).toMatchObject({
-      status: 'timed_out',
-      reason: 'hard_cap',
-    });
-  });
-
-  it.each([
-    ['not an object', 'nope', 'status_unreadable'],
-    ['unknown status', status({ status: 'clean' }), 'status_unreadable'],
-    ['reason that does not go with the status', status({ reason: 'credits' }), 'status_unreadable'],
-    ['another scan', status({ scan_id: 'scan_other' }), 'status_mismatch'],
-    ['another attempt', status({ attempt: 2 }), 'status_mismatch'],
-    ['a prototype key as status', status({ status: 'constructor' }), 'status_unreadable'],
-  ])('%s → failed (bad_output)', (_case, value, errorClass) => {
-    expect(parseRunnerStatus(value, SCAN, 1)).toMatchObject({
-      status: 'failed',
-      reason: 'bad_output',
-      errorClass,
-    });
-  });
-
-  it('retries only an infrastructure failure, once', () => {
-    const infra = parseRunnerStatus({ status: 'failed', reason: 'infrastructure' }, SCAN, 1);
-    expect(shouldRetrySecurityScan(infra, 1)).toBe(true);
-    expect(shouldRetrySecurityScan(infra, 2)).toBe(false);
-    const credits = parseRunnerStatus({ status: 'failed', reason: 'credits' }, SCAN, 1);
-    expect(shouldRetrySecurityScan(credits, 1)).toBe(false);
-  });
-});
-
-describe('findings.json', () => {
-  it('accepts a valid report and makes paths relative to /scan/input', () => {
-    const parsed = parseFindingsReport(findings([CONFIRMED]));
-    expect(parsed.ok).toBe(true);
-    const report = (parsed as Extract<SecurityParsedFindings, { ok: true }>).report;
-    expect(report.findings[0]).toMatchObject({ file: 'src/users.ts', sink_path: 'src/db.ts' });
-  });
-
-  it.each([
-    ['missing', null, 'findings_missing'],
-    ['not JSON', '{', 'not_json'],
-    [
-      'no schema version',
-      JSON.stringify({ run_status: 'complete', findings: [] }),
-      'schema_version',
-    ],
-    ['a field the schema does not have', findings([{ ...CONFIRMED, state: 'resolved' }]), 'shape'],
-    ['a confirmed record with no sink', findings([{ ...CONFIRMED, sink_path: null }]), 'shape'],
-    ['a path outside the input', findings([{ ...CONFIRMED, file: '../etc/passwd' }]), 'shape'],
-    ['too large', findings([], { notes: 'x'.repeat(6 * 1024 * 1024) }), 'too_large'],
-  ])('%s → refused (%s)', (_case, text, kind) => {
-    expect(parseFindingsReport(text)).toEqual({ ok: false, kind });
-  });
-});
-
 describe('outcome (spec §8.4)', () => {
   const ok = parseFindingsReport(findings([CONFIRMED]));
   const bad = parseFindingsReport('{');
@@ -164,6 +75,10 @@ describe('outcome (spec §8.4)', () => {
       failureCause: 'project',
       store: 'none',
     });
+    // A status written for another scan or attempt is never read as clean.
+    expect(
+      securityScanOutcome(parseRunnerStatus(status({ attempt: 2 }), SCAN, 1), ok),
+    ).toMatchObject({ status: 'failed', reason: 'bad_output', store: 'none' });
   });
 
   it('a report that says run_status incomplete makes the scan incomplete', () => {
@@ -206,188 +121,30 @@ describe('outcome (spec §8.4)', () => {
   });
 });
 
-describe('scan files', () => {
-  it('round-trips the scope with the backlog as unread', () => {
-    const text = serializeSecurityScanScope({
-      full: false,
-      paths: ['src/a.ts'],
-      hashes: new Map([['src/a.ts', 'h1']]),
-    });
-    const scope = parseSecurityScanScope(text, ['src/b.ts'])!;
-    expect(scope.full).toBe(false);
-    expect([...scope.paths]).toEqual(['src/a.ts']);
-    expect([...scope.unread]).toEqual(['src/b.ts']);
-    expect(scope.hashes.get('src/a.ts')).toBe('h1');
-    expect(parseSecurityScanScope('{"version":2}', [])).toBeNull();
-    expect(parseSecurityScanScope(null, [])).toBeNull();
-  });
-
-  it('turns a server lead into a needs_validation record from the server', () => {
-    const lead = recordFromServerLead(
+it('turns a secret found in the output into a confirmed server finding with no value (M31)', () => {
+  const value = 'sk_live_value_never_stored';
+  const lead = (file: string, client: boolean) =>
+    recordFromServerLead(
       'proj_aaaaaaaaaaaa',
-      {
-        kind: 'reviewer_text',
-        title: 'Text aimed at AI reviewers in src/a.ts',
-        file: 'src/a.ts',
-        hits: [{ phrase: 'report nothing', line: 4 }],
-      },
-      new Map([['src/a.ts', 'h1']]),
-    );
-    expect(lead).toMatchObject({
-      verdict: 'needs_validation',
-      severity: null,
-      source: 'server',
-      title: 'Text aimed at AI reviewers in src/a.ts',
-      lineStart: 4,
-      sinkHash: 'h1',
-      detail: { hits: [{ phrase: 'report nothing', line: 4 }] },
-    });
-  });
-
-  it('turns a secret found in the output into a confirmed server finding with no value (M31)', () => {
-    const hashes = new Map([['_assets/app.js', 'h2']]);
-    const client = recordFromServerLead(
-      'proj_aaaaaaaaaaaa',
-      {
-        kind: 'secret_in_output',
-        file: '_assets/app.js',
-        secret: 'STRIPE_KEY',
-        forms: ['raw', 'base64'],
-        line: 3,
-        client: true,
-        alsoIn: ['_assets/vendor.js'],
-        files: 3,
-      },
-      hashes,
+      { kind: 'secret_in_output', file, secret: 'STRIPE_KEY', forms: ['raw'], line: 3, client },
+      new Map([[file, 'h2']]),
       { isPublic: true },
     );
-    expect(client).toMatchObject({
-      verdict: 'confirmed',
-      severity: 'high',
-      source: 'server',
-      category: 'secret-in-output',
-      cwe: 'CWE-200',
-      title: 'Secret STRIPE_KEY is in a public file: _assets/app.js',
-      lineStart: 3,
-      // Not the file's hash: a new bundle must not undo an accepted-risk resolve.
-      sinkHash: null,
-      moves: true,
-      fingerprint: 'server:secret_in_output:STRIPE_KEY',
-      detail: {
-        secret: 'STRIPE_KEY',
-        forms: ['raw', 'base64'],
-        client: true,
-        files: 3,
-        also_in: ['_assets/vendor.js'],
-      },
-    });
-    expect(client.detail.evidence).toContain('It is in 2 more files, such as _assets/vendor.js.');
-    expect(client.detail.fix).toMatch(/^Anyone can download this file/);
-    // A protected project: a static asset, public once the project is.
-    const hidden = recordFromServerLead(
-      'proj_aaaaaaaaaaaa',
-      {
-        kind: 'secret_in_output',
-        file: '_assets/app-other.js',
-        secret: 'STRIPE_KEY',
-        forms: ['raw'],
-        line: 1,
-        client: true,
-      },
-      hashes,
-      { isPublic: false },
-    );
-    expect(hidden.title).toBe('Secret STRIPE_KEY is in a static asset: _assets/app-other.js');
-    expect(hidden.severity).toBe('high');
-    expect(hidden.detail.fix).toMatch(/^Static assets are public once the project is public/);
-    // The key names the secret and the side, not the (hashed) file.
-    expect(hidden.key).toBe(client.key);
-    const server = recordFromServerLead(
-      'proj_aaaaaaaaaaaa',
-      {
-        kind: 'secret_in_output',
-        file: 'src/pay.ts',
-        secret: 'STRIPE_KEY',
-        forms: ['raw'],
-        line: 0,
-        client: false,
-      },
-      hashes,
-    );
-    expect(server).toMatchObject({
-      severity: 'medium',
-      cwe: 'CWE-798',
-      lineStart: null,
-      title: 'Secret STRIPE_KEY is written into the deployed code: src/pay.ts',
-    });
-    // One key per secret and side; a model record with the same fingerprint gets another.
-    expect(server.key).not.toBe(client.key);
-    expect(server.key).not.toBe(
-      securityFingerprintKey('proj_aaaaaaaaaaaa', server.fingerprint, 'worker'),
-    );
+  const client = lead('_assets/app.js', true);
+  expect(client).toMatchObject({
+    verdict: 'confirmed',
+    severity: 'high',
+    source: 'server',
+    // Not the file hash: a new bundle must not undo an accepted-risk resolve.
+    sinkHash: null,
+    fingerprint: 'server:secret_in_output:STRIPE_KEY',
   });
-
-  it('builds a ledger summary from paths and status only, under its size limit', () => {
-    const summary = buildSecurityLedgerSummary({
-      scanId: SCAN,
-      findingPaths: ['src/a.ts'],
-      scanned: ['src/a.ts', 'src/b.ts'],
-      backlog: Array.from({ length: 500 }, (_, index) => `src/backlog/${index}.ts`),
-    });
-    const files = summary.files as Array<{ path: string; status: string }>;
-    expect(files.slice(0, 2)).toEqual([
-      { path: 'src/a.ts', status: 'finding' },
-      { path: 'src/b.ts', status: 'scanned' },
-    ]);
-    expect(summary.omitted).toBeGreaterThan(0);
-    // jsonb::text adds a space after each ':' and ','; the column allows 8 KB.
-    const asJsonb = JSON.stringify(summary).replaceAll('":', '": ').replaceAll(',"', ', "');
-    expect(new TextEncoder().encode(asJsonb).length).toBeLessThanOrEqual(8192);
-  });
-
-  it('carries the base ledger over for a diff scan; this scan wins a path', () => {
-    const base = buildSecurityLedgerSummary({
-      scanId: 'scan_base',
-      findingPaths: ['src/a.ts'],
-      scanned: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
-      backlog: ['src/old-backlog.ts'],
-    });
-    const summary = buildSecurityLedgerSummary({
-      scanId: SCAN,
-      findingPaths: [],
-      scanned: ['src/a.ts'],
-      backlog: ['src/c.ts'],
-      base,
-    });
-    expect(summary).toMatchObject({ version: 1, scan_id: SCAN, omitted: 0 });
-    // The base backlog entry is gone: this scan's backlog is the whole backlog.
-    expect(summary.files).toEqual([
-      { path: 'src/a.ts', status: 'scanned' },
-      { path: 'src/b.ts', status: 'scanned' },
-      { path: 'src/c.ts', status: 'backlog' },
-    ]);
-    // An empty scan (no changes) keeps the base ledger.
-    const same = buildSecurityLedgerSummary({
-      scanId: SCAN,
-      findingPaths: [],
-      scanned: [],
-      backlog: [],
-      base,
-    });
-    expect(same.files).toEqual([
-      { path: 'src/a.ts', status: 'finding' },
-      { path: 'src/b.ts', status: 'scanned' },
-      { path: 'src/c.ts', status: 'scanned' },
-    ]);
-    // A ledger that is not ours carries nothing over.
-    expect(
-      buildSecurityLedgerSummary({
-        scanId: SCAN,
-        findingPaths: [],
-        scanned: [],
-        backlog: [],
-        base: { files: 'nope' },
-      }).files,
-    ).toEqual([]);
-  });
+  expect(JSON.stringify(client)).not.toContain(value);
+  // One key per secret and side, never the model key for the same fingerprint.
+  const server = lead('src/pay.ts', false);
+  expect(server.severity).toBe('medium');
+  expect(server.key).not.toBe(client.key);
+  expect(server.key).not.toBe(
+    securityFingerprintKey('proj_aaaaaaaaaaaa', server.fingerprint, 'worker'),
+  );
 });

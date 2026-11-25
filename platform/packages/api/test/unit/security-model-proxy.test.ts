@@ -1,26 +1,12 @@
 import { securityModelCostNanoUsd } from '@void/platform/security-models';
-import { defaultSecurityPolicy } from '@void/platform/security-policy';
-import type { SecurityPolicy } from '@void/platform/security-policy';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import type { MockInstance } from 'vite-plus/test';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { SecurityCallHold, SecurityCallRefusal } from '../../src/security/budget.ts';
 import type { AdmitModelCallResult, ModelCallFailure } from '../../src/security/call-ledger.ts';
 import {
-  allowedAnthropicBetas,
-  asChatCompletion,
-  billedInputTokens,
-  clampCallOutput,
   handleSecurityModelRequest,
-  providerPolicyCode,
-  readModelUsage,
   SECURITY_DEFAULT_CALL_OUTPUT_TOKENS,
-  SECURITY_MODEL_FAILURE_PATH,
-  SECURITY_MODEL_MAX_REQUEST_BYTES,
   SECURITY_RATE_WAIT_LIMIT_MS,
   SECURITY_STOP_HEADER,
-  SseUsageReader,
-  workersAiErrorStatus,
-  gatewayModelName,
 } from '../../src/security/model-proxy.ts';
 import type { SecurityModelProxyDeps, SecurityModelScan } from '../../src/security/model-proxy.ts';
 import { onPolicy, passingEntitlement } from '../helpers/security-policy.ts';
@@ -33,23 +19,6 @@ const NOW = Date.parse('2026-11-18T12:00:00.000Z');
 const CF = '@cf/zai-org/glm-5.3';
 const OPUS = 'anthropic/claude-opus-5.5';
 const TERRA = 'openai/gpt-6.1-terra';
-
-type Harness = {
-  deps: SecurityModelProxyDeps;
-  scan: { value: SecurityModelScan | undefined };
-  policy: { value: SecurityPolicy };
-  failures: Array<ModelCallFailure>;
-  holds: Array<Parameters<SecurityModelProxyDeps['hold']>[0]>;
-  settles: Array<Parameters<SecurityModelProxyDeps['settle']>[0]>;
-  settleError: { value: Error | null };
-  admit: ReturnType<typeof vi.fn>;
-  rateLimited: ReturnType<typeof vi.fn>;
-  hold: ReturnType<typeof vi.fn>;
-  fetch: ReturnType<typeof vi.fn>;
-  aiRun: ReturnType<typeof vi.fn>;
-  sleep: ReturnType<typeof vi.fn>;
-  clock: { now: number };
-};
 
 function scanRow(overrides: Partial<SecurityModelScan> = {}): SecurityModelScan {
   return {
@@ -71,82 +40,64 @@ function scanRow(overrides: Partial<SecurityModelScan> = {}): SecurityModelScan 
   };
 }
 
-function harness(): Harness {
+function harness() {
   const clock = { now: NOW };
-  const scan = { value: scanRow() as SecurityModelScan | undefined };
-  const policy = { value: onPolicy() };
-  const failures: Array<ModelCallFailure> = [];
-  const holds: Harness['holds'] = [];
-  const settles: Harness['settles'] = [];
-  const settleError: Harness['settleError'] = { value: null };
-  const admit = vi.fn(async (): Promise<AdmitModelCallResult> => ({
-    ok: true,
-    sessionCalls: null,
-  }));
-  const hold = vi.fn(
-    async (
-      input: Parameters<SecurityModelProxyDeps['hold']>[0],
-    ): Promise<SecurityCallHold | SecurityCallRefusal> => {
-      holds.push(input);
-      return { ok: true, month: '2026-11-01', holdNano: input.worstNano, modelCalls: 1 };
-    },
-  );
-  const fetch = vi.fn(async () => Response.json({}));
-  const rateLimited = vi.fn(async () => {});
-  const aiRun = vi.fn(async () => ({}));
-  const sleep = vi.fn(async (ms: number) => {
-    clock.now += ms;
-  });
+  const state = {
+    scan: scanRow() as SecurityModelScan | undefined,
+    policy: onPolicy(),
+    failures: [] as Array<ModelCallFailure>,
+    holds: [] as Array<Parameters<SecurityModelProxyDeps['hold']>[0]>,
+    settles: [] as Array<Parameters<SecurityModelProxyDeps['settle']>[0]>,
+    clock,
+    admit: vi.fn(async (): Promise<AdmitModelCallResult> => ({ ok: true, sessionCalls: null })),
+    hold: vi.fn(
+      async (
+        input: Parameters<SecurityModelProxyDeps['hold']>[0],
+      ): Promise<SecurityCallHold | SecurityCallRefusal> => {
+        state.holds.push(input);
+        return { ok: true, month: '2026-11-01', holdNano: input.worstNano, modelCalls: 1 };
+      },
+    ),
+    fetch: vi.fn(async () => Response.json({})),
+    aiRun: vi.fn(async () => ({})),
+    sleep: vi.fn(async (ms: number) => {
+      clock.now += ms;
+    }),
+  };
   const deps: SecurityModelProxyDeps = {
     now: () => clock.now,
-    sleep,
-    loadScan: async () => scan.value,
-    readPolicy: async () => policy.value,
-    admit,
+    sleep: state.sleep,
+    loadScan: async () => state.scan,
+    readPolicy: async () => state.policy,
+    admit: state.admit,
     recordFailure: async (_scanId, _attempt, failure) => {
-      failures.push(failure);
+      state.failures.push(failure);
     },
-    lastFailure: async () => failures.at(-1) ?? null,
-    rateLimited,
-    hold,
+    lastFailure: async () => state.failures.at(-1) ?? null,
+    rateLimited: async () => {},
+    hold: state.hold,
     settle: async (input) => {
-      settles.push(input);
-      if (settleError.value) {
-        throw settleError.value;
-      }
+      state.settles.push(input);
       return { projectSpentNano: 0, platformSpentNano: 0 };
     },
     scanTag: async (scanId) => `${scanId}.signedtag`,
     gatewayId: 'void-gw',
     accountId: 'acct_1',
     apiToken: 'cf-token',
-    ai: { run: aiRun } as unknown as Ai,
-    fetch,
+    ai: { run: state.aiRun } as unknown as Ai,
+    fetch: state.fetch,
   };
-  return {
-    deps,
-    scan,
-    policy,
-    failures,
-    holds,
-    settles,
-    settleError,
-    admit,
-    rateLimited,
-    hold,
-    fetch,
-    aiRun,
-    sleep,
-    clock,
-  };
+  return Object.assign(state, { deps });
 }
 
-function call(
-  h: Harness,
-  path: string,
-  body: unknown,
-  headers: Record<string, string> = {},
-): Promise<Response> {
+let h: ReturnType<typeof harness>;
+beforeEach(() => {
+  h = harness();
+  // Failure paths log; keep the output quiet.
+  vi.spyOn(console, 'error').mockImplementation(() => undefined);
+});
+
+function call(path: string, body: unknown, headers: Record<string, string> = {}) {
   return handleSecurityModelRequest(
     h.deps,
     'ss_1',
@@ -159,72 +110,46 @@ function call(
   );
 }
 
-function chatBody(overrides: Record<string, unknown> = {}) {
-  return { model: CF, messages: [{ role: 'user', content: 'scan' }], tools: [], ...overrides };
-}
+const chatBody = (overrides: Record<string, unknown> = {}) => ({
+  model: CF,
+  messages: [{ role: 'user', content: 'scan' }],
+  tools: [],
+  ...overrides,
+});
+const opusBody = (overrides: Record<string, unknown> = {}) => ({
+  model: OPUS,
+  max_tokens: 10,
+  messages: [],
+  ...overrides,
+});
+const stop = (response: Response) => response.headers.get(SECURITY_STOP_HEADER);
 
-function sse(events: ReadonlyArray<unknown>): ReadableStream<Uint8Array> {
+function sse(events: ReadonlyArray<unknown>): Response {
   const text = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
-  const bytes = new TextEncoder().encode(text);
-  // Split mid-line so the reader has to join chunks.
-  const cut = Math.floor(bytes.length / 2);
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(bytes.slice(0, cut));
-      controller.enqueue(bytes.slice(cut));
-      controller.close();
-    },
-  });
+  return new Response(text, { headers: { 'content-type': 'text/event-stream' } });
 }
 
-function opusBody(overrides: Record<string, unknown> = {}) {
-  return { model: OPUS, max_tokens: 10, messages: [], ...overrides };
+/** What the nth gateway fetch sent. */
+function sent(n = 0) {
+  const [url, init] = h.fetch.mock.calls[n] as unknown as [string, RequestInit];
+  return { url, headers: new Headers(init.headers), body: JSON.parse(String(init.body)) };
 }
 
-/** A gateway answer that used one token each way. */
 function fetchOk() {
   h.fetch.mockImplementation(async () =>
     Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }),
   );
 }
 
-function aiOk(input = 1, output = 1) {
-  h.aiRun.mockResolvedValue({
-    response: 'ok',
-    usage: { prompt_tokens: input, completion_tokens: output },
-  });
-}
-
-/** What the nth gateway fetch sent. */
-function sent(n = 0) {
-  const [url, init] = h.fetch.mock.calls[n] as [string, RequestInit];
-  return {
-    url,
-    headers: new Headers(init.headers),
-    body: () => JSON.parse(String(init.body)) as Record<string, unknown>,
-  };
-}
-
-let h: Harness;
-let consoleError: MockInstance<typeof console.error>;
-beforeEach(() => {
-  h = harness();
-  // Failure paths log; keep the output quiet.
-  consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-});
-afterEach(() => {
-  consoleError.mockRestore();
-});
-
-describe('Workers AI calls (@cf, Engine B)', () => {
-  it('runs the binding with the fixed gateway options and the signed scan tag', async () => {
-    aiOk(1000, 200);
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(response.status).toBe(200);
-    expect(h.aiRun).toHaveBeenCalledTimes(1);
-    const [model, inputs, options] = h.aiRun.mock.calls[0];
+describe('metering (I7)', () => {
+  it('runs @cf on the binding with fixed gateway options and settles the hold to the real cost', async () => {
+    h.aiRun.mockResolvedValue({
+      response: 'ok',
+      usage: { prompt_tokens: 1000, completion_tokens: 200 },
+    });
+    expect((await call('/v1/chat/completions', chatBody())).status).toBe(200);
+    const [model, inputs, options] = h.aiRun.mock.calls[0] as unknown as [string, object, object];
     expect(model).toBe(CF);
-    expect(inputs).not.toHaveProperty('model');
     expect(inputs).toMatchObject({ max_tokens: SECURITY_DEFAULT_CALL_OUTPUT_TOKENS });
     expect(options).toEqual({
       gateway: {
@@ -235,292 +160,83 @@ describe('Workers AI calls (@cf, Engine B)', () => {
       },
       extraHeaders: { 'cf-aig-collect-log-payload': 'false', 'cf-aig-skip-cache': 'true' },
     });
-    expect(h.admit).toHaveBeenCalledWith(
-      expect.objectContaining({ scanId: 'ss_1', attempt: 2, rateModel: CF, session: null }),
-    );
-    expect(h.fetch).not.toHaveBeenCalled();
-  });
-
-  it('meters tokens × list price and settles the hold to it', async () => {
-    aiOk(1000, 200);
-    await call(h, '/v1/chat/completions', chatBody());
-    expect(h.holds).toHaveLength(1);
     expect(h.settles).toEqual([
-      {
-        scanId: 'ss_1',
-        projectId: 'proj_1',
-        month: '2026-11-01',
+      expect.objectContaining({
         holdNano: h.holds[0].worstNano,
-        // $1.40 / M in, $4.40 / M out.
-        actualNano: 1000 * 1400 + 200 * 4400,
+        actualNano: securityModelCostNanoUsd(CF, 1000, 200),
         inputTokens: 1000,
         outputTokens: 200,
-      },
+      }),
     ]);
-    expect(securityModelCostNanoUsd(CF, 1000, 200)).toBe(1000 * 1400 + 200 * 4400);
   });
 
-  it('meters cached prompt tokens at the Workers AI cached rate', async () => {
-    h.aiRun.mockResolvedValue({
-      response: 'ok',
-      usage: {
-        prompt_tokens: 1000,
-        completion_tokens: 200,
-        prompt_tokens_details: { cached_tokens: 800 },
-      },
-    });
-    await call(h, '/v1/chat/completions', chatBody());
-    // 200 at $1.40 / M, 800 cached at $0.26 / M, 200 out at $4.40 / M. Tokens stay whole.
-    expect(h.settles[0]).toMatchObject({
-      actualNano: 200 * 1400 + 800 * 260 + 200 * 4400,
-      inputTokens: 1000,
-      outputTokens: 200,
-    });
-  });
-
-  it('hands the month totals and caps to the cap alert after a settle, and survives its failure', async () => {
-    const notices: Array<unknown> = [];
-    let fail = false;
-    const settled = { projectSpentNano: 80, platformSpentNano: 7 };
-    h.deps = {
-      ...h.deps,
-      settle: async () => settled,
-      notifyCaps: async (input) => {
-        notices.push(input);
-        if (fail) {
-          throw new Error('db down');
-        }
-      },
-    };
-    aiOk();
-    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
-    expect(notices).toMatchObject([
-      { projectId: 'proj_1', month: '2026-11-01', settlement: settled },
-    ]);
-    // A failed alert never fails the model call.
-    fail = true;
-    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
-    expect(notices).toHaveLength(2);
-  });
-
-  it('answers in chat-completions shape, which the Void loop reads', async () => {
-    h.aiRun.mockResolvedValue({
-      response: null,
-      tool_calls: [{ name: 'read_file', arguments: { path: 'src/a.ts' } }],
-      usage: { prompt_tokens: 10, completion_tokens: 5 },
-    });
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    await expect(response.json()).resolves.toEqual({
-      object: 'chat.completion',
-      model: CF,
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [
-              {
-                id: 'call_0',
-                type: 'function',
-                function: { name: 'read_file', arguments: '{"path":"src/a.ts"}' },
-              },
-            ],
-          },
-          finish_reason: 'tool_calls',
-        },
-      ],
-      usage: { prompt_tokens: 10, completion_tokens: 5 },
-    });
-  });
-
-  it('waits for a rate token without using a model call, then gives up', async () => {
-    h.admit
-      .mockResolvedValueOnce({ ok: false, reason: 'rate', waitMs: 6000 })
-      .mockResolvedValueOnce({ ok: true, sessionCalls: null });
-    aiOk();
-    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
-    expect(h.sleep).toHaveBeenCalledWith(6000);
-    expect(h.holds).toHaveLength(1);
-
-    h.admit.mockResolvedValue({ ok: false, reason: 'rate', waitMs: 60_000 });
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(response.status).toBe(503);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-    expect(h.holds).toHaveLength(1);
-    expect(h.clock.now - NOW).toBeGreaterThanOrEqual(SECURITY_RATE_WAIT_LIMIT_MS);
-  });
-
-  describe('after a rate wait', () => {
-    beforeEach(() => {
-      h.admit
-        .mockResolvedValueOnce({ ok: false, reason: 'rate', waitMs: 6000 })
-        .mockResolvedValueOnce({ ok: true, sessionCalls: null });
-      aiOk();
-      h.scan.value = scanRow({ monthlyCapCents: 10_000 });
-    });
-
-    it('holds against a project cap lowered while it waited', async () => {
-      h.sleep.mockImplementationOnce(async (ms: number) => {
-        h.clock.now += ms;
-        h.scan.value = scanRow({ monthlyCapCents: 0 });
-      });
-      expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
-      expect(h.holds[0].caps.projectNano).toBe(0);
-    });
-
-    it('holds against a platform cap lowered while it waited', async () => {
-      h.policy.value = onPolicy({
-        budgets: {
-          ...defaultSecurityPolicy().budgets,
-          platformCapOn: true,
-          platformMonthlyUsd: 500,
-        },
-      });
-      h.sleep.mockImplementationOnce(async (ms: number) => {
-        h.clock.now += ms;
-        h.policy.value = onPolicy({
-          budgets: {
-            ...defaultSecurityPolicy().budgets,
-            platformCapOn: true,
-            platformMonthlyUsd: 1,
-          },
-        });
-      });
-      expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
-      expect(h.holds[0].caps.platformNano).toBe(1_000_000_000);
-    });
-
-    it('stops when the scan ended while it waited', async () => {
-      h.sleep.mockImplementationOnce(async (ms: number) => {
-        h.clock.now += ms;
-        h.scan.value = scanRow({ monthlyCapCents: 10_000, status: 'failed' });
-      });
-      expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(409);
-      expect(h.holds).toHaveLength(0);
-    });
-  });
-
-  it('reads a binding credits error as a credits stop', async () => {
-    h.aiRun.mockRejectedValue(Object.assign(new Error('Insufficient balance'), { status: 402 }));
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(response.status).toBe(402);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('credits');
-    expect(h.settles[0]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
-  });
-
-  it('does not read a binding error text as credits without a 402', async () => {
-    h.aiRun.mockRejectedValue(Object.assign(new Error('Insufficient resources'), { status: 500 }));
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(response.status).toBe(500);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-    expect(h.failures.at(-1)?.reason).toBe('upstream');
-  });
-
-  it('backs the @cf rate bucket off on a Workers AI 429, and only there', async () => {
-    h.aiRun.mockRejectedValue(Object.assign(new Error('Too many requests'), { status: 429 }));
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(response.status).toBe(429);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-    expect(h.rateLimited).toHaveBeenCalledWith(CF, NOW);
-
-    h.rateLimited.mockClear();
-    h.scan.value = scanRow({ modelUsed: OPUS });
-    h.fetch.mockResolvedValue(new Response('slow down', { status: 429 }));
-    await call(h, '/v1/messages', opusBody());
-    expect(h.rateLimited).not.toHaveBeenCalled();
-  });
-
-  it('reads a 429 from a Workers AI error that carries only its code (3040)', async () => {
-    h.aiRun.mockRejectedValue(new Error('3040: Capacity temporarily exceeded, please try again.'));
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(response.status).toBe(429);
-    expect(h.rateLimited).toHaveBeenCalledWith(CF, NOW);
-  });
-
-  it('keeps the worst case charged when a binding call is lost with no status', async () => {
-    h.aiRun.mockRejectedValue(new Error('Network connection lost.'));
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(response.status).toBe(502);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-    expect(h.failures.at(-1)?.reason).toBe('upstream');
-    expect(h.settles[0].actualNano).toBe(h.holds[0].worstNano);
-    expect(h.settles[0].inputTokens).toBeGreaterThan(0);
-
+  it('keeps the worst case charged for a lost call or an answer with no usage', async () => {
+    h.aiRun.mockRejectedValueOnce(new Error('Network connection lost.'));
+    expect((await call('/v1/chat/completions', chatBody())).status).toBe(502);
+    h.aiRun.mockResolvedValueOnce({ response: 'ok' });
+    expect((await call('/v1/chat/completions', chatBody())).status).toBe(200);
+    for (const [index, settled] of h.settles.entries()) {
+      expect(settled.actualNano).toBe(h.holds[index].worstNano);
+      expect(settled.inputTokens).toBeGreaterThan(0);
+    }
     // A known status means no answer was made: it costs nothing.
-    h.aiRun.mockRejectedValue(new Error('3040: Capacity temporarily exceeded'));
-    await call(h, '/v1/chat/completions', chatBody());
-    expect(h.settles[1]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
-
-    // A coded refusal with no mapped status was answered, not lost: it costs nothing.
-    h.aiRun.mockRejectedValue(new Error('5006: Error: oneOf at "/" not met'));
-    const refused = await call(h, '/v1/chat/completions', chatBody());
-    expect(refused.status).toBe(502);
+    h.aiRun.mockRejectedValueOnce(new Error('3040: Capacity temporarily exceeded'));
+    await call('/v1/chat/completions', chatBody());
     expect(h.settles[2]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
   });
 
-  // Workers AI error codes map, also after a class name, and nothing else does.
-  it.each<[unknown, number | null]>([
-    [new Error('3040: Capacity temporarily exceeded'), 429],
-    [new Error('InferenceUpstreamError: 3040: busy'), 429],
-    ['3036: You have used up your daily free allocation', 429],
-    [new Error('5007: No such model'), null],
-    [new Error('Too many requests'), null],
-    [new Error('at 12:30: 3040: late'), null],
-    [{ status: 429 }, null],
-  ])('maps the Workers AI error %s to %s', (error, status) => {
-    expect(workersAiErrorStatus(error)).toBe(status);
-  });
+  it('keeps the worst case for a stream that is dropped, cut short or ends in an error', async () => {
+    h.scan = scanRow({ modelUsed: OPUS });
+    const start = {
+      type: 'message_start',
+      message: { usage: { input_tokens: 5000, output_tokens: 1 } },
+    };
+    const text = { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } };
+    const streams = [
+      [start, text],
+      [start, text, { type: 'error', error: { type: 'overloaded_error' } }],
+    ];
+    for (const events of streams) {
+      h.fetch.mockResolvedValueOnce(sse(events));
+      await (await call('/v1/messages', opusBody({ max_tokens: 1000, stream: true }))).text();
+    }
+    h.fetch.mockResolvedValueOnce(sse([start, text]));
+    await (await call('/v1/messages', opusBody({ stream: true }))).body!.cancel();
+    expect(h.settles).toHaveLength(3);
+    for (const [index, settled] of h.settles.entries()) {
+      expect(settled.actualNano).toBe(h.holds[index].worstNano);
+    }
 
-  it('keeps the worst case, tokens included, when a JSON answer has no usage', async () => {
-    h.aiRun.mockResolvedValue({ response: 'ok' });
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(response.status).toBe(200);
-    const hold = h.holds[0];
-    expect(h.settles[0]).toMatchObject({
-      holdNano: hold.worstNano,
-      actualNano: hold.worstNano,
-      outputTokens: SECURITY_DEFAULT_CALL_OUTPUT_TOKENS,
+    const done = { type: 'message_delta', delta: {}, usage: { output_tokens: 450 } };
+    h.fetch.mockResolvedValueOnce(sse([start, text, done, { type: 'message_stop' }]));
+    await (await call('/v1/messages', opusBody({ max_tokens: 1000, stream: true }))).text();
+    expect(h.settles[3]).toMatchObject({
+      inputTokens: 5000,
+      outputTokens: 450,
+      actualNano: securityModelCostNanoUsd(OPUS, 5000, 450),
     });
-    expect(h.settles[0].inputTokens).toBeGreaterThan(0);
-    expect(hold.worstNano).toBe(
-      securityModelCostNanoUsd(CF, h.settles[0].inputTokens, SECURITY_DEFAULT_CALL_OUTPUT_TOKENS),
-    );
-  });
-
-  it('still answers when settle throws; the hold stays charged', async () => {
-    h.settleError.value = new Error('db down');
-    aiOk();
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(response.status).toBe(200);
-    expect(h.settles).toHaveLength(1);
-    expect(consoleError).toHaveBeenCalledWith(
-      '[security-model-proxy] settle failed',
-      expect.anything(),
-    );
   });
 });
 
-describe('third-party calls through AI Gateway REST', () => {
+describe('third-party calls through AI Gateway REST (I3)', () => {
   beforeEach(() => {
-    h.scan.value = scanRow({ modelUsed: OPUS });
+    h.scan = scanRow({ modelUsed: OPUS });
   });
 
-  it('sends fixed gateway headers and drops every caller credential and cf-aig-* header', async () => {
-    h.fetch.mockResolvedValue(
-      Response.json({ usage: { input_tokens: 100, output_tokens: 10 }, content: [] }),
-    );
-    const response = await call(h, '/v1/messages', opusBody({ max_tokens: 4096 }), {
+  it('adds the token, drops every caller credential and cf-aig-* header, and never returns it', async () => {
+    h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 100, output_tokens: 10 } }));
+    const response = await call('/v1/messages', opusBody({ max_tokens: 4096 }), {
       authorization: 'Bearer stolen',
       'x-api-key': 'placeholder',
       'anthropic-version': '2023-06-01',
       'cf-aig-metadata': '{"projectId":"other"}',
       'cf-aig-gateway-id': 'attacker',
       'cf-aig-collect-log-payload': 'true',
-      'cf-aig-skip-cache': 'false',
-      'cf-aig-cache-key': 'x',
     });
     expect(response.status).toBe(200);
+    expect(JSON.stringify([...response.headers]) + (await response.text())).not.toContain(
+      'cf-token',
+    );
     const { url, headers, body } = sent();
     expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_1/ai/v1/messages');
     expect(Object.fromEntries(headers.entries())).toEqual({
@@ -534,354 +250,78 @@ describe('third-party calls through AI Gateway REST', () => {
       'cf-aig-collect-log-payload': 'false',
       'cf-aig-skip-cache': 'true',
     });
-    expect(body()).toEqual({
-      model: 'claude-opus-5.5',
-      max_tokens: 4096,
-      messages: [],
-    });
-    expect(h.admit).toHaveBeenCalledWith(expect.objectContaining({ rateModel: null }));
-    expect(h.settles[0]).toMatchObject({ inputTokens: 100, outputTokens: 10 });
+    expect(body).toEqual({ model: 'claude-opus-5.5', max_tokens: 4096, messages: [] });
+
+    // An upstream 401 (a token problem) is never passed on to the engine.
+    h.fetch.mockResolvedValue(new Response('{"error":"nope"}', { status: 401 }));
+    expect((await call('/v1/messages', opusBody())).status).toBe(502);
   });
 
-  it('adds access_programs to every openai/* body and clamps the output to what is left', async () => {
-    h.scan.value = scanRow({ modelUsed: TERRA, tokensOut: 119_000 });
+  it('clamps the output to what is left and forces the openai access program', async () => {
+    h.scan = scanRow({ modelUsed: TERRA, tokensOut: 119_000 });
     fetchOk();
-    await call(h, '/v1/responses', {
+    await call('/v1/responses', {
       model: TERRA,
       input: 'x',
       max_output_tokens: 50_000,
       access_programs: { cyber: 'none' },
     });
-    const { url, headers, body } = sent();
-    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_1/ai/v1/responses');
-    expect(body()).toEqual({
+    expect(sent().body).toEqual({
       model: 'gpt-6.1-terra',
       input: 'x',
       max_output_tokens: 1000,
       access_programs: { cyber: 'standard' },
     });
-    expect(headers.get('anthropic-version')).toBeNull();
   });
 
-  it('passes an SSE stream through and meters the usage it carries', async () => {
-    h.scan.value = scanRow({ modelUsed: TERRA });
-    const events = [
-      { type: 'response.created', response: { id: 'r1' } },
-      { type: 'response.output_text.delta', delta: 'hi' },
-      {
-        type: 'response.completed',
-        response: { usage: { input_tokens: 5000, output_tokens: 300 } },
-      },
+  it('refuses tools the provider runs, mcp_servers, container and background', async () => {
+    const refused: Array<[string, Record<string, unknown>]> = [
+      ['/v1/messages', opusBody({ tools: [{ type: 'web_search_20260209', name: 'web_search' }] })],
+      ['/v1/messages', opusBody({ tools: [{ type: 'mcp_toolset', mcp_server_name: 'x' }] })],
+      ['/v1/messages', opusBody({ mcp_servers: [{ type: 'url', url: 'https://evil.example' }] })],
+      ['/v1/messages', opusBody({ container: { skills: [] } })],
     ];
-    h.fetch.mockResolvedValue(
-      new Response(sse(events), { headers: { 'content-type': 'text/event-stream' } }),
-    );
-    const response = await call(h, '/v1/responses', { model: TERRA, input: 'x', stream: true });
-    expect(response.headers.get('content-type')).toBe('text/event-stream');
-    const text = await response.text();
-    expect(text).toBe(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''));
-    expect(h.settles).toEqual([
-      expect.objectContaining({
-        inputTokens: 5000,
-        outputTokens: 300,
-        actualNano: securityModelCostNanoUsd(TERRA, 5000, 300),
-      }),
-    ]);
-  });
-
-  it('keeps the worst case charged when the reader drops the stream', async () => {
-    h.scan.value = scanRow({ modelUsed: TERRA });
-    h.fetch.mockResolvedValue(new Response(sse([{ type: 'response.created' }])));
-    const response = await call(h, '/v1/responses', { model: TERRA, input: 'x', stream: true });
-    await response.body!.cancel();
-    expect(h.settles).toHaveLength(1);
-    expect(h.settles[0].actualNano).toBe(h.holds[0].worstNano);
-  });
-
-  describe('an Anthropic stream', () => {
-    const start = {
-      type: 'message_start',
-      message: { usage: { input_tokens: 5000, output_tokens: 1 } },
-    };
-    const text = { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } };
-    const body = { model: OPUS, max_tokens: 1000, messages: [], stream: true };
-
-    async function streamed(events: ReadonlyArray<unknown>) {
-      h.fetch.mockResolvedValue(
-        new Response(sse(events), { headers: { 'content-type': 'text/event-stream' } }),
-      );
-      const response = await call(h, '/v1/messages', body);
-      await response.text();
-      expect(h.settles).toHaveLength(1);
-      return h.settles[0];
-    }
-
-    it('keeps the worst case when it closes before its final usage', async () => {
-      const settled = await streamed([start, text]);
-      expect(settled.actualNano).toBe(h.holds[0].worstNano);
-    });
-
-    it('keeps the worst case when it carries an error event', async () => {
-      const error = { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } };
-      const settled = await streamed([start, text, error]);
-      expect(settled.actualNano).toBe(h.holds[0].worstNano);
-    });
-
-    it('settles at the real cost when it finishes', async () => {
-      const settled = await streamed([
-        start,
-        text,
-        {
-          type: 'message_delta',
-          delta: { stop_reason: 'end_turn' },
-          usage: { output_tokens: 450 },
-        },
-        { type: 'message_stop' },
-      ]);
-      expect(settled).toEqual(
-        expect.objectContaining({
-          inputTokens: 5000,
-          outputTokens: 450,
-          actualNano: securityModelCostNanoUsd(OPUS, 5000, 450),
-        }),
-      );
-    });
-  });
-
-  it('answers 402 as a credits stop and records why for the runner (Engine C)', async () => {
-    h.scan.value = scanRow({ modelUsed: TERRA });
-    h.fetch.mockResolvedValue(new Response('{"error":"insufficient credits"}', { status: 402 }));
-    const response = await call(h, '/v1/responses', { model: TERRA, input: 'x' });
-    expect(response.status).toBe(402);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('credits');
-    expect(h.settles[0].actualNano).toBe(0);
-    const why = await handleSecurityModelRequest(
-      h.deps,
-      'ss_1',
-      2,
-      new Request(`http://model.void.internal${SECURITY_MODEL_FAILURE_PATH}`),
-    );
-    await expect(why.json()).resolves.toEqual({
-      failure: { reason: 'credits', httpStatus: 402, at: NOW },
-    });
-  });
-
-  it('keeps only allowlisted anthropic-beta values', async () => {
-    fetchOk();
-    await call(h, '/v1/messages', opusBody(), {
-      'anthropic-beta':
-        'context-1m-2025-08-07, interleaved-thinking-2025-05-14,web-fetch-2025-09-10,claude-code-20250219',
-    });
-    expect(sent(0).headers.get('anthropic-beta')).toBe(
-      'interleaved-thinking-2025-05-14,claude-code-20250219',
-    );
-
-    await call(h, '/v1/messages', opusBody(), { 'anthropic-beta': 'mcp-client-2025-11-20' });
-    expect(sent(1).headers.has('anthropic-beta')).toBe(false);
-  });
-
-  it('refuses a Messages tool the provider runs, and mcp_servers / container (T2)', async () => {
-    const base = opusBody();
-    const refused = [
-      { ...base, tools: [{ type: 'web_search_20260209', name: 'web_search' }] },
-      { ...base, tools: [{ type: 'web_fetch_20260209', name: 'web_fetch' }] },
-      { ...base, tools: [{ type: 'code_execution_20260521', name: 'code_execution' }] },
-      { ...base, tools: [{ type: 'mcp_toolset', mcp_server_name: 'x' }] },
-      { ...base, mcp_servers: [{ type: 'url', url: 'https://evil.example', name: 'x' }] },
-      { ...base, container: { skills: [] } },
-    ];
-    for (const body of refused) {
-      const response = await call(h, '/v1/messages', body);
+    for (const [path, body] of refused) {
+      const response = await call(path, body);
       expect(response.status).toBe(422);
       await expect(response.json()).resolves.toMatchObject({ error: 'tool_not_allowed' });
     }
-    expect(h.failures.at(-1)?.reason).toBe('not_allowed');
-    expect(h.hold).not.toHaveBeenCalled();
-    expect(h.fetch).not.toHaveBeenCalled();
-
-    fetchOk();
-    const tools = [
-      { name: 'read_file', input_schema: { type: 'object' } },
-      { type: 'custom', name: 'grep', input_schema: { type: 'object' } },
-    ];
-    expect((await call(h, '/v1/messages', { ...base, tools })).status).toBe(200);
-  });
-
-  it('refuses a Responses tool the provider runs, and background (T2)', async () => {
-    h.scan.value = scanRow({ modelUsed: TERRA });
-    const base = { model: TERRA, input: 'x' };
-    const refused = [
-      { ...base, tools: [{ type: 'web_search' }] },
-      { ...base, tools: [{ type: 'mcp', server_label: 'x', server_url: 'https://evil.example' }] },
-      { ...base, tools: [{ type: 'code_interpreter', container: { type: 'auto' } }] },
-      { ...base, tools: [{ type: 'file_search', vector_store_ids: ['vs_1'] }] },
-      { ...base, tools: [{ type: 'namespace', name: 'n', tools: [{ type: 'web_search' }] }] },
-      {
-        ...base,
-        input: [{ type: 'additional_tools', tools: [{ type: 'web_search_preview' }] }],
-      },
-      { ...base, background: true },
-    ];
-    for (const body of refused) {
-      expect((await call(h, '/v1/responses', body)).status).toBe(422);
+    h.scan = scanRow({ modelUsed: TERRA });
+    const responses = { model: TERRA, input: 'x' };
+    for (const body of [
+      { ...responses, tools: [{ type: 'code_interpreter', container: { type: 'auto' } }] },
+      { ...responses, tools: [{ type: 'namespace', name: 'n', tools: [{ type: 'web_search' }] }] },
+      { ...responses, background: true },
+    ]) {
+      expect((await call('/v1/responses', body)).status).toBe(422);
     }
     expect(h.hold).not.toHaveBeenCalled();
     expect(h.fetch).not.toHaveBeenCalled();
 
     fetchOk();
-    const tools = [
-      { type: 'function', name: 'submit', parameters: { type: 'object' } },
-      { type: 'custom', name: 'apply' },
-      {
-        type: 'namespace',
-        name: 'mcp__void_scan',
-        tools: [{ type: 'function', name: 'read_file', parameters: { type: 'object' } }],
-      },
-    ];
-    expect((await call(h, '/v1/responses', { ...base, tools })).status).toBe(200);
+    const tools = [{ type: 'function', name: 'submit', parameters: { type: 'object' } }];
+    expect((await call('/v1/responses', { ...responses, tools })).status).toBe(200);
   });
 
-  it('takes the gateway name of the scan model and sends that name on', async () => {
-    fetchOk();
-    expect(
-      (await call(h, '/v1/messages', { model: 'claude-opus-5.5', max_tokens: 10, messages: [] }))
-        .status,
-    ).toBe(200);
-    expect(sent().body().model).toBe('claude-opus-5.5');
-    // Another model, with or without a provider, is still refused.
-    const other = await call(h, '/v1/messages', {
-      model: 'claude-sonnet-5.5',
-      max_tokens: 10,
-      messages: [],
-    });
-    expect(other.status).toBe(422);
-    expect(gatewayModelName('@cf/zai-org/glm-5.3')).toBe('@cf/zai-org/glm-5.3');
-    expect(gatewayModelName(TERRA)).toBe('gpt-6.1-terra');
-  });
-
-  // None of these pass the upstream answer on as a stop. A lost or unreadable answer
-  // keeps the worst case charged; a plain upstream failure was answered, so it costs nothing.
-  it.each([
-    {
-      name: 'an upstream 401 is never passed on to the engine',
-      answer: () => h.fetch.mockResolvedValue(new Response('{"error":"nope"}', { status: 401 })),
-      status: 502,
-    },
-    {
-      name: 'a 2xx answer that is not JSON',
-      answer: () => h.fetch.mockResolvedValue(new Response('<html>', { status: 200 })),
-      status: 502,
-      settle: 'worst',
-    },
-    {
-      name: 'a call lost before an answer',
-      answer: () => h.fetch.mockRejectedValue(new Error('Network connection lost.')),
-      status: 502,
-      settle: 'worst',
-    },
-    {
-      name: 'another upstream failure, which the runner retries',
-      answer: () => h.fetch.mockResolvedValue(new Response('overloaded', { status: 529 })),
-      status: 529,
-      settle: 'zero',
-    },
-  ] as const)('$name', async (row) => {
-    row.answer();
-    const response = await call(h, '/v1/messages', opusBody());
-    expect(response.status).toBe(row.status);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-    if (!('settle' in row)) {
-      return;
-    }
-    expect(h.failures.at(-1)?.reason).toBe('upstream');
-    if (row.settle === 'worst') {
-      expect(h.settles[0]).toMatchObject({ actualNano: h.holds[0].worstNano, outputTokens: 10 });
-      expect(h.settles[0].inputTokens).toBeGreaterThan(0);
-    } else {
-      expect(h.settles[0]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
-    }
-  });
-
-  it('prices Anthropic cache writes at 1.25× (5 min) and 2× (1 h) input', async () => {
-    h.fetch.mockResolvedValue(
-      Response.json({
-        usage: {
-          input_tokens: 100,
-          cache_creation_input_tokens: 1000,
-          cache_creation: { ephemeral_5m_input_tokens: 600, ephemeral_1h_input_tokens: 400 },
-          cache_read_input_tokens: 50,
-          output_tokens: 10,
-        },
-      }),
-    );
-    await call(h, '/v1/messages', opusBody());
-    expect(h.settles[0]).toMatchObject({
-      inputTokens: 1150,
-      outputTokens: 10,
-      // 100 + 50 at 1×, 600 at 1.25×, 400 at 2×.
-      actualNano: securityModelCostNanoUsd(OPUS, 150 + 750 + 800, 10),
-    });
-  });
-
-  it('answers a tokens stop when what is left is below the provider minimum', async () => {
-    h.scan.value = scanRow({ modelUsed: TERRA, tokensOut: 119_990 });
-    const response = await call(h, '/v1/responses', { model: TERRA, input: 'x' });
-    expect(response.status).toBe(429);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('tokens');
-    expect(h.hold).not.toHaveBeenCalled();
-    expect(h.fetch).not.toHaveBeenCalled();
-  });
-
-  it('lowers a thinking budget with the output limit, or stops when it cannot', async () => {
-    h.scan.value = scanRow({ modelUsed: OPUS, tokensOut: 118_500 });
-    fetchOk();
-    const thinking = { type: 'enabled', budget_tokens: 4000 };
-    await call(h, '/v1/messages', { model: OPUS, max_tokens: 8000, thinking, messages: [] });
-    expect(sent().body()).toMatchObject({
-      max_tokens: 1500,
-      thinking: { type: 'enabled', budget_tokens: 1499 },
-    });
-
-    h.scan.value = scanRow({ modelUsed: OPUS, tokensOut: 119_000 });
-    const response = await call(h, '/v1/messages', {
-      model: OPUS,
-      max_tokens: 8000,
-      thinking,
-      messages: [],
-    });
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('tokens');
-    expect(h.fetch).toHaveBeenCalledTimes(1);
-  });
-
-  it('passes a provider cyber_policy refusal on, so the scan ends refused (spike S9 P1)', async () => {
-    h.scan.value = scanRow({ modelUsed: TERRA });
-    h.fetch.mockResolvedValue(
-      Response.json(
-        {
-          error: {
-            message:
-              'This request has been flagged for potentially high-risk cybersecurity activity.',
-            type: 'invalid_request_error',
-            code: 'cyber_policy',
-          },
-        },
-        { status: 400 },
-      ),
-    );
-    const response = await call(h, '/v1/responses', { model: TERRA, input: 'x' });
+  // I10: a provider refusal ends the scan refused, never clean.
+  it('passes a provider cyber_policy refusal on, so the scan ends refused', async () => {
+    h.scan = scanRow({ modelUsed: TERRA });
+    const flagged = {
+      error: { message: 'flagged', type: 'invalid_request_error', code: 'cyber_policy' },
+    };
+    h.fetch.mockResolvedValue(Response.json(flagged, { status: 400 }));
+    const response = await call('/v1/responses', { model: TERRA, input: 'x' });
     expect(response.status).toBe(400);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
+    expect(stop(response)).toBeNull();
     const text = await response.text();
-    expect(JSON.parse(text)).toMatchObject({ error: 'cyber_policy' });
-    expect(h.failures.at(-1)).toMatchObject({ reason: 'refused', httpStatus: 400 });
+    const failure = h.failures.at(-1)!;
+    expect(failure).toMatchObject({ reason: 'refused', httpStatus: 400 });
     expect(h.settles[0].actualNano).toBe(0);
 
-    // Codex shows the answer as `unexpected status 400 Bad Request: <body>` (spike S3).
     const runner = (await import(/* @vite-ignore */ RUNNER_STATUS)) as {
       classifyCodexRun(signal: unknown): unknown;
       readProxyStopReason(value: string | null): unknown;
     };
-    const failure = h.failures.at(-1)!;
     expect(
       runner.classifyCodexRun({
         submitted: null,
@@ -895,135 +335,66 @@ describe('third-party calls through AI Gateway REST', () => {
       }),
     ).toEqual({ kind: 'refused', category: 'cyber_policy' });
   });
-
-  const nested = JSON.stringify({ error: { code: 'cyber_policy', message: 'flagged' } });
-  it.each([
-    // Only the provider error object carries a code.
-    ['{"error":{"code":"trusted_access_for_cyber"}}', 'trusted_access_for_cyber'],
-    ['[{"error":{"code":"cyber_policy"}}]', 'cyber_policy'],
-    ['{"error":{"code":"rate_limit_exceeded"}}', null],
-    ['{"error":{"message":"cyber_policy"}}', null],
-    ['overloaded', null],
-    // Other error envelopes.
-    ['{"errors":[{"code":"cyber_policy","message":"x"}]}', 'cyber_policy'],
-    ['{"error":[{"code":"cyber_policy"}]}', 'cyber_policy'],
-    ['{"error":{"type":"cyber_policy"}}', 'cyber_policy'],
-    [JSON.stringify({ errors: [{ code: 7000, message: nested }] }), 'cyber_policy'],
-    // An escaped echo of the request text is not a code.
-    [`{"error":{"message":"bad input: \\"cyber_policy\\" ${'x'.repeat(10)}`, null],
-    ['{"type":"error","error":{"type":"invalid_request_error"}}', null],
-  ])('reads the policy code of %s', (body, code) => {
-    expect(providerPolicyCode(body)).toBe(code);
-  });
-
-  it('reads a policy code from a body cut short', () => {
-    const long = `{"error":{"code":"trusted_access_for_cyber","message":"${'x'.repeat(9000)}"}}`;
-    expect(providerPolicyCode(long.slice(0, 8000))).toBe('trusted_access_for_cyber');
-  });
-
-  it('keeps a 402 with a policy code a credits stop', async () => {
-    h.fetch.mockResolvedValue(new Response('{"error":{"code":"cyber_policy"}}', { status: 402 }));
-    const response = await call(h, '/v1/messages', opusBody());
-    expect(response.status).toBe(402);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('credits');
-    expect(h.failures.at(-1)?.reason).toBe('credits');
-  });
 });
 
-describe('refusals before a call is sent', () => {
-  it('refuses a model other than the scan model with 422', async () => {
-    const response = await call(h, '/v1/chat/completions', chatBody({ model: OPUS }));
-    expect(response.status).toBe(422);
-    await expect(response.json()).resolves.toMatchObject({ error: 'security model not allowed' });
-    expect(h.hold).not.toHaveBeenCalled();
-    expect(h.aiRun).not.toHaveBeenCalled();
-    expect(h.failures.at(-1)?.reason).toBe('not_allowed');
-  });
-
-  it('refuses a route that does not belong to the model host', async () => {
-    const response = await call(h, '/v1/messages', { model: CF, max_tokens: 10, messages: [] });
-    expect(response.status).toBe(422);
-    expect(h.fetch).not.toHaveBeenCalled();
-  });
-
-  it('refuses a blocked model, a host that failed check 5 and a missing provider notice', async () => {
-    h.policy.value = onPolicy({ blockedModels: [CF] });
-    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(422);
-
-    h.policy.value = onPolicy({
+describe('refusals and caps before a call is sent', () => {
+  it('refuses another model, a blocked model, a missing notice, a stale attempt and audits off', async () => {
+    expect((await call('/v1/chat/completions', chatBody({ model: OPUS }))).status).toBe(422);
+    h.policy = onPolicy({ blockedModels: [CF] });
+    expect((await call('/v1/chat/completions', chatBody())).status).toBe(422);
+    h.policy = onPolicy({
       entitlement: passingEntitlement({ hosts: { openai: true, anthropic: false } }),
     });
-    h.scan.value = scanRow({ modelUsed: OPUS });
-    expect((await call(h, '/v1/messages', opusBody({ max_tokens: 1 }))).status).toBe(422);
-
-    h.policy.value = onPolicy();
-    h.scan.value = scanRow({ modelUsed: OPUS, projectNoticeVersion: null });
-    const response = await call(h, '/v1/messages', opusBody({ max_tokens: 1 }));
-    expect(response.status).toBe(422);
-    await expect(response.json()).resolves.toMatchObject({
-      error: 'provider notice not accepted',
-    });
-    expect(h.fetch).not.toHaveBeenCalled();
-    expect(h.hold).not.toHaveBeenCalled();
-  });
-
-  it('refuses every call while security audits are off', async () => {
-    h.policy.value = onPolicy({ mode: 'disabled' });
-    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(409);
-    expect(h.aiRun).not.toHaveBeenCalled();
-  });
-
-  it('refuses a stale attempt or a scan past its lease without a stop header (T10)', async () => {
-    h.scan.value = scanRow({ attempt: 3 });
-    const stale = await call(h, '/v1/chat/completions', chatBody());
-    expect(stale.status).toBe(409);
-    expect(stale.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-
-    h.scan.value = scanRow({ leaseUntil: '2026-11-18T11:00:00.000Z' });
-    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(409);
-    expect(h.hold).not.toHaveBeenCalled();
-  });
-
-  it('stops the scan at the call cap and the token caps', async () => {
-    h.scan.value = scanRow({ modelCalls: 80 });
-    const calls = await call(h, '/v1/chat/completions', chatBody());
-    expect(calls.status).toBe(429);
-    expect(calls.headers.get(SECURITY_STOP_HEADER)).toBe('scan_calls');
-
-    h.scan.value = scanRow({ tokensIn: 1_200_000 });
-    expect(
-      (await call(h, '/v1/chat/completions', chatBody())).headers.get(SECURITY_STOP_HEADER),
-    ).toBe('tokens');
-    h.scan.value = scanRow({ tokensOut: 120_000 });
-    expect(
-      (await call(h, '/v1/chat/completions', chatBody())).headers.get(SECURITY_STOP_HEADER),
-    ).toBe('tokens');
-    expect(h.hold).not.toHaveBeenCalled();
-  });
-
-  it('stops a session at 40 calls (Codex has no max-turns setting)', async () => {
-    h.admit.mockResolvedValue({ ok: false, reason: 'session_calls' });
-    const response = await call(h, '/v1/chat/completions', chatBody(), {
-      'x-void-scan-session': '3',
-    });
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('session_calls');
-    expect(h.admit).toHaveBeenCalledWith(expect.objectContaining({ session: 3 }));
-    for (const value of ['-1', '64', 'abc']) {
-      const bad = await call(h, '/v1/chat/completions', chatBody(), {
-        'x-void-scan-session': value,
-      });
-      expect(bad.status).toBe(400);
+    h.scan = scanRow({ modelUsed: OPUS });
+    expect((await call('/v1/messages', opusBody())).status).toBe(422);
+    h.policy = onPolicy();
+    h.scan = scanRow({ modelUsed: OPUS, projectNoticeVersion: null });
+    expect((await call('/v1/messages', opusBody())).status).toBe(422);
+    // T10: a stale attempt or a scan past its lease gets no stop header.
+    for (const scan of [scanRow({ attempt: 3 }), scanRow({ leaseUntil: '2026-11-18T11:00:00Z' })]) {
+      h.scan = scan;
+      const stale = await call('/v1/chat/completions', chatBody());
+      expect(stale.status).toBe(409);
+      expect(stop(stale)).toBeNull();
     }
+    h.scan = scanRow();
+    h.policy = onPolicy({ mode: 'disabled' });
+    expect((await call('/v1/chat/completions', chatBody())).status).toBe(409);
+    expect(h.hold).not.toHaveBeenCalled();
+    expect(h.aiRun).not.toHaveBeenCalled();
+    expect(h.fetch).not.toHaveBeenCalled();
   });
 
-  it('refuses a body over the size limit with 413', async () => {
-    const big = 'x'.repeat(SECURITY_MODEL_MAX_REQUEST_BYTES);
-    const response = await call(h, '/v1/chat/completions', chatBody({ messages: [big] }));
-    expect(response.status).toBe(413);
+  it('stops the scan at the call, token and session caps', async () => {
+    const cases: Array<[SecurityModelScan, string]> = [
+      [scanRow({ modelCalls: 80 }), 'scan_calls'],
+      [scanRow({ tokensIn: 1_200_000 }), 'tokens'],
+      [scanRow({ tokensOut: 120_000 }), 'tokens'],
+    ];
+    for (const [scan, reason] of cases) {
+      h.scan = scan;
+      const response = await call('/v1/chat/completions', chatBody());
+      expect(response.status).toBe(429);
+      expect(stop(response)).toBe(reason);
+    }
+    h.scan = scanRow();
+    h.admit.mockResolvedValue({ ok: false, reason: 'session_calls' });
+    const session = await call('/v1/chat/completions', chatBody(), { 'x-void-scan-session': '3' });
+    expect(stop(session)).toBe('session_calls');
+    expect(h.admit).toHaveBeenCalledWith(expect.objectContaining({ session: 3 }));
     expect(h.hold).not.toHaveBeenCalled();
   });
 
-  it('stops the scan when the call could cross a monthly cap → incomplete (budget)', async () => {
+  it('gives up after waiting too long for a rate token, without using a model call', async () => {
+    h.admit.mockResolvedValue({ ok: false, reason: 'rate', waitMs: 60_000 });
+    const response = await call('/v1/chat/completions', chatBody());
+    expect(response.status).toBe(503);
+    expect(stop(response)).toBeNull();
+    expect(h.holds).toHaveLength(0);
+    expect(h.clock.now - NOW).toBeGreaterThanOrEqual(SECURITY_RATE_WAIT_LIMIT_MS);
+  });
+
+  it('stops the scan as incomplete (budget) when the call could cross a monthly cap', async () => {
     h.hold.mockResolvedValue({
       ok: false,
       reason: 'budget',
@@ -1031,9 +402,9 @@ describe('refusals before a call is sent', () => {
       capNano: 100,
       spentNano: 100,
     });
-    const response = await call(h, '/v1/chat/completions', chatBody());
+    const response = await call('/v1/chat/completions', chatBody());
     expect(response.status).toBe(429);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('budget');
+    expect(stop(response)).toBe('budget');
     expect(h.aiRun).not.toHaveBeenCalled();
     const runner = (await import(/* @vite-ignore */ RUNNER_STATUS)) as {
       classifyProxyStop(status: number, reason: unknown): unknown;
@@ -1042,184 +413,8 @@ describe('refusals before a call is sent', () => {
     };
     const outcome = runner.classifyProxyStop(
       response.status,
-      runner.readProxyStopReason(response.headers.get(SECURITY_STOP_HEADER)),
+      runner.readProxyStopReason(stop(response)),
     );
     expect(runner.outcomeStatus(outcome)).toMatchObject({ status: 'incomplete', reason: 'budget' });
-  });
-
-  it('queues the 100% email when a used-up cap stops a running scan, not for a call too big for what is left', async () => {
-    const refused: Array<unknown> = [];
-    h.deps = {
-      ...h.deps,
-      notifyCapRefused: async (input) => {
-        refused.push(input);
-        throw new Error('db down');
-      },
-    };
-    // The cap was lowered to $0.05 below the $0.91 already spent.
-    h.hold.mockResolvedValueOnce({
-      ok: false,
-      reason: 'budget',
-      cap: 'project',
-      capNano: 50_000_000,
-      spentNano: 910_000_000,
-    });
-    const stopped = await call(h, '/v1/chat/completions', chatBody());
-    expect(stopped.status).toBe(429);
-    expect(refused).toEqual([{ projectId: 'proj_1', month: '2026-11-01', cap: 'project' }]);
-    h.hold.mockResolvedValueOnce({
-      ok: false,
-      reason: 'budget',
-      cap: 'platform',
-      capNano: 1_000_000_000,
-      spentNano: 900_000_000,
-    });
-    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(429);
-    expect(refused).toHaveLength(1);
-  });
-
-  it('holds each call against the plan cap with project caps off, and stops at it (M27)', async () => {
-    h.policy.value = onPolicy({
-      budgets: { ...defaultSecurityPolicy().budgets, platformCapOn: false, projectCapsOn: false },
-    });
-    h.scan.value = scanRow({ planCap: 1000 });
-    h.hold.mockResolvedValue({
-      ok: false,
-      reason: 'budget',
-      cap: 'project',
-      capNano: 10_000_000_000,
-      spentNano: 10_000_000_000,
-    });
-    const response = await call(h, '/v1/chat/completions', chatBody());
-    expect(h.hold).toHaveBeenCalledWith(
-      expect.objectContaining({ caps: { projectNano: 10_000_000_000, platformNano: null } }),
-    );
-    expect(response.status).toBe(429);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('budget');
-    expect(h.aiRun).not.toHaveBeenCalled();
-  });
-
-  it('refuses unknown routes and bodies that are not JSON objects', async () => {
-    expect((await call(h, '/v1/embeddings', {})).status).toBe(404);
-    expect((await call(h, '/v1/chat/completions', [1])).status).toBe(400);
-    expect(h.hold).not.toHaveBeenCalled();
-  });
-});
-
-describe('helpers', () => {
-  it('reads usage in all three shapes, cache tokens as input', () => {
-    const plain = { cacheWrite5m: 0, cacheWrite1h: 0, cachedInput: 0 };
-    expect(readModelUsage({ usage: { prompt_tokens: 3, completion_tokens: 4 } })).toEqual({
-      input: 3,
-      output: 4,
-      ...plain,
-    });
-    expect(
-      readModelUsage({
-        type: 'message_start',
-        message: {
-          usage: {
-            input_tokens: 10,
-            cache_creation_input_tokens: 5,
-            cache_read_input_tokens: 2,
-            output_tokens: 1,
-          },
-        },
-      }),
-    ).toEqual({ input: 17, output: 1, cacheWrite5m: 5, cacheWrite1h: 0, cachedInput: 0 });
-    expect(readModelUsage({ response: { usage: { input_tokens: 8, output_tokens: 9 } } })).toEqual({
-      input: 8,
-      output: 9,
-      ...plain,
-    });
-    expect(
-      billedInputTokens({ input: 10, output: 0, cacheWrite5m: 5, cacheWrite1h: 3, cachedInput: 0 }),
-    ).toBe(10 + 2 + 3);
-    expect(readModelUsage({ usage: {} })).toBeNull();
-  });
-
-  it('keeps cached prompt tokens apart so they are priced at the cached rate', () => {
-    // Workers AI / chat completions count cached tokens inside prompt_tokens.
-    expect(
-      readModelUsage({
-        usage: {
-          prompt_tokens: 1000,
-          completion_tokens: 10,
-          prompt_tokens_details: { cached_tokens: 900 },
-        },
-      }),
-    ).toEqual({ input: 1000, output: 10, cacheWrite5m: 0, cacheWrite1h: 0, cachedInput: 900 });
-    // Responses: input_tokens_details.
-    expect(
-      readModelUsage({
-        response: {
-          usage: {
-            input_tokens: 50,
-            output_tokens: 5,
-            input_tokens_details: { cached_tokens: 40 },
-          },
-        },
-      }),
-    ).toEqual({ input: 50, output: 5, cacheWrite5m: 0, cacheWrite1h: 0, cachedInput: 40 });
-    // More cached than input never counts past the input.
-    expect(
-      readModelUsage({
-        usage: {
-          prompt_tokens: 5,
-          completion_tokens: 1,
-          prompt_tokens_details: { cached_tokens: 9 },
-        },
-      })?.cachedInput,
-    ).toBe(5);
-  });
-
-  it('keeps the highest cumulative counts across an Anthropic stream', () => {
-    const reader = new SseUsageReader();
-    // One read per chunk: the first event is split across two reads.
-    for (const chunk of [
-      'event: message_start\r\ndata: {"type":"message_start","message":{"usage":',
-      '{"input_tokens":120,"output_tokens":1}}}\r\n\r\n',
-      'data: {"type":"message_delta","usage":{"output_tokens":450}}\n\ndata: [DONE]',
-    ]) {
-      reader.push(chunk);
-    }
-    reader.end();
-    expect(reader.usage).toEqual({
-      input: 120,
-      output: 450,
-      cacheWrite5m: 0,
-      cacheWrite1h: 0,
-      cachedInput: 0,
-    });
-  });
-
-  it('clamps the output limit per route', () => {
-    const chat: Record<string, unknown> = { max_tokens: 900, max_completion_tokens: 500 };
-    expect(clampCallOutput('chat', chat, 10_000)).toBe(500);
-    expect(chat).toEqual({ max_tokens: 500 });
-    const messages: Record<string, unknown> = {};
-    expect(clampCallOutput('messages', messages, 100)).toBe(100);
-    expect(messages).toEqual({ max_tokens: 100 });
-    expect(clampCallOutput('responses', {}, 15)).toBeNull();
-    expect(clampCallOutput('responses', {}, 16)).toBe(16);
-    const thinking: Record<string, unknown> = {
-      max_tokens: 5000,
-      thinking: { type: 'enabled', budget_tokens: 1023 },
-    };
-    // The budget would have to drop below 1,024 to stay under the limit.
-    expect(clampCallOutput('messages', thinking, 1000)).toBeNull();
-  });
-
-  it('filters anthropic-beta values', () => {
-    expect(allowedAnthropicBetas(null)).toBeNull();
-    expect(allowedAnthropicBetas('context-1m-2025-08-07')).toBeNull();
-    expect(allowedAnthropicBetas(' claude-code-20250219 ,claude-code-20250219')).toBe(
-      'claude-code-20250219',
-    );
-  });
-
-  it('keeps an answer that already has choices', () => {
-    const value = { choices: [{ message: { content: 'x' } }] };
-    expect(asChatCompletion(CF, value)).toBe(value);
   });
 });

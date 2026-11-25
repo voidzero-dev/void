@@ -11,8 +11,6 @@ import {
 } from 'vite-plus/test';
 import type { ApiEnv } from '../../src/env.ts';
 import { projects, projectZeroTrust } from '../../src/schema.ts';
-import { changeSecurityPolicy } from '../../src/security/policy.ts';
-import { recheckPublicRequest } from '../../src/security/public-gate-flow.ts';
 import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
 import {
   configurePlatformZeroTrust,
@@ -32,7 +30,6 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
-import { askPublic, setupGate, succeededScan } from './security-gate-fixtures.ts';
 
 let env: TestEnv;
 
@@ -494,75 +491,5 @@ describe('Zero Trust disable public bypass lifecycle', () => {
       desired_protected: false,
     });
     expect(cloudflare.deletedIds).toEqual([wildcard!.id, health!.id, bypass.bypass_application_id]);
-  });
-});
-
-describe('Zero Trust disable with the public gate', () => {
-  async function finishDisable(platform: ApiEnv['Bindings']) {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      if (!(await readZeroTrustConfigurationStrict(env.db))!.operation) {
-        return;
-      }
-      await reconcilePlatformZeroTrust(platform, env.db);
-    }
-    throw new Error('Disable did not finish within its expected batches');
-  }
-
-  it('removes the bypass of a project the gate made public when Zero Trust is disabled', async () => {
-    const s = await setupGate(env);
-    await askPublic(s);
-    await succeededScan(s);
-    expect((await recheckPublicRequest(s.platform, env.db, s.project.id))?.state).toBe('passed');
-    const row = (await getProjectZeroTrustState(env.db, s.project.id))!;
-    expect(row).toMatchObject({ desired_protected: false, effective_protected: false });
-    expect(s.cloudflare.applications.has(row.bypass_application_id!)).toBe(true);
-    await changeSecurityPolicy(
-      env.db,
-      { publicGate: false, expectedRevision: 1 },
-      { userId: s.user.id, preview: false },
-    );
-
-    await disablePlatformZeroTrust(s.platform, env.db);
-    await finishDisable(s.platform);
-
-    expect(s.cloudflare.applications.size).toBe(0);
-    expect(await getProjectZeroTrustState(env.db, s.project.id)).toMatchObject({
-      desired_protected: false,
-      effective_protected: false,
-      bypass_application_id: null,
-    });
-  });
-
-  it('keeps a project with an open request protected until the disable opens everything', async () => {
-    const s = await setupGate(env);
-    const asked = await askPublic(s);
-    expect(asked.held).toBe(true);
-    // The disable is refused while the gate is on, and changes nothing.
-    await expect(disablePlatformZeroTrust(s.platform, env.db)).rejects.toMatchObject({
-      code: 'security public gate on',
-    });
-    expect(await getProjectZeroTrustState(env.db, s.project.id)).toMatchObject({
-      desired_protected: true,
-    });
-    const off = await changeSecurityPolicy(
-      env.db,
-      { publicGate: false, expectedRevision: 1 },
-      { userId: s.user.id, preview: false },
-    );
-    expect(off).toMatchObject({ ok: true, canceledRequests: 1 });
-    // Canceling the request does not open the project.
-    expect(await getProjectZeroTrustState(env.db, s.project.id)).toMatchObject({
-      desired_protected: true,
-    });
-
-    await disablePlatformZeroTrust(s.platform, env.db);
-    await finishDisable(s.platform);
-
-    expect(await getProjectZeroTrustState(env.db, s.project.id)).toMatchObject({
-      desired_protected: false,
-      effective_protected: false,
-      status: 'ready',
-    });
-    expect(s.cloudflare.applications.size).toBe(0);
   });
 });

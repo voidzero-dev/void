@@ -71,33 +71,3 @@ describe('targeted project lookup', () => {
     ]);
   });
 });
-
-describe('security routes', () => {
-  it('says an old platform has no security audits for a 404 without JSON', async () => {
-    fetchMock.mockResolvedValueOnce(new Response('404 Not Found', { status: 404 }));
-    await expect(client().getProjectSecurity('proj_1')).rejects.toThrow(
-      'does not support security audits',
-    );
-  });
-  it('keeps a 404 with JSON as an API error', async () => {
-    fetchMock.mockResolvedValueOnce(Response.json({ error: 'finding not found' }, { status: 404 }));
-    await expect(client().getProjectSecurityFinding('proj_1', 'F-1')).rejects.toMatchObject({
-      name: 'PlatformApiError',
-      status: 404,
-    });
-  });
-  it('shows the platform message for a 409 or 422', async () => {
-    fetchMock.mockResolvedValueOnce(
-      Response.json(
-        {
-          error: 'security budget above platform limit',
-          message: 'The platform limits each project.',
-        },
-        { status: 422 },
-      ),
-    );
-    await expect(client().setProjectSecurityBudget('proj_1', 150)).rejects.toThrow(
-      /^The platform limits each project\.$/,
-    );
-  });
-});

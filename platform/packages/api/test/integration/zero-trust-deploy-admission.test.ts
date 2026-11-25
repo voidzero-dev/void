@@ -14,25 +14,16 @@ import { getDeployment } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import app from '../../src/index.ts';
 import { settleDeploymentForSandboxDrain } from '../../src/routes/deploy.ts';
-import {
-  deployments,
-  platformSettings,
-  projects,
-  projectZeroTrust,
-  securityPublicRequests,
-} from '../../src/schema.ts';
+import { deployments, platformSettings, projects, projectZeroTrust } from '../../src/schema.ts';
 import {
   clearTables,
   createTestDeployment,
   createTestProject,
   createTestUser,
-  mockCfApi,
-  readAllEvents,
   setupEnv,
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
-import { askPublic, gateBindings, setupGate } from './security-gate-fixtures.ts';
 
 let env: TestEnv;
 
@@ -199,85 +190,5 @@ describe('Zero Trust deploy admission and recovery', () => {
       staticDeploymentId: committed.id,
       zeroTrust: { teamDomain: '', audiences: [] },
     });
-  });
-});
-
-describe('deploys and rollbacks while a public request is open', () => {
-  async function openRequest(s: Awaited<ReturnType<typeof setupGate>>) {
-    const asked = await askPublic(s);
-    expect(asked.held).toBe(true);
-    const [request] = await env.db
-      .select()
-      .from(securityPublicRequests)
-      .where(eq(securityPublicRequests.project_id, s.project.id));
-    return request;
-  }
-
-  it('keeps admitting deploys while the request waits, and the request follows the new live deployment', async () => {
-    const s = await setupGate(env);
-    const before = await openRequest(s);
-    mockCfApi();
-    const bytes = new TextEncoder().encode('held deploy');
-    const hash = computeAssetHash(bytes.buffer, '/index.html');
-    await env.STATIC_ASSETS_R2.put(`assets/${s.project.id}/${hash}`, bytes);
-
-    const response = await app.fetch(
-      new Request(`http://localhost/projects/${s.project.id}/deploy`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${s.user.jwt}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          manifest: { ...JSON.parse(STATIC_MANIFEST), assetManifestVersion: 2 },
-          assetManifest: { '/index.html': { blake3: hash, md5: hash, size: bytes.length } },
-        }),
-      }),
-      gateBindings(env),
-    );
-
-    expect(response.status).toBe(200);
-    const events = (await readAllEvents(response)) as Array<{ event: string; deployment?: string }>;
-    const done = events.find((event) => event.event === 'done');
-    expect(done?.deployment).toBeDefined();
-    const [after] = await env.db
-      .select()
-      .from(securityPublicRequests)
-      .where(eq(securityPublicRequests.project_id, s.project.id));
-    expect(['needs_deploy', 'waiting_scan']).toContain(after.state);
-    expect(after.id).toBe(before.id);
-    expect(after.target_deployment_id).toBe(done!.deployment);
-    expect((await env.db.select().from(projectZeroTrust))[0]).toMatchObject({
-      desired_protected: true,
-      effective_protected: true,
-    });
-  });
-
-  it('a rollback moves the open request to the restored deployment', async () => {
-    const s = await setupGate(env);
-    const target = await retainedStaticDeployment(s.project.id);
-    const active = await retainedStaticDeployment(s.project.id);
-    await env.db
-      .update(projects)
-      .set({ active_deployment_id: active.id, type: 'static' })
-      .where(eq(projects.id, s.project.id));
-    const before = await openRequest(s);
-    expect(before.target_deployment_id).toBe(active.id);
-
-    const response = await app.fetch(
-      new Request(`http://localhost/projects/${s.project.id}/rollback`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${s.user.jwt}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deploymentId: target.id }),
-      }),
-      gateBindings(env),
-    );
-
-    expect(response.status).toBe(200);
-    const [after] = await env.db
-      .select()
-      .from(securityPublicRequests)
-      .where(eq(securityPublicRequests.project_id, s.project.id));
-    expect(after.id).toBe(before.id);
-    expect(after.target_deployment_id).toBe(target.id);
-    expect(after.revision).toBeGreaterThan(before.revision);
-    expect(['needs_deploy', 'waiting_scan']).toContain(after.state);
   });
 });

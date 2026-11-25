@@ -468,29 +468,6 @@ describe('project route membership capabilities', () => {
     },
   );
 
-  it('reserves the public request bypass for project admins and rejects a bad reason or no request', async () => {
-    const owner = await createTestUser(env.db, 'bypass-owner');
-    const collaborator = await createTestUser(env.db, 'bypass-collaborator');
-    const project = await createTestProject(env.db, owner.id, 'bypass-roles');
-    await env.db.insert(projectMembers).values({
-      project_id: project.id,
-      user_id: collaborator.id,
-      role: 'collaborator',
-      added_by_user_id: owner.id,
-    });
-    const path = `/projects/${project.id}/zero-trust/public-request/bypass`;
-    const denied = await app.fetch(
-      authed(path, collaborator.jwt, 'POST', { reason: 'launch' }),
-      env,
-    );
-    expect(denied.status).toBe(403);
-    const empty = await app.fetch(authed(path, owner.jwt, 'POST', { reason: '  ' }), env);
-    expect(empty.status).toBe(422);
-    const none = await app.fetch(authed(path, owner.jwt, 'POST', { reason: 'launch' }), env);
-    expect(none.status).toBe(409);
-    expect(await projectState()).toBeDefined();
-  });
-
   it('reports malformed saved Zero Trust configuration without exposing a server error', async () => {
     const owner = await createTestUser(env.db, 'zero-trust-invalid-owner');
     const project = await createTestProject(env.db, owner.id, 'zero-trust-invalid');

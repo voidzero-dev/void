@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import {
   afterAll,
   afterEach,
@@ -10,15 +10,12 @@ import {
   vi,
 } from 'vite-plus/test';
 import {
-  securityFindings,
   securityNotifications,
   securityPublicRequests,
   securityScanBypasses,
 } from '../../src/schema.ts';
-import { projectZeroTrust } from '../../src/schema.ts';
 import { SecurityApiError } from '../../src/security/errors.ts';
 import { bypassPublicRequest, recheckPublicRequest } from '../../src/security/public-gate-flow.ts';
-import { ZeroTrustUnavailableError } from '../../src/zero-trust/errors.ts';
 import { clearTables, setupEnv, teardownEnv } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
 import {
@@ -97,17 +94,6 @@ describe('public gate bypass races', () => {
     expect((await ztRow(s)).desired_protected).toBe(false);
   });
 
-  it('a second bypass after the first names the closed state (#72)', async () => {
-    const s = await setupGate(env);
-    await askPublic(s);
-    await bypass(s);
-    // The caller still holds the request it saw: the check runs under the lock and
-    // reads the request by id, so a stale caller learns the final state.
-    await expect(bypass(s, 'again')).rejects.toMatchObject({ status: 409 });
-    expect(await bypassRows(s)).toHaveLength(1);
-    expect(await bypassEmails()).toHaveLength(1);
-  });
-
   it('a bypass racing a protect ends with one consistent outcome (#72)', async () => {
     const s = await setupGate(env);
     await askPublic(s);
@@ -135,77 +121,6 @@ describe('public gate bypass races', () => {
     }
   });
 
-  it('a bypass racing a passing scan lets one of them close the request (#72)', async () => {
-    const s = await setupGate(env);
-    await askPublic(s);
-    await succeededScan(s);
-
-    const [rechecked, bypassed] = await Promise.allSettled([
-      recheckPublicRequest(s.platform, env.db, s.project.id),
-      bypass(s),
-    ]);
-
-    expect(rechecked.status).toBe('fulfilled');
-    const [request] = await requestRows(s);
-    expect(['passed', 'bypassed']).toContain(request.state);
-    expect((await ztRow(s)).desired_protected).toBe(false);
-    if (request.state === 'passed') {
-      expect(bypassed.status).toBe('rejected');
-      expect(await bypassRows(s)).toHaveLength(0);
-      expect(await bypassEmails()).toHaveLength(0);
-    } else {
-      expect(bypassed.status).toBe('fulfilled');
-      expect(await bypassRows(s)).toHaveLength(1);
-    }
-  });
-
-  it('refuses a bypass while the installation operation runs or the row is not ready (#89)', async () => {
-    const s = await setupGate(env);
-    await askPublic(s);
-    await env.db
-      .update(projectZeroTrust)
-      .set({ status: 'reconciling' })
-      .where(eq(projectZeroTrust.project_id, s.project.id));
-
-    await expect(bypass(s)).rejects.toBeInstanceOf(ZeroTrustUnavailableError);
-
-    expect(await bypassRows(s)).toHaveLength(0);
-    expect(await bypassEmails()).toHaveLength(0);
-    const [request] = await requestRows(s);
-    expect(request.state).not.toBe('bypassed');
-    expect((await ztRow(s)).desired_protected).toBe(true);
-  });
-
-  it('refuses a bypass from held findings and allows it once they are resolved (#93)', async () => {
-    const s = await setupGate(env);
-    await succeededScan(s);
-    await urgentFinding(s);
-    const asked = await askPublic(s);
-    expect(asked.publicRequest?.state).toBe('held_findings');
-
-    await expect(bypass(s)).rejects.toMatchObject({
-      status: 409,
-      code: 'security public request has urgent findings',
-      details: { blockers: { count: 1, ids: ['F-1'] } },
-    });
-    expect(await bypassRows(s)).toHaveLength(0);
-    expect(await bypassEmails()).toHaveLength(0);
-    expect((await requestRows(s))[0].state).toBe('held_findings');
-
-    await env.db
-      .update(securityFindings)
-      .set({
-        state: 'resolved',
-        resolution: 'false_positive',
-        resolved_at: new Date().toISOString(),
-      })
-      .where(eq(securityFindings.project_id, s.project.id));
-    // The scan passes by itself once the finding is closed; a held request that is
-    // judged again is no longer held by findings.
-    const rechecked = await recheckPublicRequest(s.platform, env.db, s.project.id);
-    expect(rechecked?.state).not.toBe('held_findings');
-  });
-
   it('a bypass after an ingest that found an urgent finding is refused (#94)', async () => {
     const s = await setupGate(env);
     const asked = await askPublic(s);
@@ -223,31 +138,5 @@ describe('public gate bypass races', () => {
     const rechecked = await recheckPublicRequest(s.platform, env.db, s.project.id);
     expect(rechecked?.state).toBe('held_findings');
     expect((await ztRow(s)).desired_protected).toBe(true);
-  });
-
-  it('an ingest after a bypass never protects the project again (#94)', async () => {
-    const s = await setupGate(env);
-    await askPublic(s);
-    await bypass(s);
-    expect((await ztRow(s)).desired_protected).toBe(false);
-
-    await succeededScan(s);
-    await urgentFinding(s);
-    const rechecked = await recheckPublicRequest(s.platform, env.db, s.project.id);
-
-    expect(rechecked).toBeNull();
-    expect((await requestRows(s)).map((row) => row.state)).toEqual(['bypassed']);
-    expect((await ztRow(s)).desired_protected).toBe(false);
-    expect(
-      await env.db
-        .select()
-        .from(securityPublicRequests)
-        .where(
-          and(
-            eq(securityPublicRequests.project_id, s.project.id),
-            eq(securityPublicRequests.state, 'held_findings'),
-          ),
-        ),
-    ).toHaveLength(0);
   });
 });

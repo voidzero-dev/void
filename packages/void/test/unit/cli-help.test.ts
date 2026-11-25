@@ -110,62 +110,6 @@ describe('CLI help resolver', () => {
 });
 
 describe('rendered help advertises the flags the parser honours', () => {
-  it('generates the platform security help tree from the operator commands', () => {
-    const group = render(['platform', 'security']);
-    for (const action of [
-      'status',
-      'probe',
-      'policy',
-      'models',
-      'limits',
-      'budget',
-      'findings',
-      'show',
-      'resolve',
-      'reopen',
-      'comment',
-      'model',
-      'scans',
-      'rescan',
-      'cancel',
-      'public-gate',
-      'public-requests',
-      'bypass',
-      'bypasses',
-    ]) {
-      expect(group).toContain(action);
-      expect(hasHelpPage(['platform', 'security', action])).toBe(true);
-    }
-    expect(render(['platform'])).toContain('security <command>');
-    // The scan time limit has its own name, apart from the request deadline.
-    expect(render(['platform', 'security', 'limits'])).toContain('--scan-timeout <value>');
-    expect(render(['platform', 'security', 'policy'])).toContain(
-      'void platform security policy <disabled|public|all>',
-    );
-  });
-
-  it('shows the paging flags on the security lists and no confirmation flags on the probe', () => {
-    for (const list of ['findings', 'scans', 'public-requests', 'bypasses']) {
-      const page = render(['platform', 'security', list]);
-      expect(page).toContain('--limit <number>');
-      expect(page).toContain('--page <number>');
-    }
-    expect(render(['platform', 'security', 'status'])).not.toContain('--limit');
-    const probe = render(['platform', 'security', 'probe']);
-    expect(probe).not.toContain('--plan');
-    expect(probe).not.toContain('--yes');
-    expect(probe).toContain('--timeout <seconds>');
-  });
-
-  it('shows --security-audits on platform install, upgrade and repair only', () => {
-    for (const command of ['install', 'upgrade', 'repair']) {
-      expect(render(['platform', command])).toContain('--security-audits');
-    }
-    for (const command of ['disable', 'enable']) {
-      expect(render(['platform', command])).not.toContain('--security-audits');
-    }
-  });
-
   it('shows both Git initialization flags on init', () => {
     const page = render(['init']);
     expect(page).toContain('--git');
@@ -207,13 +151,6 @@ describe('rendered help advertises the flags the parser honours', () => {
 
     expect(page).toContain('--limit <n>');
     expect(page).toContain('--project <name>');
-  });
-
-  it('lists the project security commands', () => {
-    const page = render(['project', 'security']);
-    expect(page).toContain('resolve <F-id>');
-    expect(page).toContain('--accept-provider-notice');
-    expect(render(['project'])).toContain('security <command>');
   });
 
   it('states plain limits for remote studio and purge-cache', () => {

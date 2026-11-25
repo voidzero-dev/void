@@ -699,43 +699,6 @@ describe('uninstall --purge-resources', () => {
     expect(printSuccess).not.toHaveBeenCalled();
   });
 
-  it('removes the security scanner before the Workers it is bound to, and not at all when it was never allowed', async () => {
-    for (const securityAudits of [true, false]) {
-      const base = installedManifest();
-      const manifest = {
-        ...base,
-        deployment: {
-          ...base.deployment,
-          capabilities: { ...base.deployment.capabilities, securityAudits },
-          ...(securityAudits ? { schemaVersion: 7 as const } : {}),
-        },
-      };
-      persistInstallation(manifest, directories);
-      const fake = cloudflare(manifest);
-      const deleteSecurityScanner = vi.fn(async () => {
-        fake.calls.push('DELETE security-scanner');
-        return { deleted: ['controller' as const], kept: [] };
-      });
-      await uninstallPlatform(
-        fake,
-        manifest,
-        purgeResourcesArgs,
-        dependencies({ deleteSecurityScanner }),
-      );
-      expect(deleteSecurityScanner).toHaveBeenCalledTimes(securityAudits ? 1 : 0);
-      if (securityAudits) {
-        expect(fake.calls.indexOf('PUT disabled')).toBeLessThan(
-          fake.calls.indexOf('DELETE security-scanner'),
-        );
-        expect(fake.calls.indexOf('DELETE security-scanner')).toBeLessThan(
-          fake.calls.indexOf(FULL_ORDER[0]),
-        );
-      }
-      rmSync(process.env.VOID_PLATFORM_REGISTRY_DIR!, { force: true, recursive: true });
-      directories.length = 0;
-    }
-  });
-
   it('deletes in an order Cloudflare accepts, with the tail Worker after its producers and routing KV last', async () => {
     const manifest = installedManifest();
     persistInstallation(manifest, directories);

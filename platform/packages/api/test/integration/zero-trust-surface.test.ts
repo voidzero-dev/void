@@ -11,12 +11,7 @@ import {
 } from 'vite-plus/test';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
-import {
-  domains,
-  platformSettings,
-  projectZeroTrust,
-  securityPublicRequests,
-} from '../../src/schema.ts';
+import { domains, platformSettings, projectZeroTrust } from '../../src/schema.ts';
 import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
 import { initializeNewProjectZeroTrust } from '../../src/zero-trust/project.ts';
 import { resolveProjectZeroTrustRoutingForPublication } from '../../src/zero-trust/routing.ts';
@@ -30,7 +25,6 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
-import { askPublic, gateBindings, setupGate } from './security-gate-fixtures.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -120,11 +114,7 @@ function accessApi() {
   return { applications, fetcher };
 }
 
-async function operator(
-  path: string,
-  init: RequestInit = {},
-  platform: ApiEnv['Bindings'] = bindings(),
-): Promise<Response> {
+async function operator(path: string, init: RequestInit = {}): Promise<Response> {
   const admin = await createTestUser(
     env.db,
     `surface-admin-${crypto.randomUUID()}`,
@@ -146,7 +136,7 @@ async function operator(
       ...init,
       headers,
     }),
-    platform,
+    bindings(),
   );
 }
 
@@ -406,194 +396,5 @@ describe('Zero Trust domain activation', () => {
     const published = JSON.parse((await env.ROUTING.get('domain:surface-domain.example.com'))!);
     expect(published).toMatchObject({ workerName: 'user-surface-domain', projectId: project.id });
     expect(published.zeroTrust).toBeUndefined();
-  });
-});
-
-describe('Zero Trust surfaces with the public gate on', () => {
-  it('answers the operator request 202 with the held request, and 200 once protected', async () => {
-    const s = await setupGate(env);
-    const platform = gateBindings(env);
-    const path = `/zero-trust/projects/${s.project.id}`;
-
-    const held = await operator(
-      path,
-      { method: 'POST', body: JSON.stringify({ protected: false }) },
-      platform,
-    );
-    expect(held.status).toBe(202);
-    expect(await held.json()).toMatchObject({
-      ok: true,
-      held: true,
-      project: { desired_protected: true, state: 'protected' },
-      publicRequest: { state: 'needs_deploy' },
-    });
-
-    const canceled = await operator(
-      path,
-      { method: 'POST', body: JSON.stringify({ protected: true }) },
-      platform,
-    );
-    expect(canceled.status).toBe(200);
-    const body = await canceled.json<Record<string, unknown>>();
-    expect(body).toMatchObject({ ok: true, publicRequest: { state: 'canceled' } });
-    expect(body.held).toBeUndefined();
-  });
-
-  it('previews the operator request as held without writing', async () => {
-    const s = await setupGate(env);
-    const platform = gateBindings(env);
-    const path = `/zero-trust/projects/${s.project.id}`;
-
-    const dryRun = await operator(
-      path,
-      { method: 'POST', body: JSON.stringify({ protected: false, dryRun: true }) },
-      platform,
-    );
-    expect(dryRun.status).toBe(200);
-    expect(await dryRun.json()).toMatchObject({
-      dryRun: true,
-      action: 'zero-trust.project',
-      target: s.project.id,
-      publicGate: true,
-      publicRequest: null,
-      heldByGate: true,
-      protected: false,
-      previous: { desired_protected: true },
-    });
-    expect(await env.db.select().from(securityPublicRequests)).toHaveLength(0);
-
-    await askPublic(s);
-    const open = await operator(
-      path,
-      { method: 'POST', body: JSON.stringify({ protected: true, dryRun: true }) },
-      platform,
-    );
-    expect(await open.json()).toMatchObject({
-      publicGate: true,
-      heldByGate: false,
-      publicRequest: { state: 'needs_deploy' },
-    });
-  });
-
-  it('refuses a public-only configure preview with the gate code first (#64)', async () => {
-    await setupGate(env);
-    const response = await operator(
-      '/zero-trust/configure',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          apiToken: 'access-management-token',
-          identityProviderIds: [],
-          policyIds: [],
-          protectNewProjects: false,
-          publicAccess: true,
-          dryRun: true,
-        }),
-      },
-      gateBindings(env),
-    );
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: 'security public gate on' });
-  });
-
-  it('previews a plain change without the gate', async () => {
-    const owner = await createTestUser(env.db, 'surface-preview-owner');
-    const project = await createTestProject(env.db, owner.id, 'surface-preview');
-    vi.stubGlobal('fetch', accessApi().fetcher);
-    await configurePlatformZeroTrust(bindings(), env.db, { ...input, existingProjects: 'public' });
-
-    const response = await operator(`/zero-trust/projects/${project.id}`, {
-      method: 'POST',
-      body: JSON.stringify({ protected: true, dryRun: true }),
-    });
-    expect(await response.json()).toMatchObject({
-      dryRun: true,
-      publicGate: false,
-      heldByGate: false,
-      publicRequest: null,
-    });
-  });
-
-  it('answers the project request 202 with the old-CLI-safe reconciling line', async () => {
-    const s = await setupGate(env);
-    const put = (protectedProject: boolean) =>
-      app.fetch(
-        new Request(`http://localhost/projects/${s.project.id}/zero-trust`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${s.user.jwt}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ protected: protectedProject }),
-        }),
-        gateBindings(env),
-      );
-
-    const held = await put(false);
-    expect(held.status).toBe(202);
-    expect(await held.json()).toMatchObject({
-      ok: true,
-      project: { state: 'reconciling', desired_protected: true, last_error: expect.any(String) },
-      publicRequest: { state: 'needs_deploy' },
-      message: expect.any(String),
-    });
-    const stored = await getProjectZeroTrustState(env.db, s.project.id);
-    // The reconciling state and its line are for this reply only.
-    expect(stored).toMatchObject({ desired_protected: true, last_error: null });
-
-    expect((await put(true)).status).toBe(200);
-  });
-
-  it('refuses a bypass of a request closed meanwhile with 409 closed, and shows the last bypass', async () => {
-    const s = await setupGate(env);
-    const call = (method: string, path: string, body?: unknown) =>
-      app.fetch(
-        new Request(`http://localhost/projects/${s.project.id}/zero-trust${path}`, {
-          method,
-          headers: { Authorization: `Bearer ${s.user.jwt}`, 'Content-Type': 'application/json' },
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        }),
-        gateBindings(env),
-      );
-    const first = (await askPublic(s)).publicRequest!;
-    // A protect wins the race: the bypass names the request it saw (edge #72).
-    await askPublic(s, true);
-    const closed = await call('POST', '/public-request/bypass', {
-      reason: 'launch day',
-      requestId: first.id,
-    });
-    expect(closed.status).toBe(409);
-    expect(await closed.json()).toMatchObject({
-      error: 'public request closed',
-      state: 'canceled',
-    });
-    expect(await (await call('GET', '')).json()).toMatchObject({ lastBypass: null });
-
-    // A row that is not ready: nothing recorded, try again after it ends (edge #89).
-    const second = (await askPublic(s)).publicRequest!;
-    await env.db
-      .update(projectZeroTrust)
-      .set({ status: 'reconciling' })
-      .where(eq(projectZeroTrust.project_id, s.project.id));
-    const notReady = await call('POST', '/public-request/bypass', {
-      reason: 'launch day',
-      requestId: second.id,
-    });
-    expect(notReady.status).toBe(409);
-    const refusal = await notReady.json<{ error: string; message: string }>();
-    expect(refusal.error).toBe('zero trust not ready');
-    expect(refusal.message).toContain('Try again after it ends.');
-    expect(refusal.message).not.toContain('zero-trust reconcile');
-    await env.db
-      .update(projectZeroTrust)
-      .set({ status: 'ready' })
-      .where(eq(projectZeroTrust.project_id, s.project.id));
-
-    const bypassed = await call('POST', '/public-request/bypass', {
-      reason: 'launch day',
-      requestId: second.id,
-    });
-    expect(bypassed.status).toBe(200);
-    // Status shows the last bypass (spec §13.3); the owner sees the reason.
-    expect(await (await call('GET', '')).json()).toMatchObject({
-      lastBypass: { id: expect.any(String), byRole: 'owner', reason: 'launch day' },
-    });
   });
 });

@@ -120,8 +120,7 @@ export async function storedLiveProject(
   return made;
 }
 
-export const PROJECT_ROLES = ['owner', 'admin', 'collaborator', 'reader'] as const;
-export type ProjectRole = (typeof PROJECT_ROLES)[number];
+type ProjectRole = 'owner' | 'admin' | 'collaborator' | 'reader';
 
 /** A project with one member per role, and an outsider. */
 export async function projectWithRoles(env: Db, slug = 'acme-web') {
@@ -250,15 +249,6 @@ export async function insertSecurityFinding(
   return row.id;
 }
 
-/** Several finding rows in one insert. */
-export async function insertSecurityFindings(
-  env: Db,
-  projectId: string,
-  rows: ReadonlyArray<FindingRow>,
-): Promise<void> {
-  await env.db.insert(securityFindings).values(rows.map((row) => findingRow(projectId, row)));
-}
-
 /** A finding record as the runner writes it: a confirmed SQL injection in /users. */
 export function findingRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -288,13 +278,12 @@ export function scanResult(
   scanId: string,
   records: Array<Record<string, unknown>>,
   status: Record<string, unknown> = {},
-  attempt = 1,
 ) {
   return {
     status: {
       schema_version: 1,
       scan_id: scanId,
-      attempt,
+      attempt: 1,
       engine: 'void_loop',
       engine_version: 'runner/1 void-loop/1',
       model: '@cf/zai-org/glm-5.3',
@@ -314,10 +303,7 @@ export function scanResult(
 }
 
 /** Installation Zero Trust on (not public-only), as the installer stores it. */
-export async function seedZeroTrustConfiguration(
-  env: TestEnv,
-  options: { protectNewProjects?: boolean } = {},
-): Promise<void> {
+async function seedZeroTrustConfiguration(env: TestEnv): Promise<void> {
   await env.db
     .insert(platformSettings)
     .values({
@@ -326,7 +312,7 @@ export async function seedZeroTrustConfiguration(
         version: 1,
         revision: 1,
         enabled: true,
-        protectNewProjects: options.protectNewProjects ?? true,
+        protectNewProjects: true,
         accountId: env.CF_ACCOUNT_ID,
         teamDomain: 'https://company.cloudflareaccess.com',
         identityProviderIds: ['idp-1'],
@@ -348,16 +334,12 @@ export async function seedZeroTrustConfiguration(
 }
 
 /** Installation Zero Trust on, and the project settled protected. */
-export async function seedProtectedProject(
-  env: TestEnv,
-  projectId: string,
-  status: 'ready' | 'reconciling' = 'ready',
-): Promise<void> {
+export async function seedProtectedProject(env: TestEnv, projectId: string): Promise<void> {
   await seedZeroTrustConfiguration(env);
   await env.db.insert(projectZeroTrust).values({
     project_id: projectId,
     desired_protected: true,
     effective_protected: true,
-    status,
+    status: 'ready',
   });
 }

@@ -15,10 +15,7 @@ export function confirmed(overrides: Record<string, unknown> = {}): Record<strin
     line_start: 10,
     line_end: 12,
     sink_path: 'src/db.ts',
-    trace: [
-      { file: 'src/users.ts', line: 10, note: 'orderBy from the query string' },
-      { file: 'src/db.ts', line: 4, note: 'string concatenated into SQL' },
-    ],
+    trace: [{ file: 'src/users.ts', line: 10, note: 'orderBy concatenated into SQL' }],
     evidence: 'db.prepare(`SELECT * FROM users ORDER BY ${orderBy}`)',
     fix: 'Allow-list the column names.',
     ...overrides,
@@ -51,8 +48,8 @@ export function rejected(overrides: Record<string, unknown> = {}): Record<string
   };
 }
 
-export function report(findings: Array<unknown>, extra: Record<string, unknown> = {}) {
-  return { run_status: 'complete', findings, ...extra };
+export function report(findings: Array<unknown>) {
+  return { run_status: 'complete', findings };
 }
 
 /** The validated form of a raw record. */

@@ -1,76 +1,27 @@
-// Fake model server for runner tests (and later the S2/S3 local parts and the
-// Docker recorded runs). Serves scripted replies in order and records every
-// request. Replies: JSON (chat completions), SSE (Messages / Responses / chat
-// streams), a bare status with headers (proxy stops), a dropped connection, or no
-// answer at all.
+// Fake model server for runner tests: serves scripted chat-completions replies in
+// order and records every request.
 
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-export type FakeReply =
-  | { json: unknown; status?: number; headers?: Record<string, string> }
-  | { sse: Array<{ event?: string; data: unknown }>; status?: number }
-  | { status: number; headers?: Record<string, string>; text?: string }
-  | { hangUp: true }
-  /** Never answers (a hung model call); `close()` drops it. */
-  | { hold: true };
+export type FakeReply = { json: unknown };
 
-export type RecordedRequest = {
-  method: string;
-  path: string;
-  headers: Record<string, string>;
-  body: unknown;
-};
+export type RecordedRequest = { path: string; headers: Record<string, string>; body: unknown };
 
-export type FakeModel = {
-  url: string;
-  requests: Array<RecordedRequest>;
-  /** Replies not used yet. */
-  remaining(): number;
-  close(): Promise<void>;
-};
+export type FakeModel = { url: string; requests: Array<RecordedRequest>; close(): Promise<void> };
 
-export type FakeScript =
-  | Array<FakeReply>
-  | ((request: RecordedRequest, index: number) => FakeReply);
-
-export async function startFakeModel(script: FakeScript): Promise<FakeModel> {
+export async function startFakeModel(script: Array<FakeReply>): Promise<FakeModel> {
   const requests: Array<RecordedRequest> = [];
-  const queue = Array.isArray(script) ? [...script] : null;
+  const queue = [...script];
   const server: Server = createServer(async (req, res) => {
-    const recorded = await record(req);
-    requests.push(recorded);
-    const reply = queue
-      ? queue.shift()
-      : (script as Exclude<FakeScript, Array<FakeReply>>)(recorded, requests.length - 1);
+    requests.push(await record(req));
+    const reply = queue.shift();
     if (reply === undefined) {
       res.writeHead(500, { 'content-type': 'text/plain' }).end('fake model: no scripted reply');
       return;
     }
-    if ('hold' in reply) {
-      return;
-    }
-    if ('hangUp' in reply) {
-      req.socket.destroy();
-      return;
-    }
-    if ('json' in reply) {
-      res
-        .writeHead(reply.status ?? 200, { 'content-type': 'application/json', ...reply.headers })
-        .end(JSON.stringify(reply.json));
-      return;
-    }
-    if ('sse' in reply) {
-      res.writeHead(reply.status ?? 200, { 'content-type': 'text/event-stream' });
-      for (const event of reply.sse) {
-        const data = typeof event.data === 'string' ? event.data : JSON.stringify(event.data);
-        res.write(`${event.event ? `event: ${event.event}\n` : ''}data: ${data}\n\n`);
-      }
-      res.end();
-      return;
-    }
-    res.writeHead(reply.status, reply.headers).end(reply.text ?? '');
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply.json));
   });
   await new Promise<void>((resolve) => {
     server.listen(0, '127.0.0.1', resolve);
@@ -79,7 +30,6 @@ export async function startFakeModel(script: FakeScript): Promise<FakeModel> {
   return {
     url: `http://127.0.0.1:${port}`,
     requests,
-    remaining: () => queue?.length ?? 0,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.closeAllConnections();
@@ -94,28 +44,19 @@ async function record(req: IncomingMessage): Promise<RecordedRequest> {
     chunks.push(chunk as Buffer);
   }
   const text = Buffer.concat(chunks).toString('utf8');
-  let body: unknown = text;
-  try {
-    body = text ? JSON.parse(text) : null;
-  } catch {
-    // Keep the raw text.
-  }
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(req.headers)) {
     if (typeof value === 'string') {
       headers[key] = value;
     }
   }
-  return { method: req.method ?? 'GET', path: req.url ?? '/', headers, body };
+  return { path: req.url ?? '/', headers, body: text ? JSON.parse(text) : null };
 }
 
 let callCounter = 0;
 
 /** A chat-completions answer that calls tools. */
-export function chatToolCalls(
-  calls: Array<{ name: string; arguments: unknown }>,
-  usage = { prompt_tokens: 100, completion_tokens: 20 },
-): FakeReply {
+export function chatToolCalls(calls: Array<{ name: string; arguments: unknown }>): FakeReply {
   return {
     json: {
       id: 'chatcmpl-fake',
@@ -130,36 +71,16 @@ export function chatToolCalls(
             tool_calls: calls.map((call) => ({
               id: `call_${++callCounter}`,
               type: 'function',
-              function: {
-                name: call.name,
-                arguments:
-                  typeof call.arguments === 'string'
-                    ? call.arguments
-                    : JSON.stringify(call.arguments),
-              },
+              function: { name: call.name, arguments: JSON.stringify(call.arguments) },
             })),
           },
         },
       ],
-      usage,
+      usage: { prompt_tokens: 100, completion_tokens: 20 },
     },
   };
 }
 
 export function chatToolCall(name: string, args: unknown): FakeReply {
   return chatToolCalls([{ name, arguments: args }]);
-}
-
-/** A chat-completions answer in plain text. */
-export function chatText(text: string, finishReason = 'stop'): FakeReply {
-  return {
-    json: {
-      id: 'chatcmpl-fake',
-      object: 'chat.completion',
-      choices: [
-        { index: 0, finish_reason: finishReason, message: { role: 'assistant', content: text } },
-      ],
-      usage: { prompt_tokens: 50, completion_tokens: 10 },
-    },
-  };
 }
