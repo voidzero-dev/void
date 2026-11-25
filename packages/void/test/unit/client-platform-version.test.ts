@@ -104,7 +104,7 @@ describe('minimum platform version', () => {
     );
   });
 
-  it.each(['1.11.0', '1.11.1', '1.12.0', '2.0.0', 'hosted'])(
+  it.each(['1.12.0', '1.12.1', '1.13.0', '2.0.0', 'hosted'])(
     'accepts a platform reporting %s',
     async (version) => {
       serve(version);
@@ -114,7 +114,7 @@ describe('minimum platform version', () => {
   );
 
   it('sends discovery without the account token', async () => {
-    serve('1.11.0');
+    serve('1.12.0');
     await client().listProjectChoices();
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(init.headers).not.toHaveProperty('Authorization');
@@ -151,16 +151,20 @@ describe('minimum platform version', () => {
     '1.10.1',
     '1.10.99',
     '1.11.0-1',
+    '1.11.0',
+    '1.11.1',
+    '1.11.99',
+    '1.12.0-1',
   ])('refuses a platform reporting %s', async (version) => {
     serve(version);
     await expect(client().listProjectChoices()).rejects.toThrow(
-      `The Void platform at ${origin} runs version ${version}, but this CLI requires 1.11.0 or later. Ask its administrator to upgrade the platform runtime with \`void platform upgrade\`.`,
+      `The Void platform at ${origin} runs version ${version}, but this CLI requires 1.12.0 or later. Ask its administrator to upgrade the platform runtime with \`void platform upgrade\`.`,
     );
     expect(requestedPaths()).toEqual(['/.well-known/void-platform']);
   });
 
   it('checks once per process and base URL, sharing a concurrent first check', async () => {
-    serve('1.11.0');
+    serve('1.12.0');
     await Promise.all([client().listProjectChoices(), client().listProjects()]);
     await client().listProjectChoices();
     expect(requestedPaths().filter((path) => path === '/.well-known/void-platform')).toHaveLength(
@@ -191,7 +195,7 @@ describe('minimum platform version', () => {
     ['a JSON 404', () => Response.json({ error: 'not found' }, { status: 404 })],
   ])('refuses a platform that answers discovery with %s', async (_label, answer) => {
     serve(answer);
-    const message = `The Void platform at ${origin} does not report its version, but this CLI requires 1.11.0 or later. Ask its administrator to upgrade the platform runtime with \`void platform upgrade\`.`;
+    const message = `The Void platform at ${origin} does not report its version, but this CLI requires 1.12.0 or later. Ask its administrator to upgrade the platform runtime with \`void platform upgrade\`.`;
     await expect(client().listProjectChoices()).rejects.toThrow(message);
     await expect(client().listProjects()).rejects.toThrow(message);
     expect(requestedPaths()).toEqual(['/.well-known/void-platform']);
