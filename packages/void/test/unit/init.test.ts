@@ -20,7 +20,6 @@ import {
   detectProjectState,
   ensureVoidWorkerCompatibilityDate,
   ensureVoidPlatformConnection,
-  extractPnpmWorkspacePackages,
   generateStarterMigration,
   getWorkflowYaml,
   isScaffoldableEmptyProject,
@@ -31,6 +30,7 @@ import {
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { readDeploymentPlatform } from '../../src/cli/project.ts';
 import { SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES } from '../../src/cli/template.ts';
+import { extractPnpmWorkspacePackages } from '../../src/cli/workspace.ts';
 import { LATEST_KNOWN_COMPAT_DATE } from '../../src/cli/wrangler.ts';
 import { buildDrizzleKitSpawnEnv } from '../../src/cli/yarn-pnp.ts';
 import { readConfig } from '../../src/config.ts';

@@ -396,6 +396,106 @@ describe('project Vite commands', () => {
     );
   });
 
+  it.each(['pnpm', 'npm'])('detects Vite+ in a %s workspace root', (manager) => {
+    const workspaces = ['apps/*', '!apps/excluded'];
+    const workspace = setupProject({
+      pkg: {
+        devDependencies: { 'vite-plus': '^1.0.0' },
+        ...(manager === 'npm' ? { workspaces } : {}),
+      },
+      files: {
+        ...(manager === 'pnpm'
+          ? { 'pnpm-workspace.yaml': 'packages: ' + JSON.stringify(workspaces) + '\n' }
+          : {}),
+        'apps/site/package.json': '{}',
+        'apps/site/index.html': '<!doctype html>',
+        'apps/plain-vite/package.json': '{"devDependencies":{"vite":"^8.0.0"}}',
+        'apps/excluded/package.json': '{}',
+        'tools/standalone/package.json': '{}',
+        'node_modules/.bin/vp': '',
+      },
+    });
+    const app = join(workspace, 'apps/site');
+    const buildCommand = toSlash(join(workspace, 'node_modules/.bin/vp')) + ' build';
+
+    expect(formatProjectCommand(app, 'vite dev')).toBe('vp dev');
+    expect(resolveProjectCommand(app, 'vite build')).toBe(buildCommand);
+    expect(detectPreset(app)).toEqual({
+      appType: 'spa',
+      buildCommand,
+      outputDir: toSlash(join(app, 'dist')),
+    });
+    for (const appPath of ['apps/plain-vite', 'apps/excluded', 'tools/standalone']) {
+      expect(formatProjectCommand(join(workspace, appPath), 'vite dev')).toBe('vite dev');
+    }
+  });
+
+  it('uses only browser output for workspace apps configured with the Void plugin', () => {
+    const workspace = setupProject({
+      pkg: { workspaces: ['apps/*'], devDependencies: { 'vite-plus': '^1.0.0', void: '^1.0.0' } },
+      files: {
+        'apps/site/package.json': '{}',
+        'apps/site/index.html': '<!doctype html>',
+        'apps/site/vite.config.ts':
+          "import { voidPlugin } from 'void'; export default { plugins: [voidPlugin()] };",
+      },
+    });
+    const app = join(workspace, 'apps/site');
+
+    expect(detectPreset(app)).toEqual({
+      appType: 'spa',
+      buildCommand: 'vp build',
+      outputDir: toSlash(join(app, 'dist/client')),
+    });
+  });
+
+  it('preserves prebuilt static output for workspace apps with no build inputs', () => {
+    const workspace = setupProject({
+      pkg: { workspaces: ['apps/*'], devDependencies: { 'vite-plus': '^1.0.0' } },
+      files: {
+        'apps/site/package.json': '{}',
+        'apps/site/dist/index.html': '<!doctype html>',
+      },
+    });
+    const app = join(workspace, 'apps/site');
+
+    expect(detectPreset(app)).toEqual({
+      appType: 'static',
+      buildCommand: null,
+      outputDir: toSlash(join(app, 'dist')),
+    });
+  });
+
+  it('respects workspace glob exclusions and optional local Vite', () => {
+    const workspace = setupProject({
+      pkg: {
+        workspaces: ['apps/*', '!apps/legacy-[0-9]'],
+        devDependencies: { 'vite-plus': '^1.0.0' },
+      },
+      files: {
+        'apps/legacy-1/package.json': '{}',
+        'apps/optional-vite/package.json': '{"optionalDependencies":{"vite":"^8.0.0"}}',
+      },
+    });
+    for (const appPath of ['apps/legacy-1', 'apps/optional-vite']) {
+      expect(formatProjectCommand(join(workspace, appPath), 'vite dev')).toBe('vite dev');
+    }
+  });
+
+  it.each([
+    ['pnpm', 'pnpm-lock.yaml'],
+    ['yarn', 'yarn.lock'],
+  ])('runs an inherited Vite+ build script with the workspace’s %s', (manager, lockfile) => {
+    const workspace = setupProject({
+      pkg: { workspaces: ['apps/*'], devDependencies: { 'vite-plus': '^1.0.0' } },
+      files: {
+        [lockfile]: '',
+        'apps/site/package.json': '{"scripts":{"build":"vp build"}}',
+      },
+    });
+    expect(detectPreset(join(workspace, 'apps/site'))?.buildCommand).toBe(manager + ' build');
+  });
+
   it('keeps plain Vite commands unchanged', () => {
     const root = setupProject({
       pkg: { devDependencies: { vite: '^6.0.0' } },
