@@ -443,8 +443,9 @@ const config = defineConfig({
       },
       {
         files: [
-          'packages/{create-void,deploy-core,edge,isr}/src/**/*',
+          'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr}/src/**/*',
           'packages/platform/src/{email-protocol,plans}.ts',
+          'platform/packages/email-gateway/src/**/*',
         ],
         rules: { 'typescript/no-unsafe-type-assertion': 'error' },
       },

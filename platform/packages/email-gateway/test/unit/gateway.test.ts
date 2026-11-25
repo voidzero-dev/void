@@ -658,8 +658,10 @@ describe('dedicated email gateway', () => {
     ['mailbox', { name: 'alias' }],
     ['alias', 42],
     ['alias', null],
+    ['limits', []],
+    ['limits', { cpuMs: '100' }],
   ])(
-    'treats a route with a non-string %s (%j) as a malformed authority response',
+    'treats a route with an invalid %s (%j) as a malformed authority response',
     async (field, value) => {
       const environment = env(async () =>
         Response.json({ ...route, addressing: 'shared', [field]: value }),

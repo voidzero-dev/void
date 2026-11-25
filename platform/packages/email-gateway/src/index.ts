@@ -1,7 +1,8 @@
+import { asRecord } from '../../proxy/src/body.ts';
 import { claimRelayedReceipt, completeRelayedReceipt } from '../../proxy/src/email-admission.ts';
 import type { Env as ProxyEnv } from '../../proxy/src/types.ts';
 import { routeInbound, routeRelayed, MAX_INBOUND_BYTES, MAX_INBOUND_HEADERS } from './router.ts';
-import type { EmailEnvelope } from './router.ts';
+import type { AuthoritativeEmailRoute, EmailEnvelope } from './router.ts';
 
 type Env = Omit<ProxyEnv, 'JWT_SECRET'> & {
   PLATFORM_INSTALLATION_ID?: string;
@@ -68,20 +69,29 @@ async function sign(value: string, secret: string): Promise<string> {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
-type Route = {
-  routeId: string;
-  routeGeneration: number;
-  connectionId: string;
-  projectId: string;
-  workerName: string;
-  deploymentId: string;
-  slug: string;
-  mailbox?: string;
-  alias?: string;
-  domain: string;
-  addressing: 'shared' | 'custom';
-  limits?: Record<string, number>;
-};
+function isAuthoritativeRoute(route: unknown): route is AuthoritativeEmailRoute {
+  const value = asRecord(route);
+  return (
+    typeof value.routeId === 'string' &&
+    typeof value.routeGeneration === 'number' &&
+    Number.isSafeInteger(value.routeGeneration) &&
+    value.routeGeneration >= 1 &&
+    typeof value.projectId === 'string' &&
+    typeof value.connectionId === 'string' &&
+    typeof value.workerName === 'string' &&
+    typeof value.deploymentId === 'string' &&
+    typeof value.slug === 'string' &&
+    (value.mailbox === undefined || typeof value.mailbox === 'string') &&
+    (value.alias === undefined || typeof value.alias === 'string') &&
+    typeof value.domain === 'string' &&
+    (value.addressing === 'shared' || value.addressing === 'custom') &&
+    (value.limits === undefined ||
+      (typeof value.limits === 'object' &&
+        value.limits !== null &&
+        !Array.isArray(value.limits) &&
+        Object.values(value.limits).every((limit) => typeof limit === 'number')))
+  );
+}
 
 async function resolveIngress(
   env: Env,
@@ -94,7 +104,7 @@ async function resolveIngress(
     secret?: string;
     native?: true;
   },
-): Promise<Route | null> {
+): Promise<AuthoritativeEmailRoute | null> {
   const deadline = Date.now() + 5000;
   const controller = new AbortController();
   const beforeDeadline = async <T>(run: () => Promise<T>): Promise<T> => {
@@ -183,28 +193,10 @@ async function resolveIngress(
   } catch {
     throw new Error('invalid email routing response');
   }
-  if (!route || typeof route !== 'object') {
+  if (!isAuthoritativeRoute(route)) {
     throw new Error('invalid email routing response');
   }
-  const value = route as Partial<Route>;
-  if (
-    typeof value.routeId !== 'string' ||
-    typeof value.routeGeneration !== 'number' ||
-    !Number.isSafeInteger(value.routeGeneration) ||
-    value.routeGeneration < 1 ||
-    typeof value.projectId !== 'string' ||
-    typeof value.connectionId !== 'string' ||
-    typeof value.workerName !== 'string' ||
-    typeof value.deploymentId !== 'string' ||
-    typeof value.slug !== 'string' ||
-    (value.mailbox !== undefined && typeof value.mailbox !== 'string') ||
-    (value.alias !== undefined && typeof value.alias !== 'string') ||
-    typeof value.domain !== 'string' ||
-    (value.addressing !== 'shared' && value.addressing !== 'custom')
-  ) {
-    throw new Error('invalid email routing response');
-  }
-  return value as Route;
+  return route;
 }
 
 async function readMime(
@@ -278,6 +270,7 @@ function parseHeaders(raw: Uint8Array): Record<string, string> {
     throw new MimeHeaderError('MIME headers too large', 413);
   }
   const lines = decoder.decode(raw.subarray(0, end)).split('\r\n');
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Start with an empty dictionary without inherited MIME header names.
   const headers = Object.create(null) as Record<string, string>;
   let current = '';
   let physicalLines = 0;
@@ -342,7 +335,7 @@ async function ingress(request: Request, env: Env, ctx: ExecutionContext): Promi
   if (declared > MAX_INBOUND_BYTES) {
     return new Response(null, { status: 413 });
   }
-  let route: Route | null;
+  let route: AuthoritativeEmailRoute | null;
   try {
     route = await resolveIngress(env, {
       accountId,
@@ -540,7 +533,7 @@ async function probe(request: Request, env: Env): Promise<Response> {
   if (!input || typeof input !== 'object') {
     return new Response(null, { status: 400 });
   }
-  const { accountId, zoneId, ingressName } = input as Record<string, unknown>;
+  const { accountId, zoneId, ingressName } = asRecord(input);
   if (
     [accountId, zoneId, ingressName].some(
       (value) => typeof value !== 'string' || !value || value.length > MAX_ENVELOPE_HEADER,
@@ -765,7 +758,7 @@ export default {
       message.setReject('Email routing is not configured');
       return;
     }
-    let route: Route | null;
+    let route: AuthoritativeEmailRoute | null;
     try {
       route = await resolveIngress(env, {
         accountId,

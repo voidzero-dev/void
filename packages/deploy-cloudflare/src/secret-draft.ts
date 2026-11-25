@@ -94,7 +94,9 @@ export function isVoidSecretDraftHeader(entry: Record<string, unknown>): boolean
 }
 
 /** Prove a Void secret placeholder from the exact immutable version's source. */
-export function isVoidSecretOnlyDraft(entry: Record<string, unknown>): boolean {
+export function isVoidSecretOnlyDraft(
+  entry: Record<string, unknown>,
+): entry is Record<string, unknown> & { bindings: Array<{ name: string; type: 'secret_text' }> } {
   const metadataFields = new Set([
     'id',
     'number',
@@ -133,8 +135,7 @@ export function isVoidSecretOnlyDraft(entry: Record<string, unknown>): boolean {
     Object.keys(module).length !== 3 ||
     module.name !== 'index.js' ||
     module.content_type !== 'application/javascript+module' ||
-    module.content_base64 !==
-      (Buffer as BufferConstructor).from(VOID_SECRET_DRAFT_SOURCE).toString('base64')
+    module.content_base64 !== btoa(VOID_SECRET_DRAFT_SOURCE)
   ) {
     return false;
   }

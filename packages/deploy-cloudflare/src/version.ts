@@ -155,10 +155,6 @@ export type CloudflareVersionActivation =
       workersDev?: boolean;
     };
 
-type ProductionDeployment = Readonly<{
-  versions?: ReadonlyArray<Readonly<{ version_id?: unknown; percentage?: unknown }>>;
-}>;
-
 type ProductionVersionPercentage = Readonly<{ versionId: string; percentage: number }>;
 
 type CurrentProductionVersion =
@@ -196,13 +192,9 @@ export function parseCloudflareVersionMessage(
     return null;
   }
   try {
-    const value = JSON.parse(message.slice(5)) as {
-      schema?: unknown;
-      migrations?: unknown;
-      triggerConfig?: unknown;
-      contentHash?: unknown;
-    };
+    const value: unknown = JSON.parse(message.slice(5));
     if (
+      !isRecord(value) ||
       (value.schema !== 1 && value.schema !== 2) ||
       (value.migrations !== null &&
         (!Array.isArray(value.migrations) ||
@@ -693,6 +685,7 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
   if (!isRecord(value)) {
     return null;
   }
+  const addresses = readEmailAddresses(value.addresses);
   if (
     ['preserve', 'preserveRoutes', 'preserveWorkersDev', 'preservePreviewUrls', 'logpush'].some(
       (key) => value[key] !== undefined && typeof value[key] !== 'boolean',
@@ -705,7 +698,7 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
     !Array.isArray(value.crons) ||
     !Array.isArray(value.queueConsumers) ||
     !Array.isArray(value.workflows) ||
-    (value.addresses !== undefined && readEmailAddresses(value.addresses) === undefined)
+    (value.addresses !== undefined && addresses === undefined)
   ) {
     return null;
   }
@@ -723,7 +716,7 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
     crons: value.crons,
     queueConsumers: value.queueConsumers,
     workflows: value.workflows,
-    ...(value.addresses === undefined ? {} : { addresses: value.addresses as Array<string> }),
+    ...(addresses === undefined ? {} : { addresses }),
   };
 }
 
@@ -1913,7 +1906,7 @@ async function readCloudflareVersionInspection(
   try {
     // Version metadata is immutable. Reuse the pre-upload inheritance snapshot,
     // but keep ownership and the post-upload inheritance checks as fresh reads.
-    let versions = knownVersions;
+    let versions: unknown = knownVersions;
     if (versions === undefined) {
       const result = await options.runWrangler(
         { type: 'versions.list', configPath: options.configPath, workerName: options.workerName },
@@ -1922,7 +1915,7 @@ async function readCloudflareVersionInspection(
       if (!isCleanCommandExit(result)) {
         return null;
       }
-      versions = result.data as Array<unknown>;
+      versions = result.data;
     }
     if (!Array.isArray(versions)) {
       return null;
@@ -1962,14 +1955,15 @@ async function readCloudflareVersionInspection(
           }
         }
       }
-      const isVoidDraft = isVoidSecretOnlyDraft(draft);
+      const inspectedDraft = draft;
+      const isVoidDraft = isVoidSecretOnlyDraft(inspectedDraft);
       return {
         metadata: typeof message === 'string' ? parseCloudflareVersionMessage(message) : null,
         message: typeof message === 'string' ? message : null,
         isSecretOnlyDraft: isWranglerSecretOnlyDraft(draft) || isVoidDraft,
         isVoidSecretOnlyDraft: isVoidDraft,
         voidDraftSecretNames: isVoidDraft
-          ? (draft.bindings as Array<{ name: string }>).map((binding) => binding.name)
+          ? inspectedDraft.bindings.map((binding) => binding.name)
           : null,
         draftUnknown,
       };
@@ -2024,8 +2018,7 @@ async function isVoidSecretDraftPlaceholderVersion(
     return (
       isRecord(module) &&
       module.name === entry.main_module &&
-      module.content_base64 ===
-        (Buffer as BufferConstructor).from(VOID_SECRET_DRAFT_SOURCE).toString('base64') &&
+      module.content_base64 === btoa(VOID_SECRET_DRAFT_SOURCE) &&
       entry.bindings.every((binding) => isRecord(binding) && binding.type === 'secret_text')
     );
   } catch {
@@ -2084,9 +2077,9 @@ async function candidateReplacesAllRemoteSecrets(
   activeVersionId: string | null,
   latestVersionId: string | null,
 ): Promise<boolean | null> {
-  const versionIds = [
-    ...new Set([activeVersionId, latestVersionId].filter(Boolean)),
-  ] as Array<string>;
+  const versionIds = new Set(
+    [activeVersionId, latestVersionId].filter((id): id is string => Boolean(id)),
+  );
   const secretBindings: Array<Array<{ name: string; type: 'secret_key' | 'secret_text' }>> = [];
   for (const versionId of versionIds) {
     const bindings = await readCloudflareVersionSecretBindings(options, versionId);
@@ -2556,7 +2549,11 @@ function readUploadResult(result: CloudflareCommandResult): CloudflareUploadResu
   ) {
     return null;
   }
-  return data as CloudflareUploadResult;
+  return {
+    versionId: data.versionId,
+    previewUrl: data.previewUrl,
+    workersDevUrl: data.workersDevUrl,
+  };
 }
 
 function versionPercentages(
@@ -2604,11 +2601,21 @@ async function readCurrentProductionVersion(
     return { kind: 'failed', status: result.status };
   }
   try {
-    const deployment = result.data as ProductionDeployment;
-    const versions = (deployment.versions ?? []).map((version) => ({
-      versionId: typeof version.version_id === 'string' ? version.version_id : '',
-      percentage: Number(version.percentage),
-    }));
+    const deployment = result.data;
+    if (!isRecord(deployment)) {
+      return { kind: 'failed', status: result.status };
+    }
+    const entries = deployment.versions ?? [];
+    if (!Array.isArray(entries)) {
+      return { kind: 'failed', status: result.status };
+    }
+    const versions: Array<ProductionVersionPercentage> = [];
+    for (const entry of entries) {
+      if (!isRecord(entry) || typeof entry.version_id !== 'string') {
+        return { kind: 'failed', status: result.status };
+      }
+      versions.push({ versionId: entry.version_id, percentage: Number(entry.percentage) });
+    }
     if (
       versions.some(
         (version) =>

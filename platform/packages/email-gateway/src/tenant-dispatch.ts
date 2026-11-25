@@ -92,6 +92,7 @@ export async function dispatchBoundedEmailToTenant(
       throw new Error('email tenant request timeout');
     }
     const actions = await readEmailActions(
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Fetch response bodies deliver byte streams.
       response.body as ReadableStream<Uint8Array>,
       responseDeadline,
     );
