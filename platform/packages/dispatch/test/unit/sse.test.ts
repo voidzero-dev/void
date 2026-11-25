@@ -2,6 +2,7 @@ import { isEventStreamResponse } from '@void/isr/runtime';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { Env } from '../../src/env.ts';
 import app from '../../src/index.ts';
+import { createMockExecutionContext as createCtx } from '../execution-context.ts';
 
 const edgeCacheStore = new Map<string, Response>();
 
@@ -21,10 +22,6 @@ vi.stubGlobal('caches', {
 beforeEach(() => {
   edgeCacheStore.clear();
 });
-
-function createCtx(): ExecutionContext {
-  return { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
-}
 
 function createEnv(options: {
   routing: {

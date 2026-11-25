@@ -305,6 +305,13 @@ const config = defineConfig({
         rules: { 'typescript/no-unsafe-call': 'off' },
       },
       {
+        files: [
+          'platform/packages/dispatch/test/**/*',
+          'packages/void/test/unit/{db-migrate,login-command}.test.ts',
+        ],
+        rules: { 'typescript/no-unsafe-return': 'error' },
+      },
+      {
         // Guard explicit any in TypeScript tests as well as production.
         files: ['**/*.{ts,tsx,mts,cts}'],
         rules: { 'typescript/no-explicit-any': 'error' },
