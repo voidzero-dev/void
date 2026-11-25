@@ -5,6 +5,7 @@
   "exports": {
     "./tiers": "./src/tiers.ts",
     "./id": "./src/id.ts",
+    "./email-admission": "./src/email/admission.ts",
     "./api": "./src/api.ts",
     "./reserved-slugs": "./src/reserved-slugs.ts",
     "./routing": "./src/routing.ts",
