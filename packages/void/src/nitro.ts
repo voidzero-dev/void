@@ -24,7 +24,10 @@ type NitroInstance = {
     rollupConfig?: { plugins?: unknown };
     buildPlugins?: Array<unknown>;
     noExternals?: boolean | Array<string | RegExp>;
-    cloudflare?: { nodeCompat?: boolean };
+    cloudflare?: {
+      nodeCompat?: boolean;
+      wrangler?: { compatibility_flags?: Array<string> };
+    };
     devServer?: { runner?: string };
   };
 };
@@ -106,9 +109,9 @@ const voidNitroModule = {
     const config = readConfig(options.rootDir);
     const dialect = getDatabaseDialect(config);
     // Nitro 2 develops in Node; Nitro 3's Cloudflare dev runner uses workerd too.
+    const miniflareDev = options.dev && options.devServer?.runner === 'miniflare';
     const workerd =
-      options.devServer?.runner === 'miniflare' ||
-      (!options.dev && options.exportConditions?.includes('workerd') === true);
+      miniflareDev || (!options.dev && options.exportConditions?.includes('workerd') === true);
     const plugins: Array<Plugin> = [
       voidDbBundlerPlugin(options.rootDir, {
         config,
@@ -121,6 +124,21 @@ const voidNitroModule = {
       }),
     ];
     const cloudflareFlags = config.cloudflare?.compatibility_flags;
+    if (miniflareDev) {
+      // Nitro's dev runner selects the installed workerd's latest date. Its eval-based
+      // wrapper still needs the legacy registry: https://github.com/unjs/env-runner/pull/114.
+      // This inline overlay is merged with the app's Wrangler file by env-runner.
+      options.cloudflare ??= {};
+      const flags = options.cloudflare.wrangler?.compatibility_flags ?? [];
+      if (
+        !flags.some((flag) => flag === 'new_module_registry' || flag === 'legacy_module_registry')
+      ) {
+        options.cloudflare.wrangler = {
+          ...options.cloudflare.wrangler,
+          compatibility_flags: [...flags, 'legacy_module_registry'],
+        };
+      }
+    }
     if (
       workerd &&
       (dialect !== 'sqlite' ||
