@@ -95,7 +95,7 @@ export type ClientAssetOptions = {
     request: Request,
     env: RuntimeEnvironment,
     options: { kind: 'pages' | 'islands'; componentId: string; rootPhases: Array<Array<string>> },
-  ) => Promise<unknown>;
+  ) => Promise<Array<DevCssAsset>>;
 };
 const BINDING_HINT_SCRIPT = '<script type="module" src="/@id/virtual:void/binding-hint"></script>';
 const REACT_REFRESH_SCRIPT = `<script type="module">
@@ -181,12 +181,11 @@ export function createClientAssetTags(
       }
       const tags: ClientAssetTags = { css: '', preloads: preloads.join('\n'), body };
       if (options.devCss && options.kind !== 'ssr') {
-        const css = await options.devCss(request, env, {
+        tags.devCss = await options.devCss(request, env, {
           kind: options.kind,
           componentId,
           rootPhases: options.devRootPhases?.[componentId] || [[options.entryUrl]],
         });
-        tags.devCss = Array.isArray(css) ? (css as Array<DevCssAsset>) : [];
       }
       return tags;
     }

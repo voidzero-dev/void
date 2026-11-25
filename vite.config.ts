@@ -445,6 +445,13 @@ const config = defineConfig({
         rules: { 'quality/no-unknown-returns': 'error' },
       },
       {
+        files: [
+          'packages/void/src/pages/{dev-css-assets,scan}.ts',
+          'packages/void/src/runtime/routing/assets.ts',
+        ],
+        rules: { 'quality/no-unknown-returns': 'error' },
+      },
+      {
         files: ['packages/void/src/**/*', 'platform/packages/*/src/**/*'],
         rules: { 'quality/no-known-value-widening': 'error' },
       },

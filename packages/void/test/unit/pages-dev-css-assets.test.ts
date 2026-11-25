@@ -353,6 +353,28 @@ export default __vite__css;`;
     }
   });
 
+  it('falls back when the internal endpoint returns malformed CSS assets', async () => {
+    const mod = await importDevAssetModule(createConfiguredPlugin());
+    const assets = [{ url: '/src/page.css', css: '.page{}' }];
+    const fallbackFetch = vi.fn(async () => Response.json({ assets }));
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(Response.json({ assets: [{ url: '/src/page.css', css: null }] }));
+
+    try {
+      await expect(
+        mod.getVoidPagesDevCss(
+          new Request('https://app.local/dashboard'),
+          { ASSETS: { fetch: fallbackFetch } },
+          { kind: 'pages', componentId: '/dashboard', rootPhases: [['/src/page.ts']] },
+        ),
+      ).resolves.toEqual(assets);
+      expect(fallbackFetch).toHaveBeenCalledOnce();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
   it('uses a fresh abort signal for fallback attempts', async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
