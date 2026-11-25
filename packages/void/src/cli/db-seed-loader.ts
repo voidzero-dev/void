@@ -199,20 +199,22 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
     context: Parameters<ResolveHookSync>[1],
     nextResolve: Parameters<ResolveHookSync>[2],
   ): ReturnType<ResolveHookSync> => {
-    const absolute = isAbsolute(specifier);
+    const absoluteUrl = isAbsolute(specifier) ? pathToFileURL(specifier) : undefined;
     if (
-      absolute ||
+      absoluteUrl ||
       specifier.startsWith('./') ||
       specifier.startsWith('../') ||
       specifier.startsWith('file:')
     ) {
+      // ESM treats a Windows drive letter as a URL scheme. CommonJS resolves native paths.
+      const request =
+        absoluteUrl && !context.conditions.includes('require') ? absoluteUrl.href : specifier;
       try {
-        return nextResolve(specifier, context);
+        return nextResolve(request, context);
       } catch (error) {
         // Add the extension that jiti added for an extensionless path, such as `./users`.
-        // Node's ESM resolver also rejects a Windows drive path, which jiti accepted.
-        if (isMissingModule(error) || absolute) {
-          const target = absolute ? pathToFileURL(specifier) : new URL(specifier, parent);
+        if (isMissingModule(error)) {
+          const target = absoluteUrl ?? new URL(specifier, parent);
           const resolved = jiti.esmResolve(fileURLToPath(target), { try: true });
           if (resolved) {
             return { shortCircuit: true, url: resolved + target.search + target.hash };
