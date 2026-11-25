@@ -1,5 +1,6 @@
 import { planWebSocketMigrations } from '@void/deploy-core';
 import type { DeployManifest, LiveMigrationMeta, WebSocketMigrationMeta } from '../types.ts';
+import type { PreviousDeployManifest } from './persisted-manifest.ts';
 import { sortUnique } from './serving-assets.ts';
 
 export function buildDurableObjectUploadMigrations(
@@ -205,7 +206,7 @@ export function enrichWebSocketManifest(
 
 export function enrichLiveManifest(
   manifest: DeployManifest,
-  previousManifest: Pick<DeployManifest, 'live'> | null,
+  previousManifest: Pick<PreviousDeployManifest, 'live'> | null,
   currentVersion: number,
 ): EnrichedDurableManifest {
   if (!manifest.live) {

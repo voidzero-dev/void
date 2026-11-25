@@ -31,6 +31,7 @@ import type {
 } from '../types.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import { assertDeploymentCanProceed } from './guards.ts';
+import type { PreviousDeployManifest } from './persisted-manifest.ts';
 import { commitCutoverLive, cutoverIntentKey, cutoverReadyKey } from './recovery.ts';
 import type { CutoverMarker, requireActiveDeployAccess } from './recovery.ts';
 import { attachServingStoreMetadata } from './serving-assets.ts';
@@ -56,7 +57,7 @@ export async function publishStaticDeployment(input: {
       currentOwner: Awaited<ReturnType<typeof requireActiveDeployAccess>>['owner'],
     ) => Promise<T>,
   ) => Promise<T>;
-  readonly previousManifest: Pick<DeployManifest, 'queues'> | null;
+  readonly previousManifest: Pick<PreviousDeployManifest, 'queues'> | null;
   readonly snapshotTrackedQueueConsumer: (queueId: string, scriptName: string) => Promise<void>;
   readonly deleteTrackedRouting: (key: string) => Promise<void>;
   readonly snapshotCronState: () => Promise<void>;

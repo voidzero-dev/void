@@ -206,7 +206,11 @@ function sameStringSet(a: ReadonlyArray<string>, b: ReadonlyArray<string>): bool
 }
 
 export type WebSocketManifestMeta = {
-  routes: ReadonlyArray<WebSocketRouteMeta>;
+  // Hosted deployments only require binding metadata. Older manifests can omit the other fields.
+  routes: ReadonlyArray<
+    Pick<WebSocketRouteMeta, 'className' | 'bindingName'> &
+      Partial<Omit<WebSocketRouteMeta, 'className' | 'bindingName'>>
+  >;
   classes: ReadonlyArray<string>;
   migrations?: ReadonlyArray<WebSocketMigrationMeta>;
 };

@@ -2,38 +2,33 @@ import { isRecord } from '@void/deploy-core';
 import type {
   DeployManifest,
   LiveManifestMeta,
-  QueueMeta,
   WebSocketManifestMeta,
   WebSocketMigrationMeta,
-  WebSocketRouteMeta,
 } from '@void/deploy-core';
 
-export type PreviousDeployManifest = Pick<DeployManifest, 'queues' | 'websocket' | 'live'>;
+export type PreviousDeployManifest = {
+  queues?: Array<{ name: string }>;
+  websocket?: DeployManifest['websocket'];
+  live?: Pick<LiveManifestMeta, 'className' | 'classes' | 'migrations'>;
+};
 
 function isStringArray(value: unknown): value is Array<string> {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
-function isQueue(value: unknown): value is QueueMeta {
-  return (
-    isRecord(value) &&
-    typeof value.name === 'string' &&
-    typeof value.bindingName === 'string' &&
-    ['maxBatchSize', 'maxBatchTimeout', 'maxConcurrency', 'maxRetries', 'retryDelay'].every(
-      (key) => value[key] === undefined || typeof value[key] === 'number',
-    )
-  );
+function isQueue(value: unknown): value is { name: string } {
+  return isRecord(value) && typeof value.name === 'string';
 }
 
-function isWebSocketRoute(value: unknown): value is WebSocketRouteMeta {
+function isWebSocketRoute(value: unknown): value is WebSocketManifestMeta['routes'][number] {
   return (
     isRecord(value) &&
-    typeof value.pattern === 'string' &&
-    typeof value.filePath === 'string' &&
+    (value.pattern === undefined || typeof value.pattern === 'string') &&
+    (value.filePath === undefined || typeof value.filePath === 'string') &&
     typeof value.className === 'string' &&
     (value.bindingName === undefined || typeof value.bindingName === 'string') &&
-    (value.mode === 'room' || value.mode === 'socket') &&
-    typeof value.hasAuthGate === 'boolean'
+    (value.mode === undefined || value.mode === 'room' || value.mode === 'socket') &&
+    (value.hasAuthGate === undefined || typeof value.hasAuthGate === 'boolean')
   );
 }
 
@@ -58,12 +53,10 @@ function isWebSocket(value: unknown): value is WebSocketManifestMeta {
   );
 }
 
-function isLive(value: unknown): value is LiveManifestMeta {
+function isLive(value: unknown): value is NonNullable<PreviousDeployManifest['live']> {
   return (
     isRecord(value) &&
-    typeof value.bindingName === 'string' &&
     typeof value.className === 'string' &&
-    value.storage === 'sqlite' &&
     isStringArray(value.classes) &&
     (value.migrations === undefined ||
       (Array.isArray(value.migrations) && value.migrations.every(isClassMigration)))

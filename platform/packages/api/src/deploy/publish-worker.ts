@@ -52,6 +52,7 @@ import type { WorkerModule } from '../worker-upload.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import { clearIsrCache, serializePrerenderHeaders, packIsrValue } from './cache.ts';
 import { assertDeploymentCanProceed } from './guards.ts';
+import type { PreviousDeployManifest } from './persisted-manifest.ts';
 import { commitCutoverLive, cutoverIntentKey, cutoverReadyKey } from './recovery.ts';
 import type { CutoverMarker, requireActiveDeployAccess } from './recovery.ts';
 import { projectPublicUrls } from './shared.ts';
@@ -79,7 +80,7 @@ export async function publishWorkerDeployment(input: {
   readonly snapshotTrackedQueueConsumer: (queueId: string, scriptName: string) => Promise<void>;
   readonly putTrackedRouting: (key: string, value: string) => Promise<void>;
   readonly workerName: string;
-  readonly previousManifest: Pick<DeployManifest, 'queues'> | null;
+  readonly previousManifest: Pick<PreviousDeployManifest, 'queues'> | null;
   readonly deleteTrackedRouting: (key: string) => Promise<void>;
   logger: DeployLogger;
   readonly project: Project;
