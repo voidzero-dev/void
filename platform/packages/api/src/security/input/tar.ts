@@ -87,7 +87,8 @@ function paxPathRecord(path: string): Uint8Array<ArrayBuffer> {
   while (String(length).length + bodyLength !== length) {
     length = String(length).length + bodyLength;
   }
-  return encoder.encode(`${length}${body}`);
+  // A fresh copy: some lib versions type `encode()` with a shared buffer.
+  return new Uint8Array(encoder.encode(`${length}${body}`));
 }
 
 function padding(size: number): Uint8Array<ArrayBuffer> {
@@ -113,7 +114,9 @@ export function assertTarEntries(entries: ReadonlyArray<TarEntry>): void {
  */
 function entryChunks(entry: TarEntry): Array<Uint8Array<ArrayBuffer>> {
   const data =
-    typeof entry.data === 'string' ? encoder.encode(entry.data) : new Uint8Array(entry.data);
+    typeof entry.data === 'string'
+      ? new Uint8Array(encoder.encode(entry.data))
+      : new Uint8Array(entry.data);
   const chunks: Array<Uint8Array<ArrayBuffer>> = [];
   let name = entry.path;
   if (encoder.encode(name).length > 99 || !isPlainAscii(name)) {
