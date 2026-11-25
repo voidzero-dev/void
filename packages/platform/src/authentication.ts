@@ -4,7 +4,7 @@ import { isPrintableText, record } from './validate.ts';
 export const PLATFORM_LOGIN_KINDS = ['github', 'google', 'oidc', 'cloudflare-access'] as const;
 export type PlatformLoginKind = (typeof PLATFORM_LOGIN_KINDS)[number];
 
-function isPlatformLoginKind(value: unknown): value is PlatformLoginKind {
+export function isPlatformLoginKind(value: unknown): value is PlatformLoginKind {
   return PLATFORM_LOGIN_KINDS.some((kind) => kind === value);
 }
 
