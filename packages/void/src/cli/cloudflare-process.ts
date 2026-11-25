@@ -25,6 +25,14 @@ type OperationEnvelopeFields = {
   error?: string | null;
 };
 
+/** Keyed by the runner's failure union, so a new failure cannot be left off the whitelist. */
+const CLOUDFLARE_COMMAND_FAILURES: Record<NonNullable<CloudflareCommandResult['failure']>, true> = {
+  'not-found': true,
+  'durable-migration': true,
+  'containers-unavailable': true,
+  'version-history-changed': true,
+};
+
 /** True only for a child that ran to completion with a clean exit 0. */
 export function isCleanCloudflareExit(
   result: Pick<ProcessResult, 'status' | 'signal' | 'error'>,
@@ -68,7 +76,8 @@ export function decodeCloudflareOperationResult<T extends ProcessResult>(
         typeof envelope.error !== 'string') ||
       (envelope.errorCode !== undefined && !Number.isSafeInteger(envelope.errorCode)) ||
       (envelope.failure !== undefined &&
-        !['not-found', 'durable-migration', 'containers-unavailable'].includes(envelope.failure)) ||
+        (typeof envelope.failure !== 'string' ||
+          !Object.hasOwn(CLOUDFLARE_COMMAND_FAILURES, envelope.failure))) ||
       (envelope.errors !== undefined &&
         (!Array.isArray(envelope.errors) ||
           envelope.errors.some(

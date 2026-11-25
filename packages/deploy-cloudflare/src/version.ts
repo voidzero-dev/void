@@ -7,7 +7,12 @@ import { canonicalJson, isRecord } from '@void/deploy-core';
 import { join } from 'pathslash';
 import { parseRootWranglerConfig } from './config.ts';
 import { cloudflareCommandDiagnostic } from './diagnostics.ts';
-import { isCleanCommandExit, isCompletedCommand, isWorkerNotFound } from './execute.ts';
+import {
+  isCleanCommandExit,
+  isCompletedCommand,
+  isVersionHistoryChanged,
+  isWorkerNotFound,
+} from './execute.ts';
 import type { CloudflareCommandResult, CloudflareCommandRunner } from './execute.ts';
 import type { CloudflareUploadResult } from './operations.ts';
 import {
@@ -871,6 +876,11 @@ export type CloudflareVersionActivationOptions = {
   allowFirstDeploymentBootstrap?: boolean;
   fetch?: typeof globalThis.fetch;
   sleep?: (milliseconds: number) => Promise<void>;
+  /**
+   * Waits between reads of Cloudflare's Worker version list while it lags behind a write.
+   * Defaults to {@link STALE_VERSION_HISTORY_DELAYS_MS}.
+   */
+  versionHistoryRetryDelaysMs?: ReadonlyArray<number>;
   readinessAttempts?: number;
   /** Require readiness to report the uploaded Worker's actual version UUID. */
   requireVersionMetadata?: boolean;
@@ -972,8 +982,69 @@ async function activateCloudflareVersionWithSecretsFile(
   let trustedCandidateChain = false;
   let pinnedActiveSecrets: Array<{ name: string; type: 'secret_key' | 'secret_text' }> | undefined;
   if (options.expectedPreviousVersionId !== undefined || options.verifyInheritedSecrets === true) {
-    const recent = await readRecentCloudflareVersionIds(options);
-    if (recent === null) {
+    let read = await readRecentCloudflareVersionHistory(options);
+    // The deployment status above names the active Worker Version. A version list that does not
+    // contain it is behind that write, so wait for it instead of failing the lineage check below.
+    // Pages that disagree mean a write landed between the two page reads, so that read is retried
+    // on the same schedule. A list that never settles still fails below, as before.
+    const delays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
+    // A rollback can make a version older than the listed ones active. The list will never show
+    // that version, so only an active version that is not older than the list is waited for.
+    let activeNumber: number | null = null;
+    const listIsBehind = async (versions: ReadonlyArray<RecentCloudflareVersion>) => {
+      if (
+        previous.versionId === null ||
+        versions.some((version) => version.id === previous.versionId)
+      ) {
+        return false;
+      }
+      if (versions.length === 0) {
+        return true;
+      }
+      // Retry an unavailable number along with the list. A brief detail read failure
+      // should not keep a rollback to an older version waiting for the full schedule.
+      activeNumber ??= await readCloudflareVersionNumber(options, previous.versionId);
+      return (
+        activeNumber === null ||
+        activeNumber >= Math.min(...versions.map((version) => version.number))
+      );
+    };
+    let listBehind = read.versions !== null && (await listIsBehind(read.versions));
+    let waited = false;
+    for (let attempt = 0; (read.changing || listBehind) && attempt < delays.length; attempt++) {
+      if (attempt === 0) {
+        options.onProgress?.("Waiting for Cloudflare's Worker version list to catch up...");
+      }
+      await (options.sleep ?? delay)(delays[attempt]);
+      waited = true;
+      if (!options.verifyUploader()) {
+        return { ok: false, reason: 'uploader-changed' };
+      }
+      read = await readRecentCloudflareVersionHistory(options);
+      listBehind = read.versions !== null && (await listIsBehind(read.versions));
+    }
+    if (waited) {
+      // A rollback or another deploy during the wait must not be built on, or recorded as the
+      // parent of a candidate that would then break the next deploy.
+      const owner = await readCurrentProductionVersion(options);
+      if (owner.kind === 'failed') {
+        return { ok: false, reason: 'status-failed', status: owner.status };
+      }
+      if (
+        owner.kind !== 'ok' ||
+        owner.versionId !== previous.versionId ||
+        !productionVersionPercentagesEqual(owner.versions, previous.versions)
+      ) {
+        return {
+          ok: false,
+          reason: 'deployment-changed',
+          activeVersionId: owner.kind === 'ok' ? owner.versionId : null,
+          rollback: 'not-needed',
+        };
+      }
+    }
+    const recent = read.versions;
+    if (recent === null || listBehind) {
       return { ok: false, reason: 'inheritance-source-unavailable' };
     }
     const latestVersionId = recent.at(-1)?.id ?? null;
@@ -1319,22 +1390,59 @@ async function activateCloudflareVersionWithSecretsFile(
   }
   options.onProgress?.('Verifying the uploaded Worker...');
   const baseline = inheritanceBaseline;
+  let waitedAfterUpload = false;
   if (baseline) {
-    // The list can still show the exact pre-upload history after a successful upload.
-    // Wait for a fresh read, but pass any other history straight to the lineage check.
+    // The list can still show the exact pre-upload history after a successful upload, or an
+    // older snapshot of it, since reads can alternate between snapshots. Wait for a fresh read,
+    // but pass any other history straight to the lineage check.
+    let stale = false;
+    const baselineIdsByNumber = new Map(baseline.map((version) => [version.number, version.id]));
+    const baselineLatestNumber = baseline.at(-1)?.number ?? 0;
     const readUpdatedHistory = async () => {
-      const recent = await readRecentCloudflareVersionIds(options);
+      const { versions: read, changing } = await readRecentCloudflareVersionHistory(options);
       const unchanged =
-        recent?.length === baseline.length &&
-        recent.every(
+        read?.length === baseline.length &&
+        read.every(
           (version, index) =>
             version.id === baseline[index].id && version.number === baseline[index].number,
         );
-      return unchanged ? null : recent;
+      // Versions are never removed and new ones get higher numbers, so a list that ends below
+      // the baseline and agrees with it on every shared number is behind, not a concurrent write.
+      // It must share a number, which an empty list from a deleted Worker does not, and cannot
+      // hold the upload, which a recreated Worker's list can.
+      const older =
+        read !== null &&
+        (read.at(-1)?.number ?? 0) < baselineLatestNumber &&
+        read.some((version) => baselineIdsByNumber.has(version.number)) &&
+        read.every(
+          (version) =>
+            version.id !== versionId &&
+            (baselineIdsByNumber.get(version.number) ?? version.id) === version.id,
+        );
+      // Pages that disagree are a read that raced a write, so they wait like a stale list does.
+      stale = unchanged || older || changing;
+      return unchanged || older ? null : read;
     };
+    const historyDelays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
     let recent = await readUpdatedHistory();
-    for (let attempt = 0; recent === null && attempt < 2; attempt++) {
-      await (options.sleep ?? delay)(250 * 2 ** attempt);
+    let reportedWait = false;
+    for (
+      let attempt = 0;
+      recent === null &&
+      attempt < historyDelays.length &&
+      (stale || attempt < UNAVAILABLE_VERSION_HISTORY_RETRIES);
+      attempt++
+    ) {
+      if (stale && !reportedWait) {
+        reportedWait = true;
+        options.onProgress?.("Waiting for Cloudflare's Worker version list to catch up...");
+      }
+      // Only a wait for a lagging list reads production again below. The quick retries of a
+      // failed read keep their earlier behavior.
+      if (stale) {
+        waitedAfterUpload = true;
+      }
+      await (options.sleep ?? delay)(historyDelays[attempt]);
       if (!options.verifyUploader()) {
         return {
           ok: false,
@@ -1378,13 +1486,50 @@ async function activateCloudflareVersionWithSecretsFile(
     }
   }
   await options.validateUploadedVersion?.(versionId);
-  if (options.recordVerifiedCandidate) {
+  const ownerAfterWait = waitedAfterUpload
+    ? await readCurrentProductionVersion(options)
+    : undefined;
+  if (ownerAfterWait && ownerAfterWait.kind !== 'failed') {
+    // The receipt names the live version as the candidate's parent. A rollback during the wait
+    // above would make that parent wrong and break the next deploy, so stop before saving it.
+    if (
+      ownerAfterWait.kind !== 'ok' ||
+      ownerAfterWait.versionId !== previous.versionId ||
+      !productionVersionPercentagesEqual(ownerAfterWait.versions, previous.versions)
+    ) {
+      return {
+        ok: false,
+        reason: 'deployment-changed',
+        versionId,
+        previousVersionId: previous.versionId,
+        activeVersionId: ownerAfterWait.kind === 'ok' ? ownerAfterWait.versionId : null,
+        rollback: 'not-needed',
+        triggerRepair: 'succeeded',
+      };
+    }
+  }
+  // A handoff can reuse verified uploads after a status failure because it inspects
+  // production again and accepts the receipt only if the original parent still owns traffic.
+  if (
+    options.recordVerifiedCandidate &&
+    (ownerAfterWait?.kind !== 'failed' || options.expectedPreviousVersionId !== undefined)
+  ) {
     if (!options.validateUploadedVersion && !inheritanceBaseline) {
       throw new Error(
         'A Worker candidate cannot be recorded without validating its upload and version sequence.',
       );
     }
     await options.recordVerifiedCandidate(versionId, previous.versionId);
+  }
+  if (ownerAfterWait?.kind === 'failed') {
+    return {
+      ok: false,
+      reason: 'status-failed',
+      status: ownerAfterWait.status,
+      versionId,
+      previousVersionId: previous.versionId,
+      rollback: 'not-needed',
+    };
   }
   const reportedPreviewUrl =
     desiredTriggerConfig.preview_urls ||
@@ -2026,23 +2171,77 @@ async function isVoidSecretDraftPlaceholderVersion(
   }
 }
 
-async function readRecentCloudflareVersionIds(
+/**
+ * Cloudflare's Worker version list can trail a write by minutes (1.5 to 4 minutes were measured
+ * for a small Worker). The waits double up to 30 seconds and add up to about five and a half minutes.
+ */
+export const STALE_VERSION_HISTORY_DELAYS_MS: ReadonlyArray<number> = [
+  250, 500, 1000, 2000, 4000, 8000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000,
+  30_000, 30_000, 30_000,
+];
+
+/** The Worker Version's sequential number, or null when it cannot be read. */
+async function readCloudflareVersionNumber(
   options: Pick<
     Parameters<typeof activateCloudflareVersion>[0],
     'configPath' | 'runWrangler' | 'workerName'
   >,
-): Promise<Array<RecentCloudflareVersion> | null> {
+  versionId: string,
+): Promise<number | null> {
+  try {
+    const result = await options.runWrangler(
+      {
+        type: 'versions.view',
+        versionId,
+        configPath: options.configPath,
+        workerName: options.workerName,
+      },
+      { capture: true },
+    );
+    if (!isCleanCommandExit(result)) {
+      return null;
+    }
+    const version = result.data;
+    return isRecord(version) &&
+      version.id === versionId &&
+      typeof version.number === 'number' &&
+      Number.isSafeInteger(version.number)
+      ? version.number
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A failed read, as opposed to a stale one, is retried only this many times. */
+const UNAVAILABLE_VERSION_HISTORY_RETRIES = 2;
+
+/** `changing` marks a read that failed only because the list's pages moved during the read. */
+type RecentCloudflareVersionHistory = {
+  versions: Array<RecentCloudflareVersion> | null;
+  changing: boolean;
+};
+
+async function readRecentCloudflareVersionHistory(
+  options: Pick<
+    Parameters<typeof activateCloudflareVersion>[0],
+    'configPath' | 'runWrangler' | 'workerName'
+  >,
+): Promise<RecentCloudflareVersionHistory> {
   const result = await options.runWrangler(
     { type: 'versions.list', configPath: options.configPath, workerName: options.workerName },
     { capture: true },
   );
   if (!isCleanCommandExit(result)) {
     if (isWorkerNotFound(result)) {
-      return [];
+      return { versions: [], changing: false };
     }
-    return null;
+    return { versions: null, changing: isVersionHistoryChanged(result) };
   }
-  const data: unknown = result.data;
+  return { versions: parseRecentCloudflareVersions(result.data), changing: false };
+}
+
+function parseRecentCloudflareVersions(data: unknown): Array<RecentCloudflareVersion> | null {
   if (!Array.isArray(data)) {
     return null;
   }

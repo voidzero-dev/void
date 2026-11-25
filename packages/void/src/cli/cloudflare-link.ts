@@ -190,10 +190,12 @@ export async function prepareExistingCloudflareDeploy(options: {
     );
   }
   // Save the guard before the destination so a retry cannot enter provisioning unguarded.
+  assertCloudflareLinkUnchanged(options.root, pending);
+  const receipt = pending?.candidateReceipt;
   saveCloudflareLink(options.root, {
-    ...(pending ?? {}),
     accountId: options.accountId,
     workerName: config.name,
+    ...(receipt?.parentVersionId === existing.versionId ? { candidateReceipt: receipt } : {}),
   });
   writeFileSync(options.configPath, updated);
   persistCloudflareConfig(options.root);

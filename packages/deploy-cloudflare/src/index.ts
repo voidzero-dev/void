@@ -36,6 +36,7 @@ export {
 } from './static.ts';
 export {
   activateCloudflareVersion,
+  STALE_VERSION_HISTORY_DELAYS_MS,
   deployCloudflareVersionTriggers,
   deployCloudflareVersionTraffic,
   encodeCloudflareVersionMessage,
