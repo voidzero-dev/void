@@ -50,7 +50,7 @@ catalog:
   '@astryxdesign/core': 0.7.16
   '@astryxdesign/theme-neutral': 0.7.16
   '@stylexjs/stylex': 0.19.2
-  '@angular/build': ^22.2.7
+  '@angular/build': ^22.3.0
   '@astrojs/cloudflare': ^14.4.8
   '@cloudflare/build-output-utils': 1.0.0-rc.4
   '@cloudflare/codemods': ^0.9.1
@@ -72,17 +72,17 @@ catalog:
   solid-js: ^1.9.19
   svelte: ^5.59.1
   shiki: ^4.6.0
-  '@analogjs/content': ^2.9.7
-  '@analogjs/platform': ^2.9.7
-  '@analogjs/router': ^2.9.7
-  '@analogjs/vite-plugin-angular': ^2.9.7
-  '@angular/common': ^22.2.6
-  '@angular/compiler': ^22.2.6
-  '@angular/compiler-cli': ^22.2.6
-  '@angular/core': ^22.2.6
-  '@angular/platform-browser': ^22.2.6
-  '@angular/platform-server': ^22.2.6
-  '@angular/router': ^22.2.6
+  '@analogjs/content': ^2.9.8
+  '@analogjs/platform': ^2.9.8
+  '@analogjs/router': ^2.9.8
+  '@analogjs/vite-plugin-angular': ^2.9.8
+  '@angular/common': ^22.3.0
+  '@angular/compiler': ^22.3.0
+  '@angular/compiler-cli': ^22.3.0
+  '@angular/core': ^22.3.0
+  '@angular/platform-browser': ^22.3.0
+  '@angular/platform-server': ^22.3.0
+  '@angular/router': ^22.3.0
   # PostgreSQL 19 in PGlite 0.6 removes the legacy string mode tested by auth migrations.
   '@electric-sql/pglite': 0.5.17
   # Adapter 9 changes the build output layout used by Void's SvelteKit preset.
@@ -135,7 +135,7 @@ catalogs:
 
 packageExtensions:
   # Analog's Nitro 2 plugin imports H3 v1 without declaring it.
-  '@analogjs/vite-plugin-nitro@2.9.7':
+  '@analogjs/vite-plugin-nitro@2.9.8':
     dependencies:
       h3: ^1.15.11
   # Analog imports TypeScript without declaring it; use the app's compiler.
