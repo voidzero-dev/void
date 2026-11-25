@@ -16,6 +16,7 @@ import {
   readVoidDevCredentials,
 } from './plugin-ai-setup.ts';
 import { hasBinding, shouldInjectEmailDevInboxVar } from './plugin-binding-utils.ts';
+import { defaultCloudflareWorkerName } from './plugin-cloudflare-config.ts';
 import type { WorkerConfig } from './plugin-cloudflare-config.ts';
 import type { EnvSchemaFacts } from './plugin-env-schema.ts';
 import { cloudflareQueueName, readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
@@ -29,11 +30,12 @@ import {
   sandboxContainerConfig,
   assertSandboxNamespaceConfig,
 } from './sandbox/config.ts';
-import { CLOUDFLARE_DEPLOY_BUILD_ENV } from './shared/env.ts';
+import { CLOUDFLARE_DEPLOY_BUILD_ENV, CLOUDFLARE_WORKER_NAME_BUILD_ENV } from './shared/env.ts';
 import {
   CLOUDFLARE_PRESERVE_BINDINGS_BUILD_ENV,
   selectNativeVersionMetadataBinding,
 } from './shared/version-metadata.ts';
+import { planWorkflowAdditions, workflowConfigEntries } from './workflows/config.ts';
 
 type DurableObjectBinding = { name: string; class_name: string };
 type DurableObjectMigration = {
@@ -63,6 +65,34 @@ function currentMigrations(
   return Array.isArray(current) ? (current as Array<DurableObjectMigration>) : [];
 }
 
+/**
+ * Add a `workflows` entry for each `workflows/` module. The Cloudflare plugin
+ * concatenates this patch with the resolved config, so only additions are emitted.
+ */
+function mergeWorkflowBindings(
+  result: Record<string, unknown>,
+  resolved: WorkerConfig,
+  workflows: ApplicationAnalysis['workflows'],
+  root: string,
+): void {
+  if (workflows.length === 0) {
+    return;
+  }
+  const patchEntries = workflowConfigEntries(result.workflows);
+  const deployWorkerName =
+    process.env[CLOUDFLARE_DEPLOY_BUILD_ENV] === '1'
+      ? process.env[CLOUDFLARE_WORKER_NAME_BUILD_ENV]
+      : undefined;
+  const additions = planWorkflowAdditions(
+    [...patchEntries, ...workflowConfigEntries((resolved as Record<string, unknown>).workflows)],
+    workflows,
+    deployWorkerName || ((resolved as { name?: string }).name ?? defaultCloudflareWorkerName(root)),
+  );
+  if (additions.length > 0) {
+    result.workflows = [...patchEntries, ...additions];
+  }
+}
+
 export function mergeWorkerBindings(
   resolved: WorkerConfig,
   input: {
@@ -81,6 +111,7 @@ export function mergeWorkerBindings(
     readonly devTriggerToken: string;
     readonly queues: ApplicationAnalysis['queues'];
     readonly durableObjects: ApplicationAnalysis['durableObjects'];
+    readonly workflows: ApplicationAnalysis['workflows'];
     readonly sandboxConfig: ReturnType<typeof resolveSandboxConfig> | undefined;
     readonly shouldEmitLive: () => boolean;
     readonly liveConfig: ReturnType<typeof resolveLiveBindingConfig> | undefined;
@@ -104,6 +135,7 @@ export function mergeWorkerBindings(
     devTriggerToken,
     queues,
     durableObjects,
+    workflows,
     sandboxConfig,
     shouldEmitLive,
     liveConfig,
@@ -389,6 +421,8 @@ export function mergeWorkerBindings(
       result.migrations = [...existingMigrations, ...migrationAdditions];
     }
   }
+
+  mergeWorkflowBindings(result, resolved, workflows, root);
 
   if (bindings.needsSandbox && sandboxConfig) {
     assertSandboxNamespaceConfig({ ...resolved, ...result }, sandboxConfig);

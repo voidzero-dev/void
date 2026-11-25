@@ -51,6 +51,7 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | AI inference (Workers AI, providers)       | `docs/guide/ai.md`                                                                        |
 | Platform AI logging policy                 | `docs/reference/cli/platform-users.md#ai-gateway-logging`                                 |
 | Durable State and WebSockets               | `docs/guide/durable-state.md`, `docs/guide/websockets.md`                                 |
+| Workflows                                  | `docs/guide/workflows.md`, `docs/reference/api/workflows.md`                              |
 | Server-sent events and live streams        | `docs/guide/sse.md`, `docs/guide/live.md`                                                 |
 | Sandboxes                                  | `docs/guide/sandboxes.md`                                                                 |
 | Email                                      | `docs/guide/email.md`, then the matching guide under `docs/guide/email/`                  |

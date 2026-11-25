@@ -170,6 +170,11 @@
       "import": "./dist/runtime/durable/index.mjs",
       "require": "./dist/runtime/durable/index.mjs"
     },
+    "./workflows": {
+      "types": "./dist/runtime/workflows/index.d.mts",
+      "import": "./dist/runtime/workflows/index.mjs",
+      "require": "./dist/runtime/workflows/index.mjs"
+    },
     "./seed": {
       "types": "./dist/runtime/db/seed.d.mts",
       "import": "./dist/runtime/db/seed.mjs",

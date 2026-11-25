@@ -58,6 +58,7 @@ export async function migrateCloudflareWorker(input: {
     passthroughRawFields,
     expectedContainers,
     expectedDurableObjectState,
+    expectedWorkflows,
     runWrangler,
     assertUploaderStillPinned,
     schemaFacts,
@@ -78,6 +79,7 @@ export async function migrateCloudflareWorker(input: {
     authEnabled,
     expectedContainers,
     expectedDurableObjectBindings: expectedDurableObjectState.bindings,
+    expectedWorkflows,
     expectedMigrations: expectedDurableObjectState.migrations,
     expectedCrons,
   };

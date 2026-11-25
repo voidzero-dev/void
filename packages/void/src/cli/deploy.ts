@@ -5,6 +5,7 @@ import { stashCloudflareDeployPointer } from '../cloudflare-config.ts';
 import { readConfig } from '../config.ts';
 import { detectFramework } from '../plugin-inference.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
+import { assertNoWorkflowsForPlatform } from '../workflows/platform.ts';
 import { getApiUrl, getToken, getTokenSource } from './auth.ts';
 import { isExpiredTokenError, PlatformClient } from './client.ts';
 import { maybeLinkCloudflareDeploy } from './cloudflare-link.ts';
@@ -300,6 +301,7 @@ async function runManagedDeploy(
 
       // Resolve the app type: void.config.ts > CLI flags > auto-detection.
       const voidConfig = readConfig(root);
+      assertNoWorkflowsForPlatform(root);
       cliLog.info('config_resolved', {
         target: voidConfig.target,
         appType: voidConfig.inference?.appType,

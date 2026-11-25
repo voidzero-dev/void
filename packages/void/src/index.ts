@@ -263,6 +263,32 @@ export function voidPlugin(options?: {
       'durable: durable-objects/ is currently supported in Void apps only, not framework adapter mode.',
     );
   }
+  const workflows = application.workflows;
+  if (detected && workflows.length > 0) {
+    throw new Error(
+      'workflows: workflows/ is currently supported in Void apps only, not framework adapter mode.',
+    );
+  }
+  for (const module of workflows) {
+    const owner =
+      websocketRoutes.find(
+        (route) => route.bindingName === module.bindingName || route.className === module.className,
+      )?.filePath ??
+      durableObjects.find(
+        (durable) =>
+          durable.bindingName === module.bindingName || durable.className === module.className,
+      )?.filePath;
+    if (
+      owner !== undefined ||
+      (sandboxConfig &&
+        (sandboxConfig.binding === module.bindingName ||
+          sandboxConfig.className === module.className))
+    ) {
+      throw new Error(
+        `workflows: workflows/${module.relativePath} conflicts with ${owner === undefined ? 'the configured Sandbox binding or class' : `'${owner}'`}. Rename one of the files.`,
+      );
+    }
+  }
   for (const module of durableObjects) {
     const websocketCollision = websocketRoutes.find(
       (route) => route.bindingName === module.bindingName || route.className === module.className,
@@ -299,10 +325,12 @@ export function voidPlugin(options?: {
           reservedBindings: [
             ...websocketRoutes.map((route) => route.bindingName),
             ...durableObjects.map((module) => module.bindingName),
+            ...workflows.map((module) => module.bindingName),
           ],
           reservedClasses: [
             ...websocketRoutes.map((route) => route.className),
             ...durableObjects.map((module) => module.className),
+            ...workflows.map((module) => module.className),
             sandboxConfig?.className,
           ],
         })
@@ -404,6 +432,7 @@ export function voidPlugin(options?: {
       devTriggerToken,
       queues,
       durableObjects,
+      workflows,
       sandboxConfig,
       shouldEmitLive,
       liveConfig,
@@ -844,6 +873,11 @@ export function voidPlugin(options?: {
         `durable: durable-objects/ requires target: "cloudflare". It is not available with target: '${config.target}'.`,
       );
     }
+    if (workflows.length > 0) {
+      throw new Error(
+        `workflows: workflows/ requires target: "cloudflare". It is not available with target: '${config.target}'.`,
+      );
+    }
     // `compileNodeApp` imports only the Hono app from the route table; the
     // `__emailHandler` the table exports for `email/` is never invoked, so
     // without this the build succeeds and every inbound handler is dead code.
@@ -1000,6 +1034,7 @@ export function voidPlugin(options?: {
       return shouldEmitLive() ? liveConfig : undefined;
     },
     durableObjects,
+    workflows,
     websocketTombstones,
     onDevAssetRoutingPolicyChange: updateDevAssetRoutingPolicy,
     // Native builds of eligible apps let Cloudflare serve hashed build files directly.

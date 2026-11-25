@@ -12,9 +12,9 @@ void info
 void info --json
 ```
 
-Shows each Durable State and WebSocket definition's source file, inferred or explicit name, Worker class, and binding. WebSocket entries also include their route in JSON output. It runs locally without authentication, network requests, or file generation.
+Shows each Durable State, WebSocket, and Workflow definition's source file, inferred or explicit name, Worker class, and binding. WebSocket entries also include their route in JSON output. It runs locally without authentication, network requests, or file generation.
 
-Before moving a deployed definition, copy the suggested `name` into `defineDurableState()`, `defineRoom()`, or `defineWebSocket()`. Keep that name after moving the file to preserve the resource. See [Durable State](../../guide/durable-state.md#rename-a-file-while-keeping-its-state) and [WebSockets](../../guide/websockets.md#move-a-route-while-keeping-its-state) for migration flows, including WebSocket parameter renames.
+Before moving a deployed definition, copy the suggested `name` into `defineDurableState()`, `defineRoom()`, `defineWebSocket()`, or `defineWorkflow()`. Keep that name after moving the file to preserve the resource. See [Durable State](../../guide/durable-state.md#rename-a-file-while-keeping-its-state) [WebSockets](../../guide/websockets.md#move-a-route-while-keeping-its-state), and [Workflows](../../guide/workflows.md#names-and-bindings) for migration flows, including WebSocket parameter renames.
 
 Resources recorded in `void.lock.json` without a matching definition appear separately. Adopt a suggested name only after identifying the resource you moved. If Void cannot suggest a name, restore its original source and inspect it before moving it again.
 

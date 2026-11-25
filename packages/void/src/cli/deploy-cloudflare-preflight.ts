@@ -33,6 +33,7 @@ import {
   snapshotPassthroughRawFields,
   reconstructExpectedContainers,
   reconstructExpectedDurableObjectState,
+  reconstructExpectedWorkflows,
 } from './deploy-binding-snapshot.ts';
 import {
   isWranglerNonInteractiveOrCI,
@@ -225,6 +226,7 @@ export async function preflightCloudflareWorker(input: {
   passthroughRawFields: ReturnType<typeof snapshotPassthroughRawFields>;
   expectedContainers: ReturnType<typeof reconstructExpectedContainers>;
   expectedDurableObjectState: ReturnType<typeof reconstructExpectedDurableObjectState>;
+  expectedWorkflows: ReturnType<typeof reconstructExpectedWorkflows>;
 }> {
   const {
     root,
@@ -691,6 +693,13 @@ export async function preflightCloudflareWorker(input: {
     preBuildRootConfig,
     { needsSandbox, needsLive, analysis: source.analysis },
   );
+  const expectedWorkflows = reconstructExpectedWorkflows(
+    voidConfig,
+    root,
+    preBuildRootConfig,
+    workerName,
+    source.analysis,
+  );
   return {
     apiBaseUrl,
     complianceRegion,
@@ -712,5 +721,6 @@ export async function preflightCloudflareWorker(input: {
     passthroughRawFields,
     expectedContainers,
     expectedDurableObjectState,
+    expectedWorkflows,
   };
 }

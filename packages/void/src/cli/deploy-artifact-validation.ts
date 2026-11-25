@@ -138,6 +138,8 @@ export function removeDeployPointer(root: string): void {
 
 const byName = (left: Record<string, unknown>, right: Record<string, unknown>) =>
   String(left.name).localeCompare(String(right.name));
+const byBinding = (left: Record<string, unknown>, right: Record<string, unknown>) =>
+  String(left.binding).localeCompare(String(right.binding));
 
 /**
  * Check the generated deploy config before upload: the pinned account and Worker name, required
@@ -168,6 +170,8 @@ export function verifyGeneratedDeployConfig(
     expectedContainers?: Array<Record<string, unknown>>;
     /** Exact pre-build Durable Object bindings, including Void's sandbox and live additions. */
     expectedDurableObjectBindings?: Array<Record<string, unknown>>;
+    /** Exact pre-build Workflow entries, including Void's `workflows/` additions. */
+    expectedWorkflows?: Array<Record<string, unknown>>;
     /** Exact pre-build migration sequence, including Void's sandbox and live additions. */
     expectedMigrations?: Array<Record<string, unknown>>;
     /** Cron schedules the build should emit, derived from the source before the build. */
@@ -439,6 +443,26 @@ export function verifyGeneratedDeployConfig(
         ok: false,
         reason:
           'generated config durable_objects bindings differ from the pre-build binding set — refusing to deploy a binding the build added, removed, or retargeted.',
+      };
+    }
+  }
+  if (expected.expectedWorkflows) {
+    if (generated.workflows !== undefined && !Array.isArray(generated.workflows)) {
+      return { ok: false, reason: 'generated config workflows could not be verified.' };
+    }
+    const emittedWorkflows = Array.isArray(generated.workflows)
+      ? (generated.workflows as Array<Record<string, unknown>>)
+      : [];
+    if (
+      !deepEqual(
+        [...emittedWorkflows].sort(byBinding),
+        [...expected.expectedWorkflows].sort(byBinding),
+      )
+    ) {
+      return {
+        ok: false,
+        reason:
+          'generated config workflows differ from the pre-build Workflow set — refusing to deploy a Workflow the build added, removed, or retargeted.',
       };
     }
   }

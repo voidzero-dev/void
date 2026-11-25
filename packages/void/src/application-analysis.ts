@@ -15,6 +15,7 @@ import type { RouteEnvironment } from './router/parse-filename.ts';
 import { scanMiddlewareSync, scanRoutePatternsSync } from './router/scan.ts';
 import { scanWebSocketRoutesSync } from './router/websocket.ts';
 import { isSandboxEnabled } from './sandbox/config.ts';
+import { scanWorkflowModules } from './workflows/scan.ts';
 
 export type ApplicationReasons = {
   database: Array<string>;
@@ -40,6 +41,7 @@ export type ApplicationAnalysis = {
   websockets: ReturnType<typeof scanWebSocketRoutesSync>;
   allWebsockets: ReturnType<typeof scanWebSocketRoutesSync>;
   durableObjects: ReturnType<typeof scanDurableObjectModules>;
+  workflows: ReturnType<typeof scanWorkflowModules>;
   email: ReturnType<typeof scanEmailHandlersSync>;
   routes: ReturnType<typeof scanRoutePatternsSync>;
   middleware: ReturnType<typeof scanMiddlewareSync>;
@@ -81,6 +83,7 @@ export function analyzeApplicationSync(
   );
   // Typed durable modules currently use the root convention on every target.
   const durableObjects = scanDurableObjectModules(root);
+  const workflows = scanWorkflowModules(root);
   const email = scanEmailHandlersSync(paths.sourceRoot);
   const overrides = config.inference?.bindings;
   const bindingReason = (
@@ -127,6 +130,7 @@ export function analyzeApplicationSync(
     websockets,
     allWebsockets,
     durableObjects,
+    workflows,
     email,
     routes: scanRoutePatternsSync(root, paths, environment),
     middleware: scanMiddlewareSync(root, paths),

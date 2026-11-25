@@ -59,6 +59,7 @@ export function createClientStubsPlugin(): Plugin {
     `,
     'void/live': '',
     'void/durable': '',
+    'void/workflows': '',
   };
   const STUB_RESOLVE_FILTER = new RegExp(
     `^(${Object.keys(SERVER_ONLY_STUBS)
@@ -75,11 +76,11 @@ export function createClientStubsPlugin(): Plugin {
       filter: { id: STUB_RESOLVE_FILTER },
       handler(id) {
         if (this.environment?.name === 'client') {
-          if (id === 'void/live' || id === 'void/durable') {
+          if (id === 'void/live' || id === 'void/durable' || id === 'void/workflows') {
             this.error(
               id === 'void/live'
                 ? 'void/live is server-only and cannot be imported by browser code. Import void/live/client instead.'
-                : 'void/durable is server-only and cannot be imported by browser code.',
+                : `${id} is server-only and cannot be imported by browser code.`,
             );
           }
           return STUB_PREFIX + id;

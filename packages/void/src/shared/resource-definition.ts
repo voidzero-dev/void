@@ -63,7 +63,9 @@ export function readResourceDefinition(
           ? new Set(['defineRoom', 'defineWebSocket'])
           : source === 'void/durable'
             ? new Set(['defineDurableState', 'defineDurableObject'])
-            : new Set<string>();
+            : source === 'void/workflows'
+              ? new Set(['defineWorkflow', 'defineWorkflowEntrypoint'])
+              : new Set<string>();
       for (const specifier of declaration.specifiers ?? []) {
         const local = specifier.local as AstNode | undefined;
         recordBindings(local);

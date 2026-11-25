@@ -47,17 +47,23 @@ export function mergeCloudflareConfig(patch: object, fallback: object): Record<s
 }
 
 /** Translate Void's Wrangler-shaped settings to the configuration that the Cloudflare plugin takes. */
-export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): CloudflareConfig {
+/** The Worker name a Void app gets when its config does not set one: its package or directory name. */
+export function defaultCloudflareWorkerName(root: string): string {
   const packagePath = join(root, 'package.json');
   const packageName = existsSync(packagePath)
     ? (JSON.parse(readFileSync(packagePath, 'utf8')) as { name?: unknown }).name
     : undefined;
-  const name =
+  return (
     String(packageName ?? basename(root))
       .replaceAll('_', '-')
       .replaceAll(/[^a-z0-9- ]/g, '-')
       .replaceAll(/^(-+)|(-+)$/g, '')
-      .slice(0, 63) || 'my-worker';
+      .slice(0, 63) || 'my-worker'
+  );
+}
+
+export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): CloudflareConfig {
+  const name = defaultCloudflareWorkerName(root);
   const { env, vars, ...base } = raw;
   const selected = process.env.CLOUDFLARE_ENV ? env?.[process.env.CLOUDFLARE_ENV] : undefined;
   const values = selected ? selected.vars : vars;
