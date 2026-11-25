@@ -161,6 +161,7 @@ export function useForm(
           : null;
         if (validationErrors) {
           clearPendingEditErrors();
+          // oxlint-disable-next-line quality/no-known-value-widening -- Error keys come from the server response.
           errors = { ...errors, ...validationErrors };
         } else {
           error = result.error;

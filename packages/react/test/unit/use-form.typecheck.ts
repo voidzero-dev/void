@@ -1,4 +1,5 @@
-import { VoidActionError, type FormState } from 'void/pages-client';
+import { VoidActionError } from 'void/pages-client';
+import type { FormState } from 'void/pages-client';
 import { useForm } from '../../src/runtime/use-form.ts';
 
 export function checkGenericFieldHelpers<T>(

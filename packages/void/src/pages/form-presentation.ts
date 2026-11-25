@@ -21,21 +21,53 @@ export type FormStatus = {
   readonly wasSuccessful: boolean;
   readonly recentlySuccessful: boolean;
 };
+/** Values a validator reports as one field, so their properties are not error paths. */
+type FormErrorLeaf =
+  | string
+  | number
+  | boolean
+  | bigint
+  | symbol
+  | null
+  | undefined
+  | Date
+  | Blob
+  | ReadonlyMap<unknown, unknown>
+  | ReadonlySet<unknown>
+  | ((...args: Array<never>) => unknown);
+/** Whether `T` is exactly one of `Ancestors`. Assignability would also match a different object whose extra fields are optional. */
+type IsFormErrorAncestor<T, Ancestors extends ReadonlyArray<unknown>> = Ancestors extends readonly [
+  infer Head,
+  ...infer Rest,
+]
+  ? (<G>() => G extends T ? 1 : 2) extends <G>() => G extends Head ? 1 : 2
+    ? true
+    : IsFormErrorAncestor<T, Rest>
+  : false;
 /**
  * A body field plus the dotted nested paths a validator reports for it, such as `profile.name`
- * or `contacts.0.email`. The recursion is capped so a recursive body type stays cheap to check.
+ * or `contacts.0.email`. Past six segments, or where a recursive body type repeats, any
+ * nested path is accepted. Without that cut, a type with several self references expands to
+ * an exponential union.
  */
-export type FormErrorPath<T, Depth extends ReadonlyArray<unknown> = []> = Depth['length'] extends 6
+export type FormErrorPath<
+  T,
+  Ancestors extends ReadonlyArray<unknown> = [],
+> = T extends FormErrorLeaf
   ? never
-  : T extends ReadonlyArray<infer Item>
-    ? `${number}` | `${number}.${FormErrorPath<Item, [unknown, ...Depth]>}`
-    : T extends object
-      ? {
-          [K in keyof T & string]: T[K] extends (...args: Array<never>) => unknown
-            ? never
-            : K | `${K}.${FormErrorPath<T[K], [unknown, ...Depth]>}`;
-        }[keyof T & string]
-      : never;
+  : Ancestors['length'] extends 6
+    ? string
+    : IsFormErrorAncestor<T, Ancestors> extends true
+      ? string
+      : T extends ReadonlyArray<infer Item>
+        ? `${number}` | `${number}.${FormErrorPath<Item, [T, ...Ancestors]>}`
+        : T extends object
+          ? {
+              [K in keyof T & string]: T[K] extends (...args: Array<never>) => unknown
+                ? never
+                : K | `${K}.${FormErrorPath<T[K], [T, ...Ancestors]>}`;
+            }[keyof T & string]
+          : never;
 /**
  * A body field or one of its nested paths. `keyof TData & string` keeps top-level names usable in
  * generic callers, where TypeScript cannot resolve the `FormErrorPath` conditional.
@@ -170,6 +202,7 @@ export function omitFormErrors(
   for (const key of keys) {
     delete next[key];
   }
+  // oxlint-disable-next-line quality/no-known-value-widening -- Error keys come from dynamic form data.
   return next;
 }
 export function formErrorMessage(form: Pick<FormModel, 'error' | 'errors'>): string | null {

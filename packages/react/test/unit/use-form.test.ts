@@ -262,7 +262,7 @@ describe('useForm callbacks', () => {
 
   it('clears only the errors of the fields a change touched', async () => {
     type NestedForm = ReturnType<typeof useForm<'/__form-nested/contacts'>>;
-    const formRef: { current: NestedForm | null } = { current: null };
+    const formRef: FormRef<NestedForm> = { current: null };
     function App() {
       formRef.current = useForm('/__form-nested/contacts', {
         profile: { name: '', email: '' },
@@ -901,7 +901,7 @@ describe('error isolation', () => {
     },
   ])('$name', async ({ initial, updated, initialErrors, expectedErrors }) => {
     type OptionalForm = ReturnType<typeof useForm<'/__form-optional/contacts'>>;
-    const formRef: { current: OptionalForm | null } = { current: null };
+    const formRef: FormRef<OptionalForm> = { current: null };
     function App() {
       formRef.current = useForm('/__form-optional/contacts', { contacts: initial });
       return null;
