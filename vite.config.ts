@@ -411,6 +411,19 @@ const config = defineConfig({
           'react-hooks-js/use-memo': 'error',
         },
       },
+      {
+        files: [
+          'packages/void/src/runtime/routing/error-pages/script.js',
+          'platform/packages/api/container/build-agent.mjs',
+        ],
+        rules: {
+          'typescript/no-unsafe-argument': 'error',
+          'typescript/no-unsafe-assignment': 'error',
+          'typescript/no-unsafe-call': 'error',
+          'typescript/no-unsafe-member-access': 'error',
+          'typescript/no-unsafe-return': 'error',
+        },
+      },
       // Enforce the staged type rules where the SDK and platform have typed contracts.
       {
         files: ['packages/**/*', 'platform/packages/{dashboard,email-gateway,tail}/**/*'],
