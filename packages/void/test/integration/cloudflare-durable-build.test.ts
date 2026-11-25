@@ -9,6 +9,7 @@ import { verifyGeneratedDeployConfig } from '../../src/cli/deploy-artifact-valid
 import {
   reconstructExpectedContainers,
   reconstructExpectedDurableObjectState,
+  reconstructExpectedWorkflows,
   snapshotBindingIdentities,
   snapshotPassthroughIdentities,
   snapshotPassthroughRawFields,
@@ -18,7 +19,10 @@ import { syncWranglerBindings } from '../../src/cli/wrangler.ts';
 import { materializeCloudflareConfig } from '../../src/cloudflare-config.ts';
 import { renderVoidConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
-import { CLOUDFLARE_DEPLOY_BUILD_ENV } from '../../src/shared/env.ts';
+import {
+  CLOUDFLARE_DEPLOY_BUILD_ENV,
+  CLOUDFLARE_WORKER_NAME_BUILD_ENV,
+} from '../../src/shared/env.ts';
 
 const repository = join(import.meta.dirname, '..', '..', '..', '..');
 const accountId = '0123456789abcdef0123456789abcdef';
@@ -149,6 +153,13 @@ export default defineDurableState({ initialState: { count: 0 }, methods: { incre
           ),
           expectedCrons: signals.expectedCrons,
           expectedDurableObjectBindings: durable.bindings,
+          expectedWorkflows: reconstructExpectedWorkflows(
+            config,
+            root,
+            rootConfig,
+            `durable-merge-${options.name}`,
+            analysis,
+          ),
           expectedMigrations: durable.migrations,
         };
         const build = () => {
@@ -172,9 +183,12 @@ export default defineDurableState({ initialState: { count: 0 }, methods: { incre
             containers?: Array<unknown>;
             hyperdrive?: Array<unknown>;
             ai?: unknown;
+            workflows?: Array<unknown>;
           };
         };
         const emitted = build();
+        // Workflows are opt-in: an app without workflows/ emits no Workflow config.
+        expect(emitted.workflows).toBeUndefined();
         // Exercise worker/cloudflare overlap through the actual provider plugin,
         // alongside the existing native build rather than booting another one.
         if (options.name === 'native') {
@@ -215,4 +229,94 @@ export default defineDurableState({ initialState: { count: 0 }, methods: { incre
       }
     },
   );
+
+  it('emits Workflow entries named after the deployed Worker and keeps authored ones', () => {
+    const fixture = createIsolatedPlayground(repository, 'playground/ssr');
+    const root = fixture.root;
+    try {
+      mkdirSync(join(root, 'workflows'), { recursive: true });
+      writeFileSync(
+        join(root, 'workflows/welcome.ts'),
+        `import { defineWorkflow } from 'void/workflows';
+export default defineWorkflow({ async run(event, step) { return step.do('greet', async () => 'hi'); } });\n`,
+      );
+      writeFileSync(
+        join(root, 'workflows/nightly-import.ts'),
+        `import { WorkflowEntrypoint } from 'cloudflare:workers';
+import { defineWorkflowEntrypoint } from 'void/workflows';
+class Importer extends WorkflowEntrypoint { async run() { return 'imported'; } }
+export default defineWorkflowEntrypoint({ class: Importer });\n`,
+      );
+      const pinned = {
+        name: 'legacy-import',
+        binding: 'WORKFLOW_NIGHTLY_IMPORT',
+        class_name: 'NightlyImportWorkflow',
+      };
+      writeFileSync(
+        join(root, 'void.config.ts'),
+        renderVoidConfig({
+          ...readConfig(root),
+          cloudflare: { name: 'workflow-merge', account_id: accountId, workflows: [pinned] },
+        }),
+      );
+      const config = readConfig(root);
+      const analysis = analyzeApplicationSync(root, { config });
+      const configPath = materializeCloudflareConfig(root);
+      const rootConfig = parseRootWranglerConfig(configPath);
+      const expectedWorkflows = reconstructExpectedWorkflows(
+        config,
+        root,
+        rootConfig,
+        'deployed-app',
+        analysis,
+      );
+      expect(expectedWorkflows).toEqual([
+        pinned,
+        {
+          name: 'deployed-app-welcome',
+          binding: 'WORKFLOW_WELCOME',
+          class_name: 'WelcomeWorkflow',
+        },
+      ]);
+      const result = spawn.sync('vp', ['build'], {
+        cwd: root,
+        encoding: 'utf8',
+        timeout: 60_000,
+        maxBuffer: 10 * 1024 * 1024,
+        env: {
+          ...process.env,
+          [CLOUDFLARE_DEPLOY_BUILD_ENV]: '1',
+          [CLOUDFLARE_WORKER_NAME_BUILD_ENV]: 'deployed-app',
+          CLOUDFLARE_API_TOKEN: '',
+          CLOUDFLARE_API_KEY: '',
+        },
+      });
+      expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
+      const emitted = JSON.parse(readFileSync(join(root, 'dist/ssr/wrangler.json'), 'utf8')) as {
+        workflows?: Array<Record<string, unknown>>;
+      };
+      expect(emitted.workflows).toEqual(expect.arrayContaining(expectedWorkflows));
+      expect(emitted.workflows).toHaveLength(expectedWorkflows.length);
+      const worker = readFileSync(join(root, 'dist/ssr/index.js'), 'utf8');
+      expect(worker).toMatch(/WelcomeWorkflow/);
+      expect(worker).toMatch(/NightlyImportWorkflow/);
+      expect(
+        verifyGeneratedDeployConfig(root, {
+          accountId,
+          workerName: 'workflow-merge',
+          passthroughIdentitySnapshot: snapshotPassthroughIdentities(rootConfig),
+          expectedWorkflows,
+        }),
+      ).toEqual({ ok: true });
+      expect(
+        verifyGeneratedDeployConfig(root, {
+          accountId,
+          workerName: 'workflow-merge',
+          expectedWorkflows: [pinned],
+        }),
+      ).toMatchObject({ ok: false, reason: expect.stringContaining('workflows differ') });
+    } finally {
+      fixture.cleanup();
+    }
+  }, 120_000);
 });

@@ -378,6 +378,24 @@ describe('inferProjectBindings', () => {
     });
   });
 
+  it('infers resources used only by Workflow modules and their helpers', () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'workflows', 'order'), { recursive: true });
+    writeFileSync(
+      join(root, 'workflows', '_storage.ts'),
+      `import { createStorage } from 'void/storage';
+      export const files = (env) => createStorage(env.STORAGE);`,
+    );
+    writeFileSync(
+      join(root, 'workflows', 'order', 'summary.ts'),
+      `import { createAi } from 'void/ai';
+      export const ai = (env) => createAi(env);`,
+    );
+    expect(inferProjectBindings(root)).toMatchObject({ needsAI: true, needsR2: true });
+    writeFileSync(join(root, 'void.json'), JSON.stringify({ sourceDir: 'src' }));
+    expect(inferProjectBindings(root)).toMatchObject({ needsAI: true, needsR2: true });
+  });
+
   it('detects live from a stream module outside the default directories only when scanned', () => {
     const root = createTempRoot();
     mkdirSync(join(root, 'routes'), { recursive: true });
@@ -761,6 +779,17 @@ describe('detectFramework', () => {
           'void/durable',
         ),
       ).toThrow('void/durable is server-only');
+      expect(() =>
+        resolveId.call(
+          {
+            environment: { name: 'client' },
+            error(message: string): never {
+              throw new Error(message);
+            },
+          },
+          'void/workflows',
+        ),
+      ).toThrow('void/workflows is server-only');
     } finally {
       cwd.mockRestore();
     }
@@ -830,12 +859,63 @@ describe('detectFramework', () => {
     try {
       voidPlugin();
       const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf8');
-      expect(entry).toContain('import __voidDurableObject0 from');
+      expect(entry).toContain('import * as __voidDurableObjectModule0 from');
       expect(entry).toContain('/durable-objects/shopping-cart.ts');
+      expect(entry).toContain('const __voidDurableObject0 = __voidDurableObjectModule0.default;');
       expect(entry).toContain('__voidDurableObject0.__bind("SHOPPING_CART")');
       expect(entry).toContain(
         'export const ShoppingCartDurableObject = __voidDurableObject0.class',
       );
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  it('exports convention-based Workflows from the worker entry', () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'routes'), { recursive: true });
+    mkdirSync(join(root, 'workflows'), { recursive: true });
+    writeFileSync(join(root, 'routes', 'index.ts'), 'export const GET = () => new Response("ok");');
+    writeFileSync(
+      join(root, 'workflows', 'send-welcome.ts'),
+      'export default { class: class SendWelcome {}, __bind() {} }',
+    );
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+
+    try {
+      voidPlugin();
+      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf8');
+      expect(entry).toContain('import * as __voidWorkflowModule0 from');
+      expect(entry).toContain('/workflows/send-welcome.ts');
+      expect(entry).toContain('__voidWorkflow0.__bind("WORKFLOW_SEND_WELCOME")');
+      expect(entry).toContain('export const SendWelcomeWorkflow = __voidWorkflow0.class');
+      expect(entry).toContain(
+        'workflows: workflows/send-welcome.ts must default-export defineWorkflow() or defineWorkflowEntrypoint().',
+      );
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  it('rejects Workflow modules in framework adapter mode and on non-Cloudflare targets', () => {
+    const framework = createTempRoot();
+    mkdirSync(join(framework, 'workflows'), { recursive: true });
+    writeFileSync(
+      join(framework, 'package.json'),
+      JSON.stringify({ dependencies: { '@sveltejs/kit': '^2.0.0' } }),
+    );
+    writeFileSync(join(framework, 'workflows', 'welcome.ts'), 'export default {}');
+    const node = createTempRoot();
+    mkdirSync(join(node, 'routes'), { recursive: true });
+    mkdirSync(join(node, 'workflows'), { recursive: true });
+    writeFileSync(join(node, 'void.json'), JSON.stringify({ target: 'node' }));
+    writeFileSync(join(node, 'workflows', 'welcome.ts'), 'export default {}');
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(framework);
+
+    try {
+      expect(() => voidPlugin()).toThrow('workflows/ is currently supported in Void apps only');
+      cwd.mockReturnValue(node);
+      expect(() => voidPlugin()).toThrow('workflows/ requires target: "cloudflare"');
     } finally {
       cwd.mockRestore();
     }

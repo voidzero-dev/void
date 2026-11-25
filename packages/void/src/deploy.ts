@@ -23,6 +23,7 @@ import { readConfig, isNodeTarget } from './config.ts';
 import { collectRevalidate } from './isr-config.ts';
 import { hasEmailHandlers } from './router/email.ts';
 import { validateSsrEntry } from './ssr/entry.ts';
+import { assertNoWorkflowsForPlatform } from './workflows/platform.ts';
 
 /**
  * A disposable Cloudflare Build Output directory. Experimental: it follows Cloudflare's draft
@@ -83,6 +84,7 @@ export async function prepareDeployArtifact(
   if (isNodeTarget(config.target) || config.output === 'static') {
     throw new Error('Artifact preparation requires a Void Cloudflare Worker build.');
   }
+  assertNoWorkflowsForPlatform(root);
   let preset = resolveStaticDeployPreset(root, config);
   let analysis: Awaited<ReturnType<typeof analyzeApplication>> | undefined;
   if (!preset) {

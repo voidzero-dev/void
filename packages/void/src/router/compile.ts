@@ -1198,12 +1198,55 @@ export interface WorkerEntryOptions {
    * imported from `filePath`, bound to `bindingName`, and re-exported as
    * `className` so wrangler's `durable_objects.bindings` can find it.
    */
-  durableObjects?: Array<{
-    bindingName: string;
-    className: string;
-    filePath: string;
-    name?: string;
-  }>;
+  durableObjects?: Array<ResourceModuleEntry>;
+  /**
+   * Workflow definitions (`workflows/` directory). Each entry is imported from
+   * `filePath`, bound to `bindingName`, and re-exported as `className` so
+   * the Cloudflare `workflows` config can find it.
+   */
+  workflows?: Array<ResourceModuleEntry>;
+}
+
+type ResourceModuleCode = { imports: string; exports: string };
+
+type ResourceModuleEntry = {
+  bindingName: string;
+  className: string;
+  filePath: string;
+  /** Path relative to the convention directory, for error messages. Defaults to the file name. */
+  relativePath?: string;
+  name?: string;
+};
+
+/**
+ * Import each convention module through its namespace so a missing default
+ * export reaches the guard below instead of failing with a bundler error or a
+ * generic `Cannot read properties of undefined` at Worker startup.
+ */
+function compileResourceModules(
+  entries: ReadonlyArray<ResourceModuleEntry>,
+  options: { variable: string; directory: string; prefix: string; helpers: string },
+): ResourceModuleCode {
+  const imports = entries
+    .map(
+      ({ filePath }, index) =>
+        `import * as ${options.variable}Module${index} from ${JSON.stringify(filePath)};`,
+    )
+    .join('\n');
+  const exports = entries
+    .map(({ bindingName, className, filePath, relativePath, name }, index) => {
+      const local = `${options.variable}${index}`;
+      const file = `${options.directory}/${relativePath ?? filePath.replaceAll('\\', '/').split('/').pop()}`;
+      const message = `${options.prefix}: ${file} must default-export ${options.helpers}.`;
+      return [
+        `const ${local} = ${options.variable}Module${index}.default;`,
+        `if (typeof ${local}?.__bind !== "function") { throw new Error(${JSON.stringify(message)}); }`,
+        `${local}.__bind(${JSON.stringify(bindingName)}${name !== undefined ? `, ${JSON.stringify(name)}` : ''});`,
+        `export const ${className} = ${local}.class;`,
+      ].join('\n');
+    })
+    .join('\n');
+  return { imports, exports };
 }
 
 /**
@@ -1239,6 +1282,7 @@ export function compileWorkerEntry(options: WorkerEntryOptions = {}): string {
     isr,
     notFound = 'none',
     durableObjects = [],
+    workflows = [],
   } = options;
   const remotePath = remote?.remotePath;
   const remoteBindingNames = JSON.stringify(remote?.bindingNames);
@@ -1281,17 +1325,23 @@ export function compileWorkerEntry(options: WorkerEntryOptions = {}): string {
       ? `export { VoidLiveStreamDurableObject };\n__setLiveBindingName(${JSON.stringify(liveBindingName)});\n${liveDevCall}`
       : `export { VoidLiveStreamDurableObject as ${liveClassName} };\n__setLiveBindingName(${JSON.stringify(liveBindingName)});\n${liveDevCall}`
     : '';
-  const durableObjectImports = durableObjects
-    .map(
-      ({ filePath }, index) =>
-        `import __voidDurableObject${index} from ${JSON.stringify(filePath)};`,
-    )
+  const durableObjectModules = compileResourceModules(durableObjects, {
+    variable: '__voidDurableObject',
+    directory: 'durable-objects',
+    prefix: 'durable',
+    helpers: 'defineDurableState() or defineDurableObject()',
+  });
+  const workflowModules = compileResourceModules(workflows, {
+    variable: '__voidWorkflow',
+    directory: 'workflows',
+    prefix: 'workflows',
+    helpers: 'defineWorkflow() or defineWorkflowEntrypoint()',
+  });
+  const resourceModuleImports = [durableObjectModules.imports, workflowModules.imports]
+    .filter(Boolean)
     .join('\n');
-  const durableObjectExports = durableObjects
-    .map(
-      ({ bindingName, className, name }, index) =>
-        `__voidDurableObject${index}.__bind(${JSON.stringify(bindingName)}${name !== undefined ? `, ${JSON.stringify(name)}` : ''});\nexport const ${className} = __voidDurableObject${index}.class;`,
-    )
+  const resourceModuleExports = [durableObjectModules.exports, workflowModules.exports]
+    .filter(Boolean)
     .join('\n');
   const runtimeEnvImport = `import { withRuntimeEnv } from ${JSON.stringify(runtimeEnvPath)};\n`;
   const remoteImport = remote
@@ -1431,7 +1481,7 @@ ${envValidateCall}${remoteEnvSwap}${isrDeploymentStamp}  const userEnv = __filte
 `
     : '';
   return `${sandboxImport}${entryImport}${liveRuntimeImport}import app, { scheduled, __voidCollectPrerenderPaths, __voidRenderStaticNotFound, __voidHandleInternalRoute, __withRawEnv${queueImport}${emailImport}${webSocketClasses.length > 0 ? `, ${webSocketClasses.join(', ')}` : ''}${liveRouteImport} } from 'virtual:void-routes';
-${durableObjectImports}\n${runtimeEnvImport}${emailProxyImport}${envSchemaImport}${remoteImport}${isrImport}${filterBindingsHelper}${assetHelper}
+${resourceModuleImports}\n${runtimeEnvImport}${emailProxyImport}${envSchemaImport}${remoteImport}${isrImport}${filterBindingsHelper}${assetHelper}
 ${fetchDeclaration}
 ${scheduledHandler}
 ${emailHandler}
@@ -1439,7 +1489,7 @@ ${emailReceiptHandler}
 ${queueFunction}${webSocketClasses.map((name) => `export { ${name} };`).join('\n')}
 ${liveExport}
 ${sandboxExport}
-${durableObjectExports}
+${resourceModuleExports}
 ${entryClass}`;
 }
 

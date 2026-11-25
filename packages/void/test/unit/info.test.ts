@@ -92,6 +92,37 @@ describe('void info', () => {
     expect(existsSync(join(root, '.void'))).toBe(false);
   });
 
+  it('reports Workflow identities with inferred and explicit names', () => {
+    const root = project();
+    write(root, 'workflows/send-welcome.ts', 'export default defineWorkflow({ async run() {} });');
+    write(
+      root,
+      'workflows/import-v2.ts',
+      `import { defineWorkflowEntrypoint } from 'void/workflows';
+export default defineWorkflowEntrypoint({ name: 'import', class: Importer });`,
+    );
+    const info = getProjectInfo(root);
+    expect(info.resources).toEqual([
+      {
+        file: 'workflows/import-v2.ts',
+        definition: 'defineWorkflow',
+        name: 'import',
+        nameSource: 'explicit',
+        className: 'ImportWorkflow',
+        bindingName: 'WORKFLOW_IMPORT',
+      },
+      {
+        file: 'workflows/send-welcome.ts',
+        definition: 'defineWorkflow',
+        name: 'send-welcome',
+        nameSource: 'inferred',
+        className: 'SendWelcomeWorkflow',
+        bindingName: 'WORKFLOW_SEND_WELCOME',
+      },
+    ]);
+    expect(formatProjectInfo(info)).toContain("add this to 'defineWorkflow':");
+  });
+
   it('keeps explicit names visible after moving code and respects configured source paths', () => {
     const root = project();
     write(root, 'void.config.ts', "export default { sourceDir: 'src' };");

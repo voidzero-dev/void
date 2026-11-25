@@ -20,6 +20,7 @@ import {
   SANDBOX_MIGRATION_TAG,
   hasSandboxSqliteMigration,
 } from '../sandbox/config.ts';
+import { planWorkflowAdditions, workflowConfigEntries } from '../workflows/config.ts';
 import type { BindingIdentitySnapshot } from './deploy-types.ts';
 import { resolveCloudflareOperationArgv } from './preset.ts';
 import type { DesiredResourceSet, ProvisionDriftEntry } from './provision.ts';
@@ -125,6 +126,7 @@ export const DEPLOY_PASSTHROUGH_EXCLUDE_FIELDS: ReadonlySet<string> = new Set<st
   // emitted by Void
   'ai',
   'durable_objects',
+  'workflows',
   'assets',
   'vars',
   // bundled content and self-metadata grant no external resource
@@ -282,6 +284,22 @@ export function normalizeContainerImagePaths(container: unknown, base: string): 
 }
 
 /** Reconstruct the Durable Object state emitted after the pre-build root config is synced. */
+/**
+ * The exact `workflows` entries the build should emit: the root config's, plus one
+ * per `workflows/` module that the root config does not already bind.
+ */
+export function reconstructExpectedWorkflows(
+  config: VoidConfig,
+  root: string,
+  rootConfig: Record<string, unknown>,
+  workerName: string,
+  analysis?: ApplicationAnalysis,
+): Array<Record<string, unknown>> {
+  const configured = workflowConfigEntries(rootConfig.workflows);
+  const modules = (analysis ?? analyzeApplicationSync(root, { config })).workflows;
+  return [...configured, ...planWorkflowAdditions(configured, modules, workerName)];
+}
+
 export function reconstructExpectedDurableObjectState(
   config: VoidConfig,
   root: string,

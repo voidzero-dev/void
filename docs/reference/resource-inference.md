@@ -20,6 +20,7 @@ Void automatically detects which Cloudflare resources your project uses by scann
 | `QUEUE_*`        | `Queue`                    | `import { queues } from "void/queues"`                                                                                                                           | `env.QUEUE_*`                                                                  |
 | `VOID_LIVE`      | `DurableObjectNamespace`   | `import { defineLiveStream } from "void/live"`                                                                                                                   | n/a                                                                            |
 | filename-derived | `DurableObjectNamespace`   | A default-exported `defineDurableState()` module in `durable-objects/`                                                                                           | n/a                                                                            |
+| `WORKFLOW_*`     | `Workflow`                 | A default-exported `defineWorkflow()` or `defineWorkflowEntrypoint()` module in `workflows/`                                                                     | n/a                                                                            |
 
 Auth detection also triggers when importing the `auth` specifier from `void/client` or a framework-specific client subpath such as `void/client/react` (but not when importing only `fetch`).
 
@@ -28,6 +29,8 @@ Static bracket access such as `c.env['KV']` and destructured properties such as
 use [explicit binding overrides](#explicit-binding-overrides).
 
 Durable state is inferred from files in `durable-objects/`. For example, `durable-objects/shopping-cart.ts` creates the `SHOPPING_CART` binding, exports `ShoppingCartDurableObject`, and records its migration. See [Durable State](../guide/durable-state.md).
+
+Workflows are inferred from files in `workflows/`, including subdirectories; paths with a `_`-prefixed segment are ignored. For example, `workflows/send-welcome.ts` creates the `WORKFLOW_SEND_WELCOME` binding and exports `SendWelcomeWorkflow`. See [Workflows](../guide/workflows.md).
 
 ## Scanned Directories
 
@@ -68,6 +71,7 @@ Regardless of mode, these are always checked:
 - **SSR entry** such as `src/main.ssr.ts`, for SSR apps that access bindings during rendering
 - **Application source** in `src/` or your configured `sourceDir`, including resource and auth imports
 - **`durable-objects/`**, which is scanned for typed Durable Object state modules in native Void apps
+- **`workflows/`**, which is scanned for Workflow modules and the resources they use in native Void apps
 
 ## Custom Scan Directories
 

@@ -42,6 +42,12 @@ export const CLOUDFLARE_DEPLOY_BUILD_ENV = 'VOID_CLOUDFLARE_DEPLOY_BUILD';
 export const CLOUDFLARE_QUEUE_NAMES_BUILD_ENV = 'VOID_CLOUDFLARE_QUEUE_NAMES';
 
 /**
+ * The Worker name `void deploy --platform cloudflare` deploys to. Set only for
+ * its Vite build, which prefixes account-scoped Workflow names with it.
+ */
+export const CLOUDFLARE_WORKER_NAME_BUILD_ENV = 'VOID_CLOUDFLARE_WORKER_NAME';
+
+/**
  * Find legacy Vite dotenv variants. Void intentionally supports only `.env`;
  * production configuration is project-scoped remote state instead of a file.
  */

@@ -58,6 +58,7 @@ export const DEFAULT_SCAN_DIRS = [
   'crons',
   'email',
   'durable-objects',
+  'workflows',
   'src',
 ] as const;
 
@@ -152,7 +153,8 @@ export function inferProjectBindings(
 ): InferredBindings {
   const paths = options?.paths ?? readProjectPaths(root);
   const dirs =
-    scanDirs ?? (paths.sourceDir ? [paths.sourceDir, 'durable-objects'] : DEFAULT_SCAN_DIRS);
+    scanDirs ??
+    (paths.sourceDir ? [paths.sourceDir, 'durable-objects', 'workflows'] : DEFAULT_SCAN_DIRS);
   const allBindings: Array<InferredBindings> = [];
   const scannedFiles = new Set<string>();
   const routesPrefix = `${toSlash(paths.routesDir).replace(/\/$/, '')}/`;

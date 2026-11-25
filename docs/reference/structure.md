@@ -13,6 +13,7 @@ const items = [
   { name: "queues/", description: "Async queue consumers", link: "#queues" },
   { name: "email/", description: "Inbound email handlers", link: "#email" },
   { name: "durable-objects/", description: "Durable State modules", link: "#durable-objects" },
+  { name: "workflows/", description: "Durable multi-step Workflows", link: "#workflows" },
   { name: "src/", description: "Shared app code", link: "#src" },
   { name: "public/", description: "Static assets (served as-is)", link: "#public" },
   { name: ".void/", description: "Auto-generated (gitignored)", link: "#void" },
@@ -125,6 +126,10 @@ Generate schema with `void gen model` or write it by hand. Generate migrations w
 ## `durable-objects/`
 
 [Durable State](/guide/durable-state) modules. Each file default-exports a `defineDurableState()` definition.
+
+## `workflows/`
+
+[Workflow](/guide/workflows) modules. Each file default-exports a `defineWorkflow()` or `defineWorkflowEntrypoint()` definition.
 
 ## `src/`
 

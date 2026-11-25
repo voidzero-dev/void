@@ -857,9 +857,59 @@ describe('compileWorkerEntry', () => {
       ],
     });
 
-    expect(code).toContain('import __voidDurableObject0 from "/app/durable-objects/counter.ts";');
+    expect(code).toContain(
+      'import * as __voidDurableObjectModule0 from "/app/durable-objects/counter.ts";',
+    );
     expect(code).toContain('__voidDurableObject0.__bind("COUNTER");');
     expect(code).toContain('export const CounterDurableObject = __voidDurableObject0.class;');
+  });
+
+  it('re-exports Workflow modules as worker classes with their pinned names', () => {
+    const code = compileWorkerEntry({
+      workflows: [
+        {
+          bindingName: 'WORKFLOW_ONBOARDING',
+          className: 'OnboardingWorkflow',
+          filePath: '/app/workflows/onboarding.ts',
+          name: 'onboarding',
+        },
+      ],
+    });
+
+    expect(code).toContain(
+      'import * as __voidWorkflowModule0 from "/app/workflows/onboarding.ts";',
+    );
+    expect(code).toContain('__voidWorkflow0.__bind("WORKFLOW_ONBOARDING", "onboarding");');
+    expect(code).toContain('export const OnboardingWorkflow = __voidWorkflow0.class;');
+  });
+
+  it('guards convention modules that do not default-export a definition', () => {
+    const code = compileWorkerEntry({
+      durableObjects: [
+        {
+          bindingName: 'COUNTER',
+          className: 'CounterDurableObject',
+          filePath: '/app/durable-objects/counter.ts',
+        },
+      ],
+      workflows: [
+        {
+          bindingName: 'WORKFLOW_ONBOARDING',
+          className: 'OnboardingWorkflow',
+          filePath: '/app/workflows/onboarding.ts',
+        },
+      ],
+    });
+
+    expect(code).toContain(
+      'if (typeof __voidDurableObject0?.__bind !== "function") { throw new Error("durable: durable-objects/counter.ts must default-export defineDurableState() or defineDurableObject()."); }',
+    );
+    expect(code).toContain(
+      'if (typeof __voidWorkflow0?.__bind !== "function") { throw new Error("workflows: workflows/onboarding.ts must default-export defineWorkflow() or defineWorkflowEntrypoint()."); }',
+    );
+    expect(code.indexOf('typeof __voidWorkflow0?.__bind')).toBeLessThan(
+      code.indexOf('__voidWorkflow0.__bind('),
+    );
   });
 
   it('re-exports the live Durable Object class when enabled', () => {
