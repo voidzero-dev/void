@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { builtinModules, createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'pathslash';
+import { convertPathToPattern } from 'tinyglobby';
 import type { Plugin } from 'vite';
 import { ensureWranglerCompat } from './cli/wrangler.ts';
 import type { WranglerCompat } from './cli/wrangler.ts';
@@ -201,11 +202,29 @@ export function createServerRuntimeOptimizerPlugin(
   dialect: DatabaseDialect,
   readCompat: () => WranglerCompat,
   ssrEntry: string | null = null,
+  nativeWorker?: { root: string; scan: () => Promise<Array<string>> },
 ): Plugin {
   let workerdNodeBuiltins: Promise<Set<string>> | undefined;
+  let scanNativeWorker = false;
+  let hasExplicitWorkerEntries = false;
   const serverRuntimeOptimizerPlugin: Plugin = {
     name: 'void:server-runtime-optimizer',
-    configEnvironment(name, environment) {
+    config: {
+      order: 'pre',
+      handler(config, { command, isPreview }) {
+        scanNativeWorker = nativeWorker !== undefined && command === 'serve' && !isPreview;
+        if (!scanNativeWorker) {
+          return;
+        }
+        const optimizer = config.environments?.[DEFAULT_WORKER_ENVIRONMENT_NAME]?.optimizeDeps;
+        hasExplicitWorkerEntries = optimizer?.entries !== undefined;
+        if (typeof optimizer?.entries === 'string') {
+          // Cloudflare's scalar default would replace another scalar in the config merge.
+          optimizer.entries = [optimizer.entries];
+        }
+      },
+    },
+    async configEnvironment(name, environment) {
       if (name === 'client') {
         return;
       }
@@ -215,6 +234,18 @@ export function createServerRuntimeOptimizerPlugin(
       // CommonJS themselves, and an include there turns on SSR prebundling nobody asked for.
       if (!environment.resolve?.conditions?.includes('workerd')) {
         return { optimizeDeps: { exclude: ['void'] } };
+      }
+      const entries = ssrEntry ? [ssrEntry] : [];
+      if (name === DEFAULT_WORKER_ENVIRONMENT_NAME && scanNativeWorker && nativeWorker) {
+        const optimizer = (environment.optimizeDeps ??= {});
+        const generatedEntry = join(nativeWorker.root, '.void/entry.ts');
+        const configured = optimizer.entries ?? generatedEntry;
+        optimizer.entries = (Array.isArray(configured) ? configured : [configured]).map((entry) =>
+          entry === generatedEntry ? convertPathToPattern(entry) : entry,
+        );
+        if (!hasExplicitWorkerEntries) {
+          entries.push(...(await nativeWorker.scan()));
+        }
       }
       return {
         optimizeDeps: {
@@ -226,7 +257,7 @@ export function createServerRuntimeOptimizerPlugin(
           // The Worker reaches the SSR entry through generated modules, which the dependency
           // scan cannot follow. Unscanned, the entry's dependencies are found during the first
           // request, and the Worker reloads once they are prebundled.
-          ...(ssrEntry ? { entries: [ssrEntry] } : {}),
+          ...(entries.length > 0 ? { entries: entries.map(convertPathToPattern) } : {}),
           // Excluding void also skips converting its CommonJS dependencies, which workerd cannot
           // evaluate: an installed void/email fails with "exports is not defined".
           //

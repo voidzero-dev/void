@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'pathslash';
 import pc from 'picocolors';
 import type { Plugin } from 'vite';
-import { analyzeApplicationSync } from './application-analysis.ts';
+import { analyzeApplicationSync, getNativeWorkerSourceFiles } from './application-analysis.ts';
 import type { ApplicationAnalysis } from './application-analysis.ts';
 import { applyBindingOverrides } from './application-features.ts';
 import {
@@ -245,6 +245,9 @@ export function voidPlugin(options?: {
     dialect,
     () => readWranglerCompat(root, config),
     framework ? null : getSsrServerEntryPath(root),
+    detected || isNodeTarget(config.target)
+      ? undefined
+      : { root, scan: () => getNativeWorkerSourceFiles(application) },
   );
   // Scan queues/websocket routes early so both framework-mode and default-mode
   // branches can safely close over these bindings.

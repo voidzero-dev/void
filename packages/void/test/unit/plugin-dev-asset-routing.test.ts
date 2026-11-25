@@ -273,7 +273,7 @@ describe('voidPlugin dev asset routing', () => {
       await expect(
         resolveRuntimeOptimizerConfig(createRoot(), name, environment),
         `${createRoot.name} ${name}`,
-      ).resolves.toEqual(expected);
+      ).resolves.toMatchObject(expected);
     }
   });
 
@@ -317,7 +317,9 @@ describe('voidPlugin dev asset routing', () => {
 
     await expect(
       resolveRuntimeOptimizerConfig(root, 'void_worker', workerd),
-    ).resolves.toMatchObject({ optimizeDeps: { entries: [normalizePath(ssrEntry)] } });
+    ).resolves.toMatchObject({
+      optimizeDeps: { entries: expect.arrayContaining([normalizePath(ssrEntry)]) },
+    });
   });
 
   it('leaves client dependency optimization unchanged', async () => {
