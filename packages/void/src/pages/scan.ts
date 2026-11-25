@@ -14,6 +14,7 @@ import { asAstProgram, isIdentifier, isLiteral, moduleExportName } from '../shar
 import type {
   AstExportNamedDeclaration,
   AstFunctionDeclaration,
+  AstLiteral,
   AstNode,
   AstProgram,
   AstVariableDeclaration,
@@ -168,7 +169,7 @@ const TRANSPARENT_EXPRESSION_TYPES = new Set([
   'TSTypeAssertion',
 ]);
 
-function readLiteral(node: AstNode | null | undefined): unknown {
+function readLiteral(node: AstNode | null | undefined): AstLiteral['value'] | undefined {
   while (node && TRANSPARENT_EXPRESSION_TYPES.has(node.type)) {
     node = node.expression as AstNode | undefined;
   }
