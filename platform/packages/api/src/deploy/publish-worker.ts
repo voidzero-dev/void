@@ -79,7 +79,7 @@ export async function publishWorkerDeployment(input: {
   readonly snapshotTrackedQueueConsumer: (queueId: string, scriptName: string) => Promise<void>;
   readonly putTrackedRouting: (key: string, value: string) => Promise<void>;
   readonly workerName: string;
-  readonly previousManifest: DeployManifest | null;
+  readonly previousManifest: Pick<DeployManifest, 'queues'> | null;
   readonly deleteTrackedRouting: (key: string) => Promise<void>;
   logger: DeployLogger;
   readonly project: Project;

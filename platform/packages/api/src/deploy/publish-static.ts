@@ -56,7 +56,7 @@ export async function publishStaticDeployment(input: {
       currentOwner: Awaited<ReturnType<typeof requireActiveDeployAccess>>['owner'],
     ) => Promise<T>,
   ) => Promise<T>;
-  readonly previousManifest: DeployManifest | null;
+  readonly previousManifest: Pick<DeployManifest, 'queues'> | null;
   readonly snapshotTrackedQueueConsumer: (queueId: string, scriptName: string) => Promise<void>;
   readonly deleteTrackedRouting: (key: string) => Promise<void>;
   readonly snapshotCronState: () => Promise<void>;

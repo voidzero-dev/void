@@ -62,6 +62,7 @@ import {
   ACTIVE_BUILD_STATUSES,
 } from '../db.ts';
 import { databaseTimestampMs } from '../deploy/recovery.ts';
+import { parseAssetManifest } from '../deploy/serving-assets.ts';
 import { isDevBypass } from '../env.ts';
 import type { ApiEnv } from '../env.ts';
 import { validateSubmittedExecutionPlans } from '../migrations/execution-plan.ts';
@@ -1239,15 +1240,11 @@ const app = new Hono<ApiEnv>()
           const isStaticDeployment = targetType === 'static' || targetType === 'spa';
           let targetHasAssets = false;
           if (target.asset_hashes) {
-            try {
-              const assetHashes = JSON.parse(target.asset_hashes) as unknown;
-              targetHasAssets =
-                typeof assetHashes === 'object' &&
-                assetHashes !== null &&
-                Object.keys(assetHashes).length > 0;
-            } catch {
+            const assetManifest = parseAssetManifest(target.asset_hashes);
+            if (!assetManifest) {
               throw new RollbackError(400, 'target deployment has invalid asset metadata');
             }
+            targetHasAssets = Object.keys(assetManifest).length > 0;
           }
 
           let routingJson: string;

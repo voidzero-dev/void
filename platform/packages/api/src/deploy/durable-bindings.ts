@@ -158,7 +158,7 @@ type EnrichedDurableManifest = { manifest: DeployManifest; changed: boolean; nex
 
 export function enrichWebSocketManifest(
   manifest: DeployManifest,
-  previousManifest: DeployManifest | null,
+  previousManifest: Pick<DeployManifest, 'websocket'> | null,
   currentVersion: number,
 ): EnrichedDurableManifest {
   const previousMigrations = previousManifest?.websocket?.migrations ?? [];
@@ -205,7 +205,7 @@ export function enrichWebSocketManifest(
 
 export function enrichLiveManifest(
   manifest: DeployManifest,
-  previousManifest: DeployManifest | null,
+  previousManifest: Pick<DeployManifest, 'live'> | null,
   currentVersion: number,
 ): EnrichedDurableManifest {
   if (!manifest.live) {

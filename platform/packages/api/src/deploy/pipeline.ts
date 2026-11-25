@@ -64,10 +64,11 @@ import {
   assertDeploymentCanProceed,
 } from './guards.ts';
 import { migrateDeploymentWorker } from './migrate-worker.ts';
+import { readPreviousDeployManifest } from './persisted-manifest.ts';
 import { publishStaticDeployment } from './publish-static.ts';
 import { publishWorkerDeployment } from './publish-worker.ts';
 import { requireActiveDeployAccess, cutoverIntentKey, parseCutoverMarker } from './recovery.ts';
-import { parseManifest, equalAssetManifests, parseAssetManifest } from './serving-assets.ts';
+import { equalAssetManifests, parseAssetManifest } from './serving-assets.ts';
 import {
   ASSET_GC_MAX_HASHES_PER_DEPLOY,
   ASSET_GC_LOCK_BATCH,
@@ -674,7 +675,7 @@ export async function runDeploymentPipeline(input: {
       currentStep = 'validating';
       markPhase('manifest_validate');
 
-      const previousManifest = parseManifest(currentLiveDeployment?.manifest);
+      const previousManifest = readPreviousDeployManifest(currentLiveDeployment?.manifest);
       const websocketManifestResult = enrichWebSocketManifest(
         incomingManifest,
         previousManifest,
