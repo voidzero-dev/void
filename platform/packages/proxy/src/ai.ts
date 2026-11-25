@@ -7,9 +7,9 @@ import { asRecord, asString } from './body.ts';
 import type { ProxyEnv } from './types.ts';
 
 const DEFAULT_GATEWAY_ID = 'void';
-const PROVIDER_AUTH_DEFAULTS: Record<string, { header: string; prefix: string }> = {
-  'google-ai-studio': { header: 'x-goog-api-key', prefix: '' },
-};
+const PROVIDER_AUTH_DEFAULTS = new Map([
+  ['google-ai-studio', { header: 'x-goog-api-key', prefix: '' }],
+]);
 const VOID_FILE_MARKER = '__voidFile';
 
 type SerializedFileInput = Readonly<{
@@ -39,7 +39,7 @@ function isBinaryView(value: unknown): value is ArrayBufferView {
   return ArrayBuffer.isView(value);
 }
 
-function isSerializedFileInput(value: unknown): value is SerializedFileInput {
+function isSerializedFileInput(value: string | SerializedFileInput): value is SerializedFileInput {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -121,10 +121,12 @@ function appendSerializedFormValue(
   form.append(name, value);
 }
 
-function providerRequestBody(body: SerializedProviderBody): {
+interface ProviderRequestBody {
   body?: BodyInit;
   contentType?: string;
-} {
+}
+
+function providerRequestBody(body: SerializedProviderBody): ProviderRequestBody {
   if (body.type === 'none') {
     return {};
   }
@@ -162,7 +164,7 @@ function headersFromRecord(value: unknown): Headers {
 }
 
 function providerAuthDefaults(provider: string): { header: string; prefix: string } {
-  return PROVIDER_AUTH_DEFAULTS[provider] ?? { header: 'authorization', prefix: 'Bearer ' };
+  return PROVIDER_AUTH_DEFAULTS.get(provider) ?? { header: 'authorization', prefix: 'Bearer ' };
 }
 
 // AI usage is counted from the platform gateway's analytics by their
@@ -200,6 +202,17 @@ function withoutKeys(
   return Object.fromEntries(Object.entries(record).filter(([key]) => !drop(key)));
 }
 
+interface GatewayOptions {
+  [key: string]: unknown;
+  gateway: {
+    id: string;
+    metadata: { projectId: string };
+    collectLog?: boolean;
+  };
+  extraHeaders?: Record<string, unknown>;
+  sessionOptions?: Record<string, unknown>;
+}
+
 /** Options for an AI binding call that goes through the project-tagged platform gateway. */
 function gatewayOptions(
   value: unknown,
@@ -207,7 +220,7 @@ function gatewayOptions(
   usageTag: string,
   gatewayId: string,
   loggingMode: AiLoggingMode,
-): Record<string, unknown> {
+): GatewayOptions {
   // JSON cannot carry cancellation state. Never pass a serialized signal to
   // a native binding, including when an older SDK still sends the field.
   const options = withoutKeys(asRecord(value), (key) => key === 'signal');
@@ -217,7 +230,7 @@ function gatewayOptions(
   }
 
   const logging = bindingAiLogging(loggingMode);
-  const result: Record<string, unknown> = {
+  const result: GatewayOptions = {
     ...options,
     gateway: {
       ...gateway,

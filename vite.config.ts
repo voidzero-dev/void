@@ -434,8 +434,10 @@ const config = defineConfig({
       {
         files: [
           'packages/void/src/{codegen,pages,router,runtime,shared}/**/*',
-          'packages/void/src/cli/deploy-{artifact-validation,binding-snapshot,helpers}.ts',
+          'packages/void/src/cli/{cf-*,deploy-*}.ts',
+          'packages/void/src/cli/cf-config-convert/triggers.ts',
           'platform/packages/api/src/**/*',
+          'platform/packages/proxy/src/ai.ts',
         ],
         rules: { 'quality/no-known-value-widening': 'error' },
       },

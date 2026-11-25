@@ -24,14 +24,11 @@ function empty(value: unknown): boolean {
   );
 }
 
-function normalizeQueueConcurrency(raw: JsonObject): JsonObject {
-  const queues = record(raw.queues);
-  if (!Array.isArray(queues?.consumers)) {
-    return { ...raw };
-  }
-  return {
-    ...raw,
-    queues: {
+function normalizeQueueConcurrency(raw: JsonObject) {
+  const result = { ...raw };
+  const queues = record(result.queues);
+  if (Array.isArray(queues?.consumers)) {
+    result.queues = {
       ...queues,
       consumers: queues.consumers.map((value: unknown) => {
         const consumer = record(value);
@@ -42,8 +39,9 @@ function normalizeQueueConcurrency(raw: JsonObject): JsonObject {
         const { max_concurrency: _automatic, ...rest } = consumer;
         return rest;
       }),
-    },
-  };
+    };
+  }
+  return result;
 }
 
 /** Remove build-only fields and settings translated into cf's typed config below. */
@@ -230,15 +228,21 @@ function assertHandledFollowUps(followUps: Array<MigrationFollowUp>): void {
   }
 }
 
-function durableObjectExports(raw: JsonObject): JsonObject {
+type DurableObjectExport = { type: 'durable-object' } & (
+  | { storage: 'legacy-kv' | 'sqlite' }
+  | { state: 'renamed'; renamedTo: string }
+  | { state: 'deleted' }
+);
+
+function durableObjectExports(raw: JsonObject) {
+  const exports: Record<string, DurableObjectExport> = {};
   const migrations = raw.migrations;
   if (migrations === undefined || (Array.isArray(migrations) && migrations.length === 0)) {
-    return {};
+    return exports;
   }
   if (!Array.isArray(migrations) || !migrations.every((entry) => record(entry))) {
     throw new Error('Invalid Durable Object migrations in the built Cloudflare config.');
   }
-  const exports: JsonObject = {};
   for (const migration of migrations as Array<JsonObject>) {
     const known = new Set([
       'tag',
@@ -370,7 +374,7 @@ function containersFromWrangler(raw: JsonObject, exports: JsonObject): Array<Jso
   });
 }
 
-// oxlint-disable-next-line quality/no-chained-type-assertions -- The config converter supplies the arguments for the dynamically selected Cloudflare helper.
+// oxlint-disable-next-line quality/no-chained-type-assertions, quality/no-known-value-widening -- The config converter supplies the arguments for the dynamically selected Cloudflare helper.
 const configHelpers = { bindings, exports: workerExports, triggers } as unknown as Record<
   string,
   Record<string, (...args: Array<unknown>) => unknown>
@@ -399,14 +403,16 @@ function outputValue(value: OutputValue): unknown {
   );
 }
 
+interface WranglerTranslation {
+  config: unknown;
+  followUps: Array<MigrationFollowUp>;
+}
+
 /**
  * Translate Wrangler-format settings to a parsed cf configuration and the follow-ups that the
  * converter could not translate. `mode` selects a Wrangler environment by name.
  */
-export function translateWranglerConfig(
-  raw: JsonObject,
-  mode: string,
-): { config: unknown; followUps: Array<MigrationFollowUp> } {
+export function translateWranglerConfig(raw: JsonObject, mode: string): WranglerTranslation {
   // Settings are JSON: a key without a value is absent. The copy also keeps the converter from
   // sharing objects with the caller.
   // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the value to the JSON configuration written to disk.

@@ -93,15 +93,15 @@ async function readPackageDependencies(directory: string) {
   }
 }
 
-const moduleContentTypes: Record<string, string> = {
-  esm: 'application/javascript+module',
-  cjs: 'application/javascript',
-  wasm: 'application/wasm',
-  text: 'text/plain',
-  data: 'application/octet-stream',
-  json: 'text/plain',
-  sourcemap: 'application/source-map',
-};
+const moduleContentTypes = new Map([
+  ['esm', 'application/javascript+module'],
+  ['cjs', 'application/javascript'],
+  ['wasm', 'application/wasm'],
+  ['text', 'text/plain'],
+  ['data', 'application/octet-stream'],
+  ['json', 'text/plain'],
+  ['sourcemap', 'application/source-map'],
+]);
 
 function bindingsFromOutput(
   env: Json,
@@ -712,7 +712,7 @@ function containerPlansFromOutput(
     ) {
       throw new Error(`Cloudflare Container ${config.name} has an unsupported setting.`);
     }
-    const settings: Json = {
+    const settings = {
       ...(configuration || config.ssh || config.authorizedKeys
         ? {
             configuration: {
@@ -740,7 +740,7 @@ function containerPlansFromOutput(
             },
           }
         : {}),
-    };
+    } satisfies Json;
     plans.push({ name: config.name, className, images: config.images ?? {}, settings });
   }
   for (const [name, raw] of Object.entries(exports ?? {})) {
@@ -1239,7 +1239,7 @@ export async function uploadPinnedCloudflareVersion(options: {
   }
   const modules: Array<Json> = [];
   for (const [name, entry] of Object.entries(config.manifest.modules)) {
-    const type = moduleContentTypes[entry.type];
+    const type = moduleContentTypes.get(entry.type);
     if (!type || name.startsWith('/') || name.split('/').includes('..')) {
       throw new Error(`Cloudflare Worker module ${name} cannot be uploaded with pinned secrets.`);
     }
