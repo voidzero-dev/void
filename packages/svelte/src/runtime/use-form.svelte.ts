@@ -1,6 +1,8 @@
 import { getContext, untrack } from 'svelte';
 import {
+  changedFormErrorKeys,
   cloneFormValue,
+  formErrorKeysWithin,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
@@ -53,33 +55,32 @@ export function useForm(
   let latestRequestId = 0;
   let dataSnapshot = cloneFormValue(initialDefaults);
 
+  function clearEditedErrors(current: Record<string, unknown>) {
+    for (const key of changedFormErrorKeys(errors, dataSnapshot, current)) {
+      delete errors[key];
+    }
+    dataSnapshot = current;
+  }
+
   $effect(() => {
     // Read nested values even after an earlier edit, without subscribing to errors.
     const current = cloneFormValue(data);
-    untrack(() => {
-      for (const key of new Set([...Object.keys(dataSnapshot), ...Object.keys(current)])) {
-        if (!isEqualFormValue(current[key], dataSnapshot[key])) {
-          delete errors[key];
-        }
-      }
-      dataSnapshot = current;
-    });
+    untrack(() => clearEditedErrors(current));
   });
 
-  // An input handler may validate its new value before the change effect runs.
-  function snapshotField(field: string) {
-    untrack(() => {
-      dataSnapshot = { ...dataSnapshot, [field]: cloneFormValue(data[field]) };
-    });
+  // An input handler can validate before the effect runs. Clear older errors for
+  // pending edits before writing the new one.
+  function clearPendingEditErrors() {
+    untrack(() => clearEditedErrors(cloneFormValue(data)));
   }
 
-  // Handlers may also write `form.errors.field` directly, which needs the same snapshot.
+  // Handlers may also write `form.errors.field` directly.
   // The view is derived because setError and clearErrors replace `errors`.
   const errorsView = $derived(
     new Proxy(errors, {
       set(target, field, message) {
         if (typeof field === 'string') {
-          snapshotField(field);
+          clearPendingEditErrors();
         }
         return Reflect.set(target, field, message);
       },
@@ -107,14 +108,14 @@ export function useForm(
     if (fields.length === 0) {
       errors = {};
     } else {
-      for (const field of fields) {
-        delete errors[field];
+      for (const key of formErrorKeysWithin(errors, fields, data)) {
+        delete errors[key];
       }
     }
   }
 
   function setError(field: string, message: string) {
-    snapshotField(field);
+    clearPendingEditErrors();
     // oxlint-disable-next-line quality/no-known-value-widening -- Field names come from dynamic form data.
     errors = { ...errors, [field]: message };
   }
@@ -159,9 +160,9 @@ export function useForm(
           ? getValidationErrors(result.error.body)
           : null;
         if (validationErrors) {
-          for (const [field, message] of Object.entries(validationErrors)) {
-            setError(field, message);
-          }
+          clearPendingEditErrors();
+          // oxlint-disable-next-line quality/no-known-value-widening -- Error keys come from the server response.
+          errors = { ...errors, ...validationErrors };
         } else {
           error = result.error;
         }
