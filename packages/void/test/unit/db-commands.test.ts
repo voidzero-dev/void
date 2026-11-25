@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 
 const mockExecFileSync = vi.hoisted(() =>
   vi.fn<(...args: Array<unknown>) => string | Buffer | undefined>(),
@@ -830,15 +831,24 @@ describe('void db execute', () => {
   });
 
   describe('SQLite --json', () => {
-    // With --json, console.log writes the results and nothing else, not even a blank line.
+    // The command puts a write of its own in stdout's place, so the spy is kept here.
+    let stdoutWrite: MockInstance<typeof process.stdout.write>;
+    beforeEach(() => {
+      stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    });
+
+    // With --json, stdout receives the results in one write and nothing else, not even a blank
+    // line.
     function jsonOutput(): Array<{
       results: Array<Record<string, unknown>>;
       success: boolean;
       meta: Record<string, unknown>;
     }> {
-      const calls = vi.mocked(console.log).mock.calls;
-      expect(calls).toHaveLength(1);
-      return JSON.parse(String(calls[0][0])) as ReturnType<typeof jsonOutput>;
+      const writes = stdoutWrite.mock.calls;
+      expect(writes).toHaveLength(1);
+      const [[text]] = writes;
+      expect(String(text).endsWith(']\n')).toBe(true);
+      return JSON.parse(String(text)) as ReturnType<typeof jsonOutput>;
     }
 
     async function readItems(root: string): Promise<Array<unknown>> {
@@ -876,6 +886,50 @@ describe('void db execute', () => {
       expect(mockLog.info).not.toHaveBeenCalled();
       const { outro } = await import('@voidzero-dev/vite-plus-prompts');
       expect(outro).not.toHaveBeenCalled();
+    });
+
+    it('sends what void.config.ts writes to stdout to stderr, every time it loads and after', async () => {
+      const root = await createLocalSqliteProject();
+      rmSync(join(root, 'void.json'));
+      writeFileSync(
+        join(root, 'void.config.ts'),
+        "process.stdout.write('config loaded\\n');\nexport default {};\n",
+      );
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      await runDbCommand(root, { action: 'execute', command: 'SELECT 1 AS one', json: true });
+
+      expect(jsonOutput()).toEqual([
+        { results: [{ one: 1 }], success: true, meta: expect.any(Object) },
+      ]);
+      const loads = stderr.mock.calls.filter(([text]) => text === 'config loaded\n');
+      expect(loads.length).toBeGreaterThan(1);
+
+      // A failing statement leaves stdout empty, config output included.
+      stdoutWrite.mockClear();
+      await expect(
+        runDbCommand(root, { action: 'execute', command: 'SELECT * FROM missing', json: true }),
+      ).rejects.toThrow('no such table: missing');
+      expect(stdoutWrite).not.toHaveBeenCalled();
+      // What the config started may write once the results are out, and that goes to stderr too.
+      process.stdout.write('later\n');
+      expect(stderr).toHaveBeenLastCalledWith('later\n');
+      expect(stdoutWrite).not.toHaveBeenCalled();
+    });
+
+    it('keeps a column named __proto__', async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, {
+        action: 'execute',
+        command: 'SELECT 1 AS [__proto__], 2 AS a, 3 AS a',
+        json: true,
+      });
+
+      const [{ results }] = jsonOutput();
+      expect(Object.hasOwn(results[0], '__proto__')).toBe(true);
+      expect(Object.getPrototypeOf(results[0])).toBe(Object.prototype);
+      expect(JSON.stringify(results)).toBe('[{"__proto__":1,"a":3}]');
     });
 
     it('keeps NULL, text, numbers, newlines and blobs apart', async () => {
@@ -994,7 +1048,7 @@ describe('void db execute', () => {
         }),
       ).rejects.toThrow('no such table: missing');
 
-      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+      expect(stdoutWrite).not.toHaveBeenCalled();
       expect(await readItems(root)).toEqual([{ name: 'kept' }]);
     });
 
@@ -1004,7 +1058,7 @@ describe('void db execute', () => {
       await expect(
         runDbCommand(root, { action: 'execute', command: 'SELECT 1; SELECT (2', json: true }),
       ).rejects.toThrow('incomplete input');
-      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+      expect(stdoutWrite).not.toHaveBeenCalled();
     });
 
     it('reports trailing input SQLite rejects instead of ignoring it', async () => {
@@ -1015,7 +1069,7 @@ describe('void db execute', () => {
           runDbCommand(root, { action: 'execute', command, json: true }),
         ).rejects.toThrow('syntax error');
       }
-      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+      expect(stdoutWrite).not.toHaveBeenCalled();
     });
 
     it('prints an empty array for SQL without a statement', async () => {

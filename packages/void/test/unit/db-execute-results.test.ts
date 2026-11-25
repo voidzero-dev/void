@@ -171,6 +171,22 @@ describe('db execute --json results', () => {
     ]);
   });
 
+  it('reads MySQL insert IDs as unsigned', () => {
+    // mysql2 reads the unsigned 64-bit ID as signed, so 2^63 and up arrive negative.
+    const insertIds = (ids: Array<number | string>) =>
+      ids.map(
+        (insertId) =>
+          groupResults({ ...header, insertId }, undefined, 'INSERT INTO a VALUES ()')[0].meta
+            .insertId,
+      );
+    expect(insertIds([5, '9007199254740993', '-9223372036854775808', -1])).toEqual([
+      5,
+      '9007199254740993',
+      '9223372036854775808',
+      '18446744073709551615',
+    ]);
+  });
+
   it('reads each MySQL statement of a multi-statement query', () => {
     expect(
       groupResults(
@@ -286,6 +302,8 @@ describe('db execute --json results', () => {
     expect(needsMySqlServerMode(backslash)).toBe(true);
     expect(needsMySqlServerMode('/*!80000 SET @n = 1 */')).toBe(true);
     expect(needsMySqlServerMode('/*M!100100 SELECT 0 */')).toBe(true);
+    // A double quote opens a name in ANSI_QUOTES mode.
+    expect(needsMySqlServerMode('PREPARE "s" FROM \'SELECT 1\'')).toBe(true);
   });
 
   it('reads MariaDB executable comments the way MariaDB does', () => {
@@ -333,6 +351,15 @@ describe('db execute --json results', () => {
     expect(calls(String.raw`SELECT 1 AS "a\"; CALL p()`, ansi)).toEqual([false, true]);
     // A single-quoted string still reads its backslash escapes.
     expect(calls(String.raw`SELECT 'a\'; CALL p()'`, ansi)).toEqual([false]);
+    // A prepared statement's name may be double-quoted.
+    const prepared = 'PREPARE "s" FROM \'CALL p()\'; EXECUTE s; EXECUTE "S"';
+    expect(calls(prepared, ansi)).toEqual([false, true, true]);
+    expect(() =>
+      calls('PREPARE s FROM \'CALL p()\'; DEALLOCATE PREPARE "s"; EXECUTE s', ansi),
+    ).toThrow('cannot tell whether an EXECUTE in this MySQL SQL runs a CALL');
+    // Elsewhere a double-quoted name is a string, which the server rejects there, so after an
+    // unclear change of sql_mode only ANSI_QUOTES mode reads such SQL.
+    expect(calls(`SET sql_mode = @m; ${prepared}`)).toEqual([false, false, true, true]);
   });
 
   it('finds MySQL statements around stored program bodies', () => {
@@ -398,6 +425,18 @@ describe('db execute --json results', () => {
     expect(
       calls(`CREATE PROCEDURE p() BEGIN SELECT t.case, t.end, t.begin FROM t; END; CALL p()`),
     ).toEqual([false, true]);
+  });
+
+  it('reads the dot after digits as a decimal point, not a name qualifier', () => {
+    for (const number of ['1.', '1.5', '1.e5', '1.5e-3', '.5']) {
+      expect(calls(`SELECT CASE WHEN 1 THEN ${number} END; CALL p()`)).toEqual([false, true]);
+    }
+    expect(
+      calls('CREATE PROCEDURE p() BEGIN SELECT CASE WHEN 1 THEN 1. END; END; CALL p()'),
+    ).toEqual([false, true]);
+    // Digits after a qualifier name a column, and a dot after them qualifies the next name.
+    expect(calls('SELECT CASE WHEN 1 THEN t.1 END FROM t; CALL p()')).toEqual([false, true]);
+    expect(calls('SELECT CASE WHEN 1 THEN d.1.case END FROM d.1; CALL p()')).toEqual([false, true]);
   });
 
   it('keeps an ALTER EVENT body in one MySQL statement', () => {

@@ -153,12 +153,18 @@ export function runSqliteStatements(db: SqliteDatabase, sql: string): Array<Stat
   const readCounters = () => counters.get() ?? { last_row_id: 0n, total: 0n };
   const results: Array<StatementResult> = [];
   for (const statementSql of splitSqliteStatements(sql)) {
-    const statement = db.prepare<Record<string, unknown>>(statementSql).safeIntegers(true);
+    const statement = db.prepare<Array<unknown>>(statementSql).safeIntegers(true);
     const before = readCounters().total;
     const started = performance.now();
     let rows: Array<Record<string, unknown>> = [];
     if (statement.reader) {
-      rows = statement.all();
+      // better-sqlite3 builds a row object by assigning each column, which drops a column named
+      // __proto__, so the rows are read as arrays and each column defined as its own property.
+      const columns = statement.columns().map((column) => column.name);
+      rows = statement
+        .raw(true)
+        .all()
+        .map((values) => Object.fromEntries(columns.map((name, index) => [name, values[index]])));
     } else {
       statement.run();
     }
@@ -279,11 +285,24 @@ export function pgStatementResults(result: PgResult | Array<PgResult>): Array<St
     }));
 }
 
-/** A write's result header. `insertId` is a string past 2^53 with `supportBigNumbers`. */
+/** A write's result header. A count or ID past 2^53 is a string with `supportBigNumbers`. */
 type MySqlHeaderMeta = { affectedRows: number | string; insertId: number | string };
 
 function mySqlCount(field: unknown): number | string {
   return typeof field === 'number' || typeof field === 'string' ? field : 0;
+}
+
+const UINT64_RANGE = 2n ** 64n;
+
+/**
+ * The insert ID of a result header. MySQL sends it as an unsigned 64-bit integer, which mysql2
+ * reads as a signed one, so an ID of 2^63 or more, from a BIGINT UNSIGNED column, arrives
+ * negative.
+ */
+function mySqlInsertId(field: unknown): number | string {
+  const id = mySqlCount(field);
+  const negative = typeof id === 'number' ? id < 0 : id.startsWith('-');
+  return negative ? (BigInt(id) + UINT64_RANGE).toString() : id;
 }
 
 function mySqlHeaderMeta(value: unknown): MySqlHeaderMeta {
@@ -291,7 +310,10 @@ function mySqlHeaderMeta(value: unknown): MySqlHeaderMeta {
     string,
     unknown
   >;
-  return { affectedRows: mySqlCount(header.affectedRows), insertId: mySqlCount(header.insertId) };
+  return {
+    affectedRows: mySqlCount(header.affectedRows),
+    insertId: mySqlInsertId(header.insertId),
+  };
 }
 
 function mySqlStatementResult(value: unknown): StatementResult {
@@ -319,12 +341,12 @@ export const MYSQL_SERVER_MODE_QUERY =
   'SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS version';
 
 /**
- * Whether the SQL holds a backslash, a `[` or an executable comment, which read differently per
- * server. Without a backslash, `ANSI_QUOTES` changes what a double-quoted text is but not
- * where it ends.
+ * Whether the SQL holds a backslash, a double quote, a `[` or an executable comment, which read
+ * differently per server. A double quote opens a string, or in `ANSI_QUOTES` mode a name, such
+ * as the name of a prepared statement.
  */
 export function needsMySqlServerMode(sql: string): boolean {
-  return sql.includes('\\') || sql.includes('[') || /\/\*M?!/u.test(sql);
+  return /[\\"[]|\/\*M?!/u.test(sql);
 }
 
 /** Read the row `MYSQL_SERVER_MODE_QUERY` returns. */
@@ -724,7 +746,7 @@ function closeMySqlBlock(blocks: Array<MySqlOpenBlock>, next: string | undefined
  * a REPEAT's UNTIL condition after an operand; elsewhere it is a name, as `begin` and `end`
  * columns are. A CASE expression nests anywhere. A word after a dot or right after an `@` is a
  * name, such as the column in `t.case` or the variable `@case`, as is the account in
- * `DEFINER = account`.
+ * `DEFINER = account`, but the dot in a number such as `1.` is its decimal point.
  */
 function readMySqlStatement(
   sql: string,
@@ -756,6 +778,8 @@ function readMySqlStatement(
   // Where the word before ends, and whether it is a name, which ends an operand.
   let wordEnd = -1;
   let named = false;
+  // Whether the word before is a number's decimal point, as in `1.`, which ends an operand too.
+  let decimalPoint = false;
   const result = (terminated: boolean): MySqlStatementRead => ({
     words,
     end: lexer.index,
@@ -786,11 +810,16 @@ function readMySqlStatement(
       startedLast = false;
       namesBlock = false;
       named = false;
+      decimalPoint = false;
       handler = undefined;
       continue;
     }
     const previous = words.at(-1);
-    const operandBefore = !named && expectsMySqlOperand(previous);
+    const afterDecimalPoint = decimalPoint;
+    const operandBefore = !named && !afterDecimalPoint && expectsMySqlOperand(previous);
+    // A `.` right after digits is their decimal point, as in `1.` or `1.5`, unless the digits
+    // name a column, as in `t.1`.
+    decimalPoint = word === '.' && touches && /^\d+$/u.test(previous ?? '') && !named;
     named = false;
     words.push(word);
     let starts = startsNext;
@@ -804,9 +833,9 @@ function readMySqlStatement(
     } else if (word === ')') {
       depth--;
     }
-    // A word after a dot names a column or other object, and one right after an `@` a variable,
-    // or the host of an account.
-    if (previous === '.' || (previous === '@' && touches)) {
+    // A word after a dot names a column or other object, unless the dot is a decimal point, and
+    // one right after an `@` a variable, or the host of an account.
+    if ((previous === '.' && !afterDecimalPoint) || (previous === '@' && touches)) {
       named = true;
       continue;
     }
@@ -1143,6 +1172,9 @@ type MySqlEffect = MySqlPreparedStatement & {
 };
 
 const MYSQL_SINGLE: MySqlEffect = { kind: 'single', change: undefined };
+// A statement the server rejects in this mode, such as one that names a prepared statement with
+// a string: a double-quoted name is a string outside ANSI_QUOTES mode.
+const MYSQL_REJECTED: MySqlEffect = { ...MYSQL_SINGLE, rejected: true };
 
 /**
  * Whether the server rejects the text a PREPARE or EXECUTE IMMEDIATE is given: a quoted name
@@ -1200,10 +1232,16 @@ function mySqlStatementEffect(
         rejected: rejectsMySqlSource(source, mode),
       };
     }
+    if (isMySqlString(second, mode)) {
+      return MYSQL_REJECTED;
+    }
     const name = mySqlName(second, mode) ?? '';
     return { ...(prepared.get(name) ?? { kind: 'unknown', change: 'unclear' }), executes: name };
   }
   if (first === 'prepare' && words[2] === 'from') {
+    if (isMySqlString(second, mode)) {
+      return MYSQL_REJECTED;
+    }
     const source = words.slice(3);
     return {
       ...MYSQL_SINGLE,
@@ -1212,6 +1250,9 @@ function mySqlStatementEffect(
     };
   }
   if ((first === 'deallocate' || first === 'drop') && second === 'prepare') {
+    if (isMySqlString(words[2], mode)) {
+      return MYSQL_REJECTED;
+    }
     return {
       ...MYSQL_SINGLE,
       prepares: { name: mySqlName(words[2], mode), statement: undefined, deallocates: true },

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CustomTypesConfig } from 'pg';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import { Buffer } from '../../src/cli/node-buffer.ts';
 
 const mockReadDeploymentPlatform = vi.fn(() => 'void');
@@ -147,6 +148,16 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { 'content-type': 'application/json' },
   });
+}
+
+// The command puts a write of its own in stdout's place, so the spy is kept here.
+let stdoutWrite: MockInstance<typeof process.stdout.write>;
+
+/** The results `void db execute --json` wrote to stdout, in one write and nothing else. */
+function stdoutJson(): unknown {
+  const writes = stdoutWrite.mock.calls;
+  expect(writes).toHaveLength(1);
+  return JSON.parse(String(writes[0][0]));
 }
 
 describe('void db execute --remote (D1)', () => {
@@ -609,12 +620,10 @@ describe('void db execute --remote (D1)', () => {
   });
 
   describe('--json', () => {
-    // With --json, console.log writes the results and nothing else.
-    const jsonOutput = () => {
-      const calls = vi.mocked(console.log).mock.calls;
-      expect(calls).toHaveLength(1);
-      return JSON.parse(String(calls[0][0])) as unknown;
-    };
+    beforeEach(() => {
+      stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    });
+    const jsonOutput = stdoutJson;
 
     it('prints each direct D1 statement result as JSON without the success line', async () => {
       mockReadDeploymentPlatform.mockReturnValue('cloudflare');
@@ -665,7 +674,7 @@ describe('void db execute --remote (D1)', () => {
       expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockImportD1).not.toHaveBeenCalled();
       expect(mockExecuteD1Statements).not.toHaveBeenCalled();
-      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+      expect(stdoutWrite).not.toHaveBeenCalled();
     });
 
     it("prints the platform proxy's D1 result as a one-statement array", async () => {
@@ -731,7 +740,7 @@ describe('void db execute --remote (D1)', () => {
       expect(clackLog.error).toHaveBeenCalledWith(expect.stringContaining('Not logged in'), {
         output: process.stderr,
       });
-      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+      expect(stdoutWrite).not.toHaveBeenCalled();
     });
   });
 
@@ -762,6 +771,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
     mockIsCancel.mockImplementation((v) => typeof v === 'symbol');
 
     vi.spyOn(console, 'log').mockImplementation(() => {});
+    stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`process.exit:${code ?? 0}`);
     }) as never);
@@ -868,7 +878,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
     expect(mockMySqlCreateConnection).toHaveBeenLastCalledWith(
       expect.objectContaining({ supportBigNumbers: true, bigNumberStrings: false }),
     );
-    expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0][0]))).toEqual([
+    expect(stdoutJson()).toEqual([
       { results: [{ id: '9007199254740993' }], success: true, meta: {} },
     ]);
 
@@ -906,7 +916,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
       { uri: 'mysql://host/db' },
       expect.objectContaining({ uri: 'mysql://host/db', multipleStatements: true }),
     ]);
-    expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0][0]))).toEqual([
+    expect(stdoutJson()).toEqual([
       { results: [{ a: '\\' }], success: true, meta: {} },
       { results: [{ b: 2 }], success: true, meta: { affectedRows: 0, insertId: 0 } },
     ]);
@@ -945,7 +955,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
       { uri: withoutDebug },
       expect.objectContaining({ uri: withoutDebug, dateStrings: true }),
     ]);
-    expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0][0]))).toEqual([
+    expect(stdoutJson()).toEqual([
       { results: [{ at: '2024-01-02 03:04:05.123456' }], success: true, meta: {} },
     ]);
 
@@ -988,7 +998,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
       }),
     ).rejects.toThrow('cannot tell whether an EXECUTE in this MySQL SQL runs a CALL');
     expect(mockMySqlQuery).not.toHaveBeenCalled();
-    expect(console.log).not.toHaveBeenCalled();
+    expect(stdoutWrite).not.toHaveBeenCalled();
     mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
   });
 
@@ -1009,7 +1019,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
 
     // MySQL answers a comment after the last statement with a result of its own.
     expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual(['CALL p();', command]);
-    expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0][0]))).toEqual([
+    expect(stdoutJson()).toEqual([
       { results: [{ a: 1 }], success: true, meta: { affectedRows: 0, insertId: 0 } },
     ]);
     mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
@@ -1046,9 +1056,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
       json: true,
     });
 
-    const calls = vi.mocked(console.log).mock.calls;
-    expect(calls).toHaveLength(1);
-    expect(JSON.parse(String(calls[0][0]))).toEqual([
+    expect(stdoutJson()).toEqual([
       { results: [], success: true, meta: { command: 'UPDATE', rowCount: 2 } },
       {
         results: [{ id: 1, name: null }],

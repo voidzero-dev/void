@@ -107,7 +107,7 @@ export function ensurePlatformAccessToken(
   if (challenged && rejectedTokens.size > 0) {
     forgetOriginToken(origin);
     keyringTokens.set(origin, null);
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    if (!canSignIn()) {
       throw new Error(
         `platform: Cloudflare Access rejected the cached credential for ${origin}. Re-run this command in an interactive terminal to renew it.`,
       );
@@ -119,7 +119,7 @@ export function ensurePlatformAccessToken(
   if (token && rejectedTokens.has(token)) {
     token = null;
   }
-  if ((!token || !usableToken(token)) && process.stdin.isTTY && process.stdout.isTTY) {
+  if ((!token || !usableToken(token)) && canSignIn()) {
     console.error(`Authenticate to Cloudflare Access for ${origin}.`);
     runCloudflaredLogin(origin);
     token = runCloudflared(['access', 'token', `-app=${origin}`]);
@@ -133,6 +133,14 @@ export function ensurePlatformAccessToken(
   keyringTokens.set(origin, token);
   // Keychain failure keeps the credential only in process memory, never in a plaintext file.
   writeKeyringPassword(ACCESS_KEYRING_SERVICE, account, token);
+}
+
+/**
+ * Whether a browser sign-in can run: it needs a terminal on stdin and stderr, where it writes.
+ * stdout may be redirected, as it is for a command's result (`void db execute --json | jq`).
+ */
+function canSignIn(): boolean {
+  return Boolean(process.stdin.isTTY && process.stderr.isTTY);
 }
 
 /**
