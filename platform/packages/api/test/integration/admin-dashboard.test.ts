@@ -480,9 +480,11 @@ describe('auth middleware', () => {
       });
       await page.locator(`a[href="/admin/projects/${project.id}"]`).first().click();
       await page.getByRole('heading', { name: project.slug, exact: true }).waitFor();
-      expect(await page.evaluate(() => Reflect.get(window, 'adminNavigationMarker'))).toBe(
-        'same-document',
-      );
+      expect(
+        await page.evaluate(
+          () => (window as Window & { adminNavigationMarker?: string }).adminNavigationMarker,
+        ),
+      ).toBe('same-document');
       await page.goBack();
       await page
         .getByRole('heading', { name: `Deployment ${deployment.id}`, exact: true })

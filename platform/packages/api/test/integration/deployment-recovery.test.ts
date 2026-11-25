@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
 import { getDeployment, getProject } from '../../src/db.ts';
-import type { Db } from '../../src/db.ts';
 import { replayDeploymentCutover } from '../../src/deploy/recovery.ts';
 import { settleExpiredDeployment } from '../../src/deployment-recovery.ts';
 import type { ApiEnv } from '../../src/env.ts';
@@ -17,6 +16,7 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
+  withTestTransaction,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
 
@@ -216,20 +216,13 @@ test('reconciles a lost cleanup commit acknowledgement without another deploymen
   const candidate = await createTestDeployment(env.db, project.id, 'uploading');
   const realTransaction = env.db.transaction.bind(env.db);
   let injected = false;
-  const wrappedDb = new Proxy(env.db, {
-    get(target, property, receiver) {
-      if (property === 'transaction') {
-        return async (callback: Parameters<Db['transaction']>[0]) => {
-          const result = await realTransaction(callback);
-          if (!injected && (await getDeployment(env.db, candidate.id))?.status === 'failed') {
-            injected = true;
-            throw new Error('cleanup COMMIT acknowledgement lost');
-          }
-          return result;
-        };
-      }
-      return Reflect.get(target, property, receiver);
-    },
+  const wrappedDb = withTestTransaction(env.db, async (callback) => {
+    const result = await realTransaction(callback);
+    if (!injected && (await getDeployment(env.db, candidate.id))?.status === 'failed') {
+      injected = true;
+      throw new Error('cleanup COMMIT acknowledgement lost');
+    }
+    return result;
   });
   const fetch = providerDelete(404);
   await expect(

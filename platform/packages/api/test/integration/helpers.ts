@@ -51,6 +51,19 @@ export const PROJECT_SECRET_KEYS_JSON = JSON.stringify({
     .toString('base64'),
 });
 
+/** Override transactions on one database view while forwarding all other reads. */
+export function withTestTransaction(database: Db, transaction: Db['transaction']): Db {
+  return new Proxy(database, {
+    get(target, property, receiver) {
+      if (property === 'transaction') {
+        return transaction;
+      }
+      // oxlint-disable-next-line quality/no-reflect-get -- Preserve the receiver for forwarded database properties.
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
 export type TestEnv = {
   db: Db & { $client: pg.Pool | PGlite };
   HYPERDRIVE: { connectionString: string };

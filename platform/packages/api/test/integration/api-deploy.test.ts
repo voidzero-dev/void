@@ -22,7 +22,6 @@ import {
   updateDeploymentStatus,
   updateUserPlan,
 } from '../../src/db.ts';
-import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import { createIsrStore } from '../../src/isr-store.ts';
 import { writePlanCatalog } from '../../src/plans.ts';
@@ -61,6 +60,7 @@ import {
   readAllEvents,
   CF_ACCOUNT_ID,
   JWT_SECRET,
+  withTestTransaction,
 } from './helpers.ts';
 import type { MockCfApiHandle, TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
@@ -123,32 +123,24 @@ function injectLostGoLiveCommitAcknowledgement(projectId: string): {
   const realDb = env.db;
   const realTransaction = realDb.transaction.bind(realDb);
   let injected = false;
-  const wrappedDb = new Proxy(realDb, {
-    get(target, prop, receiver) {
-      if (prop === 'transaction') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return async (fn: any) => {
-          const result = await realTransaction(fn);
-          if (!injected) {
-            const [project] = await realDb
-              .select({ activeDeploymentId: projects.active_deployment_id })
-              .from(projects)
-              .where(eq(projects.id, projectId))
-              .limit(1);
-            const active = project?.activeDeploymentId
-              ? await getDeployment(realDb, project.activeDeploymentId)
-              : null;
-            if (active?.status === 'live') {
-              injected = true;
-              throw new Error('database connection lost after COMMIT');
-            }
-          }
-          return result;
-        };
+  const wrappedDb = withTestTransaction(realDb, async (fn) => {
+    const result = await realTransaction(fn);
+    if (!injected) {
+      const [project] = await realDb
+        .select({ activeDeploymentId: projects.active_deployment_id })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1);
+      const active = project?.activeDeploymentId
+        ? await getDeployment(realDb, project.activeDeploymentId)
+        : null;
+      if (active?.status === 'live') {
+        injected = true;
+        throw new Error('database connection lost after COMMIT');
       }
-      return Reflect.get(target, prop, receiver);
-    },
-  }) as Db;
+    }
+    return result;
+  });
   setTestDb(wrappedDb);
   return {
     wasInjected: () => injected,
@@ -4891,22 +4883,16 @@ describe('POST /projects/:id/deploy (static)', () => {
 
     const realDb = env.db;
     const realTransaction = realDb.transaction.bind(realDb);
-    const wrappedDb = new Proxy(realDb, {
-      get(target, property, receiver) {
-        if (property === 'transaction') {
-          return (async (callback: Parameters<typeof realTransaction>[0]) =>
-            realTransaction(async (tx) => {
-              transactionDepth++;
-              try {
-                return await callback(tx);
-              } finally {
-                transactionDepth--;
-              }
-            })) as typeof realDb.transaction;
+    const wrappedDb = withTestTransaction(realDb, async (callback) =>
+      realTransaction(async (tx) => {
+        transactionDepth++;
+        try {
+          return await callback(tx);
+        } finally {
+          transactionDepth--;
         }
-        return Reflect.get(target, property, receiver);
-      },
-    }) as Db;
+      }),
+    );
     setTestDb(wrappedDb);
 
     mockCfApi();
@@ -5423,28 +5409,20 @@ describe('ambiguous go-live commit outcomes', () => {
     const realDb = env.db;
     const realTransaction = realDb.transaction.bind(realDb);
     let rejectedFinalCommit = false;
-    const wrappedDb = new Proxy(realDb, {
-      get(target, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return async (fn: any) =>
-            realTransaction(async (tx) => {
-              // oxlint-disable-next-line typescript/no-unsafe-call -- Invoke the transaction callback provided to this partial database mock.
-              const result = await fn(tx);
-              const [lockedProject] = await tx
-                .select({ activeDeploymentId: projects.active_deployment_id })
-                .from(projects)
-                .where(eq(projects.id, project.id));
-              if (!rejectedFinalCommit && lockedProject?.activeDeploymentId) {
-                rejectedFinalCommit = true;
-                throw new Error('injected final commit rejection');
-              }
-              return result;
-            });
+    const wrappedDb = withTestTransaction(realDb, async (fn) =>
+      realTransaction(async (tx) => {
+        const result = await fn(tx);
+        const [lockedProject] = await tx
+          .select({ activeDeploymentId: projects.active_deployment_id })
+          .from(projects)
+          .where(eq(projects.id, project.id));
+        if (!rejectedFinalCommit && lockedProject?.activeDeploymentId) {
+          rejectedFinalCommit = true;
+          throw new Error('injected final commit rejection');
         }
-        return Reflect.get(target, prop, receiver);
-      },
-    }) as Db;
+        return result;
+      }),
+    );
     setTestDb(wrappedDb);
 
     let cutoverDeploymentId: string;

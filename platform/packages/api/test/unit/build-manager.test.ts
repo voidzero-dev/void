@@ -642,9 +642,6 @@ beforeEach(() => {
       }
       return Reflect.construct(target, args, target);
     },
-    get(target, prop, receiver) {
-      return Reflect.get(target, prop, receiver);
-    },
   });
 });
 

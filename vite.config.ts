@@ -259,11 +259,9 @@ const config = defineConfig({
         rules: { 'no-restricted-imports': 'off' },
       },
       {
-        // Test doubles use partial implementations, opaque objects, and explicit receivers.
         // Filesystem assertions use Node paths independently of the production wrapper.
         files: ['**/test/**/*'],
         rules: {
-          'quality/no-reflect-get': 'off',
           'no-restricted-imports': [
             'error',
             {

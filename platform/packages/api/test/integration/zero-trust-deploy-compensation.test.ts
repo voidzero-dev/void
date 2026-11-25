@@ -223,6 +223,7 @@ describe('deployment compensation during Zero Trust changes', () => {
         ROUTING: new Proxy(env.ROUTING, {
           get(target, property, receiver) {
             if (property !== 'get') {
+              // oxlint-disable-next-line quality/no-reflect-get -- Preserve the KV receiver for forwarded properties.
               return Reflect.get(target, property, receiver);
             }
             return async (...args: Parameters<MemoryKVNamespace['get']>) => {

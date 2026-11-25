@@ -284,6 +284,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     {
       name: 'custom inspection hook',
       read: (db: typeof runtimeDb.db) => {
+        // oxlint-disable-next-line quality/no-reflect-get -- Probe the runtime inspection symbol omitted from Drizzle's public type.
         Reflect.get(db, inspect.custom);
       },
     },
@@ -318,6 +319,7 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
       const { db, setSession } = await loadClient();
       const { withSession, env } = mockBinding();
       withRuntimeEnv(env, () => {
+        // oxlint-disable-next-line quality/no-reflect-get -- Include Drizzle's runtime $client property in the session probe.
         void Reflect.get(db, prop);
         expect(() => setSession({ bookmark: AFTER_SAVE })).toThrow('createDb');
       });

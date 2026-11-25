@@ -46,6 +46,7 @@ import {
   mockCfApi,
   cfSuccess,
   cfError,
+  withTestTransaction,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
@@ -2904,24 +2905,17 @@ describe('POST /projects/:id/rollback', () => {
     const realTransaction = realDb.transaction.bind(realDb);
     let transactionCount = 0;
     let injected = false;
-    const wrappedDb = new Proxy(realDb, {
-      get(targetDb, property, receiver) {
-        if (property === 'transaction') {
-          return (async (callback: Parameters<typeof realTransaction>[0]) => {
-            transactionCount++;
-            return realTransaction(async (tx) => {
-              const result = await callback(tx);
-              if (transactionCount === 2 && !injected) {
-                injected = true;
-                throw new Error('injected pre-commit rollback');
-              }
-              return result;
-            });
-          }) as typeof realDb.transaction;
+    const wrappedDb = withTestTransaction(realDb, async (callback) => {
+      transactionCount++;
+      return realTransaction(async (tx) => {
+        const result = await callback(tx);
+        if (transactionCount === 2 && !injected) {
+          injected = true;
+          throw new Error('injected pre-commit rollback');
         }
-        return Reflect.get(targetDb, property, receiver);
-      },
-    }) as db.Db;
+        return result;
+      });
+    });
     setTestDb(wrappedDb);
 
     try {
@@ -4287,6 +4281,7 @@ describe('POST /projects — owner email destination auto-add', () => {
           cb(
             new Proxy(tx as object, {
               get(target, key, receiver) {
+                // oxlint-disable-next-line quality/no-reflect-get -- Forward the transaction query and preserve the receiver.
                 const value = Reflect.get(target, key, receiver);
                 if (key !== 'query' || typeof value !== 'function') {
                   return value;
