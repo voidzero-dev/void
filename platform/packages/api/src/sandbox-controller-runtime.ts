@@ -48,6 +48,7 @@ class SandboxCapability extends RpcTarget {
     super();
     this.#sandbox = sandbox;
   }
+  // oxlint-disable-next-line quality/no-unknown-returns -- This RPC forwards the operation-specific result to the SDK for decoding.
   async invoke(operation: string, args: Array<unknown>): Promise<unknown> {
     // No raw stub, control binding, configuration, alarm or startup authority.
     if (!['exec', 'files', 'fetch', 'running', 'destroy'].includes(operation)) {
@@ -209,6 +210,7 @@ export class SandboxController extends SandboxContainer<ControllerEnv> {
       abort: (reason) => run(() => writer.abort(reason)),
     });
   }
+  // oxlint-disable-next-line quality/no-unknown-returns -- Preserve the inherited RPC result contract while wrapping streams.
   override async invoke(operation: string, args: Array<unknown>): Promise<unknown> {
     if (!['exec', 'files', 'fetch'].includes(operation)) {
       return super.invoke(operation, args);

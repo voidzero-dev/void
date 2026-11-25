@@ -1085,9 +1085,17 @@ export const emailDomains = pgTable(
 // doc 0078, "Recipient policy"). Authoritative here; hot-path readers get a
 // ROUTING KV mirror written by the setting's own writer.
 // ---------------------------------------------------------------------------
+type PlatformSettingValue =
+  | null
+  | string
+  | number
+  | boolean
+  | ReadonlyArray<PlatformSettingValue>
+  | { readonly [key: string]: PlatformSettingValue | undefined };
+
 export const platformSettings = pgTable('platform_settings', {
   key: text('key').primaryKey(),
-  value: jsonb('value').notNull(),
+  value: jsonb('value').$type<PlatformSettingValue>().notNull(),
   updated_at: timestamp('updated_at', { mode: 'string' }).notNull().defaultNow(),
 });
 

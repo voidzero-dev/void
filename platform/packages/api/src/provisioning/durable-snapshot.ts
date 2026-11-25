@@ -4,7 +4,7 @@ import {
   withKnownLength,
   WorkerModuleIntegrityError,
 } from '../worker-upload.ts';
-import type { WorkerModule } from '../worker-upload.ts';
+import type { TrackedStream, WorkerModule } from '../worker-upload.ts';
 
 export async function snapshotDigest(value: string | ArrayBuffer | Uint8Array): Promise<string> {
   const bytes = new Uint8Array(
@@ -21,7 +21,7 @@ export async function snapshotDigest(value: string | ArrayBuffer | Uint8Array): 
 
 type SnapshotBody = Readonly<{
   value: string | ArrayBuffer | Uint8Array | ReadableStream<Uint8Array>;
-  failure?: () => unknown;
+  failure?: TrackedStream['failure'];
 }>;
 
 /** Immutable release writes can be recovered after a lost R2 acknowledgement. */

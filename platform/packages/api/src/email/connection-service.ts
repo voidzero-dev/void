@@ -247,12 +247,8 @@ async function findEmailRoute(db: DbOrTx, routeId: string | null) {
   return route ?? null;
 }
 
-function supportsSubaddressing(settings: unknown): boolean {
-  return (
-    !!settings &&
-    typeof settings === 'object' &&
-    (settings as { support_subaddress?: unknown }).support_subaddress === true
-  );
+function supportsSubaddressing(settings: Record<string, unknown> | null): boolean {
+  return settings?.support_subaddress === true;
 }
 
 type EmailStepRoute = Pick<
@@ -1303,7 +1299,7 @@ export async function inspectEmailInboundRoute(
     if (!exchanges.length || exchanges.some((exchange) => !isCloudflareEmailRoutingMx(exchange))) {
       return `MX records for ${domain} do not route mail to Cloudflare Email Routing`;
     }
-    if (!supportsSubaddressing(settings) || (settings as { enabled?: unknown }).enabled !== true) {
+    if (!supportsSubaddressing(settings) || settings?.enabled !== true) {
       return 'Cloudflare Email Routing and subaddressing must be enabled for shared email';
     }
     // Domain readiness does not assert recipient coverage. Each project's

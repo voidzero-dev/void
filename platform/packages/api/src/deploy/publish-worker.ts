@@ -218,9 +218,12 @@ export async function publishWorkerDeployment(input: {
         return { q, queueBinding, status: consumerResult.status };
       }),
     );
-    const consumerErrors = settledConsumerOutcomes
-      .filter((outcome) => outcome.status === 'rejected')
-      .map((outcome): unknown => outcome.reason);
+    const consumerErrors: Array<unknown> = [];
+    for (const outcome of settledConsumerOutcomes) {
+      if (outcome.status === 'rejected') {
+        consumerErrors.push(outcome.reason);
+      }
+    }
     if (consumerErrors.length > 0) {
       throw new AggregateError(consumerErrors, 'one or more queue consumers failed to sync');
     }

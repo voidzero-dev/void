@@ -85,6 +85,7 @@ export type UploadProgress = Readonly<{
 /** A stream that remembers the first failure of the sources it reads. */
 export type TrackedStream = Readonly<{
   stream: ReadableStream<Uint8Array>;
+  // oxlint-disable-next-line quality/no-unknown-returns -- Keep the source rejection unchanged for the upload's error handling.
   failure(): unknown;
   /**
    * Stop reading and cancel every open source, including those opened ahead.

@@ -38,16 +38,13 @@ async function verifyInternalSignature(context: Context<ApiEnv>, signed: string)
 }
 
 app.post('/probe-ingress', async (context) => {
-  let body: { accountId?: unknown; zoneId?: unknown; ingressName?: unknown; secret?: unknown };
+  let body: Record<string, unknown>;
   try {
-    body = (await readBoundedInternalJson(context.req.raw, 2048)) as typeof body;
+    body = await readBoundedInternalJson(context.req.raw, 2048);
   } catch (error) {
     return error instanceof EmailInternalBodyError
       ? context.json({ error: error.message }, error.status)
       : context.json({ error: 'invalid body' }, 400);
-  }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return context.json({ error: 'invalid body' }, 400);
   }
   const { accountId, zoneId, ingressName, secret } = body;
   if (
@@ -103,24 +100,13 @@ app.post('/probe-ingress', async (context) => {
 /** Gateway-only read. The HMAC authenticates the service call; the zone
  * bearer separately proves the deployed Cloudflare ingress identity. */
 app.post('/resolve-ingress', async (context) => {
-  let body: {
-    accountId?: unknown;
-    zoneId?: unknown;
-    ingressName?: unknown;
-    from?: unknown;
-    to?: unknown;
-    secret?: unknown;
-    native?: unknown;
-  };
+  let body: Record<string, unknown>;
   try {
-    body = (await readBoundedInternalJson(context.req.raw, 4096)) as typeof body;
+    body = await readBoundedInternalJson(context.req.raw, 4096);
   } catch (error) {
     return error instanceof EmailInternalBodyError
       ? context.json({ error: error.message }, error.status)
       : context.json({ error: 'invalid body' }, 400);
-  }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return context.json({ error: 'invalid body' }, 400);
   }
   const { accountId, zoneId, ingressName, to, secret } = body;
   const native = body.native === true;
