@@ -31,7 +31,7 @@ export function checkFieldErrors(): void {
   form.recentlySuccessful = true;
   form.errors.email = 'Invalid';
   // @ts-expect-error Svelte edits `data` in place, so there is no setData.
-  form.setData('email', '');
+  void form.setData;
   // @ts-expect-error Form methods are read-only.
   form.clearError = () => {};
   // @ts-expect-error The submit method sets the HTTP method.

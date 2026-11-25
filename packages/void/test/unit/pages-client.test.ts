@@ -10,8 +10,8 @@ import {
   mergeDataIntoHref,
   ssrProxy,
   submitAction,
-  type VoidRouterConfig,
 } from '../../src/pages/client.ts';
+import type { VoidRouterConfig } from '../../src/pages/client.ts';
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
@@ -24,8 +24,8 @@ import {
   createPageMutationHandler,
   createNamedActionMarker,
   createRoutingRuntime,
-  type RoutingContext,
 } from '../../src/runtime/routing/index.ts';
+import type { RoutingContext } from '../../src/runtime/routing/index.ts';
 
 type DeferredTestWindow = Window & {
   __resolveDeferred(group: string, data: unknown): void;
@@ -176,7 +176,7 @@ describe('Pages serialization compatibility', () => {
       const result = await router.visit('/next', operation === 'action' ? { method: 'POST' } : {});
       expect(result).toMatchObject({ props: { date: new Date('2026-11-08'), count: 42n } });
       expect(requests).toHaveLength(1);
-      expect(requests[0]!.headers.get('X-VoidPages-Version')).toBe(PAGES_PROTOCOL_VERSION);
+      expect(requests[0].headers.get('X-VoidPages-Version')).toBe(PAGES_PROTOCOL_VERSION);
       expect(window.location.href).toBeUndefined();
     },
   );
@@ -208,14 +208,14 @@ describe('Pages serialization compatibility', () => {
       expect(loader).not.toHaveBeenCalled();
       expect(action).toHaveBeenCalledTimes(operation === 'action' ? 1 : 0);
       expect(responses).toHaveLength(1);
-      expect(responses[0]!.status).toBe(200);
-      expect(responses[0]!.headers.has('X-VoidPages')).toBe(false);
-      expect(responses[0]!.headers.get('Content-Type')).toContain('text/plain');
-      expect(responses[0]!.headers.get('Cache-Control')).toBe('no-store');
-      expect(responses[0]!.headers.get('Vary')).toContain('X-VoidPages-Version');
-      expect(await responses[0]!.text()).toBe('');
+      expect(responses[0].status).toBe(200);
+      expect(responses[0].headers.has('X-VoidPages')).toBe(false);
+      expect(responses[0].headers.get('Content-Type')).toContain('text/plain');
+      expect(responses[0].headers.get('Cache-Control')).toBe('no-store');
+      expect(responses[0].headers.get('Vary')).toContain('X-VoidPages-Version');
+      expect(await responses[0].text()).toBe('');
       if (operation === 'action') {
-        expect(responses[0]!.headers.get('Set-Cookie')).toContain('saved=yes');
+        expect(responses[0].headers.get('Set-Cookie')).toContain('saved=yes');
       }
     },
   );
@@ -351,6 +351,7 @@ describe('createVoidRouter', () => {
         { pages: [page], layouts: [], namedLayouts: [] },
         '/project/pages',
       );
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
       const manifest = new Function(`${source}\nreturn { routeMeta, matchRoute };`)() as Pick<
         VoidRouterConfig,
         'routeMeta' | 'matchRoute'
@@ -727,7 +728,9 @@ describe('createVoidRouter', () => {
     response.resolve(pageJson(pageData));
     const component = {};
     page.resolve({ default: component });
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
     expect(applyUpdate).not.toHaveBeenCalled();
     const layoutComponent = {};
     layout.resolve({ default: layoutComponent });
@@ -763,7 +766,9 @@ describe('createVoidRouter', () => {
       const visit = router.visit('/users');
       // Let a speculative rejection settle before the server responds. Vitest also
       // fails this test if that rejection escapes as an unhandled promise.
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
       expect(pageLoader).toHaveBeenCalledOnce();
       expect(destinationLoader).not.toHaveBeenCalled();
       const pageData = { component: 'destination', props: {}, url: '/destination' };
@@ -805,7 +810,9 @@ describe('createVoidRouter', () => {
 
     const visit = router.visit('/users');
     const rejected = expect(visit).rejects.toBe(failure);
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
     response.resolve(pageJson({ component: 'users', props: {} }));
     await rejected;
     expect(pageLoader).toHaveBeenCalledOnce();
@@ -839,7 +846,9 @@ describe('createVoidRouter', () => {
     await router.visit('/');
     await expect(abandonedVisit).resolves.toBeUndefined();
     page.reject(new Error('Abandoned chunk failed'));
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
     expect(applyUpdate).toHaveBeenCalledOnce();
     expect(applyUpdate.mock.calls[0][0].component).toBe('home');
   });
@@ -928,7 +937,7 @@ describe('createVoidRouter', () => {
     stubClientGlobals();
     const prefetched = controlledPromise<Response>();
     const applyUpdate = vi.fn();
-    const resolveDeferred = vi.fn((_ref, value) => value);
+    const resolveDeferred = vi.fn((_ref: unknown, value: unknown) => value);
     const encoder = new TextEncoder();
     let stream!: ReadableStreamDefaultController<Uint8Array>;
     const pageData = {
@@ -1100,10 +1109,14 @@ describe('createVoidRouter', () => {
     });
 
     await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { v: 1 } });
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 30);
+    });
     // Visit while stale: serves v:1 and fires the background revalidate to v:2.
     await router.visit('/users');
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 30);
+    });
     // The next read must return the revalidated v:2, not the discarded-refresh stale v:1.
     await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { v: 2 } });
   });
@@ -1197,7 +1210,9 @@ describe('createVoidRouter', () => {
       await router.prefetch('/users');
       await router.visit('/users');
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
       await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 1 } });
       expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally {
@@ -1226,7 +1241,9 @@ describe('createVoidRouter', () => {
       window.location.pathname = '/users';
       await expect(router.refresh()).resolves.toMatchObject({ props: { version: 3 } });
       background.resolve(pageJson({ component: 'users', props: { version: 2 } }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
       await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 3 } });
       expect(fetchMock).toHaveBeenCalledTimes(3);
     } finally {
@@ -1659,7 +1676,9 @@ describe('createVoidRouter', () => {
     });
 
     const slowVisit = router.visit('/slow').catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     const fastVisit = router.visit('/fast');
     await slowVisit;
@@ -1712,7 +1731,9 @@ describe('createVoidRouter', () => {
     });
 
     const slowVisit = router.visit('/slow');
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
     await router.visit('/fast');
 
     await expect(slowVisit).resolves.toBeUndefined();
@@ -1867,7 +1888,9 @@ describe('createVoidRouter', () => {
     });
 
     const slowVisit = router.visit('/slow').catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     await router.visit('/docs#section', {
       preserveState: true,
@@ -1943,13 +1966,14 @@ describe('createVoidRouter', () => {
       return null;
     });
 
-    const initialRef = { loading: true, value: null, error: null };
-    const resolveDeferred = vi.fn((ref, value) => {
+    type DeferredRef = { loading: boolean; value: unknown; error: Error | null };
+    const initialRef: DeferredRef = { loading: true, value: null, error: null };
+    const resolveDeferred = vi.fn((ref: DeferredRef, value: unknown) => {
       ref.loading = false;
       ref.value = value;
       return ref;
     });
-    const rejectDeferred = vi.fn((ref, error) => {
+    const rejectDeferred = vi.fn((ref: DeferredRef, error: string) => {
       ref.loading = false;
       ref.error = new Error(error);
       return ref;
@@ -2091,7 +2115,9 @@ describe('createVoidRouter', () => {
 
     start();
     const slowVisit = router.visit('/slow').catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     (window as unknown as DeferredTestWindow).__resolveDeferred('stats', { count: 42 });
     expect(resolveDeferred).toHaveBeenCalledWith(expect.anything(), { count: 42 });
@@ -2160,13 +2186,17 @@ describe('createVoidRouter', () => {
     });
 
     const slowVisit = router.visit('/slow').catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
     await router.visit('/fast');
 
     slowStreamController.enqueue(
       encoder.encode(JSON.stringify({ __deferred: 'stats', data: { count: 1 } }) + '\n'),
     );
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
     await slowVisit;
 
     expect(resolveDeferred).not.toHaveBeenCalled();
@@ -2433,7 +2463,7 @@ describe('superseded navigation commits (#507)', () => {
     const documentStub = stubClientGlobals();
     Object.assign(documentStub, { title: 'Home' });
     const writeHistory = (_state: unknown, _title: string, url?: string | URL | null) => {
-      if (url != null) {
+      if (url !== null && url !== undefined) {
         const target = new URL(url, window.location.origin);
         Object.assign(window.location, {
           pathname: target.pathname,
@@ -2466,7 +2496,7 @@ describe('superseded navigation commits (#507)', () => {
       rendered.push(pageData.url ?? '');
       return updateGates.get(pageData.url ?? '');
     });
-    const rejectDeferred = vi.fn((_ref, error) => error);
+    const rejectDeferred = vi.fn((_ref: unknown, error: unknown) => error);
     return { documentStub, fetchGates, updateGates, rendered, applyUpdate, rejectDeferred };
   }
 

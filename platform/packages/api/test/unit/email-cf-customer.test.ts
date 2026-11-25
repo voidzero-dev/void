@@ -45,9 +45,9 @@ describe('cf-customer client', () => {
       const { url, init } = lastCall(fetchMock);
       expect(url).toBe(`${CF_CUSTOMER_API_BASE}/user/tokens/verify`);
       expect(init.method).toBeUndefined();
-      expect(init.headers).toEqual({
-        Authorization: `Bearer ${CREDENTIAL}`,
-        'Content-Type': 'application/json',
+      expect(Object.fromEntries(new Headers(init.headers))).toEqual({
+        authorization: `Bearer ${CREDENTIAL}`,
+        'content-type': 'application/json',
       });
       expect(init.body).toBeUndefined();
       expect(result).toEqual({ id: 'tok_1', status: 'active', expires_on: '2027-01-01T00:00:00Z' });
@@ -237,7 +237,9 @@ describe('cf-customer client', () => {
       expect(init.method).toBe('PUT');
       // The multipart boundary belongs to fetch — the client must not pin a
       // Content-Type on a FormData body.
-      expect(init.headers).toEqual({ Authorization: `Bearer ${CREDENTIAL}` });
+      expect(Object.fromEntries(new Headers(init.headers))).toEqual({
+        authorization: `Bearer ${CREDENTIAL}`,
+      });
 
       const formData = init.body as FormData;
       expect(formData).toBeInstanceOf(FormData);

@@ -61,7 +61,7 @@ describe('installation plan contract', () => {
     for (const key of ['d1StorageBytes', 'r2StorageBytes', 'kvStorageBytes', 'typo']) {
       expect(() => parsePlanLimitsPatch({ [key]: 2 })).toThrow('Unknown or unenforced');
     }
-    for (const value of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '10', null]) {
+    for (const value of [-1, 0.5, Number.NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '10', null]) {
       expect(() => parsePlanLimitsPatch({ requestsPerMonth: value })).toThrow(
         'nonnegative safe integer',
       );

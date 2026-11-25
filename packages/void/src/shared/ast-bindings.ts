@@ -1,5 +1,6 @@
 import { walk } from 'estree-walker';
-import { isIdentifier, type AstNode, type AstProgram } from './ast.ts';
+import { isIdentifier } from './ast.ts';
+import type { AstNode, AstProgram } from './ast.ts';
 
 /** Names introduced by a binding pattern, excluding keys and default expressions. */
 export function bindingNames(node: AstNode | null | undefined): Array<string> {
@@ -52,13 +53,14 @@ export function bindingResolver(
       }
     }
   };
-  walk(program as unknown as Parameters<typeof walk>[0], {
+  walk(program as Parameters<typeof walk>[0], {
     enter(raw, rawParent, key) {
       const node = raw as AstNode;
       const parent = rawParent as AstNode | null;
       const outerScope = scope;
       // The discriminant and all its descendants precede the case block's scope.
       if (parent?.type === 'SwitchStatement' && key === 'discriminant') {
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- Visiting the SwitchStatement creates a child scope before this discriminant is visited.
         scope = scope.parent!;
       }
       if (

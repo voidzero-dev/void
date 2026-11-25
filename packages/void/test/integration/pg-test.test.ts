@@ -1,16 +1,21 @@
+import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
-import spawn from 'cross-spawn';
 import { createServer } from 'pglite-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import {
+  createIsolatedPlayground,
+  killChild,
+  spawnFixtureServer,
+  startServer,
+} from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { decodePageData } from '../../src/pages/serialize.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
-const ENV_PATH = join(ROOT, 'playground/pg-test/.env');
 type User = { id: number; name: string; email: string };
 type Post = { id: number; title: string; author: string };
 type PageData = {
@@ -21,22 +26,22 @@ type PageData = {
 };
 
 describe('playground/pg-test', () => {
+  let fixture: IsolatedPlayground;
   let pglite: PGlite;
   let pgServer: ReturnType<typeof createServer>;
   let pgPort: number;
-  let devChild: ReturnType<typeof spawn>;
+  let devChild: ChildProcess;
   let BASE: string;
 
   beforeAll(async () => {
+    fixture = createIsolatedPlayground(ROOT, 'playground/pg-test');
+
     // 1. Start PGlite + TCP server
     pglite = new PGlite();
     await pglite.waitReady;
 
     // Run migrations
-    const migrationSql = readFileSync(
-      join(ROOT, 'playground/pg-test/db/migrations/0000_initial.sql'),
-      'utf-8',
-    );
+    const migrationSql = readFileSync(join(fixture.root, 'db/migrations/0000_initial.sql'), 'utf8');
     await pglite.exec(migrationSql);
 
     pgServer = createServer(pglite);
@@ -46,32 +51,11 @@ describe('playground/pg-test', () => {
 
     // 2. Write the single local .env with the dynamic DATABASE_URL.
     const databaseUrl = `postgresql://postgres@127.0.0.1:${pgPort}/postgres`;
-    writeFileSync(ENV_PATH, `DATABASE_URL=${databaseUrl}\n`);
+    writeFileSync(join(fixture.root, '.env'), `DATABASE_URL=${databaseUrl}\n`);
 
     // 3. Start vite dev server
     const server = await startServer((port) => {
-      devChild = spawn(
-        'vp',
-        [
-          'run',
-          '--filter',
-          './playground/pg-test',
-          'dev',
-          '--host',
-          '127.0.0.1',
-          '--port',
-          String(port),
-          '--strictPort',
-        ],
-        {
-          cwd: ROOT,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            VOID_INSPECTOR_PORT: 'false',
-          },
-        },
-      );
+      devChild = spawnFixtureServer(fixture.root, 'dev', port);
       return devChild;
     }, 30_000);
     BASE = server.base;
@@ -88,11 +72,7 @@ describe('playground/pg-test', () => {
     if (pglite) {
       await pglite.close();
     }
-    try {
-      unlinkSync(ENV_PATH);
-    } catch {
-      // Ignore missing cleanup files between test runs.
-    }
+    fixture?.cleanup();
   });
 
   it('renders the database page', async () => {
@@ -246,19 +226,19 @@ describe('playground/pg-test', () => {
       body: JSON.stringify({ name: 'Bob', email: 'bob@test.com' }),
     });
     expect(createRes.status).toBe(201);
-    const created = (await createRes.json()) as User;
+    const created = await createRes.json<User>();
     expect(created.name).toBe('Bob');
 
     const listRes = await fetch(BASE + '/api/users');
     expect(listRes.status).toBe(200);
-    const users = (await listRes.json()) as Array<User>;
+    const users = await listRes.json<Array<User>>();
     expect(users).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'Bob', email: 'bob@test.com' })]),
     );
 
     const getRes = await fetch(BASE + `/api/users/${created.id}`);
     expect(getRes.status).toBe(200);
-    const user = (await getRes.json()) as User;
+    const user = await getRes.json<User>();
     expect(user.name).toBe('Bob');
   });
 });

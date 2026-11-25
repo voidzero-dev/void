@@ -95,7 +95,7 @@ export async function getInstallationToken(
     );
   }
 
-  const data = (await res.json()) as AccessTokenResponse;
+  const data = await res.json<AccessTokenResponse>();
   // Cache only the installation-wide token — see the doc comment above.
   if (!opts) {
     tokenCache.set(installationId, {
@@ -121,7 +121,7 @@ type CompareResponse = Readonly<{ status?: string }>;
 const COMPARE_RETRY_ATTEMPTS = 2;
 const COMPARE_RETRY_DELAY_MS = 250;
 
-function errInfo(err: unknown): { name?: string; message: string } {
+function errInfo(err: unknown) {
   if (err instanceof Error) {
     return { name: err.name, message: err.message };
   }
@@ -195,7 +195,9 @@ export async function getBranchHeadComparisonStatus(
         err: errInfo(err),
       });
       if (attempt < COMPARE_RETRY_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, COMPARE_RETRY_DELAY_MS));
+        await new Promise((r) => {
+          setTimeout(r, COMPARE_RETRY_DELAY_MS);
+        });
       }
       continue;
     }
@@ -212,7 +214,7 @@ export async function getBranchHeadComparisonStatus(
         },
       );
       if (res.ok) {
-        const data = (await res.json()) as CompareResponse;
+        const data = await res.json<CompareResponse>();
         return data.status ?? null;
       }
       // A 5xx is transient (GitHub-side hiccup) and worth retrying; a 404 or
@@ -254,7 +256,9 @@ export async function getBranchHeadComparisonStatus(
       });
     }
     if (attempt < COMPARE_RETRY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, COMPARE_RETRY_DELAY_MS));
+      await new Promise((r) => {
+        setTimeout(r, COMPARE_RETRY_DELAY_MS);
+      });
     }
   }
   logCompareFailure('exhausted', {
@@ -328,7 +332,9 @@ export async function getBranchExistence(
       // Network/transport failure — transient, fall through to retry.
     }
     if (attempt < COMPARE_RETRY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, COMPARE_RETRY_DELAY_MS));
+      await new Promise((r) => {
+        setTimeout(r, COMPARE_RETRY_DELAY_MS);
+      });
     }
   }
   return 'unknown';
@@ -365,7 +371,7 @@ export async function getRepoInstallation(
     return null;
   }
 
-  const data = (await res.json()) as RepoInstallationResponse;
+  const data = await res.json<RepoInstallationResponse>();
   return { installationId: String(data.id), accountId: String(data.account.id) };
 }
 
@@ -402,7 +408,7 @@ export async function getInstallationAccount(
     return null;
   }
 
-  const data = (await res.json()) as InstallationAccountResponse;
+  const data = await res.json<InstallationAccountResponse>();
   const account = data.account;
   if (!account || (typeof account.id !== 'number' && typeof account.id !== 'string')) {
     return null;

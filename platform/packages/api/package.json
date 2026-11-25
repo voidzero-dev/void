@@ -5,9 +5,11 @@
   "exports": {
     "./tiers": "./src/tiers.ts",
     "./id": "./src/id.ts",
+    "./email-admission": "./src/email/admission.ts",
     "./api": "./src/api.ts",
     "./reserved-slugs": "./src/reserved-slugs.ts",
     "./routing": "./src/routing.ts",
+    "./routing-records": "./src/routing-records.ts",
     "./isr-store": "./src/isr-store.ts",
     "./usage-auth": "./src/usage-auth.ts",
     "./proxy-token": "./src/proxy-token.ts"
@@ -22,7 +24,7 @@
     "migrate": "drizzle-kit migrate",
     "migrate:staging": "DATABASE_URL=$STAGING_DATABASE_URL drizzle-kit migrate",
     "setup": "node scripts/setup-local.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "@astryxdesign/core": "catalog:",
@@ -62,6 +64,7 @@
     "@voidzero-dev/vite-plus-prompts": "catalog:",
     "drizzle-kit": "^0.31.11",
     "miniflare": "catalog:",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",

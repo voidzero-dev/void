@@ -1,4 +1,5 @@
-import { vi, type Mock, type MockInstance } from 'vite-plus/test';
+import { vi } from 'vite-plus/test';
+import type { Mock, MockInstance } from 'vite-plus/test';
 import type { GithubConnection, ProjectResponse } from '../../src/cli/client.ts';
 
 export const projectId = 'proj_test';

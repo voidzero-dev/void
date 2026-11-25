@@ -85,7 +85,7 @@ describe('createStaticEdgeHandler', () => {
     }).fetch(new Request('https://example.com/old?q=1'), { ASSETS: binding });
 
     expect(await response.text()).toBe('rewritten');
-    const request = binding.fetch.mock.calls[0]![0];
+    const request = binding.fetch.mock.calls[0][0];
     expect(new URL(request.url).pathname).toBe('/new');
     expect(new URL(request.url).search).toBe('?q=1');
     expect(request.headers.get('x-void-original-url')).toBe('https://example.com/old?q=1');

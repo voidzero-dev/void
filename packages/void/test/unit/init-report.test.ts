@@ -83,19 +83,42 @@ describe('InitReport', () => {
       ['Git (optional): git add -A && git commit -m "chore: initial commit"'],
     ]);
     expect(vi.mocked(printDone).mock.invocationCallOrder.at(-1)).toBeLessThan(
-      vi.mocked(printNextStep).mock.invocationCallOrder[0]!,
+      vi.mocked(printNextStep).mock.invocationCallOrder[0],
     );
   });
 
   it('describes a new starter in one line instead of its files', () => {
     const report = new InitReport();
     report.created('pages/index.tsx');
-    report.starter = 'Created a React Pages starter with D1 (SQLite)';
+    report.setStarter('Created a React Pages starter with D1 (SQLite)');
 
     report.print();
 
     expect(vi.mocked(printDone).mock.calls).toEqual([
       ['Created a React Pages starter with D1 (SQLite)'],
+    ]);
+  });
+
+  it('lists files outside the new app and later changes to existing files under the starter', () => {
+    const report = new InitReport();
+    report.created('pages/index.tsx');
+    report.updated('package.json', 'added starter scripts and dependencies');
+    report.updated('../../pnpm-workspace.yaml', 'approved builds');
+    report.setStarter('Created a React Pages starter with D1 (SQLite)');
+    report.created('AGENTS.md');
+    report.updated('package.json', 'removed typescript');
+    report.updated('tsconfig.json', 'extends .void/tsconfig.json');
+
+    report.print();
+
+    expect(vi.mocked(printDone).mock.calls).toEqual([
+      [
+        [
+          'Created a React Pages starter with D1 (SQLite)',
+          '~ ../../pnpm-workspace.yaml  approved builds',
+          '~ tsconfig.json              extends .void/tsconfig.json',
+        ],
+      ],
     ]);
   });
 
@@ -145,7 +168,7 @@ describe('an init run that stops early', () => {
     let finish = (): void => {};
     const run = report.printIfStopped(async () => {
       report.created('pages/index.tsx');
-      report.starter = 'Created a React Pages starter with D1 (SQLite)';
+      report.setStarter('Created a React Pages starter with D1 (SQLite)');
       await new Promise<void>((resolve) => {
         finish = resolve;
       });
@@ -154,7 +177,7 @@ describe('an init run that stops early', () => {
     // process.exit() runs the exit listeners. Call the one this run added.
     const added = process.listeners('exit').filter((listener) => !listeners.includes(listener));
     expect(added).toHaveLength(1);
-    added[0]!(0);
+    added[0](0);
 
     expect(vi.mocked(log.warn).mock.calls).toEqual([['Setup did not finish. Done so far:']]);
     expect(vi.mocked(printDone).mock.calls).toEqual([
@@ -164,6 +187,62 @@ describe('an init run that stops early', () => {
     finish();
     await run;
     expect(process.listeners('exit')).toEqual(listeners);
+  });
+
+  it('lists files outside the new app under the starter when a step fails', async () => {
+    const report = new InitReport();
+    const failure = new Error('pnpm install failed with exit code 1');
+
+    await expect(
+      report.printIfStopped(async () => {
+        report.created('pages/index.tsx');
+        report.updated('../../pnpm-workspace.yaml', 'approved builds');
+        report.setStarter('Created a static React Pages starter');
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+
+    expect(vi.mocked(log.warn).mock.calls).toEqual([['Setup did not finish. Done so far:']]);
+    expect(vi.mocked(printDone).mock.calls).toEqual([
+      [['Created a static React Pages starter', '~ ../../pnpm-workspace.yaml  approved builds']],
+    ]);
+  });
+
+  it('says how to finish the step it stopped in, after what it had done', async () => {
+    const report = new InitReport();
+    const failure = new Error('vp install failed with exit code 1');
+
+    await expect(
+      report.printIfStopped(async () => {
+        report.setStarter('Created a React Pages starter with D1 (SQLite)');
+        report.next('Add DATABASE_URL to .env');
+        report.unfinished = 'Run `vp install` to finish setup';
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+
+    expect(vi.mocked(log.warn).mock.calls).toEqual([['Setup did not finish. Done so far:']]);
+    expect(vi.mocked(printNextStep).mock.calls).toEqual([
+      ['Add DATABASE_URL to .env'],
+      ['Run `vp install` to finish setup', { wrap: false }],
+    ]);
+  });
+
+  it('prints only how to finish a step that stopped before init changed anything', async () => {
+    const report = new InitReport();
+
+    await expect(
+      report.printIfStopped(async () => {
+        report.unfinished = 'Run `npm install` to finish setup';
+        throw new Error('npm install failed with exit code 1');
+      }),
+    ).rejects.toThrow('npm install failed');
+
+    // No heading: there is no finished work to list under it.
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(vi.mocked(printNextStep).mock.calls).toEqual([
+      ['Run `npm install` to finish setup', { wrap: false }],
+    ]);
   });
 
   it('prints nothing when it stops before it changes anything', async () => {
@@ -183,11 +262,14 @@ describe('an init run that stops early', () => {
 
     await report.printIfStopped(async () => {
       report.created('void.config.ts');
+      // The summary lists finished work, not how to finish a step by hand.
+      report.unfinished = 'Run `npm install` to finish setup';
       report.print();
     });
 
     expect(log.warn).not.toHaveBeenCalled();
     expect(vi.mocked(printDone).mock.calls).toEqual([[['Configured Void', '+ void.config.ts']]]);
+    expect(printNextStep).not.toHaveBeenCalled();
     expect(process.listeners('exit')).toEqual(listeners);
   });
 });

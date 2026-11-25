@@ -7,12 +7,10 @@ export const domainSubcommands: Array<SubcommandDef> = [
   { name: 'status', arg: '<hostname>', description: 'Check domain verification status' },
 ];
 
-export type DomainArgs = {
-  subcommand: 'add' | 'delete' | 'list' | 'status';
-  hostname?: string;
-  projectSlug?: string;
-  verbose?: boolean;
-};
+export type DomainArgs = { projectSlug?: string; verbose?: boolean } & (
+  | { subcommand: 'list'; hostname?: string }
+  | { subcommand: 'add' | 'delete' | 'status'; hostname: string }
+);
 
 export function parseDomainArgs(args: Array<string>): DomainArgs {
   const subcommand = args[0] as DomainArgs['subcommand'];
@@ -39,7 +37,10 @@ export function parseDomainArgs(args: Array<string>): DomainArgs {
     }
   }
 
-  if ((subcommand === 'add' || subcommand === 'delete' || subcommand === 'status') && !hostname) {
+  if (subcommand === 'list') {
+    return { subcommand, hostname, projectSlug, verbose };
+  }
+  if (!hostname) {
     throw new Error(`domain: Usage: void domain ${subcommand} <hostname> [--project <name>].`);
   }
 

@@ -1,5 +1,7 @@
-import { deployArtifactDigest, createDeployArtifact, type DeployArtifact } from '@void/deploy-core';
-import { and, eq, gt, isNull, sql, type SQL } from 'drizzle-orm';
+import { deployArtifactDigest, createDeployArtifact } from '@void/deploy-core';
+import type { DeployArtifact } from '@void/deploy-core';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import {
@@ -67,7 +69,11 @@ export async function registerOAuthClient(
     new Set(redirectUris).size !== redirectUris.length ||
     !Array.isArray(scopes) ||
     !scopes.includes('profile') ||
-    scopes.some((value) => !['profile', 'deploy:approve', 'preview:deploy'].includes(value)) ||
+    scopes.some(
+      (value: unknown) =>
+        typeof value !== 'string' ||
+        !['profile', 'deploy:approve', 'preview:deploy'].includes(value),
+    ) ||
     new Set(scopes).size !== scopes.length
   ) {
     throw new OAuthError(
@@ -87,7 +93,7 @@ export async function registerOAuthClient(
       secret_hash: await hashLoginProof(secret),
     })
     .returning();
-  return { client: publicOAuthClient(client!), clientSecret: secret };
+  return { client: publicOAuthClient(client), clientSecret: secret };
 }
 export function publicOAuthClient(client: typeof oauthClients.$inferSelect) {
   const { secret_hash: _secret, ...value } = client;
@@ -266,7 +272,7 @@ export async function activeOAuthGrant(
     isAdminSuspended(user.suspended_reason) ||
     grant.session.exp <= Date.now() / 1000 ||
     !(await validateHumanSession(
-      db as Db,
+      db,
       grant.session,
       companyIdentity ?? grant.session.companyIdentity,
     ))
@@ -400,7 +406,8 @@ export async function activeOAuthApproval(
   if (
     approval.data.kind === 'preview'
       ? project.preview_client_id !== client.id ||
-        Date.parse(project.preview_expires_at!) <= Date.now()
+        !project.preview_expires_at ||
+        Date.parse(project.preview_expires_at) <= Date.now()
       : project.preview_client_id !== null
   ) {
     throw new OAuthError(

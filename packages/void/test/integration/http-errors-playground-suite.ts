@@ -6,12 +6,17 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
-  type StartedServer,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground, StartedServer } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
+
+type MarkedWindow = Window & { __HTTP_ERRORS_DOCUMENT__?: true };
+
+function readDocumentMarker() {
+  return (window as MarkedWindow).__HTTP_ERRORS_DOCUMENT__;
+}
 
 const repository = join(import.meta.dirname, '../../../..');
 const pagesHeaders = {
@@ -111,7 +116,14 @@ type PageData = {
   deferredKeys?: Record<string, string>;
 };
 
-describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mode) => {
+export type HttpErrorsMode = 'dev' | 'production';
+
+/** Each mode runs from its own test file, so both servers and browser matrices run in parallel. */
+export function describeHttpErrorsPlayground(mode: HttpErrorsMode): void {
+  describe(`HTTP errors playground (${mode})`, () => httpErrorsSuite(mode));
+}
+
+function httpErrorsSuite(mode: HttpErrorsMode): void {
   let playground: IsolatedPlayground;
   let server: StartedServer;
   let browser: Browser;
@@ -211,21 +223,45 @@ describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mo
   }
 
   describe('browser navigation', () => {
+    const toastSelector = '.example-page-loaded-toast';
     let page: Page;
 
     beforeEach(async () => {
       page = await browser.newPage();
       page.setDefaultTimeout(10_000);
+      // Record the hydration signal before the toast's auto-dismiss timer can hide it.
+      await page.addInitScript((selector) => {
+        document.addEventListener(
+          'beforetoggle',
+          (event) => {
+            const toast = event.target;
+            if (
+              event.newState === 'open' &&
+              toast instanceof HTMLElement &&
+              toast.matches(selector)
+            ) {
+              const data = document.documentElement.dataset;
+              data.testToastOpenCount = String(Number(data.testToastOpenCount ?? '0') + 1);
+            }
+          },
+          { capture: true },
+        );
+      }, toastSelector);
     });
     afterEach(async () => {
       await page?.close();
     });
 
+    async function waitForToastToOpen() {
+      await page.locator('html[data-test-toast-open-count]').waitFor({ state: 'attached' });
+    }
+
     async function openHome() {
       await page.goto(base);
-      // The layout effect is also the example's observable hydration signal.
-      await page.waitForSelector('.example-page-loaded-toast:popover-open');
-      await page.evaluate(() => Reflect.set(globalThis, '__HTTP_ERRORS_DOCUMENT__', true));
+      await waitForToastToOpen();
+      await page.evaluate(() => {
+        (window as MarkedWindow).__HTTP_ERRORS_DOCUMENT__ = true;
+      });
       await page
         .locator('header')
         .evaluate((element) => element.setAttribute('data-retained', 'yes'));
@@ -252,7 +288,7 @@ describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mo
           expect(response.headers()['retry-after'] ?? null).toBe(example.retryAfter);
           if (navigation === 'Document load') {
             expect(response.headers()['content-type']).toContain('text/html');
-            await page.waitForSelector('.example-page-loaded-toast:popover-open');
+            await waitForToastToOpen();
           } else {
             expect(response.headers()['x-voidpages']).toBe('true');
           }
@@ -282,9 +318,7 @@ describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mo
             ).toBe(0);
           }
           const retained = navigation === 'Client navigation';
-          expect(
-            await page.evaluate(() => Reflect.get(globalThis, '__HTTP_ERRORS_DOCUMENT__')),
-          ).toBe(retained ? true : undefined);
+          expect(await page.evaluate(readDocumentMarker)).toBe(retained ? true : undefined);
           expect(await page.locator('header').getAttribute('data-retained')).toBe(
             retained ? 'yes' : null,
           );
@@ -298,7 +332,7 @@ describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mo
       for (const name of ['Document load', 'Client navigation']) {
         const links = await page.getByRole('link', { name, exact: true }).all();
         const targets = await Promise.all(links.map((link) => link.getAttribute('href')));
-        expect(targets.sort()).toEqual(paths);
+        expect(targets.sort((a, b) => String(a).localeCompare(String(b)))).toEqual(paths);
       }
     });
 
@@ -321,9 +355,7 @@ describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mo
         await page.goForward();
         await expect.poll(() => page.locator('main h1').textContent()).toBe('HTTP Errors Example');
         expect(await page.locator('header').getAttribute('data-retained')).toBe('yes');
-        expect(await page.evaluate(() => Reflect.get(globalThis, '__HTTP_ERRORS_DOCUMENT__'))).toBe(
-          true,
-        );
+        expect(await page.evaluate(readDocumentMarker)).toBe(true);
       },
     );
 
@@ -353,18 +385,20 @@ describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mo
 
     it('shows the document-load toast once and does not reopen it on client navigation', async () => {
       await openHome();
-      await page.waitForSelector('.example-page-loaded-toast:popover-open', { state: 'hidden' });
+      const openToast = page.locator(`${toastSelector}:popover-open`);
+      await openToast.waitFor({ state: 'hidden' });
       await page
         .locator('a[href="/loaders/status/403"]')
         .getByText('Client navigation', { exact: true })
         .click();
       await expect.poll(() => page.locator('main h1').textContent()).toBe('Status set in a loader');
-      expect(await page.locator('.example-page-loaded-toast:popover-open').count()).toBe(0);
+      expect(await openToast.count()).toBe(0);
       expect(await page.locator('header').getAttribute('data-retained')).toBe('yes');
       await page.getByRole('link', { name: 'HTTP Errors Example', exact: true }).click();
       await expect.poll(() => page.locator('main h1').textContent()).toBe('HTTP Errors Example');
-      expect(await page.locator('.example-page-loaded-toast:popover-open').count()).toBe(0);
+      expect(await openToast.count()).toBe(0);
+      expect(await page.locator('html').getAttribute('data-test-toast-open-count')).toBe('1');
       expect(await page.title()).toBe('HTTP Errors Example');
     });
   });
-});
+}

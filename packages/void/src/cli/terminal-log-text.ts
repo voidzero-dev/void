@@ -27,7 +27,7 @@ const SGR = /^\u001b\[[0-9;:]*m$/;
  */
 export function sanitizeTerminalLogText(value: string): string {
   let keptStyle = false;
-  const text = value.replace(TERMINAL_CONTROL, (match) => {
+  const text = value.replaceAll(TERMINAL_CONTROL, (match) => {
     if (!SGR.test(match)) {
       return '';
     }

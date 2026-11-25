@@ -7,6 +7,7 @@
 import type { CloudflareOperation, CloudflareCommandResult } from '@void/deploy-cloudflare';
 import { isRecord } from '@void/deploy-core';
 import type { EmailHandlersScan } from '../router/email.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { findBindingNameOwner } from './wrangler.ts';
 
 /** The `send_email` binding name Void provisions and the runtime reads. */
@@ -22,12 +23,12 @@ const SENDING_SCOPES = ['email_sending:write'];
 const INBOUND_SCOPES = ['email_routing:write', ...SENDING_SCOPES];
 
 /** Cloudflare Email API error codes with a known meaning; others are reported verbatim. */
-const CF_EMAIL_ERROR_CODES: Readonly<Record<number, string>> = {
+const CF_EMAIL_ERROR_CODES = {
   2062: 'Email Routing is not enabled on this zone',
   2040: 'already onboarded for Email Sending',
   2036: 'account is not entitled to Email Sending',
-  10105: 'account is not entitled to Email Sending',
-};
+  10_105: 'account is not entitled to Email Sending',
+} satisfies Readonly<Record<number, string>>;
 
 /** The one-time dashboard step printed when the subdomain routing call cannot be made. */
 export function subdomainDashboardFallback(apex: string, domain: string): string {
@@ -37,6 +38,36 @@ export function subdomainDashboardFallback(apex: string, domain: string): string
 /** The Workers Free hint printed when Email Sending onboarding fails. */
 export const SENDING_FREE_PLAN_HINT =
   'Workers Paid needed for arbitrary recipients. Inbound works; sendEmail() to verified destinations only.';
+
+const CLOUDFLARE_WORKERS_PAID_URL = 'https://dash.cloudflare.com/?to=/:account/workers/plans';
+
+/**
+ * Why a sending-only app (no `email/` handlers) has no working sender: it sends only through
+ * Email Sending, which Workers Free does not offer. Names the plan, its link and the token
+ * permissions a sending-only setup needs.
+ */
+export function formatSendingOnlyPaidHint(domain: string): Array<string> {
+  return [
+    `Email Sending is not onboarded on ${domain}. Apps without email/ handlers send through Cloudflare Email Sending, which requires the Workers Paid plan.`,
+    `Enable Workers Paid: ${CLOUDFLARE_WORKERS_PAID_URL}`,
+    'After upgrading, run `void email setup --platform cloudflare`. An API token needs Zone Read + Email Sending Edit.',
+  ];
+}
+
+/**
+ * A sending-only app whose saved setup (the committed binding) still waits for Email Sending
+ * onboarding, with nothing else in the way. Preflight cannot tell Workers Free from a domain
+ * never onboarded, so deploys leave the retry to `void email setup` instead of asking again.
+ */
+export function isAwaitingSendingOnboarding(pre: EmailPreflight): boolean {
+  return (
+    !pre.ready &&
+    pre.usage.handlers.length === 0 &&
+    pre.binding.state === 'present' &&
+    pre.sendingRetryable &&
+    !pre.blockers.some((b) => b.scope === 'all')
+  );
+}
 
 // ── Injected seams ─────────────────────────────────────────────────────────────
 
@@ -151,7 +182,7 @@ export interface DerivedEmailAddresses {
  */
 export function emailFromDomain(from: string): string | null {
   const bracketed = /<([^<>]*)>\s*$/.exec(from.trim());
-  const address = bracketed ? (bracketed[1] as string) : from;
+  const address = bracketed ? bracketed[1] : from;
   const at = address.lastIndexOf('@');
   if (at <= 0 || at === address.length - 1) {
     return null;
@@ -268,7 +299,7 @@ export function parseWhoamiJson(data: unknown): WhoamiJson | null {
   ) {
     return null;
   }
-  return data as unknown as WhoamiJson;
+  return data as Record<string, unknown> & WhoamiJson;
 }
 
 export interface RoutingSettings {
@@ -401,6 +432,30 @@ export function readSendingSettings(data: unknown): SendingSettings | null {
     /^[0-9a-f]{32}$/.test(tag)
     ? { name: data.name, enabled: data.enabled, tag }
     : null;
+}
+
+/**
+ * The `email.sending.settings` result for `domain`, built from a bearer read of
+ * `GET /zones/{z}/email/sending/subdomains`: the matching row, `data: null` when the domain
+ * is not listed (not onboarded), or a failure when the list could not be read.
+ */
+function sendingSettingsFromList(
+  response: SessionBearerResponse | null,
+  domain: string,
+): EmailWranglerRunResult {
+  if (!response?.ok || !Array.isArray(response.result)) {
+    const first = response?.errors[0];
+    return {
+      status: 1,
+      stdout: '',
+      stderr: first?.message ?? '',
+      ...(first?.code ? { errorCode: first.code } : {}),
+    };
+  }
+  const row = (response.result as Array<unknown>).find(
+    (item) => isRecord(item) && typeof item.name === 'string' && item.name.toLowerCase() === domain,
+  );
+  return { status: 0, stdout: '', stderr: '', data: row ?? null };
 }
 
 function providerErrorCode(result: EmailWranglerRunResult): number | null {
@@ -708,14 +763,16 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
     pre.sending.dnsConflicts.push(`(DNS lookup failed for _dmarc.${domain} / cf-bounce.${domain})`);
   }
 
-  // 4. The bearer, borrowed once for two reads with no command: `GET /zones?name=` (without
-  //    `account.id`, so a zone in another account is told apart from a missing one, and
-  //    `type` refuses partial/secondary zones) and `GET /zones/{z}/email/routing`
-  //    (`support_subaddress`). A `null` bearer leaves both rows `unknown`.
-  let bearer: string | null = null;
-  if (pre.session.state === 'ok') {
-    bearer = await inputs.getSessionBearer().catch(() => null);
-  }
+  // 4. The bearer, borrowed once for the reads keyed on the resolved zone: `GET /zones?name=`
+  //    (without `account.id`, so a zone in another account is told apart from a missing one,
+  //    and `type` refuses partial/secondary zones), then `GET /zones/{z}/email/routing`
+  //    (`support_subaddress`) for inbound apps, or `GET /zones/{z}/email/sending/subdomains`
+  //    for sending-only apps. The provider's sending read first resolves the zone through
+  //    Email Routing settings (Zone Settings Read), which a sending-only token lacks.
+  //    A `null` bearer leaves these rows `unknown`.
+  let sendingRead: SessionBearerResponse | null = null;
+  const bearer =
+    pre.session.state === 'ok' ? await inputs.getSessionBearer().catch(() => null) : null;
   if (bearer) {
     if (!receivesEmail) {
       pre.zone.state = 'not-found';
@@ -783,8 +840,17 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
         pre.subaddressing.state = flag ? 'on' : 'off';
       }
     }
+    if (!receivesEmail && pre.zone.state === 'found' && pre.zone.zoneId) {
+      sendingRead = await fetchWithSessionBearer(
+        inputs.fetchImpl,
+        bearer,
+        'GET',
+        `/zones/${pre.zone.zoneId}/email/sending/subdomains`,
+        undefined,
+        apiBaseUrl,
+      );
+    }
   }
-  bearer = null;
   if (!receivesEmail && pre.session.state === 'ok' && pre.zone.state === 'unknown') {
     block(
       'all',
@@ -937,7 +1003,10 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
   pre.addresses = pre.derived.addresses.filter((a) => !foreign.has(a));
 
   // 7. Sending. Not-found is a clean "not onboarded"; anything else unparsable is unknown.
-  const sendingResult = await run({ type: 'email.sending.settings', domain });
+  //    Sending-only apps reach this point only after the bearer resolved the zone above.
+  const sendingResult: EmailWranglerRunResult = receivesEmail
+    ? await run({ type: 'email.sending.settings', domain })
+    : sendingSettingsFromList(sendingRead, domain);
   if (isHardFailure(sendingResult)) {
     pre.sending.state = 'unknown';
   } else if (sendingResult.status === 0 && sendingResult.data === null) {
@@ -1103,7 +1172,9 @@ export function renderEmailChecklist(pre: EmailPreflight): string {
       : pre.sending.state === 'unknown'
         ? 'unknown — could not verify; retry void email status --platform cloudflare'
         : pre.sendingRetryable && pre.binding.state === 'present'
-          ? 'not onboarded — verified destinations only; after upgrading to Workers Paid run void email setup --platform cloudflare'
+          ? receivesEmail
+            ? 'not onboarded — verified destinations only; after upgrading to Workers Paid run void email setup --platform cloudflare'
+            : 'not onboarded — needs Workers Paid; after upgrading run void email setup --platform cloudflare'
           : 'not onboarded';
   row('sending', `${pre.domain}  ${sendingWord}`);
   if (receivesEmail && pre.derived.addresses.length === 0) {
@@ -1213,6 +1284,17 @@ export interface SessionBearerResponse {
   errors: Array<{ code: number; message: string }>;
 }
 
+type SessionBearerHeaders = {
+  Authorization: string;
+  'Content-Type'?: string;
+};
+
+type SessionBearerPayload = {
+  success?: boolean;
+  result?: unknown;
+  errors?: Array<{ code?: number; message?: string }>;
+};
+
 /**
  * The ONLY function that receives the session bearer. It puts the token in the
  * `Authorization` header and nowhere else: not in the URL, not in a log line, not in
@@ -1228,7 +1310,7 @@ export async function fetchWithSessionBearer(
   body?: unknown,
   apiBaseUrl: string = CLOUDFLARE_API_BASE_URL,
 ): Promise<SessionBearerResponse> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${bearer}` };
+  const headers: SessionBearerHeaders = { Authorization: `Bearer ${bearer}` };
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
@@ -1250,13 +1332,9 @@ export async function fetchWithSessionBearer(
       errors: [{ code: 0, message: scrub(err instanceof Error ? err.message : String(err)) }],
     };
   }
-  let payload: {
-    success?: boolean;
-    result?: unknown;
-    errors?: Array<{ code?: number; message?: string }>;
-  } = {};
+  let payload: SessionBearerPayload;
   try {
-    payload = (await response.json()) as typeof payload;
+    payload = await response.json<typeof payload>();
   } catch {
     payload = {};
   }
@@ -1300,14 +1378,30 @@ export interface EmailApplyResult {
   ready: boolean;
 }
 
+const describeFailure = (response: SessionBearerResponse | null): string => {
+  if (!response) {
+    // `auth token --json` failed, so no bearer could be borrowed.
+    return 'could not borrow the Cloudflare session (session-bearer step failed)';
+  }
+  const first = response.errors[0];
+  const code = first?.code ? ` [code: ${first.code}]` : '';
+  const known =
+    first?.code && hasOwnKey(CF_EMAIL_ERROR_CODES, first.code)
+      ? CF_EMAIL_ERROR_CODES[first.code]
+      : undefined;
+  return `Cloudflare answered ${response.status}${code}${known ? ` — ${known}` : first?.message ? ` — ${first.message}` : ''}`;
+};
+
 /**
  * Run only the rows preflight found not ready:
  *
  *   routing   apex → `email routing enable <apex>`
  *             subdomain → bearer POST /zones/{z}/email/routing/dns { name }
  *   subaddr   bearer PATCH /zones/{z}/email/routing { support_subaddress: true }
- *   sending   `email sending enable <domain>`; code 2040 (already onboarded) is ok;
- *             any other failure prints a hint and continues without sending
+ *   sending   inbound → `email sending enable <domain>`
+ *             sending-only → bearer POST /zones/{z}/email/sending/subdomains { name }
+ *             code 2040 (already onboarded) is ok; any other failure prints a hint and
+ *             continues without sending
  *
  * A failed bearer call prints the dashboard fallback and withholds `addresses` this run;
  * it never fails the deploy. An `all` blocker applies nothing and returns an empty patch.
@@ -1384,16 +1478,6 @@ export async function applyEmailSetup(
     }
     return response;
   };
-  const describeFailure = (response: SessionBearerResponse | null): string => {
-    if (!response) {
-      // `auth token --json` failed, so no bearer could be borrowed.
-      return 'could not borrow the Cloudflare session (session-bearer step failed)';
-    }
-    const first = response.errors[0];
-    const code = first?.code ? ` [code: ${first.code}]` : '';
-    const known = first?.code ? CF_EMAIL_ERROR_CODES[first.code] : undefined;
-    return `Cloudflare answered ${response.status}${code}${known ? ` — ${known}` : first?.message ? ` — ${first.message}` : ''}`;
-  };
 
   // 1. Routing.
   const apexRoutingOff = pre.mode === 'subdomain' && pre.routing.enabled !== true;
@@ -1406,7 +1490,7 @@ export async function applyEmailSetup(
       } else {
         const code = providerErrorCode(enable);
         lines.push(
-          `  ✘ routing   could not enable Email Routing on ${apex}${code ? ` [code: ${code}]${CF_EMAIL_ERROR_CODES[code] ? ` — ${CF_EMAIL_ERROR_CODES[code]}` : ''}` : ''}`,
+          `  ✘ routing   could not enable Email Routing on ${apex}${code ? ` [code: ${code}]${hasOwnKey(CF_EMAIL_ERROR_CODES, code) ? ` — ${CF_EMAIL_ERROR_CODES[code]}` : ''}` : ''}`,
         );
       }
     } else if (apexRoutingOff) {
@@ -1414,8 +1498,8 @@ export async function applyEmailSetup(
       // enable the zone itself and lock MX over the apex's live mail, so no call is made.
       lines.push(
         `  ✘ routing   ${pre.domain}: Email Routing is not enabled on ${apex} — a subdomain can only be added to a zone that already routes; Void never enables routing on the apex from the subdomain path`,
+        `    ${subdomainDashboardFallback(apex, pre.domain)}`,
       );
-      lines.push(`    ${subdomainDashboardFallback(apex, pre.domain)}`);
     } else {
       // Per the OpenAPI spec, POST …/email/routing/dns { name } enables routing on a
       // subdomain; the `email.routing.enable` operation is apex-only.
@@ -1426,8 +1510,10 @@ export async function applyEmailSetup(
         result.routingReady = true;
         lines.push(`  ✔ routing   ${pre.domain} enabled`);
       } else {
-        lines.push(`  ✘ routing   ${pre.domain}: ${describeFailure(response)}`);
-        lines.push(`    ${subdomainDashboardFallback(apex, pre.domain)}`);
+        lines.push(
+          `  ✘ routing   ${pre.domain}: ${describeFailure(response)}`,
+          `    ${subdomainDashboardFallback(apex, pre.domain)}`,
+        );
       }
     }
   }
@@ -1441,8 +1527,8 @@ export async function applyEmailSetup(
       result.subaddressingReady = true;
       lines.push(`  ✔ routing   subaddressing on for ${apex}`);
     } else {
-      lines.push(`  ✘ routing   subaddressing on ${apex}: ${describeFailure(response)}`);
       lines.push(
+        `  ✘ routing   subaddressing on ${apex}: ${describeFailure(response)}`,
         `    turn it on in the Cloudflare dashboard → ${apex} → Email → Settings → Subaddressing`,
       );
     }
@@ -1458,30 +1544,64 @@ export async function applyEmailSetup(
       })`,
     );
   }
-  bearer = null;
 
   // 3. Sending. 2040 = already onboarded. Anything else: hint, continue without it.
+  //    Sending-only apps onboard through the bearer on the zone preflight resolved, since
+  //    the provider command first reads Email Routing settings (Zone Settings Read).
+  const enableSending = async (): Promise<{
+    ok: boolean;
+    code: number | null;
+    noBearer?: boolean;
+  }> => {
+    if (receivesEmail) {
+      const enable = await run({ type: 'email.sending.enable', domain: pre.domain });
+      const code = isHardFailure(enable) ? null : providerErrorCode(enable);
+      return { ok: !isHardFailure(enable) && (enable.status === 0 || code === 2040), code };
+    }
+    const token = await borrow();
+    if (!token) {
+      return { ok: false, code: null, noBearer: true };
+    }
+    const response = await fetchWithSessionBearer(
+      inputs.fetchImpl,
+      token,
+      'POST',
+      `/zones/${pre.zone.zoneId}/email/sending/subdomains`,
+      { name: pre.domain },
+      apiBaseUrl,
+    );
+    const code = response.errors.find((error) => error.code !== 0)?.code ?? null;
+    return { ok: response.ok || code === 2040, code };
+  };
   const sendingBlocked = pre.blockers.filter((b) => b.scope === 'sending');
   if (!result.sendingReady && sendingBlocked.length > 0) {
     for (const b of sendingBlocked) {
       lines.push(`  ! sending   ${b.message}`);
     }
   } else if (!result.sendingReady) {
-    const enable = await run({ type: 'email.sending.enable', domain: pre.domain });
-    const code = isHardFailure(enable) ? null : providerErrorCode(enable);
-    if (!isHardFailure(enable) && (enable.status === 0 || code === 2040)) {
+    const { ok, code, noBearer } = await enableSending();
+    if (ok) {
       result.sendingReady = true;
       lines.push(`  ✔ sending   ${pre.domain} onboarded`);
+    } else if (noBearer) {
+      // Nothing reached Cloudflare, so the plan is not the reason.
+      lines.push(
+        `  ! sending   ${pre.domain} not onboarded (session bearer unavailable); rerun void email setup --platform cloudflare`,
+      );
     } else {
-      const known = code ? CF_EMAIL_ERROR_CODES[code] : undefined;
+      const known =
+        code && hasOwnKey(CF_EMAIL_ERROR_CODES, code) ? CF_EMAIL_ERROR_CODES[code] : undefined;
       lines.push(
         `  ! sending   ${pre.domain} not onboarded${code ? ` [code: ${code}]` : ''}${known ? ` — ${known}` : ''}`,
       );
-      lines.push(
-        `    ${receivesEmail ? SENDING_FREE_PLAN_HINT : 'Workers Paid needed for arbitrary recipients. Email Sending is not configured; verified destinations only with an existing send binding.'}`,
-      );
+      for (const hint of receivesEmail
+        ? [SENDING_FREE_PLAN_HINT]
+        : formatSendingOnlyPaidHint(pre.domain)) {
+        lines.push(`    ${hint}`);
+      }
     }
   }
+  bearer = null;
 
   // 4. The patch. The binding is written only when routing is ready or sending is
   //    onboarded (a bare account never carries it). `addresses` is written only when
@@ -1526,6 +1646,11 @@ export function renderAddressMap(map: {
   sendingReady: boolean;
   /** The pending marker; `void email status` passes one that does not name a deploy. */
   pendingLabel?: string;
+  /**
+   * An app without `email/` handlers. Void never enables Email Routing for it, so before
+   * onboarding the map cannot promise the verified-destination fallback.
+   */
+  sendingOnly?: boolean;
   /** Written addresses whose rule does not exist yet — `wrangler deploy` creates it. */
   creating?: Array<string>;
 }): string {
@@ -1542,7 +1667,7 @@ export function renderAddressMap(map: {
     lines.push(`    inbound   ${pad(route.address, width + 2)}→  ${route.handler}${marker}`);
   }
   lines.push(
-    `    outbound  sendEmail() from ${map.from}${map.sendingReady ? '' : '   (verified destinations only)'}`,
+    `    outbound  sendEmail() from ${map.from}${map.sendingReady ? '' : map.sendingOnly ? '   (Email Sending not onboarded)' : '   (verified destinations only)'}`,
   );
   return lines.join('\n');
 }

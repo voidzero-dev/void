@@ -15,7 +15,7 @@ import { drizzlePlugin, voidDbBundlerPlugin } from '../../src/plugin-drizzle.ts'
 import { envContext } from '../../src/runtime/env/raw.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
-import { getHookHandler } from '../helpers/vite-hooks.ts';
+import { loadVirtualModule } from '../helpers/vite-hooks.ts';
 
 type Dialect = 'sqlite' | 'postgresql' | 'mysql';
 type Query = PromiseLike<Array<Record<string, unknown>>>;
@@ -84,8 +84,7 @@ function createRoot(dialect: Dialect): string {
 
 function loadSource(root: string, dialect: Dialect, casing?: DatabaseCasing): string {
   const plugin = drizzlePlugin(root, false, dialect, casing ? { casing } : {});
-  const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-  return load.call({}, '\0virtual:void-db');
+  return loadVirtualModule(plugin.load, '\0virtual:void-db');
 }
 
 /** Load the app's generated `void/db` with drizzle's real drivers. */

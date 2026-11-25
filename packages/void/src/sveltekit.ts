@@ -25,7 +25,7 @@ export function mergeVoidSvelteKitTsconfig(
     return config;
   }
 
-  const voidConfig = JSON.parse(readFileSync(voidTsconfigPath, 'utf-8')) as Tsconfig;
+  const voidConfig = JSON.parse(readFileSync(voidTsconfigPath, 'utf8')) as Tsconfig;
 
   const voidFiles = Array.isArray(voidConfig.files)
     ? voidConfig.files.filter((entry): entry is string => typeof entry === 'string')
@@ -43,7 +43,7 @@ export function mergeVoidSvelteKitTsconfig(
   const voidPaths = readPathMap(readObject(readObject(voidConfig.compilerOptions)?.paths));
   if (Object.keys(voidPaths).length > 0) {
     const compilerOptions = ensureObject(config, 'compilerOptions');
-    const paths = ensureObject(compilerOptions, 'paths') as Record<string, Array<string>>;
+    const paths = ensureObject(compilerOptions, 'paths');
     for (const [key, values] of Object.entries(voidPaths)) {
       // Kit 2 writes this config under .svelte-kit; Kit 3 writes it under
       // node_modules/$app. Absolute paths work from either generated location.
@@ -64,23 +64,21 @@ export function withVoidTSConfig(
   return (config) => mergeVoidSvelteKitTsconfig(hook?.(config) ?? config, options);
 }
 
-function readObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+function readObject(value: unknown): Tsconfig | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Tsconfig) : null;
 }
 
-function ensureObject(target: Tsconfig, key: string): Record<string, unknown> {
+function ensureObject(target: Tsconfig, key: string) {
   const current = readObject(target[key]);
   if (current) {
     return current;
   }
-  const next: Record<string, unknown> = {};
+  const next: Tsconfig = {};
   target[key] = next;
   return next;
 }
 
-function readPathMap(value: Record<string, unknown> | null): Record<string, Array<string>> {
+function readPathMap(value: Tsconfig | null) {
   const result: Record<string, Array<string>> = {};
   if (!value) {
     return result;

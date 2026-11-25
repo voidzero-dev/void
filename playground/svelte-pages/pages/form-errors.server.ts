@@ -1,12 +1,12 @@
-import * as v from 'valibot';
+import { array, minLength, object, pipe, string } from 'valibot';
 import { defineHandler } from 'void';
 
 export const loader = defineHandler(() => ({}));
 export const action = defineHandler.withValidator({
-  body: v.object({
-    email: v.pipe(v.string(), v.minLength(1, 'Email is required')),
-    name: v.pipe(v.string(), v.minLength(1, 'Name is required')),
-    profile: v.object({ name: v.string() }),
-    tags: v.array(v.string()),
+  body: object({
+    email: pipe(string(), minLength(1, 'Email is required')),
+    name: pipe(string(), minLength(1, 'Name is required')),
+    profile: object({ name: string() }),
+    tags: array(string()),
   }),
 })(() => {});

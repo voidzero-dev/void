@@ -73,7 +73,7 @@ export async function updateProjectWorkerRuntimeLogs(
   let next = 0;
   const work = async () => {
     while (next < scripts.length) {
-      const script = scripts[next++]!;
+      const script = scripts[next++];
       try {
         await client.patchDispatchNamespaceScriptSettings(
           input.accountId,

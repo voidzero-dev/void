@@ -1,0 +1,1850 @@
+[
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "workers_dev": true,
+      "secrets": {
+        "required": ["AUTH_SECRET"]
+      },
+      "version_metadata": {
+        "binding": "APP_VERSION"
+      },
+      "assets": {
+        "directory": "../client",
+        "binding": "ASSETS",
+        "not_found_handling": "none"
+      },
+      "queues": {
+        "producers": [
+          {
+            "binding": "JOBS",
+            "queue": "jobs",
+            "delivery_delay": 7
+          }
+        ]
+      },
+      "ratelimits": [
+        {
+          "name": "FAST_LIMIT",
+          "namespace_id": "1001",
+          "simple": {
+            "limit": 5,
+            "period": 10
+          }
+        },
+        {
+          "name": "MINUTE_LIMIT",
+          "namespace_id": "1002",
+          "simple": {
+            "limit": 30,
+            "period": 60
+          }
+        }
+      ],
+      "ai": {
+        "binding": "AI"
+      },
+      "hyperdrive": [
+        {
+          "binding": "POSTGRES",
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "services": [
+        {
+          "binding": "SERVICE",
+          "service": "utility-worker",
+          "entrypoint": "Rpc",
+          "props": {
+            "enabled": true
+          }
+        }
+      ],
+      "send_email": [
+        {
+          "name": "MAIL",
+          "allowed_destination_addresses": ["fixture@example.test"],
+          "allowed_sender_addresses": ["sender@example.test"]
+        }
+      ],
+      "analytics_engine_datasets": [
+        {
+          "binding": "METRICS",
+          "dataset": "metrics"
+        }
+      ],
+      "vectorize": [
+        {
+          "binding": "VECTORS",
+          "index_name": "vectors"
+        }
+      ],
+      "browser": {
+        "binding": "BROWSER"
+      },
+      "images": {
+        "binding": "IMAGES"
+      },
+      "worker_loaders": [
+        {
+          "binding": "LOADER"
+        }
+      ],
+      "dispatch_namespaces": [
+        {
+          "binding": "DISPATCH",
+          "namespace": "dispatch",
+          "outbound": {
+            "service": "outbound-worker",
+            "parameters": ["tenant"]
+          }
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "playground-preview-worker",
+      "main": "src/index.ts",
+      "compatibility_date": "2023-08-17",
+      "compatibility_flags": ["nodejs_compat"],
+      "workers_dev": false,
+      "account_id": "e35fd947284363a46fd7061634477114",
+      "rules": [
+        {
+          "type": "Text",
+          "globs": ["**/*.template"],
+          "fallthrough": true
+        }
+      ],
+      "vars": {
+        "ACCOUNT_ID": "f2ba8b5dd703a7dca481f2ea46e19296",
+        "SENTRY_DSN": "https://0ff0cac6ca8b492d8b551626a7b9670c@sentry10.cfdata.org/978",
+        "workersDev": "workers-playground-users.workers.dev"
+      },
+      "secrets": {
+        "required": [
+          "API_TOKEN",
+          "PROMETHEUS_TOKEN",
+          "SENTRY_ACCESS_CLIENT_SECRET",
+          "SENTRY_ACCESS_CLIENT_ID"
+        ]
+      },
+      "define": {
+        "ROOT": "'playground/devprod/cloudflare/dev'",
+        "PREVIEW": "'cloudflarepreviews.com'"
+      },
+      "routes": [
+        {
+          "pattern": "playground.devprod.cloudflare.dev/*",
+          "zone_name": "playground.devprod.cloudflare.dev"
+        },
+        {
+          "pattern": "*.cloudflarepreviews.com/*",
+          "zone_name": "cloudflarepreviews.com"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "UserSession",
+            "class_name": "UserSession"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_classes": ["UserSession"]
+        }
+      ],
+      "unsafe": {
+        "bindings": [
+          {
+            "name": "WSHIM_SOCKET",
+            "type": "internal_service_http",
+            "service": "wshim"
+          }
+        ]
+      },
+      "version_metadata": {
+        "binding": "CF_VERSION_METADATA"
+      },
+      "observability": {
+        "enabled": true
+      },
+      "env": {
+        "testing": {
+          "vars": {
+            "ACCOUNT_ID": "f2ba8b5dd703a7dca481f2ea46e19296",
+            "SENTRY_DSN": "https://0ff0cac6ca8b492d8b551626a7b9670c@sentry10.cfdata.org/978",
+            "workersDev": "workers-playground-users.workers.dev"
+          },
+          "secrets": {
+            "required": ["API_TOKEN"]
+          },
+          "define": {
+            "ROOT": "'playground-testing/devprod/cloudflare/dev'",
+            "PREVIEW": "'playground-testing.devprod.cloudflare.dev'"
+          },
+          "routes": [
+            {
+              "pattern": "playground-testing.devprod.cloudflare.dev/*",
+              "zone_name": "devprod.cloudflare.dev"
+            },
+            {
+              "pattern": "*.playground-testing.devprod.cloudflare.dev/*",
+              "zone_name": "devprod.cloudflare.dev"
+            }
+          ],
+          "durable_objects": {
+            "bindings": [
+              {
+                "name": "UserSession",
+                "class_name": "UserSession"
+              }
+            ]
+          },
+          "version_metadata": {
+            "binding": "CF_VERSION_METADATA"
+          },
+          "migrations": [
+            {
+              "tag": "v1",
+              "new_classes": ["UserSession"]
+            }
+          ],
+          "unsafe": {
+            "bindings": [
+              {
+                "name": "WSHIM_SOCKET",
+                "type": "internal_service_http",
+                "service": "wshim"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "mode": "testing"
+  },
+  {
+    "raw": {
+      "name": "playground-kitchen-sink-test-kitchen-sink--a-9",
+      "compatibility_date": "2026-02-24",
+      "compatibility_flags": ["nodejs_compat"],
+      "containers": [
+        {
+          "name": "void-sandbox-v1",
+          "class_name": "SandboxV1",
+          "scheduling_policy": "durable_object",
+          "images": {
+            "default": {
+              "dockerfile": "./sandbox.Dockerfile"
+            }
+          }
+        }
+      ],
+      "migrations": [
+        {
+          "tag": "void-sandbox-v2",
+          "new_sqlite_classes": ["SandboxV1"]
+        }
+      ],
+      "triggers": {
+        "crons": ["* * * * *"]
+      },
+      "assets": {
+        "binding": "ASSETS",
+        "not_found_handling": "none",
+        "run_worker_first": ["/**"]
+      },
+      "secrets": {
+        "required": ["APP_NAME", "SECRET_KEY", "API_URL"]
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "default",
+          "database_id": "local"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "KV",
+          "id": "local"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "STORAGE",
+          "bucket_name": "default"
+        }
+      ],
+      "ai": {
+        "binding": "AI"
+      },
+      "queues": {
+        "producers": [
+          {
+            "queue": "demo-queue",
+            "binding": "QUEUE_DEMO_QUEUE"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "demo-queue",
+            "max_batch_timeout": 1
+          }
+        ]
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "SANDBOX",
+            "class_name": "SandboxV1"
+          }
+        ]
+      }
+    },
+    "mode": "void-top-level"
+  },
+  {
+    "raw": {
+      "name": "durable-objects-exports-app",
+      "main": "src/index.ts",
+      "compatibility_date": "2026-01-01",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "COUNTER_A",
+            "class_name": "CounterA"
+          },
+          {
+            "name": "COUNTER_B",
+            "class_name": "CounterB"
+          }
+        ]
+      },
+      "exports": {
+        "CounterA": {
+          "type": "durable-object",
+          "storage": "sqlite"
+        },
+        "CounterB": {
+          "type": "durable-object",
+          "storage": "sqlite"
+        },
+        "CounterC": {
+          "type": "durable-object",
+          "storage": "sqlite"
+        },
+        "OldCounter": {
+          "type": "durable-object",
+          "state": "deleted"
+        },
+        "LegacyName": {
+          "type": "durable-object",
+          "state": "renamed",
+          "renamed_to": "CounterB"
+        }
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "workers_dev": true,
+      "secrets": {
+        "required": ["AUTH_SECRET"]
+      },
+      "limits": {
+        "cpu_ms": 30000
+      },
+      "placement": {
+        "mode": "smart"
+      },
+      "cache": {
+        "enabled": true,
+        "cross_version_cache": true
+      },
+      "logpush": true,
+      "tail_consumers": [
+        {
+          "service": "tail-worker"
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "workflows",
+      "main": "src/index.ts",
+      "workflows": [
+        {
+          "binding": "MODERATOR",
+          "class_name": "ModeratorWorkflow",
+          "name": "moderator-workflow"
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "asset-worker",
+      "account_id": "0f1b8aa119a907021f659042f95ea9ba",
+      "workers_dev": false,
+      "main": "src/worker.ts",
+      "compatibility_date": "2024-07-31",
+      "compatibility_flags": ["nodejs_compat", "enable_ctx_exports"],
+      "unsafe": {
+        "metadata": {
+          "build_options": {
+            "stable_id": "cloudflare/cf_asset_worker",
+            "networks": ["cf", "jdc"]
+          }
+        },
+        "bindings": [
+          {
+            "name": "CONFIG",
+            "type": "param",
+            "param": "assetConfig"
+          },
+          {
+            "name": "ASSETS_MANIFEST",
+            "type": "param",
+            "param": "assetManifest",
+            "data_ref": true
+          },
+          {
+            "name": "ASSETS_KV_NAMESPACE",
+            "type": "internal_assets"
+          },
+          {
+            "name": "workers-asset-worker",
+            "type": "internal_capability_grants"
+          },
+          {
+            "name": "ACCOUNT_COHORT_QUERIER",
+            "type": "service",
+            "service": "account-services-production",
+            "entrypoint": "AccountCohortQuerier",
+            "cross_account_grant": "workers-asset-worker"
+          }
+        ]
+      },
+      "vars": {
+        "ENVIRONMENT": "production"
+      },
+      "version_metadata": {
+        "binding": "VERSION_METADATA"
+      },
+      "env": {
+        "staging": {
+          "name": "asset-worker-staging",
+          "compatibility_flags": ["nodejs_compat", "enable_ctx_exports", "enable_version_api"],
+          "unsafe": {
+            "metadata": {
+              "build_options": {
+                "stable_id": "cloudflare/cf_asset_worker",
+                "networks": ["cf", "jdc"]
+              }
+            },
+            "bindings": [
+              {
+                "name": "CONFIG",
+                "type": "param",
+                "param": "assetConfig"
+              },
+              {
+                "name": "ASSETS_MANIFEST",
+                "type": "param",
+                "param": "assetManifest",
+                "data_ref": true
+              },
+              {
+                "name": "ASSETS_KV_NAMESPACE",
+                "type": "internal_assets"
+              },
+              {
+                "name": "workers-asset-worker-staging",
+                "type": "internal_capability_grants"
+              },
+              {
+                "name": "ACCOUNT_COHORT_QUERIER",
+                "type": "service",
+                "service": "account-services-staging",
+                "entrypoint": "AccountCohortQuerier",
+                "cross_account_grant": "workers-asset-worker-staging"
+              }
+            ]
+          },
+          "vars": {
+            "ENVIRONMENT": "staging"
+          },
+          "version_metadata": {
+            "binding": "VERSION_METADATA"
+          }
+        },
+        "fed-prod": {
+          "name": "asset-worker-fed-prod",
+          "account_id": "fca6c231dc1d1780777997c5bce5a5e3",
+          "compatibility_flags": ["nodejs_compat", "enable_ctx_exports", "enable_version_api"],
+          "vars": {
+            "ENVIRONMENT": "fed-prod"
+          },
+          "version_metadata": {
+            "binding": "VERSION_METADATA"
+          },
+          "compliance_region": "fedramp_high",
+          "unsafe": {
+            "metadata": {
+              "build_options": {
+                "stable_id": "cloudflare/cf_asset_worker",
+                "networks": ["cf"]
+              }
+            },
+            "bindings": [
+              {
+                "name": "CONFIG",
+                "type": "param",
+                "param": "assetConfig"
+              },
+              {
+                "name": "ASSETS_MANIFEST",
+                "type": "param",
+                "param": "assetManifest",
+                "data_ref": true
+              },
+              {
+                "name": "ASSETS_KV_NAMESPACE",
+                "type": "internal_assets"
+              },
+              {
+                "name": "workers-asset-worker",
+                "type": "internal_capability_grants"
+              },
+              {
+                "name": "ACCOUNT_COHORT_QUERIER",
+                "type": "service",
+                "service": "account-services-production",
+                "entrypoint": "AccountCohortQuerier",
+                "cross_account_grant": "workers-asset-worker"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "mode": "staging"
+  },
+  {
+    "raw": {
+      "$schema": "./node_modules/wrangler/config-schema.json",
+      "compatibility_date": "2025-01-01",
+      "main": "src/index.ts",
+      "name": "secret-store",
+      "secrets_store_secrets": [
+        {
+          "binding": "SECRET",
+          "secret_name": "secret_name",
+          "store_id": "a3fb907f446e4d94bd946d7ea6365b1c"
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "get-bindings-proxy-fixture",
+      "main": "src/index.ts",
+      "compatibility_date": "2023-11-21",
+      "assets": {
+        "directory": "./public",
+        "binding": "ASSETS",
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "none"
+      },
+      "vars": {
+        "MY_VAR": "my-var-value",
+        "MY_VAR_A": "my-var-a",
+        "MY_JSON_VAR": {
+          "test": true
+        }
+      },
+      "images": {
+        "binding": "IMAGES"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "MY_KV",
+          "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "MY_BUCKET",
+          "bucket_name": "my-bucket"
+        }
+      ],
+      "hyperdrive": [
+        {
+          "binding": "MY_HYPERDRIVE",
+          "id": "000000000000000000000000000000000",
+          "localConnectionString": "postgres://user:pass@127.0.0.1:1234/db"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "MY_D1",
+          "database_name": "test-db",
+          "database_id": "000000000-0000-0000-0000-000000000000"
+        }
+      ],
+      "env": {
+        "production": {
+          "vars": {
+            "MY_VAR": "my-PRODUCTION-var-value",
+            "MY_JSON_VAR": {
+              "test": true,
+              "production": true
+            }
+          },
+          "kv_namespaces": [
+            {
+              "binding": "MY_KV_PROD",
+              "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ]
+        }
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "durable-objects-exports",
+      "main": "src/index.ts",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "COUNTER",
+            "class_name": "Counter"
+          }
+        ]
+      },
+      "exports": {
+        "Counter": {
+          "type": "durable-object",
+          "storage": "sqlite"
+        },
+        "UnboundCounter": {
+          "type": "durable-object",
+          "storage": "sqlite"
+        }
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "pipelines",
+      "main": "src/index.ts",
+      "pipelines": [
+        {
+          "binding": "PIPELINE",
+          "stream": "my-pipeline"
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "nodejs-hybrid-app",
+      "main": "src/index.ts",
+      "compatibility_date": "2025-07-01",
+      "compatibility_flags": ["nodejs_compat"],
+      "vars": {
+        "DB_HOSTNAME": "127.0.0.1",
+        "DB_PORT": "5432",
+        "DB_NAME": "testdb",
+        "DB_USERNAME": "testuser",
+        "DB_PASSWORD": "testpassword",
+        "DEBUG": "example:*,test"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "workers_dev": false,
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true
+        },
+        "traces": {
+          "enabled": true
+        }
+      },
+      "preview_urls": false,
+      "routes": [
+        {
+          "pattern": "app.example.com",
+          "custom_domain": true
+        }
+      ],
+      "secrets": {
+        "required": ["AUTH_SECRET"]
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "container-app",
+      "main": "src/index.ts",
+      "compatibility_date": "2025-04-03",
+      "compatibility_flags": ["enable_ctx_exports"],
+      "containers": [
+        {
+          "image": "./Dockerfile",
+          "name": "container",
+          "max_instances": 2
+        }
+      ],
+      "exports": {
+        "FixtureTestContainer": {
+          "type": "durable-object",
+          "storage": "sqlite",
+          "container": "container"
+        }
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "pages_build_output_dir": "./public",
+      "name": "pages-with-config-file-app",
+      "compatibility_date": "2024-01-01",
+      "compatibility_flags": [],
+      "vars": {
+        "VAR1": "celebrate",
+        "VAR2": "holiday",
+        "VAR3": "celebration"
+      },
+      "version_metadata": {
+        "binding": "METADATA"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "workflows-exports",
+      "main": "src/index.ts",
+      "exports": {
+        "GreetingWorkflow": {
+          "type": "workflow",
+          "name": "greeting-workflow"
+        }
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "wasm_modules": {
+        "MYWASM": "../index_bg.wasm"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "account_id": "",
+      "name": "legacy-site-app",
+      "type": "webpack",
+      "workers_dev": true,
+      "site": {
+        "bucket": "./public"
+      },
+      "compatibility_date": "2022-04-24"
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "unsafe": {
+        "metadata": {
+          "keep_bindings": ["plain_text"]
+        }
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "vitest-remote-bindings-fixture-test",
+      "main": "src/index.ts",
+      "compatibility_date": "2025-06-01",
+      "services": [
+        {
+          "binding": "MY_WORKER",
+          "service": "my-worker-test",
+          "remote": true
+        }
+      ],
+      "env": {
+        "staging": {
+          "services": [
+            {
+              "binding": "MY_WORKER",
+              "service": "my-staging-worker-test",
+              "remote": true
+            }
+          ]
+        }
+      }
+    },
+    "mode": "staging"
+  },
+  {
+    "raw": {
+      "$schema": "node_modules/wrangler/config-schema.json",
+      "name": "worker-w-resources",
+      "main": "src/index.ts",
+      "compatibility_date": "2023-05-04",
+      "r2_buckets": [
+        {
+          "bucket_name": "my-bucket",
+          "binding": "BUCKET"
+        },
+        {
+          "bucket_name": "bucket-b",
+          "binding": "BUCKET_B"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "KV"
+        },
+        {
+          "binding": "KV_WITH_ID",
+          "id": "some-kv-id"
+        },
+        {
+          "binding": "KV_B",
+          "id": "worker-b-kv-id"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB"
+        },
+        {
+          "binding": "BACKUP_DB",
+          "database_id": "some-db-id"
+        },
+        {
+          "binding": "DB_B",
+          "database_id": "worker-b-db-id"
+        }
+      ],
+      "workflows": [
+        {
+          "binding": "MY_WORKFLOW",
+          "class_name": "MyWorkflow",
+          "name": "my-workflow"
+        }
+      ],
+      "flagship": [
+        {
+          "binding": "FLAGS",
+          "app_id": "e2e-flags"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "DO",
+            "class_name": "MyDurableObject"
+          },
+          {
+            "name": "DO_B",
+            "class_name": "WorkerBDurableObject",
+            "script_name": "worker-b"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "new_sqlite_classes": ["MyDurableObject"],
+          "tag": "v1"
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "edge-preview-authenticated-proxy",
+      "main": "src/index.ts",
+      "compatibility_date": "2023-03-28",
+      "workers_dev": false,
+      "account_id": "e35fd947284363a46fd7061634477114",
+      "routes": [
+        "preview.cloudflarepreviews.com/*",
+        "*.preview.cloudflarepreviews.com/*",
+        "*.rawhttp.cloudflarepreviews.com/*"
+      ],
+      "vars": {
+        "SENTRY_DSN": "https://1ff9df95733c4e7d9c31dc13ab05d44a@sentry10.cfdata.org/891",
+        "PREVIEW": "preview.cloudflarepreviews.com",
+        "RAW_HTTP": "rawhttp.cloudflarepreviews.com"
+      },
+      "secrets": {
+        "required": ["PROMETHEUS_TOKEN", "SENTRY_ACCESS_CLIENT_SECRET", "SENTRY_ACCESS_CLIENT_ID"]
+      },
+      "dev": {
+        "host": "preview.cloudflarepreviews.com"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "TOKEN_LOOKUP",
+          "id": "76afd4161617490b9d2addc59b1e22e4",
+          "preview_id": "76afd4161617490b9d2addc59b1e22e4"
+        }
+      ],
+      "unsafe": {
+        "bindings": [
+          {
+            "name": "WSHIM_SOCKET",
+            "type": "internal_service_http",
+            "service": "wshim"
+          }
+        ]
+      },
+      "observability": {
+        "enabled": true
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-queue-migrate",
+      "compatibility_date": "2026-11-16",
+      "env": {
+        "staging": {
+          "queues": {
+            "consumers": [
+              {
+                "queue": "jobs"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "mode": "staging"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "workers_dev": true,
+      "secrets": {
+        "required": ["AUTH_SECRET"]
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "SANDBOX",
+            "class_name": "Sandbox"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "history",
+          "new_sqlite_classes": ["OldRoom", "Removed"]
+        },
+        {
+          "tag": "current",
+          "new_sqlite_classes": ["Sandbox"],
+          "renamed_classes": [
+            {
+              "from": "OldRoom",
+              "to": "Room"
+            }
+          ],
+          "deleted_classes": ["Removed"]
+        }
+      ],
+      "containers": [
+        {
+          "name": "sandbox",
+          "class_name": "Sandbox",
+          "scheduling_policy": "durable_object",
+          "images": {
+            "default": {
+              "image": "registry.cloudflare.com/account-id/sandbox@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            }
+          }
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "miniflare-node-test",
+      "main": "dist/out.js",
+      "compatibility_date": "2022-12-08",
+      "build": {
+        "command": "npx esbuild src/index.js --outfile=dist/out.js"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "redirected-config-worker",
+      "compatibility_date": "2024-12-01",
+      "main": "src/index.js",
+      "env": {
+        "staging": {
+          "vars": {
+            "generated": "none"
+          }
+        },
+        "prod": {
+          "vars": {
+            "generated": "none"
+          }
+        }
+      }
+    },
+    "mode": "prod"
+  },
+  {
+    "raw": {
+      "name": "base",
+      "compatibility_date": "2026-02-24",
+      "env": {
+        "void-environment-production": {
+          "name": "production-app"
+        },
+        "void-environment-staging": {
+          "name": "staging-app"
+        }
+      }
+    },
+    "mode": "void-environment-staging"
+  },
+  {
+    "raw": {
+      "name": "d1",
+      "main": "src/index.ts",
+      "env": {
+        "production": {
+          "d1_databases": [
+            {
+              "binding": "DATABASE",
+              "database_name": "database",
+              "database_id": "00000000-0000-0000-0000-000000000000"
+            }
+          ]
+        }
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "test-worker",
+      "account_id": "test-account",
+      "compatibility_date": "2026-09-29",
+      "r2_buckets": [
+        {
+          "binding": "ASSETS",
+          "bucket_name": "existing-bucket",
+          "jurisdiction": "eu"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "JOBS",
+            "queue": "existing-queue"
+          }
+        ]
+      },
+      "dispatch_namespaces": [
+        {
+          "binding": "DISPATCH",
+          "namespace": "existing-namespace"
+        }
+      ],
+      "vars": {
+        "PLATFORM_VERSION": "0.27.0",
+        "PLATFORM_OWNERSHIP_MARKER": "{\"schemaVersion\":1,\"accountId\":\"test-account\",\"installationId\":\"installation-one\",\"ownershipNonce\":\"private-ownership-proof\",\"resourceId\":\"test-worker\",\"resourceName\":\"test-worker\",\"resourceKey\":\"api-worker\",\"resourceKind\":\"worker\"}"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "ratelimit-app",
+      "compatibility_date": "2024-02-23",
+      "main": "src/index.js",
+      "ratelimits": [
+        {
+          "name": "RATE_LIMITER",
+          "namespace_id": "2001",
+          "simple": {
+            "limit": 3,
+            "period": 60
+          }
+        }
+      ],
+      "unsafe": {
+        "bindings": [
+          {
+            "name": "UNSAFE_RATE_LIMITER",
+            "type": "ratelimit",
+            "namespace_id": "1001",
+            "simple": {
+              "limit": 2,
+              "period": 60
+            }
+          }
+        ]
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "$schema": "../node_modules/wrangler/config-schema.json",
+      "define": {
+        "WRANGLER_DEFINED_THING": "\"thing\"",
+        "WRANGLER_NESTED.DEFINED.THING": "[1,2,3]"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "OTHER_OBJECT",
+            "class_name": "OtherObject",
+            "script_name": "other"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["OtherObject"]
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "$schema": "node_modules/wrangler/config-schema.json",
+      "name": "<WORKER_NAME>",
+      "main": "./src/waku.server",
+      "compatibility_flags": ["nodejs_als"],
+      "compatibility_date": "<COMPATIBILITY_DATE>",
+      "assets": {
+        "binding": "ASSETS",
+        "directory": "./dist/public",
+        "html_handling": "drop-trailing-slash"
+      },
+      "vars": {
+        "MAX_ITEMS": 10
+      },
+      "rules": [
+        {
+          "type": "ESModule",
+          "globs": ["**/*.js", "**/*.mjs"]
+        }
+      ],
+      "no_bundle": true
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "vars": {
+        "EDITED": "current"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-migrate-test",
+      "compatibility_date": "2026-09-29",
+      "vars": {
+        "MESSAGE": "hello"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "existing-script-test-do-not-delete",
+      "main": "index.js",
+      "compatibility_date": "2023-05-18",
+      "vars": {
+        "FOO": "bar"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "playground-kitchen-sink-test-kitchen-sink--7-96u",
+      "compatibility_date": "2026-02-24",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "SANDBOX",
+            "class_name": "SandboxV1"
+          },
+          {
+            "name": "WsAcceptanceWs",
+            "class_name": "WsAcceptanceWs"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "void-ws-v1",
+          "new_sqlite_classes": ["WsAcceptanceWs"]
+        },
+        {
+          "tag": "void-sandbox-v2",
+          "new_sqlite_classes": ["SandboxV1"]
+        }
+      ],
+      "compatibility_flags": ["nodejs_compat"],
+      "containers": [
+        {
+          "name": "void-sandbox-v1",
+          "class_name": "SandboxV1",
+          "scheduling_policy": "durable_object",
+          "images": {
+            "default": {
+              "dockerfile": "./sandbox.Dockerfile"
+            }
+          }
+        }
+      ],
+      "triggers": {
+        "crons": ["* * * * *"]
+      },
+      "assets": {
+        "binding": "ASSETS",
+        "not_found_handling": "none",
+        "run_worker_first": ["/**"]
+      },
+      "secrets": {
+        "required": ["APP_NAME", "SECRET_KEY", "API_URL"]
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "default",
+          "database_id": "local"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "KV",
+          "id": "local"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "STORAGE",
+          "bucket_name": "default"
+        }
+      ],
+      "ai": {
+        "binding": "AI"
+      },
+      "queues": {
+        "producers": [
+          {
+            "queue": "acceptance-queue",
+            "binding": "QUEUE_ACCEPTANCE_QUEUE"
+          },
+          {
+            "queue": "demo-queue",
+            "binding": "QUEUE_DEMO_QUEUE"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "acceptance-queue",
+            "max_batch_size": 1,
+            "max_batch_timeout": 1,
+            "max_retries": 1,
+            "retry_delay": 1
+          },
+          {
+            "queue": "demo-queue",
+            "max_batch_timeout": 1
+          }
+        ]
+      }
+    },
+    "mode": "void-top-level"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "workers_dev": true,
+      "vars": {
+        "LOCAL_VALUE": "local-value-do-not-echo"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-queue-migrate",
+      "compatibility_date": "2026-11-16",
+      "queues": {
+        "consumers": [
+          {
+            "queue": "jobs",
+            "max_concurrency": 7
+          }
+        ]
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-migrate-test",
+      "compatibility_date": "2026-09-29",
+      "routes": [
+        {
+          "pattern": "example.com",
+          "custom_domain": true,
+          "zone_id": "zone-id"
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "workers_dev": true,
+      "secrets": {
+        "required": ["AUTH_SECRET"]
+      },
+      "placement": {
+        "region": "aws:us-east-1"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "workers_dev": true,
+      "secrets": {
+        "required": ["AUTH_SECRET"]
+      },
+      "placement": {
+        "host": "db.example.test:5432"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "workers_dev": true,
+      "secrets": {
+        "required": ["AUTH_SECRET"]
+      },
+      "placement": {
+        "hostname": "api.example.test"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "get-bindings-proxy-fixture",
+      "main": "src/index.ts",
+      "vars": {
+        "MY_VAR": "my-var-value-from-a-json-config-file",
+        "MY_JSON_VAR": {
+          "test": true,
+          "fromJson": true
+        }
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "container-app",
+      "compatibility_date": "2026-02-24",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "BOX",
+            "class_name": "Box"
+          },
+          {
+            "name": "SANDBOX",
+            "class_name": "Sandbox"
+          },
+          {
+            "name": "PLAIN",
+            "class_name": "Plain"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["Box", "Sandbox", "Plain"]
+        }
+      ],
+      "containers": [
+        {
+          "name": "box",
+          "class_name": "Box",
+          "image": "docker.io/example/box:1"
+        },
+        {
+          "name": "sandbox",
+          "class_name": "Sandbox",
+          "scheduling_policy": "durable_object",
+          "images": {
+            "default": {
+              "dockerfile": "/var/folders/wk/cccqc__n3mjb6fvgcvpjwldh0000gn/T/void-cf-v2-AcZCgg/Dockerfile"
+            }
+          }
+        }
+      ],
+      "unsafe": {
+        "bindings": [
+          {
+            "name": "REMOTE",
+            "type": "durable_object_namespace",
+            "class_name": "Box",
+            "script_name": "another-worker"
+          },
+          {
+            "name": "AUTHORED",
+            "type": "durable_object_namespace",
+            "class_name": "Elsewhere"
+          }
+        ]
+      }
+    },
+    "mode": "void-top-level"
+  },
+  {
+    "raw": {
+      "$schema": "node_modules/wrangler/config-schema.json",
+      "name": "<WORKER_NAME>",
+      "compatibility_date": "<COMPATIBILITY_DATE>",
+      "main": "./workers/app.ts",
+      "vars": {
+        "VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare"
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "additional-modules",
+      "main": "src/index.ts",
+      "compatibility_date": "2023-08-01",
+      "find_additional_modules": true,
+      "rules": [
+        {
+          "type": "CommonJS",
+          "globs": ["**/*.cjs"]
+        },
+        {
+          "type": "ESModule",
+          "globs": ["**/*.js"]
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "void-test",
+      "compatibility_date": "2026-09-29",
+      "workers_dev": true,
+      "vars": {
+        "FIXED": "value"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "STATE",
+            "class_name": "State"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["State"]
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "<WORKER_NAME>",
+      "main": "src/index.ts",
+      "compatibility_date": "<COMPATIBILITY_DATE>",
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1
+      },
+      "workflows": [
+        {
+          "name": "workflow-<WORKER_NAME>",
+          "binding": "MY_WORKFLOW",
+          "class_name": "MyWorkflow"
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "email-to-rss",
+      "main": "src/index.ts",
+      "compatibility_date": "2025-02-14",
+      "compatibility_flags": ["nodejs_compat"],
+      "send_email": [
+        {
+          "name": "UNBOUND_SEND"
+        },
+        {
+          "name": "SPECIFIC_SEND",
+          "destination_address": "something@example.com"
+        },
+        {
+          "name": "LIST_SEND",
+          "allowed_destination_addresses": ["something@example.com", "else@example.com"]
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "d1-read-replication-app",
+      "main": "src/index.ts",
+      "compatibility_date": "2025-03-11",
+      "compatibility_flags": ["nodejs_compat", "experimental", "enable_d1_with_sessions_api"],
+      "d1_databases": [
+        {
+          "binding": "DB01",
+          "database_name": "UPDATE_THIS_FOR_REMOTE_USE",
+          "preview_database_id": "UPDATE_THIS_FOR_REMOTE_USE",
+          "database_id": "UPDATE_THIS_FOR_REMOTE_USE"
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "$schema": "../../node_modules/wrangler/config-schema.json",
+      "name": "main-worker",
+      "main": "./index.ts",
+      "compatibility_date": "2025-11-01",
+      "compatibility_flags": ["enable_ctx_exports"],
+      "vars": {
+        "NAME": "MainWorker"
+      },
+      "services": [
+        {
+          "binding": "AUXILIARY_WORKER",
+          "service": "auxiliary-worker"
+        }
+      ],
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["Counter", "ConfiguredVirtualDurableObject"]
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "$schema": "./node_modules/wrangler/config-schema.json",
+      "name": "worker-with-unsafe-external-plugin",
+      "main": "src/index.ts",
+      "compatibility_date": "2025-07-30",
+      "unsafe": {
+        "bindings": [
+          {
+            "name": "UNSAFE_SERVICE_BINDING",
+            "dev": {
+              "plugin": {
+                "package": "@fixture/unsafe-external-plugin",
+                "name": "unsafe-plugin"
+              },
+              "options": {
+                "emitLogs": true
+              }
+            },
+            "type": "service",
+            "service": "some-unsafe-service"
+          }
+        ]
+      }
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "router-worker",
+      "account_id": "0f1b8aa119a907021f659042f95ea9ba",
+      "workers_dev": false,
+      "main": "src/worker.ts",
+      "compatibility_date": "2024-07-31",
+      "compatibility_flags": ["nodejs_compat", "no_nodejs_compat_v2", "enable_ctx_exports"],
+      "version_metadata": {
+        "binding": "VERSION_METADATA"
+      },
+      "unsafe": {
+        "bindings": [
+          {
+            "name": "CONFIG",
+            "type": "param",
+            "param": "routerConfig"
+          },
+          {
+            "name": "EYEBALL_CONFIG",
+            "type": "param",
+            "param": "eyeballRouterConfig",
+            "optional": true
+          },
+          {
+            "name": "ASSET_WORKER",
+            "type": "internal_assets",
+            "fetcherApi": "fetcher"
+          },
+          {
+            "name": "USER_WORKER",
+            "type": "origin"
+          },
+          {
+            "name": "workers-router-worker",
+            "type": "internal_capability_grants"
+          }
+        ],
+        "metadata": {
+          "build_options": {
+            "stable_id": "cloudflare/cf_router_worker",
+            "networks": ["cf", "jdc"]
+          }
+        }
+      },
+      "env": {
+        "staging": {
+          "name": "router-worker-staging",
+          "version_metadata": {
+            "binding": "VERSION_METADATA"
+          },
+          "unsafe": {
+            "bindings": [
+              {
+                "name": "CONFIG",
+                "type": "param",
+                "param": "routerConfig"
+              },
+              {
+                "name": "ASSET_WORKER",
+                "type": "internal_assets",
+                "fetcherApi": "fetcher"
+              },
+              {
+                "name": "USER_WORKER",
+                "type": "origin"
+              },
+              {
+                "name": "workers-router-worker-staging",
+                "type": "internal_capability_grants"
+              }
+            ],
+            "metadata": {
+              "build_options": {
+                "stable_id": "cloudflare/cf_router_worker",
+                "networks": ["cf", "jdc"]
+              }
+            }
+          }
+        },
+        "fed-prod": {
+          "name": "router-worker-fed-prod",
+          "account_id": "fca6c231dc1d1780777997c5bce5a5e3",
+          "version_metadata": {
+            "binding": "VERSION_METADATA"
+          },
+          "compliance_region": "fedramp_high",
+          "unsafe": {
+            "bindings": [
+              {
+                "name": "CONFIG",
+                "type": "param",
+                "param": "routerConfig"
+              },
+              {
+                "name": "ASSET_WORKER",
+                "type": "internal_assets",
+                "fetcherApi": "fetcher"
+              },
+              {
+                "name": "USER_WORKER",
+                "type": "origin"
+              },
+              {
+                "name": "workers-router-worker",
+                "type": "internal_capability_grants"
+              }
+            ],
+            "metadata": {
+              "build_options": {
+                "stable_id": "cloudflare/cf_router_worker",
+                "networks": ["cf"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "mode": "staging"
+  },
+  {
+    "raw": {
+      "name": "container-app",
+      "main": "src/index.ts",
+      "containers": [
+        {
+          "class_name": "NamedImageContainer",
+          "name": "named-image-container",
+          "scheduling_policy": "durable_object",
+          "images": {
+            "app": {
+              "dockerfile": "./Dockerfile"
+            }
+          }
+        },
+        {
+          "class_name": "DefaultImageContainer",
+          "name": "default-image-container",
+          "image": "./Dockerfile",
+          "max_instances": 2
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "NamedImageContainer",
+            "name": "NAMED_CONTAINER"
+          },
+          {
+            "class_name": "DefaultImageContainer",
+            "name": "DEFAULT_CONTAINER"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["NamedImageContainer", "DefaultImageContainer"]
+        }
+      ]
+    },
+    "mode": "production"
+  },
+  {
+    "raw": {
+      "name": "durable-merge-native",
+      "compatibility_date": "2026-02-24",
+      "account_id": "0123456789abcdef0123456789abcdef",
+      "compatibility_flags": ["nodejs_als", "url_standard", "global_fetch_strictly_public"],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "HISTORY",
+            "class_name": "HistoryDurableObject"
+          },
+          {
+            "name": "FOREIGN",
+            "class_name": "Remote",
+            "script_name": "external-owner",
+            "environment": "production"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "custom-v1",
+          "new_sqlite_classes": ["HistoryDurableObject"]
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "KV",
+          "id": "local"
+        }
+      ],
+      "assets": {
+        "binding": "ASSETS",
+        "not_found_handling": "none",
+        "run_worker_first": ["/**"]
+      },
+      "version_metadata": {
+        "binding": "__VOID_VERSION_METADATA"
+      }
+    },
+    "mode": "void-top-level"
+  }
+]

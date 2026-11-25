@@ -1,11 +1,11 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, join } from 'pathslash';
+import { pathToFileURL } from 'node:url';
+import { join } from 'pathslash';
 import { resolvePlatformSourceRevision } from './source-revision.mjs';
 
 // Records the source revision in the manifest that scripts/build-runtime.mjs wrote, so a new
 // revision reruns only this step and not the cached runtime build.
-const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const packageRoot = join(import.meta.dirname, '..');
 const repositoryRoot = join(packageRoot, '..', '..');
 const manifestPath = join(packageRoot, 'dist', 'runtime', 'manifest.json');
 const { parsePlatformRuntimeManifest } = await import(

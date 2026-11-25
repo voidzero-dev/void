@@ -14,7 +14,7 @@ function clone(value: unknown, seen: WeakMap<object, unknown>): unknown {
   if (value === null || typeof value !== 'object') {
     return value;
   }
-  const prototype = Object.getPrototypeOf(value);
+  const prototype = Object.getPrototypeOf(value) as object | null;
   if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
     return value;
   }
@@ -22,7 +22,9 @@ function clone(value: unknown, seen: WeakMap<object, unknown>): unknown {
     return seen.get(value);
   }
 
-  const result: object = Array.isArray(value) ? new Array(value.length) : Object.create(prototype);
+  const result = Array.isArray(value)
+    ? new Array<unknown>(value.length)
+    : (Object.create(prototype) as object);
   seen.set(value, result);
   for (const key of Object.keys(value)) {
     Object.defineProperty(result, key, {
@@ -35,10 +37,11 @@ function clone(value: unknown, seen: WeakMap<object, unknown>): unknown {
   return result;
 }
 
-export function parseFormResetArgs(args: ReadonlyArray<string | FormResetOptions>): {
-  initial: boolean;
-  fields: ReadonlyArray<string>;
-} {
+type FormResetArguments = { initial: boolean; fields: ReadonlyArray<string> };
+
+export function parseFormResetArgs(
+  args: ReadonlyArray<string | FormResetOptions>,
+): FormResetArguments {
   if (args.length > 0 && isFormResetOptions(args[0])) {
     return {
       initial: args[0].initial === true,

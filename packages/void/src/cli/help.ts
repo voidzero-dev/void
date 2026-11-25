@@ -104,7 +104,7 @@ function operatorHelpTree(): HelpTree {
   );
 }
 
-const HELP_TREE: HelpTree = {
+const HELP_TREE = {
   connect: {
     summary:
       'Connect this project to Cloudflare or an existing Void platform. Platform hostnames default to HTTPS.',
@@ -1284,6 +1284,7 @@ const HELP_TREE: HelpTree = {
             description:
               'Run against the deployed database (D1 via proxy; PostgreSQL via direct connection)',
           },
+          { command: '--yes', description: 'Skip the confirmation prompt for --remote' },
         ],
         examples: [
           { command: 'void db execute "select * from users"', description: 'Run inline SQL' },
@@ -1479,7 +1480,7 @@ const HELP_TREE: HelpTree = {
     usage: ['void prepare'],
     examples: [{ command: 'void prepare', description: 'Refresh generated project types' }],
   },
-};
+} satisfies HelpTree;
 
 function basicSubcommand(summary: string, usage: string, example?: string): HelpPage {
   return {

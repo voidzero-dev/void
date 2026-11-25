@@ -6,8 +6,8 @@ import {
   normalizeAssetsDir,
   patternCanReachUnder,
   resolveAssetWorkerBypass,
-  type AssetWorkerBypassFacts,
 } from '../../src/asset-worker-bypass.ts';
+import type { AssetWorkerBypassFacts } from '../../src/asset-worker-bypass.ts';
 
 function facts(overrides: Partial<AssetWorkerBypassFacts> = {}): AssetWorkerBypassFacts {
   return {

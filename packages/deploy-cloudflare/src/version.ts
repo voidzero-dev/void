@@ -7,13 +7,8 @@ import { canonicalJson, isRecord } from '@void/deploy-core';
 import { join } from 'pathslash';
 import { parseRootWranglerConfig } from './config.ts';
 import { cloudflareCommandDiagnostic } from './diagnostics.ts';
-import {
-  isCleanCommandExit,
-  isCompletedCommand,
-  isWorkerNotFound,
-  type CloudflareCommandResult,
-  type CloudflareCommandRunner,
-} from './execute.ts';
+import { isCleanCommandExit, isCompletedCommand, isWorkerNotFound } from './execute.ts';
+import type { CloudflareCommandResult, CloudflareCommandRunner } from './execute.ts';
 import type { CloudflareUploadResult } from './operations.ts';
 import {
   isVoidSecretDraftHeader,
@@ -23,8 +18,8 @@ import {
   VOID_SECRET_DRAFT_SOURCE,
 } from './secret-draft.ts';
 
-const DURABLE_MIGRATION_VERSION_ERROR = 10211;
-const CLOUDFLARE_SECRET_CHANGED_ERROR = 10220;
+const DURABLE_MIGRATION_VERSION_ERROR = 10_211;
+const CLOUDFLARE_SECRET_CHANGED_ERROR = 10_220;
 
 export type CloudflareVersionMetadata =
   | Readonly<{
@@ -160,10 +155,6 @@ export type CloudflareVersionActivation =
       workersDev?: boolean;
     };
 
-type ProductionDeployment = Readonly<{
-  versions?: ReadonlyArray<Readonly<{ version_id?: unknown; percentage?: unknown }>>;
-}>;
-
 type ProductionVersionPercentage = Readonly<{ versionId: string; percentage: number }>;
 
 type CurrentProductionVersion =
@@ -201,13 +192,9 @@ export function parseCloudflareVersionMessage(
     return null;
   }
   try {
-    const value = JSON.parse(message.slice(5)) as {
-      schema?: unknown;
-      migrations?: unknown;
-      triggerConfig?: unknown;
-      contentHash?: unknown;
-    };
+    const value: unknown = JSON.parse(message.slice(5));
     if (
+      !isRecord(value) ||
       (value.schema !== 1 && value.schema !== 2) ||
       (value.migrations !== null &&
         (!Array.isArray(value.migrations) ||
@@ -358,9 +345,17 @@ export async function deployCloudflareVersionTriggers(options: {
   }
 }
 
-function pickWranglerTriggerContext(source: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const key of ['account_id', 'name', 'legacy_env', 'send_metrics', 'compliance_region']) {
+function pickWranglerTriggerContext(source: Record<string, unknown>) {
+  const result: Partial<
+    Record<'account_id' | 'name' | 'legacy_env' | 'send_metrics' | 'compliance_region', unknown>
+  > = {};
+  for (const key of [
+    'account_id',
+    'name',
+    'legacy_env',
+    'send_metrics',
+    'compliance_region',
+  ] as const) {
     if (Object.hasOwn(source, key)) {
       result[key] = source[key];
     }
@@ -484,23 +479,24 @@ function triggerRepairOutcome(
   return result.reason === 'metadata-unavailable' ? 'unavailable' : 'failed';
 }
 
+const unique = (values: ReadonlyArray<unknown>): Array<unknown> => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = JSON.stringify(value);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
 function mergeTriggerCleanupBaselines(
   ...configs: Array<CloudflareTriggerConfig | undefined>
 ): CloudflareTriggerConfig {
   const present = configs.filter(
     (config): config is CloudflareTriggerConfig => config !== undefined,
   );
-  const unique = (values: ReadonlyArray<unknown>): Array<unknown> => {
-    const seen = new Set<string>();
-    return values.filter((value) => {
-      const key = JSON.stringify(value);
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
-  };
   // Keep `addresses` absent when no config carried a plan (see CloudflareTriggerConfig).
   const withAddresses = present.filter((config) => config.addresses !== undefined);
   return {
@@ -560,9 +556,9 @@ function triggerConfigWithQueueConsumerCleanup(
     ...base,
     queueConsumers: [
       ...base.queueConsumers,
-      ...queues
-        .filter((queue) => !queueConsumerNames(base.queueConsumers).includes(queue))
-        .map((queue) => ({ queue })),
+      ...queues.flatMap((queue) =>
+        !queueConsumerNames(base.queueConsumers).includes(queue) ? [{ queue }] : [],
+      ),
     ],
   };
 }
@@ -672,15 +668,15 @@ function desiredTriggerConfigFor(
 /** A well-formed `addresses` array, or `undefined` when the field is absent or malformed. */
 function readEmailAddresses(value: unknown): ReadonlyArray<string> | undefined {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string')
-    ? (value as ReadonlyArray<string>)
+    ? value
     : undefined;
 }
 
 function nonVersionedSettingsHash(config: Record<string, unknown>): string {
   const settings = Object.fromEntries(
-    ['logpush', 'observability', 'tail_consumers', 'streaming_tail_consumers']
-      .filter((key) => config[key] !== undefined)
-      .map((key) => [key, config[key]]),
+    ['logpush', 'observability', 'tail_consumers', 'streaming_tail_consumers'].flatMap((key) =>
+      config[key] !== undefined ? [[key, config[key]]] : [],
+    ),
   );
   return createHash('sha256').update(canonicalJson(settings)).digest('hex');
 }
@@ -689,6 +685,7 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
   if (!isRecord(value)) {
     return null;
   }
+  const addresses = readEmailAddresses(value.addresses);
   if (
     ['preserve', 'preserveRoutes', 'preserveWorkersDev', 'preservePreviewUrls', 'logpush'].some(
       (key) => value[key] !== undefined && typeof value[key] !== 'boolean',
@@ -701,7 +698,7 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
     !Array.isArray(value.crons) ||
     !Array.isArray(value.queueConsumers) ||
     !Array.isArray(value.workflows) ||
-    (value.addresses !== undefined && readEmailAddresses(value.addresses) === undefined)
+    (value.addresses !== undefined && addresses === undefined)
   ) {
     return null;
   }
@@ -719,20 +716,27 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
     crons: value.crons,
     queueConsumers: value.queueConsumers,
     workflows: value.workflows,
-    ...(value.addresses === undefined ? {} : { addresses: value.addresses as Array<string> }),
+    ...(addresses === undefined ? {} : { addresses }),
   };
+}
+
+interface WranglerTriggerConfig extends Record<string, unknown> {
+  routes?: CloudflareTriggerConfig['routes'];
+  addresses?: CloudflareTriggerConfig['addresses'];
+  workers_dev?: boolean;
+  preview_urls?: boolean;
 }
 
 function triggerWranglerConfig(
   base: Record<string, unknown>,
   triggerConfig: CloudflareTriggerConfig,
   manageRoutes = true,
-): Record<string, unknown> {
+) {
   const triggers = isRecord(base.triggers) ? { ...base.triggers } : {};
   const queues = isRecord(base.queues) ? { ...base.queues } : {};
   triggers.crons = [...triggerConfig.crons];
   queues.consumers = [...triggerConfig.queueConsumers];
-  const config: Record<string, unknown> = {
+  const config: WranglerTriggerConfig = {
     ...base,
     ...(triggerConfig.observability === undefined
       ? {}
@@ -966,7 +970,6 @@ async function activateCloudflareVersionWithSecretsFile(
       : options.trustedInheritanceVersionIds;
   let inheritanceBaseline: Array<RecentCloudflareVersion> | undefined;
   let trustedCandidateChain = false;
-  let activeSecretsPinned = false;
   let pinnedActiveSecrets: Array<{ name: string; type: 'secret_key' | 'secret_text' }> | undefined;
   if (options.expectedPreviousVersionId !== undefined || options.verifyInheritedSecrets === true) {
     const recent = await readRecentCloudflareVersionIds(options);
@@ -989,7 +992,7 @@ async function activateCloudflareVersionWithSecretsFile(
         inheritedChain.length > 0 &&
         inheritedChain.every(
           (version, index) =>
-            index === 0 || version.number === inheritedChain[index - 1]!.number + 1,
+            index === 0 || version.number === inheritedChain[index - 1].number + 1,
         ) &&
         (arraysEqual(inheritedCandidates, trustedInheritanceVersionIds ?? []) ||
           options.pinActiveSecrets !== undefined);
@@ -1016,13 +1019,14 @@ async function activateCloudflareVersionWithSecretsFile(
         return { ok: false, reason: 'inheritance-source-unavailable' };
       }
       if (!replacesAllRemoteSecrets) {
-        const activeSecrets = previous.versionId
-          ? await readCloudflareVersionSecretBindings(options, previous.versionId)
+        const activeSecrets = previousVersionId
+          ? await readCloudflareVersionSecretBindings(options, previousVersionId)
           : null;
         if (
+          !previousVersionId ||
           !activeSecrets ||
           !options.pinActiveSecrets ||
-          !(await options.pinActiveSecrets(previous.versionId!, activeSecrets))
+          !(await options.pinActiveSecrets(previousVersionId, activeSecrets))
         ) {
           return {
             ok: false,
@@ -1031,7 +1035,6 @@ async function activateCloudflareVersionWithSecretsFile(
             rollback: 'not-needed',
           };
         }
-        activeSecretsPinned = true;
         pinnedActiveSecrets = activeSecrets;
       }
     }
@@ -1147,10 +1150,10 @@ async function activateCloudflareVersionWithSecretsFile(
     // The exact private cf placeholder has no serving preview. Publish its first
     // application once through the bootstrap path, pinning its active secrets
     // just as for an explicitly atomic release.
-    if (bootstrapVoidDraft && !activeSecretsPinned && !options.pinActiveSecrets) {
+    if (bootstrapVoidDraft && !pinnedActiveSecrets && !options.pinActiveSecrets) {
       return { ok: false, reason: 'inheritance-source-unavailable' };
     }
-    if (bootstrapVoidDraft || (!activeSecretsPinned && options.pinActiveSecrets)) {
+    if (bootstrapVoidDraft || (!pinnedActiveSecrets && options.pinActiveSecrets)) {
       let activeSecrets: Awaited<ReturnType<typeof readCloudflareVersionSecretBindings>>;
       try {
         activeSecrets = await readCloudflareVersionSecretBindings(options, previous.versionId);
@@ -1160,26 +1163,31 @@ async function activateCloudflareVersionWithSecretsFile(
       if (activeSecrets === null) {
         return { ok: false, reason: 'inheritance-source-unavailable' };
       }
+      const draftSecretNames = previousVersion?.voidDraftSecretNames;
       if (
         bootstrapVoidDraft &&
-        (activeSecrets.length === 0 ||
+        (!draftSecretNames ||
+          activeSecrets.length === 0 ||
           activeSecrets.some((secret) => secret.type !== 'secret_text') ||
           !arraysEqual(
             activeSecrets.map((secret) => secret.name).sort(),
-            [...previousVersion!.voidDraftSecretNames!].sort(),
+            [...draftSecretNames].sort(),
           ) ||
-          (activeSecretsPinned &&
+          (pinnedActiveSecrets &&
             !isDeepStrictEqual(
               [...activeSecrets].sort((a, b) => a.name.localeCompare(b.name)),
-              [...pinnedActiveSecrets!].sort((a, b) => a.name.localeCompare(b.name)),
+              [...pinnedActiveSecrets].sort((a, b) => a.name.localeCompare(b.name)),
             )))
       ) {
         return { ok: false, reason: 'inheritance-source-changed' };
       }
-      if (!activeSecretsPinned && activeSecrets.length) {
+      if (!pinnedActiveSecrets && activeSecrets.length) {
+        if (!options.pinActiveSecrets) {
+          return { ok: false, reason: 'inheritance-source-unavailable' };
+        }
         let pinned: boolean;
         try {
-          pinned = await options.pinActiveSecrets!(previous.versionId, activeSecrets);
+          pinned = await options.pinActiveSecrets(previous.versionId, activeSecrets);
         } catch {
           return { ok: false, reason: 'inheritance-source-unavailable' };
         }
@@ -1202,7 +1210,7 @@ async function activateCloudflareVersionWithSecretsFile(
   // explicitly supplied replacement retains its existing upload semantics.
   if (
     previous.versionId !== null &&
-    !activeSecretsPinned &&
+    !pinnedActiveSecrets &&
     options.pinActiveSecrets &&
     options.candidateSecretsFilePath === undefined
   ) {
@@ -1231,10 +1239,10 @@ async function activateCloudflareVersionWithSecretsFile(
       if (!pinned) {
         return { ok: false, reason: 'inheritance-source-changed' };
       }
-      activeSecretsPinned = true;
+      pinnedActiveSecrets = activeSecrets;
     }
   }
-  if (activeSecretsPinned) {
+  if (pinnedActiveSecrets) {
     if (!options.verifyUploader()) {
       return { ok: false, reason: 'uploader-changed' };
     }
@@ -1244,9 +1252,10 @@ async function activateCloudflareVersionWithSecretsFile(
     }
     if (
       owner.kind !== 'ok' ||
+      previousVersionId === null ||
       owner.versionId !== previous.versionId ||
       !productionVersionPercentagesEqual(owner.versions, [
-        { versionId: previous.versionId!, percentage: 100 },
+        { versionId: previousVersionId, percentage: 100 },
       ])
     ) {
       return {
@@ -1277,7 +1286,7 @@ async function activateCloudflareVersionWithSecretsFile(
       (upload.failure === 'durable-migration' ||
         upload.failure === 'not-found' ||
         cloudflareErrorCode === DURABLE_MIGRATION_VERSION_ERROR ||
-        cloudflareErrorCode === 10007);
+        cloudflareErrorCode === 10_007);
     if (
       !options.preserveTriggers &&
       isBootstrapError &&
@@ -1309,10 +1318,21 @@ async function activateCloudflareVersionWithSecretsFile(
     return { ok: false, reason: 'upload-output-invalid' };
   }
   options.onProgress?.('Verifying the uploaded Worker...');
-  if (inheritanceBaseline) {
-    let recent = await readRecentCloudflareVersionIds(options);
-    // A failed read immediately after upload must not require another upload.
-    // Retry only unavailable metadata; unexpected version histories still fail.
+  const baseline = inheritanceBaseline;
+  if (baseline) {
+    // The list can still show the exact pre-upload history after a successful upload.
+    // Wait for a fresh read, but pass any other history straight to the lineage check.
+    const readUpdatedHistory = async () => {
+      const recent = await readRecentCloudflareVersionIds(options);
+      const unchanged =
+        recent?.length === baseline.length &&
+        recent.every(
+          (version, index) =>
+            version.id === baseline[index].id && version.number === baseline[index].number,
+        );
+      return unchanged ? null : recent;
+    };
+    let recent = await readUpdatedHistory();
     for (let attempt = 0; recent === null && attempt < 2; attempt++) {
       await (options.sleep ?? delay)(250 * 2 ** attempt);
       if (!options.verifyUploader()) {
@@ -1324,10 +1344,10 @@ async function activateCloudflareVersionWithSecretsFile(
           rollback: 'not-needed',
         };
       }
-      recent = await readRecentCloudflareVersionIds(options);
+      recent = await readUpdatedHistory();
     }
-    const previousLatest = inheritanceBaseline.at(-1);
-    const expected = [...inheritanceBaseline.map((version) => version.id), versionId].slice(-10);
+    const previousLatest = baseline.at(-1);
+    const expected = [...baseline.map((version) => version.id), versionId].slice(-10);
     if (recent === null) {
       return {
         ok: false,
@@ -1631,7 +1651,7 @@ async function activateCloudflareVersionWithSecretsFile(
       ...activationUrlFields(options.workerName, desiredTriggerConfig, readinessUrl),
     };
   }
-  const knownTriggerConfigs: Record<string, CloudflareTriggerConfig> = {
+  const knownTriggerConfigs = {
     [versionId]: desiredTriggerConfig,
   };
   if (previous.versionId && previousTriggerConfig) {
@@ -1886,7 +1906,7 @@ async function readCloudflareVersionInspection(
   try {
     // Version metadata is immutable. Reuse the pre-upload inheritance snapshot,
     // but keep ownership and the post-upload inheritance checks as fresh reads.
-    let versions = knownVersions;
+    let versions: unknown = knownVersions;
     if (versions === undefined) {
       const result = await options.runWrangler(
         { type: 'versions.list', configPath: options.configPath, workerName: options.workerName },
@@ -1895,7 +1915,7 @@ async function readCloudflareVersionInspection(
       if (!isCleanCommandExit(result)) {
         return null;
       }
-      versions = result.data as Array<unknown>;
+      versions = result.data;
     }
     if (!Array.isArray(versions)) {
       return null;
@@ -1935,14 +1955,15 @@ async function readCloudflareVersionInspection(
           }
         }
       }
-      const isVoidDraft = isVoidSecretOnlyDraft(draft);
+      const inspectedDraft = draft;
+      const isVoidDraft = isVoidSecretOnlyDraft(inspectedDraft);
       return {
         metadata: typeof message === 'string' ? parseCloudflareVersionMessage(message) : null,
         message: typeof message === 'string' ? message : null,
         isSecretOnlyDraft: isWranglerSecretOnlyDraft(draft) || isVoidDraft,
         isVoidSecretOnlyDraft: isVoidDraft,
         voidDraftSecretNames: isVoidDraft
-          ? (draft.bindings as Array<{ name: string }>).map((binding) => binding.name)
+          ? inspectedDraft.bindings.map((binding) => binding.name)
           : null,
         draftUnknown,
       };
@@ -1997,7 +2018,7 @@ async function isVoidSecretDraftPlaceholderVersion(
     return (
       isRecord(module) &&
       module.name === entry.main_module &&
-      module.content_base64 === Buffer.from(VOID_SECRET_DRAFT_SOURCE).toString('base64') &&
+      module.content_base64 === btoa(VOID_SECRET_DRAFT_SOURCE) &&
       entry.bindings.every((binding) => isRecord(binding) && binding.type === 'secret_text')
     );
   } catch {
@@ -2021,11 +2042,14 @@ async function readRecentCloudflareVersionIds(
     }
     return null;
   }
-  const versions = result.data;
+  const data: unknown = result.data;
+  if (!Array.isArray(data)) {
+    return null;
+  }
+  const versions: Array<unknown> = data;
   if (
-    !Array.isArray(versions) ||
     !versions.every(
-      (version) =>
+      (version): version is Record<string, unknown> & { id: string; number: number } =>
         isRecord(version) &&
         typeof version.id === 'string' &&
         typeof version.number === 'number' &&
@@ -2035,8 +2059,8 @@ async function readRecentCloudflareVersionIds(
     return null;
   }
   return versions.map((version) => ({
-    id: version.id as string,
-    number: version.number as number,
+    id: version.id,
+    number: version.number,
     inspection: version,
   }));
 }
@@ -2053,9 +2077,9 @@ async function candidateReplacesAllRemoteSecrets(
   activeVersionId: string | null,
   latestVersionId: string | null,
 ): Promise<boolean | null> {
-  const versionIds = [
-    ...new Set([activeVersionId, latestVersionId].filter(Boolean)),
-  ] as Array<string>;
+  const versionIds = new Set(
+    [activeVersionId, latestVersionId].filter((id): id is string => Boolean(id)),
+  );
   const secretBindings: Array<Array<{ name: string; type: 'secret_key' | 'secret_text' }>> = [];
   for (const versionId of versionIds) {
     const bindings = await readCloudflareVersionSecretBindings(options, versionId);
@@ -2525,7 +2549,11 @@ function readUploadResult(result: CloudflareCommandResult): CloudflareUploadResu
   ) {
     return null;
   }
-  return data as CloudflareUploadResult;
+  return {
+    versionId: data.versionId,
+    previewUrl: data.previewUrl,
+    workersDevUrl: data.workersDevUrl,
+  };
 }
 
 function versionPercentages(
@@ -2533,7 +2561,7 @@ function versionPercentages(
 ): Array<{ versionId: string; percentage: number }> {
   return values.map((value) => {
     const [versionId, percentage] = value.split('@');
-    return { versionId: versionId!, percentage: Number(percentage) };
+    return { versionId, percentage: Number(percentage) };
   });
 }
 
@@ -2573,11 +2601,21 @@ async function readCurrentProductionVersion(
     return { kind: 'failed', status: result.status };
   }
   try {
-    const deployment = result.data as ProductionDeployment;
-    const versions = (deployment.versions ?? []).map((version) => ({
-      versionId: typeof version.version_id === 'string' ? version.version_id : '',
-      percentage: Number(version.percentage),
-    }));
+    const deployment = result.data;
+    if (!isRecord(deployment)) {
+      return { kind: 'failed', status: result.status };
+    }
+    const entries = deployment.versions ?? [];
+    if (!Array.isArray(entries)) {
+      return { kind: 'failed', status: result.status };
+    }
+    const versions: Array<ProductionVersionPercentage> = [];
+    for (const entry of entries) {
+      if (!isRecord(entry) || typeof entry.version_id !== 'string') {
+        return { kind: 'failed', status: result.status };
+      }
+      versions.push({ versionId: entry.version_id, percentage: Number(entry.percentage) });
+    }
     if (
       versions.some(
         (version) =>
@@ -2765,7 +2803,7 @@ async function probeReadiness(
         signal: AbortSignal.timeout(Math.max(1, Math.min(10_000, remaining))),
       });
       if (response.ok) {
-        const body = (await response.json()) as { ready?: unknown; versionId?: unknown };
+        const body = await response.json<{ ready?: unknown; versionId?: unknown }>();
         if (
           body.ready === true &&
           (expectedVersionId === undefined || body.versionId === expectedVersionId)
@@ -2783,7 +2821,7 @@ async function probeReadiness(
       }
     }
     if (attempt + 1 < attempts) {
-      const waitMs = Math.min(250 * 2 ** attempt, 2_000, deadline - Date.now());
+      const waitMs = Math.min(250 * 2 ** attempt, 2000, deadline - Date.now());
       if (waitMs > 0) {
         await sleep(waitMs);
       }
@@ -2871,7 +2909,7 @@ function isTrustedReadinessOrigin(url: string, trustedOrigin: string | undefined
   }
 }
 
-function customRouteReadinessOriginField(url: string): { customRouteReadinessOrigin?: string } {
+function customRouteReadinessOriginField(url: string) {
   try {
     return { customRouteReadinessOrigin: new URL(url).origin };
   } catch {

@@ -24,10 +24,11 @@ import {
   createTestDeployment,
   createTestProject,
   createTestUser,
+  mockKvRead,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -74,13 +75,7 @@ async function operatorRequest(token: string, path: string, body: Record<string,
 }
 
 function staleRouteRead(keys: Array<string>, raw: string) {
-  const originalGet = env.ROUTING.get.bind(env.ROUTING);
-  return vi
-    .spyOn(env.ROUTING, 'get')
-    .mockImplementation((async (key: string | Array<string>, ...args: Array<unknown>) =>
-      typeof key === 'string' && keys.includes(key)
-        ? raw
-        : Reflect.apply(originalGet, env.ROUTING, [key, ...args])) as typeof env.ROUTING.get);
+  return mockKvRead(env.ROUTING, (key) => (keys.includes(key) ? raw : undefined));
 }
 
 function providerError(message: string, status: number): Response {
@@ -129,7 +124,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return providerError('application not found', 404);

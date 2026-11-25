@@ -16,10 +16,10 @@ const REQUEST_TIMEOUT_MS = 60_000;
  * A call needs at least this much of the run's time left. Starting one closer
  * to the deadline would cut a settings PATCH off with its outcome unknown.
  */
-const MIN_REQUEST_MS = 5_000;
+const MIN_REQUEST_MS = 5000;
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 /** Cloudflare's "script not found" error code. */
-const SCRIPT_NOT_FOUND_CODE = 10007;
+const SCRIPT_NOT_FOUND_CODE = 10_007;
 
 export class CloudflareRateLimitError extends Error {
   readonly retryAfterSeconds: number;
@@ -101,7 +101,9 @@ export function createRotationCloudflareClient(
       throw new RotationBudgetExhaustedError();
     }
     budget.cfCallsRemaining -= 1;
-    const headers: Record<string, string> = { Authorization: `Bearer ${input.apiToken}` };
+    const headers: Record<'Authorization', string> & Partial<Record<'Content-Type', string>> = {
+      Authorization: `Bearer ${input.apiToken}`,
+    };
     if (body !== undefined && !(body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
@@ -116,7 +118,7 @@ export function createRotationCloudflareClient(
     }
     let json: CfEnvelope<T>;
     try {
-      json = (await response.json()) as CfEnvelope<T>;
+      json = await response.json<CfEnvelope<T>>();
     } catch {
       throw new CloudflareApiError(
         `Cloudflare API error: HTTP ${response.status} ${method} ${path}`,

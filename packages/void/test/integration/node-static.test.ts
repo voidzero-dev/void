@@ -1,14 +1,17 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
+  createIsolatedPlayground,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { renderVoidConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
@@ -24,8 +27,21 @@ type NavElement = HTMLElement & { __STAMP?: number };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/node-static';
-const DIST = join(ROOT, PLAYGROUND, 'dist');
-const VOID_CONFIG = join(ROOT, PLAYGROUND, 'void.config.ts');
+
+// The dev test and both build groups share one copy, as they shared the source directory.
+let fixture: IsolatedPlayground;
+let DIST: string;
+let VOID_CONFIG: string;
+
+beforeAll(() => {
+  fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
+  DIST = join(fixture.root, 'dist');
+  VOID_CONFIG = join(fixture.root, 'void.config.ts');
+});
+
+afterAll(() => {
+  fixture?.cleanup();
+});
 
 let staticServer: Server | undefined;
 let staticBase: string;
@@ -71,10 +87,7 @@ it('uses server page data for navigation and prefetch in static-output dev', asy
   const browser = await chromium.launch();
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   try {
-    server = await startServer(
-      (port) => spawnPlaygroundServer(ROOT, 'node-static', 'dev', port),
-      20_000,
-    );
+    server = await startServer((port) => spawnFixtureServer(fixture.root, 'dev', port), 20_000);
     const page = await browser.newPage();
     page.setDefaultTimeout(10_000);
     await page.goto(server.base);
@@ -115,10 +128,9 @@ it('uses server page data for navigation and prefetch in static-output dev', asy
 
 describe('playground/node-static build (target: node, output: static)', () => {
   beforeAll(async () => {
-    const pg = join(ROOT, PLAYGROUND);
-    rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    rmSync(join(pg, '.void'), { recursive: true, force: true });
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    // The dev test above leaves local state behind.
+    rmSync(join(fixture.root, '.void'), { recursive: true, force: true });
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
 
     const clientDir = join(DIST, 'client');
     staticServer = createServer((req, res) => {
@@ -143,7 +155,9 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
   afterAll(async () => {
     if (staticServer) {
-      await new Promise<void>((resolveClose) => staticServer!.close(() => resolveClose()));
+      await new Promise<void>((resolveClose) => {
+        staticServer!.close(() => resolveClose());
+      });
     }
   });
 
@@ -162,7 +176,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
     const indexPath = join(DIST, 'client/index.html');
     expect(existsSync(indexPath)).toBe(true);
 
-    const html = readFileSync(indexPath, 'utf-8');
+    const html = readFileSync(indexPath, 'utf8');
     expect(html).toContain('<!doctype html>');
     expect(html).toContain('data-testid="home-title"');
     expect(html).toContain('Home');
@@ -174,7 +188,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
   });
 
   it('proves rendering happened in Node.js via process.versions.node', () => {
-    const html = readFileSync(join(DIST, 'client/index.html'), 'utf-8');
+    const html = readFileSync(join(DIST, 'client/index.html'), 'utf8');
     const match = html.match(/data-testid="runtime"[^>]*>([^<]+)</);
     expect(match).not.toBeNull();
     // Node.js version string like "24.13.1"
@@ -185,7 +199,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
     const aboutPath = join(DIST, 'client/about.html');
     expect(existsSync(aboutPath)).toBe(true);
 
-    const html = readFileSync(aboutPath, 'utf-8');
+    const html = readFileSync(aboutPath, 'utf8');
     expect(html).toContain('<!doctype html>');
     expect(html).toContain('data-testid="about-title"');
     expect(html).toContain('About');
@@ -197,15 +211,21 @@ describe('playground/node-static build (target: node, output: static)', () => {
   });
 
   it('emits static page data for prerendered routes', () => {
-    const indexData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf-8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
-    const aboutData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf-8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
-    const legacyData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/legacy.json'), 'utf-8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
+    const indexData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf8'));
+    const aboutData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf8'));
+    const legacyData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/legacy.json'), 'utf8'));
 
     expect(indexData.component).toBe('index');
     expect(indexData.url).toBe('/');
@@ -228,7 +248,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
       await page.evaluate(() => {
         window.__SPA_MARKER = true;
-        (document.querySelector('nav') as NavElement | null)!.__STAMP = 1;
+        document.querySelector<NavElement>('nav')!.__STAMP = 1;
       });
 
       await page.click('a[href="/about"]');
@@ -236,9 +256,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
       expect(page.url()).toBe(`${staticBase}/about`);
       expect(await page.evaluate(() => window.__SPA_MARKER)).toBe(true);
-      expect(
-        await page.evaluate(() => (document.querySelector('nav') as NavElement | null)?.__STAMP),
-      ).toBe(1);
+      expect(await page.evaluate(() => document.querySelector<NavElement>('nav')?.__STAMP)).toBe(1);
     } finally {
       await page.close();
       await browser.close();
@@ -345,9 +363,9 @@ describe('playground/node-static build (target: node, output: static)', () => {
       const routerUrl = () => page.textContent('[data-testid="router-url"]');
 
       // The page HTML and its static page data were rendered for the path, without a query.
-      const pageData = deserializePageData(
-        readFileSync(join(DIST, 'client/_void/pages/router-url/plain.json'), 'utf-8'),
-      ) as { url: string };
+      const pageData = deserializePageData<{ url: string }>(
+        readFileSync(join(DIST, 'client/_void/pages/router-url/plain.json'), 'utf8'),
+      );
       expect(pageData.url).toBe('/router-url/plain');
       await page.goto(`${staticBase}/router-url/plain?foo=bar#baz`);
       await page.waitForSelector('#app[data-hydrated="true"]');
@@ -398,7 +416,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
 
   it('collects prerender paths from the built node app endpoint', async () => {
     const paths = await collectPrerenderPathsNode({
-      root: join(ROOT, PLAYGROUND),
+      root: fixture.root,
       ssrDir: join(DIST, 'ssr'),
       clientDir: join(DIST, 'client'),
     });
@@ -420,11 +438,11 @@ describe('playground/node-static redirects (target: node, output: static)', () =
   let originalConfig: string | undefined;
 
   beforeAll(async () => {
-    originalConfig = readFileSync(VOID_CONFIG, 'utf-8');
+    originalConfig = readFileSync(VOID_CONFIG, 'utf8');
     writeFileSync(
       VOID_CONFIG,
       renderVoidConfig({
-        ...readConfig(join(ROOT, PLAYGROUND)),
+        ...readConfig(fixture.root),
         routing: {
           redirects: {
             '/legacy': '/about',
@@ -434,10 +452,10 @@ describe('playground/node-static redirects (target: node, output: static)', () =
       }),
     );
 
-    const pg = join(ROOT, PLAYGROUND);
-    rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    rmSync(join(pg, '.void'), { recursive: true, force: true });
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    // Clear the previous group's build.
+    rmSync(join(fixture.root, 'dist'), { recursive: true, force: true });
+    rmSync(join(fixture.root, '.void'), { recursive: true, force: true });
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
     writeFileSync(VOID_CONFIG, originalConfig);
 
     externalServer = createServer((_req, res) => {
@@ -491,10 +509,14 @@ describe('playground/node-static redirects (target: node, output: static)', () =
       writeFileSync(VOID_CONFIG, originalConfig);
     }
     if (redirectedServer) {
-      await new Promise<void>((resolveClose) => redirectedServer!.close(() => resolveClose()));
+      await new Promise<void>((resolveClose) => {
+        redirectedServer!.close(() => resolveClose());
+      });
     }
     if (externalServer) {
-      await new Promise<void>((resolveClose) => externalServer!.close(() => resolveClose()));
+      await new Promise<void>((resolveClose) => {
+        externalServer!.close(() => resolveClose());
+      });
     }
   });
 

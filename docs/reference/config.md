@@ -192,7 +192,7 @@ Site-wide HTML `<head>` defaults for pages mode. Sets a title template, default 
 | Field           | Type                     | Description                                                      |
 | --------------- | ------------------------ | ---------------------------------------------------------------- |
 | `title`         | `string`                 | Default page title (overridden by page `head()`)                 |
-| `titleTemplate` | `string`                 | Wraps the resolved title. `%s` is replaced with the page title.  |
+| `titleTemplate` | `string`                 | Wraps the title at `%s`. Page or middleware templates replace it |
 | `meta`          | `Array<object>`          | Default `<meta>` tags (deduped by `name`/`property`, page wins)  |
 | `link`          | `Array<object>`          | Default `<link>` tags (concatenated: config, middleware, page)   |
 | `script`        | `Array<object>`          | Default `<script>` tags (concatenated: config, middleware, page) |
@@ -622,4 +622,4 @@ App type. If omitted, auto-detected on first deploy. See [Supported App Types](.
 
 #### `inference.outputDir`
 
-Output directory for static deploys, relative to the project root. Only relevant when `inference.appType` is `"spa"` or `"static"`. Defaults to `"dist"`.
+Output directory for static deploys, relative to the project root. Only relevant when `inference.appType` is `"spa"` or `"static"`. Defaults to `"dist"`, or `"dist/client"` when the project depends on `void`, because `voidPlugin()` writes browser files there and server files to `dist/ssr`.

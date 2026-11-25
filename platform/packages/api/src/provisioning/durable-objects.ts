@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   createAssetUploadSession,
@@ -5,10 +6,11 @@ import {
   uploadAssetBuckets,
   buildAssetMetadata,
   resolveAssetContentTypes,
-  type AssetManifestEntry,
 } from '../assets.ts';
+import type { AssetManifestEntry } from '../assets.ts';
 import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
-import { getProjectResources, type Db } from '../db.ts';
+import { getProjectResources } from '../db.ts';
+import type { Db } from '../db.ts';
 import { projectObservability } from '../deploy/shared.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
@@ -26,12 +28,13 @@ import {
   withKnownLength,
   workerUploadBody,
   workerUploadDeadline,
-  type WorkerModule,
 } from '../worker-upload.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import { CF_API_BASE, cfFetch, CloudflareApiError } from './cloudflare-api.ts';
 import { putDurableSnapshotModule, putDurableSnapshotObject } from './durable-snapshot.ts';
 
 type Env = ApiEnv['Bindings'];
+type DispatchWorkerEnv = Pick<Env, 'CF_ACCOUNT_ID' | 'CF_API_TOKEN' | 'DISPATCH_NAMESPACE'>;
 type Binding = Record<string, unknown> & { type: string; name: string };
 type Snapshot = {
   metadata: Record<string, unknown> & { bindings: Array<Binding> };
@@ -60,7 +63,7 @@ export async function durableObjectWorkerName(
   return `void-do-${projectId}-${digest.slice(0, 16)}`;
 }
 
-function url(env: Env, worker: string): string {
+function url(env: DispatchWorkerEnv, worker: string): string {
   return `${CF_API_BASE}/${env.CF_ACCOUNT_ID}/workers/dispatch/namespaces/${namespace(env)}/scripts/${worker}`;
 }
 
@@ -72,17 +75,25 @@ function marker(
   return JSON.stringify({ protocol: 1, projectId, dispatchNamespace: namespace(env), className });
 }
 
-async function readBindings(env: Env, worker: string): Promise<Array<Binding> | undefined> {
+async function readBindings(
+  env: DispatchWorkerEnv,
+  worker: string,
+  {
+    confirmWorkerExists = true,
+    signal,
+  }: { confirmWorkerExists?: boolean; signal?: AbortSignal } = {},
+): Promise<Array<Binding> | undefined> {
   try {
     const bindings = await cfFetch<Array<Binding>>(
       `${url(env, worker)}/bindings`,
       env.CF_API_TOKEN,
+      { signal },
     );
     // Dispatch can return an empty binding list for a script without a Worker.
     // Confirm absence before provisioning; an existing unmarked Worker must
     // still fail the ownership check.
-    if (bindings.length === 0) {
-      await cfFetch(`${url(env, worker)}/settings`, env.CF_API_TOKEN);
+    if (confirmWorkerExists && bindings.length === 0) {
+      await cfFetch(`${url(env, worker)}/settings`, env.CF_API_TOKEN, { signal });
     }
     return bindings;
   } catch (error) {
@@ -202,7 +213,7 @@ async function upload(
     }
     let result: { success: boolean };
     try {
-      result = (await response.json()) as { success: boolean };
+      result = await response.json<{ success: boolean }>();
     } catch (error) {
       throw failed(error);
     }
@@ -215,12 +226,9 @@ async function upload(
   }
 }
 
-function idle(
-  env: Env,
-  projectId: string,
-  className: string,
-  create = false,
-): { metadata: Record<string, unknown>; modules: Array<WorkerModule> } {
+type IdleWorkerUpload = { metadata: Record<string, unknown>; modules: Array<WorkerModule> };
+
+function idle(env: Env, projectId: string, className: string, create = false): IdleWorkerUpload {
   return {
     metadata: {
       main_module: ENTRY,
@@ -261,7 +269,7 @@ export async function prepareManagedDurableObjects(
   deploymentId: string,
   manifest: DeployManifest,
 ): Promise<DeployManifest['durableObjects']> {
-  const namespaces: Record<string, string> = Object.create(null);
+  const namespaces = Object.create(null) as Record<string, string>;
   for (const binding of manifest.durableObjects?.bindings ?? []) {
     const worker = await durableObjectWorkerName(projectId, binding.className);
     await db.transaction(async (tx) => {
@@ -306,8 +314,12 @@ export async function prepareManagedDurableObjects(
       }
       const resource = (await getProjectResources(tx, projectId)).find(
         (value) => value.type === 'durable-object' && value.binding_name === binding.className,
-      )!;
-      if (resource.cf_id !== worker || resource.metadata.dispatchNamespace !== namespace(env)) {
+      );
+      if (
+        !resource ||
+        resource.cf_id !== worker ||
+        resource.metadata.dispatchNamespace !== namespace(env)
+      ) {
         throw new Error('Custom Durable Object resource identity differs from this installation.');
       }
       let bindings = await readBindings(env, worker);
@@ -350,19 +362,55 @@ export function managedDurableObjectBindings(manifest: DeployManifest): Array<Bi
 }
 
 export async function verifyManagedDurableObjectApplicationBindings(
-  env: Env,
+  env: DispatchWorkerEnv,
   worker: string,
   manifest: DeployManifest,
+  {
+    deadline,
+    delaysMs = [250, 500, 1000],
+  }: { deadline?: number; delaysMs?: ReadonlyArray<number> } = {},
 ): Promise<void> {
-  if (!manifest.durableObjects?.bindings.length) {
+  const expectedBindings = managedDurableObjectBindings(manifest);
+  if (!expectedBindings.length) {
     return;
   }
-  const actual = await readBindings(env, worker);
-  for (const expected of managedDurableObjectBindings(manifest)) {
-    const binding = actual?.find((value) => value.name === expected.name);
-    if (binding?.type !== expected.type || binding.namespace_id !== expected.namespace_id) {
+  const matchesExpected = (actual: Array<Binding> | undefined): boolean =>
+    expectedBindings.every((expected) => {
+      const binding = actual?.find((value) => value.name === expected.name);
+      return binding?.type === expected.type && binding.namespace_id === expected.namespace_id;
+    });
+
+  // Keep queued verification inside the same deadline as the uploads so a
+  // slow series of reads cannot spend the time reserved for cleanup.
+  const remaining = deadline === undefined ? undefined : deadline - Date.now();
+  const timeout = new Error(
+    'The deployment reached its time limit while verifying application Durable Object bindings.',
+  );
+  if (remaining !== undefined && remaining <= 0) {
+    throw timeout;
+  }
+  const controller = new AbortController();
+  const timer =
+    remaining === undefined ? undefined : setTimeout(() => controller.abort(timeout), remaining);
+  const signal = controller.signal;
+  const read = () => readBindings(env, worker, { confirmWorkerExists: false, signal });
+  try {
+    let actual = await read();
+    for (const wait of delaysMs) {
+      if (matchesExpected(actual)) {
+        return;
+      }
+      await delay(wait, undefined, { signal });
+      actual = await read();
+    }
+    if (!matchesExpected(actual)) {
       throw new Error('Application custom Durable Object binding could not be verified.');
     }
+  } catch (error) {
+    signal.throwIfAborted();
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -570,7 +618,7 @@ async function restoreObject(
         }
         bytesByHash.set(hash, {
           bytes: new Uint8Array(await object.arrayBuffer()),
-          contentType: contentTypes.get(hash)!,
+          contentType: contentTypes.get(hash) ?? 'application/octet-stream',
         });
       }
       const jwt = await uploadAssetBuckets(

@@ -51,13 +51,15 @@ describe('usage envelopes', () => {
       false,
       ['sign'],
     );
-    const signature = Buffer.from(
-      await crypto.subtle.sign(
-        'HMAC',
-        signingKey,
-        new TextEncoder().encode(JSON.stringify([1, source, eventId, event])),
-      ),
-    ).toString('base64url');
+    const signature = (Buffer as BufferConstructor)
+      .from(
+        await crypto.subtle.sign(
+          'HMAC',
+          signingKey,
+          new TextEncoder().encode(JSON.stringify([1, source, eventId, event])),
+        ),
+      )
+      .toString('base64url');
 
     await expect(
       verifyUsageEnvelope({ version: 1, source, eventId, event, signature }, key),

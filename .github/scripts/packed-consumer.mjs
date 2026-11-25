@@ -65,7 +65,7 @@ function launch(command, args, cwd, env = environment) {
   for (const stream of [child.stdout, child.stderr]) {
     stream.on('data', (chunk) => {
       log.write(chunk);
-      tail = (tail + chunk.toString()).slice(-16000);
+      tail = (tail + chunk.toString()).slice(-16_000);
     });
   }
   const completion = new Promise((resolve, reject) => {
@@ -88,13 +88,17 @@ function launch(command, args, cwd, env = environment) {
     async stop() {
       if (child.exitCode === null) {
         try {
-          process.kill(-child.pid, 'SIGTERM');
+          if (child.pid !== undefined) {
+            process.kill(-child.pid, 'SIGTERM');
+          }
         } catch {
           /* already exited */
         }
         const force = setTimeout(() => {
           try {
-            process.kill(-child.pid, 'SIGKILL');
+            if (child.pid !== undefined) {
+              process.kill(-child.pid, 'SIGKILL');
+            }
           } catch {
             /* already exited */
           }
@@ -389,6 +393,9 @@ for (const name of ['cf', '@cloudflare/vite-plugin']) {
   assert.equal(manifest('miniflare', tool), miniflare, name + ' installs a second Miniflare');
   assert.equal(manifest('miniflare', types), miniflare, name + ' runtime types install a second Miniflare');
   assert.equal(manifest('workerd', types), workerd, name + ' runtime types install a second workerd');
+  for (const shared of ['@cloudflare/config', '@cloudflare/build-output-utils']) {
+    assert.equal(manifest(shared, tool), manifest(shared, voidEntry), name + ' installs a second ' + shared);
+  }
 }
 const manifestPath = findPackageJSON('@void/platform', voidEntry);
 const entry = JSON.parse(readFileSync(manifestPath, 'utf8')).exports['./installer'].import;
@@ -426,7 +433,9 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
                   /* server is starting */
                 }
               }
-              await new Promise((resolve) => setTimeout(resolve, 200));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 200);
+              });
             }
             assert(response?.ok, task.failure());
             assert((await response.text()).includes(`Packed ${label}`));
@@ -468,7 +477,11 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
               await page.getByRole('link', { name: 'Next page', exact: true }).click();
               await page.getByRole('heading', { name: `Next ${label}`, exact: true }).waitFor();
               assert.equal(
-                await page.evaluate(() => window.__packedNavigation),
+                await page.evaluate(
+                  () =>
+                    /** @type {Window & { __packedNavigation?: string }} */ (window)
+                      .__packedNavigation,
+                ),
                 'preserved',
                 'Link navigation must preserve the document',
               );
@@ -520,7 +533,9 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
                 throw new Error(task.failure());
               }
               base = packedServerUrl(task.output());
-              await new Promise((resolve) => setTimeout(resolve, 200));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 200);
+              });
             }
             assert(base, task.failure());
             const response = await fetch(`${base}/form`, {

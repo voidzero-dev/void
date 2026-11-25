@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { runDeploy } from '../../src/cli/deploy.ts';
 
 // The native Cloudflare email step belongs to `void deploy --platform cloudflare` ONLY.
@@ -23,8 +24,8 @@ const { emailModule, mockConfirm, mockPreflight, mockProjectLookup, mockClientCt
         fetchWithSessionBearer: vi.fn(never),
         createNodeEmailDns: vi.fn(never),
       },
-      mockConfirm: vi.fn(),
-      mockPreflight: vi.fn(),
+      mockConfirm: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').confirm>(),
+      mockPreflight: vi.fn<import('../../src/cli/client.ts').PlatformClient['preflight']>(),
       mockProjectLookup: vi.fn(),
       mockClientCtor: vi.fn(),
     };
@@ -40,7 +41,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   note: vi.fn(),
   spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
   isCI: () => false,
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
   isCancel: () => false,
   log: {
     error: vi.fn(),
@@ -73,17 +74,17 @@ vi.mock('../../src/cli/client', () => ({
       throw new Error('deploy unexpectedly loaded the full project list');
     }
     async findProjectBySlug(slug: string) {
-      const projects = await mockProjectLookup();
+      const projects = (await mockProjectLookup()) as Array<{ slug: string }>;
       return projects.find((project: { slug: string }) => project.slug === slug) ?? null;
     }
-    preflight(...args: Array<unknown>) {
+    preflight(...args: Parameters<typeof mockPreflight>) {
       return mockPreflight(...args);
     }
   },
   isExpiredTokenError: () => false,
 }));
 
-const tmpDir = join(import.meta.dirname, '.tmp-deploy-email-platform-path');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-deploy-email-platform-path');
 
 function makeProject(files: Record<string, string>): string {
   rmSync(tmpDir, { recursive: true, force: true });

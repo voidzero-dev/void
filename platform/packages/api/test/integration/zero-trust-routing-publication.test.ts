@@ -28,10 +28,11 @@ import {
   clearTables,
   createTestProject,
   createTestUser,
+  mockKvRead,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -113,7 +114,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return providerError('application not found', 404);
@@ -181,19 +182,14 @@ describe('authoritative Zero Trust routing publication', () => {
       }
       const expectedProtection = await resolveProjectZeroTrustRouting(env.db, project.id);
       const staleRoute = protectedProject ? publicRoute : protectedRoute;
-      const originalGet = env.ROUTING.get.bind(env.ROUTING);
       let staleReads = 0;
-      const getSpy = vi.spyOn(env.ROUTING, 'get').mockImplementation((async (
-        key: string | Array<string>,
-        ...rest: Array<unknown>
-      ) => {
+      const getSpy = mockKvRead(env.ROUTING, (key) => {
         if (key === project.slug) {
           staleReads += 1;
           // Writes cannot invalidate an older edge read, even under a DB lock.
           return staleRoute;
         }
-        return Reflect.apply(originalGet, env.ROUTING, [key, ...rest]);
-      }) as typeof env.ROUTING.get);
+      });
       try {
         const activated = await tryActivateDomain(
           platform,
@@ -316,15 +312,10 @@ describe('authoritative Zero Trust routing publication', () => {
     });
     // Each KV read is independent: domain reconciliation can see the missing
     // slug route while the activation copy still sees the deleted project's.
-    const originalGet = env.ROUTING.get.bind(env.ROUTING);
     let slugReads = 0;
-    vi.spyOn(env.ROUTING, 'get').mockImplementation((async (
-      key: string | Array<string>,
-      ...rest: Array<unknown>
-    ) =>
-      key === project.slug && ++slugReads > 1
-        ? previousRoute
-        : Reflect.apply(originalGet, env.ROUTING, [key, ...rest])) as typeof env.ROUTING.get);
+    mockKvRead(env.ROUTING, (key) =>
+      key === project.slug && ++slugReads > 1 ? previousRoute : undefined,
+    );
     const put = vi.spyOn(env.ROUTING, 'put');
     const activated = await tryActivateDomain(
       platform,

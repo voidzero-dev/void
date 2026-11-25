@@ -6,7 +6,7 @@ import { proposePlanAiLogging } from '../../src/operator/plans.ts';
 const catalog = createDefaultPlanCatalog('free');
 const withPlan = (id: string) => ({
   ...catalog,
-  plans: [...catalog.plans, { ...catalog.plans[0]!, id, name: id }],
+  plans: [...catalog.plans, { ...catalog.plans[0], id, name: id }],
 });
 
 describe('plan AI logging changes', () => {

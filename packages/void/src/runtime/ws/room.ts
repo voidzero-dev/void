@@ -6,13 +6,11 @@
  * room's Durable Object, so they can broadcast or close connections locally.
  */
 import type { WebSocketRouteMap } from 'void/routes';
-import { getRawRuntimeEnv, type RuntimeEnv } from '../env/raw.ts';
+import { getRawRuntimeEnv } from '../env/raw.ts';
+import type { RuntimeEnv } from '../env/raw.ts';
 import type { RoomActionContext } from './index.ts';
-import {
-  buildWebSocketInstanceId,
-  __getWebSocketRoute,
-  type WebSocketRouteMeta,
-} from './server.ts';
+import { buildWebSocketInstanceId, __getWebSocketRoute } from './server.ts';
+import type { WebSocketRouteMeta } from './server.ts';
 
 type RouteParamsOf<P extends keyof WebSocketRouteMap> = WebSocketRouteMap[P] extends {
   params: infer T;
@@ -89,22 +87,29 @@ function resolveRoomBinding(
   return binding;
 }
 
+interface ActionProxy {
+  [key: string]: (...args: Array<unknown>) => Promise<unknown>;
+}
+
 function createActionProxy(
   stub: RoomActionStub,
   id: string,
   params: Record<string, string>,
-): Record<string, (...args: Array<unknown>) => Promise<unknown>> {
-  return new Proxy({} as Record<string, (...args: Array<unknown>) => Promise<unknown>>, {
-    get(_target, property) {
-      // `await` and `Promise.resolve` read `then`. Returning a function there would
-      // dispatch an action named "then" with resolver callbacks it cannot clone.
-      if (typeof property !== 'string' || property === 'then') {
-        return undefined;
-      }
-      return (...args: Array<unknown>) =>
-        stub.__voidRoomAction({ name: property, args, id, params });
+): ActionProxy {
+  return new Proxy(
+    {},
+    {
+      get(_target, property) {
+        // `await` and `Promise.resolve` read `then`. Returning a function there would
+        // dispatch an action named "then" with resolver callbacks it cannot clone.
+        if (typeof property !== 'string' || property === 'then') {
+          return undefined;
+        }
+        return (...args: Array<unknown>) =>
+          stub.__voidRoomAction({ name: property, args, id, params });
+      },
     },
-  });
+  );
 }
 
 export function getRoom<P extends RoomPath & string>(
@@ -138,6 +143,7 @@ export function getRoom(
   }
   const binding = resolveRoomBinding(route, options.env);
   const id = buildWebSocketInstanceId(route, params);
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- The generated room durable object provides the RPC method on its stub.
   const stub = binding.get(binding.idFromName(id)) as unknown as RoomActionStub;
   return { actions: createActionProxy(stub, id, params) } as RoomHandle<RoomPath & string>;
 }

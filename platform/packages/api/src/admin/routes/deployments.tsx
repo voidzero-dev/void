@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getDeployment } from '../../db.ts';
-import { type ApiEnv } from '../../env.ts';
+import type { ApiEnv } from '../../env.ts';
 import { executeAuditedMutation, operatorAuditIntent } from '../../operator/audit.ts';
 import { OperatorError } from '../../operator/common.ts';
 import {

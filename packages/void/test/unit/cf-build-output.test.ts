@@ -32,14 +32,16 @@ import {
 } from '@void/deploy-cloudflare';
 import { toSlash } from 'pathslash';
 import { createBuilder } from 'vite';
-import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { afterAll, afterEach, expect, it as serialIt, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
-  type CfBuildOutput,
   prepareCfFrameworkBuildOutput,
   prepareCfStaticBuildOutput,
 } from '../../src/cli/cf-build-output.ts';
+import type { CfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { resolveGeneratedDeployConfigPathDefault } from '../../src/cli/deploy-artifact-validation.ts';
 import { deployPointerPath } from '../../src/cli/deploy-binding-snapshot.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { writeWranglerPublishedTrafficSnapshot } from '../../src/cli/wrangler.ts';
 import { materializeCloudflareConfig } from '../../src/cloudflare-config.ts';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
@@ -50,10 +52,18 @@ const roots: Array<string> = [];
 const CF_BUILD_TIMEOUT_MS = process.platform === 'win32' ? 45_000 : 15_000;
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+// Concurrent tests share this list, so directories are removed when the file ends.
+afterAll(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// Most tests here wait for a real cf child process with their own directory and local API
+// server, so they run concurrently. Tests that use `vi` run alone through serialIt: they patch
+// globals, and Vitest clears every mock's call history whenever another test starts.
+const it = serialIt.concurrent;
 
 function worker(config: Record<string, unknown>): string {
   const root = mkdtempSync(join(tmpdir(), 'void-cf-build-output-test-'));
@@ -90,6 +100,8 @@ function expectCfDryRun(directory: string, command = ['workers', 'versions', 'cr
   const dryRun = spawnSync(process.execPath, [cf, ...command, '--prebuilt', '--dry-run'], {
     cwd: directory,
     encoding: 'utf8',
+    // As Void runs cf. Otherwise each call reports to Cloudflare and waits for the answer.
+    env: { ...process.env, CF_SEND_TELEMETRY: 'false' },
   });
   expect(dryRun.status, `${dryRun.stdout}\n${dryRun.stderr}`).toBe(0);
   return dryRun;
@@ -359,7 +371,7 @@ it('preserves native auxiliary Workers and already-built Container declarations'
   );
 });
 
-it.each(['../outside.js', '/outside.js', 'C:/outside.js', 'assets\\outside.js'])(
+it.each(['../outside.js', '/outside.js', 'C:/outside.js', String.raw`assets\outside.js`])(
   'rejects a native manifest module outside its portable bundle: %s',
   async (module) => {
     const root = await nativeBuild();
@@ -418,7 +430,7 @@ it('returns only the public fields of the prepared output', async () => {
   });
 });
 
-it.skipIf(process.platform === 'win32')(
+serialIt.skipIf(process.platform === 'win32')(
   'rejects a legacy asset symlink outside the asset directory',
   async () => {
     const output = worker({
@@ -439,13 +451,13 @@ it.skipIf(process.platform === 'win32')(
   },
 );
 
-it.skipIf(process.platform === 'win32')('rejects symlinked native modules', async () => {
+serialIt.skipIf(process.platform === 'win32')('rejects symlinked native modules', async () => {
   const root = await nativeBuild();
   symlinkSync('index.js', join(getWorkerBundleDir(root), 'alias.js'));
   await expect(prepareCfBuildOutput(root)).rejects.toThrow('Symlinks are not permitted');
 });
 
-it.skipIf(process.platform === 'win32')('rejects symlinked native assets', async () => {
+serialIt.skipIf(process.platform === 'win32')('rejects symlinked native assets', async () => {
   const root = await nativeBuild();
   const secret = join(root, 'secret.txt');
   writeFileSync(secret, 'private');
@@ -853,7 +865,7 @@ it(
   CF_BUILD_TIMEOUT_MS,
 );
 
-it(
+serialIt(
   'keeps local .env client values out of framework Worker output',
   async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-cf-framework-env-test-'));
@@ -938,7 +950,7 @@ it(
   CF_BUILD_TIMEOUT_MS,
 );
 
-it.each(['../index.js', '/index.js', 'C:\\index.js'])(
+it.each(['../index.js', '/index.js', String.raw`C:\index.js`])(
   'rejects an out-of-bundle entry %s',
   async (main) => {
     const output = worker({ name: 'void-test', compatibility_date: '2026-09-29', main });
@@ -1164,7 +1176,7 @@ it('keeps Durable Objects, Queue triggers, and Containers in cf prebuilt output'
 }, 15_000);
 
 it('bundles a generated static Worker and staged assets into prebuilt cf output', async () => {
-  const root = mkdtempSync(join(dirname(fileURLToPath(import.meta.url)), '.tmp-cf-static-'));
+  const root = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-cf-static-'));
   roots.push(root);
   writeFileSync(join(root, 'package.json'), '{"name":"static-app","type":"module"}');
   mkdirSync(join(root, 'node_modules'));
@@ -1316,7 +1328,7 @@ it('reads a framework config as JSONC and still rejects one that is not an objec
   }
 });
 
-it.skipIf(process.platform === 'win32')(
+serialIt.skipIf(process.platform === 'win32')(
   'builds a named Sandbox image into cf prebuilt output and cleans up its local tag',
   async () => {
     const output = worker({
@@ -1355,7 +1367,7 @@ it.skipIf(process.platform === 'win32')(
       prepareCfBuildOutput(output, { accountId: 'account-id' }),
       async (prepared) => {
         const built = await readBuildOutput(prepared.directory);
-        const container = built.containers[0]!.config;
+        const container = built.containers[0].config;
         expect(container.schedulingPolicy).toBe('durable-object');
         if (container.schedulingPolicy !== 'durable-object') {
           throw new Error('Expected a managed container');
@@ -1373,7 +1385,7 @@ it.skipIf(process.platform === 'win32')(
     const calls = readFileSync(log, 'utf8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line));
+      .map((line): unknown => JSON.parse(line));
     expect(calls[0]).toEqual([
       'build',
       '--platform',

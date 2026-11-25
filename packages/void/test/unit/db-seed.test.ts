@@ -2,18 +2,20 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as output from '../../src/cli/output.ts';
 import { createProjectTsconfig } from '../../src/codegen/project-tsconfig.ts';
 import { getMiniflareDatabasePath } from '../../src/migrations/runner.ts';
 
-const mockIntro = vi.fn();
-const mockOutro = vi.fn();
-const mockConfirm = vi.fn();
+const mockIntro = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').intro>();
+const mockOutro = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').outro>();
+const mockConfirm = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').confirm>();
 const mockLog = {
-  error: vi.fn(),
-  info: vi.fn(),
-  step: vi.fn(),
-  success: vi.fn(),
+  error: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.error>(),
+  info: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.info>(),
+  step: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.step>(),
+  success: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.success>(),
 };
 const pgQueries = vi.hoisted((): Array<string> => []);
 
@@ -32,15 +34,15 @@ vi.mock('pg', async (importOriginal) => {
 });
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
   isCancel: () => false,
-  intro: (...args: Array<unknown>) => mockIntro(...args),
-  outro: (...args: Array<unknown>) => mockOutro(...args),
+  intro: (...args: Parameters<typeof mockIntro>) => mockIntro(...args),
+  outro: (...args: Parameters<typeof mockOutro>) => mockOutro(...args),
   log: {
-    error: (...args: Array<unknown>) => mockLog.error(...args),
-    info: (...args: Array<unknown>) => mockLog.info(...args),
-    step: (...args: Array<unknown>) => mockLog.step(...args),
-    success: (...args: Array<unknown>) => mockLog.success(...args),
+    error: (...args: Parameters<typeof mockLog.error>) => mockLog.error(...args),
+    info: (...args: Parameters<typeof mockLog.info>) => mockLog.info(...args),
+    step: (...args: Parameters<typeof mockLog.step>) => mockLog.step(...args),
+    success: (...args: Parameters<typeof mockLog.success>) => mockLog.success(...args),
   },
 }));
 
@@ -53,7 +55,7 @@ function createProjectRoot(options: {
   migration?: string;
   config?: Record<string, unknown>;
 }): string {
-  const root = mkdtempSync(join(import.meta.dirname, '.tmp-db-seed-'));
+  const root = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-db-seed-'));
   const migrationsDir = join(root, 'db', 'migrations');
   mkdirSync(join(migrationsDir, 'meta'), { recursive: true });
   writeFileSync(
@@ -76,7 +78,13 @@ function createProjectRoot(options: {
         version: '7',
         dialect: 'sqlite',
         entries: [
-          { idx: 0, version: '7', when: 1730000000000, tag: '0000_messages', breakpoints: true },
+          {
+            idx: 0,
+            version: '7',
+            when: 1_730_000_000_000,
+            tag: '0000_messages',
+            breakpoints: true,
+          },
         ],
       },
       null,

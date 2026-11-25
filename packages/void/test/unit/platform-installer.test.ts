@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,10 +26,11 @@ import {
   platformDatabaseSchemaDigest,
   readPlatformRuntimeManifest,
   resolvePlatformRuntime,
-  type PlatformRuntimeDatabaseManifest,
 } from '@void/platform/installer';
+import type { PlatformRuntimeDatabaseManifest } from '@void/platform/installer';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import type { AiLoggingProjectionKv } from '../../src/cli/platform-ai-logging-projection.ts';
 import { PlatformCloudflareApiError } from '../../src/cli/platform-cloudflare.ts';
 import {
@@ -124,7 +126,8 @@ type DefaultedClientMethods =
   | 'publishWorkerCustomDomainsSafely'
   | 'publishWorkerRoutesSafely'
   | 'putKvBulk'
-  | 'request';
+  | 'request'
+  | 'setHyperdriveOriginConnectionLimit';
 type TestInstallerDependencies = Omit<InstallArguments[3], 'client'> & {
   client: Omit<InstallClient, DefaultedClientMethods> &
     Partial<Pick<InstallClient, DefaultedClientMethods>>;
@@ -162,6 +165,9 @@ function installPlatform(
       publishWorkerRoutesSafely: unexpectedCloudflareCall('publishWorkerRoutesSafely'),
       putKvBulk: unexpectedCloudflareCall('putKvBulk'),
       request: unexpectedCloudflareCall('request'),
+      setHyperdriveOriginConnectionLimit: unexpectedCloudflareCall(
+        'setHyperdriveOriginConnectionLimit',
+      ),
       ...dependencies.client,
       getHyperdriveConfig:
         dependencies.client.getHyperdriveConfig ??
@@ -274,7 +280,7 @@ function examplePlan(
   );
 }
 
-function useRegistryDirectory(): string {
+function setupRegistryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), 'void-platform-installer-test-'));
   directories.push(directory);
   process.env.VOID_PLATFORM_REGISTRY_DIR = directory;
@@ -402,7 +408,7 @@ describe('platform installer', () => {
   ])(
     'installs $kind with Access protection=$protection and initializes auth after deploying the API',
     async ({ kind, protection }) => {
-      useRegistryDirectory();
+      setupRegistryDirectory();
       const plan = await createPlatformInstallPlan(
         planningClient(),
         {
@@ -647,7 +653,7 @@ describe('platform installer', () => {
   ])(
     'installs core Workers without a zone and probes the dispatch hostname (draft: $fromDraft, dashboard: $dashboardUrl)',
     async ({ fromDraft, dashboardUrl }) => {
-      useRegistryDirectory();
+      setupRegistryDirectory();
       const forbidden = async (): Promise<never> => {
         throw new Error('no zone or DNS access allowed');
       };
@@ -784,7 +790,7 @@ describe('platform installer', () => {
   );
 
   it('lifts a left-over uninstall fence before traffic opens', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       planningClient(),
       {
@@ -845,7 +851,7 @@ describe('platform installer', () => {
   });
 
   it('publishes AI logging settings after migrations, before the Workers upload, and again after it', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       planningClient(),
       {
@@ -945,7 +951,7 @@ describe('platform installer', () => {
   });
 
   it('keeps traffic disabled and the verified Worker set when shared email bootstrap blocks', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       planningClient(),
       {
@@ -1014,7 +1020,7 @@ describe('platform installer', () => {
     expect(deletedKeys).not.toContain(PLATFORM_DISABLED_KEY);
     expect(kvWrites).toContainEqual({ key: PLATFORM_DISABLED_KEY, value: PLATFORM_DISABLED_VALUE });
     expect(rollbacks).toEqual([]);
-    const failed = listInstallationManifests(directory)[0]!;
+    const failed = listInstallationManifests(directory)[0];
     expect(failed.status).toBe('failed');
     expect(
       failed.steps.some(
@@ -1029,7 +1035,7 @@ describe('platform installer', () => {
   });
 
   it('refuses minimal runtime logs on a runtime that cannot honour them', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const plan = await examplePlan(null, { runtimeLogs: 'minimal' });
     const current = resolvePlatformRuntime(getPlatformRuntimeDirectory());
     // The built runtime declares support; only the copy below drops it.
@@ -1286,7 +1292,7 @@ describe('platform installer', () => {
   });
 
   it('does not let an email-disable plan bypass an unresolved email secret update', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const currentDeployment = createPlatformDeploymentManifest({
       application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
       capabilities: { email: true },
@@ -1380,6 +1386,49 @@ describe('platform installer', () => {
         }),
       }),
     ).toThrow('canonical base64');
+  });
+
+  it('requires both halves of a replaced R2 key pair', () => {
+    const {
+      jwtSecret: _jwtSecret,
+      projectSecretKey: _projectSecretKey,
+      ...fresh
+    } = FRESH_SECRETS_INPUT;
+    const input = {
+      ...fresh,
+      cloudflareApiToken: '',
+      existingInstallation: true,
+      updateExistingWorkers: true,
+      checkpoint: { r2AccessKeyId: 'saved-id', r2SecretAccessKey: 'saved-secret' },
+    };
+    expect(() =>
+      createPlatformInstallationSecrets({ ...input, r2AccessKeyId: '', r2SecretAccessKey: 'new' }),
+    ).toThrow(
+      'platform: VOID_PLATFORM_R2_SECRET_ACCESS_KEY is set but VOID_PLATFORM_R2_ACCESS_KEY_ID is not. Set VOID_PLATFORM_R2_ACCESS_KEY_ID and VOID_PLATFORM_R2_SECRET_ACCESS_KEY together, even if only the secret changed.',
+    );
+    expect(() =>
+      createPlatformInstallationSecrets({ ...input, r2AccessKeyId: 'new', r2SecretAccessKey: '' }),
+    ).toThrow(
+      'VOID_PLATFORM_R2_ACCESS_KEY_ID is set but VOID_PLATFORM_R2_SECRET_ACCESS_KEY is not',
+    );
+
+    const replaced = createPlatformInstallationSecrets({
+      ...input,
+      r2AccessKeyId: 'new-id',
+      r2SecretAccessKey: 'new-secret',
+    });
+    expect(replaced.workerSecretUpdates).toMatchObject({
+      R2_ACCESS_KEY_ID: 'new-id',
+      R2_SECRET_ACCESS_KEY: 'new-secret',
+    });
+    const kept = createPlatformInstallationSecrets({
+      ...input,
+      r2AccessKeyId: '',
+      r2SecretAccessKey: '',
+    });
+    expect(kept.workerSecretUpdates).not.toHaveProperty('R2_ACCESS_KEY_ID');
+    expect(kept.workerSecretUpdates).not.toHaveProperty('R2_SECRET_ACCESS_KEY');
+    expect(kept).toMatchObject({ r2AccessKeyId: 'saved-id', r2SecretAccessKey: 'saved-secret' });
   });
 
   it('attempts Worker rollback even when closing an unsafe routing gate fails', async () => {
@@ -2220,7 +2269,7 @@ describe('platform installer', () => {
 
   it('preserves unmanaged Worker routes and custom domains across deploy and rollback', async () => {
     const plan = await examplePlan(null, { controlPlaneDomain: 'api.example.com' });
-    const managedDispatchPattern = createApplicationRoutes(plan.deployment.application)[0]!.pattern;
+    const managedDispatchPattern = createApplicationRoutes(plan.deployment.application)[0].pattern;
     const client = {
       listWorkerDomains: async () => [
         {
@@ -2522,7 +2571,7 @@ describe('platform installer', () => {
         fetcher,
       );
 
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2000);
 
       expect(await result).toBe('eop-resume');
       expect(fetcher).toHaveBeenCalledTimes(3);
@@ -2547,7 +2596,7 @@ describe('platform installer', () => {
         fetcher,
       ).catch((error: unknown) => error);
 
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2000);
 
       const error = String(await result);
       expect(error).toContain('Shared email bootstrap did not finish within five minutes');
@@ -2610,7 +2659,7 @@ describe('platform installer', () => {
         fetcher,
       ).catch((error: unknown) => error);
 
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(1000);
 
       expect(String(await result)).toContain('operation identity changed');
       expect(fetcher).toHaveBeenCalledTimes(2);
@@ -2965,7 +3014,7 @@ describe('platform installer', () => {
     );
 
     await expect(
-      verifyPlatformSandboxDrain('https://api.example.com', 'probe-token', (async () =>
+      verifyPlatformSandboxDrain('https://api.example.com', 'probe-token', async () =>
         Response.json({
           complete: true,
           generation: null,
@@ -2973,11 +3022,13 @@ describe('platform installer', () => {
           state: 'complete',
           updatedAt: null,
           version: 1,
-        })) as typeof fetch),
+        }),
+      ),
     ).rejects.toThrow('invalid DB-backed protocol v1');
     await expect(
-      verifyPlatformSandboxDrain('https://api.example.com', 'probe-token', (async () =>
-        Response.json({ error: 'invalid' }, { status: 503 })) as typeof fetch),
+      verifyPlatformSandboxDrain('https://api.example.com', 'probe-token', async () =>
+        Response.json({ error: 'invalid' }, { status: 503 }),
+      ),
     ).rejects.toThrow('Traffic remains disabled');
   });
 
@@ -3054,8 +3105,8 @@ describe('platform installer', () => {
 
   it('requires live PostgreSQL migration history to be an exact package prefix', async () => {
     const database = readPlatformRuntimeManifest().database;
-    const first = database.migrations[0]!;
-    const second = database.migrations[1]!;
+    const first = database.migrations[0];
+    const second = database.migrations[1];
     const connection = migrationConnection([
       { created_at: first.timestampMillis, hash: first.sha256, id: 1 },
       { created_at: second.timestampMillis, hash: second.sha256, id: 2 },
@@ -3067,13 +3118,13 @@ describe('platform installer', () => {
     );
     expect(state.pendingMigrations).toEqual(database.migrations.slice(2));
 
-    connection.rows[1] = { ...connection.rows[1]!, hash: '0'.repeat(64) };
+    connection.rows[1] = { ...connection.rows[1], hash: '0'.repeat(64) };
     await expect(inspectPlatformDatabaseStateConnection(connection, database)).rejects.toThrow(
       'not an exact prefix',
     );
 
     connection.rows[1] = {
-      ...connection.rows[1]!,
+      ...connection.rows[1],
       created_at: first.timestampMillis,
       hash: second.sha256,
     };
@@ -3683,7 +3734,7 @@ describe('platform installer', () => {
     await expect(
       resolveBootstrapGitHubId('Octocat', async (input) => {
         requests.push(String(input));
-        return Response.json({ id: 583231 });
+        return Response.json({ id: 583_231 });
       }),
     ).resolves.toBe('583231');
     expect(requests).toEqual(['https://api.github.com/users/Octocat']);
@@ -3755,7 +3806,7 @@ describe('platform installer', () => {
   });
 
   it('stores a restored complete project-secret keyring in encrypted recovery state', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan(null, {
       emailSenderDomain: 'mail.example.com',
       emailSharedZoneId: 'mail-zone',
@@ -3877,7 +3928,7 @@ describe('platform installer', () => {
   });
 
   it('resumes encrypted per-Worker credential updates without replaying the baseline', () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const deployment = createPlatformDeploymentManifest({
       application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
       displayName: 'Example',
@@ -4209,7 +4260,7 @@ describe('platform installer', () => {
   });
 
   it('does not checkpoint failure when another host owns the lifecycle lock', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan();
     await expect(
       installPlatform(plan, freshSecrets(), null, {
@@ -4228,7 +4279,7 @@ describe('platform installer', () => {
   });
 
   it('validates a resume only after reading the authoritative database checkpoint', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const deployment = createPlatformDeploymentManifest({
       application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
       displayName: 'Example',
@@ -4315,7 +4366,7 @@ describe('platform installer', () => {
     failAppAccess?: boolean;
     failHealthToken?: boolean;
   }) {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       planningClient(),
       { ...EXAMPLE_PLAN_INPUT, appAccess },
@@ -4565,12 +4616,12 @@ describe('platform installer', () => {
     });
     await expect(install()).rejects.toThrow('App access token rejected');
     expect(deployed).toEqual([]);
-    const failed = listInstallationManifests(directory)[0]!;
+    const failed = listInstallationManifests(directory)[0];
     expect(readPendingInstallationSecrets(failed)?.appAccessTokenRejected).toBe('true');
   });
 
   it('closes the routing gate before an ambiguous fresh Worker upload', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan();
     let disabled = false;
 
@@ -4601,7 +4652,7 @@ describe('platform installer', () => {
   });
 
   it('rejects a database URL Hyperdrive cannot use before claiming the database', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan();
     expect(plan.actions.find((action) => action.key === 'hyperdrive')?.action).toBe('create');
     let claims = 0;
@@ -4630,7 +4681,7 @@ describe('platform installer', () => {
 
     expect(claims).toBe(0);
     expect(locks).toBe(0);
-    const manifest = listInstallationManifests(directory)[0]!;
+    const manifest = listInstallationManifests(directory)[0];
     expect(manifest).toMatchObject({ resources: [], status: 'planned' });
     const checkpoint = readPendingInstallationSecrets(manifest);
     expect(checkpoint?.databaseClaimState).toBeUndefined();
@@ -4650,7 +4701,7 @@ describe('platform installer', () => {
   ])(
     'rejects a private certificate authority for a Void-created Hyperdrive before claiming the database: %s',
     async (databaseUrl) => {
-      const directory = useRegistryDirectory();
+      const directory = setupRegistryDirectory();
       const plan = await examplePlan();
       expect(plan.actions.find((action) => action.key === 'hyperdrive')?.action).toBe('create');
       const secrets = (url: string) => freshSecrets({ databaseUrl: url });
@@ -4696,7 +4747,7 @@ describe('platform installer', () => {
       expect(claimedUrls).toEqual([]);
       expect(lockedUrls).toEqual([]);
       expect(hyperdriveRequests).toEqual([]);
-      const manifest = listInstallationManifests(directory)[0]!;
+      const manifest = listInstallationManifests(directory)[0];
       expect(manifest).toMatchObject({ resources: [], status: 'planned' });
       const checkpoint = readPendingInstallationSecrets(manifest);
       expect(checkpoint?.databaseClaimState).toBeUndefined();
@@ -4728,7 +4779,7 @@ describe('platform installer', () => {
   );
 
   it('accepts a private certificate authority for an externally managed Hyperdrive', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const databaseUrl =
       'postgres://user:password@db.example.com/void?sslmode=verify-full&sslrootcert=/etc/ssl/private-ca.pem';
     const plan = await createPlatformInstallPlan(
@@ -4768,14 +4819,14 @@ describe('platform installer', () => {
     ).rejects.toThrow('stop after claim');
 
     expect(claimedUrls).toEqual([databaseUrl]);
-    const manifest = listInstallationManifests()[0]!;
+    const manifest = listInstallationManifests()[0];
     const checkpoint = readPendingInstallationSecrets(manifest)!;
     expect(checkpoint.databaseClaimState).toBe('failed');
-    expect(JSON.parse(checkpoint.externalHyperdriveJson!)).toEqual(plan.externalHyperdrive);
+    expect(JSON.parse(checkpoint.externalHyperdriveJson)).toEqual(plan.externalHyperdrive);
   });
 
   it('rechecks the Workers VPC service before claiming the database on apply', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const databaseUrl = 'postgresql://iam_owner@127.0.0.1/void?sslmode=disable';
     const plan = await createPlatformInstallPlan(
       {
@@ -4833,7 +4884,7 @@ describe('platform installer', () => {
   });
 
   it('resumes a claimed verify-full database URL by creating Hyperdrive with its TLS mode', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const databaseUrl = 'postgresql://user:password@db.example.com:5432/void?sslmode=verify-full';
     const deployment = createPlatformDeploymentManifest({
       application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
@@ -4915,8 +4966,8 @@ describe('platform installer', () => {
     expect(lockedUrls).toEqual([databaseUrl]);
     expect(hyperdriveRequests).toHaveLength(1);
     expect(hyperdriveRequests[0]).toMatchObject({ mtls: { sslmode: 'require' } });
-    expect(hyperdriveRequests[0]!.mtls).not.toHaveProperty('ca_certificate_id');
-    expect(listInstallationManifests(directory)[0]!.resources).toContainEqual(
+    expect(hyperdriveRequests[0].mtls).not.toHaveProperty('ca_certificate_id');
+    expect(listInstallationManifests(directory)[0].resources).toContainEqual(
       expect.objectContaining({
         configHash: hyperdriveOriginConfigHash(hyperdriveOriginFromConnectionString(databaseUrl)),
         id: 'hyperdrive-id',
@@ -4927,7 +4978,7 @@ describe('platform installer', () => {
   });
 
   it('keeps a cutover unresolved when the current Worker rollback is incomplete', async () => {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const plan = await examplePlan();
     let deployments = 0;
     let previousRollbackRan = false;
@@ -4953,7 +5004,7 @@ describe('platform installer', () => {
       }),
     ).rejects.toThrow('cutover remains unresolved');
 
-    const failed = listInstallationManifests(directory)[0]!;
+    const failed = listInstallationManifests(directory)[0];
     expect(previousRollbackRan).toBe(true);
     expect(
       failed.steps.some(
@@ -5013,7 +5064,7 @@ describe('platform installer', () => {
   });
 
   it('stops after a newly-created zone until nameservers become active', async () => {
-    useRegistryDirectory();
+    setupRegistryDirectory();
     const plan = await createPlatformInstallPlan(
       { ...planningClient(), findZone: async () => null },
       {
@@ -5076,7 +5127,7 @@ describe('platform installer', () => {
   });
 
   async function installedPlatform() {
-    const directory = useRegistryDirectory();
+    const directory = setupRegistryDirectory();
     const secrets = freshSecrets();
     const client = creatingClient();
     const installed = await installPlatform(await examplePlan(), secrets, null, {
@@ -5247,7 +5298,7 @@ describe('platform installer', () => {
         revalidateBeforeWorkerDeploy: async () => {},
       }),
     ).rejects.toThrow('interrupted deployment');
-    const failedDisabledUpgrade = listInstallationManifests(directory)[0]!;
+    const failedDisabledUpgrade = listInstallationManifests(directory)[0];
     const resumedConfigs: Array<Record<string, unknown>> = [];
     const resumedDisabledUpgrade = await installPlatform(
       upgradedPlan,
@@ -5452,7 +5503,7 @@ describe('platform installer', () => {
       expect(uploaded.map((config) => config.name)).toEqual([deployment.resources.apiWorker]);
       expect(created).toHaveLength(1);
       expect(source.resources.map((resource) => resource.id)).not.toContain(created[0]);
-      expect(uploaded[0]!.kv_namespaces).toContainEqual({ binding: 'ISR_CACHE', id: created[0] });
+      expect(uploaded[0].kv_namespaces).toContainEqual({ binding: 'ISR_CACHE', id: created[0] });
     });
 
     it('uploads them also when the run does not pause traffic', async () => {
@@ -5593,7 +5644,7 @@ describe('platform installer', () => {
       `deploy:${deployment.resources.proxyWorker}`,
       'gate:closed',
     ]);
-    const interruptedManifest = listInstallationManifests(directory)[0]!;
+    const interruptedManifest = listInstallationManifests(directory)[0];
     expect(interruptedManifest).toMatchObject({
       status: 'failed',
       usageProtocolVersion: 1,
@@ -5676,12 +5727,12 @@ describe('platform installer', () => {
     ).toBe(undefined);
     for (const index of [0, 1, 2, 4]) {
       expect(
-        (emptyCoreUpgradeConfigs[index]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (emptyCoreUpgradeConfigs[index].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('staging');
     }
     for (const index of [5, 6, 7, 9]) {
       expect(
-        (emptyCoreUpgradeConfigs[index]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (emptyCoreUpgradeConfigs[index].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('enabled');
     }
     const nextRotationSecrets = createPlatformInstallationSecrets({
@@ -5964,6 +6015,7 @@ describe('platform installer', () => {
     });
 
     const cleanMachineDiscovery = parsePlatformInstallationManifest(
+      // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
       JSON.parse(JSON.stringify(rollbackResult.manifest)),
     );
     expect(cleanMachineDiscovery.databaseSchemaDigest).toBe(
@@ -6105,10 +6157,10 @@ describe('platform installer', () => {
     expect(repairedWorkerConfigs).toHaveLength(10);
     for (const index of [0, 1, 2, 4]) {
       expect(
-        (repairedWorkerConfigs[index]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (repairedWorkerConfigs[index].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('staging');
       expect(
-        (repairedWorkerConfigs[index + 5]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (repairedWorkerConfigs[index + 5].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('enabled');
     }
   });
@@ -6172,7 +6224,7 @@ describe('platform installer', () => {
     expect(legacyEnableConfigs).toHaveLength(5);
     for (const index of [0, 1, 2, 4]) {
       expect(
-        (legacyEnableConfigs[index]!.vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
+        (legacyEnableConfigs[index].vars as Record<string, unknown>).PLATFORM_TRAFFIC_STATE,
       ).toBe('sandbox-drain');
     }
   });
@@ -6298,7 +6350,7 @@ describe('platform installer', () => {
       `rollback:6:${deployment.resources.apiWorker}`,
     ]);
 
-    const failedEnableManifest = listInstallationManifests(directory)[0]!;
+    const failedEnableManifest = listInstallationManifests(directory)[0];
     const retryPreviousConfigs: Array<Record<string, unknown>> = [];
     const retriedEnable = await installPlatform(upgradedPlan, secrets, failedEnableManifest, {
       acquireDatabaseLifecycleLock,

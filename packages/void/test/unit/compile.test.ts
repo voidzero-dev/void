@@ -1,6 +1,6 @@
 import { win32 } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { compilePattern as sharedCompilePattern, matchPatternCaptures } from '@void/edge';
-/* oxlint-disable typescript-eslint/no-explicit-any -- these tests wire the void context augmentations by hand (`c.rewrite`, `c.originalUrl`, `c.isRewritten`) to exercise generated code paths directly; `as any` is the least noisy way to assign/read those members without re-declaring the full Hono context shape per test. */
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/serve-static';
 import { parseSync } from 'vite';
@@ -10,8 +10,8 @@ import {
   compileWorkerEntry,
   compileNodeApp,
   compileNodeServer,
-  type CompileOptions,
 } from '../../src/router/compile.ts';
+import type { CompileOptions } from '../../src/router/compile.ts';
 import type { ScanResult } from '../../src/router/scan.ts';
 import { VoidAssetRewriteError } from '../../src/runtime/handler/index.ts';
 import {
@@ -27,13 +27,10 @@ import {
   createManifestLoader,
   createSsrFallback,
   createAssetNotFound,
-  type RoutingRuntime,
 } from '../../src/runtime/routing/index.ts';
+import type { RoutingContext, RoutingRuntime } from '../../src/runtime/routing/index.ts';
 
 const testOptions = {
-  honoPath: '/resolved/hono/index.mjs',
-  honoRoutePath: '/resolved/hono/route.mjs',
-
   runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
   projectRoot: '/project',
   homeDir: '/Users/test',
@@ -249,11 +246,11 @@ function evalCompiledApp(code: string): Hono {
   // Drop imports, the node-target `withRuntimeEnv` const and `export` keywords so
   // the module body runs inside `new Function`; a noop `withRuntimeEnv` replaces both forms.
   const stripped = code
-    .replace(/^import\s+\{[^}]*\}\s+from\s+["'][^"']+["'];?\s*$/gm, '')
-    .replace(/^const\s+withRuntimeEnv\s+=.*$/gm, '')
-    .replace(/^export\s+default\s+app;?\s*$/gm, '')
-    .replace(/^export\s+(const|async\s+function|function)\s+/gm, '$1 ')
-    .replace(/^export\s+\{[^}]*\};?\s*$/gm, '');
+    .replaceAll(/^import\s+\{[^}]*\}\s+from\s+["'][^"']+["'];?\s*$/gm, '')
+    .replaceAll(/^const\s+withRuntimeEnv\s+=.*$/gm, '')
+    .replaceAll(/^export\s+default\s+app;?\s*$/gm, '')
+    .replaceAll(/^export\s+(const|async\s+function|function)\s+/gm, '$1 ')
+    .replaceAll(/^export\s+\{[^}]*\};?\s*$/gm, '');
 
   const factory = new Function(
     'Hono',
@@ -270,7 +267,7 @@ function evalCompiledApp(code: string): Hono {
     '__createSsrFallback',
     '__createAssetNotFound',
     ['const withRuntimeEnv = (_e, fn) => fn();', stripped, 'return app;'].join('\n'),
-  );
+  ) as (...imports: Array<unknown>) => Hono;
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- vitest runs in node; node:async_hooks is built-in.
   const { AsyncLocalStorage } = require('node:async_hooks');
   return factory(
@@ -287,7 +284,7 @@ function evalCompiledApp(code: string): Hono {
     createManifestLoader,
     createSsrFallback,
     createAssetNotFound,
-  ) as Hono;
+  );
 }
 
 const runtimeByApp = new WeakMap<Hono, RoutingRuntime>();
@@ -332,7 +329,7 @@ async function rewriteError(destination: string): Promise<unknown> {
   let caught: unknown;
   app.get('/from', (c) => {
     try {
-      (c as any).rewrite(destination);
+      void (c as RoutingContext).rewrite(destination);
     } catch (err) {
       caught = err;
     }
@@ -349,13 +346,13 @@ describe('c.rewrite runtime wrapper', () => {
     const app = new Hono();
     installVoidWrappers(app);
 
-    app.get('/external', (c) => (c as any).rewrite('/internal'));
+    app.get('/external', (c) => (c as RoutingContext).rewrite('/internal'));
     app.get('/internal', (c) => {
       return new Response('internal-body', {
         headers: {
           'X-Handler': 'internal',
-          'X-Original-Url': (c as any).originalUrl()?.href ?? '',
-          'X-Is-Rewritten': (c as any).isRewritten() ? '1' : '0',
+          'X-Original-Url': (c as RoutingContext).originalUrl()?.href ?? '',
+          'X-Is-Rewritten': (c as RoutingContext).isRewritten() ? '1' : '0',
         },
       });
     });
@@ -376,8 +373,8 @@ describe('c.rewrite runtime wrapper', () => {
     app.get('/en/docs', (c) => {
       return new Response('docs-body', {
         headers: {
-          'X-Original-Url': (c as any).originalUrl()?.href ?? '',
-          'X-Is-Rewritten': (c as any).isRewritten() ? '1' : '0',
+          'X-Original-Url': (c as RoutingContext).originalUrl()?.href ?? '',
+          'X-Is-Rewritten': (c as RoutingContext).isRewritten() ? '1' : '0',
         },
       });
     });
@@ -399,7 +396,7 @@ describe('c.rewrite runtime wrapper', () => {
 
     installVoidWrappers(app);
     app.use('*', async (c, next) => {
-      if (!(c as any).isRewritten()) {
+      if (!(c as RoutingContext).isRewritten()) {
         ruleMatches++;
       }
       await next();
@@ -410,7 +407,7 @@ describe('c.rewrite runtime wrapper', () => {
 
     app.get('/a', (c) => {
       return new Response('handler-a', {
-        headers: { 'X-Is-Rewritten': (c as any).isRewritten() ? '1' : '0' },
+        headers: { 'X-Is-Rewritten': (c as RoutingContext).isRewritten() ? '1' : '0' },
       });
     });
 
@@ -469,11 +466,11 @@ describe('c.rewrite runtime wrapper', () => {
     const observed: Array<boolean> = [];
     app.use('*', async (c, next) => {
       invocations++;
-      observed.push((c as any).isRewritten());
+      observed.push((c as RoutingContext).isRewritten());
       await next();
     });
 
-    app.get('/from', (c) => (c as any).rewrite('/to'));
+    app.get('/from', (c) => (c as RoutingContext).rewrite('/to'));
     app.get('/to', (c) => c.text('to-handler', 200));
 
     const res = await app.fetch(new Request('http://localhost/from'));
@@ -493,7 +490,7 @@ describe('c.rewrite runtime wrapper', () => {
     app.use('*', async (c, next) => {
       invocations++;
       observedReqUrls.push(c.req.url);
-      observedOriginalUrls.push((c as any).originalUrl());
+      observedOriginalUrls.push((c as RoutingContext).originalUrl());
       await next();
     });
 
@@ -522,7 +519,7 @@ describe('c.rewrite runtime wrapper', () => {
 
     app.use('*', async (c, next) => {
       if (new URL(c.req.url).pathname === '/trigger') {
-        return (c as any).rewrite('/missing');
+        return (c as RoutingContext).rewrite('/missing');
       }
       await next();
     });
@@ -555,7 +552,7 @@ describe('c.rewrite runtime wrapper', () => {
       const app = new Hono();
       installVoidWrappers(app);
 
-      app.get('/from', (c) => (c as any).rewrite(destination));
+      app.get('/from', (c) => (c as RoutingContext).rewrite(destination));
       app.get(pathname, (c) => {
         const u = new URL(c.req.url);
         return new Response('ok', {
@@ -608,7 +605,7 @@ describe('c.rewrite runtime wrapper', () => {
     async (destination) => {
       const app = new Hono();
       installVoidWrappers(app);
-      app.get('/from', (c) => (c as any).rewrite(destination));
+      app.get('/from', (c) => (c as RoutingContext).rewrite(destination));
       app.get(destination, (c) => c.text('target', 200));
 
       const res = await app.fetch(new Request('http://localhost/from'));
@@ -659,11 +656,7 @@ describe('default-target dev parity', () => {
       passThroughOnException: () => undefined,
       props: {},
     };
-    const res = await app.fetch(
-      new Request('http://localhost/redirect'),
-      {},
-      stubCtx as unknown as ExecutionContext,
-    );
+    const res = await app.fetch(new Request('http://localhost/redirect'), {}, stubCtx);
 
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('https://example.com/next');
@@ -673,8 +666,8 @@ describe('default-target dev parity', () => {
   it('runs native Cloudflare prod rewrites, headers, and post-asset fallbacks', async () => {
     const code = compileWithRules({ nodeTarget: false, dev: false, managedDispatch: false });
     const app = evalCompiledApp(code);
-    app.get('/new', (c: any) =>
-      c.text(c.originalUrl()?.pathname === '/rewrite' ? 'rewritten' : 'new'),
+    app.get('/new', (c) =>
+      c.text((c as RoutingContext).originalUrl()?.pathname === '/rewrite' ? 'rewritten' : 'new'),
     );
     app.get('/docs.html', (c) => c.text('fallback'));
 
@@ -755,12 +748,12 @@ describe('default-target dev parity', () => {
       const app = evalCompiledApp(code);
 
       // Registered after eval so the compiled context middleware runs first.
-      app.get('/probe', (c: any) => {
-        const orig = c.originalUrl();
+      app.get('/probe', (c) => {
+        const orig = (c as RoutingContext).originalUrl();
         return new Response('probe', {
           headers: {
             'X-Original-Url': orig?.href ?? '',
-            'X-Is-Rewritten': c.isRewritten() ? '1' : '0',
+            'X-Is-Rewritten': (c as RoutingContext).isRewritten() ? '1' : '0',
           },
         });
       });
@@ -776,7 +769,7 @@ describe('default-target dev parity', () => {
           headers: { 'X-Void-Original-URL': 'http://localhost/spoof' },
         }),
         {},
-        stubCtx as unknown as ExecutionContext,
+        stubCtx,
       );
 
       expect(res.status, `${label}: probe should return 200`).toBe(200);
@@ -1104,10 +1097,10 @@ describe('compileNodeApp', () => {
     'distinguishes files from directory indexes on Windows for %s',
     async (target) => {
       const files = new Map([
-        ['C:\\client\\index.html', 'home'],
-        ['C:\\client\\about\\index.html', 'about'],
-        ['C:\\client\\terms.html', 'terms'],
-        ['C:\\client\\LICENSE', 'license'],
+        [String.raw`C:\client\index.html`, 'home'],
+        [String.raw`C:\client\about\index.html`, 'about'],
+        [String.raw`C:\client\terms.html`, 'terms'],
+        [String.raw`C:\client\LICENSE`, 'license'],
       ]);
       // Windows accepts a trailing separator in a file lookup. Exercise the
       // generated asset handler with those semantics on every test host.
@@ -1116,14 +1109,15 @@ describe('compileNodeApp', () => {
         Bindings: { ASSETS: { fetch(request: Request): Promise<Response> } };
       }>();
       innerApp.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
-      const code = compileNodeApp(target, 'hono')
-        .replace(/^import .*;$/gm, '')
+      const code = compileNodeApp(target)
+        .replaceAll(/^import .*;$/gm, '')
         .replace('import.meta.voidClientDirectory', '"client"')
         .replace('export default app;', 'return app;');
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
       const app: Hono = new Function('Hono', 'innerApp', 'fileURLToPath', 'serveStatic', code)(
         Hono,
         innerApp,
-        () => 'C:\\client',
+        () => String.raw`C:\client`,
         (options: Parameters<typeof serveStatic>[0]) =>
           serveStatic({
             ...options,
@@ -1148,9 +1142,13 @@ describe('compileNodeApp', () => {
   );
 
   it('generates node app with serveStatic and default export', () => {
-    const code = compileNodeApp('node', '/resolved/hono/index.mjs');
+    const code = compileNodeApp('node');
+    const routingRuntimePath = fileURLToPath(import.meta.resolve('#self/runtime/routing'));
     expect(code).toContain('import { serveStatic } from "@hono/node-server/serve-static"');
-    expect(code).toContain('import { Hono } from "/resolved/hono/index.mjs"');
+    // From Void's routing runtime, so the app and the runtime share one Hono.
+    expect(code).toContain(
+      `import { Hono, prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(routingRuntimePath)};`,
+    );
     expect(code).toContain('export default app');
     expect(code).toContain(
       'import innerApp, { __voidCollectPrerenderPaths, __voidRenderStaticNotFound } from "virtual:void-routes"',
@@ -1167,26 +1165,26 @@ describe('compileNodeApp', () => {
   });
 
   it('generates bun app with hono/bun serveStatic', () => {
-    const code = compileNodeApp('bun', '/resolved/hono/index.mjs');
+    const code = compileNodeApp('bun');
     expect(code).toContain('import { serveStatic } from "hono/bun"');
     expect(code).toContain('export default app');
     expect(code).not.toContain('@hono/node-server');
   });
 
   it('generates deno app with hono/deno serveStatic', () => {
-    const code = compileNodeApp('deno', '/resolved/hono/index.mjs');
+    const code = compileNodeApp('deno');
     expect(code).toContain('import { serveStatic } from "hono/deno"');
     expect(code).toContain('export default app');
     expect(code).not.toContain('@hono/node-server');
   });
 
   it('omits boot-time env validation when no envSchemaModule is provided', () => {
-    const code = compileNodeApp('node', '/resolved/hono/index.mjs');
+    const code = compileNodeApp('node');
     expect(code).not.toContain('_validateEnvOnce');
   });
 
   it('splices boot-time env validation when envSchemaModule is provided (node)', () => {
-    const code = compileNodeApp('node', '/resolved/hono/index.mjs', {
+    const code = compileNodeApp('node', {
       importPath: '/abs/path/to/env.ts',
       helperPath: '/resolved/env-public.mjs',
     });
@@ -1202,7 +1200,7 @@ describe('compileNodeApp', () => {
   });
 
   it('uses Deno.env.toObject() as the env source on the deno target', () => {
-    const code = compileNodeApp('deno', '/resolved/hono/index.mjs', {
+    const code = compileNodeApp('deno', {
       importPath: '/abs/path/to/env.ts',
       helperPath: '/resolved/env-public.mjs',
     });
@@ -1211,7 +1209,7 @@ describe('compileNodeApp', () => {
   });
 
   it('splices boot-time env validation on the bun target', () => {
-    const code = compileNodeApp('bun', '/resolved/hono/index.mjs', {
+    const code = compileNodeApp('bun', {
       importPath: '/abs/path/to/env.ts',
       helperPath: '/resolved/env-public.mjs',
     });

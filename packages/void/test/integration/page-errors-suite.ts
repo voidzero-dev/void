@@ -16,16 +16,24 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
 
 const repository = join(import.meta.dirname, '../../../..');
-const frameworks = ['react', 'vue', 'svelte', 'solid'] as const;
+export type PageErrorsFramework = 'react' | 'vue' | 'svelte' | 'solid';
 
-describe.each(frameworks)('Pages errors with %s', (framework) => {
+/**
+ * Each framework runs from its own test file, so the four fixtures build and serve in parallel
+ * workers instead of one after another.
+ */
+export function describePageErrors(framework: PageErrorsFramework): void {
+  describe(`Pages errors with ${framework}`, () => pageErrorsSuite(framework));
+}
+
+function pageErrorsSuite(framework: PageErrorsFramework): void {
   let fixture: IsolatedPlayground;
   let child: ReturnType<typeof spawn>;
   let browser: Browser;
@@ -414,7 +422,7 @@ export const loader = defineHandler(c => {
   });
   it('renders application-defined error statuses on document loads and client visits', async () => {
     const page = await browser.newPage();
-    page.setDefaultTimeout(8_000);
+    page.setDefaultTimeout(8000);
     try {
       for (const status of [403, 503]) {
         const path = `/status/${status}`;
@@ -425,9 +433,7 @@ export const loader = defineHandler(c => {
 
         await page.goto(base);
         await page.waitForSelector('#app[data-hydrated="true"]');
-        await page.evaluate(() =>
-          document.querySelector('nav')!.setAttribute('data-retained', 'yes'),
-        );
+        await page.locator('nav').evaluate((nav) => nav.setAttribute('data-retained', 'yes'));
         const navigation = page.waitForResponse(
           (response) =>
             response.url() === base + path &&
@@ -454,14 +460,14 @@ export const loader = defineHandler(c => {
         errors.push(m.text());
       }
     });
-    page.setDefaultTimeout(8_000);
+    page.setDefaultTimeout(8000);
     try {
       await page.goto(base);
       await page.waitForSelector('#app[data-hydrated="true"]');
       await page.evaluate(() => {
         (window as unknown as { marker: boolean }).marker = true;
-        document.querySelector('nav')!.setAttribute('data-retained', 'yes');
       });
+      await page.locator('nav').evaluate((nav) => nav.setAttribute('data-retained', 'yes'));
       for (const name of ['Returned', 'Thrown', 'Unexpected', 'Crash']) {
         await page.getByRole('link', { name, exact: true }).click();
         await expect
@@ -494,13 +500,11 @@ export const loader = defineHandler(c => {
         errors.push(m.text());
       }
     });
-    page.setDefaultTimeout(8_000);
+    page.setDefaultTimeout(8000);
     try {
       await page.goto(base);
       await page.waitForSelector('#app[data-hydrated="true"]');
-      await page.evaluate(() =>
-        document.querySelector('nav')!.setAttribute('data-retained', 'yes'),
-      );
+      await page.locator('nav').evaluate((nav) => nav.setAttribute('data-retained', 'yes'));
       for (const [link, expected] of [
         ['Nested', 'Nested error'],
         ['Deep', 'Nested error'],
@@ -528,7 +532,7 @@ export const loader = defineHandler(c => {
 
   it('refreshes a failed client page, preserves a common nested layout, and settles terminal navigation', async () => {
     const page = await browser.newPage();
-    page.setDefaultTimeout(8_000);
+    page.setDefaultTimeout(8000);
     try {
       await page.goto(base);
       await page.waitForSelector('#app[data-hydrated="true"]');
@@ -708,4 +712,4 @@ export const loader = defineHandler(c => {
       expect(native404).not.toContain('type="module"');
     }
   });
-});
+}

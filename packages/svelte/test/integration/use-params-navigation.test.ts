@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 import { expect, it } from 'vite-plus/test';
+import { createPackageFixtureDir } from '../../../../test/integration-helpers.ts';
 
 // The client entry drives App.svelte through the same stores, in the same order,
 // as the generated Svelte pages client does on a Link navigation.
@@ -54,7 +55,7 @@ const PAGE = `<script>
 `;
 
 it('useParams() follows navigation between two params of the same page', async () => {
-  const root = mkdtempSync(join(import.meta.dirname, '.tmp-use-params-'));
+  const root = createPackageFixtureDir(join(import.meta.dirname, '../..'), '.tmp-use-params-');
   writeFileSync(join(root, 'Page.svelte'), PAGE);
   writeFileSync(join(root, 'entry.js'), ENTRY);
   writeFileSync(

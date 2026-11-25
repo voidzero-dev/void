@@ -1,10 +1,11 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { parseHeadersFile, readGeneratedAssetHeadersFile } from '../../src/cli/headers.ts';
 
-const tmpDir = join(import.meta.dirname, '.tmp-headers-file-test');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-headers-file-test');
 
 function setup(content?: string) {
   rmSync(tmpDir, { recursive: true, force: true });

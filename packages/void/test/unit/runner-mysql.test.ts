@@ -8,8 +8,8 @@ import {
   applyMySqlMigrations,
   readMySqlAppliedMigrations,
   runMySqlMigrations,
-  type MySqlClient,
 } from '../../src/migrations/runner-mysql.ts';
+import type { MySqlClient } from '../../src/migrations/runner-mysql.ts';
 import { runVoidAuthMigrations } from '../../src/runtime/auth/better-auth-mysql.ts';
 import { createMigrationHandler } from '../../src/runtime/db/migrations/mysql-handler.ts';
 import { holdMySqlMigrationLease } from '../../src/runtime/db/migrations/mysql-lock.ts';
@@ -114,12 +114,14 @@ class FakeMySqlDatabase {
     }
     const sleep = /^SELECT SLEEP\((\d+(?:\.\d+)?)\)/.exec(sql);
     if (sleep) {
-      await new Promise((resolve) => setTimeout(resolve, Number(sleep[1]) * 1000));
+      await new Promise((resolve) => {
+        setTimeout(resolve, Number(sleep[1]) * 1000);
+      });
       return [{ slept: 0 }];
     }
     const name = String(params[0]);
     if (sql === 'SELECT DATABASE() AS db') {
-      return [{ db: this.sessions[session - 1]!.database ?? 'app' }];
+      return [{ db: this.sessions[session - 1].database ?? 'app' }];
     }
     if (sql.startsWith('SELECT GET_LOCK')) {
       const holder = this.locks.get(name);
@@ -157,7 +159,7 @@ class FakeMySqlDatabase {
     const now = Date.now();
     const clock = /UTC_TIMESTAMP\(6\)/.test(sql)
       ? now
-      : now + (this.sessions[session - 1]!.utcOffsetMs ?? 0);
+      : now + (this.sessions[session - 1].utcOffsetMs ?? 0);
     // The statement's own expiry filter, if it has one.
     const filter = /`expires_at` ([<>]) (?:NOW|UTC_TIMESTAMP)\(6\)/.exec(sql)?.[1];
     const matches = (lease: Lease) =>
@@ -232,7 +234,7 @@ async function migrate(
       headers: { 'x-void-internal': 'token' },
     }),
   );
-  return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  return { status: response.status, body: await response.json<Record<string, unknown>>() };
 }
 
 /** Runs `start` to its end while fake time moves on one second at a time. */
@@ -246,7 +248,9 @@ async function withFakeTime<T>(start: () => Promise<T>): Promise<T> {
       settled = true;
     });
     while (!settled) {
-      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => {
+        setImmediate(resolve);
+      });
       await vi.advanceTimersByTimeAsync(1000);
     }
     return await promise;
@@ -698,7 +702,9 @@ describe('MySQL migration lock across runners', () => {
       const database = useDatabase(new FakeMySqlDatabase());
       // The second starts while the first sleeps, before either has recorded the file.
       const first = migrate(RACE);
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
       const results = await Promise.all([first, migrate(RACE)]);
       return { database, bodies: results.map((result) => result.body), finishedAt: Date.now() };
     });
@@ -731,7 +737,9 @@ describe('MySQL migration lock across runners', () => {
       const database = useDatabase(new FakeMySqlDatabase({ handlerDatabase: 'app@primary' }));
       const [, deploy] = await Promise.all([
         applyMySqlMigrations(database.client(), RACE),
-        new Promise((resolve) => setTimeout(resolve, 100)).then(() => migrate(RACE)),
+        new Promise((resolve) => {
+          setTimeout(resolve, 100);
+        }).then(() => migrate(RACE)),
       ]);
       return { database, deploy };
     });
@@ -886,14 +894,16 @@ describe('MySQL Better Auth migrations under the lock', () => {
       };
       // An app without migration files: the lease covers only the auth migrations.
       const first = migrate([], auth);
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
       const results = await Promise.all([first, migrate([], auth)]);
       return { bodies: results.map((result) => result.body), runs };
     });
 
     expect(bodies.map((body) => body.ok)).toEqual([true, true]);
     expect(runs).toHaveLength(2);
-    expect(runs[1]!.start).toBeGreaterThanOrEqual(runs[0]!.end);
+    expect(runs[1].start).toBeGreaterThanOrEqual(runs[0].end);
   });
 
   it('keeps the lease while Better Auth migrations outlast it', async () => {
@@ -905,7 +915,9 @@ describe('MySQL Better Auth migrations under the lock', () => {
         await database.query(database.connect(), 'SELECT SLEEP(300)');
       };
       const pending = migrate([], auth);
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
       const [first, second] = await Promise.all([pending, migrate([], auth)]);
       return { first, second, runs };
     });
@@ -1044,12 +1056,14 @@ describe('MySQL Better Auth migrations under the lock', () => {
           }),
       ).then(
         () => 'done',
-        (error: Error) => error.message,
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
       );
 
       await vi.advanceTimersByTimeAsync(30_000);
       finish!();
-      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => {
+        setImmediate(resolve);
+      });
       failRenewal!(new Error('lease taken'));
 
       expect(await outcome).toBe('lease taken');

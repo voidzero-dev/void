@@ -1,45 +1,53 @@
-import React, { Component, Suspense, lazy, type ReactNode } from 'react';
-import { clientPageError, type ClientPageBoundary, type ErrorPageProps } from 'void/pages-client';
+import React, { Component, Suspense, lazy } from 'react';
+import type { ReactNode } from 'react';
+import { clientPageError } from 'void/pages-client';
+import type { ClientPageBoundary, ErrorPageProps } from 'void/pages-client';
+
+type ReactPageBoundary = ClientPageBoundary<React.ComponentType<ErrorPageProps>>;
 
 type Props = {
-  boundary: ClientPageBoundary;
+  boundary: ReactPageBoundary;
   generation: number;
   dev?: boolean;
   children?: ReactNode;
   onFailure(): void;
 };
 
+type RecoveryState = {
+  error: unknown;
+  failed: boolean;
+};
+
+type BoundaryState = RecoveryState & {
+  generation: number;
+};
+
 const fallbacks = new Map<string, React.LazyExoticComponent<React.ComponentType<ErrorPageProps>>>();
-function fallbackFor(boundary: ClientPageBoundary) {
+function fallbackFor(boundary: ReactPageBoundary) {
   let fallback = fallbacks.get(boundary.id);
   if (!fallback) {
-    fallback = lazy(
-      boundary.load as () => Promise<{ default: React.ComponentType<ErrorPageProps> }>,
-    );
+    fallback = lazy(boundary.load);
     fallbacks.set(boundary.id, fallback);
   }
   return fallback;
 }
 
 /** Native boundaries recover only descendants, so fallback failures reach the parent. */
-export class PageErrorBoundary extends Component<
-  Props,
-  { generation: number; error: unknown; failed: boolean }
-> {
-  state: { generation: number; error: unknown; failed: boolean } = {
+export class PageErrorBoundary extends Component<Props, BoundaryState> {
+  state: BoundaryState = {
     generation: this.props.generation,
-    error: null as unknown,
+    error: null,
     failed: false,
   };
   static getDerivedStateFromProps(
     props: Props,
     state: { generation: number },
-  ): { generation: number; error: unknown; failed: boolean } | null {
+  ): BoundaryState | null {
     return props.generation !== state.generation
       ? { generation: props.generation, error: null, failed: false }
       : null;
   }
-  static getDerivedStateFromError(error: unknown): { error: unknown; failed: boolean } {
+  static getDerivedStateFromError(error: unknown): RecoveryState {
     return { error, failed: true };
   }
   componentDidCatch(): void {

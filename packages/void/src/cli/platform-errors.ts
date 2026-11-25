@@ -1,4 +1,5 @@
 import { stripVTControlCharacters } from 'node:util';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 
 export type PlatformErrorPayload = {
   error?: string;
@@ -34,7 +35,7 @@ function plainExplanation(value: string | undefined): string | undefined {
     ? stripVTControlCharacters(value)
         // Keep line breaks and tabs, but not control characters that rewrite the terminal.
         // eslint-disable-next-line no-control-regex
-        .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ')
+        .replaceAll(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ')
         .trim()
     : undefined;
   // Error fields should contain an explanation, not another serialized response
@@ -78,7 +79,7 @@ function permissionMessage(permission?: ProjectPermission): string {
   return 'Ask the platform administrator to check your access to this action.';
 }
 
-const rejectionMessages: Record<string, string> = {
+const rejectionMessages = {
   'invalid or expired token':
     'The platform reported an invalid or expired token. Sign in again with `void connect <platform-url>`, or replace `VOID_TOKEN` if you supplied it.',
   'missing authorization header':
@@ -117,7 +118,7 @@ const rejectionMessages: Record<string, string> = {
     'This user is no longer a project member. Run `void project team list` to check current members.',
   'project has too many pending invitations':
     'This project has reached its pending invitation limit. Run `void project team invitations` and revoke invitations that are no longer needed.',
-};
+} satisfies Record<string, string>;
 
 export function formatPlatformApiError(
   action: string,
@@ -135,7 +136,7 @@ export function formatPlatformApiError(
       const plain = plainExplanation(body);
       const explanation =
         plain && !/^(forbidden|unauthorized|access denied|permission denied)[.!]?$/i.test(plain)
-          ? plain.replace(/\s+/g, ' ').slice(0, 240)
+          ? plain.replaceAll(/\s+/g, ' ').slice(0, 240)
           : unexplainedRejection(status);
       return `${action} (HTTP ${status}): ${explanation}`;
     }
@@ -146,7 +147,7 @@ export function formatPlatformApiError(
     message ??
     (status === 403 && parsed.error === 'forbidden'
       ? `Access denied. ${permissionMessage(permission)}`
-      : ((parsed.error && Object.hasOwn(rejectionMessages, parsed.error)
+      : ((parsed.error && hasOwnKey(rejectionMessages, parsed.error)
           ? rejectionMessages[parsed.error]
           : undefined) ??
         (status === 401 && ['unauthorized', 'missing token'].includes(parsed.error ?? '')

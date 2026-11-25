@@ -42,7 +42,7 @@ describe('email receipt proxy verification', () => {
       input,
     );
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5000);
 
     await expect(verification).resolves.toBe(false);
     expect(captured.signal?.aborted).toBe(true);
@@ -105,7 +105,7 @@ describe('email receipt proxy verification', () => {
       input,
     );
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5000);
 
     await expect(verification).resolves.toBe(false);
     expect(cancelled).toBe(1);

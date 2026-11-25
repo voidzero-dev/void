@@ -3,6 +3,7 @@
 import { isReservedEmailSlug } from '@voidcloud/api/reserved-slugs';
 import { EmailMessage } from 'cloudflare:email';
 import { validate as isValidEmailSyntax } from 'email-validator';
+import { asRecord } from '../../proxy/src/body.ts';
 import {
   admitEmail,
   emailPayloadDigest,
@@ -66,9 +67,9 @@ export interface AuthoritativeEmailRoute {
 
 /** Shared-domain names a reply or forward may be sent from: the slug and the email alias. */
 function mailboxNames(route: AuthoritativeEmailRoute): ReadonlyArray<string> {
-  const names = [route.slug, route.alias, route.mailbox]
-    .filter((name): name is string => typeof name === 'string')
-    .map((name) => name.toLowerCase());
+  const names = [route.slug, route.alias, route.mailbox].flatMap((name) =>
+    typeof name === 'string' ? [name.toLowerCase()] : [],
+  );
   return [...new Set(names)];
 }
 
@@ -170,13 +171,14 @@ function forwardHeadersWithinBounds(headers: unknown): headers is Record<string,
     console.error('[email-router] action list dropped: forward headers is not a plain object');
     return false;
   }
-  const proto = Object.getPrototypeOf(headers);
+  const proto: unknown = Object.getPrototypeOf(headers);
   if (proto !== Object.prototype && proto !== null) {
     console.error('[email-router] action list dropped: forward headers is not a plain object');
     return false;
   }
   // Check the count before reading values or constructing Headers.
-  const names = Object.keys(headers);
+  const headerValues = asRecord(headers);
+  const names = Object.keys(headerValues);
   if (names.length > MAX_FORWARD_HEADERS) {
     console.error(
       `[email-router] action list dropped: forward has ${names.length} headers (max ${MAX_FORWARD_HEADERS})`,
@@ -184,7 +186,7 @@ function forwardHeadersWithinBounds(headers: unknown): headers is Record<string,
     return false;
   }
   for (const name of names) {
-    const value = (headers as Record<string, unknown>)[name];
+    const value = headerValues[name];
     // Headers accepts long names, so cap them explicitly.
     if (name.length > MAX_FORWARD_HEADER_LENGTH) {
       console.error(
@@ -219,7 +221,7 @@ interface ReplySenderPin {
 
 /** Check the envelope shape before authoritative admission checks sender ownership. */
 function isPermittedReplySender(from: string, pin: ReplySenderPin): boolean {
-  if (!/^[\x21-\x7e]+$/.test(from)) {
+  if (!/^[\u0021-\u007e]+$/.test(from)) {
     return false;
   }
   const lower = from.toLowerCase();
@@ -234,7 +236,7 @@ function isPermittedReplySender(from: string, pin: ReplySenderPin): boolean {
   if (pin.customDomain) {
     return true;
   }
-  return pin.names.includes(lower.slice(0, at).split('+')[0]!);
+  return pin.names.includes(lower.slice(0, at).split('+')[0]);
 }
 
 interface OutboundGate {
@@ -295,13 +297,12 @@ export async function routeInbound(
     // `packages/dispatch`. Without them, anyone who can send mail to a
     // project's address runs that tenant's worker at the namespace default
     // instead of the CPU/sub-request ceiling the project is configured for.
-    stub = (
-      authoritative.limits
-        ? env.DISPATCH.get(workerName, {}, { limits: authoritative.limits })
-        : env.DISPATCH.get(workerName)
-    ) as Fetcher;
+    stub = authoritative.limits
+      ? env.DISPATCH.get(workerName, {}, { limits: authoritative.limits })
+      : env.DISPATCH.get(workerName);
   } catch (e) {
     console.error(`[email-router] DISPATCH.get(${sanitize(workerName, 320)}) failed:`, e);
+    // oxlint-disable-next-line preserve-caught-error -- Do not attach internal delivery details to this public failure.
     throw new Error('email worker temporarily unavailable');
   }
 
@@ -366,6 +367,7 @@ export async function routeInbound(
     await recordEmailReceipt(env, receiptId, projectId, 'handler_failed').catch(() => {});
     const msg = e instanceof Error ? e.message.slice(0, 320) : describeUntrusted(e, 320);
     console.error(`[email-router] dispatch to ${sanitize(workerName, 320)} failed:`, msg);
+    // oxlint-disable-next-line preserve-caught-error -- Do not attach internal delivery details to this public failure.
     throw new Error('email handler execution unresolved');
   }
 
@@ -478,11 +480,14 @@ export async function routeRelayed(
   return { reject: relayed.rejectedReason() !== null };
 }
 
+type DeliveryMessage = Pick<
+  ForwardableEmailMessage,
+  'from' | 'to' | 'rawSize' | 'setReject' | 'forward'
+> &
+  Partial<Pick<ForwardableEmailMessage, 'reply'>>;
+
 /** A message stand-in for relayed delivery; forwarding requires a native event. */
-function createRelayedMessage(envelope: EmailEnvelope): {
-  message: ForwardableEmailMessage;
-  rejectedReason: () => string | null;
-} {
+function createRelayedMessage(envelope: EmailEnvelope) {
   let reason: string | null = null;
 
   const message = {
@@ -499,7 +504,7 @@ function createRelayedMessage(envelope: EmailEnvelope): {
     },
   };
   return {
-    message: message as unknown as ForwardableEmailMessage,
+    message,
     rejectedReason: () => reason,
   };
 }
@@ -561,7 +566,7 @@ async function prepareRelayedReply(
     if (data.success !== true) {
       throw new Error('email sending API response invalid');
     }
-    const result = parseSendRawResult((data as { result?: unknown }).result);
+    const result = parseSendRawResult('result' in data ? data.result : undefined);
     if (!result) {
       throw new Error('email sending API response invalid');
     }
@@ -582,7 +587,7 @@ async function prepareRelayedReply(
 async function logRecv(
   env: Env,
   projectId: string | undefined,
-  message: ForwardableEmailMessage,
+  message: DeliveryMessage,
   actions: Array<EmailAction>,
 ): Promise<void> {
   if (!projectId) {
@@ -854,7 +859,7 @@ async function validateActions(
 /** Validate actions, then ask the API to admit each outbound attempt. */
 async function enactActions(
   env: Env,
-  message: ForwardableEmailMessage,
+  message: DeliveryMessage,
   actions: Array<EmailAction>,
   gate: OutboundGate,
   replySender: ReplySenderPin,
@@ -870,9 +875,16 @@ async function enactActions(
   await enactSanitized(env, message, sanitized, gate);
 }
 
+function compareHeaderEntries(left: [string, string], right: [string, string]): number {
+  // Preserve the default tuple ordering used by previously issued admission keys.
+  const a = left.join(',');
+  const b = right.join(',');
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 async function enactSanitized(
   env: Env,
-  message: ForwardableEmailMessage,
+  message: DeliveryMessage,
   actions: Array<SanitizedAction>,
   gate: OutboundGate,
 ): Promise<void> {
@@ -900,7 +912,9 @@ async function enactSanitized(
       [to],
       action.type === 'reply'
         ? action.raw
-        : new TextEncoder().encode(JSON.stringify([...(action.headers?.entries() ?? [])].sort())),
+        : new TextEncoder().encode(
+            JSON.stringify([...(action.headers?.entries() ?? [])].sort(compareHeaderEntries)),
+          ),
     );
     let admission;
     try {
@@ -981,12 +995,15 @@ async function enactSanitized(
       } else {
         if (relayedReply) {
           providerReference = await providerDeadline.run(() =>
-            relayedReply!(to, providerDeadline.remainingMs()),
+            relayedReply(to, providerDeadline.remainingMs()),
           );
         } else {
-          await providerDeadline.run(() =>
-            message.reply(new EmailMessage(action.from, to, bytesToStream(action.raw)) as never),
-          );
+          await providerDeadline.run(() => {
+            if (!message.reply) {
+              throw new Error('native email reply requires a native event');
+            }
+            return message.reply(new EmailMessage(action.from, to, bytesToStream(action.raw)));
+          });
         }
       }
       try {

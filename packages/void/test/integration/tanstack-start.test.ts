@@ -1,42 +1,29 @@
+import type { ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
-import spawn from 'cross-spawn';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import {
+  createIsolatedPlayground,
+  killChild,
+  spawnFixtureServer,
+  startServer,
+} from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/tanstack-start';
 let DEV_BASE: string;
 
 describe('playground/tanstack-start dev', () => {
-  let child: ReturnType<typeof spawn>;
+  let fixture: IsolatedPlayground;
+  let child: ChildProcess;
 
   beforeAll(async () => {
+    fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
     // Another process can answer on the port before this server starts,
     // so only this app's page counts as ready.
     const server = await startServer(
       (port) => {
-        child = spawn(
-          'vp',
-          [
-            'run',
-            '--filter',
-            `./${PLAYGROUND}`,
-            'dev',
-            '--host',
-            '127.0.0.1',
-            '--port',
-            String(port),
-            '--strictPort',
-          ],
-          {
-            cwd: ROOT,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env: {
-              ...process.env,
-              VOID_INSPECTOR_PORT: 'false',
-            },
-          },
-        );
+        child = spawnFixtureServer(fixture.root, 'dev', port);
         return child;
       },
       20_000,
@@ -49,11 +36,12 @@ describe('playground/tanstack-start dev', () => {
     if (child) {
       await killChild(child);
     }
+    fixture?.cleanup();
   });
 
   it('applies env.ts to server routes', async () => {
     const response = await fetch(`${DEV_BASE}/api/env`);
-    expect(await response.json()).toEqual({ SCHEMA_DEFAULT: 48213 });
+    expect(await response.json()).toEqual({ SCHEMA_DEFAULT: 48_213 });
   });
 
   it('renders home page with SSR', async () => {

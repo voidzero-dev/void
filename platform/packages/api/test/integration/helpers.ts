@@ -10,6 +10,7 @@ import type { Db } from '../../src/db.ts';
 import { generateId } from '../../src/id.ts';
 import { encryptProjectSecret } from '../../src/project-secrets.ts';
 import type { SandboxConcurrencyCounter } from '../../src/sandbox-concurrency-counter.ts';
+// oxlint-disable-next-line import/no-namespace -- Drizzle consumes the full schema module with its relations.
 import * as schema from '../../src/schema.ts';
 import {
   users,
@@ -45,10 +46,23 @@ export const CF_ACCOUNT_ID = 'test-account-id';
 export const CF_ZONE_ID = 'test-zone-id';
 export const PROJECT_SECRET_ACTIVE_KEY_VERSION = '1';
 export const PROJECT_SECRET_KEYS_JSON = JSON.stringify({
-  [PROJECT_SECRET_ACTIVE_KEY_VERSION]: Buffer.from('0123456789abcdef0123456789abcdef').toString(
-    'base64',
-  ),
+  [PROJECT_SECRET_ACTIVE_KEY_VERSION]: (Buffer as BufferConstructor)
+    .from('0123456789abcdef0123456789abcdef')
+    .toString('base64'),
 });
+
+/** Override transactions on one database view while forwarding all other reads. */
+export function withTestTransaction(database: Db, transaction: Db['transaction']): Db {
+  return new Proxy(database, {
+    get(target, property, receiver): unknown {
+      if (property === 'transaction') {
+        return transaction;
+      }
+      // oxlint-disable-next-line quality/no-reflect-get -- Preserve the receiver for forwarded database properties.
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
 
 export type TestEnv = {
   db: Db & { $client: pg.Pool | PGlite };
@@ -265,6 +279,22 @@ export class MemoryKVNamespace {
   }
 }
 
+/** Replace reads of selected keys while forwarding other reads to the fixture. */
+export function mockKvRead(
+  namespace: KVNamespace,
+  read: (key: string) => string | null | undefined,
+) {
+  if (!(namespace instanceof MemoryKVNamespace)) {
+    throw new Error('Expected an in-memory KV namespace.');
+  }
+  const memory: MemoryKVNamespace = namespace;
+  const get = memory.get.bind(memory);
+  return vi.spyOn(memory, 'get').mockImplementation(async (...args) => {
+    const replacement = read(args[0]);
+    return replacement === undefined ? get(...args) : replacement;
+  });
+}
+
 type MemoryR2Entry = {
   body: ArrayBuffer;
   httpMetadata?: unknown;
@@ -388,7 +418,7 @@ class MemoryR2Bucket {
       size: entry.body.byteLength,
       etag: entry.etag,
       uploaded: entry.uploaded,
-      body: new Response(entry.body).body!,
+      body: new Response(entry.body).body as ReadableStream<Uint8Array>,
       arrayBuffer: async () => entry.body.slice(0),
       text: async () => new TextDecoder().decode(entry.body),
       json: async <T>() => JSON.parse(new TextDecoder().decode(entry.body)) as T,
@@ -482,7 +512,7 @@ export function createCronSchedulerMock(): {
         const path = new URL(request.url).pathname;
         calls.push({ name, path });
         if (path === '/sync') {
-          states.set(name, (await request.json()) as CronSyncState);
+          states.set(name, await request.json<CronSyncState>());
         } else if (path === '/clear') {
           states.delete(name);
         } else if (path === '/snapshot') {
@@ -644,6 +674,7 @@ export async function clearTables(db: Db): Promise<void> {
 export function skipOrphanSweepDelay(): void {
   const schedule = globalThis.setTimeout;
   vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) =>
+    // oxlint-disable-next-line typescript/no-unsafe-argument -- Preserve the timer callback's variadic arguments.
     schedule(callback, delay === 2000 ? 0 : delay, ...args),
   );
 }
@@ -692,7 +723,7 @@ export async function createTestUser(
   role: 'user' | 'admin' = 'user',
 ): Promise<{ id: string; login: string; jwt: string; adminJwt: string }> {
   const id = `user_test${++userCounter}`;
-  const pid = providerId ?? String(10000 + userCounter);
+  const pid = providerId ?? String(10_000 + userCounter);
   await db.insert(users).values({
     id,
     provider,
@@ -959,14 +990,14 @@ async function parseMultipartMetadata(
     const metaEntry = init.body.get('metadata');
     if (typeof metaEntry === 'string') {
       try {
-        return { metadata: JSON.parse(metaEntry) };
+        return { metadata: JSON.parse(metaEntry) as Record<string, unknown> };
       } catch {
         return null;
       }
     }
     if (metaEntry instanceof Blob) {
       try {
-        return { metadata: JSON.parse(await metaEntry.text()) };
+        return { metadata: JSON.parse(await metaEntry.text()) as Record<string, unknown> };
       } catch {
         return null;
       }
@@ -1088,13 +1119,13 @@ function extractMigrationTag(metadata: Record<string, unknown>): string | undefi
 function parseScriptNameFromUrl(url: string): string | null {
   // .../workers/dispatch/namespaces/{ns}/scripts/{name}[/...]
   const m = /\/workers\/(?:dispatch\/namespaces\/[^/]+\/)?scripts\/([^/?#]+)/.exec(url);
-  return m ? decodeURIComponent(m[1]!) : null;
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 function parseAppIdFromUrl(url: string): string | null {
   // .../containers/applications/{id}[/...]
   const m = /\/containers\/applications\/([^/?#]+)/.exec(url);
-  return m ? decodeURIComponent(m[1]!) : null;
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 function parseAppNameQuery(url: string): string | null {
@@ -1178,11 +1209,14 @@ const baseDefaultMocks: Omit<CfApiMocks, 'uploadWorker' | 'listWorkerBindings' |
     // Echo the manifest hashes so the mock bucket matches what the deploy
     // route computed.
     try {
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+      const body =
+        typeof init?.body === 'string'
+          ? (JSON.parse(init.body) as { manifest?: Record<string, unknown> })
+          : null;
       if (body?.manifest) {
         const hashes = [
           ...new Set(
-            Object.values(body.manifest as Record<string, unknown>).flatMap((entry) => {
+            Object.values(body.manifest).flatMap((entry) => {
               if (typeof entry === 'object' && entry !== null && 'hash' in entry) {
                 const hash = (entry as { hash?: unknown }).hash;
                 return typeof hash === 'string' ? [hash] : [];
@@ -1259,7 +1293,8 @@ const baseDefaultMocks: Omit<CfApiMocks, 'uploadWorker' | 'listWorkerBindings' |
   // is derived from the address so a test can predict it without capturing
   // the response.
   addEmailDestination: (_url: string, init?: RequestInit) => {
-    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+    const body =
+      typeof init?.body === 'string' ? (JSON.parse(init.body) as { email?: unknown }) : {};
     const email = typeof body.email === 'string' ? body.email : 'test@example.com';
     return cfSuccess({
       tag: `cf-tag-${email}`,
@@ -1355,7 +1390,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
             success: false,
             errors: [
               {
-                code: 10061,
+                code: 10_061,
                 message: `Cannot create binding for class in script '${refScript}' that does not exist.`,
               },
             ],
@@ -1411,8 +1446,8 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
   // PUT through the stateful path; otherwise returns a proxy-token binding.
   const defaultListWorkerBindings = (url: string): Response => {
     const scriptName = parseScriptNameFromUrl(url);
-    if (scriptName && state.hostScripts.has(scriptName)) {
-      const script = state.hostScripts.get(scriptName)!;
+    const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
+    if (script) {
       return cfSuccess(script.bindings);
     }
     return cfSuccess([
@@ -1440,16 +1475,16 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
   // `result.script.migration_tag`, not `result.migration_tag`.)
   const defaultGetDispatchScript = (url: string): Response => {
     const scriptName = parseScriptNameFromUrl(url);
-    if (!scriptName || !state.hostScripts.has(scriptName)) {
+    const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
+    if (!script || !scriptName) {
       return Response.json(
         {
           success: false,
-          errors: [{ code: 10007, message: 'workers.api.error.script_not_found' }],
+          errors: [{ code: 10_007, message: 'workers.api.error.script_not_found' }],
         },
         { status: 404 },
       );
     }
-    const script = state.hostScripts.get(scriptName)!;
     return cfSuccess({
       script: {
         id: scriptName,
@@ -1466,7 +1501,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     const scriptName = parseScriptNameFromUrl(url);
     const script = scriptName ? state.hostScripts.get(scriptName) : undefined;
     if (!script) {
-      return cfError('workers.api.error.script_not_found', 404, 10007);
+      return cfError('workers.api.error.script_not_found', 404, 10_007);
     }
     const part = init?.body instanceof FormData ? init.body.get('settings') : null;
     const settings = (
@@ -1590,13 +1625,13 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
 
   const defaultPatchContainerApp = async (url: string, init?: RequestInit): Promise<Response> => {
     const id = parseAppIdFromUrl(url);
-    if (!id || !state.containerApps.has(id)) {
+    const app = id ? state.containerApps.get(id) : undefined;
+    if (!id || !app) {
       return Response.json(
         { success: false, errors: [{ code: 1000, message: 'not found' }] },
         { status: 404 },
       );
     }
-    const app = state.containerApps.get(id)!;
     let body: Record<string, unknown> = {};
     if (typeof init?.body === 'string') {
       try {
@@ -1635,7 +1670,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     return cfSuccess({ id: 'rollout-test-id' });
   };
 
-  const mocks: CfApiMocks = {
+  const mocks = {
     ...baseDefaultMocks,
     uploadWorker: defaultUploadWorker,
     listWorkerBindings: defaultListWorkerBindings,
@@ -1649,7 +1684,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     listContainerApps: defaultListContainerApps,
     postContainerAppRollout: defaultPostContainerAppRollout,
     ...overrides,
-  };
+  } satisfies CfApiMocks;
 
   const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url =
@@ -1733,7 +1768,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return (
         mocks.prepareContainerImage?.(url, init) ??
         cfSuccess({
-          image: JSON.parse(String(init?.body)).image,
+          image: (JSON.parse(String(init?.body)) as { image: string }).image,
           status: 'ready',
         })
       );
@@ -1746,22 +1781,22 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       url.includes('/containers/applications/') &&
       url.endsWith('/rollouts')
     ) {
-      return mocks.postContainerAppRollout!(url, init);
+      return mocks.postContainerAppRollout(url, init);
     }
     if (method === 'PATCH' && url.includes('/containers/applications/')) {
-      return mocks.patchContainerApp!(url, init);
+      return mocks.patchContainerApp(url, init);
     }
     if (method === 'DELETE' && url.includes('/containers/applications/')) {
-      return mocks.deleteContainerApp!(url, init);
+      return mocks.deleteContainerApp(url, init);
     }
     if (method === 'GET' && url.includes('/containers/applications/')) {
-      return mocks.getContainerApp!(url, init);
+      return mocks.getContainerApp(url, init);
     }
     if (method === 'GET' && url.includes('/containers/applications')) {
-      return mocks.listContainerApps!(url, init);
+      return mocks.listContainerApps(url, init);
     }
     if (method === 'POST' && url.includes('/containers/applications')) {
-      return mocks.createContainerApp!(url, init);
+      return mocks.createContainerApp(url, init);
     }
 
     if (method === 'GET' && url.includes('/workers/dispatch/') && url.includes('/secrets')) {
@@ -1784,7 +1819,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
               }),
             })
           : Response.json(
-              { success: false, errors: [{ code: 10007, message: 'script not found' }] },
+              { success: false, errors: [{ code: 10_007, message: 'script not found' }] },
               { status: 404 },
             );
       }
@@ -1808,7 +1843,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       return mocks.listWorkerBindings(url, init);
     }
     if (method === 'PATCH' && url.includes('/workers/dispatch/') && url.endsWith('/settings')) {
-      return mocks.patchScriptSettings!(url, init);
+      return mocks.patchScriptSettings(url, init);
     }
     // GET on a dispatch script (no /bindings, no /secrets) — read the
     // script's metadata + migration_tag. Must come AFTER /bindings and
@@ -1817,7 +1852,7 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
       method === 'GET' &&
       /\/workers\/dispatch\/namespaces\/[^/]+\/scripts\/[^/?#]+(?:[?#]|$)/.test(url)
     ) {
-      return mocks.getDispatchScript!(url, init);
+      return mocks.getDispatchScript(url, init);
     }
     if (method === 'DELETE' && url.includes('/workers/dispatch/')) {
       return mocks.deleteWorker(url, init);
@@ -1941,5 +1976,5 @@ export async function readAllEvents(res: Response): Promise<Array<unknown>> {
   return text
     .split('\n')
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line));
+    .map((line): unknown => JSON.parse(line));
 }

@@ -72,9 +72,6 @@ describe('hasPrerenderSources', () => {
 // not booting it returns the same answer the boot would have.
 describe('__voidCollectPrerenderPaths — sources that can push a path', () => {
   const testOptions = {
-    honoPath: '/resolved/hono/index.mjs',
-    honoRoutePath: '/resolved/hono/route.mjs',
-
     runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
     projectRoot: '/project',
     homeDir: '/Users/test',

@@ -1,4 +1,5 @@
-import { chromium, type Browser } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser } from 'playwright';
 import { afterAll } from 'vite-plus/test';
 import { app } from '../../src/index.ts';
 import type { TestEnv } from './helpers.ts';
@@ -81,7 +82,7 @@ export async function nativeFormSubmission(input: {
       await route.fulfill({
         status: response.status,
         headers: responseHeaders,
-        body: Buffer.from(await response.arrayBuffer()),
+        body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
       });
     });
     await page.goto(`${input.origin}${input.path}`);

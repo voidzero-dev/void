@@ -16,7 +16,6 @@
     "install:void-dev": "vp run build:core && node scripts/void-dev-link.mjs install",
     "lint": "vp lint",
     "prepare": "vp config && vp run build:core",
-    "test": "node test/affected.mjs",
     "test:full": "vp test run",
     "test:integration": "vp test run --project parallel-integration",
     "test:metaframeworks": "vp test run --project parallel-integration analog.test.ts astro.test.ts nitro-worker.test.ts nuxt.test.ts react-router.test.ts sveltekit.test.ts tanstack-start.test.ts vinext-app.test.ts vinext-pages.test.ts",
@@ -28,6 +27,7 @@
     "uninstall:void-dev": "node scripts/void-dev-link.mjs uninstall"
   },
   "devDependencies": {
+    "@cloudflare/oxlint-config": "catalog:",
     "@cloudflare/workers-types": "catalog:",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
@@ -35,6 +35,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "playwright": "catalog:",
     "rolldown": "catalog:",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",

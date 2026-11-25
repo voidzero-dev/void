@@ -2,10 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import spawn from 'cross-spawn';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import {
-  createIsolatedPlayground,
-  type IsolatedPlayground,
-} from '../../../../test/integration-helpers.ts';
+import { createIsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const repository = join(import.meta.dirname, '../../../..');
 

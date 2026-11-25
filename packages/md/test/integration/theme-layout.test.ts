@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { chromium, type Browser } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser } from 'playwright';
 import { afterAll, beforeAll, expect, it } from 'vite-plus/test';
 import { compile } from '../../src/compile.ts';
 
@@ -72,7 +73,10 @@ it.each(['ltr', 'rtl'])('positions heading anchors and copy buttons in %s', asyn
     await page.setContent(`<html dir="${direction}"><body>${html}</body></html>`);
     const layout = await page.evaluate(() => {
       const rect = (selector: string) =>
-        document.querySelector(selector)!.getBoundingClientRect().toJSON();
+        document.querySelector(selector)!.getBoundingClientRect().toJSON() as Pick<
+          DOMRect,
+          'left' | 'right'
+        >;
       return {
         heading: rect('#code h2'),
         anchor: rect('#code .header-anchor'),

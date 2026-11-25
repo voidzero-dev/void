@@ -34,9 +34,9 @@ describe('compile', () => {
   // (The highlighter emits one `<span class="line">` per line plus a trailing empty line,
   // so we compare highlighted positions rather than a fixed line count.)
   const highlightedLineIndices = (html: string): ReadonlyArray<number> =>
-    [...html.matchAll(/<span class="(line[^"]*)"/g)]
-      .map((match, index) => (match[1].includes('highlighted') ? index : -1))
-      .filter((index) => index >= 0);
+    [...html.matchAll(/<span class="(line[^"]*)"/g)].flatMap((match, index) =>
+      match[1].includes('highlighted') ? [index] : [],
+    );
 
   it('highlights a single {N} fence line (markdown-it-attrs must not eat it)', async () => {
     const result = await compile('```ts {2}\nconst a = 1;\nconst b = 2;\nconst c = 3;\n```');

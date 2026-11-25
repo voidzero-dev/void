@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 
-import { Stack, type StackProps } from '@astryxdesign/core/Stack';
+import { Stack } from '@astryxdesign/core/Stack';
+import type { StackProps } from '@astryxdesign/core/Stack';
 import type { FormHTMLAttributes } from 'react';
 
 export type SectionStackProps = StackProps &

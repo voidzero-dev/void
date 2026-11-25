@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
+import type { Options as SvelteOptions } from '@sveltejs/vite-plugin-svelte';
 import { dirname } from 'pathslash';
-import { preprocess, type CompileResult, type PreprocessorGroup } from 'svelte/compiler';
+import { preprocess } from 'svelte/compiler';
+import type { CompileResult } from 'svelte/compiler';
 import type { Plugin, ResolvedConfig } from 'vite';
 import { generateComponentManifest, scanPages } from 'void/pages';
 import type { PageScanResult } from 'void/pages';
@@ -19,8 +21,8 @@ import {
   ISLANDS_CLIENT_ENTRY_ID,
   findIslandImports,
   editIslandSource,
-  type IslandSourceEdit,
 } from 'void/pages-islands-plugin';
+import type { IslandSourceEdit } from 'void/pages-islands-plugin';
 
 const COMPONENT_EXTENSIONS = ['.svelte', '.ts', '.js'];
 
@@ -45,7 +47,8 @@ function styleBlockImports(file: string, content: string): Array<string> {
 const WRAPPER_PREFIX = '/@void-island-wrap/';
 /** The shared API of vite-plugin-svelte, set on its `vite-plugin-svelte:config` plugin. */
 type SveltePluginApi = {
-  options: { preprocess?: PreprocessorGroup | Array<PreprocessorGroup> };
+  options: Pick<SvelteOptions, 'preprocess'>;
+  // oxlint-disable-next-line quality/no-unknown-returns -- The Svelte plugin owns this request and consumes it directly in compileSvelte.
   idParser: (id: string, ssr: boolean) => unknown;
   compileSvelte: (
     request: unknown,
@@ -55,7 +58,6 @@ type SveltePluginApi = {
     sourcemap?: unknown,
   ) => Promise<{ compiled: CompileResult }>;
 };
-type SvelteConfigPlugin = Plugin & { api?: SveltePluginApi };
 
 export function islandsPlugin(
   pagesDir: string,
@@ -117,7 +119,7 @@ export function islandsPlugin(
 
       load: {
         filter: {
-          // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
+          // Vite virtual module null-byte prefix
           id: /^(\0virtual:void-islands-(renderer|client)|\/@void-island-wrap\/)/,
         },
         handler(id) {
@@ -244,16 +246,17 @@ export function islandsPlugin(
           const file = islandStyle
             ? id.slice(0, -'.css?island-style'.length)
             : id.slice(0, id.indexOf('?'));
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Vite erases the plugin API type, and vite-plugin-svelte does not export its compiler contract.
           const api = resolvedConfig?.plugins.find(
-            (plugin): plugin is SvelteConfigPlugin => plugin.name === 'vite-plugin-svelte:config',
-          )?.api;
+            (plugin) => plugin.name === 'vite-plugin-svelte:config',
+          )?.api as SveltePluginApi | undefined;
           if (typeof api?.compileSvelte !== 'function' || typeof api.idParser !== 'function') {
             this.error(
               'Svelte island page styles need the @sveltejs/vite-plugin-svelte version that @void/svelte depends on.',
             );
           }
           this.addWatchFile(file);
-          let code = readFileSync(file, 'utf-8');
+          let code = readFileSync(file, 'utf8');
           let map: unknown;
           if (api.options.preprocess) {
             const processed = await preprocess(code, api.options.preprocess, { filename: file });

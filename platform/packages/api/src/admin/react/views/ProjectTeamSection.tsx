@@ -11,7 +11,8 @@ import {
 } from '@astryxdesign/core/Table';
 import { useMemo, useState } from 'react';
 import type { ProjectMemberRole } from '../../../types.ts';
-import { AdminUserTypeahead, type AdminUserSuggestion } from './AdminUserTypeahead.tsx';
+import { AdminUserTypeahead } from './AdminUserTypeahead.tsx';
+import type { AdminUserSuggestion } from './AdminUserTypeahead.tsx';
 import { formatDateTime } from './format.ts';
 import { FormSelector } from './FormControls.tsx';
 import { PageStack } from './PageStack.tsx';

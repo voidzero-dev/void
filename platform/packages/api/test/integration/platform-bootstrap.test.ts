@@ -1,7 +1,5 @@
-import {
-  platformAuthenticationRecoveryMessage,
-  type PlatformAuthenticationRecovery,
-} from '@void/platform';
+import { platformAuthenticationRecoveryMessage } from '@void/platform';
+import type { PlatformAuthenticationRecovery } from '@void/platform';
 import { eq, sql } from 'drizzle-orm';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { chromium } from 'playwright';
@@ -47,8 +45,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const origin = 'https://api.example.com';
 const issuer = 'https://identity.bootstrap-example.com';
@@ -198,7 +196,7 @@ async function authenticateSetup() {
   const start = await form('/auth/bootstrap', { code });
   expect(start.status).toBe(302);
   authorization = new URL(start.headers.get('Location')!);
-  const cookie = start.headers.get('Set-Cookie')!.split(';')[0]!;
+  const cookie = start.headers.get('Set-Cookie')!.split(';')[0];
   return app.fetch(
     new Request(
       `${origin}/auth/callback?code=provider-code&state=${authorization.searchParams.get('state')}`,
@@ -236,7 +234,7 @@ describe('provider-independent first administrator setup', () => {
       'custom',
       'admin',
     );
-    const revision = (await env.db.select().from(platformLoginRevisions))[0]!;
+    const revision = (await env.db.select().from(platformLoginRevisions))[0];
     expect(
       recoverAuthenticationCredential(
         env.PROJECT_SECRET_KEYS_JSON,
@@ -292,7 +290,7 @@ describe('provider-independent first administrator setup', () => {
     );
     expect(start.status).toBe(302);
     authorization = new URL(start.headers.get('Location')!);
-    const cookie = start.headers.getSetCookie()[0]!.split(';')[0]!;
+    const cookie = start.headers.getSetCookie()[0].split(';')[0];
     const callback = await app.fetch(
       new Request(
         `${origin}/auth/callback?code=provider-code&state=${authorization.searchParams.get('state')}`,
@@ -730,7 +728,7 @@ describe('provider-independent first administrator setup', () => {
           await route.fulfill({
             status: response.status,
             headers: responseHeaders,
-            body: Buffer.from(await response.arrayBuffer()),
+            body: (Buffer as BufferConstructor).from(await response.arrayBuffer()),
           });
         });
         // A no-referrer setup page makes the browser send `Origin: null`, which the
@@ -827,7 +825,7 @@ describe('provider-independent first administrator setup', () => {
     const proofCookie = callback.headers
       .getSetCookie()
       .find((cookie) => cookie.startsWith('void_bootstrap_confirm='))!
-      .split(';')[0]!;
+      .split(';')[0];
     expect(
       (
         await form(
@@ -842,7 +840,9 @@ describe('provider-independent first administrator setup', () => {
       form('/auth/bootstrap/confirm', { confirm: 'yes' }, proofCookie),
       form('/auth/bootstrap/confirm', { confirm: 'yes' }, proofCookie),
     ]);
-    expect(confirmations.map((response) => response.status).sort()).toEqual([302, 403]);
+    expect(confirmations.map((response) => response.status).sort((a, b) => a - b)).toEqual([
+      302, 403,
+    ]);
     const usersAfter = await env.db.select().from(users);
     expect(usersAfter).toHaveLength(1);
     expect(usersAfter[0]).toMatchObject({
@@ -859,7 +859,7 @@ describe('provider-independent first administrator setup', () => {
       .find((response) => response.status === 302)!
       .headers.getSetCookie()
       .find((cookie) => cookie.startsWith('admin_token='))!
-      .split(';')[0]!;
+      .split(';')[0];
     expect(
       (
         await app.fetch(
@@ -887,7 +887,7 @@ describe('provider-independent first administrator setup', () => {
     const start = await form('/auth/bootstrap', { code });
     expect(start.status).toBe(302);
     authorization = new URL(start.headers.get('Location')!);
-    const cookie = start.headers.get('Set-Cookie')!.split(';')[0]!;
+    const cookie = start.headers.get('Set-Cookie')!.split(';')[0];
     const provider = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: string | URL | Request, options?: RequestInit) =>
       input.toString() === `${issuer}/token`

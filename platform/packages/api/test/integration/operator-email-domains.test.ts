@@ -35,8 +35,8 @@ import {
   setupEnv,
   skipOrphanSweepDelay,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv, operatorToken: string;
 // Each custom mail hostname is the apex of its own test zone.
@@ -118,7 +118,7 @@ describe('operator email domain management', () => {
       dryRun: true,
     });
     expect(preview.status).toBe(200);
-    expect(((await preview.json()) as { dryRun: boolean }).dryRun).toBe(true);
+    expect((await preview.json<{ dryRun: boolean }>()).dryRun).toBe(true);
     expect(callsByTag(stub.calls, 'scriptPut')).toHaveLength(0);
     expect(await env.db.select().from(emailDomainRoutes)).toHaveLength(0);
     const add = await request('/email/domains', {
@@ -126,9 +126,9 @@ describe('operator email domain management', () => {
       project: project.slug,
     });
     expect(add.status).toBe(200);
-    const payload = (await add.json()) as {
+    const payload = await add.json<{
       domain: { operationId: string; readiness: { inbound: { status: string } } };
-    };
+    }>();
     expect(payload.domain.operationId).toMatch(/^eop/);
     expect(payload.domain.readiness.inbound.status).toBe('ready');
     expect((await env.db.select().from(emailZoneConnections))[0]?.managed_by).toBe('admin');
@@ -249,7 +249,7 @@ describe('operator email domain management', () => {
     expect(
       (
         await env.db.select().from(operatorEvents).where(eq(operatorEvents.action, 'email/domains'))
-      ).map((event) => JSON.parse(event.target)),
+      ).map((event): unknown => JSON.parse(event.target)),
     ).toContainEqual({ domain: 'brand.example.com', project: project.slug, outboundOnly: true });
 
     expect((await request('/email/domains/brand.example.com/remove', {})).status).toBe(200);
@@ -328,7 +328,7 @@ describe('operator email domain management', () => {
       .from(emailOperations)
       .where(eq(emailOperations.status, 'unknown'));
     expect(operation?.current_step).toBe('ingress_deploy');
-    const tooRecent = await request(`/email/operations/${operation!.id}/resolve`, {
+    const tooRecent = await request(`/email/operations/${operation.id}/resolve`, {
       ended: true,
       outcome: 'not-applied',
       reason: 'Provider audit completed',
@@ -338,25 +338,23 @@ describe('operator email domain management', () => {
     await env.db
       .update(emailOperationSteps)
       .set({
-        started_at: new Date(
-          Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1_000,
-        ).toISOString(),
+        started_at: new Date(Date.now() - EMAIL_OPERATION_RECOVERY_MIN_AGE_MS - 1000).toISOString(),
       })
-      .where(eq(emailOperationSteps.operation_id, operation!.id));
-    const preview = await request(`/email/operations/${operation!.id}/resolve`, {
+      .where(eq(emailOperationSteps.operation_id, operation.id));
+    const preview = await request(`/email/operations/${operation.id}/resolve`, {
       ended: true,
       outcome: 'not-applied',
       reason: 'Provider audit completed',
       dryRun: true,
     });
     expect(preview.status).toBe(200);
-    const target = ((await preview.json()) as { target: Record<string, unknown> }).target;
+    const target = (await preview.json<{ target: Record<string, unknown> }>()).target;
     expect(target).toMatchObject({
-      operationId: operation!.id,
+      operationId: operation.id,
       step: 'ingress_deploy',
       outcome: 'not-applied',
     });
-    const applied = await request(`/email/operations/${operation!.id}/resolve`, {
+    const applied = await request(`/email/operations/${operation.id}/resolve`, {
       ended: true,
       outcome: 'not-applied',
       reason: 'Provider audit completed',
@@ -371,7 +369,7 @@ describe('operator email domain management', () => {
     });
     expect(applied.status).toBe(200);
     expect(
-      (await env.db.select().from(emailOperations).where(eq(emailOperations.id, operation!.id)))[0]
+      (await env.db.select().from(emailOperations).where(eq(emailOperations.id, operation.id)))[0]
         ?.status,
     ).toBe('pending');
   });
@@ -423,9 +421,9 @@ describe('operator email domain management', () => {
     const cleanup = await requestEmailDomainRemove(
       env.db,
       bindings(),
-      route!.id,
+      route.id,
       { kind: 'system' },
-      `teardown:${project.id}:${route!.id}`,
+      `teardown:${project.id}:${route.id}`,
     );
     await runEmailOperation(env.db, bindings(), cleanup);
     expect(
@@ -440,7 +438,7 @@ describe('operator email domain management', () => {
       domain: { removed: true, operationStatus: 'completed' },
     });
     expect(
-      (await env.db.select().from(emailDomainRoutes).where(eq(emailDomainRoutes.id, route!.id)))[0]
+      (await env.db.select().from(emailDomainRoutes).where(eq(emailDomainRoutes.id, route.id)))[0]
         ?.desired_state,
     ).toBe('removed');
     expect(callsByTag(stub.calls, 'scriptDelete')).toHaveLength(2);
@@ -516,7 +514,7 @@ describe('operator email domain management', () => {
     await runEmailOperation(env.db, bindings(), cleanup);
     const cleanupBefore = (
       await env.db.select().from(emailOperations).where(eq(emailOperations.id, cleanup))
-    )[0]!;
+    )[0];
     expect(cleanupBefore).toMatchObject({
       actor_kind: 'system',
       status: 'blocked',
@@ -545,8 +543,8 @@ describe('operator email domain management', () => {
     });
     const [connectionAfter] = await env.db.select().from(emailZoneConnections);
     expect(connectionAfter).toMatchObject({
-      managed_by: connectionBefore!.managed_by,
-      manager_user_id: connectionBefore!.manager_user_id,
+      managed_by: connectionBefore.managed_by,
+      manager_user_id: connectionBefore.manager_user_id,
       desired_generation: cleanupBefore.desired_generation,
       credential_id: null,
     });
@@ -588,7 +586,7 @@ describe('operator email domain management', () => {
     await env.db.insert(emailDomainRoutes).values({
       id: 'replacement-sibling',
       domain: 'replacement-sibling.example.com',
-      connection_id: connection!.id,
+      connection_id: connection.id,
       project_id: project.id,
       addressing: 'custom',
       managed_by: 'owner',
@@ -605,14 +603,14 @@ describe('operator email domain management', () => {
       .where(eq(emailDomainRoutes.id, 'replacement-sibling'));
     await env.db.insert(emailOperations).values({
       id: 'replacement-unresolved',
-      installation_id: connection!.installation_id,
-      connection_id: connection!.id,
+      installation_id: connection.installation_id,
+      connection_id: connection.id,
       actor_kind: 'system',
       actor_scope: 'system',
       kind: 'cleanup',
       idempotency_key: 'replacement-unresolved',
       request_digest: 'a'.repeat(64),
-      desired_generation: connection!.desired_generation,
+      desired_generation: connection.desired_generation,
     });
     for (const status of ['pending', 'running', 'unknown'] as const) {
       await env.db
@@ -767,9 +765,9 @@ describe('operator email domain management', () => {
     const cleanup = await requestEmailDomainRemove(
       env.db,
       bindings(),
-      route!.id,
+      route.id,
       { kind: 'system' },
-      `teardown:${project.id}:${route!.id}`,
+      `teardown:${project.id}:${route.id}`,
     );
     await runEmailOperation(env.db, bindings(), cleanup);
     expect(

@@ -1,5 +1,6 @@
 import { readdirSync } from 'node:fs';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin, UserConfig } from 'vite';
 import { createPagesPlugin, generateComponentManifest, resolvePrefetchConfig } from 'void/pages';
 import type {
   PageScanResult,
@@ -7,7 +8,8 @@ import type {
   PrefetchConfig,
   StaticPageDataBuildOptions,
 } from 'void/pages';
-import { babelParse, parse, type SFCScriptCompileOptions } from 'vue/compiler-sfc';
+import { babelParse, parse } from 'vue/compiler-sfc';
+import type { SFCScriptCompileOptions } from 'vue/compiler-sfc';
 
 export type { PrefetchConfig } from 'void/pages';
 
@@ -126,9 +128,12 @@ function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): st
       const parameters = call.typeParameters ?? call.typeArguments;
       if (
         parameters?.type !== 'TSTypeParameterInstantiation' ||
-        parameters.start == null ||
-        parameters.end == null ||
-        call.end == null
+        parameters.start === null ||
+        parameters.start === undefined ||
+        parameters.end === null ||
+        parameters.end === undefined ||
+        call.end === null ||
+        call.end === undefined
       ) {
         continue;
       }
@@ -137,7 +142,7 @@ function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): st
         type?.type === 'TSTypeLiteral'
           ? type.members.map((member) => {
               if (member.type !== 'TSPropertySignature' || member.computed) {
-                return;
+                return undefined;
               }
               if (member.key.type === 'Identifier') {
                 return member.key.name;
@@ -145,6 +150,7 @@ function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): st
               if (member.key.type === 'StringLiteral') {
                 return member.key.value;
               }
+              return undefined;
             })
           : undefined;
       const literal = names?.every((name) => name !== undefined) === true;
@@ -156,7 +162,7 @@ function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): st
       const start = offset + parameters.start;
       const end = offset + parameters.end;
       const close = offset + call.end - 1;
-      const newlines = code.slice(start, end).replace(/[^\n]/g, '');
+      const newlines = code.slice(start, end).replaceAll(/[^\n]/g, '');
       // Neutral declarations preserve optional keys without introducing coercion.
       const declaration = literal && call.arguments.length === 0 ? JSON.stringify(names) : '';
       return (
@@ -247,7 +253,7 @@ export function pagesPlugin(
           staticPageData,
         );
       },
-      config({ isDev }) {
+      config({ isDev }): UserConfig | undefined {
         if (isDev) {
           return {
             optimizeDeps: {
@@ -255,6 +261,12 @@ export function pagesPlugin(
               // imports during SPA navigation, avoiding a full-page reload
               // from Vite's dep optimizer.
               include: ['vue'],
+            },
+            environments: {
+              void_worker: {
+                // Name the server renderer so the Worker has it before its first request.
+                optimizeDeps: { include: ['vue', 'vue/server-renderer'] },
+              },
             },
           };
         }

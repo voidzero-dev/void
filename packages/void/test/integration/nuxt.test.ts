@@ -3,10 +3,14 @@ import { join } from 'node:path';
 import spawn from 'cross-spawn';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import {
+  createIsolatedPlayground,
+  killChild,
+  startServer,
+} from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
-const PLAYGROUND = 'playground/nuxt';
 let DEV_BASE: string;
 
 function removeWranglerConfig(root: string) {
@@ -17,42 +21,30 @@ function removeWranglerConfig(root: string) {
 describe(
   'playground/nuxt dev',
   () => {
-    let child: ReturnType<typeof spawn>;
+    let fixture: IsolatedPlayground;
+    let child: ReturnType<typeof spawn> | undefined;
     let serverOutput = () => '';
 
     beforeAll(
       async () => {
-        const pg = join(ROOT, PLAYGROUND);
-        rmSync(join(pg, '.void'), { recursive: true, force: true });
-        rmSync(join(pg, '.wrangler'), { recursive: true, force: true });
-        removeWranglerConfig(pg);
+        fixture = createIsolatedPlayground(ROOT, 'playground/nuxt');
+        // Dev must generate the inferred binding config itself in a fresh fixture.
+        rmSync(join(fixture.root, '.void-wrangler.jsonc'), { force: true });
+        removeWranglerConfig(fixture.root);
 
         // Nuxt has no strict port option: if its port is taken, it moves to a random port
         // without saying so, and this start times out instead of retrying. It also prints no
         // URL under Vitest, so only the page body shows that the answer comes from this app.
         const server = await startServer(
           (port) => {
-            child = spawn(
-              'vp',
-              [
-                'run',
-                '--filter',
-                `./${PLAYGROUND}`,
-                'dev',
-                '--host',
-                '127.0.0.1',
-                '--port',
-                String(port),
-              ],
-              {
-                cwd: ROOT,
-                stdio: ['ignore', 'pipe', 'pipe'],
-                env: {
-                  ...process.env,
-                  VOID_INSPECTOR_PORT: 'false',
-                },
+            child = spawn('vp', ['run', 'dev', '--host', '127.0.0.1', '--port', String(port)], {
+              cwd: fixture.root,
+              stdio: ['ignore', 'pipe', 'pipe'],
+              env: {
+                ...process.env,
+                VOID_INSPECTOR_PORT: 'false',
               },
-            );
+            });
             return child;
           },
           30_000,
@@ -65,14 +57,18 @@ describe(
     );
 
     afterAll(async () => {
-      if (child) {
-        await killChild(child);
+      try {
+        if (child) {
+          await killChild(child);
+        }
+      } finally {
+        fixture?.cleanup();
       }
     });
 
     it('syncs the generated Cloudflare config with bindings from void.config.ts', () => {
       const wranglerConfig = JSON.parse(
-        readFileSync(join(ROOT, `${PLAYGROUND}/.void-wrangler.jsonc`), 'utf-8'),
+        readFileSync(join(fixture.root, '.void-wrangler.jsonc'), 'utf8'),
       ) as {
         d1_databases?: Array<{ binding: string }>;
         kv_namespaces?: Array<{ binding: string }>;
@@ -80,7 +76,7 @@ describe(
 
       expect(wranglerConfig.d1_databases?.some((b) => b.binding === 'DB')).toBe(true);
       expect(wranglerConfig.kv_namespaces?.some((b) => b.binding === 'KV')).toBe(true);
-      expect(existsSync(join(ROOT, `${PLAYGROUND}/wrangler.jsonc`))).toBe(false);
+      expect(existsSync(join(fixture.root, 'wrangler.jsonc'))).toBe(false);
     });
 
     it('renders home page with SSR', async () => {
@@ -91,7 +87,7 @@ describe(
     });
 
     it('does not serve the dev-trigger token', async () => {
-      const pg = join(ROOT, PLAYGROUND);
+      const pg = fixture.root;
       const token = readFileSync(join(pg, '.void/dev-trigger-token'), 'utf8').trim();
 
       const tokenFile = await fetch(`${DEV_BASE}/_nuxt/.void/dev-trigger-token`);

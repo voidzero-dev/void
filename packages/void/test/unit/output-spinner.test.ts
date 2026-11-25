@@ -30,6 +30,36 @@ it('passes interactive cancellation through to the native spinner', () => {
   expect(mocks.spinner).toHaveBeenCalledWith({ onCancel });
 });
 
+it('passes the elapsed-time indicator through to the native spinner', () => {
+  mocks.ci.mockReturnValue(false);
+  mocks.spinner.mockReturnValue({ start: vi.fn() });
+  const options = { indicator: 'timer', cancelMessage: 'Installing dependencies' } as const;
+  createSpinner(options, true);
+  expect(mocks.spinner).toHaveBeenCalledWith(options);
+});
+
+it('keeps a cleared or failed step visible without a terminal', () => {
+  mocks.ci.mockReturnValue(false);
+  const progress = createSpinner({ indicator: 'timer' }, false);
+  progress.start('Installing dependencies');
+  progress.clear();
+  progress.error('Failed to install dependencies');
+  expect(mocks.spinner).not.toHaveBeenCalled();
+  expect(mocks.log.step.mock.calls).toEqual([['Installing dependencies']]);
+  expect(mocks.log.error.mock.calls).toEqual([['Failed to install dependencies']]);
+});
+
+it('marks a cancelled step without a terminal as a cancelled spinner does in one', () => {
+  mocks.ci.mockReturnValue(true);
+  const progress = createSpinner({ indicator: 'timer' }, true);
+  progress.start('Installing dependencies');
+  progress.cancel('Installing dependencies');
+  // `log.error` draws the red ■ of a cancelled spinner. A warning is a yellow ▲.
+  expect(mocks.log.error.mock.calls).toEqual([['Installing dependencies']]);
+  expect(mocks.log.warn).not.toHaveBeenCalled();
+  expect(progress.isCancelled).toBe(true);
+});
+
 it('uses plain progress messages in CI without starting an animated spinner', () => {
   mocks.ci.mockReturnValue(true);
   const progress = createSpinner(undefined, true);

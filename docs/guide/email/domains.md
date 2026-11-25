@@ -15,7 +15,7 @@ The shared sender uses the platform's configured mail domain. To send — and re
 void email domain add acme.com
 ```
 
-`add` opens a Cloudflare API-token template. Restrict the token to the selected account and mail zone before creating it; Workers Scripts permission applies across that account. The CLI accepts a masked paste or a newly copied token and asks you to confirm those restrictions. The platform encrypts the credential for the zone connection, so projects sharing that zone do not need separate ingress Workers.
+`add` opens a Cloudflare API token template with the email and zone permissions selected. Add **Workers → Admin** for the account so Void can create and remove the mail ingress Worker. Restrict the token to the account and mail zone before creating it. The CLI accepts a masked paste or a newly copied token and asks you to confirm those restrictions. The platform encrypts the credential for the zone connection, so projects sharing that zone do not need separate ingress Workers.
 
 For inbound mail, use a Cloudflare zone apex with no existing mail service, such as `example.com`. Each apex belongs to one project, and a project can register several. Existing MX records or a catch-all pointing elsewhere block registration to protect your current mail service.
 
@@ -83,13 +83,13 @@ Setup enables the zone's plus addressing so `support+T-42@mail.acme.com` reaches
 
 ### Sending {#sending}
 
-On Workers Free, `sendEmail()` can send to verified destinations listed under **Email Routing → Destination addresses** in Cloudflare.
+On Workers Free, apps with `email/` handlers can send to verified destinations listed under **Email Routing → Destination addresses** in Cloudflare. Apps without `email/` handlers send through Email Sending, which requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans).
 
 Configure your sender domain's SPF, DKIM, and DMARC records using [Cloudflare's email authentication guidance](https://developers.cloudflare.com/email-service/concepts/email-authentication/), then check the authentication results in a received message's original headers. A successful `sendEmail()` result confirms provider acceptance; it does not confirm delivery or authentication readiness.
 
-Sending to arbitrary recipients requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans) and Email Sending onboarding. After upgrading, run `void email setup --platform cloudflare`. Void doesn't retry onboarding during ordinary deploys.
+Sending to arbitrary recipients requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans) and Email Sending onboarding. After upgrading, run `void email setup --platform cloudflare`. Once setup is saved, deploys don't retry onboarding.
 
-Existing DMARC or bounce-domain records can block onboarding; the checklist identifies conflicts to resolve. Inbound mail remains available.
+Existing DMARC or bounce-domain records can block onboarding; the checklist identifies conflicts to resolve. Apps with `email/` handlers keep inbound mail.
 
 The `void email usage`, `logs`, `destinations`, `allow`, and `disallow` commands apply to Void platforms.
 
@@ -118,4 +118,4 @@ Commit `void.lock.json`, then deploy in CI with:
 void deploy --platform cloudflare --require-email
 ```
 
-CI cannot answer setup prompts. Without `--require-email`, an unconfigured app can deploy without email. If setup is saved but DNS hasn't propagated, deployment waits for a later retry. For apps with inbound handlers, Workers Free setup for verified recipients satisfies `--require-email`. Sending-only apps must have an onboarded sending domain and a configured send binding.
+CI cannot answer setup prompts. Without `--require-email`, an unconfigured app can deploy without email. If setup is saved but DNS hasn't propagated, deployment waits for a later retry. For apps with inbound handlers, Workers Free setup for verified recipients satisfies `--require-email`. Sending-only apps need an onboarded sending domain (Workers Paid) and a configured send binding.

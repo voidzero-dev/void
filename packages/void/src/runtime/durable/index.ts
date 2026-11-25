@@ -60,6 +60,7 @@ export function defineDurableObject<TClass extends NativeDurableClass>(definitio
     ) {
       const namespace = typeof namespaceOrName === 'string' ? boundNamespace() : namespaceOrName;
       return namespace.get(
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- The namespace overload requires the second argument to be the object name.
         namespace.idFromName(typeof namespaceOrName === 'string' ? namespaceOrName : maybeName!),
       );
     },
@@ -259,6 +260,7 @@ export function defineDurableState<
       let value: unknown = stored.value;
       // assertMigrations() guarantees a migration for every version in 1..version.
       for (let nextVersion = stored.version + 1; nextVersion <= version; nextVersion++) {
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- assertMigrations verifies an entry for each version before initialization.
         value = await migrations.get(nextVersion)!.migrate(value);
       }
       this.#value = value as TState;
@@ -315,20 +317,22 @@ export function defineDurableState<
     }
 
     fetch(request: Request): Promise<Response> {
-      if (!definition.fetch) {
+      const fetch = definition.fetch;
+      if (!fetch) {
         return Promise.resolve(new Response('Not Found', { status: 404 }));
       }
       return this.#run(async () => {
-        return definition.fetch!(this.#context(), request);
+        return fetch.call(definition, this.#context(), request);
       });
     }
 
     alarm(): Promise<void> {
-      if (!definition.alarm) {
+      const alarm = definition.alarm;
+      if (!alarm) {
         return Promise.resolve();
       }
       return this.#run(async () => {
-        await definition.alarm!(this.#context());
+        await alarm.call(definition, this.#context());
       });
     }
     static {
@@ -355,7 +359,7 @@ export function defineDurableState<
   }
 
   return {
-    class: VoidDurableState as unknown as DurableStateClass<TMethods>,
+    class: VoidDurableState as DurableStateClass<TMethods>,
     __bind(name, resourceName) {
       if (definition.name !== resourceName) {
         throw new Error(
@@ -371,6 +375,7 @@ export function defineDurableState<
     },
     get(namespaceOrName: DurableObjectNamespace | string, maybeName?: string) {
       const namespace = typeof namespaceOrName === 'string' ? boundNamespace() : namespaceOrName;
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- The namespace overload requires the second argument to be the object name.
       const name = typeof namespaceOrName === 'string' ? namespaceOrName : maybeName!;
       return namespace.get(namespace.idFromName(name)) as TypedDurableObjectStub<TMethods>;
     },

@@ -10,14 +10,17 @@ import {
   use,
   useLayoutEffect,
   useState,
-  type ReactNode,
 } from 'react';
-import { createRoot, type Root, type RootOptions } from 'react-dom/client';
+import type { ReactNode } from 'react';
+import { createRoot } from 'react-dom/client';
+import type { Root, RootOptions } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { VoidActionError, type VoidRouter } from 'void/pages-client';
+import { VoidActionError } from 'void/pages-client';
+import type { VoidRouter } from 'void/pages-client';
 import { RouterContext } from '../../src/runtime/context.ts';
 import { useForm } from '../../src/runtime/use-form.ts';
-import { useIslandForm, type IslandFormReturn } from '../../src/runtime/use-island-form.ts';
+import { useIslandForm } from '../../src/runtime/use-island-form.ts';
+import type { IslandFormReturn } from '../../src/runtime/use-island-form.ts';
 
 declare module 'void/routes' {
   interface PageActionMap {
@@ -27,6 +30,10 @@ declare module 'void/routes' {
 
 const actionUrl = '/__form-callbacks/notes?create';
 type TestForm = ReturnType<typeof useForm<typeof actionUrl>>;
+interface FormRef<T> {
+  current: T | null;
+}
+
 type FormOptions = NonNullable<Parameters<typeof useForm<typeof actionUrl>>[2]>;
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -85,7 +92,7 @@ async function mountApp(app: ReactNode, options?: RootOptions) {
 
 async function mountForm(visit: VoidRouter['visit'], options?: FormOptions) {
   const router = routerWithVisit(visit);
-  const formRef: { current: TestForm | null } = { current: null };
+  const formRef: FormRef<TestForm> = { current: null };
   function App() {
     const form = useForm(actionUrl, { title: '' }, options);
     formRef.current = form;
@@ -680,7 +687,7 @@ describe('useForm state derivation and error management', () => {
       });
 
       const defaults = { profile: { name: 'Initial' }, tags: ['a'] };
-      const islandFormRef: { current: IslandFormReturn<typeof defaults> | null } = {
+      const islandFormRef: FormRef<IslandFormReturn<typeof defaults>> = {
         current: null,
       };
 

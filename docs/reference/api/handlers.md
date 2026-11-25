@@ -224,7 +224,7 @@ interface RenderAssetTags {
 
 ## `defineHead<P>(handler)` {#definehead-p-handler}
 
-Type-safe wrapper for the page `head()` export in `.server.ts` files. Provides [`CloudContext`](./types.md#cloudcontext) typing for the first argument and generic props typing for the second.
+Type-safe wrapper for the page `head()` export in `.server.ts` files. It returns a [`HeadConfig`](./types.md#headconfig). Provides [`CloudContext`](./types.md#cloudcontext) typing for the first argument and generic props typing for the second.
 
 ```ts
 import { defineHandler, defineHead } from 'void';
@@ -254,6 +254,6 @@ export const head = defineHead<Props>((c, props) => {
 
 ```ts
 function defineHead<P = Record<string, unknown>>(
-  handler: (c: CloudContext, props: P) => HeadDescriptor | undefined,
-): (c: CloudContext, props: P) => HeadDescriptor | undefined;
+  handler: (c: CloudContext, props: P) => HeadConfig | undefined,
+): (c: CloudContext, props: P) => HeadConfig | undefined;
 ```

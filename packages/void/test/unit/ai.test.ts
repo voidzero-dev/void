@@ -18,9 +18,16 @@ function makeDirectAi(
 }
 
 describe('runtime ai', () => {
-  it.each(['direct', 'http', 'service'] as const)(
-    'cancels provider response streams on the %s transport without serializing the signal',
-    async (transport) => {
+  it.each([
+    ['direct', 'application/json'],
+    ['http', 'application/json'],
+    ['service', 'application/json'],
+    ['direct', 'text/event-stream'],
+    ['http', 'text/event-stream'],
+    ['service', 'text/event-stream'],
+  ] as const)(
+    'cancels provider response streams on the %s transport (%s) without serializing the signal',
+    async (transport, contentType) => {
       vi.resetModules();
       const { envContext } = await import('../../src/runtime/env/raw.ts');
       const { ai } = await import('../../src/runtime/ai/index.ts');
@@ -30,9 +37,11 @@ describe('runtime ai', () => {
           new Response(
             new ReadableStream({
               start(stream) {
+                stream.enqueue(new TextEncoder().encode('data: {"a":1}\n\n'));
                 init.signal?.addEventListener('abort', () => stream.error(init.signal!.reason));
               },
             }),
+            { headers: { 'content-type': contentType } },
           ),
       );
       vi.stubGlobal('fetch', request);
@@ -55,7 +64,7 @@ describe('runtime ai', () => {
           body: { messages: [] },
           signal: controller.signal,
         });
-        const init = request.mock.calls[0]![1];
+        const init = request.mock.calls[0][1];
         expect(init.signal).toBe(controller.signal);
         const payload = JSON.parse(init.body as string);
         expect(payload).not.toHaveProperty('signal');
@@ -66,6 +75,46 @@ describe('runtime ai', () => {
       });
     },
   );
+
+  it('ends a provider SSE stream that fails without a cancellation with a void:error event', async () => {
+    vi.resetModules();
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
+    const controller = new AbortController();
+    let pulls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream({
+              pull(stream) {
+                if (pulls++ === 0) {
+                  stream.enqueue(new TextEncoder().encode('data: {"a":1}\n\n'));
+                } else {
+                  stream.error(new Error('upstream reset'));
+                }
+              },
+            }),
+            { headers: { 'content-type': 'text/event-stream' } },
+          ),
+      ),
+    );
+    const env = {
+      AI: makeDirectAi().AI,
+      __VOID_AI_GATEWAY: 'gateway',
+      OPENAI_API_KEY: 'synthetic-provider-key',
+    };
+    await envContext.run(env, async () => {
+      const response = await ai.provider('openai').fetch('/chat/completions', {
+        body: { messages: [], stream: true },
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      expect(text).toContain('data: {"a":1}');
+      expect(text).toContain('event: void:error');
+    });
+  });
 
   it.each(['http', 'service'] as const)(
     'keeps cancellation on the %s transport instead of serializing it as a binding option',
@@ -430,12 +479,9 @@ describe('runtime ai', () => {
         __VOID_PROXY_URL: 'https://proxy.test',
       },
       async () => {
-        const result = await ai.run(
-          '@cf/black-forest-labs/flux-1-schnell' as keyof AiModels,
-          {
-            prompt: 'a small robot',
-          } as never,
-        );
+        const result = await ai.run('@cf/black-forest-labs/flux-1-schnell' as keyof AiModels, {
+          prompt: 'a small robot',
+        });
 
         expect(result).toBeInstanceOf(Blob);
         expect((result as Blob).type).toBe('image/png');
@@ -584,7 +630,7 @@ describe('runtime ai', () => {
           body: { model: 'gpt-4o' },
         });
         expect(response.status).toBe(501);
-        const body = (await response.json()) as { error: string };
+        const body = await response.json<{ error: string }>();
         expect(body.error).toMatch(/gateway/i);
         expect(body.error).toContain('Set `ai.gateway` in void.config.ts.');
       });
@@ -610,7 +656,7 @@ describe('runtime ai', () => {
           body: { model: 'gpt-4o' },
         });
         expect(response.status).toBe(400);
-        const body = (await response.json()) as { error: string };
+        const body = await response.json<{ error: string }>();
         expect(body.error).toContain('OPENAI_API_KEY');
       });
 
@@ -641,7 +687,7 @@ describe('runtime ai', () => {
             body: { model: 'gpt-4o' },
           });
           expect(response.status).toBe(502);
-          const body = (await response.json()) as { error: string };
+          const body = await response.json<{ error: string }>();
           expect(body.error).toContain('my-gw');
         },
       );
@@ -669,7 +715,7 @@ describe('runtime ai', () => {
             .provider('openai')
             .fetch('https://evil.example.com/v1/chat', { body: { model: 'gpt-4o' } });
           expect(response.status).toBe(400);
-          const body = (await response.json()) as { error: string };
+          const body = await response.json<{ error: string }>();
           expect(body.error).toMatch(/must be relative/);
         },
       );

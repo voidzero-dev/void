@@ -3,8 +3,10 @@ import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, type ViteDevServer } from 'vite';
+import { createServer } from 'vite';
+import type { ViteDevServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { devTriggerSecretGuardPlugin } from '../../src/plugin-dev-config.ts';
 
 const TOKEN = 'dev-trigger-secret-0f3c9a';

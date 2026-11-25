@@ -34,7 +34,7 @@ export type MySqlMigrationLease = {
  * `app:-80@replica`) in DATABASE(), and the lock belongs to the keyspace.
  */
 export function mySqlMigrationLockName(database: string): string {
-  return `void_migrations:${createHash('sha1').update(database.split(/[:@]/)[0]!).digest('hex')}`;
+  return `void_migrations:${createHash('sha1').update(database.split(/[:@]/)[0]).digest('hex')}`;
 }
 
 export function mySqlMigrationLockError(database: string, retry: string): Error {
@@ -106,7 +106,7 @@ export async function acquireMySqlMigrationLease(
       // Taken before this check, so a CLI run that starts later sees the lease and stops.
       const [lock] = rowsOf(await query('SELECT IS_USED_LOCK(?)', [lockName]));
       // Vitess names the column after the call and ignores any alias.
-      if (Object.values(lock ?? {})[0] == null) {
+      if ((Object.values(lock ?? {})[0] ?? null) === null) {
         return lease;
       }
       await lease.release();
@@ -114,7 +114,9 @@ export async function acquireMySqlMigrationLease(
     if (Date.now() >= deadline) {
       throw mySqlMigrationLockError(database, 'deploy again');
     }
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    await new Promise((resolve) => {
+      setTimeout(resolve, POLL_MS);
+    });
   }
 }
 

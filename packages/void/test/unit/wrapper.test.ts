@@ -37,6 +37,29 @@ const base: WrapperFeatures = {
   queues: [],
 };
 
+// Wrappers in these tests use plain objects for bindings and execution context.
+type FixtureWorker = {
+  fetch(
+    request: Request,
+    env: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): Promise<Response>;
+  scheduled(): unknown;
+  email(): unknown;
+  queue(
+    batch: Record<string, unknown>,
+    env: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): Promise<void>;
+};
+
+async function loadWrappedWorker(root: string): Promise<FixtureWorker> {
+  const { default: worker } = (await import(pathToFileURL(join(root, 'index.mjs')).href)) as {
+    default: FixtureWorker;
+  };
+  return worker;
+}
+
 describe('repeated wrapper generation', () => {
   const roots: Array<string> = [];
   afterEach(() => {
@@ -57,7 +80,7 @@ describe('repeated wrapper generation', () => {
       readiness: true,
       versionMetadataBinding: 'AUTHORED_VERSION',
     });
-    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    const worker = await loadWrappedWorker(root);
     const response = await worker.fetch(
       new Request('https://app.example/__void/ready', {
         headers: { 'Cloudflare-Workers-Version-Overrides': 'app="new-version"' },
@@ -80,7 +103,7 @@ describe('repeated wrapper generation', () => {
     await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
     await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
     expect(readFileSync(join(root, '__original.mjs'), 'utf8')).toBe(original);
-    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    const worker = await loadWrappedWorker(root);
     expect(await (await worker.fetch(new Request('https://app/'), {}, {})).text()).toBe(
       'application',
     );
@@ -109,7 +132,7 @@ describe('repeated wrapper generation', () => {
       'export default { fetch() { return new Response("app"); }, scheduled() { return "cron"; }, email() { return "mail"; } };',
     );
     await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
-    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    const worker = await loadWrappedWorker(root);
     expect(worker.scheduled()).toBe('cron');
     expect(worker.email()).toBe('mail');
     expect((await worker.fetch(new Request('https://app/__void/ready'), {}, {})).status).toBe(200);
@@ -123,7 +146,7 @@ describe('repeated wrapper generation', () => {
       'export default function handler() { return new Response("bare"); }',
     );
     await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
-    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    const worker = await loadWrappedWorker(root);
     const response = await worker.fetch(new Request('https://app/__void/ready'), {}, {});
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
@@ -172,7 +195,7 @@ describe('repeated wrapper generation', () => {
     });
     try {
       await generateWrapper(root, 'index.mjs', root, { ...base, isr: { revalidate: 60 } });
-      const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+      const worker = await loadWrappedWorker(root);
       const tasks: Array<Promise<unknown>> = [];
       const ctx = {
         waitUntil: (task: Promise<unknown>) => {
@@ -374,7 +397,7 @@ describe('cleanupWrapper', () => {
     cleanupWrapper(root);
 
     expect(existsSync(projectFile)).toBe(true);
-    expect(readFileSync(join(voidDir, 'dev-trigger-token'), 'utf-8')).toBe('stable-token');
+    expect(readFileSync(join(voidDir, 'dev-trigger-token'), 'utf8')).toBe('stable-token');
     for (const directory of temporaryDirectories) {
       expect(existsSync(join(voidDir, directory))).toBe(false);
     }
@@ -414,7 +437,7 @@ describe('generated wrapper queue dispatch', () => {
       ...base,
       queues: [{ name: 'emails', filePath: 'emails.ts', bindingName: 'QUEUE_EMAILS' }],
     });
-    return (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    return await loadWrappedWorker(root);
   }
 
   const relayRequest = (token?: string) =>
@@ -621,7 +644,7 @@ describe('generated wrapper queue dispatch', () => {
       ...base,
       queues: [{ name: 'emails', filePath: 'emails.ts', bindingName: 'QUEUE_EMAILS' }],
     });
-    const wrapper = (await import(pathToFileURL(join(workerDir, 'index.mjs')).href)).default;
+    const wrapper = await loadWrappedWorker(workerDir);
     const timestamp = new Date('2026-01-01T00:00:00Z');
     const batch = {
       queue: 'emails',
@@ -698,12 +721,12 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       migrationDialect: 'sqlite',
     });
 
-    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf-8');
+    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf8');
     expect(wrapper).toContain('__migrations');
     expect(wrapper).toContain('001_create_users.sql');
     expect(wrapper).toContain('CREATE TABLE users');
 
-    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf-8');
+    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf8');
     expect(handler).not.toMatch(/from\s+["']\.\.\//);
     expect(handler).not.toContain('../migrations/canonical-json');
     expect(handler).not.toContain('../canonical-json-');
@@ -728,13 +751,13 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       migrationDialect: 'postgresql',
     });
 
-    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf-8');
+    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf8');
     expect(handler).not.toContain('import("pg")');
     expect(
       readdirSync(workerDir).some((file) => file.startsWith('__void_migration_handler-')),
     ).toBe(true);
     const bundled = readdirSync(workerDir)
-      .map((file) => readFileSync(join(workerDir, file), 'utf-8'))
+      .map((file) => readFileSync(join(workerDir, file), 'utf8'))
       .join('\n');
     expect(bundled).not.toContain('PGPASSFILE');
     expect(bundled).not.toContain('createReadStream');
@@ -854,7 +877,7 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       expect(imports.filter((id) => !/^(node:|cloudflare:|\.\/)/.test(id))).toEqual([]);
       const required = Array.from(
         code.matchAll(/\b__require\(\s*["']([^"']+)["']\s*\)/g),
-        (match) => match[1]!,
+        (match) => match[1],
       );
       expect(required.filter((id) => !isBuiltin(id) && !optionalRequires.includes(id))).toEqual([]);
     }
@@ -1312,7 +1335,7 @@ export default {
       crons: [{ name: 'daily', filePath: 'daily.ts', crons: ['0 0 * * *'] }],
     });
 
-    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf-8');
+    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf8');
     expect(wrapper).not.toContain('/__void/migrate');
     expect(wrapper).toContain('/__void/scheduled');
   });

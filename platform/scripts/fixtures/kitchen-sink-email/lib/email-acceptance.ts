@@ -17,7 +17,7 @@ export function acceptEmail(route: string) {
         html: parsed.html,
         attachments: parsed.attachments.map(({ filename, mimeType }) => ({ filename, mimeType })),
       }),
-      { ttl: 3_600 },
+      { ttl: 3600 },
     );
     if (subject.startsWith('REJECT ')) {
       message.setReject('Void email acceptance reject');

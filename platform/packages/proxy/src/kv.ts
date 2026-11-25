@@ -219,10 +219,10 @@ kv.post('/list', async (context) => {
     return context.json({ error: 'KV list failed', status: cfRes.status }, 502);
   }
 
-  const data = (await cfRes.json()) as {
+  const data = await cfRes.json<{
     result?: ReadonlyArray<{ name: string }>;
     result_info?: { cursor?: string };
-  };
+  }>();
   return context.json({
     keys: data.result ?? [],
     list_complete: !data.result_info?.cursor,

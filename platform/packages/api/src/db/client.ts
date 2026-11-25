@@ -1,4 +1,6 @@
-import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+// oxlint-disable-next-line import/no-namespace -- Drizzle consumes the full schema module with its relations.
 import * as schema from '../schema.ts';
 
 export function createDb(connectionString: string) {

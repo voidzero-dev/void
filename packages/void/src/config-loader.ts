@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createJiti } from 'jiti';
-import { join } from 'pathslash';
+import { dirname, join } from 'pathslash';
 import { aliasHint } from './host/alias-hint.ts';
 
 export const LEGACY_CONFIG_FILE = 'void.json';
@@ -15,13 +15,19 @@ export function getConfigFileName(root: string): string {
 }
 
 /** Evaluate a TypeScript config without requiring Void to be installed in the target project. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Callers validate the project's default export after loading it.
 export function loadTypedVoidConfigFile(path: string): unknown {
   const sourceEntry = fileURLToPath(new URL('./config-entry.ts', import.meta.url));
   const configEntry = existsSync(sourceEntry)
     ? sourceEntry
     : fileURLToPath(import.meta.resolve('void/config'));
+  // Transpiling costs about 50ms the first time in a process and a few more on each later load,
+  // and one build or dev start loads the config more than ten times. The cache holds only the
+  // transpiled source, keyed by the content of each file, so every load still evaluates the
+  // config. It lives in the project's own node_modules, never in a shared temporary directory.
+  const nodeModules = join(dirname(path), 'node_modules');
   const jiti = createJiti(import.meta.url, {
-    fsCache: false,
+    fsCache: existsSync(nodeModules) ? join(nodeModules, '.cache', 'void', 'config') : false,
     moduleCache: false,
     interopDefault: false,
     alias: { 'void/config': configEntry },
@@ -59,7 +65,7 @@ export function loadVoidConfig(root: string): LoadedVoidConfig | null {
   }
 
   try {
-    return { source: LEGACY_CONFIG_FILE, value: JSON.parse(readFileSync(jsonPath, 'utf-8')) };
+    return { source: LEGACY_CONFIG_FILE, value: JSON.parse(readFileSync(jsonPath, 'utf8')) };
   } catch (error) {
     throw new Error(`config: Invalid JSON in ${LEGACY_CONFIG_FILE}.`, { cause: error });
   }

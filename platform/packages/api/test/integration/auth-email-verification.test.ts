@@ -10,6 +10,7 @@ import {
   vi,
 } from 'vite-plus/test';
 import { hmacSignState } from '../../src/auth/hmac.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as dbModule from '../../src/db.ts';
 import {
   createOAuthAccount,
@@ -33,8 +34,8 @@ import {
   createMockExecutionContext,
   seedOAuthNonce,
   JWT_SECRET,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 const executionCtx = createMockExecutionContext();
@@ -117,7 +118,7 @@ describe('email verification gating on account linking', () => {
         JSON.stringify(allowed ? [{ type: 'github', pattern: 'invited-user' }] : []),
       );
       const fetchMock = mockGitHubApi({
-        id: 44444,
+        id: 44_444,
         login: 'invited-user',
         email: 'invited@example.com',
         emailVerified: true,
@@ -157,7 +158,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 99999,
+        id: 99_999,
         login: 'new-gh-user',
         email: 'shared@example.com',
         emailVerified: false,
@@ -194,7 +195,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 77777,
+        id: 77_777,
         login: 'public-email-gh-user',
         email: 'public@example.com',
         emailVerified: true,
@@ -232,7 +233,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 88888,
+        id: 88_888,
         login: 'verified-gh-user',
         email: 'verified@example.com',
         emailVerified: true,
@@ -275,7 +276,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 424242,
+        id: 424_242,
         login: 'invited-existing',
         email: 'invited-existing@example.com',
         emailVerified: true,
@@ -303,7 +304,7 @@ describe('email verification gating on account linking', () => {
   it('does not grant source repository access after an unrestricted signup', async () => {
     Object.assign(env, { GITHUB_PREVIEW_REPO_PAT: 'test-legacy-pat' });
     const fetchMock = mockGitHubApi({
-      id: 55555,
+      id: 55_555,
       login: 'new-user',
       email: 'new@example.com',
       emailVerified: true,
@@ -331,7 +332,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 55556,
+        id: 55_556,
         login: 'new-member',
         email: 'member@example.com',
         emailVerified: true,
@@ -393,7 +394,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 222222, // Y != X
+        id: 222_222, // Y != X
         login: 'another-gh-account',
         email: 'one-github@example.com',
         emailVerified: true,
@@ -423,7 +424,7 @@ describe('email verification gating on account linking', () => {
       .from(oauthAccounts)
       .where(and(eq(oauthAccounts.user_id, existing.id), eq(oauthAccounts.provider, 'github')));
     expect(githubRows.length).toBe(1);
-    expect(githubRows[0]!.providerId).toBe('111111');
+    expect(githubRows[0].providerId).toBe('111111');
     expect(await getUserByOAuthAccount(env.db, 'github', '222222')).toBeNull();
 
     // ...and the unowned installation for the REJECTED id Y was NOT claimed.
@@ -447,7 +448,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 333333,
+        id: 333_333,
         login: 'bob-gh',
         email: 'no-github@example.com',
         emailVerified: true,
@@ -520,7 +521,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 717171,
+        id: 717_171,
         login: 'rotating-user',
         email: 'new-owner@example.com',
         emailVerified: true,
@@ -544,7 +545,7 @@ describe('email verification gating on account linking', () => {
     expect(payload!.sub).toBe(existing.id);
 
     const [updated] = await env.db.select().from(users).where(eq(users.id, existing.id));
-    expect(updated!.email).toBe('new-owner@example.com');
+    expect(updated.email).toBe('new-owner@example.com');
 
     const rows = await env.db
       .select()
@@ -589,7 +590,7 @@ describe('email verification gating on account linking', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 818181,
+        id: 818_181,
         login: 'stable-user',
         // Same address, different case — a case flip is not a reassignment.
         email: 'Stable-Owner@Example.com',
@@ -676,9 +677,9 @@ describe('email verification gating on account linking', () => {
         .from(emailDestinations)
         .where(eq(emailDestinations.id, inheritedId));
       return {
-        email: user!.email,
-        status: row!.status,
-        source: row!.verification_source,
+        email: user.email,
+        status: row.status,
+        source: row.verification_source,
       };
     }
 
@@ -823,7 +824,7 @@ describe('email verification gating on account linking', () => {
       // The provider now reports the NEW address; every login below rotates
       // (or confirms) it.
       const github = mockGitHubApi({
-        id: 939393,
+        id: 939_393,
         login: 'racing-user',
         email: 'new-owner@example.com',
         emailVerified: true,
@@ -835,7 +836,7 @@ describe('email verification gating on account linking', () => {
           return Response.json(
             {
               success: false,
-              errors: [{ code: 10037, message: 'destination address already exists' }],
+              errors: [{ code: 10_037, message: 'destination address already exists' }],
               messages: [],
               result: null,
             },
@@ -871,10 +872,10 @@ describe('email verification gating on account linking', () => {
         emailEnv(),
       );
       expect(created.status).toBe(201);
-      const project = (await created.json()) as { id: string };
+      const project = await created.json<{ id: string }>();
       expect(loginDuringAdd?.status).toBe(302);
       const [user] = await env.db.select().from(users).where(eq(users.id, existing.id));
-      expect(user!.email).toBe('new-owner@example.com');
+      expect(user.email).toBe('new-owner@example.com');
 
       // The grant the login could not see must not exist: the row would say
       // the OLD identity consented to mail reaching a mailbox the owner no
@@ -917,7 +918,7 @@ describe('email verification gating on account linking', () => {
       const project = await createTestProject(env.db, existing.id, 'owner-email-racing-manual');
 
       const github = mockGitHubApi({
-        id: 949494,
+        id: 949_494,
         login: 'racing-manual',
         email: 'new-owner@example.com',
         emailVerified: true,
@@ -949,7 +950,7 @@ describe('email verification gating on account linking', () => {
           return Response.json(
             {
               success: false,
-              errors: [{ code: 10037, message: 'destination address already exists' }],
+              errors: [{ code: 10_037, message: 'destination address already exists' }],
               messages: [],
               result: null,
             },
@@ -1050,7 +1051,7 @@ describe('email verification gating on account linking', () => {
       });
 
       const github = mockGitHubApi({
-        id: 959595,
+        id: 959_595,
         login: 'racing-listing',
         email: 'new-owner@example.com',
         emailVerified: true,
@@ -1092,7 +1093,7 @@ describe('email verification gating on account linking', () => {
       );
       expect(loginDuringRefresh?.status).toBe(302);
       expect(res.status).toBe(200);
-      const listed = (await res.json()) as Array<{ id: string; status: string }>;
+      const listed = await res.json<Array<{ id: string; status: string }>>();
       expect(listed.find((r) => r.id === 'edst_racing_listing')?.status).toBe('pending');
 
       const [row] = await env.db
@@ -1141,7 +1142,7 @@ describe('email match never reaches an administrator account', () => {
     vi.stubGlobal(
       'fetch',
       mockGitHubApi({
-        id: 444001,
+        id: 444_001,
         login: 'lookalike',
         email: 'admin@example.com',
         emailVerified: true,

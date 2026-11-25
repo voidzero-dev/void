@@ -7,7 +7,7 @@
     "dev": "vp dev",
     "preview": "vp preview",
     "remote": "VOID_REMOTE=1 vp dev",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "hono": "catalog:",
@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@void/vue": "workspace:*",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",

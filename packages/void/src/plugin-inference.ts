@@ -2,15 +2,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, toSlash } from 'pathslash';
 import { globSync } from 'tinyglobby';
 import { applyBindingOverrides } from './application-features.ts';
-import { inferBindingsFromSource, mergeBindings, type InferredBindings } from './inference/walk.ts';
+import { inferBindingsFromSource, mergeBindings } from './inference/walk.ts';
+import type { InferredBindings } from './inference/walk.ts';
 import { pageFileEnvironment } from './pages/scan.ts';
-import { readProjectPaths, type ProjectPaths } from './project-paths.ts';
+import { readProjectPaths } from './project-paths.ts';
+import type { ProjectPaths } from './project-paths.ts';
 import {
   isRouteEnabledForEnvironment,
   parseRouteFilename,
   parseWebSocketFilename,
-  type RouteEnvironment,
 } from './router/parse-filename.ts';
+import type { RouteEnvironment } from './router/parse-filename.ts';
 import { isWebSocketPatternFile } from './router/websocket.ts';
 import { conventionFileGlobs, isRouteFile } from './shared/convention-files.ts';
 import { deriveFromSource } from './shared/source-analysis-cache.ts';
@@ -65,7 +67,7 @@ export const DEFAULT_SCAN_DIRS = [
  * For example, `react-router` alone is a client-side router — only
  * `@react-router/dev` signals the framework (Vite plugin) mode.
  */
-const FRAMEWORK_PACKAGES: Record<string, DetectedFramework> = {
+const FRAMEWORK_PACKAGES = {
   '@tanstack/react-start': { name: 'tanstack-start', class: 'a' },
   '@react-router/dev': { name: 'react-router', class: 'a' },
   vinext: { name: 'vinext-pages', class: 'a' },
@@ -73,7 +75,7 @@ const FRAMEWORK_PACKAGES: Record<string, DetectedFramework> = {
   nuxt: { name: 'nuxt', class: 'c' },
   '@analogjs/platform': { name: 'analog', class: 'c' },
   astro: { name: 'astro', class: 'c' },
-};
+} satisfies Record<string, DetectedFramework>;
 
 /**
  * Detect a meta-framework by checking package.json dependencies.
@@ -82,7 +84,7 @@ const FRAMEWORK_PACKAGES: Record<string, DetectedFramework> = {
 export function detectFramework(root: string): DetectedFramework | undefined {
   let pkg: Record<string, unknown>;
   try {
-    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+    pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as Record<string, unknown>;
   } catch {
     return undefined;
   }

@@ -82,7 +82,7 @@ function hexToBase64(hex: string): string {
   }
   let bin = '';
   for (let i = 0; i < 32; i += 2) {
-    bin += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
+    bin += String.fromCharCode(Number.parseInt(hex.slice(i, i + 2), 16));
   }
   return btoa(bin);
 }
@@ -93,7 +93,7 @@ function hexToBase64(hex: string): string {
  * separators stripped).
  */
 function formatAmzDate(d: Date): string {
-  return d.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  return d.toISOString().replaceAll(/[:-]|\.\d{3}/g, '');
 }
 
 /**
@@ -122,7 +122,8 @@ export async function presignAssetPut(
   // the unsignable list into the signed-headers list, which is what we
   // want — Content-Type, Content-Md5 and Content-Length must be covered by
   // the signature so R2 rejects tampered uploads.
-  const headers: Record<string, string> = {
+  const headers: Record<'Content-Type', string> &
+    Partial<Record<'Content-Md5' | 'If-None-Match' | 'Content-Length', string>> = {
     'Content-Type': opts.contentType,
   };
   if (opts.md5 !== undefined) {

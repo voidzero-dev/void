@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vite-plus/test';
 
 vi.mock('cloudflare:workers', () => ({ env: {} }));
 
-import { createKV, type KVClient } from '../../src/runtime/kv/index.ts';
+import { createKV } from '../../src/runtime/kv/index.ts';
+import type { KVClient } from '../../src/runtime/kv/index.ts';
 
 function createMockKVNamespace() {
   const ns = {
@@ -53,7 +54,7 @@ describe('createKV', () => {
 
   beforeEach(() => {
     mockNS = createMockKVNamespace();
-    kv = createKV(mockNS as unknown as KVNamespace);
+    kv = createKV(mockNS);
   });
 
   describe('get', () => {
@@ -89,8 +90,8 @@ describe('createKV', () => {
     });
 
     it('passes expiration option', async () => {
-      await kv.put('key', 'val', { expiration: 1700000000 });
-      expect(mockNS.put).toHaveBeenCalledWith('key', '"val"', { expiration: 1700000000 });
+      await kv.put('key', 'val', { expiration: 1_700_000_000 });
+      expect(mockNS.put).toHaveBeenCalledWith('key', '"val"', { expiration: 1_700_000_000 });
     });
   });
 

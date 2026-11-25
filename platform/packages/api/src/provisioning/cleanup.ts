@@ -18,7 +18,6 @@ import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
 import { clearCronScheduler } from '../cron-scheduler-client.ts';
 import {
   TERMINAL_DEPLOYMENT_STATUSES,
-  type Db,
   deleteProjectCascade,
   cleanupJobsForResource,
   enqueueProjectCleanupJobs,
@@ -31,8 +30,8 @@ import {
   getProjectResources,
   getUser,
   terminateBuildsForProject,
-  type ProjectCleanupJobInput,
 } from '../db.ts';
+import type { Db, ProjectCleanupJobInput } from '../db.ts';
 import { drainProjectEmailAdmissions } from '../email/admission.ts';
 import { emailDomainRoutes, emailZoneConnections } from '../email/connection-schema.ts';
 import { requestEmailDomainRemove, runEmailOperation } from '../email/connection-service.ts';
@@ -218,7 +217,7 @@ async function runCleanupBatch(
   await Promise.all(
     Array.from({ length: Math.min(5, jobs.length) }, async () => {
       while (next < jobs.length) {
-        const job = jobs[next++]!;
+        const job = jobs[next++];
         try {
           await executeCleanupJob(env, job);
         } catch (error) {
@@ -288,7 +287,9 @@ async function cleanupCriticalResources(
     resources.filter((r) => r.type === 'container').map((r) => r.cf_id),
   );
   await sweepPerDeployContainerOrphans(context, projectId, alreadyDeletedCfIds);
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 2000);
+  });
   await sweepPerDeployContainerOrphans(context, projectId, alreadyDeletedCfIds);
 }
 
@@ -463,25 +464,17 @@ async function cleanupBestEffortResources(
   // (deleteAll + deleteAlarm). KV `hasCrons` is omitted when false and
   // missing on older entries; the PG manifest is the authoritative source,
   // and unconditional clear avoids a stale-KV gate.
-  cleanup.push(cleanupJob(projectId, 'cron', projectId, { projectId }));
-
-  // KV routing entry
   cleanup.push(
+    cleanupJob(projectId, 'cron', projectId, { projectId }),
+    // KV routing entry
     cleanupJob(projectId, 'routing-key', projectRouteKey(project), {
       key: projectRouteKey(project),
     }),
-  );
-  cleanup.push(
     cleanupJob(projectId, 'routing-key', `ai-block:${projectId}`, { key: `ai-block:${projectId}` }),
-  );
-
-  // Retire any account mirror left by the removed tenant-owned Sandbox proxy.
-  cleanup.push(
+    // Retire any account mirror left by the removed tenant-owned Sandbox proxy.
     cleanupJob(projectId, 'routing-key', `project:${projectId}`, { key: `project:${projectId}` }),
-  );
-  // Proxy token accept floor: closed, not deleted. A missing floor accepts
-  // the legacy token, so deleting it would revive every token ever issued.
-  cleanup.push(
+    // Proxy token accept floor: closed, not deleted. A missing floor accepts
+    // the legacy token, so deleting it would revive every token ever issued.
     cleanupJob(projectId, 'routing-put', proxyTokenStateKey(projectId), {
       key: proxyTokenStateKey(projectId),
       value: CLOSED_PROXY_TOKEN_STATE,
@@ -666,6 +659,9 @@ async function lockAndMarkDeleting(
         })
         .returning();
     }
+    if (!ownership?.ends_at) {
+      throw new Error('Project teardown requires a closed ownership period.');
+    }
     if (lockedProject.status !== 'deleting') {
       await tx
         .update(projectsTable)
@@ -696,8 +692,8 @@ async function lockAndMarkDeleting(
     return {
       ownerUserId: lockedProject.user_id,
       ownerBillingCycleStart: owner.billing_cycle_start,
-      ownershipStartedAt: ownership!.starts_at,
-      ownershipEndedAt: ownership!.ends_at!,
+      ownershipStartedAt: ownership.starts_at,
+      ownershipEndedAt: ownership.ends_at,
       cancelledBuilds: await terminateBuildsForProject(tx, projectId, {
         reason: 'project deleted',
       }),
@@ -775,15 +771,17 @@ async function cleanupRaceWindowResourceOrphans(
   const jobs = orphans.flatMap((resource) => cleanupJobsForResource(projectId, resource));
   const result = await runCleanupBatch(context.env, jobs);
   const failedTargets = new Set(result.failed.map((job) => job.target));
-  const completedTargets = jobs
-    .filter((job) => !failedTargets.has(job.target))
-    .map((job) => job.target);
+  const completedTargets = jobs.flatMap((job) =>
+    !failedTargets.has(job.target) ? [job.target] : [],
+  );
   if (completedTargets.length > 0) {
     await context
       .get('db')
       .delete(projectCleanupJobs)
       .where(inArray(projectCleanupJobs.target, completedTargets))
-      .catch((error) => console.error('[project-cleanup] completed job delete failed:', error));
+      .catch((error: unknown) =>
+        console.error('[project-cleanup] completed job delete failed:', error),
+      );
   }
   // Failed jobs were committed atomically with the project cascade and remain
   // in the ledger for scheduled retries after the project row is gone.
@@ -807,7 +805,7 @@ export async function reconcileProjectCleanupJobs(db: Db, env: ApiEnv['Bindings'
   await Promise.all(
     Array.from({ length: Math.min(5, due.length) }, async () => {
       while (next < due.length) {
-        const job = due[next++]!;
+        const job = due[next++];
         // A later invocation can observe the same due snapshot. Claim without
         // holding a database transaction open across provider I/O.
         const claimed = await db

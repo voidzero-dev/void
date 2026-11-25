@@ -1,16 +1,8 @@
-import {
-  isRecord,
-  isR2LocationHint,
-  R2_LOCATION_HINTS,
-  type AssetConfig,
-  type StorageConfig,
-} from '@void/deploy-core';
+import { isRecord, isR2LocationHint, R2_LOCATION_HINTS } from '@void/deploy-core';
+import type { AssetConfig, StorageConfig } from '@void/deploy-core';
 import type { RewriteDestination } from 'void/routes';
-import {
-  VOID_AUTH_PROVIDERS,
-  isVoidAuthProvider,
-  type VoidAuthProvider,
-} from './auth/providers.ts';
+import { VOID_AUTH_PROVIDERS, isVoidAuthProvider } from './auth/providers.ts';
+import type { VoidAuthProvider } from './auth/providers.ts';
 import type { DevRedirectRule, HeaderRule } from './cli/types.ts';
 import { loadVoidConfig } from './config-loader.ts';
 import type { HeadConfig } from './pages/head.ts';
@@ -230,7 +222,7 @@ const VALID_DATABASE_VALUES = new Set(['pg', 'mysql']);
 const VALID_DATABASE_DIALECTS = new Set(['sqlite', 'pg', 'mysql']);
 const VALID_DATABASE_CASINGS = new Set(['snake_case', 'camelCase']);
 /** Cloudflare's hard maximum for Workers CPU time per request (5 minutes). */
-const MAX_WORKER_CPU_MS = 300000;
+const MAX_WORKER_CPU_MS = 300_000;
 const VALID_SANDBOX_INSTANCE_TYPES = new Set<SandboxInstanceType>([
   'lite',
   'basic',
@@ -254,7 +246,7 @@ const SANDBOX_KEYS = [...SANDBOX_STRING_KEYS, 'instanceType'];
  * `compilePattern` (`@void/edge`) gives `:name*` its own group, so it never clashes with a splat.
  */
 export function countSplats(source: string): number {
-  return source.replace(/:[A-Za-z0-9_]+\*/g, '').match(/\*/g)?.length ?? 0;
+  return source.replaceAll(/:[A-Za-z0-9_]+\*/g, '').match(/\*/g)?.length ?? 0;
 }
 
 /**
@@ -284,7 +276,7 @@ function assertUniqueCaptureNames(source: string, kind: string): void {
   const captureNameRe = /:([A-Za-z0-9_]+)\*?/g;
   let captureMatch: RegExpExecArray | null;
   while ((captureMatch = captureNameRe.exec(source)) !== null) {
-    const name = captureMatch[1]!;
+    const name = captureMatch[1];
     if (seen.has(name)) {
       dups.add(name);
     }
@@ -412,7 +404,7 @@ function validateRewriteMap(value: unknown, kind: 'Rewrite' | 'Fallback'): void 
 }
 
 /** Old flat keys that have moved into namespaces. */
-const MIGRATION_ERRORS: Record<string, string> = {
+const MIGRATION_ERRORS = {
   bindings: '"bindings" has moved to "inference.bindings"',
   build: '"build" has moved to "inference.build"',
   scanDirs: '"scanDirs" has moved to "inference.scanDirs"',
@@ -425,7 +417,7 @@ const MIGRATION_ERRORS: Record<string, string> = {
   wrangler: '"wrangler" has been renamed to "worker"',
   mode: '"mode" has been renamed to "inference.appType"',
   revalidate: '"revalidate" has moved to "routing.revalidate"',
-};
+} satisfies Record<string, string>;
 
 /** Read and validate the project's typed config, with legacy JSON compatibility. */
 export function readConfig(root: string): VoidConfig {
@@ -439,7 +431,7 @@ export function validateConfig(config: unknown, source: string = CONFIG_FILE): V
     return validateConfigObject(config);
   } catch (error) {
     if (source !== CONFIG_FILE && error instanceof Error) {
-      // No `cause`: Node would print its message too, which names the placeholder.
+      // oxlint-disable-next-line preserve-caught-error -- Node would display the placeholder file name from the original message.
       throw new Error(error.message.replaceAll(CONFIG_FILE, source));
     }
     throw error;
@@ -664,7 +656,7 @@ function validateConfigObject(obj: unknown): VoidConfig {
           `config: "routing.prerender" in ${CONFIG_FILE} must be an array of strings.`,
         );
       }
-      for (const p of routing.prerender as Array<string>) {
+      for (const p of routing.prerender) {
         if (!p.startsWith('/')) {
           throw new Error(
             `config: "routing.prerender" path '${p}' in ${CONFIG_FILE} must start with "/".`,
@@ -810,7 +802,7 @@ function validateConfigObject(obj: unknown): VoidConfig {
           `config: "inference.scanDirs" in ${CONFIG_FILE} must be an array of strings.`,
         );
       }
-      for (const d of inf.scanDirs as Array<string>) {
+      for (const d of inf.scanDirs) {
         if (d.startsWith('/') || d.startsWith('..')) {
           throw new Error(
             `config: "inference.scanDirs" path '${d}' in ${CONFIG_FILE} must be a relative directory.`,
@@ -1057,9 +1049,9 @@ function validateConfigObject(obj: unknown): VoidConfig {
   if ('$schema' in obj) {
     const resolved = { ...obj };
     delete resolved.$schema;
-    return resolved as VoidConfig;
+    return resolved;
   }
-  return obj as VoidConfig;
+  return obj;
 }
 
 /**
@@ -1078,6 +1070,7 @@ function parseEmailFrom(value: unknown): void {
     const detail = error instanceof MimeError ? ` ${error.message}` : '';
     throw new Error(
       `config: "email.from" in ${CONFIG_FILE} must be a single email address, optionally with a display name (e.g. "Acme <noreply@mail.acme.com>").${detail}`,
+      { cause: error },
     );
   }
 }
@@ -1087,17 +1080,19 @@ export function isNodeTarget(target: VoidConfig['target']): boolean {
   return target === 'node' || target === 'bun' || target === 'deno';
 }
 
+type BindingNames = { d1?: string; kv?: string; r2?: string; ai?: string };
+
 /**
  * Extract custom binding names from config. Returns only entries where
  * a string name was explicitly provided (not `true`).
  */
 export function resolveBindingNames(
   bindings: InferenceConfig['bindings'],
-): { d1?: string; kv?: string; r2?: string; ai?: string } | undefined {
+): BindingNames | undefined {
   if (!bindings) {
     return undefined;
   }
-  const names: { d1?: string; kv?: string; r2?: string; ai?: string } = {};
+  const names: BindingNames = {};
   let hasCustom = false;
   if (typeof bindings.db === 'string') {
     names.d1 = bindings.db;

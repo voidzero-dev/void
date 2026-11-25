@@ -1,11 +1,19 @@
-import { execSync } from 'node:child_process';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getWorkerConfigPath } from '@cloudflare/build-output-utils';
-import spawn from 'cross-spawn';
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import {
+  createIsolatedPlayground,
+  killChild,
+  spawnFixtureServer,
+  startServer,
+} from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 declare global {
   interface Window {
@@ -40,44 +48,21 @@ async function waitForHydration(page: Page) {
 }
 
 describe('playground/kitchen-sink', () => {
-  let child: ReturnType<typeof spawn>;
+  let fixture: IsolatedPlayground;
+  let child: ChildProcess;
 
   beforeAll(async () => {
     // Build first so every dependency is resolved before the server starts;
     // dev-mode dependency optimization makes browser checks unreliable.
-    const pg = join(ROOT, 'playground/kitchen-sink');
-    rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    execSync('vp run --filter ./playground/kitchen-sink build', {
-      cwd: ROOT,
-      stdio: 'pipe',
-    });
+    fixture = createIsolatedPlayground(ROOT, 'playground/kitchen-sink');
+    const pg = fixture.root;
+    execFileSync('vp', ['run', 'build'], { cwd: pg, stdio: 'pipe' });
     const previewDatabaseId = preparePreviewWranglerConfig(pg);
 
     // Start preview server — pre-built assets, no lazy optimization.
     const server = await startServer(
       (port) => {
-        child = spawn(
-          'vp',
-          [
-            'run',
-            '--filter',
-            './playground/kitchen-sink',
-            'preview',
-            '--host',
-            '127.0.0.1',
-            '--port',
-            String(port),
-            '--strictPort',
-          ],
-          {
-            cwd: ROOT,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env: {
-              ...process.env,
-              VOID_INSPECTOR_PORT: 'false',
-            },
-          },
-        );
+        child = spawnFixtureServer(fixture.root, 'preview', port);
         return child;
       },
       30_000,
@@ -101,6 +86,7 @@ describe('playground/kitchen-sink', () => {
     if (child) {
       await killChild(child);
     }
+    fixture?.cleanup();
   });
 
   it('serves SSR home page and hydrates', async () => {
@@ -150,15 +136,13 @@ describe('playground/kitchen-sink', () => {
       await waitForHydration(page);
 
       await page.evaluate(() => {
-        (document.querySelector('nav') as NavElement | null)!.__stamp = 1;
+        document.querySelector<NavElement>('nav')!.__stamp = 1;
       });
 
       await page.click('a[href="/env"]');
       await page.waitForFunction(() => document.querySelector('h1')?.textContent?.includes('Env'));
 
-      const stamp = await page.evaluate(
-        () => (document.querySelector('nav') as NavElement | null)?.__stamp,
-      );
+      const stamp = await page.evaluate(() => document.querySelector<NavElement>('nav')?.__stamp);
       expect(stamp).toBe(1);
     } finally {
       await page.context().close();
@@ -281,7 +265,9 @@ describe('playground/kitchen-sink', () => {
       const start = Date.now();
       let found = false;
       while (Date.now() - start < 15_000) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 1000);
+        });
         await page.goto(`${BASE}/queues`);
         await waitForHydration(page);
         const text = await page.textContent('body');
@@ -452,7 +438,7 @@ describe('playground/kitchen-sink', () => {
 // is remote-only, so turn both off. kitchen-sink-build.test.ts covers them.
 function preparePreviewWranglerConfig(pg: string): string {
   const wranglerPath = join(pg, 'dist', 'ssr', 'wrangler.json');
-  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf-8')) as {
+  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf8')) as {
     dev?: Record<string, unknown>;
     ai?: unknown;
     d1_databases?: Array<{ binding?: unknown; database_id?: unknown }>;

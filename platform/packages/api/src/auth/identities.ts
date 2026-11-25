@@ -1,6 +1,7 @@
 import { parsePlatformAdmissionPolicy } from '@void/platform';
 import { and, eq } from 'drizzle-orm';
-import { createOAuthAccount, createUser, getUserByEmail, type Db } from '../db.ts';
+import { createOAuthAccount, createUser, getUserByEmail } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getDefaultPlan, lockPlanCatalog } from '../plans.ts';
 import {
@@ -188,8 +189,8 @@ export async function resolvePlatformLogin(
         403,
       );
     }
-    if (settings.protection) {
-      await bindCompanyIdentity(transaction, user.id, companyIdentity!);
+    if (settings.protection && companyIdentity) {
+      await bindCompanyIdentity(transaction, user.id, companyIdentity);
     }
     await transaction
       .update(platformLoginIdentities)

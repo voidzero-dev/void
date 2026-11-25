@@ -1,13 +1,10 @@
 import { bytesToBase64 } from '../../shared/base64.ts';
 import { cfAccessHeaders } from '../../shared/cf-access.ts';
-import { getRawRuntimeEnv, type RuntimeEnv } from '../env/raw.ts';
+import { getRawRuntimeEnv } from '../env/raw.ts';
+import type { RuntimeEnv } from '../env/raw.ts';
 import { UsageLimit, limitFromResponse } from '../limits/index.ts';
-import {
-  PROVIDER_KEY_MAP,
-  type AiProvider,
-  type AiProviderFetchInit,
-  type AiProviderOptions,
-} from './types.ts';
+import { PROVIDER_KEY_MAP } from './types.ts';
+import type { AiProvider, AiProviderFetchInit, AiProviderOptions } from './types.ts';
 
 const VOID_FILE_MARKER = '__voidFile';
 
@@ -17,7 +14,11 @@ const VOID_FILE_MARKER = '__voidFile';
 // back to `Authorization: Bearer <key>` (correct for openai, groq, mistral,
 // grok, deepseek, openrouter, perplexity, cohere, cerebras, huggingface,
 // replicate). A caller's `apiKeyHeader`/`apiKeyPrefix` override still wins.
-const PROVIDER_AUTH_DEFAULTS: Record<string, { header: string; prefix: string }> = {
+interface ProviderAuthDefaults {
+  [key: string]: { header: string; prefix: string };
+}
+
+const PROVIDER_AUTH_DEFAULTS: ProviderAuthDefaults = {
   'google-ai-studio': { header: 'x-goog-api-key', prefix: '' },
   anthropic: { header: 'x-api-key', prefix: '' },
   elevenlabs: { header: 'xi-api-key', prefix: '' },
@@ -101,7 +102,7 @@ function copyBinaryView(value: ArrayBufferView): ArrayBuffer {
   const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
-  return copy.buffer as ArrayBuffer;
+  return copy.buffer;
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -278,6 +279,8 @@ function isUnsafeProviderPath(path: string): boolean {
   return false;
 }
 
+type DirectAiRequestBody = { body: BodyInit | undefined; contentType?: string };
+
 /**
  * Build a real outgoing HTTP body for the user's own AI Gateway (self-host).
  *
@@ -285,7 +288,7 @@ function isUnsafeProviderPath(path: string): boolean {
  * envelope decoded on the proxy side), this emits an actual `BodyInit` +
  * content-type for a direct `fetch` to the gateway.
  */
-function toDirectBody(body: unknown): { body: BodyInit | undefined; contentType?: string } {
+function toDirectBody(body: unknown): DirectAiRequestBody {
   if (body === undefined || body === null) {
     return { body: undefined };
   }
@@ -611,8 +614,15 @@ export type VoidAi = {
   stream(model: string, inputs: Record<string, unknown>, options?: AiOptions): Promise<Response>;
 };
 
-/** Normalize provider 429 responses and binding quota failures before they reach callers. */
-async function aiOperation<T>(execute: () => Promise<T>, rawStream = false): Promise<T> {
+/**
+ * Normalize provider 429 responses and binding quota failures before they reach callers.
+ * `signal` is the caller's own cancellation of a provider request; see `streamResponse`.
+ */
+async function aiOperation<T>(
+  execute: () => Promise<T>,
+  rawStream = false,
+  signal?: AbortSignal | null,
+): Promise<T> {
   let value: T;
   try {
     value = await execute();
@@ -630,7 +640,7 @@ async function aiOperation<T>(execute: () => Promise<T>, rawStream = false): Pro
     value.body &&
     value.headers.get('content-type')?.includes('text/event-stream')
   ) {
-    return new Response(streamResponse(value.body).body, value) as T;
+    return new Response(streamResponse(value.body, signal).body, value) as T;
   }
   if (rawStream && value instanceof ReadableStream) {
     return streamResponse(value).body as T;
@@ -656,8 +666,12 @@ function classifyAiLimit(error: unknown): UsageLimit | null {
     : null;
 }
 
-/** Streaming failures after headers are sent end with an explicit terminal SSE event. */
-function streamResponse(body: ReadableStream): Response {
+/**
+ * Streaming failures after headers are sent end with an explicit terminal SSE
+ * event. A provider request the caller cancelled through `signal` instead fails
+ * with the caller's reason, as a plain fetch does.
+ */
+function streamResponse(body: ReadableStream, signal?: AbortSignal | null): Response {
   const reader = body.getReader();
   return new Response(
     new ReadableStream({
@@ -670,7 +684,12 @@ function streamResponse(body: ReadableStream): Response {
             controller.enqueue(chunk.value);
           }
         } catch (error) {
+          if (signal?.aborted) {
+            controller.error(signal.reason);
+            return;
+          }
           const limit = classifyAiLimit(error);
+          // oxlint-disable-next-line quality/no-known-value-widening -- The same stream can carry a provider limit response with arbitrary JSON.
           let data: unknown = { message: 'Generation was interrupted. Please try again.' };
           if (limit) {
             data = await limit.response().json();
@@ -706,7 +725,11 @@ export const ai: VoidAi = new Proxy({} as VoidAi, {
     if (prop === 'provider') {
       return (provider: string, options?: AiProviderOptions) => ({
         fetch: (path: string, init?: AiProviderFetchInit) =>
-          aiOperation(() => backend().providerFetch(provider, path, init, options)),
+          aiOperation(
+            () => backend().providerFetch(provider, path, init, options),
+            false,
+            init?.signal,
+          ),
       });
     }
     if (prop === 'run' || prop === 'image' || prop === 'models' || prop === 'toMarkdown') {

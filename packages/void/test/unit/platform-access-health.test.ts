@@ -153,7 +153,7 @@ describe('protected platform health checks', () => {
         ? `${input.plan.deployment.resources.dispatchWorker}.account.workers.dev/health`
         : 'void-platform-health.apps.example.com/health';
       await ensurePlatformAccessHealthChecks(input);
-      const app = [...env.apps.values()][0]!;
+      const app = [...env.apps.values()][0];
       expect(app).toMatchObject({
         type: 'self_hosted',
         domain: destination,
@@ -170,8 +170,8 @@ describe('protected platform health checks', () => {
       expect(app).not.toHaveProperty('target_criteria');
       expect(env.tokens.size).toBe(0);
       expect(
-        JSON.parse(input.checkpoint.accessHealthProvisioningJson!).resources[
-          platformAccessHealthTargets(input.plan)[0]!.key
+        JSON.parse(input.checkpoint.accessHealthProvisioningJson).resources[
+          platformAccessHealthTargets(input.plan)[0].key
         ],
       ).toMatchObject({ id: app.id, pending: false });
       await ensurePlatformAccessHealthChecks(input);
@@ -203,7 +203,7 @@ describe('protected platform health checks', () => {
   it('retains the original exception when the platform adds an application domain', async () => {
     const { env, input } = fixture(true);
     await ensurePlatformAccessHealthChecks(input);
-    const original = [...env.apps.values()][0]!;
+    const original = [...env.apps.values()][0];
     const deployment = createPlatformDeploymentManifest({
       ...input.plan.deployment,
       application: { baseDomain: 'apps.example.net', zoneName: 'example.net' },
@@ -221,15 +221,15 @@ describe('protected platform health checks', () => {
     env.loseNextApplicationResponse();
     await expect(ensurePlatformAccessHealthChecks(input)).rejects.toThrow('response lost');
     expect(
-      JSON.parse(input.checkpoint.accessHealthProvisioningJson!).resources[
-        platformAccessHealthTargets(input.plan)[0]!.key
+      JSON.parse(input.checkpoint.accessHealthProvisioningJson).resources[
+        platformAccessHealthTargets(input.plan)[0].key
       ],
     ).toMatchObject({ pending: true });
     await ensurePlatformAccessHealthChecks(input);
     expect(env.calls.filter((call) => call.method === 'POST')).toHaveLength(1);
     expect(
-      JSON.parse(input.checkpoint.accessHealthProvisioningJson!).resources[
-        platformAccessHealthTargets(input.plan)[0]!.key
+      JSON.parse(input.checkpoint.accessHealthProvisioningJson).resources[
+        platformAccessHealthTargets(input.plan)[0].key
       ],
     ).toMatchObject({ pending: false });
   });
@@ -255,8 +255,8 @@ describe('protected platform health checks', () => {
     });
     await expect(ensurePlatformAccessHealthChecks(input)).rejects.toThrow('denied');
     expect(
-      JSON.parse(input.checkpoint.accessHealthProvisioningJson!).resources[
-        platformAccessHealthTargets(input.plan)[0]!.key
+      JSON.parse(input.checkpoint.accessHealthProvisioningJson).resources[
+        platformAccessHealthTargets(input.plan)[0].key
       ],
     ).toMatchObject({ pending: false });
     request.mockImplementation(original);
@@ -269,7 +269,7 @@ describe('protected platform health checks', () => {
     async (change) => {
       const { env, input } = fixture();
       await ensurePlatformAccessHealthChecks(input);
-      const app = [...env.apps.values()][0]!;
+      const app = [...env.apps.values()][0];
       if (change === 'hostname') {
         app.domain = 'apps.example.com';
       }
@@ -283,7 +283,7 @@ describe('protected platform health checks', () => {
         app.name = 'foreign-application';
       }
       if (change === 'checkpoint') {
-        const state = JSON.parse(input.checkpoint.accessHealthProvisioningJson!);
+        const state = JSON.parse(input.checkpoint.accessHealthProvisioningJson);
         state.installationId = 'another-installation';
         input.checkpoint.accessHealthProvisioningJson = JSON.stringify(state);
       }
@@ -297,7 +297,7 @@ describe('protected platform health checks', () => {
 
   it('verifies an existing project-managed exception without taking ownership', async () => {
     const { env, input } = fixture();
-    const destination = platformAccessHealthTargets(input.plan)[0]!.destination;
+    const destination = platformAccessHealthTargets(input.plan)[0].destination;
     env.apps.set('project-health', {
       id: 'project-health',
       name: 'Project health',

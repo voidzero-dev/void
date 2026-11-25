@@ -223,14 +223,17 @@ catalogs:
       specifier: 0.7.16
       version: 0.7.16
     '@cloudflare/build-output-utils':
-      specifier: ^1.0.0-rc.0
+      specifier: 1.0.0-rc.0
       version: 1.0.0-rc.0
     '@cloudflare/codemods':
       specifier: ^0.8.0
       version: 0.8.0
     '@cloudflare/config':
-      specifier: ^1.0.0-rc.0
+      specifier: 1.0.0-rc.0
       version: 1.0.0-rc.0
+    '@cloudflare/oxlint-config':
+      specifier: 0.2.0
+      version: 0.2.0
     '@cloudflare/sandbox':
       specifier: ^1.0.3
       version: 1.0.3
@@ -405,6 +408,9 @@ catalogs:
     tslib:
       specifier: ^2.9.1
       version: 2.9.1
+    tsrs:
+      specifier: 7.1.0-beta.tsrs2
+      version: 7.1.0-beta.tsrs2
     typescript:
       specifier: 7.0.2
       version: 7.0.2
@@ -463,6 +469,9 @@ importers:
 
   .:
     devDependencies:
+      '@cloudflare/oxlint-config':
+        specifier: 'catalog:'
+        version: 0.2.0(6c08f0033c2f4f2ae0a43da9c191c7e3)
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20261117.1
@@ -484,6 +493,9 @@ importers:
       rolldown:
         specifier: 'catalog:'
         version: 1.3.2
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -569,6 +581,9 @@ importers:
       pathslash:
         specifier: 'catalog:'
         version: 0.1.0
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -578,6 +593,9 @@ importers:
 
   packages/deploy-core:
     devDependencies:
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -594,6 +612,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20261117.1
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -610,6 +631,9 @@ importers:
         specifier: workspace:*
         version: link:../edge
     devDependencies:
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -681,6 +705,9 @@ importers:
       '@void/isr':
         specifier: workspace:*
         version: link:../isr
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -783,9 +810,6 @@ importers:
       '@cloudflare/build-output-utils':
         specifier: 'catalog:'
         version: 1.0.0-rc.0
-      '@cloudflare/codemods':
-        specifier: 'catalog:'
-        version: 0.8.0
       '@cloudflare/config':
         specifier: 'catalog:'
         version: 1.0.0-rc.0
@@ -910,6 +934,9 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
     devDependencies:
+      '@cloudflare/codemods':
+        specifier: 'catalog:'
+        version: 0.8.0
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.16
@@ -961,6 +988,9 @@ importers:
       tinyglobby:
         specifier: ^0.2.17
         version: 0.2.17
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1131,6 +1161,9 @@ importers:
       miniflare:
         specifier: 'catalog:'
         version: 5.20261116.0-beta(@types/node@26.6.6)
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1186,6 +1219,9 @@ importers:
       '@voidcloud/api':
         specifier: workspace:*
         version: link:../api
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1223,6 +1259,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.6
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1251,6 +1290,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: catalog:platform
         version: 5.20261117.1
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1285,6 +1327,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: catalog:platform
         version: 5.20261117.1
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1300,6 +1345,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: catalog:platform
         version: 5.20261117.1
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1423,6 +1471,9 @@ importers:
       '@void/react':
         specifier: workspace:*
         version: link:../../packages/react
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1451,6 +1502,9 @@ importers:
       '@void/vue':
         specifier: workspace:*
         version: link:../../packages/vue
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1476,6 +1530,9 @@ importers:
       '@void/vue':
         specifier: workspace:*
         version: link:../../packages/vue
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1491,6 +1548,9 @@ importers:
 
   playground/mysql-test:
     devDependencies:
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1673,6 +1733,9 @@ importers:
 
   playground/pg-api-test:
     devDependencies:
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1710,6 +1773,9 @@ importers:
       '@void/react':
         specifier: workspace:*
         version: link:../../packages/react
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1747,6 +1813,9 @@ importers:
       '@void/react':
         specifier: workspace:*
         version: link:../../packages/react
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1812,6 +1881,9 @@ importers:
       '@void/react':
         specifier: workspace:*
         version: link:../../packages/react
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1840,6 +1912,9 @@ importers:
       '@void/solid':
         specifier: workspace:*
         version: link:../../packages/solid
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1877,6 +1952,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: 'catalog:'
         version: 6.3.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1961,6 +2039,9 @@ importers:
       '@void/svelte':
         specifier: workspace:*
         version: link:../../packages/svelte
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1989,6 +2070,9 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.3.1
         version: 7.3.1(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(yaml@2.9.1))(svelte@5.57.3)
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: catalog:sveltekit
         version: 6.0.3
@@ -2125,6 +2209,9 @@ importers:
       '@void/vue':
         specifier: workspace:*
         version: link:../../packages/vue
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -2162,6 +2249,9 @@ importers:
       '@void/react':
         specifier: workspace:*
         version: link:../../packages/react
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -2211,6 +2301,9 @@ importers:
       svelte:
         specifier: 'catalog:'
         version: 5.57.3
+      tsrs:
+        specifier: 'catalog:'
+        version: 7.1.0-beta.tsrs2
       typescript:
         specifier: catalog:sveltekit
         version: 6.0.3
@@ -2944,6 +3037,21 @@ packages:
   '@cloudflare/kv-asset-handler@0.5.0':
     resolution: {integrity: sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg==}
     engines: {node: '>=22.0.0'}
+
+  '@cloudflare/oxlint-config@0.2.0':
+    resolution: {integrity: sha512-HENc8yIzCuIPvUyQbX47UKv2kgA26iZt1XRsrlQXayJG6cWmBNlnHXfPy7oNCghqWpTBcbFRdGwsHd1Ahe3zhw==}
+    engines: {node: ^22.18.0 || >=24.0.0}
+    peerDependencies:
+      oxlint: ^1.94.0
+      tsrs: '>=7.1.0-beta.tsrs2'
+      vite-plus: '>=1.7.0'
+    peerDependenciesMeta:
+      oxlint:
+        optional: true
+      tsrs:
+        optional: true
+      vite-plus:
+        optional: true
 
   '@cloudflare/runtime-types@0.1.29':
     resolution: {integrity: sha512-WLINHFlq4IhpHalY/mPH2NYMTqRyjOkhGfunQFxQznCNBV+WSd5DQk0Y0USMsUvqrTC/uE5WkPjpIn2hUXl7Zg==}
@@ -3931,6 +4039,14 @@ packages:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
 
+  '@nkzw/eslint-plugin@3.0.0':
+    resolution: {integrity: sha512-J6Ms/OzUxx7BNBggCKOqFWbESgAJYjvXvekCjjpxVJA2fBv5xOsC5P+2WDYqQUMCvDOU3GxBgG/jrmbqf+/wQA==}
+    peerDependencies:
+      eslint: '>= 9'
+    peerDependenciesMeta:
+      eslint:
+        optional: true
+
   '@nkzw/fate@2.2.3':
     resolution: {integrity: sha512-7UUIQLw0vETKgY8g8zBIn9/TXWeeVukVN7zw8semPonhCRLmvkILyco7bX9/3kLkCr4dXe4Tgm6Jug6qtaJmxw==}
     hasBin: true
@@ -3951,6 +4067,23 @@ packages:
       graphql-sse:
         optional: true
       vite:
+        optional: true
+
+  '@nkzw/oxlint-config@4.1.0':
+    resolution: {integrity: sha512-uFJxSqD8LPGe+uYVh+EC9BwndUGr3h7+aHQhKcdUANNSV4c1vvRoOqqHUTlML5RnHtvABtapW1ZyY4gkz6sKOA==}
+    peerDependencies:
+      eslint-plugin-perfectionist: ^5.14.0
+      oxlint: '>=1.94.0'
+      tsrs: '>=0.25.0-ts7.1.0-beta || ^7.1.0-beta.tsrs2'
+      vite-plus: '>=1.7.0'
+    peerDependenciesMeta:
+      eslint-plugin-perfectionist:
+        optional: true
+      oxlint:
+        optional: true
+      tsrs:
+        optional: true
+      vite-plus:
         optional: true
 
   '@noble/ciphers@2.4.0':
@@ -7552,6 +7685,10 @@ packages:
   escape-string-regexp@5.0.0:
     resolution: {integrity: sha512-/veY75JbMK4j1yjvuUxuVsiS/hr/4iHs9FTT6cgTexxdE0Ly/glccBAkloH/DofkjRbZU3bnoj38mOmhkZ0lHw==}
     engines: {node: '>=12'}
+
+  eslint-plugin-no-only-tests@3.4.0:
+    resolution: {integrity: sha512-4S3/9Nb7A2tiMcpzEQE9bQSlpeOz6WJkgryBuou/SA8W2x2c8Zf4j0NvTKBjv6qNhF9T79tmkecm/0CHqV0UGg==}
+    engines: {node: '>=5.0.0'}
 
   eslint-plugin-react-hooks@7.1.1:
     resolution: {integrity: sha512-f2I7Gw6JbvCexzIInuSbZpfdQ44D7iqdWX01FKLvrPgqxoE7oMj8clOfto8U6vYiz4yd5oKu39rRSVOe1zRu0g==}
@@ -11615,6 +11752,17 @@ snapshots:
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
+  '@cloudflare/oxlint-config@0.2.0(6c08f0033c2f4f2ae0a43da9c191c7e3)':
+    dependencies:
+      '@nkzw/oxlint-config': 4.1.0(6c08f0033c2f4f2ae0a43da9c191c7e3)
+    optionalDependencies:
+      oxlint: 1.94.0(vite-plus@1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1))
+      tsrs: 7.1.0-beta.tsrs2
+      vite-plus: 1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)
+    transitivePeerDependencies:
+      - eslint
+      - eslint-plugin-perfectionist
+
   '@cloudflare/runtime-types@0.1.29(@types/node@26.6.6)':
     dependencies:
       miniflare: 5.20261116.0-beta(@types/node@26.6.6)
@@ -12443,6 +12591,10 @@ snapshots:
       '@tybys/wasm-util': 0.10.4
     optional: true
 
+  '@nkzw/eslint-plugin@3.0.0(eslint@10.15.0(jiti@2.7.0)(supports-color@10.2.2))':
+    optionalDependencies:
+      eslint: 10.15.0(jiti@2.7.0)(supports-color@10.2.2)
+
   '@nkzw/fate@2.2.3(@trpc/client@11.28.3(@trpc/server@11.28.3(@types/ws@8.18.2)(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.28.3(@types/ws@8.18.2)(typescript@7.0.2))(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261117.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.2.0)(kysely@0.29.9)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))':
     dependencies:
       '@trpc/client': 11.28.3(@trpc/server@11.28.3(@types/ws@8.18.2)(typescript@7.0.2))(typescript@7.0.2)
@@ -12452,6 +12604,17 @@ snapshots:
       '@trpc/server': 11.28.3(@types/ws@8.18.2)(typescript@7.0.2)
       drizzle-orm: 0.45.4(@cloudflare/workers-types@5.20261117.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.2.0)(kysely@0.29.9)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)
       vite: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
+
+  '@nkzw/oxlint-config@4.1.0(6c08f0033c2f4f2ae0a43da9c191c7e3)':
+    dependencies:
+      '@nkzw/eslint-plugin': 3.0.0(eslint@10.15.0(jiti@2.7.0)(supports-color@10.2.2))
+      eslint-plugin-no-only-tests: 3.4.0
+    optionalDependencies:
+      oxlint: 1.94.0(vite-plus@1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1))
+      tsrs: 7.1.0-beta.tsrs2
+      vite-plus: 1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)
+    transitivePeerDependencies:
+      - eslint
 
   '@noble/ciphers@2.4.0': {}
 
@@ -15771,6 +15934,8 @@ snapshots:
   escape-string-regexp@4.0.0: {}
 
   escape-string-regexp@5.0.0: {}
+
+  eslint-plugin-no-only-tests@3.4.0: {}
 
   eslint-plugin-react-hooks@7.1.1(eslint@10.15.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2):
     dependencies:

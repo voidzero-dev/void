@@ -1,7 +1,9 @@
 import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from '@void/platform';
-import { type CronFireMessage, processCronFiresBatch } from './cron-fires-queue.ts';
+import { processCronFiresBatch } from './cron-fires-queue.ts';
+import type { CronFireMessage } from './cron-fires-queue.ts';
 import { processDeploymentBatch } from './deployment-execution.ts';
 import type { ApiEnv } from './env.ts';
+import { armFastMaintenance } from './fast-maintenance.ts';
 import { processUsageEventBatch } from './usage-queue.ts';
 
 type PlatformQueueProcessors = Readonly<{
@@ -24,6 +26,9 @@ export async function processPlatformQueue(
   if (batch.queue === (env.DEPLOYMENTS_QUEUE_NAME ?? 'void-deployments')) {
     // Admitted operations drain through maintenance; the database lifecycle
     // checkpoint closes new admission before a downgrade waits for this Queue.
+    // A delivery that fails or is abandoned is recovered by the two-minute
+    // outbox once its lease expires.
+    await armFastMaintenance(env);
     await (processors.deployments ?? processDeploymentBatch)(batch, env);
     return;
   }

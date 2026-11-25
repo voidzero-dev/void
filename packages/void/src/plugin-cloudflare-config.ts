@@ -8,6 +8,7 @@ import { readGeneratedWranglerConfigFile } from './cli/generated-wrangler-config
 
 /** Void keeps its Wrangler-shaped public options independently of the upstream plugin. */
 export type WorkerConfig = ReturnType<typeof convertToWranglerConfig>;
+export type WorkerConfigFields = Record<string, unknown>;
 
 type AuxiliaryConfig =
   | Partial<WorkerConfig>
@@ -24,42 +25,41 @@ export type AuxiliaryWorkerConfig = (
 };
 
 /** Match the old plugin's patch semantics, including its array concatenation. */
-export function mergeCloudflareConfig(patch: object, fallback: object): Record<string, unknown> {
-  const result: Record<string, unknown> = { ...fallback };
+export function mergeCloudflareConfig(patch: object, fallback: object): WorkerConfigFields {
+  // oxlint-disable-next-line quality/no-known-value-widening -- The merge preserves arbitrary fallback keys and adds arbitrary patch keys.
+  const result: WorkerConfigFields = { ...fallback };
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) {
       continue;
     }
-    const previous = (result as Record<string, unknown>)[key];
+    const previous = result[key];
     result[key] =
       Array.isArray(value) && Array.isArray(previous)
-        ? [...value, ...previous]
+        ? [...(value as Array<unknown>), ...(previous as Array<unknown>)]
         : value &&
             previous &&
             typeof value === 'object' &&
             typeof previous === 'object' &&
             !Array.isArray(value) &&
             !Array.isArray(previous)
-          ? mergeCloudflareConfig(
-              value as Record<string, unknown>,
-              previous as Record<string, unknown>,
-            )
+          ? mergeCloudflareConfig(value as Record<string, unknown>, previous)
           : value;
   }
+  // oxlint-disable-next-line quality/no-known-value-widening -- The merged fields are interpreted by the Cloudflare config adapter.
   return result;
 }
 
-/** Use Cloudflare's public migration API rather than maintaining a second binding translator. */
+/** Translate Void's Wrangler-shaped settings to the configuration that the Cloudflare plugin takes. */
 export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): CloudflareConfig {
   const packagePath = join(root, 'package.json');
   const packageName = existsSync(packagePath)
-    ? JSON.parse(readFileSync(packagePath, 'utf8')).name
+    ? (JSON.parse(readFileSync(packagePath, 'utf8')) as { name?: unknown }).name
     : undefined;
   const name =
     String(packageName ?? basename(root))
       .replaceAll('_', '-')
-      .replace(/[^a-z0-9- ]/g, '-')
-      .replace(/^(-+)|(-+)$/g, '')
+      .replaceAll(/[^a-z0-9- ]/g, '-')
+      .replaceAll(/^(-+)|(-+)$/g, '')
       .slice(0, 63) || 'my-worker';
   const { env, vars, ...base } = raw;
   const selected = process.env.CLOUDFLARE_ENV ? env?.[process.env.CLOUDFLARE_ENV] : undefined;
@@ -89,8 +89,7 @@ export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): Cloud
   if (!config.worker) {
     throw new Error('Void requires a Cloudflare Worker configuration.');
   }
-  // The codemod uses disposable files. Keep all variable values, including
-  // local development credentials, out of those files as well as the root config.
+  // `vars` was left out of the translation above; add the values here.
   for (const [name, value] of Object.entries(values ?? {})) {
     config.worker.env ??= {};
     config.worker.env[name] =
@@ -111,7 +110,11 @@ export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): Cloud
  * even one with a class of the same name, so it stays as written.
  */
 export function restoreLocalContainerBindings(worker: CloudflareConfig['worker']): void {
-  for (const [name, binding] of Object.entries(worker.env ?? {})) {
+  const env = worker.env;
+  if (!env) {
+    return;
+  }
+  for (const [name, binding] of Object.entries(env)) {
     if (
       binding.type !== 'unsafe:durable_object_namespace' ||
       Object.keys(binding).some((key) => !['type', 'class_name'].includes(key))
@@ -121,7 +124,7 @@ export function restoreLocalContainerBindings(worker: CloudflareConfig['worker']
     const className = binding.class_name as string;
     const declaration = worker.exports?.[className];
     if (declaration && 'container' in declaration) {
-      worker.env![name] = { type: 'durable-object', worker: worker.name, exportName: className };
+      env[name] = { type: 'durable-object', worker: worker.name, exportName: className };
     }
   }
 }
@@ -154,7 +157,7 @@ export function nativeAuxiliaryWorkers(
         mergeCloudflareConfig(patch ?? {}, base),
         path ? dirname(path) : root,
       );
-      return native.worker!;
+      return native.worker;
     },
   }));
 }

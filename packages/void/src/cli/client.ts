@@ -5,13 +5,14 @@ import { getPackageDir } from './agents.ts';
 import { getApiUrl } from './auth.ts';
 import { ensurePlatformAccessToken, isCloudflareAccessChallenge } from './cf-access.ts';
 import type { CliLogger } from './log-file.ts';
+import { Buffer } from './node-buffer.ts';
 import { readPlatformDiscoveryResponse } from './platform-discovery.ts';
 import {
   formatPlatformApiError,
   parsePlatformErrorBody,
   platformErrorMessage,
-  type ProjectPermission,
 } from './platform-errors.ts';
+import type { ProjectPermission } from './platform-errors.ts';
 import { normalizePlatformApiUrl } from './platform-registry.ts';
 import type {
   DeployAssetUploadRequest,
@@ -26,7 +27,7 @@ import type {
 function readCliVersion(): string | null {
   try {
     const pkgPath = join(getPackageDir(), 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: unknown };
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: unknown };
     return typeof pkg.version === 'string' ? pkg.version : null;
   } catch {
     return null;
@@ -36,7 +37,7 @@ function readCliVersion(): string | null {
 const VOID_CLI_VERSION = readCliVersion();
 
 /** The oldest Void platform release this CLI supports, including queue concurrency caps. */
-export const MIN_PLATFORM_VERSION = '1.10.0';
+export const MIN_PLATFORM_VERSION = '1.11.0';
 
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
@@ -66,9 +67,12 @@ type PlatformVersionProbe =
  */
 export function isOlderPlatformVersion(version: string, minimumVersion: string): boolean | null {
   const actual = RELEASE_VERSION.exec(version);
-  const minimum = RELEASE_VERSION.exec(minimumVersion)!;
+  const minimum = RELEASE_VERSION.exec(minimumVersion);
   if (!actual) {
     return null;
+  }
+  if (!minimum) {
+    throw new Error(`Invalid minimum platform release version: ${minimumVersion}.`);
   }
   for (const part of [1, 2, 3]) {
     const difference = Number(actual[part]) - Number(minimum[part]);
@@ -579,7 +583,7 @@ export type ManifestOnlyDeployPayload = DeployUploadPayload;
 // HTTP response is final. Every attempt sends the same idempotency key, so the
 // platform answers a replay with the earlier deployment's receipt or a 409.
 const DEPLOY_POST_MAX_RETRIES = 3;
-const DEPLOY_POST_BACKOFF_MS = [1000, 5000, 10000];
+const DEPLOY_POST_BACKOFF_MS = [1000, 5000, 10_000];
 /**
  * Every transport failure is retried, so a `TypeError` thrown by the deploy
  * POST always comes after this many attempts.
@@ -644,6 +648,8 @@ function parseDeployEvent(value: unknown): SequencedDeployEvent {
 /**
  * HTTP client for the Void platform API.
  */
+type RollbackRequest = { deploymentId: string; allowDestructive?: Array<string> };
+
 export class PlatformClient {
   private readonly baseUrl: string;
   private readonly authHeaders: Record<string, string>;
@@ -727,12 +733,32 @@ export class PlatformClient {
     if (!response.ok && response.status !== 404) {
       await throwPlatformApiError('Failed to check migration capabilities', response, 'deploy');
     }
-    const capabilities = response.ok
-      ? ((await response.json()) as { skipMigrations?: unknown })
-      : null;
+    const capabilities = response.ok ? await response.json<{ skipMigrations?: unknown }>() : null;
     if (capabilities?.skipMigrations !== true) {
       throw new Error(
         'deploy: This Void platform does not support --skip-migrations. Ask its administrator to upgrade with `void platform upgrade`.',
+      );
+    }
+  }
+
+  /** Platforms that predate the flag ignore the setting and keep replication on. */
+  async requireD1ReadReplicationSupport(): Promise<void> {
+    const response = await this.request(`${this.baseUrl}/capabilities`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok && response.status !== 404) {
+      await throwPlatformApiError(
+        'Failed to check D1 read replication support',
+        response,
+        'deploy',
+      );
+    }
+    const capabilities = response.ok
+      ? await response.json<{ d1ReadReplication?: unknown }>()
+      : null;
+    if (capabilities?.d1ReadReplication !== true) {
+      throw new Error(
+        'deploy: This Void platform cannot apply `database.readReplication` from void.config.ts. Ask its administrator to upgrade with `void platform upgrade`.',
       );
     }
   }
@@ -839,7 +865,7 @@ export class PlatformClient {
     action: string,
     options?: { method?: string; body?: unknown; permission?: ProjectPermission },
   ): Promise<T> {
-    return (await this.call(url, action, options)).json() as Promise<T>;
+    return (await this.call(url, action, options)).json<Promise<T>>();
   }
 
   async startIdentityLink(
@@ -1077,7 +1103,7 @@ export class PlatformClient {
     migrationDiff?: Array<string>;
     error?: string;
   }> {
-    const body: { deploymentId: string; allowDestructive?: Array<string> } = {
+    const body: RollbackRequest = {
       deploymentId,
     };
     if (options?.allowDestructive && options.allowDestructive.length > 0) {
@@ -1138,6 +1164,7 @@ export class PlatformClient {
         return { needed: Object.keys(assetManifest), total, skipped: 0 };
       }
 
+      // oxlint-disable-next-line typescript/return-await -- A malformed preflight response must propagate instead of triggering an upload of all assets.
       return res.json();
     } catch (error) {
       if (isPreflightRejection(error)) {
@@ -1176,9 +1203,9 @@ export class PlatformClient {
       await throwPlatformApiError('Failed to request upload URLs', res, 'deploy');
     }
 
-    const json = (await res.json()) as {
+    const json = await res.json<{
       urls: Record<string, { url: string; headers: Record<string, string> }>;
-    };
+    }>();
     return json.urls;
   }
 
@@ -1213,7 +1240,7 @@ export class PlatformClient {
     }
 
     // Module i uploads to urls[i], so a short or malformed list must not start.
-    const json = (await res.json()) as Partial<DeployWorkerUploadResponse> | null;
+    const json = await res.json<Partial<DeployWorkerUploadResponse> | null>();
     if (
       typeof json?.id !== 'string' ||
       !json.id ||
@@ -1333,7 +1360,7 @@ export class PlatformClient {
       yield* this.followDeploymentEvents(projectId, receipt, cursor, observationDeadline);
       return;
     }
-    const reader = res.body.getReader();
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let bytesRead = 0;
@@ -1495,7 +1522,7 @@ export class PlatformClient {
         if (!response.ok) {
           await throwPlatformApiError('Failed to observe deployment', response, 'read');
         }
-        page = (await response.json()) as typeof page;
+        page = await response.json<typeof page>();
         if (Date.now() >= deadline) {
           throw new DeploymentObservationTimeoutError(deploymentId);
         }
@@ -1941,7 +1968,7 @@ export class PlatformClient {
     );
     // 201 registered the address now; 200 found it already listed. Whether a
     // link went out is the body's `verificationSent`, not the status.
-    const body = (await res.json()) as EmailDestinationResponse;
+    const body = await res.json<EmailDestinationResponse>();
     return { ...body, created: res.status === 201 };
   }
 
@@ -2037,5 +2064,7 @@ export class PlatformClient {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

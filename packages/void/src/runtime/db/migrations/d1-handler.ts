@@ -276,12 +276,12 @@ async function runD1AppMigrations(
     const applied = await readAppliedSet(db);
     // A migration applied earlier never runs again, so its warning cannot be acted on.
     warnings = verified.plans.flatMap((plan, index) =>
-      applied.has(migrations[index]!.name) ? [] : (plan.warnings ?? []),
+      applied.has(migrations[index].name) ? [] : (plan.warnings ?? []),
     );
 
     for (let index = 0; index < migrations.length; index++) {
-      const migration = migrations[index]!;
-      const plan = verified.plans[index]!;
+      const migration = migrations[index];
+      const plan = verified.plans[index];
       if (plan.stability === 'legacy') {
         stability = 'legacy';
       }
@@ -612,8 +612,8 @@ async function verifyPlanBundle(
     throw new Error('migration execution plan count does not match bundled migrations');
   }
   for (let index = 0; index < migrations.length; index++) {
-    const migration = migrations[index]!;
-    const plan = planBundle.plans[index]!;
+    const migration = migrations[index];
+    const plan = planBundle.plans[index];
     if (
       plan.name !== migration.name ||
       plan.dialect !== 'sqlite' ||

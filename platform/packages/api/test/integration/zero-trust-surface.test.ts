@@ -23,8 +23,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -94,17 +94,17 @@ function accessApi() {
     const match = path.match(/^apps\/([^/]+)$/);
     if (match && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      const previous = applications.get(match[1]!);
+      const previous = applications.get(match[1]);
       const application = { ...body, id: match[1], aud: previous?.aud ?? `aud-${match[1]}` };
-      applications.set(match[1]!, application);
+      applications.set(match[1], application);
       return Response.json({ success: true, result: application });
     }
     if (match && init?.method === 'DELETE') {
-      applications.delete(match[1]!);
+      applications.delete(match[1]);
       return Response.json({ success: true, result: { id: match[1] } });
     }
     if (match) {
-      const application = applications.get(match[1]!);
+      const application = applications.get(match[1]);
       return application
         ? Response.json({ success: true, result: application })
         : Response.json({ success: false, errors: [{ message: 'not found' }] }, { status: 404 });
@@ -124,14 +124,17 @@ async function operator(path: string, init: RequestInit = {}): Promise<Response>
     'admin',
   );
   const token = await createOperatorToken(env.db, admin);
+  const headers = new Headers(init.headers);
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   return app.fetch(
     new Request('http://localhost/operator/v1' + path, {
       ...init,
-      headers: {
-        Authorization: 'Bearer ' + token,
-        'Content-Type': 'application/json',
-        ...init.headers,
-      },
+      headers,
     }),
     bindings(),
   );

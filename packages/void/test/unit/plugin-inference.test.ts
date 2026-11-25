@@ -584,7 +584,7 @@ describe('detectFramework', () => {
     }
   });
 
-  it('pins framework default compatibility before syncing wrangler config', () => {
+  it('pins framework default compatibility before syncing wrangler config', async () => {
     const root = createTempRoot();
     writeFileSync(
       join(root, 'package.json'),
@@ -595,31 +595,35 @@ describe('detectFramework', () => {
     try {
       const plugins = voidPlugin();
       const compatPlugin = plugins.find((plugin) => plugin.name === 'void:wrangler-compat');
-      const config = getHookHandler(compatPlugin?.config) as (
-        this: object,
-        config: Record<string, never>,
-        env: import('vite').ConfigEnv,
-      ) => void;
+      const config = getHookHandler(compatPlugin?.config);
 
       expect(compatPlugin).toBeTruthy();
       expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
 
-      config.call({}, {}, { command: 'serve', mode: 'development' } as import('vite').ConfigEnv);
+      await config.call(
+        {} as ThisParameterType<typeof config>,
+        {},
+        { command: 'serve', mode: 'development' },
+      );
 
       // The adapter reads the root Wrangler file by default, so the date and the dev
       // flags land there, not in a new void.config.ts.
       expect(existsSync(join(root, 'void.json'))).toBe(false);
       expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
       expect(existsSync(join(root, '.void-wrangler.jsonc'))).toBe(false);
-      expect(JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8'))).toMatchObject({
+      expect(JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8'))).toMatchObject({
         compatibility_date: LATEST_KNOWN_COMPAT_DATE,
         compatibility_flags: ['nodejs_als'],
       });
 
       // A second run reads the pinned date and leaves the root file alone.
-      const written = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
-      config.call({}, {}, { command: 'serve', mode: 'development' } as import('vite').ConfigEnv);
-      expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(written);
+      const written = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
+      await config.call(
+        {} as ThisParameterType<typeof config>,
+        {},
+        { command: 'serve', mode: 'development' },
+      );
+      expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(written);
     } finally {
       cwd.mockRestore();
     }
@@ -638,28 +642,28 @@ describe('detectFramework', () => {
       const compatPlugin = plugins.find(
         (plugin) => plugin.name === 'void:nuxt-vite8-websocket-compat',
       );
-      const configResolved = getHookHandler(compatPlugin?.configResolved) as (
-        config: import('vite').ResolvedConfig,
-      ) => void;
+      const configResolved = getHookHandler<(config: import('vite').ResolvedConfig) => void>(
+        compatPlugin?.configResolved,
+      );
       const sharedServer = {};
       const config = {
         build: { ssr: true },
         server: {
-          hmr: { port: 24678, server: sharedServer },
-          ws: { port: 24678, server: sharedServer },
+          hmr: { port: 24_678, server: sharedServer },
+          ws: { port: 24_678, server: sharedServer },
         },
       } as unknown as import('vite').ResolvedConfig;
 
       configResolved(config);
 
-      expect(config.server.hmr).toMatchObject({ port: 24678, server: undefined });
-      expect(config.server.ws).toMatchObject({ port: 24678, server: undefined });
+      expect(config.server.hmr).toMatchObject({ port: 24_678, server: undefined });
+      expect(config.server.ws).toMatchObject({ port: 24_678, server: undefined });
     } finally {
       cwd.mockRestore();
     }
   });
 
-  it('persists default compatibility in void.config.ts during build startup', () => {
+  it('persists default compatibility in void.config.ts during build startup', async () => {
     const root = createTempRoot();
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
@@ -669,10 +673,13 @@ describe('detectFramework', () => {
       const persistPlugin = plugins.find(
         (plugin) => plugin.name === 'void:wrangler-compat-persist',
       );
-      const buildStart = getHookHandler(persistPlugin?.buildStart) as (this: object) => void;
+      const buildStart = getHookHandler(persistPlugin?.buildStart);
 
       expect(persistPlugin).toBeTruthy();
-      buildStart.call({});
+      await buildStart.call(
+        {} as ThisParameterType<typeof buildStart>,
+        {} as Parameters<typeof buildStart>[0],
+      );
       expect(existsSync(join(root, 'void.json'))).toBe(false);
       expect(existsSync(join(root, 'wrangler.jsonc'))).toBe(false);
       expect(readConfig(root)).toEqual({
@@ -691,7 +698,7 @@ describe('detectFramework', () => {
       compat: true,
     },
     { kind: 'class B/C server builds', dependencies: { '@sveltejs/kit': '^2.0.0' }, compat: false },
-  ])('externalizes Cloudflare builtins for $kind', ({ dependencies, compat }) => {
+  ])('externalizes Cloudflare builtins for $kind', async ({ dependencies, compat }) => {
     const root = createTempRoot();
     if (compat) {
       writeCompatConfig(root);
@@ -706,14 +713,14 @@ describe('detectFramework', () => {
       const externalPlugin = plugins.find(
         (plugin) => plugin.name === 'void:cloudflare-builtins-external',
       );
-      const config = getHookHandler(externalPlugin?.config) as (
-        this: object,
-        config: import('vite').UserConfig,
-        env: import('vite').ConfigEnv,
-      ) => import('vite').UserConfig | void;
+      const config = getHookHandler(externalPlugin?.config);
 
       expect(externalPlugin).toBeTruthy();
-      const result = config.call({} as never, {}, { command: 'build', mode: 'production' });
+      const result = await config.call(
+        {} as ThisParameterType<typeof config>,
+        {},
+        { command: 'build', mode: 'production' },
+      );
       const rootExternal = result?.build?.rollupOptions?.external as Array<unknown>;
       expect(rootExternal).toBeTruthy();
       expect(
@@ -807,7 +814,7 @@ describe('detectFramework', () => {
 
     try {
       voidPlugin();
-      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf-8');
+      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf8');
       expect(entry).toContain('VoidLiveStreamDurableObject');
       expect(entry).toContain('export { VoidLiveStreamDurableObject };');
       expect(entry).toContain('__setLiveBindingName("VOID_LIVE");');
@@ -829,7 +836,7 @@ describe('detectFramework', () => {
 
     try {
       voidPlugin();
-      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf-8');
+      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf8');
       expect(entry).toContain('import __voidDurableObject0 from');
       expect(entry).toContain('/durable-objects/shopping-cart.ts');
       expect(entry).toContain('__voidDurableObject0.__bind("SHOPPING_CART")');

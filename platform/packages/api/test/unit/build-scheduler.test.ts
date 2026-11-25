@@ -343,7 +343,7 @@ describe('BuildScheduler.fetch', () => {
     const res = await s.fetch(new Request('https://scheduler/poke', { method: 'POST' }));
     expect(res.status).toBe(200);
     expect(ctx.storage.setAlarm).toHaveBeenCalledOnce();
-    const armed = ctx.storage.setAlarm.mock.calls[0][0] as number;
+    const armed = ctx.storage.setAlarm.mock.calls[0][0];
     // ~50ms ahead of the current clock.
     expect(armed).toBeGreaterThanOrEqual(now);
     expect(armed).toBeLessThanOrEqual(now + 1000);
@@ -457,7 +457,7 @@ describe('BuildScheduler.alarm', () => {
     // No build started, but the alarm re-armed ~2s ahead.
     expect(startBuild).not.toHaveBeenCalled();
     expect(ctx.storage.setAlarm).toHaveBeenCalledOnce();
-    const armed = ctx.storage.setAlarm.mock.calls[0][0] as number;
+    const armed = ctx.storage.setAlarm.mock.calls[0][0];
     expect(armed).toBeGreaterThanOrEqual(now + 2000 - 500);
   });
 
@@ -472,7 +472,7 @@ describe('BuildScheduler.alarm', () => {
     await s.alarm();
 
     expect(startBuild).toHaveBeenCalledOnce();
-    const cfg = startBuild.mock.calls[0][0] as unknown as {
+    const cfg = startBuild.mock.calls[0][0] as {
       buildId: string;
       projectSlug: string;
       login: string;
@@ -548,7 +548,7 @@ describe('BuildScheduler.alarm', () => {
     await s.alarm();
 
     expect(startBuild).toHaveBeenCalledOnce();
-    const cfg = startBuild.mock.calls[0][0] as unknown as { instanceType: string };
+    const cfg = startBuild.mock.calls[0][0] as { instanceType: string };
     expect(cfg.instanceType).toBe('standard-4');
   });
 
@@ -614,7 +614,7 @@ describe('BuildScheduler.alarm', () => {
     await s.alarm();
 
     expect(startBuild).toHaveBeenCalledOnce();
-    const cfg = startBuild.mock.calls[0][0] as unknown as { instanceType: string };
+    const cfg = startBuild.mock.calls[0][0] as { instanceType: string };
     expect(cfg.instanceType).toBe('standard-4');
     expect(env.BUILD_MANAGER_LARGE.idFromName).toHaveBeenCalledWith('b1');
     expect(env.BUILD_MANAGER.idFromName).not.toHaveBeenCalled();
@@ -635,7 +635,7 @@ describe('BuildScheduler.alarm', () => {
     await s.alarm();
 
     expect(startBuild).toHaveBeenCalledOnce();
-    const cfg = startBuild.mock.calls[0][0] as unknown as {
+    const cfg = startBuild.mock.calls[0][0] as {
       instanceType: string;
       timeoutMinutes: number;
     };
@@ -766,7 +766,7 @@ describe('BuildScheduler.alarm', () => {
     // The build is still queued, so the alarm re-armed — but with the capacity
     // backoff (>= now + 20s), not the normal 2s cadence.
     expect(ctx.storage.setAlarm).toHaveBeenCalledOnce();
-    const armed = ctx.storage.setAlarm.mock.calls[0][0] as number;
+    const armed = ctx.storage.setAlarm.mock.calls[0][0];
     expect(armed).toBeGreaterThanOrEqual(now + 20_000);
   });
 
@@ -809,7 +809,7 @@ describe('BuildScheduler.alarm', () => {
     expect(db.failed).toEqual([]);
     // A fleet was saturated this tick → capacity backoff (>= now + 20s).
     expect(ctx.storage.setAlarm).toHaveBeenCalledOnce();
-    const armed = ctx.storage.setAlarm.mock.calls[0][0] as number;
+    const armed = ctx.storage.setAlarm.mock.calls[0][0];
     expect(armed).toBeGreaterThanOrEqual(now + 20_000);
   });
 
@@ -844,7 +844,7 @@ describe('BuildScheduler.alarm', () => {
     expect(db.requeued).toEqual(['b-paid']);
     expect(db.failed).toEqual([]);
     // A fleet saturated → capacity backoff.
-    const armed = ctx.storage.setAlarm.mock.calls[0][0] as number;
+    const armed = ctx.storage.setAlarm.mock.calls[0][0];
     expect(armed).toBeGreaterThanOrEqual(now + 20_000);
   });
 
@@ -878,7 +878,7 @@ describe('BuildScheduler.alarm', () => {
     expect(db.requeued).toEqual(['b1']);
     expect(db.failed).toEqual([]);
     // Capacity backoff applied because the base fleet saturated this tick.
-    const armed = ctx.storage.setAlarm.mock.calls[0][0] as number;
+    const armed = ctx.storage.setAlarm.mock.calls[0][0];
     expect(armed).toBeGreaterThanOrEqual(now + 20_000);
   });
 
@@ -979,7 +979,7 @@ describe('BuildScheduler.alarm', () => {
     // The catch's markBuildTerminalIfActive hits a transient DB outage.
     vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(new Error('hyperdrive timeout'));
     const ctx = makeStubCtx();
-    const env = makeEnv(startBuild as unknown as ReturnType<typeof vi.fn>);
+    const env = makeEnv(startBuild);
     const s = makeScheduler(ctx, env);
 
     // (a) alarm() resolves — the write error does not escape.
@@ -987,7 +987,7 @@ describe('BuildScheduler.alarm', () => {
 
     // (b) the scan continued past b1: b2 was still claimed and started.
     expect(startBuild).toHaveBeenCalledTimes(2);
-    expect((startBuild.mock.calls[1][0] as { buildId: string }).buildId).toBe('b2');
+    expect(startBuild.mock.calls[1][0].buildId).toBe('b2');
 
     // (c) the tail heartbeat re-armed (queued work remains in the mock queue),
     // so b1 — still `starting` in the DB — is reaped on a later tick instead of
@@ -1046,7 +1046,7 @@ describe('BuildScheduler.alarm', () => {
     // (e) the tail reschedule still ran with the capacity backoff (a fleet
     // saturated this tick → >= now + 20s), so the scheduler does not go dark.
     expect(ctx.storage.setAlarm).toHaveBeenCalledOnce();
-    const armed = ctx.storage.setAlarm.mock.calls[0][0] as number;
+    const armed = ctx.storage.setAlarm.mock.calls[0][0];
     expect(armed).toBeGreaterThanOrEqual(now + 20_000);
   });
 
@@ -1143,7 +1143,7 @@ describe('BuildScheduler.alarm', () => {
     // b1 started, b2 left queued → reschedule.
     expect(startBuild).toHaveBeenCalledOnce();
     expect(ctx.storage.setAlarm).toHaveBeenCalledOnce();
-    const armed = ctx.storage.setAlarm.mock.calls[0][0] as number;
+    const armed = ctx.storage.setAlarm.mock.calls[0][0];
     expect(armed).toBeGreaterThanOrEqual(now + 2000 - 500);
   });
 });

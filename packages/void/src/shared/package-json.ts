@@ -20,7 +20,7 @@ export function isPackageJson(value: unknown): value is PackageJson {
 
 export function readPackageJson(root: string): PackageJson | null {
   try {
-    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')) as unknown;
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as unknown;
     return isPackageJson(pkg) ? pkg : null;
   } catch {
     return null;
@@ -45,10 +45,14 @@ export function readNearestPackageJson(
   }
 }
 
+interface PackageDependencies {
+  [key: string]: string;
+}
+
 export function getPackageDependencies(
   packageJson: PackageJson,
   fields: ReadonlyArray<PackageDependencyField> = DEFAULT_DEPENDENCY_FIELDS,
-): Record<string, string> {
+): PackageDependencies {
   const dependencies: Record<string, string> = {};
   for (const field of fields) {
     const group = packageJson[field];

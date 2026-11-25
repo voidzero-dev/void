@@ -1,6 +1,8 @@
-import { isR2LocationHint, type R2LocationHint } from '@void/deploy-core';
+import { isR2LocationHint } from '@void/deploy-core';
+import type { R2LocationHint } from '@void/deploy-core';
 import type { PlatformApplication } from './application.ts';
-import { PLATFORM_LOGIN_KINDS, type PlatformLoginKind } from './authentication.ts';
+import { isPlatformLoginKind, PLATFORM_LOGIN_KINDS } from './authentication.ts';
+import type { PlatformLoginKind } from './authentication.ts';
 import { assertRecord, requiredString } from './validate.ts';
 
 export const PLATFORM_DEPLOYMENT_SCHEMA_VERSION = 1 as const;
@@ -46,6 +48,10 @@ export type PlatformResourceNames = Readonly<{
 }>;
 
 export type PlatformAppAccess = 'public' | 'platform' | 'custom';
+
+function isPlatformAppAccess(value: unknown): value is PlatformAppAccess {
+  return value === 'public' || value === 'platform' || value === 'custom';
+}
 
 /**
  * `minimal` keeps request URLs, console messages and exception messages out of
@@ -244,6 +250,34 @@ export function createApplicationRoutes(
   return routes;
 }
 
+/** Validate application fields read independently from a persisted deployment manifest. */
+export function readPlatformApplicationInput(
+  value: unknown,
+  label = 'application',
+): PlatformDeploymentManifestInput['application'] {
+  assertRecord(value, label);
+  const { baseDomain, dedicatedZone, zoneName, workersDev, zoneId } = value;
+  if (dedicatedZone !== undefined && dedicatedZone !== null && typeof dedicatedZone !== 'boolean') {
+    throw new Error(`${label}.dedicatedZone must be a boolean.`);
+  }
+  let identity: PlatformApplication['workersDev'];
+  if (workersDev) {
+    assertRecord(workersDev, `${label}.workersDev`);
+    identity = {
+      ...workersDev,
+      subdomain: requiredString(workersDev.subdomain, 'workersDev.subdomain'),
+      installationId: requiredString(workersDev.installationId, 'workersDev.installationId'),
+    };
+  }
+  return {
+    baseDomain: requiredString(baseDomain, `${label}.baseDomain`),
+    dedicatedZone: dedicatedZone ?? undefined,
+    zoneName: identity && zoneName === '' ? '' : requiredString(zoneName, `${label}.zoneName`),
+    ...(identity ? { workersDev: identity } : {}),
+    ...(zoneId ? { zoneId: requiredString(zoneId, `${label}.zoneId`) } : {}),
+  };
+}
+
 export function createPlatformDeploymentManifest(
   input: PlatformDeploymentManifestInput,
 ): PlatformDeploymentManifest {
@@ -266,7 +300,7 @@ export function createPlatformDeploymentManifest(
     workersDev && input.application.zoneName === ''
       ? ''
       : normalizeApplicationDomain(input.application.zoneName);
-  if (!zoneName && baseDomain !== `${workersDev!.subdomain}.workers.dev`) {
+  if (!zoneName && (!workersDev || baseDomain !== `${workersDev.subdomain}.workers.dev`)) {
     throw new Error('workers.dev application domain must match its account subdomain.');
   }
   const resources = { ...createPlatformResourceNames(installationSlug), ...input.resources };
@@ -274,10 +308,7 @@ export function createPlatformDeploymentManifest(
   if (capabilities.managedBuilds && !capabilities.githubActions) {
     throw new Error('Managed builds require the GitHub Actions capability.');
   }
-  if (
-    input.appAccess !== undefined &&
-    !['public', 'platform', 'custom'].includes(input.appAccess)
-  ) {
+  if (input.appAccess !== undefined && !isPlatformAppAccess(input.appAccess)) {
     throw new Error('appAccess must be public, platform, or custom.');
   }
   if (input.runtimeLogs !== undefined && input.runtimeLogs !== 'minimal') {
@@ -422,22 +453,22 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   assertRecord(controlPlane, 'controlPlane');
   assertRecord(authentication, 'authentication');
   assertRecord(rawResources, 'resources');
-  const capabilityKeys = Object.keys(CORE_CAPABILITIES) as Array<keyof PlatformCapabilities>;
-  const capabilities: Partial<Record<keyof PlatformCapabilities, boolean>> = {};
-  for (const key of capabilityKeys) {
-    const entry = rawCapabilities[key];
-    if (typeof entry !== 'boolean') {
-      throw new Error(`capabilities.${key} must be a boolean.`);
-    }
-    capabilities[key] = entry;
-  }
+  const capabilities = Object.fromEntries(
+    Object.keys(CORE_CAPABILITIES).map((key) => {
+      const entry = rawCapabilities[key];
+      if (typeof entry !== 'boolean') {
+        throw new Error(`capabilities.${key} must be a boolean.`);
+      }
+      return [key, entry];
+    }),
+  );
   const providers = authentication.providers;
   if (
     !Array.isArray(providers) ||
-    providers.some(
-      (provider) =>
-        !PLATFORM_LOGIN_KINDS.includes(provider as PlatformLoginKind) ||
-        (Number(value.schemaVersion) < 3 && provider !== 'github' && provider !== 'google'),
+    !providers.every(
+      (provider: unknown): provider is PlatformLoginKind =>
+        isPlatformLoginKind(provider) &&
+        (Number(value.schemaVersion) >= 3 || provider === 'github' || provider === 'google'),
     )
   ) {
     throw new Error('authentication.providers must contain only github or google.');
@@ -451,12 +482,12 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   ) {
     throw new Error('Configurable authentication requires deployment schema version 3.');
   }
+  const appAccess = isPlatformAppAccess(value.appAccess) ? value.appAccess : undefined;
   if (
     value.schemaVersion === 4
-      ? !['public', 'platform', 'custom'].includes(String(value.appAccess))
+      ? appAccess === undefined
       : Number(value.schemaVersion) >= 5
-        ? value.appAccess !== undefined &&
-          !['public', 'platform', 'custom'].includes(String(value.appAccess))
+        ? value.appAccess !== undefined && appAccess === undefined
         : value.appAccess !== undefined
   ) {
     throw new Error(
@@ -475,9 +506,12 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   ) {
     throw new Error('Minimal runtime logs require deployment schema version 5.');
   }
+  const storageLocationHint = isR2LocationHint(value.storageLocationHint)
+    ? value.storageLocationHint
+    : undefined;
   if (
     value.schemaVersion === 6
-      ? !isR2LocationHint(value.storageLocationHint)
+      ? storageLocationHint === undefined
       : value.storageLocationHint !== undefined
   ) {
     throw new Error(
@@ -487,16 +521,18 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   const resourceDefaults = createPlatformResourceNames(
     requiredString(value.installationSlug, 'installationSlug'),
   );
-  const resources: Partial<Record<keyof PlatformResourceNames, string>> = {};
-  for (const key of Object.keys(resourceDefaults) as Array<keyof PlatformResourceNames>) {
-    resources[key] = requiredString(
-      rawResources[key] ??
-        (key === 'emailGatewayWorker' || key === 'deploymentQueue'
-          ? resourceDefaults[key]
-          : undefined),
-      `resources.${key}`,
-    );
-  }
+  const resources = Object.fromEntries(
+    Object.keys(resourceDefaults).map((key) => [
+      key,
+      requiredString(
+        rawResources[key] ??
+          (key === 'emailGatewayWorker' || key === 'deploymentQueue'
+            ? resourceDefaults[key]
+            : undefined),
+        `resources.${key}`,
+      ),
+    ]),
+  );
   const readHostname = (
     key: 'apiHostname' | 'dashboardHostname' | 'proxyHostname',
   ): string | null => {
@@ -504,9 +540,7 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     return hostname === null ? null : requiredString(hostname, `controlPlane.${key}`);
   };
   return createPlatformDeploymentManifest({
-    ...(Number(value.schemaVersion) >= 4 && value.appAccess !== undefined
-      ? { appAccess: value.appAccess as PlatformAppAccess }
-      : {}),
+    ...(appAccess === undefined ? {} : { appAccess }),
     application: {
       baseDomain: requiredString(application.baseDomain, 'application.baseDomain'),
       dedicatedZone: application.dedicatedZone === true,
@@ -518,7 +552,7 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
       ...(typeof application.zoneId === 'string' ? { zoneId: application.zoneId } : {}),
     },
     authentication: {
-      providers: providers as Array<PlatformLoginKind>,
+      providers,
       ...(authentication.configurable === true ? { configurable: true } : {}),
       ...(authentication.accessProtection === true ? { accessProtection: true } : {}),
     },
@@ -541,8 +575,6 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     installationSlug: requiredString(value.installationSlug, 'installationSlug'),
     resources,
     ...(value.runtimeLogs === 'minimal' ? { runtimeLogs: 'minimal' as const } : {}),
-    ...(value.schemaVersion === 6
-      ? { storageLocationHint: value.storageLocationHint as R2LocationHint }
-      : {}),
+    ...(storageLocationHint === undefined ? {} : { storageLocationHint }),
   });
 }

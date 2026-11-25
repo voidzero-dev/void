@@ -1,7 +1,10 @@
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { PlatformApiError, type PlatformClient } from '../../src/cli/client.ts';
+import type { MockInstance } from 'vite-plus/test';
+import { PlatformApiError } from '../../src/cli/client.ts';
+import type { PlatformClient } from '../../src/cli/client.ts';
 import { runGithubJoin } from '../../src/cli/github-cmd.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as output from '../../src/cli/output.ts';
 import { browserCallback, throwOnProcessExit } from '../helpers/github-cli.ts';
 
@@ -10,7 +13,7 @@ vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
 
 type FakeClient = Pick<PlatformClient, 'getGithubJoinUrl' | 'completeGithubJoin'>;
 
-let exitSpy: ReturnType<typeof vi.spyOn>;
+let exitSpy: MockInstance;
 
 beforeEach(() => {
   exitSpy = throwOnProcessExit();

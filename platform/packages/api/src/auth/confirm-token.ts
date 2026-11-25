@@ -57,11 +57,11 @@ function base64urlEncode(bytes: Uint8Array): string {
   for (const b of bytes) {
     binary += String.fromCharCode(b);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 function base64urlDecode(s: string): Uint8Array {
-  const padded = s.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = s.replaceAll('-', '+').replaceAll('_', '/');
   const binary = atob(padded);
   const out = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {

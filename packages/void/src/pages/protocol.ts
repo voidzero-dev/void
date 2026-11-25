@@ -5,16 +5,16 @@ import { executeComposedHandler, getHandlerComposition } from '../runtime/handle
 import type { CloudBindings, CloudContext } from '../runtime/handler/index.ts';
 import { isConvertedResponse } from '../runtime/handler/response.ts';
 import { hasActionKey, searchWithoutActionKey } from './action-key.ts';
-import { DEFERRED, separateDeferred, type ResolvedDeferredGroup } from './defer.ts';
+import { DEFERRED, separateDeferred } from './defer.ts';
+import type { ResolvedDeferredGroup } from './defer.ts';
 import {
   absolutizeHead,
   resolveHead,
   renderBodyAttrs,
   renderHeadToString,
   renderHtmlAttrs,
-  type HeadDescriptor,
-  type HeadConfig,
 } from './head.ts';
+import type { HeadDescriptor, HeadConfig } from './head.ts';
 import { withLoaderNotFoundDecision } from './not-found-context.ts';
 import { escapeScriptJson } from './script-json.ts';
 import { serializePageData } from './serialize.ts';
@@ -66,7 +66,7 @@ type ValidationErrorBody = {
 
 type PageHandler = ((c: CloudContext) => unknown | Promise<unknown>) | undefined;
 type PageHeadHandler =
-  | ((c: CloudContext, props: Record<string, unknown>) => HeadDescriptor | undefined)
+  | ((c: CloudContext, props: Record<string, unknown>) => HeadConfig | undefined)
   | undefined;
 type PageRequestContext = Context | CloudContext;
 type PageRenderOptions = {
@@ -147,7 +147,7 @@ function varyPagesResponse(c: CloudContext): void {
   const headers = new Headers(c.res.headers);
   appendVary(headers, 'X-VoidPages');
   appendVary(headers, 'X-VoidPages-Version');
-  c.header('Vary', headers.get('Vary')!);
+  c.header('Vary', headers.get('Vary') ?? undefined);
 }
 
 function escapeHtmlAttr(value: string): string {
@@ -155,7 +155,7 @@ function escapeHtmlAttr(value: string): string {
 }
 
 function serializeStyleCss(css: string): string {
-  return css.replace(/<\/style/gi, '<\\/style');
+  return css.replaceAll(/<\/style/gi, String.raw`<\/style`);
 }
 
 function serializeDevCssAssets(assets: Array<DevCssAsset>, nonce: string): string {
@@ -338,7 +338,7 @@ async function extractProps(result: unknown): Promise<Record<string, unknown>> {
   if (result instanceof Response) {
     const contentType = result.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      return (await result.json()) as Record<string, unknown>;
+      return await result.json<Record<string, unknown>>();
     }
     return {};
   }
@@ -491,7 +491,7 @@ async function renderPageFailure(
     console.error(error);
   }
   const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
-  const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
+  const middlewareHead = c.get('headDefaults');
   let head: HeadDescriptor | undefined;
   // Invalid shared/head input is not repairable by trying another component.
   try {
@@ -600,8 +600,12 @@ function runPageHandler(
     : endpoint(handler);
 }
 
+interface FormValidationErrors {
+  [key: string]: string;
+}
+
 /** Flatten withValidator's { issues: [{ slot, issues: [{ message, path }] }] } into { field: message } */
-export function flattenValidationErrors(body: unknown): Record<string, string> {
+export function flattenValidationErrors(body: unknown): FormValidationErrors {
   const errors: Record<string, string> = {};
   const issues = (body as ValidationErrorBody | null)?.issues;
   if (issues) {
@@ -619,7 +623,7 @@ export function flattenValidationErrors(body: unknown): Record<string, string> {
 }
 
 /** Strip deferred sentinels from props, setting their keys to null. Used by mutations. */
-function stripDeferred(props: Record<string, unknown>): Record<string, unknown> {
+function stripDeferred(props: Record<string, unknown>) {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(props)) {
     if (value && typeof value === 'object' && DEFERRED in value) {
@@ -705,7 +709,7 @@ function streamDeferredResponse(
   assetTags?: AssetTags,
 ): Response {
   const encoder = new TextEncoder();
-  const { readable, writable } = new TransformStream();
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
 
   const entries = Object.entries(deferredMap);
@@ -729,7 +733,7 @@ function streamDeferredResponse(
 }
 
 function asCloudContext(c: PageRequestContext): CloudContext {
-  return c as unknown as CloudContext;
+  return c as CloudContext;
 }
 
 /** Handle GET page request — run handler, return page object or SSR HTML */
@@ -763,7 +767,7 @@ function resolveRequestHead(
   c: CloudContext,
   configHead: HeadConfig | undefined,
   middlewareHead: HeadConfig | undefined,
-  pageHead: HeadDescriptor | undefined,
+  pageHead: HeadConfig | undefined,
 ): HeadDescriptor | undefined {
   const head = resolveHead(configHead, middlewareHead, pageHead);
   return absolutizeHead(
@@ -799,7 +803,7 @@ async function runPageGet(
         // Read at render time so per-route middleware can set them before next()
         const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
         const pageHead = headFn ? headFn(c, props) : undefined;
-        const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
+        const middlewareHead = c.get('headDefaults');
         const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
         if (renderMode !== 'island') {
           varyPagesResponse(c);
@@ -837,7 +841,7 @@ async function runPageGet(
           // Prefetch requests: resolve all deferred props inline (plain JSON, no streaming)
           const isPrefetch = c.req.header('purpose') === 'prefetch';
           if (isPrefetch && hasDeferred) {
-            const resolvedProps: Record<string, unknown> = { ...immediateProps };
+            const resolvedProps = { ...immediateProps };
             let deferredErrors: Record<string, string> | undefined;
             await Promise.all(
               Object.entries(deferredMap).map(async ([group, { resolver, keys }]) => {
@@ -998,7 +1002,7 @@ async function runPageMutation(
     errors: Record<string, string> | null,
   ): PageObject {
     const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
-    const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
+    const middlewareHead = c.get('headDefaults');
     const pageHead = headFn ? headFn(c, props) : undefined;
     const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
     return {

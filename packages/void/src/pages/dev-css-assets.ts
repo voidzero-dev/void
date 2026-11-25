@@ -1,10 +1,6 @@
-import {
-  normalizePath,
-  parseSync,
-  type EnvironmentModuleNode,
-  type Plugin,
-  type ViteDevServer,
-} from 'vite';
+import { normalizePath, parseSync } from 'vite';
+import type { EnvironmentModuleNode, Plugin, ViteDevServer } from 'vite';
+import { Buffer } from '../cli/node-buffer.ts';
 import { staticModuleReferences } from '../shared/module-references.ts';
 import type { DevCssAsset } from './types.ts';
 
@@ -31,7 +27,7 @@ const CSS_BYPASS_RE = /[?&](?:raw|url|worker|sharedworker)\b/;
 const SKIPPABLE_VIRTUAL_URL_RE =
   /^(?:\/@id\/__x00__)?virtual:void-client-(?:browser|worker)(?:$|[?#])/;
 
-function splitQueryHash(value: string): { pathname: string; suffix: string } {
+function splitQueryHash(value: string) {
   const index = value.search(/[?#]/);
   if (index === -1) {
     return { pathname: value, suffix: '' };
@@ -117,9 +113,11 @@ type CssOutputNode = {
   kind?: string;
 };
 
-function parseCssOutput(code: string): { css?: string; id?: string; templateCss?: boolean } {
-  const program = parseSync('void-dev-css.js', code).program as unknown as CssOutputNode;
-  const result: { css?: string; id?: string; templateCss?: boolean } = {};
+type CompiledCssOutput = { css?: string; id?: string; templateCss?: boolean };
+
+function parseCssOutput(code: string): CompiledCssOutput {
+  const program = parseSync('void-dev-css.js', code).program as CssOutputNode;
+  const result: CompiledCssOutput = {};
   const readCss = (node: CssOutputNode | undefined): void => {
     if (node?.type === 'Literal' && typeof node.value === 'string') {
       result.css = node.value;
@@ -350,7 +348,7 @@ class DevCssProvider {
 
     this.cache.set(cacheKey, assets);
     if (this.cache.size > 100) {
-      const oldest = this.cache.keys().next().value as string | undefined;
+      const oldest = this.cache.keys().next().value;
       if (oldest) {
         this.cache.delete(oldest);
       }
@@ -367,7 +365,7 @@ async function readJsonBody(req: import('node:http').IncomingMessage): Promise<u
   if (chunks.length === 0) {
     return {};
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 function getInternalDevOrigin(server: ViteDevServer): string {
@@ -391,7 +389,6 @@ function getInternalDevOrigin(server: ViteDevServer): string {
 
 export function pagesDevCssAssetsPlugin(root: string, token: string): Array<Plugin> {
   const edgeStore = createOrderedEdgeStore(root);
-  let provider: DevCssProvider | null = null;
   let viteServer: ViteDevServer | null = null;
 
   return [
@@ -498,8 +495,8 @@ export async function getVoidPagesDevCss(request, env, payload) {
 
       configureServer(server) {
         viteServer = server;
-        provider = new DevCssProvider(server, root, edgeStore);
-        const invalidate = () => provider?.invalidate();
+        const provider = new DevCssProvider(server, root, edgeStore);
+        const invalidate = () => provider.invalidate();
         server.watcher.on('add', invalidate);
         server.watcher.on('change', invalidate);
         server.watcher.on('unlink', invalidate);
@@ -539,7 +536,7 @@ export async function getVoidPagesDevCss(request, env, payload) {
           try {
             const body = (await readJsonBody(req)) as DevCssRequestBody;
             const rootPhases = Array.isArray(body.rootPhases) ? body.rootPhases : [];
-            const assets = await provider!.collect(rootPhases);
+            const assets = await provider.collect(rootPhases);
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ assets }));

@@ -10,9 +10,11 @@ import {
 import { platformProjectHostnames, readPlatformApplication } from '@void/platform';
 import type { Context } from 'hono';
 import { R2_CONCURRENCY, uploadPool } from './concurrency.ts';
-import { getDomainsByProjectId, type Db } from './db.ts';
+import { getDomainsByProjectId } from './db.ts';
+import type { Db } from './db.ts';
 import type { ApiEnv } from './env.ts';
-import { resolveCurrentIsrDeployments, type IsrRoutingTarget } from './isr-cache.ts';
+import { resolveCurrentIsrDeployments } from './isr-cache.ts';
+import type { IsrRoutingTarget } from './isr-cache.ts';
 import {
   legacyIsrCacheKey,
   legacyIsrCachePrefix,
@@ -27,7 +29,7 @@ type RevalidateProject = Readonly<{
 }>;
 
 type RevalidateRequestBody = Readonly<{
-  paths?: ReadonlyArray<string>;
+  paths?: Array<string>;
   all?: boolean;
 }>;
 
@@ -346,11 +348,15 @@ async function purgeEdgeCache(
     const urls: Array<string> = [];
     for (const { host, pathname, deploymentId, variantToken } of targets) {
       if (variantToken) {
-        urls.push(isrEdgeCacheUrlForToken(host, pathname, deploymentId, 'html', variantToken));
-        urls.push(isrEdgeCacheUrlForToken(host, pathname, deploymentId, 'json', variantToken));
+        urls.push(
+          isrEdgeCacheUrlForToken(host, pathname, deploymentId, 'html', variantToken),
+          isrEdgeCacheUrlForToken(host, pathname, deploymentId, 'json', variantToken),
+        );
       } else {
-        urls.push(isrEdgeCacheUrl(host, pathname, deploymentId, 'html'));
-        urls.push(isrEdgeCacheUrl(host, pathname, deploymentId, 'json'));
+        urls.push(
+          isrEdgeCacheUrl(host, pathname, deploymentId, 'html'),
+          isrEdgeCacheUrl(host, pathname, deploymentId, 'json'),
+        );
       }
     }
     // `purgeZoneCache` batches internally at 100 URLs per CF API request.

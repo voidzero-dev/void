@@ -1,21 +1,21 @@
-import { execSync, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { createServer } from 'pglite-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
+  createIsolatedPlayground,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
-  type StartedServer,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground, StartedServer } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
-const PLAYGROUND = join(ROOT, 'playground/pg-api-test');
-const ENV_PATH = join(PLAYGROUND, '.env');
 const USERS = [
   { id: 1, name: 'Ada', email: 'ada@example.com' },
   { id: 2, name: 'Linus', email: 'linus@example.com' },
@@ -24,11 +24,13 @@ const USERS = [
 // No db/migrations and no auth: no other Void module imports pg, so void/db's own import
 // must reach workerd prebundled.
 describe('playground/pg-api-test', () => {
+  let fixture: IsolatedPlayground;
   let pglite: PGlite;
   let pgServer: ReturnType<typeof createServer>;
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
+    fixture = createIsolatedPlayground(ROOT, 'playground/pg-api-test');
     pglite = new PGlite();
     await pglite.exec(
       'CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE);',
@@ -43,7 +45,10 @@ describe('playground/pg-api-test', () => {
     pgServer.listen(0);
     await once(pgServer, 'listening');
     const { port } = pgServer.address() as AddressInfo;
-    writeFileSync(ENV_PATH, `DATABASE_URL=postgresql://postgres@127.0.0.1:${port}/postgres\n`);
+    writeFileSync(
+      join(fixture.root, '.env'),
+      `DATABASE_URL=postgresql://postgres@127.0.0.1:${port}/postgres\n`,
+    );
   });
 
   afterAll(async () => {
@@ -55,18 +60,11 @@ describe('playground/pg-api-test', () => {
       await once(pgServer, 'close');
     }
     await pglite?.close();
-    try {
-      unlinkSync(ENV_PATH);
-    } catch {
-      // Ignore missing cleanup files between test runs.
-    }
+    fixture?.cleanup();
   });
 
   function start(script: 'dev' | 'preview'): Promise<StartedServer> {
-    return startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'pg-api-test', script, port)),
-      30_000,
-    );
+    return startServer((port) => (child = spawnFixtureServer(fixture.root, script, port)), 30_000);
   }
 
   async function stop(): Promise<void> {
@@ -98,8 +96,7 @@ describe('playground/pg-api-test', () => {
   });
 
   it('queries PostgreSQL through void/db and createDb in the built Worker', async () => {
-    rmSync(join(PLAYGROUND, 'dist'), { recursive: true, force: true });
-    execSync('vp run --filter ./playground/pg-api-test build', { cwd: ROOT, stdio: 'pipe' });
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
     const server = await start('preview');
     try {
       await expectUsers(server);

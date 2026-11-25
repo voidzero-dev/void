@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 import solid from 'vite-plugin-solid';
 import { expect, it } from 'vite-plus/test';
+import { createPackageFixtureDir } from '../../../../test/integration-helpers.ts';
 import { pagesPlugin } from '../../src/plugin-pages.ts';
 
 const PAGE = `import { Link, useParams } from "@void/solid";
@@ -60,7 +61,7 @@ function clientDocument(slug: string | null): string {
 }
 
 it('keeps useParams reactive without notifying unchanged values', async () => {
-  const root = mkdtempSync(join(import.meta.dirname, '.tmp-use-params-'));
+  const root = createPackageFixtureDir(join(import.meta.dirname, '../..'), '.tmp-use-params-');
   const pages = join(root, 'pages');
   mkdirSync(join(pages, 'posts'), { recursive: true });
   writeFileSync(join(pages, 'layout.tsx'), LAYOUT);

@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 
 const roots: Array<string> = [];
 
-function runPrepare(root: string): { written: Array<string>; removed: Array<string> } {
+type PrepareOutput = { written: Array<string>; removed: Array<string> };
+
+function runPrepare(root: string): PrepareOutput {
   const stdout = execFileSync(
     process.execPath,
     [
@@ -18,7 +20,7 @@ function runPrepare(root: string): { written: Array<string>; removed: Array<stri
     ],
     { encoding: 'utf8', stdio: 'pipe' },
   );
-  return JSON.parse(stdout.trim().split('\n').at(-1)!);
+  return JSON.parse(stdout.trim().split('\n').at(-1)!) as PrepareOutput;
 }
 
 afterEach(() => {

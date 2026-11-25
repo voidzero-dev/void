@@ -13,7 +13,9 @@ export default function ScrollRestorationPage(props: Props) {
       <p>Scroll down, follow a link, then use the browser Back button.</p>
       <output data-testid="scroll-request">{props.requestId}</output>
       <output data-testid="scroll-page">{props.page}</output>
-      <button onClick={() => void action('/scroll-restoration?anchor')}>Redirect to anchor</button>
+      <button type="button" onClick={() => void action('/scroll-restoration?anchor')}>
+        Redirect to anchor
+      </button>
       <Form form={anchorForm}>
         <button type="submit">Submit to anchor</button>
       </Form>
@@ -29,17 +31,18 @@ export default function ScrollRestorationPage(props: Props) {
             <Link href="/users">Visit Users</Link>
             {row === 30 && (
               <div>
-                <button onClick={() => void action('/scroll-restoration?touch')}>
+                <button type="button" onClick={() => void action('/scroll-restoration?touch')}>
                   Update action
                 </button>
                 <button
+                  type="button"
                   onClick={() =>
                     void action('/scroll-restoration?touch', { preserveScroll: false })
                   }
                 >
                   Reset action scroll
                 </button>
-                <button onClick={() => void action('/scroll-restoration?redirect')}>
+                <button type="button" onClick={() => void action('/scroll-restoration?redirect')}>
                   Redirect action
                 </button>
                 <Form form={form}>
