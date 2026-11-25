@@ -91,6 +91,7 @@ const registry = (registryGlobal[ENV_REGISTRY_SYMBOL] ??= {
 });
 
 /** The results of `rawEnv`, where `readKey` looks first. */
+// oxlint-disable-next-line quality/no-object-parameters -- The cache uses the runtime environment's identity as a weak key.
 function getEnvResults(rawEnv: object): Map<string, KeyResult> {
   const byEnv = (registry.results ??= new WeakMap());
   let results = byEnv.get(rawEnv);

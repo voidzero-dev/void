@@ -1272,6 +1272,7 @@ export async function createPageNavigationEngine<Component>(
           link.rel = 'prefetch';
           link.href = url;
           link.as = 'document';
+          // oxlint-disable-next-line unicorn/prefer-dom-node-append -- Workers types give append a different signature.
           document.head.appendChild(link);
         }
         return Promise.resolve(undefined);

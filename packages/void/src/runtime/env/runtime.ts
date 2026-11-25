@@ -30,6 +30,7 @@ const runtimeRequestContext = shared[REQUEST_SCOPE_SYMBOL];
 
 /** @internal Reuse a resource only within the current runtime request. */
 export function getRuntimeRequestResource<T>(
+  // oxlint-disable-next-line quality/no-object-parameters -- The request cache keys entries by object identity.
   key: object,
   initialize: () => T,
   outsideScope?: () => T,
@@ -80,6 +81,7 @@ function filterEnvProxy(env: RuntimeEnv): RuntimeEnv {
       if (typeof prop === 'string' && isInternalBinding(prop, target)) {
         return undefined;
       }
+      // oxlint-disable-next-line quality/no-reflect-get -- Forward the receiver for getters on the runtime environment.
       return Reflect.get(target, prop, receiver);
     },
     has(target, prop) {

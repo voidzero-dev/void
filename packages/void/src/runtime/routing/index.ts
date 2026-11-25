@@ -571,6 +571,7 @@ export function markNoMatch(request: Request, response: Response): Response {
 }
 
 export function createHttpRouteHandler(
+  // oxlint-disable-next-line quality/no-unknown-returns -- App handlers can return arbitrary values for convertReturnValue to normalize.
   load: () => Promise<Record<string, (c: CloudContext) => unknown>>,
   method: string,
 ): (c: Context) => Promise<Response> {
