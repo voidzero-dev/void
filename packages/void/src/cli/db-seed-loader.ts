@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import nodeModule, { type ResolveHookSync } from 'node:module';
+import nodeModule from 'node:module';
+import type { ResolveHookSync } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildSync, transformSync } from 'esbuild';
 import { createPathsMatcher, getTsconfig } from 'get-tsconfig';
@@ -7,6 +8,44 @@ import { createJiti } from 'jiti';
 import { basename, dirname, extname, isAbsolute, join, toSlash } from 'pathslash';
 
 export type SeedModuleImporter = (path: string) => Promise<Record<string, unknown>>;
+
+export interface SeedModuleLoader {
+  importModule: SeedModuleImporter;
+  /** Remove the module hooks once the seed has finished. */
+  close: () => void;
+}
+
+const DECLARATION_SUFFIXES = ['.d.ts', '.d.mts', '.d.cts'];
+const TYPESCRIPT_SUFFIXES = ['.ts', '.mts', '.cts'];
+const MISSING_MODULE_CODES = new Set([
+  'MODULE_NOT_FOUND',
+  'ERR_MODULE_NOT_FOUND',
+  'ERR_UNSUPPORTED_DIR_IMPORT',
+]);
+
+function isDeclarationFile(path: string): boolean {
+  return DECLARATION_SUFFIXES.some((suffix) => path.endsWith(suffix));
+}
+
+function isTypeScriptFile(path: string): boolean {
+  return TYPESCRIPT_SUFFIXES.some((suffix) => path.endsWith(suffix));
+}
+
+/** Whether a specifier starts with a URL scheme such as `node:`, `data:`, or `file:`. */
+function hasUrlScheme(specifier: string): boolean {
+  const colon = specifier.indexOf(':');
+  if (colon <= 0) {
+    return false;
+  }
+  for (const char of specifier.slice(0, colon)) {
+    const isLetter = (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z');
+    const isDigit = char >= '0' && char <= '9';
+    if (!isLetter && !isDigit && char !== '+' && char !== '.' && char !== '-' && char !== '_') {
+      return false;
+    }
+  }
+  return true;
+}
 
 function seedPaths(root: string) {
   const path = join(root, 'tsconfig.json');
@@ -23,7 +62,7 @@ function seedPaths(root: string) {
       Object.entries(options.paths ?? {})
         .map(
           ([name, targets]) =>
-            [name, targets.filter((target) => !/\.d\.[cm]?ts$/.test(target))] as const,
+            [name, targets.filter((target) => !isDeclarationFile(target))] as const,
         )
         .filter(([, targets]) => targets.length > 0),
     );
@@ -32,10 +71,12 @@ function seedPaths(root: string) {
     }
     return createPathsMatcher({ ...project, config: { compilerOptions: { ...options, paths } } });
   } catch (error) {
+    // get-tsconfig reports a missing `extends` target as "File '<path>' not found."
     if (
-      !existsSync(join(root, '.void/tsconfig.json')) &&
       error instanceof Error &&
-      /File ['"].*[/\\]\.void[/\\]tsconfig\.json['"] not found/.test(error.message)
+      error.message.includes('not found') &&
+      toSlash(error.message).includes('/.void/tsconfig.json') &&
+      !existsSync(join(root, '.void/tsconfig.json'))
     ) {
       throw new Error('db: Missing .void/tsconfig.json. Run `void prepare` before seeding.', {
         cause: error,
@@ -67,13 +108,7 @@ function seedScope(root: string, seed: string) {
   return (url: string) => url.startsWith('file:') && ownsDirectory(dirname(fileURLToPath(url)));
 }
 
-export function createSeedModuleLoader(
-  root: string,
-  seed: string,
-): {
-  importModule: SeedModuleImporter;
-  close: () => void;
-} {
+export function createSeedModuleLoader(root: string, seed: string): SeedModuleLoader {
   const match = seedPaths(root);
   const jiti = createJiti(import.meta.url, {
     fsCache: false,
@@ -81,24 +116,24 @@ export function createSeedModuleLoader(
     interopDefault: false,
     tsconfigPaths: false,
   });
-  if (!match || typeof nodeModule.registerHooks !== 'function') {
+  if (!match) {
     return { importModule: (path) => jiti.import<Record<string, unknown>>(path), close: () => {} };
   }
   const owns = seedScope(root, seed);
   const modules = new Set<string>();
 
-  const resolveImport: ResolveHookSync = (specifier, context, nextResolve) => {
-    const parent = context.parentURL!;
+  const resolveImport = (
+    specifier: string,
+    parent: string,
+    context: Parameters<ResolveHookSync>[1],
+    nextResolve: Parameters<ResolveHookSync>[2],
+  ): ReturnType<ResolveHookSync> => {
     if (specifier.startsWith('./') || specifier.startsWith('../')) {
       try {
         return nextResolve(specifier, context);
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (
-          code === 'MODULE_NOT_FOUND' ||
-          code === 'ERR_MODULE_NOT_FOUND' ||
-          code === 'ERR_UNSUPPORTED_DIR_IMPORT'
-        ) {
+        if (code !== undefined && MISSING_MODULE_CODES.has(code)) {
           const target = new URL(specifier, parent);
           const resolved = jiti.esmResolve(fileURLToPath(target), { try: true });
           if (resolved) {
@@ -112,7 +147,7 @@ export function createSeedModuleLoader(
       owns(parent) &&
       !isAbsolute(specifier) &&
       !specifier.startsWith('.') &&
-      !/^[\w+.-]+:/.test(specifier)
+      !hasUrlScheme(specifier)
     ) {
       for (const target of match(specifier)) {
         const resolved = jiti.esmResolve(target, { try: true });
@@ -129,9 +164,9 @@ export function createSeedModuleLoader(
       if (!parent || !modules.has(parent) || nodeModule.isBuiltin(specifier)) {
         return nextResolve(specifier, context);
       }
-      const local = owns(parent) || /\.[cm]?ts$/.test(fileURLToPath(parent));
+      const local = owns(parent) || isTypeScriptFile(fileURLToPath(parent));
       const result = local
-        ? resolveImport(specifier, context, nextResolve)
+        ? resolveImport(specifier, parent, context, nextResolve)
         : nextResolve(specifier, context);
       if (result.url.startsWith('file:')) {
         modules.add(result.url);
@@ -163,7 +198,7 @@ export function createSeedModuleLoader(
           return { format: 'module', source, shortCircuit: true };
         }
       }
-      if (!/\.[cm]?ts$/.test(sourcefile)) {
+      if (!isTypeScriptFile(sourcefile)) {
         return nextLoad(url, context);
       }
       const commonjs = sourcefile.endsWith('.cts');
@@ -193,9 +228,10 @@ export function createSeedModuleLoader(
     async importModule(path) {
       const url = pathToFileURL(realpathSync(path)).href;
       modules.add(url);
-      const mod = await import(url);
+      const mod = (await import(url)) as Record<string, unknown>;
+      // A CommonJS module imported natively exposes its whole `module.exports` under this key.
       const cjs = mod['module.exports'];
-      return cjs && typeof cjs === 'object' ? cjs : mod;
+      return cjs && typeof cjs === 'object' ? (cjs as Record<string, unknown>) : mod;
     },
     close: () => hooks.deregister(),
   };
