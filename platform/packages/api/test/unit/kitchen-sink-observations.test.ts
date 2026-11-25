@@ -14,7 +14,7 @@ function clock() {
       time += milliseconds;
     },
     timeoutMs: 10_000,
-    intervalMs: 3_000,
+    intervalMs: 3000,
   };
 }
 
@@ -40,8 +40,8 @@ describe('kitchen-sink acceptance observations', () => {
 
   it('starts the freshness window only after the reset confirms success', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true }));
-    const now = vi.fn(() => 12345);
-    await expect(resetKitchenSink('https://fixture.test', {}, fetcher, now)).resolves.toBe(12345);
+    const now = vi.fn(() => 12_345);
+    await expect(resetKitchenSink('https://fixture.test', {}, fetcher, now)).resolves.toBe(12_345);
     expect(fetcher).toHaveBeenCalledWith(
       'https://fixture.test/api/reset',
       expect.objectContaining({ method: 'POST' }),

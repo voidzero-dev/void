@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { cfAccessHeaders } from '../../src/shared/cf-access.ts';
 
 const keyring = vi.hoisted(() => ({
@@ -142,9 +143,16 @@ describe('cfAccessHeaders', () => {
   });
 });
 
-const spawnSyncMock = vi.fn();
+const spawnSyncMock =
+  vi.fn<
+    (
+      command: string,
+      args: Array<string>,
+      options: import('node:child_process').SpawnSyncOptionsWithStringEncoding,
+    ) => { status: number; stdout: string }
+  >();
 vi.mock('node:child_process', () => ({
-  spawnSync: (...args: Array<unknown>) => spawnSyncMock(...args),
+  spawnSync: (...args: Parameters<typeof spawnSyncMock>) => spawnSyncMock(...args),
 }));
 
 describe('origin-scoped self-hosted Access login', () => {
@@ -321,7 +329,7 @@ describe('origin-scoped self-hosted Access login', () => {
       },
     };
     const request = vi
-      .fn()
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(
         new Response(null, {
           status: 302,
@@ -339,9 +347,10 @@ describe('origin-scoped self-hosted Access login', () => {
       'https://api.example.com/.well-known/void-platform',
       'https://api.example.com/.well-known/void-platform',
     ]);
-    expect(request.mock.calls[0]?.[1].headers['cf-access-token']).toBeUndefined();
-    expect(request.mock.calls[1]?.[1].headers['cf-access-token']).toBe(token);
-    expect(request.mock.calls.every(([, options]) => options.redirect === 'manual')).toBe(true);
+    const [firstRequest, secondRequest] = request.mock.calls;
+    expect(new Headers(firstRequest?.[1]?.headers).has('cf-access-token')).toBe(false);
+    expect(new Headers(secondRequest?.[1]?.headers).get('cf-access-token')).toBe(token);
+    expect(request.mock.calls.every(([, options]) => options?.redirect === 'manual')).toBe(true);
   });
 });
 

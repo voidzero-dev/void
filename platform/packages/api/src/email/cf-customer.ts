@@ -1,5 +1,6 @@
 /** Customer Cloudflare API client for email routing and sending. */
 
+import { isRecord } from '@void/deploy-core';
 import { CloudflareApiError } from '../provisioning/cloudflare-api.ts';
 import {
   RELAY_ACCOUNT_BINDING,
@@ -26,16 +27,19 @@ export async function cfCustomerFetch<T>(
   credential: string,
   init?: RequestInit,
 ): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${credential}`);
+  }
+  if (!(init?.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   const response = await fetch(url, {
     ...init,
     signal: init?.signal ?? AbortSignal.timeout(15_000),
-    headers: {
-      Authorization: `Bearer ${credential}`,
-      ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...init?.headers,
-    },
+    headers,
   });
-  const json = (await response.json()) as CfCustomerResult<T>;
+  const json = await response.json<CfCustomerResult<T>>();
   if (!json.success) {
     const message = json.errors.map((error) => error.message).join(', ');
     throw new CloudflareApiError(
@@ -200,10 +204,9 @@ export type CfCustomerClient = Readonly<{
   /** PUT catch-all with wrangler's reset shape: one drop action, disabled. */
   resetCatchAll: (zoneId: string) => Promise<void>;
   /**
-   * GET /zones/{z}/email/routing — raw result. The subdomain-readiness
-   * fields are probe-pinned, so callers parse defensively.
+   * GET /zones/{z}/email/routing. Callers check provider flags by exact value.
    */
-  getRoutingSettings: (zoneId: string) => Promise<unknown>;
+  getRoutingSettings: (zoneId: string) => Promise<Record<string, unknown> | null>;
   /** DELETE the relay script. 404 is success — the customer may have deleted it themselves. */
   deleteRelayScript: (accountId: string, scriptName: string) => Promise<void>;
 }>;
@@ -289,8 +292,8 @@ export function createCfCustomerClient(credential: string): CfCustomerClient {
         { method: 'POST', body: JSON.stringify({ name }) },
       );
       const issues: Array<CfSendingIssue> = [];
-      for (const row of Array.isArray(preview?.errors) ? preview.errors : []) {
-        if (!row || typeof row !== 'object' || typeof row.code !== 'string') {
+      for (const row of Array.isArray(preview?.errors) ? (preview.errors as Array<unknown>) : []) {
+        if (!row || typeof row !== 'object' || !('code' in row) || typeof row.code !== 'string') {
           continue;
         }
         const existing = (row as { existing?: { name?: unknown } }).existing;
@@ -414,7 +417,7 @@ export function createCfCustomerClient(credential: string): CfCustomerClient {
         return null;
       }
       const actions = (rule as { actions?: unknown }).actions;
-      const first = Array.isArray(actions) && actions.length > 0 ? actions[0] : null;
+      const first: unknown = Array.isArray(actions) && actions.length > 0 ? actions[0] : null;
       const workerName =
         first !== null &&
         typeof first === 'object' &&
@@ -504,7 +507,10 @@ export function createCfCustomerClient(credential: string): CfCustomerClient {
       });
     },
 
-    getRoutingSettings: (zoneId) => call<unknown>(`/zones/${zoneId}/email/routing`),
+    getRoutingSettings: async (zoneId) => {
+      const result = await call<unknown>(`/zones/${zoneId}/email/routing`);
+      return isRecord(result) ? result : null;
+    },
 
     deleteRelayScript: async (accountId, scriptName) => {
       try {

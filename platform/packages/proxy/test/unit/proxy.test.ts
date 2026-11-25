@@ -1,3 +1,4 @@
+import { isRecord } from '@void/deploy-core';
 import { signEmailReceipt } from '@void/platform/email-protocol';
 import { deriveAiUsageTag, deriveProxyToken } from '@voidcloud/api/proxy-token';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite-plus/test';
@@ -16,7 +17,7 @@ function base64urlEncode(data: Uint8Array): string {
   for (const byte of data) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 async function signJwt(
@@ -360,7 +361,7 @@ describe('proxy worker', () => {
       });
 
       try {
-        await vi.advanceTimersByTimeAsync(5_000);
+        await vi.advanceTimersByTimeAsync(5000);
         expect(status).toBe(408);
       } finally {
         if (!cancelled) {
@@ -403,7 +404,7 @@ describe('proxy worker', () => {
         (error: unknown) => error,
       );
 
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       expect(await outcome).toBeInstanceOf(Error);
       expect(String(await outcome)).toContain('timeout');
@@ -424,7 +425,7 @@ describe('proxy worker', () => {
       } as RequestInit);
       const response = worker.fetch(request, createEnv());
 
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       expect((await response).status).toBe(400);
     });
@@ -507,7 +508,7 @@ describe('proxy worker', () => {
       const response = Promise.resolve(worker.fetch(request, createEnv())).then((value) => {
         status = value.status;
       });
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       expect(status).toBe(400);
       expect(cancel).toHaveBeenCalledOnce();
       await response;
@@ -1036,7 +1037,7 @@ describe('proxy worker', () => {
 
     it('passes the actual proxy origin and revalidates every R2 download chunk', async () => {
       let ownerValid = true;
-      const ownerChecks: Array<Record<string, unknown>> = [];
+      const ownerChecks: Array<unknown> = [];
       const api = createMockApi(async (input, init) => {
         const url = typeof input === 'string' ? input : input.url;
         if (url.includes('/internal/verify-owner/')) {
@@ -1081,9 +1082,11 @@ describe('proxy worker', () => {
       ownerValid = false;
       await expect(reader.read()).rejects.toThrow('revoked');
       expect(ownerChecks.length).toBeGreaterThanOrEqual(3);
-      expect(ownerChecks.every((body) => body.proxyOrigin === 'https://proxy.void.cloud')).toBe(
-        true,
-      );
+      expect(
+        ownerChecks.every(
+          (body) => isRecord(body) && body.proxyOrigin === 'https://proxy.void.cloud',
+        ),
+      ).toBe(true);
     });
 
     it('HMAC path bypasses ownership check (service binding is trusted)', async () => {
@@ -1533,14 +1536,14 @@ describe('proxy worker', () => {
       }
       expect(policyReads(env)).toEqual(AI_LOGGING_PATHS.map(() => [POLICY_KEY, { cacheTtl: 30 }]));
       for (const method of [env.AI.run, env.AI.toMarkdown]) {
-        const options = method.mock.calls[0]!.at(-1) as Record<string, unknown>;
+        const options = method.mock.calls[0].at(-1) as Record<string, unknown>;
         expect(options.gateway).toStrictEqual({
           id: 'void',
           metadata: { projectId: usageTags[PROJECT] },
         });
         expect(options).not.toHaveProperty('extraHeaders');
       }
-      const headers = new Headers(upstream.mock.calls[0]![1]!.headers);
+      const headers = new Headers(upstream.mock.calls[0][1]!.headers);
       expect([...headers.keys()].filter((name) => name.startsWith('cf-aig-'))).toEqual([]);
       expect(apiPolicyCalls(env)).toEqual([]);
     });
@@ -1603,7 +1606,7 @@ describe('proxy worker', () => {
           expect(response.status).toBe(200);
         }
         for (const method of [env.AI.run, env.AI.toMarkdown]) {
-          const options = method.mock.calls[0]!.at(-1) as Record<string, unknown>;
+          const options = method.mock.calls[0].at(-1) as Record<string, unknown>;
           expect(options.gateway).toStrictEqual({
             id: 'void',
             metadata: { projectId: usageTags[PROJECT] },
@@ -1633,7 +1636,7 @@ describe('proxy worker', () => {
         env,
       );
       expect(response.status).toBe(200);
-      const headers = new Headers(upstream.mock.calls[0]![1]!.headers);
+      const headers = new Headers(upstream.mock.calls[0][1]!.headers);
       expect([...headers].filter(([name]) => name.startsWith('cf-aig-'))).toStrictEqual([
         ['cf-aig-collect-log', collectLog],
         ['cf-aig-collect-log-payload', payload],
@@ -1746,7 +1749,7 @@ describe('proxy worker', () => {
       );
       const res = await worker.fetch(request, env);
       expect(res.status).toBe(200);
-      const options = env.AI.run.mock.calls[0]![2];
+      const options = env.AI.run.mock.calls[0][2];
       expect(options.returnRawResponse).toBe(true);
       expect(options.signal).toBe(request.signal);
       expect(options.signal.aborted).toBe(false);
@@ -1852,7 +1855,7 @@ describe('proxy worker', () => {
         env,
       );
 
-      const options = env.AI.run.mock.calls[0]![2] as { gateway: { metadata: unknown } };
+      const options = env.AI.run.mock.calls[0][2] as { gateway: { metadata: unknown } };
       expect(options.gateway.metadata).toStrictEqual({ projectId: usageTags['proj_000000000042'] });
     });
 
@@ -2052,7 +2055,7 @@ describe('proxy worker', () => {
         env,
       );
 
-      const options = env.AI.run.mock.calls[0]![2] as {
+      const options = env.AI.run.mock.calls[0][2] as {
         gateway: { metadata: { projectId: string } };
       };
       const tag = options.gateway.metadata.projectId;
@@ -2490,7 +2493,7 @@ describe('proxy worker', () => {
         '//api.openai.com/v1/chat/completions',
         '/../chat/completions',
         '/%2e%2e/chat/completions',
-        '/v1\\chat\\completions',
+        String.raw`/v1\chat\completions`,
         '/%E0%A4%A',
       ]) {
         const res = await worker.fetch(
@@ -2645,6 +2648,7 @@ describe('proxy worker', () => {
     it('returns 502 with stringified error when non-Error is thrown', async () => {
       const env = createEnv({
         run: vi.fn(async () => {
+          // oxlint-disable-next-line typescript/only-throw-error -- Exercise the proxy response to a non-Error provider rejection.
           throw 'string error';
         }),
       });
@@ -2666,6 +2670,7 @@ describe('proxy worker', () => {
     it('forwards response-shaped AI binding errors', async () => {
       const env = createEnv({
         run: vi.fn(async () => {
+          // oxlint-disable-next-line typescript/only-throw-error -- Exercise the response-shaped rejection from the AI binding.
           throw {
             response: new Response(
               JSON.stringify({ errors: [{ message: 'Unified Billing off' }] }),

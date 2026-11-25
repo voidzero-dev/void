@@ -1,7 +1,8 @@
 import { buildManagerNamespace } from '../build-namespace.ts';
 import { isTerminalBuildStatus } from '../build-status.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
-import { getBuild, type Db } from '../db.ts';
+import { getBuild } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { OperatorError } from './common.ts';
 
@@ -53,13 +54,13 @@ export async function buildLogs(
   if (!response.ok) {
     throw new OperatorError(502, `Build log service failed (${response.status}).`);
   }
-  const body = (await response.json()) as {
-    lines: ReadonlyArray<{ seq: number; line: string; stream: string; ts: number }>;
+  const body = await response.json<{
+    lines: Array<{ seq: number; line: string; stream: string; ts: number }>;
     lastSeq: number;
     status?: string | null;
     terminal?: boolean;
     logsComplete?: boolean | null;
-  };
+  }>();
   if (
     !Array.isArray(body.lines) ||
     !Number.isSafeInteger(body.lastSeq) ||
@@ -73,14 +74,14 @@ export async function buildLogs(
   const lines = limit === undefined ? body.lines : body.lines.slice(0, limit);
   const hasMore = lines.length < body.lines.length;
   const lastSeq = hasMore ? lines.at(-1)?.seq : body.lastSeq;
-  if (!Number.isSafeInteger(lastSeq)) {
+  if (lastSeq === undefined || !Number.isSafeInteger(lastSeq)) {
     throw new OperatorError(502, 'Build log service returned an invalid sequence.');
   }
   return {
     ...body,
     lines,
     hasMore,
-    lastSeq: Math.max(since, lastSeq!),
+    lastSeq: Math.max(since, lastSeq),
     status: body.status ?? build.status,
     terminal: body.terminal === true || terminal,
     // A terminal row that was never claimed could not have had a container log

@@ -1,5 +1,5 @@
 import { users } from '@schema';
-import * as v from 'valibot';
+import { email as valibotEmail, minLength, object, pipe, string } from 'valibot';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -8,9 +8,9 @@ export const GET = defineHandler(async () => {
 });
 
 export const POST = defineHandler.withValidator({
-  body: v.object({
-    name: v.pipe(v.string(), v.minLength(1)),
-    email: v.pipe(v.string(), v.email()),
+  body: object({
+    name: pipe(string(), minLength(1)),
+    email: pipe(string(), valibotEmail()),
   }),
 })(async (c, { body }) => {
   await db.insert(users).values({ name: body.name, email: body.email });

@@ -1,13 +1,12 @@
-import { createEffect, createSignal, onCleanup, splitProps, type JSX } from 'solid-js';
+import { createEffect, createSignal, onCleanup, splitProps } from 'solid-js';
+import type { JSX } from 'solid-js';
 import {
   formErrorMessage,
   formRetryMessage,
   formSubmissionBlocked,
   scheduleFormRetry,
-  type FormModel,
-  type FormMethod,
-  type VoidActionError,
 } from 'void/pages-client';
+import type { FormModel, FormMethod, VoidActionError } from 'void/pages-client';
 
 export type FormProps = Omit<
   JSX.FormHTMLAttributes<HTMLFormElement>,

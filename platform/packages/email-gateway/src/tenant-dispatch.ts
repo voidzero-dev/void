@@ -4,9 +4,8 @@ import {
   encodeEmailEnvelope,
   readEmailActions,
   signEmailReceipt,
-  type EmailWireAction,
-  type EmailWireEnvelope,
 } from '@void/platform/email-protocol';
+import type { EmailWireAction, EmailWireEnvelope } from '@void/platform/email-protocol';
 
 const MAX_CONCURRENT_PER_PROJECT = 8;
 const TENANT_DISPATCH_DEADLINE_MS = 20_000;
@@ -92,7 +91,11 @@ export async function dispatchBoundedEmailToTenant(
     if (responseDeadline <= 0) {
       throw new Error('email tenant request timeout');
     }
-    const actions = await readEmailActions(response.body, responseDeadline);
+    const actions = await readEmailActions(
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Fetch response bodies deliver byte streams.
+      response.body as ReadableStream<Uint8Array>,
+      responseDeadline,
+    );
     return { actions, receiptId };
   } finally {
     controller.abort();

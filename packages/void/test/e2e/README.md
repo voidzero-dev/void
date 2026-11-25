@@ -20,11 +20,11 @@ stable namespace reserved for this suite in the selected test account.
 
 | Environment variable     | Purpose                                                                                         |
 | ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `VOID_E2E_CF_TOKEN`      | Cloudflare API token with Workers Scripts: Edit, D1: Edit, and Workers KV Storage: Edit.        |
+| `VOID_E2E_CF_TOKEN`      | Cloudflare API token with Workers Admin, D1: Edit, and Workers KV Storage: Edit.                |
 | `VOID_E2E_CF_ACCOUNT_ID` | Test account ID.                                                                                |
 | `VOID_E2E_NAMESPACE`     | Short lowercase account-local namespace, such as a team or operator name. Reuse it across runs. |
 
-The token's Edit permissions include the reads needed to discover existing resources. Cron triggers
+These permissions include the reads needed to discover existing resources. Cron triggers
 are published with the Worker. This fixture does not require paid-only services.
 
 The account needs an existing workers.dev subdomain with its TLS certificate ready. If Cloudflare

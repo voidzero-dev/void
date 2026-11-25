@@ -1,8 +1,10 @@
-import childProcess, { execFile } from 'node:child_process';
+import type { execFile } from 'node:child_process';
+import childProcess from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { syncBuiltinESMExports } from 'node:module';
-import { connect, type AddressInfo } from 'node:net';
+import { connect } from 'node:net';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
@@ -36,6 +38,7 @@ import {
 } from '../../src/cli/cf-version-runner.ts';
 import { readWranglerAuthToken } from '../../src/cli/deploy-cloudflare-auth.ts';
 import { formatCloudflareActivationError } from '../../src/cli/deploy-cloudflare-helpers.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   cleanups,
   expectSameJson,
@@ -256,12 +259,7 @@ it(
       });
       expect(uploads, `${result.stdout}\n${result.stderr}`).toHaveLength(1);
       // A keep_bindings without the secret types would make Cloudflare drop the live secrets.
-      expect(uploads[0]!.keep_bindings).toEqual([
-        'plain_text',
-        'json',
-        'secret_text',
-        'secret_key',
-      ]);
+      expect(uploads[0].keep_bindings).toEqual(['plain_text', 'json', 'secret_text', 'secret_key']);
     } finally {
       await prepared.dispose();
     }
@@ -740,7 +738,7 @@ it(
       expect(uploads.map(({ apiDate }) => apiDate)).toEqual(['2026-11-09', '2026-11-09']);
       const [cf, pinned] = uploads.map(({ exports }) => JSON.stringify(exports, null, 2));
       expect(pinned).toBe(cf);
-      expect(JSON.parse(pinned!)).toEqual({
+      expect(JSON.parse(pinned)).toEqual({
         Rpc: { type: 'worker', cache: { enabled: false } },
         Room: { type: 'durable-object', storage: 'sqlite' },
         Legacy: { type: 'durable-object', storage: 'legacy-kv' },
@@ -1063,7 +1061,7 @@ async function uploadTargeted(
     return {
       result: await upload.then(
         (value) => ({ value }),
-        (error) => ({ error }),
+        (error: unknown) => ({ error }),
       ),
       uploads,
     };
@@ -1083,8 +1081,8 @@ it.each([
 
   expect(result).toEqual({ value: { id: '22222222-2222-4222-8222-222222222222', urls: [] } });
   expect(uploads).toHaveLength(1);
-  expect(uploads[0]!.url.endsWith(atomic ? '/versions?deploy=true' : '/versions')).toBe(true);
-  expectSameJson(uploads[0]!.body.placement, { mode: 'targeted', ...placement });
+  expect(uploads[0].url.endsWith(atomic ? '/versions?deploy=true' : '/versions')).toBe(true);
+  expectSameJson(uploads[0].body.placement, { mode: 'targeted', ...placement });
 });
 
 it('accepts an upload reply that lists the target', async () => {
@@ -1203,7 +1201,7 @@ it.each(['missing', 'owned', 'foreign', 'malformed', 'unrelated 404'] as const)(
       response.end(
         JSON.stringify({
           success: !missing,
-          errors: missing ? [{ code: mode === 'missing' ? 10200 : 10000 }] : [],
+          errors: missing ? [{ code: mode === 'missing' ? 10_200 : 10_000 }] : [],
           result: path.endsWith('/workflows/jobs')
             ? {
                 name: mode === 'malformed' ? 'another-workflow' : 'jobs',
@@ -1586,7 +1584,7 @@ async function containerApi(mode: ContainerMode) {
     } else if (row.url.endsWith(`/scripts/void-test/versions/${uploadedPinnedVersion}`)) {
       if (mode === 'pending' && ++counts.versionVisibleAttempts === 1) {
         status = 404;
-        code = 100146;
+        code = 100_146;
       } else {
         result = {
           id: uploadedPinnedVersion,
@@ -1743,7 +1741,7 @@ serialIt.each([
   const polling =
     mode === 'pending'
       ? vi.spyOn(timers, 'setTimeout').mockImplementation((ms, value, options) => {
-          expect(ms).toBe(2_000);
+          expect(ms).toBe(2000);
           return delay(0, value, options);
         })
       : undefined;
@@ -2333,7 +2331,7 @@ it('preserves activation metadata and sorts cf version history for the existing 
     );
     const deployArgs = calls.at(-1)!;
     expect(deployArgs.slice(0, 3)).toEqual(['workers', 'deployments', 'create']);
-    expect(JSON.parse(deployArgs[deployArgs.indexOf('--body') + 1]!)).toMatchObject({
+    expect(JSON.parse(deployArgs[deployArgs.indexOf('--body') + 1])).toMatchObject({
       strategy: 'percentage',
       annotations: { 'workers/message': 'void:metadata' },
       versions: [{ version_id: '00000000-0000-0000-0000-000000000001', percentage: 100 }],
@@ -2499,7 +2497,7 @@ it.each([
 
 it('applies the immutable trigger snapshot through a private cf output copy', async () => {
   const prepared = await output();
-  const triggerConfig = join(roots[0]!, 'trigger.json');
+  const triggerConfig = join(roots[0], 'trigger.json');
   writeFileSync(
     triggerConfig,
     JSON.stringify({
@@ -3158,15 +3156,15 @@ describe('session credential failures', () => {
         stdout: '',
         stderr: 'helper failed',
         failure: 'not-found' as const,
-        errorCode: 10007,
-        errors: [{ code: 10007, message: 'The given script does not exist.' }],
+        errorCode: 10_007,
+        errors: [{ code: 10_007, message: 'The given script does not exist.' }],
       },
     }));
     const missing = {
       status: 1,
       stdout: '',
       stderr: 'The given script does not exist. [code: 10007]',
-      errorCode: 10007,
+      errorCode: 10_007,
       failure: 'not-found' as const,
     };
     try {

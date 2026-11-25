@@ -1,15 +1,12 @@
 import { createHash } from 'node:crypto';
-import {
-  PLATFORM_HEALTH_HOSTNAME_LABEL,
-  parsePlatformAppAccessSetup,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { PLATFORM_HEALTH_HOSTNAME_LABEL, parsePlatformAppAccessSetup } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import {
   PlatformAccessClient,
   platformAccessCreateRejected,
   platformAccessPublicDestinations,
-  type PlatformAccessCheckpoint,
 } from './platform-access-provision.ts';
+import type { PlatformAccessCheckpoint } from './platform-access-provision.ts';
 import { parsePlatformAccessSetupSpec } from './platform-access-setup.ts';
 import { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
@@ -49,7 +46,8 @@ async function verifyHealthException(
           (value: { type?: unknown; uri?: unknown }) =>
             !value || value.type !== 'public' || value.uri !== destination,
         ))) ||
-    (app.target_criteria != null &&
+    (app.target_criteria !== null &&
+      app.target_criteria !== undefined &&
       (!Array.isArray(app.target_criteria) || app.target_criteria.length > 0))
   ) {
     throw new Error(`platform: The Access health exception must cover only ${destination}.`);
@@ -101,23 +99,23 @@ export async function ensurePlatformAccessHealthChecks(input: {
     : identityAccountId === accountId
       ? process.env.VOID_PLATFORM_ACCESS_SETUP_TOKEN || input.checkpoint.accessManagementToken
       : undefined;
-  if (!token && !input.client.request) {
+  const accessClient = token
+    ? new PlatformCloudflareClient(token, { apiBase: input.client.apiBaseUrl })
+    : input.client.request
+      ? { request: input.client.request.bind(input.client) }
+      : undefined;
+  if (!accessClient) {
     throw new Error(
       'platform: Access management is required to configure the reserved health endpoints.',
     );
   }
-  const access = new PlatformAccessClient(
-    token
-      ? new PlatformCloudflareClient(token, { apiBase: input.client.apiBaseUrl })
-      : { request: input.client.request!.bind(input.client) },
-    accountId,
-  );
+  const access = new PlatformAccessClient(accessClient, accountId);
   const nonce = createHash('sha256')
     .update(`void-access-health:${input.manifest.ownershipNonce}`)
     .digest('hex')
     .slice(0, 32);
   const state: PlatformAccessCheckpoint = input.checkpoint.accessHealthProvisioningJson
-    ? JSON.parse(input.checkpoint.accessHealthProvisioningJson)
+    ? (JSON.parse(input.checkpoint.accessHealthProvisioningJson) as PlatformAccessCheckpoint)
     : { version: 1, accountId, installationId: input.manifest.id, nonce, resources: {} };
   if (
     !state ||
@@ -168,7 +166,7 @@ export async function ensurePlatformAccessHealthChecks(input: {
     }
     // A manually configured or project-managed exact exception is verified without taking ownership.
     if (!recorded && matching.length === 1) {
-      await verifyHealthException(access, matching[0]!, destination);
+      await verifyHealthException(access, matching[0], destination);
       continue;
     }
     if (!recorded?.id && recorded?.pending) {
@@ -213,7 +211,7 @@ export async function ensurePlatformAccessHealthChecks(input: {
         throw error;
       }
     }
-    const app = (await access.get(`apps/${encodeURIComponent(recorded.id!)}`)) as Record<
+    const app = (await access.get(`apps/${encodeURIComponent(recorded.id)}`)) as Record<
       string,
       unknown
     >;

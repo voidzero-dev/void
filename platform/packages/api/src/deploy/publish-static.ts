@@ -1,6 +1,6 @@
 import { eq, sql as drizzleSql } from 'drizzle-orm';
-import { type Context } from 'hono';
-import { type AssetManifestEntry } from '../assets.ts';
+import type { Context } from 'hono';
+import type { AssetManifestEntry } from '../assets.ts';
 import { deleteDispatchScript } from '../cf-api.ts';
 import { clearCronScheduler } from '../cron-scheduler-client.ts';
 import {
@@ -10,11 +10,11 @@ import {
   markDeploymentRetained,
   getRetainedDeploymentsExcluding,
   getProjectResources,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getProjectQueueName } from '../naming.ts';
-import { type DeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import { removeQueueConsumer } from '../provisioning/cloudflare-api.ts';
 import { reconcileManagedDurableObjects } from '../provisioning/durable-objects.ts';
 import { projectRouteKey } from '../routing.ts';
@@ -22,22 +22,18 @@ import { buildStaticRoutingJson } from '../routing.ts';
 import { deployments } from '../schema.ts';
 import { REASON_REQUESTS_EXCEEDED } from '../suspension.ts';
 import { STATIC_RETENTION_LIMIT } from '../tiers.ts';
-import {
-  type DeployManifest,
-  type DeployEvent,
-  type Deployment,
-  type Project,
-  type DeploymentStatus,
+import type {
+  DeployManifest,
+  DeployEvent,
+  Deployment,
+  Project,
+  DeploymentStatus,
 } from '../types.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import { assertDeploymentCanProceed } from './guards.ts';
-import {
-  commitCutoverLive,
-  requireActiveDeployAccess,
-  cutoverIntentKey,
-  cutoverReadyKey,
-  type CutoverMarker,
-} from './recovery.ts';
+import type { PreviousDeployManifest } from './persisted-manifest.ts';
+import { commitCutoverLive, cutoverIntentKey, cutoverReadyKey } from './recovery.ts';
+import type { CutoverMarker, requireActiveDeployAccess } from './recovery.ts';
 import { attachServingStoreMetadata } from './serving-assets.ts';
 import { projectPublicUrls } from './shared.ts';
 
@@ -61,7 +57,7 @@ export async function publishStaticDeployment(input: {
       currentOwner: Awaited<ReturnType<typeof requireActiveDeployAccess>>['owner'],
     ) => Promise<T>,
   ) => Promise<T>;
-  readonly previousManifest: DeployManifest | null;
+  readonly previousManifest: Pick<PreviousDeployManifest, 'queues'> | null;
   readonly snapshotTrackedQueueConsumer: (queueId: string, scriptName: string) => Promise<void>;
   readonly deleteTrackedRouting: (key: string) => Promise<void>;
   readonly snapshotCronState: () => Promise<void>;
@@ -151,7 +147,7 @@ export async function publishStaticDeployment(input: {
 
   input.currentStep = 'cutover_intent';
   const cutoverMarker: CutoverMarker = {
-    projectId: projectId,
+    projectId,
     ownerId: cutoverOwnerId,
     buildId: deployBuild ?? null,
   };
@@ -188,15 +184,17 @@ export async function publishStaticDeployment(input: {
   markPhase('routing_switch');
   await withProjectCutoverFence(deployment.id, async (txDb, currentOwner) => {
     const existingRouting = await context.env.ROUTING.get(projectRouteKey(project));
-    const existingEntry = existingRouting ? JSON.parse(existingRouting) : null;
+    const existingEntry = existingRouting
+      ? (JSON.parse(existingRouting) as { suspended?: string })
+      : null;
     const zeroTrust = await resolveProjectZeroTrustRouting(txDb, projectId);
     const routingJson = buildStaticRoutingJson({
       privatePreview: Boolean(project.preview_client_id),
-      projectId: projectId,
+      projectId,
       userId: project.user_id,
       deploymentId: deployment.id,
       assetConfig,
-      manifest: manifest,
+      manifest,
       suspended:
         existingEntry?.suspended ??
         (currentOwner.suspended_reason === REASON_REQUESTS_EXCEEDED
@@ -375,7 +373,7 @@ export async function publishStaticDeployment(input: {
   emit({
     event: 'done',
     deployment: deployment.id,
-    url: urls[0]!,
+    url: urls[0],
     urls,
     assets: assetCount,
     workers: 0,

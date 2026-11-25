@@ -3,6 +3,10 @@ import type { Env } from '../../src/env.ts';
 import app from '../../src/index.ts';
 import { SHARED_CACHE_POLICY_VERSION } from '../../src/isr.ts';
 import type { AssetConfig } from '../../src/static.ts';
+import {
+  createMockExecutionContext as createCtx,
+  waitForBackgroundTasks,
+} from '../execution-context.ts';
 
 // Mock caches.default (same pattern as index.test.ts).
 const edgeCacheStore = new Map<string, Response>();
@@ -19,10 +23,6 @@ vi.stubGlobal('caches', {
   },
 });
 beforeEach(() => edgeCacheStore.clear());
-
-function createCtx(): ExecutionContext {
-  return { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
-}
 
 type StaticRoutingEntry = {
   staticDeploymentId: string;
@@ -334,7 +334,7 @@ describe('edge cache keying under fallback rewrites', () => {
     expect(await res.text()).toBe('<html>proxied</html>');
 
     // Flush background cache.put
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Cache must be keyed under the ORIGINAL path, not the rewrite target.
     expect(edgeCacheStore.has('https://test.void.app/proxy/foo?_v=dep_1')).toBe(true);
@@ -526,8 +526,8 @@ describe('fallbackRules rewrite — WfP/framework branch', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('<html>spa</html>');
     expect(workerFetch).toHaveBeenCalledTimes(2);
-    expect(new URL((workerFetch.mock.calls[0]![0] as Request).url).pathname).toBe('/app/settings');
-    expect(new URL((workerFetch.mock.calls[1]![0] as Request).url).pathname).toBe('/index.html');
+    expect(new URL((workerFetch.mock.calls[0][0] as Request).url).pathname).toBe('/app/settings');
+    expect(new URL((workerFetch.mock.calls[1][0] as Request).url).pathname).toBe('/index.html');
   });
 
   it('does not re-dispatch Void app handler 404s without the generated no-match marker', async () => {
@@ -706,10 +706,10 @@ describe('fallbackRules rewrite — WfP/framework branch', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('<html>spa</html>');
     expect(workerFetch).toHaveBeenCalledTimes(2);
-    expect(new URL((workerFetch.mock.calls[0]![0] as Request).url).pathname).toBe('/app/settings');
-    expect(new URL((workerFetch.mock.calls[1]![0] as Request).url).pathname).toBe('/index.html');
+    expect(new URL((workerFetch.mock.calls[0][0] as Request).url).pathname).toBe('/app/settings');
+    expect(new URL((workerFetch.mock.calls[1][0] as Request).url).pathname).toBe('/index.html');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     // Shell fallbacks are served live, not ISR-cached: a dotted HTML target
     // (`/index.html`) is indistinguishable here from a dynamic per-user endpoint,
     // so NO ISR entry — base key or `#rw=` variant — is written (see
@@ -762,7 +762,7 @@ describe('fallbackRules rewrite — WfP/framework branch', () => {
     const send = async (url: string) => {
       const ctx = createCtx();
       const res = await app.fetch(new Request(url), env, ctx);
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       return res;
     };
 

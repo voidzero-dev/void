@@ -16,7 +16,8 @@
  */
 
 import { browserPageLead, browserPageStatus } from '@void/platform/browser-page';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { verifyConfirmToken } from '../auth/confirm-token.ts';
 import { platformBrowserPage } from '../browser-page.ts';
 import { getEmailDestinationById, getProject, updateEmailDestinationStatus } from '../db.ts';

@@ -9,12 +9,8 @@ import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { acceptsBrowserHtml, platformBrowserError, platformBrowserPage } from '../browser-page.ts';
-import {
-  acceptInvitationByEmail,
-  linkGitHubInstallationToUser,
-  storeAuthCode,
-  type Db,
-} from '../db.ts';
+import { acceptInvitationByEmail, linkGitHubInstallationToUser, storeAuthCode } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { platformAuthAttempts, platformLoginTests } from '../schema.ts';
 import { stageBootstrapIdentity, verifyBootstrapCode } from './bootstrap.ts';
@@ -30,17 +26,16 @@ import { exchangeCodeForToken, getGitHubAuthorizeUrl, getGitHubUser } from './gi
 import { resolvePlatformLogin } from './identities.ts';
 import { verifyJwt } from './jwt.ts';
 import { LoginFailure, loginFailureHint } from './login-failure.ts';
-import {
-  linkTestedIdentity,
-  requireRecentAuthentication,
-  type AuthenticationActor,
-} from './management.ts';
-import { PlatformOidcProvider, type PlatformOidcIdentity } from './oidc.ts';
+import { linkTestedIdentity, requireRecentAuthentication } from './management.ts';
+import type { AuthenticationActor } from './management.ts';
+import { PlatformOidcProvider } from './oidc.ts';
+import type { PlatformOidcIdentity } from './oidc.ts';
 import { createCodeChallenge } from './pkce.ts';
 import { hashLoginProof, randomLoginProof } from './proofs.ts';
 import { validateRecoveryTest } from './recovery.ts';
 import { isAllowedRedirect, isLocalhostRedirect, isAuthorizationRedirect } from './redirects.ts';
-import { createHumanSession, validateHumanSession, type CompanyIdentity } from './sessions.ts';
+import { createHumanSession, validateHumanSession } from './sessions.ts';
+import type { CompanyIdentity } from './sessions.ts';
 
 const COOKIE = 'void_platform_auth';
 const FLOW_SECONDS = 600;
@@ -66,7 +61,10 @@ function oidcProvider(configuration: PlatformLoginConfiguration): PlatformOidcPr
   let provider = providers.get(key);
   if (!provider) {
     if (providers.size >= 32) {
-      providers.delete(providers.keys().next().value!);
+      const oldest = providers.keys().next();
+      if (!oldest.done) {
+        providers.delete(oldest.value);
+      }
     }
     provider = new PlatformOidcProvider(configuration);
     providers.set(key, provider);
@@ -237,15 +235,16 @@ export async function createLoginTestLaunch(
       401,
     );
   }
+  const revision = purpose === 'link' ? connection.active_revision : connection.revision;
   if (purpose === 'link') {
     await requireRecentAuthentication(db, actor);
-    if (!connection.enabled || !connection.active_revision) {
-      throw new AuthenticationConfigurationError(
-        'This login method is unavailable.',
-        'provider_unavailable',
-        404,
-      );
-    }
+  }
+  if (!revision || (purpose === 'link' && !connection.enabled)) {
+    throw new AuthenticationConfigurationError(
+      'This login method is unavailable.',
+      'provider_unavailable',
+      404,
+    );
   }
   const id = purpose + '.' + crypto.randomUUID();
   const proof = randomLoginProof();
@@ -253,7 +252,7 @@ export async function createLoginTestLaunch(
   await db.insert(platformAuthAttempts).values({
     id,
     connection_id: connectionId,
-    revision: purpose === 'link' ? connection.active_revision! : connection.revision,
+    revision,
     generation: connection.generation,
     purpose,
     browser_hash: await hashLoginProof(proof),
@@ -645,13 +644,20 @@ export async function completePlatformLogin(context: Context<ApiEnv>): Promise<R
       );
     }
     if (attempt.purpose === 'test' || attempt.purpose === 'link') {
+      const { testId } = saved;
+      if (!testId) {
+        throw new AuthenticationConfigurationError(
+          'The test or administrator session changed. Start a new test.',
+          'login_changed',
+          401,
+        );
+      }
       await db.transaction(async (transaction) => {
         await lockAuthSettings(transaction);
         const latest = await readLoginConnection(transaction, connection.id);
         const actor = saved.actor;
         if (
           !actor ||
-          !saved.testId ||
           !latest ||
           (attempt.purpose === 'link'
             ? !latest.enabled || latest.active_revision !== attempt.revision
@@ -664,7 +670,7 @@ export async function completePlatformLogin(context: Context<ApiEnv>): Promise<R
                 context.env,
                 saved.recovery,
                 attempt,
-                saved.testId,
+                testId,
                 actor.userId,
               ))
             : await validateHumanSession(
@@ -686,7 +692,7 @@ export async function completePlatformLogin(context: Context<ApiEnv>): Promise<R
           });
         }
         await transaction.insert(platformLoginTests).values({
-          id: saved.testId,
+          id: testId,
           user_id: actor.userId,
           connection_id: connection.id,
           revision: attempt.revision,
@@ -704,7 +710,7 @@ export async function completePlatformLogin(context: Context<ApiEnv>): Promise<R
         context.header('Referrer-Policy', 'strict-origin');
         const proof = randomLoginProof();
         await db.insert(platformAuthAttempts).values({
-          id: saved.testId!,
+          id: testId,
           connection_id: connection.id,
           revision: attempt.revision,
           generation: attempt.generation,
@@ -732,7 +738,7 @@ export async function completePlatformLogin(context: Context<ApiEnv>): Promise<R
         );
       }
       if (saved.actor?.audience === 'admin') {
-        return context.redirect(`/admin/config/auth?test=${encodeURIComponent(saved.testId!)}`);
+        return context.redirect(`/admin/config/auth?test=${encodeURIComponent(testId)}`);
       }
       return platformBrowserPage(
         context,

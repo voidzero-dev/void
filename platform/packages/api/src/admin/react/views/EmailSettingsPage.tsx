@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import type { EmailDomainManagement, EmailRecipientPolicy } from '../../../email/settings.ts';
 import { EmailSettingsView, emailSettingsRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { AdminCard } from './AdminCard.tsx';
 import { FormTextArea } from './FormControls.tsx';
 import { Layout } from './Layout.tsx';

@@ -1,7 +1,8 @@
 import { resolve as resolveWindowsPath } from 'node:path/win32';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'pathslash';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin } from 'vite';
 import { bundleWorkerSqlDriver } from './cli/wrapper.ts';
 import { getDatabaseDialect, readConfig } from './config.ts';
 import { voidDbBundlerPlugin } from './plugin-drizzle.ts';
@@ -84,6 +85,14 @@ const nativeAsyncHooksPlugin: Plugin = {
   },
 };
 
+// Nitro uses workerd's own Node modules instead of its stubs only when it finds nodejs_compat
+// in a Wrangler config, and Void's Cloudflare config is not one it reads. Deploys add the flag
+// for PostgreSQL and MySQL, whose drivers need it. Otherwise the Worker gets the Cloudflare
+// config's flags, or in a managed deploy `worker.compatibility_flags` when those are set: a
+// Worker built for native modules does not start without the flag.
+const nodeCompat = (flags: Array<string> | undefined) =>
+  flags?.some((flag) => NODEJS_COMPAT_FLAGS.has(flag)) === true;
+
 /**
  * Nitro module for apps whose server routes Nitro bundles (Nuxt and Analog). Nitro's bundler
  * does not run Vite plugins, so without this module `void/db` in a server route, page server
@@ -111,13 +120,6 @@ const voidNitroModule = {
         }),
       }),
     ];
-    // Nitro uses workerd's own Node modules instead of its stubs only when it finds nodejs_compat
-    // in a Wrangler config, and Void's Cloudflare config is not one it reads. Deploys add the flag
-    // for PostgreSQL and MySQL, whose drivers need it. Otherwise the Worker gets the Cloudflare
-    // config's flags, or in a managed deploy `worker.compatibility_flags` when those are set: a
-    // Worker built for native modules does not start without the flag.
-    const nodeCompat = (flags: Array<string> | undefined) =>
-      flags?.some((flag) => NODEJS_COMPAT_FLAGS.has(flag)) === true;
     const cloudflareFlags = config.cloudflare?.compatibility_flags;
     if (
       workerd &&
@@ -156,7 +158,7 @@ const voidNitroModule = {
     // Nitro adds its own resolvers after these, so `void/db` never reaches them.
     rollupConfig.plugins = [
       ...plugins,
-      ...(Array.isArray(existing) ? existing : existing ? [existing] : []),
+      ...(Array.isArray(existing) ? (existing as Array<unknown>) : existing ? [existing] : []),
     ];
   },
 };

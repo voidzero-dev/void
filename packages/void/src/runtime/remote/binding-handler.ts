@@ -1,4 +1,5 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { base64ToBytes } from '../../shared/base64.ts';
 import { R2_OBJECT_HEADER, parseR2Conditional, parseR2HttpMetadata } from './r2-conditions.ts';
 
@@ -89,7 +90,7 @@ export function createBindingHandler(env: Record<string, unknown>): Hono {
       }
       case 'raw': {
         const raw = await stmt.raw({ columnNames: true });
-        const columns = raw.length > 0 ? (raw[0] as Array<string>) : [];
+        const columns = raw.length > 0 ? raw[0] : [];
         const results = raw.slice(1) as Array<Array<unknown>>;
         return c.json({ columns, results, meta: {} });
       }

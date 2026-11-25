@@ -33,7 +33,9 @@ console.log(JSON.stringify(buildVoidManifest({
     },
   );
   expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-  return JSON.parse(result.stdout);
+  return JSON.parse(result.stdout) as ReturnType<
+    typeof import('../../../../packages/void/src/cli/package.ts').buildVoidManifest
+  >;
 }
 
 describe('hosted kitchen-sink smoke fixture', () => {

@@ -5,7 +5,7 @@ import { getDefaultPlan, lockPlanCatalog, requireAssignablePlan } from '../plans
 import { users, oauthAccounts, projects, deployments } from '../schema.ts';
 import type { PlanId } from '../tiers.ts';
 import type { OAuthAccount, User } from '../types.ts';
-import { type Db, type Tx } from './client.ts';
+import type { Db, Tx } from './client.ts';
 
 // --- Users ---
 

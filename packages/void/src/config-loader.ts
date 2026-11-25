@@ -15,6 +15,7 @@ export function getConfigFileName(root: string): string {
 }
 
 /** Evaluate a TypeScript config without requiring Void to be installed in the target project. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Callers validate the project's default export after loading it.
 export function loadTypedVoidConfigFile(path: string): unknown {
   const sourceEntry = fileURLToPath(new URL('./config-entry.ts', import.meta.url));
   const configEntry = existsSync(sourceEntry)
@@ -64,7 +65,7 @@ export function loadVoidConfig(root: string): LoadedVoidConfig | null {
   }
 
   try {
-    return { source: LEGACY_CONFIG_FILE, value: JSON.parse(readFileSync(jsonPath, 'utf-8')) };
+    return { source: LEGACY_CONFIG_FILE, value: JSON.parse(readFileSync(jsonPath, 'utf8')) };
   } catch (error) {
     throw new Error(`config: Invalid JSON in ${LEGACY_CONFIG_FILE}.`, { cause: error });
   }

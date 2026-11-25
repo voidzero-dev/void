@@ -1,6 +1,7 @@
 import { defineHandler } from 'void';
 import { env } from 'void/env';
-import { getSandbox, SandboxLimitError, type SandboxClient } from 'void/sandbox';
+import { getSandbox, SandboxLimitError } from 'void/sandbox';
+import type { SandboxClient } from 'void/sandbox';
 import { internetAccessProbe } from '../../../lib/internet-probe.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -207,7 +208,7 @@ export const POST = defineHandler(async (c) => {
       clients.map((client) =>
         client
           .destroy()
-          .catch((error) => console.error('[sandbox acceptance] cleanup failed', error)),
+          .catch((error: unknown) => console.error('[sandbox acceptance] cleanup failed', error)),
       ),
     );
   }

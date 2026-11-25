@@ -27,6 +27,7 @@ import {
 import type { Db } from '../../src/db.ts';
 // Namespace import so a test can spy the pre-tx `getGitHubInstallation` snapshot
 // (the under-lock re-read inside the handler hits the row directly, not via this).
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as db from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { createGitHubWebhookIngressProof } from '../../src/github/webhook-ingress-auth.ts';
@@ -50,8 +51,8 @@ import {
   recordingBuildManager,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const WEBHOOK_SECRET = 'test-webhook-secret';
 const INGRESS_SECRET = 'test-purpose-separated-ingress-secret';
@@ -146,7 +147,9 @@ vi.mock('../../src/github/installation-token.ts', () => ({
       // immediately and decrements, which would otherwise strand its peers.
       const deadline = Date.now() + 1000;
       while (compareConcurrencyPeak < compareBarrierSize && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 5));
+        await new Promise((r) => {
+          setTimeout(r, 5);
+        });
       }
       compareInFlight--;
     }
@@ -477,7 +480,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     expect(json.ok).toBe(true);
     expect(json.buildIds).toHaveLength(1);
 
@@ -494,7 +497,7 @@ describe('POST /webhooks/github', () => {
     expect(build!.instance_type).toBe('standard-3');
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [pokeUrl, pokeInit] = fetchSpy.mock.calls[0]! as [string, RequestInit];
+    const [pokeUrl, pokeInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(pokeUrl).toContain('/poke');
     expect(pokeInit.method).toBe('POST');
   });
@@ -524,7 +527,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
 
     const build = await getBuild(env.db, json.buildIds[0]);
@@ -556,11 +559,11 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'oldsha1',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'push is not the current branch head',
     });
     // No build row was created for the stale commit.
@@ -604,7 +607,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const build = await getBuild(env.db, json.buildIds[0]);
     expect(build!.commit_sha).toBe('headsha1');
@@ -642,11 +645,11 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'abandonedsha',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'push is not the current branch head',
     });
     // No new build row, and the pre-existing queued build is left intact.
@@ -688,11 +691,11 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'unverifiable',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'push is not the current branch head',
     });
     // No new build row for the unverifiable push.
@@ -733,11 +736,11 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'orphansha',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'push is not the current branch head',
     });
     // No new build row, and the pre-existing queued build is left intact.
@@ -766,7 +769,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/feature',
       after: 'abc1234',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
@@ -792,11 +795,11 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'def5678',
       installation: { id: 777 },
-      repository: { full_name: 'octo/actions-repo', id: 886845 },
+      repository: { full_name: 'octo/actions-repo', id: 886_845 },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { executor?: string }).toMatchObject({
+    expect(await res.json<{ executor?: string }>()).toMatchObject({
       executor: 'github_actions',
     });
     const rows = await env.db.select().from(builds);
@@ -820,7 +823,7 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: '0000000000000000000000000000000000000000',
       installation: { id: 555 },
-      repository: { full_name: 'octo/repo', id: 715167 },
+      repository: { full_name: 'octo/repo', id: 715_167 },
     });
 
     expect(res.status).toBe(200);
@@ -962,7 +965,9 @@ describe('POST /webhooks/github', () => {
       repository_selection: 'selected',
     });
     expect(
-      (await getGitHubInstallation(env.db, '9030'))!.repositories.map((r) => r.id).sort(),
+      (await getGitHubInstallation(env.db, '9030'))!.repositories
+        .map((r) => r.id)
+        .sort((a, b) => a - b),
     ).toEqual([1, 2]);
     // Redelivered ORIGINAL created (only [A]) — must NOT roll the cache back to [A].
     const res = await post(app, appEnv, 'installation', {
@@ -976,7 +981,7 @@ describe('POST /webhooks/github', () => {
     });
     expect(res.status).toBe(200);
     const after = await getGitHubInstallation(env.db, '9030');
-    expect(after!.repositories.map((r) => r.id).sort()).toEqual([1, 2]);
+    expect(after!.repositories.map((r) => r.id).sort((a, b) => a - b)).toEqual([1, 2]);
     expect(after!.repository_selection).toBe('selected');
   });
 
@@ -1070,7 +1075,7 @@ describe('POST /webhooks/github', () => {
 
     expect(res.status).toBe(200);
     const installation = await getGitHubInstallation(env.db, '9003');
-    const ids = installation!.repositories.map((r) => r.id).sort();
+    const ids = installation!.repositories.map((r) => r.id).sort((a, b) => a - b);
     expect(ids).toEqual([2, 3]);
     expect(installation!.repository_selection).toBe('selected');
   });
@@ -1230,8 +1235,8 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 321 },
-      repository: { full_name: 'octo/wfr', id: 855536 },
-      workflow_run: { id: 123456, run_attempt: 1, conclusion: 'success', head_sha: 'sha-success' },
+      repository: { full_name: 'octo/wfr', id: 855_536 },
+      workflow_run: { id: 123_456, run_attempt: 1, conclusion: 'success', head_sha: 'sha-success' },
     });
 
     expect(res.status).toBe(200);
@@ -1268,8 +1273,8 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 322 },
-      repository: { full_name: 'octo/wfr-fail', id: 871475 },
-      workflow_run: { id: 654321, run_attempt: 1, conclusion: 'failure', head_sha: 'sha-fail' },
+      repository: { full_name: 'octo/wfr-fail', id: 871_475 },
+      workflow_run: { id: 654_321, run_attempt: 1, conclusion: 'failure', head_sha: 'sha-fail' },
     });
 
     expect(res.status).toBe(200);
@@ -1305,8 +1310,8 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 323 },
-      repository: { full_name: 'octo/wfr-no-attempt', id: 871476 },
-      workflow_run: { id: 654322, conclusion: 'success', head_sha: 'sha-no-attempt' },
+      repository: { full_name: 'octo/wfr-no-attempt', id: 871_476 },
+      workflow_run: { id: 654_322, conclusion: 'success', head_sha: 'sha-no-attempt' },
     });
 
     expect(res.status).toBe(200);
@@ -1354,15 +1359,20 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 331 },
-      repository: { full_name: 'octo/check-ok', id: 766742 },
-      workflow_run: { id: 424250, run_attempt: 1, conclusion: 'success', head_sha: 'sha-check-ok' },
+      repository: { full_name: 'octo/check-ok', id: 766_742 },
+      workflow_run: {
+        id: 424_250,
+        run_attempt: 1,
+        conclusion: 'success',
+        head_sha: 'sha-check-ok',
+      },
     });
 
     expect(res.status).toBe(200);
     expect((await getBuild(env.db, build.id))!.status).toBe('complete');
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]! as [string, RequestInit];
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/repos/octo/check-ok/check-runs/5001');
     expect(init.method).toBe('PATCH');
     const body = JSON.parse(init.body as string) as { status: string; conclusion: string };
@@ -1404,9 +1414,9 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 332 },
-      repository: { full_name: 'octo/check-fail', id: 739072 },
+      repository: { full_name: 'octo/check-fail', id: 739_072 },
       workflow_run: {
-        id: 424251,
+        id: 424_251,
         run_attempt: 1,
         conclusion: 'failure',
         head_sha: 'sha-check-fail',
@@ -1417,7 +1427,7 @@ describe('POST /webhooks/github', () => {
     expect((await getBuild(env.db, build.id))!.status).toBe('failed');
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]! as [string, RequestInit];
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/repos/octo/check-fail/check-runs/5002');
     const body = JSON.parse(init.body as string) as { conclusion: string };
     expect(body.conclusion).toBe('failure');
@@ -1458,9 +1468,9 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 333 },
-      repository: { full_name: 'octo/check-none', id: 811598 },
+      repository: { full_name: 'octo/check-none', id: 811_598 },
       workflow_run: {
-        id: 424252,
+        id: 424_252,
         run_attempt: 1,
         conclusion: 'success',
         head_sha: 'sha-check-none',
@@ -1509,9 +1519,9 @@ describe('POST /webhooks/github', () => {
       const res = await post(app, appEnv, 'workflow_run', {
         action: 'completed',
         installation: { id: 334 },
-        repository: { full_name: 'octo/check-throw', id: 870692 },
+        repository: { full_name: 'octo/check-throw', id: 870_692 },
         workflow_run: {
-          id: 424253,
+          id: 424_253,
           run_attempt: 1,
           conclusion: 'success',
           head_sha: 'sha-check-throw',
@@ -1570,9 +1580,9 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 335 },
-      repository: { full_name: 'octo/check-terminal', id: 796140 },
+      repository: { full_name: 'octo/check-terminal', id: 796_140 },
       workflow_run: {
-        id: 424260,
+        id: 424_260,
         run_attempt: 1,
         conclusion: 'cancelled',
         head_sha: 'sha-check-terminal',
@@ -1585,7 +1595,7 @@ describe('POST /webhooks/github', () => {
 
     // ...but the check was STILL PATCHed to the mapped conclusion.
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]! as [string, RequestInit];
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/repos/octo/check-terminal/check-runs/5010');
     expect(init.method).toBe('PATCH');
     const body = JSON.parse(init.body as string) as { status: string; conclusion: string };
@@ -1633,8 +1643,8 @@ describe('POST /webhooks/github', () => {
       const res = await post(app, appEnv, 'workflow_run', {
         action: 'completed',
         installation: { id: 323 },
-        repository: { full_name: 'octo/wfr-throw', id: 823577 },
-        workflow_run: { id: 777777, run_attempt: 1, conclusion: 'success', head_sha: 'sha-throw' },
+        repository: { full_name: 'octo/wfr-throw', id: 823_577 },
+        workflow_run: { id: 777_777, run_attempt: 1, conclusion: 'success', head_sha: 'sha-throw' },
       });
 
       expect(res.status).toBe(200);
@@ -1705,7 +1715,7 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 900 },
-      repository: { full_name: 'octo/x', id: 872525 },
+      repository: { full_name: 'octo/x', id: 872_525 },
       workflow_run: { id: 500, run_attempt: 1, conclusion: 'failure', head_sha: 'sha-x' },
     });
 
@@ -1745,7 +1755,7 @@ describe('POST /webhooks/github', () => {
       branch: 'main',
       buildExecutor: 'github_actions',
     });
-    await seedInstallation(env.db, '960', [{ full_name: 'octo/multi', id: 960960 }]);
+    await seedInstallation(env.db, '960', [{ full_name: 'octo/multi', id: 960_960 }]);
 
     // Each project has its OWN live deployment at the workflow head sha, so each
     // build links to its OWN deployment (resolved per-candidate).
@@ -1786,12 +1796,12 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 960 },
-      repository: { full_name: 'octo/multi', id: 960960 },
+      repository: { full_name: 'octo/multi', id: 960_960 },
       workflow_run: { id: 960, run_attempt: 1, conclusion: 'success', head_sha: 'sha-multi' },
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const body = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     expect(body.buildIds).toHaveLength(2);
     expect([...body.buildIds].sort()).toEqual([buildA.id, buildB.id].sort());
 
@@ -1851,12 +1861,12 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 950 },
-      repository: { full_name: 'octo/rerun', id: 889911 },
+      repository: { full_name: 'octo/rerun', id: 889_911 },
       workflow_run: { id: 800, run_attempt: 2, conclusion: 'success', head_sha: 'sha-new' },
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const body = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     // The webhook resolved and finalized the active rerun build.
     expect(body.buildIds).toEqual([rerun.id]);
     const updatedRerun = await getBuild(env.db, rerun.id);
@@ -1915,12 +1925,12 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 951 },
-      repository: { full_name: 'octo/redeliver', id: 874787 },
+      repository: { full_name: 'octo/redeliver', id: 874_787 },
       workflow_run: { id: 801, run_attempt: 1, conclusion: 'success', head_sha: 'sha-a1' },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'build already terminal',
     });
 
@@ -1952,12 +1962,12 @@ describe('POST /webhooks/github', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 999 },
-      repository: { full_name: 'octo/unknown', id: 881839 },
+      repository: { full_name: 'octo/unknown', id: 881_839 },
       workflow_run: { id: 600, run_attempt: 1, conclusion: 'success', head_sha: 'sha-z' },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
   });
@@ -1992,7 +2002,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     expect((await env.db.select().from(builds)).length).toBe(0);
@@ -2033,7 +2043,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const build = await getBuild(env.db, json.buildIds[0]);
     expect(build!.project_id).toBe(project.id);
@@ -2079,7 +2089,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
 
     // The stored name was healed to the new full_name.
@@ -2120,11 +2130,11 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'leg0001',
       installation: { id: 650 },
-      repository: { full_name: 'octo/legacy', id: 12345 },
+      repository: { full_name: 'octo/legacy', id: 12_345 },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     // No build was created for the unmatched connection.
@@ -2179,7 +2189,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds?: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds?: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
 
     const rows = await env.db.select().from(builds);
@@ -2229,7 +2239,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds?: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds?: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(2);
 
     const rows = await env.db.select().from(builds);
@@ -2270,7 +2280,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     // The build is untouched — still building.
@@ -2300,11 +2310,11 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'abc1234',
       installation: { id: 7301 },
-      repository: { full_name: 'octo/susp', id: 764776 },
+      repository: { full_name: 'octo/susp', id: 764_776 },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     expect((await env.db.select().from(builds)).length).toBe(0);
@@ -2329,11 +2339,11 @@ describe('POST /webhooks/github', () => {
       ref: 'refs/heads/main',
       after: 'abc1234',
       installation: { id: 7302 },
-      repository: { full_name: 'octo/del', id: 873576 },
+      repository: { full_name: 'octo/del', id: 873_576 },
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     expect((await env.db.select().from(builds)).length).toBe(0);
@@ -2362,7 +2372,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { ignored?: string }).toMatchObject({
+    expect(await res.json<{ ignored?: string }>()).toMatchObject({
       ignored: 'no matching connection',
     });
     expect((await env.db.select().from(builds)).length).toBe(0);
@@ -2391,7 +2401,7 @@ describe('POST /webhooks/github', () => {
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const build = await getBuild(env.db, json.buildIds[0]);
     expect(build!.status).toBe('queued');
@@ -2458,7 +2468,7 @@ describe('POST /webhooks/github — push idempotency + latest-wins', () => {
       repository: { full_name: 'octo/idem', id: 70 },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const body = await res.json<{ buildIds: ReadonlyArray<string> }>();
     // Each push here creates or reuses exactly one build.
     expect(body.buildIds).toHaveLength(1);
     return { buildId: body.buildIds[0] };
@@ -2797,7 +2807,7 @@ describe('scheduled() re-arms BUILD_SCHEDULER for orphaned queued builds', () =>
     await scheduled(mockController, makeBindings(pokeFetch), mockCtx);
 
     expect(pokeFetch).toHaveBeenCalledTimes(1);
-    const [pokeUrl, pokeInit] = pokeFetch.mock.calls[0]! as [string, RequestInit];
+    const [pokeUrl, pokeInit] = pokeFetch.mock.calls[0] as [string, RequestInit];
     expect(pokeUrl).toContain('/poke');
     expect(pokeInit.method).toBe('POST');
   });
@@ -3290,7 +3300,7 @@ describe('POST /webhooks/github — supersede stale actions builds on push', () 
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()) as { executor?: string }).toMatchObject({
+    expect(await res.json<{ executor?: string }>()).toMatchObject({
       executor: 'github_actions',
     });
     const updated = await getBuild(env.db, stale.id);
@@ -3436,7 +3446,7 @@ describe('POST /webhooks/github — supersede stale container builds on push', (
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ ok: boolean; buildIds: ReadonlyArray<string> }>();
     expect(json.ok).toBe(true);
     expect(json.buildIds).toHaveLength(1);
     // The older active build is cancelled (token revoked + slot freed) and its
@@ -3482,7 +3492,7 @@ describe('POST /webhooks/github — supersede stale container builds on push', (
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     // Same-commit in-flight build is REUSED (dedup), not cancelled, and no DO
     // teardown happened.
     expect(json.buildIds).toEqual([fresh.id]);
@@ -3556,7 +3566,7 @@ describe('POST /webhooks/github — supersede stale container builds on push', (
     });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     // The same-commit building build is reused, not self-cancelled.
     expect(json.buildIds).toEqual([building.id]);
     expect((await getBuild(env.db, building.id))!.status).toBe('building');
@@ -3805,8 +3815,8 @@ describe('POST /webhooks/github — CAS workflow_run completion', () => {
     const res = await post(app, appEnv, 'workflow_run', {
       action: 'completed',
       installation: { id: 8201 },
-      repository: { full_name: 'octo/cas', id: 791148 },
-      workflow_run: { id: 87001, run_attempt: 1, conclusion: 'success', head_sha: 'sha-cas' },
+      repository: { full_name: 'octo/cas', id: 791_148 },
+      workflow_run: { id: 87_001, run_attempt: 1, conclusion: 'success', head_sha: 'sha-cas' },
     });
 
     expect(res.status).toBe(200);
@@ -4863,7 +4873,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
     installation: { id: 900 },
     repository: { full_name: 'octo/site', id: 9001 },
     check_run: {
-      id: overrides?.id ?? 55001,
+      id: overrides?.id ?? 55_001,
       name: overrides?.name ?? 'Void Build',
       head_sha: overrides?.headSha ?? 'cafe1234',
       external_id: overrides?.externalId ?? 'bld_old',
@@ -4930,7 +4940,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
     const res = await post(app, appEnv, 'check_run', checkRunPayload({ externalId: failed.id }));
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     // A NEW row — a failed build is never reused.
     expect(json.buildIds[0]).not.toBe(failed.id);
@@ -5029,7 +5039,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       checkRunPayload({ headBranch: 'main', externalId: clicked.id }),
     );
 
-    const json = (await res.json()) as { buildIds?: Array<string> };
+    const json = await res.json<{ buildIds?: Array<string> }>();
     expect(json.buildIds).toHaveLength(1);
     expect((await getBuild(env.db, json.buildIds![0]))!.project_id).toBe(project.id);
   });
@@ -5077,7 +5087,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       check_suite: { head_sha: 'cafe1234', head_branch: 'main' },
     });
 
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const build = await getBuild(env.db, json.buildIds[0]);
     expect(build!.project_id).toBe(project.id);
@@ -5117,7 +5127,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
 
     const res = await post(app, appEnv, 'check_run', checkRunPayload({ externalId: clicked.id }));
 
-    const json = (await res.json()) as { buildIds: ReadonlyArray<string> };
+    const json = await res.json<{ buildIds: ReadonlyArray<string> }>();
     expect(json.buildIds).toHaveLength(1);
     const connection = await getGitHubConnection(env.db, project.id);
     expect(connection!.repo_full_name).toBe('octo/site');
@@ -5171,7 +5181,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
     const res = await post(app, appEnv, 'check_run', checkRunPayload({ externalId: failed.id }));
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { buildIds?: Array<string> };
+    const json = await res.json<{ buildIds?: Array<string> }>();
     expect(json.buildIds).toHaveLength(1);
     // Resolving by repo + branch alone would have rebuilt the sibling too.
     expect(await getProjectBuilds(env.db, sibling.id)).toHaveLength(0);
@@ -5222,7 +5232,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       check_suite: { head_sha: 'cafe1234', head_branch: 'main' },
     });
 
-    const json = (await res.json()) as { buildIds?: Array<string> };
+    const json = await res.json<{ buildIds?: Array<string> }>();
     expect(json.buildIds).toHaveLength(2);
     expect(await getProjectBuilds(env.db, first.id)).toHaveLength(1);
     expect(await getProjectBuilds(env.db, second.id)).toHaveLength(1);
@@ -5257,7 +5267,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
     });
 
     expect(compareConcurrencyPeak).toBe(2);
-    const json = (await res.json()) as { buildIds?: Array<string> };
+    const json = await res.json<{ buildIds?: Array<string> }>();
     expect(json.buildIds).toHaveLength(2);
     expect(await getProjectBuilds(env.db, first.id)).toHaveLength(1);
     expect(await getProjectBuilds(env.db, second.id)).toHaveLength(1);
@@ -5276,14 +5286,14 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       // Deleting a project cascades its build rows away while GitHub keeps the
       // check for months. Falling back to the branch set here would rebuild —
       // and could deploy — sibling projects owned by other users.
-      const res = await post(app, appEnv, 'check_run', checkRunPayload({ id: 77004 }));
+      const res = await post(app, appEnv, 'check_run', checkRunPayload({ id: 77_004 }));
 
       expect(await res.json()).toEqual({ ok: true, ignored: 'originating build not found' });
       expect(await getProjectBuilds(env.db, project.id)).toHaveLength(0);
       expect(await getProjectBuilds(env.db, sibling.id)).toHaveLength(0);
       expect(pokes).toHaveLength(0);
       // The refusal is reported, and it does NOT invent a passing conclusion.
-      const [, , , , opts] = spy.mock.calls[0]!;
+      const [, , , , opts] = spy.mock.calls[0];
       expect(opts.conclusion).toBe('failure');
     } finally {
       spy.mockRestore();
@@ -5313,11 +5323,11 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77005, externalId: failed.id, conclusion: 'failure' }),
+        checkRunPayload({ id: 77_005, externalId: failed.id, conclusion: 'failure' }),
       );
 
       expect(await res.json()).toEqual({ ok: true, enqueued: 0 });
-      const [, , , , opts] = spy.mock.calls[0]!;
+      const [, , , , opts] = spy.mock.calls[0];
       // The run stays red, with an explanation. It does not become passing.
       expect(opts.conclusion).toBe('failure');
       expect(opts.title).toBe('Commit is no longer the branch head');
@@ -5341,10 +5351,10 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77008, externalId: clicked.id, conclusion: 'stale' }),
+        checkRunPayload({ id: 77_008, externalId: clicked.id, conclusion: 'stale' }),
       );
 
-      const [, , , , opts] = spy.mock.calls[0]!;
+      const [, , , , opts] = spy.mock.calls[0];
       expect(opts.conclusion).toBe('cancelled');
     } finally {
       spy.mockRestore();
@@ -5371,10 +5381,10 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77006, externalId: failed.id, conclusion: null }),
+        checkRunPayload({ id: 77_006, externalId: failed.id, conclusion: null }),
       );
 
-      const [, , , , opts] = spy.mock.calls[0]!;
+      const [, , , , opts] = spy.mock.calls[0];
       // Never ran to a verdict, so it was never passing. `cancelled`, not neutral.
       expect(opts.conclusion).toBe('cancelled');
     } finally {
@@ -5405,12 +5415,12 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77007, externalId: queued.id }),
+        checkRunPayload({ id: 77_007, externalId: queued.id }),
       );
 
       // An UNRUN build must never be reported as deployed, and it still needs the
       // scheduler poke it is waiting for.
-      const json = (await res.json()) as { buildIds?: Array<string> };
+      const json = await res.json<{ buildIds?: Array<string> }>();
       expect(json.buildIds).toEqual([queued.id]);
       expect(pokes).toHaveLength(1);
       expect(spy).not.toHaveBeenCalled();
@@ -5445,7 +5455,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77003, externalId: done.id }),
+        checkRunPayload({ id: 77_003, externalId: done.id }),
       );
 
       // Nothing was enqueued, and the scheduler is not woken for work that
@@ -5455,7 +5465,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
       // The run this replaces was green; downgrading it to `neutral` would lose an
       // accurate success.
       expect(spy).toHaveBeenCalledTimes(1);
-      const [, , , checkRunId, opts] = spy.mock.calls[0]!;
+      const [, , , checkRunId, opts] = spy.mock.calls[0];
       expect(checkRunId).toBe('77003');
       expect(opts.conclusion).toBe('success');
       expect(opts.title).toBe('Already built and live');
@@ -5479,14 +5489,14 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77001, externalId: clicked.id, conclusion: 'neutral' }),
+        checkRunPayload({ id: 77_001, externalId: clicked.id, conclusion: 'neutral' }),
       );
 
       expect(await res.json()).toEqual({ ok: true, enqueued: 0 });
       // GitHub reset the suite to `queued` on the click. Leaving it there is what
       // makes the button look broken, so the refusal is reported ON the check.
       expect(spy).toHaveBeenCalledTimes(1);
-      const [, , , checkRunId, opts] = spy.mock.calls[0]!;
+      const [, , , checkRunId, opts] = spy.mock.calls[0];
       expect(checkRunId).toBe('77001');
       // Echoes the run's OWN conclusion back; it does not invent one.
       expect(opts.conclusion).toBe('neutral');
@@ -5511,7 +5521,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77009, externalId: clicked.id }),
+        checkRunPayload({ id: 77_009, externalId: clicked.id }),
       );
 
       expect(res.status).toBe(200);
@@ -5534,12 +5544,15 @@ describe('POST /webhooks/github — rerun from the check run', () => {
 
     const checkRunModule = await import('../../src/github/check-run.ts');
     let settle: (v: boolean) => void = () => {};
-    const spy = vi
-      .spyOn(checkRunModule, 'completeCheckRun')
-      .mockImplementation(() => new Promise<boolean>((resolve) => (settle = resolve)));
+    const spy = vi.spyOn(checkRunModule, 'completeCheckRun').mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settle = resolve;
+        }),
+    );
     try {
       const { app, appEnv } = makeApp(env);
-      const payload = checkRunPayload({ id: 77010, externalId: clicked.id });
+      const payload = checkRunPayload({ id: 77_010, externalId: clicked.id });
       const body = JSON.stringify(payload);
       const pending: Array<Promise<unknown>> = [];
       const res = await app.fetch(
@@ -5589,7 +5602,7 @@ describe('POST /webhooks/github — rerun from the check run', () => {
         app,
         appEnv,
         'check_run',
-        checkRunPayload({ id: 77002, externalId: clicked.id }),
+        checkRunPayload({ id: 77_002, externalId: clicked.id }),
       );
 
       expect(res.status).toBe(200);

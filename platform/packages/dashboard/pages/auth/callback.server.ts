@@ -53,8 +53,8 @@ export const loader = defineHandler(async (context) => {
     const isLocal = isLocalDashboardHost(host);
     const pkce = getCookie(context, 'void_auth_pkce');
     const separator = pkce?.indexOf(':') ?? -1;
-    const pkceState = separator > 0 ? pkce!.slice(0, separator) : undefined;
-    const pkceVerifier = separator > 0 ? pkce!.slice(separator + 1) : undefined;
+    const pkceState = pkce && separator > 0 ? pkce.slice(0, separator) : undefined;
+    const pkceVerifier = pkce && separator > 0 ? pkce.slice(separator + 1) : undefined;
     const callbackState = context.req.query('state');
     if (isLocal && (!pkceState || !pkceVerifier || callbackState !== pkceState)) {
       console.warn('[dashboard] auth callback PKCE state mismatch');

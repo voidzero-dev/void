@@ -4,7 +4,7 @@ import { generateId } from '../id.ts';
 import { requireProjectCapability } from '../project-access.ts';
 import { users, projects, emailDestinations, emailDestinationCleanups } from '../schema.ts';
 import type { EmailDestination } from '../types.ts';
-import { type DbOrTx, type Db, type Tx } from './client.ts';
+import type { DbOrTx, Db, Tx } from './client.ts';
 
 // --- Email destinations ---
 
@@ -30,7 +30,7 @@ async function requireEmailDestinationSettingsAccess(
   actorUserId: string | undefined,
 ): Promise<void> {
   if (actorUserId) {
-    await requireProjectCapability(db as Db, projectId, actorUserId, 'settings');
+    await requireProjectCapability(db, projectId, actorUserId, 'settings');
   }
 }
 
@@ -287,12 +287,8 @@ export async function updateEmailDestinationStatus(
    */
   verificationSource?: EmailDestination['verification_source'],
 ): Promise<boolean> {
-  const patch: {
-    status: EmailDestination['status'];
-    verified_at?: string | null;
-    cf_destination_id?: string | null;
-    verification_source?: EmailDestination['verification_source'];
-  } = {
+  const patch: Pick<EmailDestination, 'status'> &
+    Partial<Pick<EmailDestination, 'verified_at' | 'cf_destination_id' | 'verification_source'>> = {
     status,
   };
   if (status === 'verified') {
@@ -397,10 +393,12 @@ export async function deleteProjectEmailDestinations(
       .for('update');
     await tx.delete(emailDestinations).where(eq(emailDestinations.project_id, projectId));
     const queued: Array<string> = [];
-    for (const tag of new Set(rows.map((row) => row.cf_destination_id).filter(Boolean))) {
-      if ((await countDestinationReferences(tx, tag!)) === 0) {
-        await queueDestinationCleanupTx(tx, tag!);
-        queued.push(tag!);
+    for (const tag of new Set(
+      rows.flatMap(({ cf_destination_id }) => (cf_destination_id ? [cf_destination_id] : [])),
+    )) {
+      if ((await countDestinationReferences(tx, tag)) === 0) {
+        await queueDestinationCleanupTx(tx, tag);
+        queued.push(tag);
       }
     }
     return queued;

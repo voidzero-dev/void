@@ -5,21 +5,18 @@ import {
   readWranglerTopLevelString,
 } from '@void/deploy-cloudflare';
 import { basename, join } from 'pathslash';
-import { type ApplicationAnalysis } from '../application-analysis.ts';
+import type { ApplicationAnalysis } from '../application-analysis.ts';
 import { analyzeApplication, completeApplicationAnalysis } from '../application-routing.ts';
 import { MATERIALIZED_CLOUDFLARE_FILE } from '../cloudflare-config.ts';
-import { type DatabaseDialect, type VoidConfig } from '../config.ts';
+import type { DatabaseDialect, VoidConfig } from '../config.ts';
 import { collectRevalidate, hasRevalidate } from '../isr-config.ts';
 import { scopedCloudflareQueueName } from '../queues/cloudflare-names.ts';
-import { hasEmailHandlers, type EmailHandlersScan } from '../router/email.ts';
+import { hasEmailHandlers } from '../router/email.ts';
+import type { EmailHandlersScan } from '../router/email.ts';
 import { DEFAULT_VOID_AI_BINDING } from './deploy-binding-snapshot.ts';
-import { type CloudflareAuthSecretFailureReason } from './deploy-types.ts';
-import {
-  isRealD1Id,
-  isRealKvId,
-  type DesiredResourceSet,
-  type ProvisionDriftEntry,
-} from './provision.ts';
+import type { CloudflareAuthSecretFailureReason } from './deploy-types.ts';
+import { isRealD1Id, isRealKvId } from './provision.ts';
+import type { DesiredResourceSet, ProvisionDriftEntry } from './provision.ts';
 
 /** Human labels for a drifted resource kind, used in guidance messages. */
 export const CLOUDFLARE_RESOURCE_LABELS: Record<ProvisionDriftEntry['kind'], string> = {
@@ -81,11 +78,11 @@ const MAX_WORKER_NAME_LENGTH = 63;
 function toValidWorkerName(raw: string): string {
   const name = raw
     .toLowerCase()
-    .replace(/_/g, '-')
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replaceAll('_', '-')
+    .replaceAll(/[^a-z0-9-]/g, '-')
+    .replaceAll(/^-+|-+$/g, '')
     .slice(0, MAX_WORKER_NAME_LENGTH)
-    .replace(/-+$/g, '');
+    .replaceAll(/-+$/g, '');
   return name.length > 0 ? name : 'my-worker';
 }
 
@@ -100,7 +97,7 @@ function suffixedResourceName(workerName: string, suffix: string): string {
   }
   const base = toValidWorkerName(workerName)
     .slice(0, MAX_WORKER_NAME_LENGTH - suffix.length - 1)
-    .replace(/-+$/g, '');
+    .replaceAll(/-+$/g, '');
   return toValidWorkerName(`${base}-${suffix}`);
 }
 
@@ -111,7 +108,7 @@ function suffixedResourceName(workerName: string, suffix: string): string {
 export function deriveWorkerName(root: string): string {
   let pkgName: string | undefined;
   try {
-    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')) as { name?: unknown };
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { name?: unknown };
     if (typeof pkg.name === 'string' && pkg.name.length > 0) {
       pkgName = pkg.name;
     }
@@ -223,7 +220,7 @@ export async function computeDesiredCloudflareResources(
   const reasons = new Map<string, string>();
 
   // needsDatabase covers source use, auth and checked-in migrations, like the managed manifest.
-  const databaseReason = analysis.reasons.database[0]!;
+  const databaseReason = analysis.reasons.database[0];
   if (needsDatabase && dialect === 'sqlite') {
     const binding = bindingNames?.d1 ?? 'DB';
     // An explicitly authored name is the intended remote identity even before Void
@@ -234,7 +231,7 @@ export async function computeDesiredCloudflareResources(
       (entry) => entry.binding === binding,
     )?.database_name;
     const name =
-      storedName != null && isRealD1Id(storedId)
+      storedName !== null && storedName !== undefined && isRealD1Id(storedId)
         ? storedName
         : authoredName?.trim() ||
           (basename(configPath) !== MATERIALIZED_CLOUDFLARE_FILE && storedName !== 'default'
@@ -254,7 +251,7 @@ export async function computeDesiredCloudflareResources(
   if (bindings.needsKV) {
     const binding = bindingNames?.kv ?? 'KV';
     desired.kvNamespaces.push({ binding, title: suffixedResourceName(workerName, 'kv') });
-    reasons.set(binding, analysis.reasons.kv[0]!);
+    reasons.set(binding, analysis.reasons.kv[0]);
   }
 
   if (bindings.needsR2) {
@@ -278,7 +275,7 @@ export async function computeDesiredCloudflareResources(
         ? { locationHint: voidConfig.storage.locationHint }
         : {}),
     };
-    reasons.set(binding, analysis.reasons.r2[0]!);
+    reasons.set(binding, analysis.reasons.r2[0]);
   }
 
   // Queue names are account-unique, so each is named after the Worker. Preflight keeps a

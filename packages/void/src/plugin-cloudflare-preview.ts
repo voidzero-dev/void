@@ -35,11 +35,14 @@ export function withLocalPreviewBindings(plugins: Array<Plugin>, root: string): 
       const output = dirname(getRootConfigPath(root));
       cpSync(output, dirname(getRootConfigPath(directory)), { recursive: true });
       const path = getWorkerConfigPath(directory);
-      const worker = JSON.parse(readFileSync(path, 'utf8'));
+      const worker = JSON.parse(readFileSync(path, 'utf8')) as {
+        env?: Record<string, { type?: unknown }>;
+      };
       worker.env ??= {};
+      const inlineBindingTypes = new Set<unknown>(['text', 'json', 'secret']);
       for (const name of Object.keys(loadLocalEnv(root))) {
         const binding = worker.env[name];
-        if (!binding || ['text', 'json', 'secret'].includes(binding.type)) {
+        if (!binding || inlineBindingTypes.has(binding.type)) {
           worker.env[name] = { type: 'secret' };
         }
       }

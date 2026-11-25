@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
 import { getProject, getProjectResources } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
+import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
 import { app } from '../../src/index.ts';
 import { getProjectQueueName } from '../../src/naming.ts';
 import { settleDeploymentForSandboxDrain } from '../../src/routes/deploy.ts';
@@ -14,8 +15,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let token: string;
@@ -68,7 +69,7 @@ test('previews without writing, records the older serving rollback target, audit
   const del = vi.spyOn(env.ROUTING, 'delete');
   const preview = await req(project.id, { dryRun: true });
   expect(preview.status).toBe(200);
-  const body = (await preview.json()) as { changes: unknown };
+  const body = await preview.json<{ changes: unknown }>();
   expect(body).toMatchObject({
     dryRun: true,
     changes: { activeDeployment: { from: null, to: older.id }, queues: [] },
@@ -78,13 +79,14 @@ test('previews without writing, records the older serving rollback target, audit
   expect(applied.status).toBe(200);
   expect((await getProject(env.db, project.id))?.active_deployment_id).toBe(older.id);
   const repeated = await req(project.id, { dryRun: true });
-  const repeatBody = (await repeated.json()) as { changes: unknown };
+  const repeatBody = await repeated.json<{ changes: unknown }>();
   expect(repeatBody).toMatchObject({
     changes: { activeDeployment: { from: older.id, to: older.id }, queues: [] },
   });
   expect((await req(project.id, { expected: repeatBody.changes })).status).toBe(200);
   expect(await env.ROUTING.get(project.slug)).toBe(route);
-  expect(put).not.toHaveBeenCalled();
+  // The request itself arms the fast maintenance tier; no project key is written.
+  expect(put.mock.calls.map(([key]) => key)).toEqual([FAST_MAINTENANCE_KEY]);
   expect(del).not.toHaveBeenCalled();
   expect(await env.db.select().from(operatorEvents)).toEqual(
     expect.arrayContaining([
@@ -158,7 +160,7 @@ test('preserves an owned authoritative pointer to a retained failed rollback tar
     .where(eq(projects.id, project.id));
   const response = await req(project.id, { dryRun: true });
   expect(response.status).toBe(200);
-  const body = (await response.json()) as { changes: unknown };
+  const body = await response.json<{ changes: unknown }>();
   expect(body).toMatchObject({ changes: { activeDeployment: { from: newer.id, to: newer.id } } });
   expect((await req(project.id, { expected: body.changes })).status).toBe(200);
   const [target] = await env.db.select().from(deployments).where(eq(deployments.id, newer.id));
@@ -226,7 +228,7 @@ test('resolves the recorded queue name exactly and performs only database writes
     );
   const preview = await req(project.id, { dryRun: true });
   expect(preview.status).toBe(200);
-  const body = (await preview.json()) as { changes: unknown };
+  const body = await preview.json<{ changes: unknown }>();
   expect((await getProjectResources(env.db, project.id))[0].cf_id).toBe(recordedName);
   expect((await req(project.id, { expected: body.changes })).status).toBe(200);
   expect((await getProjectResources(env.db, project.id))[0].cf_id).toBe(queueId);
@@ -309,7 +311,7 @@ test.each(['a'.repeat(32), 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'])(
 test('rejects changed preview and never guesses during protected recovery', async () => {
   const { project, older, newer } = await legacyProject();
   const preview = await req(project.id, { dryRun: true });
-  const body = (await preview.json()) as { changes: unknown };
+  const body = await preview.json<{ changes: unknown }>();
   await env.ROUTING.put(
     project.slug,
     JSON.stringify({ projectId: project.id, version: newer.id, staticDeploymentId: newer.id }),

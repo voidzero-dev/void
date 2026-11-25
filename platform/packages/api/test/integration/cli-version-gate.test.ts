@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm';
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vite-plus/test';
-import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import { MIN_CLI_VERSION } from '../../src/middleware/cli-version.ts';
 import { projects } from '../../src/schema.ts';
@@ -10,8 +9,9 @@ import {
   clearTables,
   createTestUser,
   createTestProject,
-  type TestEnv,
+  withTestTransaction,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
 
 let env: TestEnv;
@@ -65,7 +65,7 @@ describe('cliVersionGate — deploy endpoints (passing the gate)', () => {
     );
 
     expect(res.status).toBe(426);
-    const body = (await res.json()) as OutdatedBody;
+    const body = await res.json<OutdatedBody>();
     expect(body.error).toBe('cli_outdated');
     expect(body.minVersion).toBe(MIN_CLI_VERSION);
     expect(body.message).toMatch(/multipart/i);
@@ -90,7 +90,7 @@ describe('cliVersionGate — deploy endpoints (passing the gate)', () => {
     );
 
     expect(res.status).toBe(426);
-    const body = (await res.json()) as OutdatedBody;
+    const body = await res.json<OutdatedBody>();
     expect(body.error).toBe('cli_outdated');
     expect(body.clientVersion).toBe('0.6.0');
     expect(body.minVersion).toBe(MIN_CLI_VERSION);
@@ -114,7 +114,7 @@ describe('cliVersionGate — deploy endpoints (passing the gate)', () => {
     );
 
     expect(res.status).toBe(426);
-    const body = (await res.json()) as OutdatedBody;
+    const body = await res.json<OutdatedBody>();
     expect(body.error).toBe('cli_outdated');
   });
 
@@ -138,7 +138,7 @@ describe('cliVersionGate — deploy endpoints (passing the gate)', () => {
     );
 
     expect(res.status).toBe(426);
-    const body = (await res.json()) as OutdatedBody;
+    const body = await res.json<OutdatedBody>();
     expect(body.error).toBe('cli_outdated');
     expect(body.message).toMatch(/multipart/i);
   });
@@ -161,7 +161,7 @@ describe('cliVersionGate — deploy endpoints (passing the gate)', () => {
     );
 
     expect(res.status).toBe(426);
-    const body = (await res.json()) as OutdatedBody;
+    const body = await res.json<OutdatedBody>();
     expect(body.error).toBe('cli_outdated');
     expect(body.clientVersion).toBe('garbage');
     expect(body.message).toMatch(/unrecognized/i);
@@ -231,7 +231,7 @@ describe('cliVersionGate — defers to project authorization', () => {
     );
 
     expect(res.status).toBe(404);
-    const body = (await res.json()) as { error?: string };
+    const body = await res.json<{ error?: string }>();
     expect(body.error).toBe('project not found');
   });
 
@@ -322,24 +322,16 @@ describe('cliVersionGate — defers to project authorization', () => {
       beforeTxReached = r;
     });
     let beforeTxHoldFired = false;
-    const wrappedDb: Db = new Proxy(realDb, {
-      get(target, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return (async (fn: any) => {
-            if (!beforeTxHoldFired) {
-              beforeTxHoldFired = true;
-              beforeTxReached?.();
-              await new Promise<void>((r) => {
-                beforeTxResolver = r;
-              });
-            }
-            return realTransaction(fn);
-          }) as unknown as typeof realDb.transaction;
-        }
-        return Reflect.get(target, prop, receiver);
-      },
-    }) as Db;
+    const wrappedDb = withTestTransaction(realDb, async (fn) => {
+      if (!beforeTxHoldFired) {
+        beforeTxHoldFired = true;
+        beforeTxReached?.();
+        await new Promise<void>((r) => {
+          beforeTxResolver = r;
+        });
+      }
+      return realTransaction(fn);
+    });
     setTestDb(wrappedDb);
 
     try {
@@ -367,7 +359,7 @@ describe('cliVersionGate — defers to project authorization', () => {
       beforeTxResolver?.();
       const res = await reqPromise;
       expect(res.status).toBe(410);
-      const body = (await res.json()) as { error?: string };
+      const body = await res.json<{ error?: string }>();
       expect(body.error).toBe('project is being deleted');
     } finally {
       setTestDb(realDb);

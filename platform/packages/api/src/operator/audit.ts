@@ -1,6 +1,7 @@
 import { PLAN_EDITABLE_LIMIT_KEYS } from '@void/platform/plans';
 import { count, desc, eq } from 'drizzle-orm';
-import { Hono, type Context, type MiddlewareHandler } from 'hono';
+import { Hono } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { isAiLoggingMode } from '../ai-logging-policy.ts';
 import { AuthenticationConfigurationError } from '../auth/configuration.ts';
 import type { ApiEnv } from '../env.ts';

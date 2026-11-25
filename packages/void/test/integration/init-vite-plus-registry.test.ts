@@ -14,7 +14,7 @@ it('installs the tested Vite+ pair even when newer CLI and core releases are ava
   const root = mkdtempSync(join(tmpdir(), 'void-vite-plus-registry-'));
   const tested = JSON.parse(
     readFileSync(new URL(import.meta.resolve('vite-plus/package.json')), 'utf8'),
-  );
+  ) as { version: string; dependencies: { vite: string } };
   const coreName = '@voidzero-dev/vite-plus-core';
   const coreVersion = tested.dependencies.vite.slice(`npm:${coreName}@`.length);
   const newerCli = `${Number(tested.version.split('.')[0])}.999.0`;
@@ -123,15 +123,20 @@ it('installs the tested Vite+ pair even when newer CLI and core releases are ava
       clearTimeout(timeout);
     }
     const installed = (name: string) =>
-      JSON.parse(readFileSync(join(project, 'node_modules', name, 'package.json'), 'utf8'));
+      JSON.parse(readFileSync(join(project, 'node_modules', name, 'package.json'), 'utf8')) as {
+        version: string;
+        dependencies?: Record<string, string>;
+      };
     expect(installed('vite-plus').version).toBe(tested.version);
     expect(installed('vite').version).toBe(coreVersion);
-    expect(installed('vite-plus').dependencies.vite).toBe(
+    expect(installed('vite-plus').dependencies?.vite).toBe(
       `npm:${coreName}@${installed('vite').version}`,
     );
   } finally {
     server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
     rmSync(root, { recursive: true, force: true });
   }
 });

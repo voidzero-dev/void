@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { UserConfig } from 'vite';
 import { expect, it } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { definePagesPluginTests } from '../../../../test/pages-plugin-contract.ts';
@@ -15,9 +16,10 @@ it('names the Solid entries for the client and the Worker in dev', async () => {
   mkdirSync(pagesDir, { recursive: true });
   writeFileSync(join(pagesDir, 'index.tsx'), 'export default () => <h1>Home</h1>;');
   try {
+    type ConfigHook = (config: UserConfig, env: { command: 'serve' }) => Promise<UserConfig | void>;
     const hook = (pagesPlugin(pagesDir) as { config?: unknown }).config as
-      | ((config: object, env: { command: 'serve' }) => unknown)
-      | { handler: (config: object, env: { command: 'serve' }) => unknown };
+      | ConfigHook
+      | { handler: ConfigHook };
     const config = await (typeof hook === 'function' ? hook : hook.handler)(
       {},
       { command: 'serve' },

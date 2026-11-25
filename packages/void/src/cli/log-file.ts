@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'pathslash';
+import { Buffer } from './node-buffer.ts';
 
 type Level = 'debug' | 'info' | 'warn' | 'error';
 
@@ -34,13 +35,13 @@ export function formatErrorNodeInline(
   depth = 0,
 ): string {
   // `typeof null` is `'object'`, so the null check has to come first.
-  if (node == null || typeof node !== 'object') {
+  if (node === null || node === undefined || typeof node !== 'object') {
     return String(node);
   }
   // A JSONL record is data, not a typed value. Coerce every part instead of
   // trusting the declared shape: a hand-edited log, or an `Error` subclass that
   // assigned a non-string `message`, must not make a postmortem aid throw.
-  const message = node.message == null ? '' : String(node.message);
+  const message = String(node.message ?? '');
   if (depth > 5) {
     return message;
   }
@@ -55,8 +56,9 @@ export function formatErrorNodeInline(
   if (tags.length > 0) {
     head = `${head} (${tags.join(' ')})`;
   }
-  if (node.cause != null) {
-    return `${head} -> ${formatErrorNodeInline(node.cause, depth + 1)}`;
+  const { cause } = node;
+  if (cause !== null && cause !== undefined) {
+    return `${head} -> ${formatErrorNodeInline(cause, depth + 1)}`;
   }
   return head;
 }
@@ -65,8 +67,16 @@ export function formatErrorNodeInline(
  * Walk `err.cause` up to 6 levels and return a plain JSON-friendly chain.
  * Skips stack traces deliberately — keeps output line-oriented and readable.
  */
+type LogRecord = {
+  ts: number;
+  elapsedMs: number;
+  lvl: string;
+  msg: string;
+  err?: ErrChainNode | string;
+} & Record<string, unknown>;
+
 function describeErrorChain(err: unknown, depth = 0): ErrChainNode | string {
-  if (depth > 5 || err == null) {
+  if (depth > 5 || err === null || err === undefined) {
     return String(err);
   }
   if (err instanceof Error) {
@@ -83,7 +93,7 @@ function describeErrorChain(err: unknown, depth = 0): ErrChainNode | string {
       node.errno = errno;
     }
     const cause = (err as Error & { cause?: unknown }).cause;
-    if (cause != null) {
+    if (cause !== null && cause !== undefined) {
       const sub = describeErrorChain(cause, depth + 1);
       if (typeof sub === 'object') {
         node.cause = sub;
@@ -109,7 +119,7 @@ function formatStderrLine(
         continue;
       }
       let s: string;
-      if (v == null || typeof v === 'number' || typeof v === 'boolean') {
+      if (v === null || typeof v === 'number' || typeof v === 'boolean') {
         s = String(v);
       } else if (typeof v === 'string') {
         s = v.length > 200 ? `${v.slice(0, 200)}...` : v;
@@ -144,7 +154,7 @@ export function openDeployLog(opts?: { mirrorToStderr?: boolean }): CliLogger {
   try {
     const dir = join(homedir(), '.void', 'logs');
     mkdirSync(dir, { recursive: true });
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const ts = new Date().toISOString().replaceAll(/[:.]/g, '-');
     // Deploys started in the same millisecond (parallel deploys from one
     // machine) must not share a file, so add the pid and a random suffix and
     // refuse to open a file that already exists.
@@ -184,7 +194,7 @@ export function openDeployLog(opts?: { mirrorToStderr?: boolean }): CliLogger {
       return;
     }
     const now = Date.now();
-    const record: Record<string, unknown> = {
+    const record: LogRecord = {
       ts: now,
       elapsedMs: now - startedAt,
       lvl: level,

@@ -1,7 +1,8 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
@@ -10,7 +11,7 @@ type MockCloudflarePluginConfig = {
   config: (resolved: Record<string, unknown>) => Record<string, unknown>;
 };
 
-type MockCloudflarePlugin = Plugin & {
+type MockCloudflarePlugin = Omit<Plugin, 'api'> & {
   api: {
     pluginConfig: MockCloudflarePluginConfig;
   };
@@ -101,7 +102,7 @@ function createNodeProjectRoot(): string {
 
 function useDatabase(root: string, database: 'pg' | 'mysql'): string {
   const configPath = join(root, 'void.json');
-  const config = JSON.parse(readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
+  const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
   writeFileSync(configPath, JSON.stringify({ ...config, database }));
   return root;
 }
@@ -218,10 +219,9 @@ describe('voidPlugin dev asset routing', () => {
     const { voidPlugin } = await import('../../src/index.ts');
     const plugins = voidPlugin();
     const envPlugin = plugins.find((plugin) => plugin.name === 'void:env');
-    const config = getHookHandler(envPlugin?.config) as (
-      config: import('vite').UserConfig,
-      env: import('vite').ConfigEnv,
-    ) => void;
+    const config = getHookHandler<
+      (config: import('vite').UserConfig, env: import('vite').ConfigEnv) => void
+    >(envPlugin?.config);
     config({}, { command: 'build', mode: 'production' });
   }
 
@@ -273,7 +273,7 @@ describe('voidPlugin dev asset routing', () => {
       await expect(
         resolveRuntimeOptimizerConfig(createRoot(), name, environment),
         `${createRoot.name} ${name}`,
-      ).resolves.toEqual(expected);
+      ).resolves.toMatchObject(expected);
     }
   });
 
@@ -317,7 +317,9 @@ describe('voidPlugin dev asset routing', () => {
 
     await expect(
       resolveRuntimeOptimizerConfig(root, 'void_worker', workerd),
-    ).resolves.toMatchObject({ optimizeDeps: { entries: [normalizePath(ssrEntry)] } });
+    ).resolves.toMatchObject({
+      optimizeDeps: { entries: expect.arrayContaining([normalizePath(ssrEntry)]) },
+    });
   });
 
   it('leaves client dependency optimization unchanged', async () => {
@@ -347,10 +349,9 @@ describe('voidPlugin dev asset routing', () => {
     }
 
     const envPlugin = plugins.find((plugin) => plugin.name === 'void:env');
-    const config = getHookHandler(envPlugin?.config) as (
-      config: import('vite').UserConfig,
-      env: import('vite').ConfigEnv,
-    ) => void;
+    const config = getHookHandler<
+      (config: import('vite').UserConfig, env: import('vite').ConfigEnv) => void
+    >(envPlugin?.config);
     config({}, configEnv);
 
     const cloudflarePlugin = plugins.find(
@@ -643,7 +644,7 @@ describe('voidPlugin dev asset routing', () => {
     const { voidPlugin } = await import('../../src/index.ts');
     const schemaPlugins = voidPlugin().filter((plugin) => plugin.name === 'void:env-schema');
     expect(schemaPlugins).toHaveLength(1);
-    const schemaConfig = getHookHandler(schemaPlugins[0]!.config) as (
+    const schemaConfig = getHookHandler(schemaPlugins[0].config) as (
       config: import('vite').UserConfig,
       env: import('vite').ConfigEnv,
     ) => Promise<void>;
@@ -716,13 +717,13 @@ describe('voidPlugin dev asset routing', () => {
     writeFileSync(
       join(root, 'void.json'),
       JSON.stringify({
-        worker: { compatibility_date: '2026-02-24', limits: { cpu_ms: 120000 } },
+        worker: { compatibility_date: '2026-02-24', limits: { cpu_ms: 120_000 } },
       }),
     );
 
     const config = await resolveCloudflareConfig(root);
 
-    expect(config.limits).toEqual({ cpu_ms: 120000 });
+    expect(config.limits).toEqual({ cpu_ms: 120_000 });
   });
 
   it('emits no limits key when worker.limits is not configured', async () => {

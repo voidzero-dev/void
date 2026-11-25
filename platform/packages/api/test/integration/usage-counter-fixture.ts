@@ -1,5 +1,6 @@
 import type { ApiEnv } from '../../src/env.ts';
-import { UsageCounter, type CounterState } from '../../src/usage-counter.ts';
+import { UsageCounter } from '../../src/usage-counter.ts';
+import type { CounterState } from '../../src/usage-counter.ts';
 
 type FixtureStorage = {
   get: (key: string) => Promise<unknown>;

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { formErrorMessage, formRetryMessage, formSubmissionBlocked, scheduleFormRetry, type FormModel, type FormMethod, type VoidActionError } from 'void/pages-client';
+  import { formErrorMessage, formRetryMessage, formSubmissionBlocked, scheduleFormRetry } from 'void/pages-client';
+import type { FormModel, FormMethod, VoidActionError } from 'void/pages-client';
   let { form, method='post', renderError, children, ...rest }: {
     form: FormModel;
     method?: FormMethod;

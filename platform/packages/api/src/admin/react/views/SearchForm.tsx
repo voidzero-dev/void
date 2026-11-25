@@ -12,7 +12,8 @@ import {
   UserSuggestionsView,
   userSuggestionsRequest,
 } from '../../fate/views.ts';
-import { SearchTypeahead, type SearchSuggestion } from './SearchTypeahead.tsx';
+import { SearchTypeahead } from './SearchTypeahead.tsx';
+import type { SearchSuggestion } from './SearchTypeahead.tsx';
 
 export function SearchForm({
   action,

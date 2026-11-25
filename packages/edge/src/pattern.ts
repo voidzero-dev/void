@@ -78,14 +78,14 @@ function accepts(kind: Token['kind'], code: number): boolean {
   if (kind === 'seg') {
     return code !== 47; // '/'
   }
-  return code !== 10 && code !== 13 && code !== 0x2028 && code !== 0x2029;
+  return code !== 10 && code !== 13 && code !== 0x20_28 && code !== 0x20_29;
 }
 
 function pushText(tokens: Array<Token>, text: string): void {
   if (!text) {
     return;
   }
-  const last = tokens[tokens.length - 1];
+  const last = tokens.at(-1);
   if (last?.kind === 'text') {
     last.text += text;
   } else {
@@ -94,13 +94,13 @@ function pushText(tokens: Array<Token>, text: string): void {
 }
 
 /** `compilePattern` syntax, read left to right. */
-function parseCapture(source: string): { tokens: Array<Token>; paramNames: Array<string> } {
+function parseCapture(source: string) {
   const tokens: Array<Token> = [];
   const paramNames: Array<string> = [];
   let splatTaken = false;
   let index = 0;
   while (index < source.length) {
-    const character = source[index]!;
+    const character = source[index];
     if (character === ':') {
       let end = index + 1;
       while (end < source.length && isNameChar(source.charCodeAt(end))) {
@@ -141,10 +141,10 @@ function parseCapture(source: string): { tokens: Array<Token>; paramNames: Array
 /** Text in which only `*` is special. */
 function parseStars(tokens: Array<Token>, text: string): void {
   const parts = text.split('*');
-  pushText(tokens, parts[0]!);
+  pushText(tokens, parts[0]);
   for (let k = 1; k < parts.length; k++) {
     tokens.push({ kind: 'any' });
-    pushText(tokens, parts[k]!);
+    pushText(tokens, parts[k]);
   }
 }
 
@@ -153,19 +153,14 @@ function parseSegments(source: string): Array<Token> {
   const tokens: Array<Token> = [];
   const segments = source.split('/');
   for (let k = 0; k < segments.length; k++) {
-    const segment = segments[k]!;
+    const segment = segments[k];
     if (k > 0) {
       pushText(tokens, '/');
     }
     const name = segment.slice(1, -4);
     if (segment[0] !== ':' || segment.length < 2) {
       parseStars(tokens, segment);
-    } else if (
-      segment.length > 5 &&
-      segment.endsWith('{.+}') &&
-      !name.includes('{') &&
-      !name.includes('}')
-    ) {
+    } else if (segment.length > 5 && segment.endsWith('{.+}') && !/[{}]/.test(name)) {
       tokens.push({ kind: 'plus' });
     } else {
       // Whatever follows the ':' only names the param.
@@ -183,7 +178,7 @@ function parseSegments(source: string): Array<Token> {
 function prepare(tokens: ReadonlyArray<Token>): Prepared {
   const steps: Array<Token> = [];
   for (const token of tokens) {
-    if (!(token.kind === 'any' && steps[steps.length - 1]?.kind === 'any')) {
+    if (!(token.kind === 'any' && steps.at(-1)?.kind === 'any')) {
       steps.push(token);
     }
   }
@@ -192,9 +187,9 @@ function prepare(tokens: ReadonlyArray<Token>): Prepared {
   const starts = new Int32Array(steps.length + 1);
   steps.forEach((step, i) => {
     const shortest = step.kind === 'text' ? step.text.length : step.kind === 'any' ? 0 : 1;
-    starts[i + 1] = starts[i]! + shortest;
+    starts[i + 1] = starts[i] + shortest;
   });
-  return { steps, starts, minLength: starts[steps.length]! };
+  return { steps, starts, minLength: starts[steps.length] };
 }
 
 /*
@@ -239,8 +234,8 @@ function stepBack(
       kind === 'any'
         ? next[d] === 1 || (after === 1 && accepts(kind, path.charCodeAt(start + d)))
         : (next[d] === 1 || after === 1) && accepts(kind, path.charCodeAt(start + d));
-    row[d] = value ? 1 : 0;
-    after = row[d]!;
+    after = value ? 1 : 0;
+    row[d] = after;
     found |= after;
   }
   return found === 1;
@@ -256,7 +251,7 @@ function endRow(width: number): Uint8Array {
 /** Checks that reject most paths before any row is built. */
 function quickReject({ steps, minLength }: Prepared, path: string): boolean {
   const first = steps[0];
-  const last = steps[steps.length - 1];
+  const last = steps.at(-1);
   return (
     path.length < minLength ||
     (first?.kind === 'text' && !path.startsWith(first.text)) ||
@@ -275,7 +270,7 @@ function matches(prepared: Prepared, path: string): boolean {
   // quickReject proved a leading text step, and only position 0 matters for it.
   const first = steps[0]?.kind === 'text' ? 1 : 0;
   for (let i = steps.length - 1; i >= first; i--) {
-    if (!stepBack(steps[i]!, path, starts[i]!, next, row)) {
+    if (!stepBack(steps[i], path, starts[i], next, row)) {
       return false;
     }
     const done = next;
@@ -327,7 +322,7 @@ function greedyEnds(prepared: Prepared, path: string, upTo: number): Int32Array 
   let row: Uint8Array = new Uint8Array(width);
   const first = steps[0]?.kind === 'text' ? 1 : 0;
   for (let i = n - 1; i >= first; i--) {
-    if (!stepBack(steps[i]!, path, starts[i]!, next, row)) {
+    if (!stepBack(steps[i], path, starts[i], next, row)) {
       return null;
     }
     if (i % size === 0) {
@@ -342,7 +337,8 @@ function greedyEnds(prepared: Prepared, path: string, upTo: number): Int32Array 
   }
   const pool = Array.from({ length: size }, () => new Uint8Array(width));
   let top = 0;
-  const rowAt = (r: number) => (r === top ? saved.get(r)! : pool[r % size]!);
+  // oxlint-disable-next-line typescript/no-non-null-assertion -- The checkpoint pass saves every block boundary, including the current top row.
+  const rowAt = (r: number) => (r === top ? saved.get(r)! : pool[r % size]);
   const ends = new Int32Array(upTo + 1);
   let p = 0;
   for (let i = 0; i <= upTo; i++) {
@@ -350,10 +346,10 @@ function greedyEnds(prepared: Prepared, path: string, upTo: number): Int32Array 
       // Blocks are entered in order at their first row, so each is rebuilt once.
       top = Math.min(n, Math.ceil((i + 1) / size) * size);
       for (let r = top - 1; r > i; r--) {
-        stepBack(steps[r]!, path, starts[r]!, rowAt(r + 1), pool[r % size]!);
+        stepBack(steps[r], path, starts[r], rowAt(r + 1), pool[r % size]);
       }
     }
-    p = greedyEnd(steps[i]!, path, p, p - starts[i]!, rowAt(i + 1));
+    p = greedyEnd(steps[i], path, p, p - starts[i], rowAt(i + 1));
     ends[i] = p;
   }
   return ends;
@@ -364,7 +360,7 @@ function toRegExp(tokens: ReadonlyArray<Token>): RegExp {
   let body = '';
   for (const token of tokens) {
     if (token.kind === 'text') {
-      body += token.text.replace(/[.+?^${}()|[\]\\:]/g, '\\$&');
+      body += token.text.replaceAll(/[.+?^${}()|[\]\\:]/g, String.raw`\$&`);
     } else if (token.kind === 'seg') {
       body += `(?<${token.name}>[^/]+)`;
     } else {
@@ -445,12 +441,13 @@ export function matchPatternCaptures(
     return null;
   }
   // Every name gets a value, in source order; one dropped by `prepare` matched ''.
-  const params: Record<string, string> = Object.create(null);
+  const params: Record<string, string> = {};
+  Object.setPrototypeOf(params, null);
   for (const name of compiled.paramNames) {
     params[name] = '';
   }
   for (let i = 0; ends && i <= lastNamed; i++) {
-    const step = steps[i]!;
+    const step = steps[i];
     if (step.kind !== 'text' && step.name) {
       params[step.name] = pathname.slice(i === 0 ? 0 : ends[i - 1], ends[i]);
     }
@@ -516,7 +513,7 @@ export function matchSegmentPattern(pattern: string, pathname: string): boolean 
  * because `compilePattern` captures anonymous `*` as `splat`.
  */
 export function substituteParams(destination: string, params: Record<string, string>): string {
-  const result = destination.replace(/:([A-Za-z0-9_]+)\*?/g, (whole, name: string) => {
+  const result = destination.replaceAll(/:([A-Za-z0-9_]+)\*?/g, (whole, name: string) => {
     return params[name] ?? whole;
   });
   // A capture can start with '/', so a path destination must stay on this site.

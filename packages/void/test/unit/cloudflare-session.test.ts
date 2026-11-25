@@ -8,6 +8,7 @@ import {
   ensureCloudflareAuthentication,
 } from '../../src/cli/cloudflare-auth.ts';
 import { runCloudflareCommand } from '../../src/cli/cloudflare-cmd.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as terminalOutput from '../../src/cli/output.ts';
 
 const fixture = vi.hoisted(() => ({ cli: '' }));
@@ -38,7 +39,8 @@ let root: string;
 let output: Array<string>;
 let stdinTty: PropertyDescriptor | undefined;
 let stdoutTty: PropertyDescriptor | undefined;
-const read = (): State => JSON.parse(readFileSync(join(root, 'auth-fixture.json'), 'utf8'));
+const read = (): State =>
+  JSON.parse(readFileSync(join(root, 'auth-fixture.json'), 'utf8')) as State;
 const write = (state: State) =>
   writeFileSync(join(root, 'auth-fixture.json'), JSON.stringify(state));
 const pin =
@@ -116,7 +118,7 @@ describe('Cloudflare session switching through the bundled CLI runner', () => {
     vi.stubEnv('CF_API_KEY', 'synthetic-global-key');
     vi.stubEnv('CLOUDFLARE_EMAIL', 'credential-email@example.test');
     const error = await runCloudflareCommand(root, { subcommand: 'login' }).catch(
-      (error) => error as Error,
+      (error: unknown) => error as Error,
     );
     expect(String(error)).toContain('CF_API_KEY');
     expect(String(error)).toContain('CLOUDFLARE_EMAIL');
@@ -160,7 +162,7 @@ describe('Cloudflare session switching through the bundled CLI runner', () => {
     async (name) => {
       vi.stubEnv(name, 'synthetic-secret-never-print');
       const error = await runCloudflareCommand(root, { subcommand: 'login' }).catch(
-        (error) => error as Error,
+        (error: unknown) => error as Error,
       );
       expect(String(error)).toContain(name);
       expect(String(error)).not.toContain('synthetic-secret-never-print');

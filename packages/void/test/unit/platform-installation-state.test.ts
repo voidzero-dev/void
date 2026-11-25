@@ -42,6 +42,7 @@ describe('platform installation resume states', () => {
       updatedAt: manifest.updatedAt,
     };
     const recovered = parsePlatformInstallationManifest(
+      // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
       JSON.parse(JSON.stringify({ ...manifest, operation })),
     );
     expect(recovered.operation).toEqual(operation);

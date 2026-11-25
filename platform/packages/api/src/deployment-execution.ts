@@ -2,14 +2,17 @@ import { and, eq, getTableColumns, lte, ne, or, sql } from 'drizzle-orm';
 import { paginatedR2Delete } from './assets.ts';
 import { activeOAuthApproval } from './auth/oauth.ts';
 import { R2_CONCURRENCY } from './concurrency.ts';
-import { createDb, type Db, type DbOrTx } from './db.ts';
-import { WORKER_UPLOAD_MAX_AGE_MS, type WorkerUploadModule } from './deploy/shared.ts';
+import { createDb } from './db.ts';
+import type { Db, DbOrTx } from './db.ts';
+import { WORKER_UPLOAD_MAX_AGE_MS } from './deploy/shared.ts';
+import type { WorkerUploadModule } from './deploy/shared.ts';
 import type { DeploymentInput, DeploymentOperation } from './deployment-operation-types.ts';
 import type { ApiEnv } from './env.ts';
 import { deploymentOperations, projectDeployCredentials, projects, users } from './schema.ts';
 import { isAdminSuspended } from './suspension.ts';
 import type { DeployEvent, DeployManifest } from './types.ts';
-import { listR2Objects, r2WorkerModule, type WorkerModule } from './worker-upload.ts';
+import { listR2Objects, r2WorkerModule } from './worker-upload.ts';
+import type { WorkerModule } from './worker-upload.ts';
 export type {
   DeploymentInput,
   DeploymentOperation,
@@ -186,7 +189,7 @@ export async function prepareDeploymentInput(
     // to the isolate memory limit.
     const modules: DeploymentInput['modules'] = [];
     for (let index = 0; index < files.length; index++) {
-      const { name, content } = files[index]!;
+      const { name, content } = files[index];
       const digest = await sha256Hex(await content.arrayBuffer());
       modules.push({
         name,
@@ -209,7 +212,7 @@ export async function prepareDeploymentInput(
         while (!failed && next < files.length) {
           const index = next++;
           try {
-            await r2.put(modules[index]!.key, files[index]!.content);
+            await r2.put(modules[index].key, files[index].content);
           } catch (error) {
             failed = true;
             throw error;
@@ -481,9 +484,13 @@ async function deleteDeploymentInputs(
     .where(eq(deploymentOperations.id, operation.id));
 }
 
-export async function dispatchPendingDeployments(env: ApiEnv['Bindings'], db: Db): Promise<void> {
+/** Returns whether it found a deployment to send or clean up. */
+export async function dispatchPendingDeployments(
+  env: ApiEnv['Bindings'],
+  db: Db,
+): Promise<boolean> {
   if (!env.DEPLOYMENTS_QUEUE) {
-    return;
+    return false;
   }
   const pending = await db
     .select({ id: deploymentOperations.id })
@@ -507,6 +514,7 @@ export async function dispatchPendingDeployments(env: ApiEnv['Bindings'], db: Db
     await deleteDeploymentInputs(env, db, operation);
   }
   await sweepStaleDeploymentInputs(env, db);
+  return pending.length > 0 || completed.length > 0;
 }
 
 /**

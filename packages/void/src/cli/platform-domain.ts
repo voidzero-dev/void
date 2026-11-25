@@ -4,15 +4,15 @@ import {
   normalizeApplicationDomain,
   PLATFORM_HEALTH_HOSTNAME_LABEL,
   PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY,
-  type PlatformApplication,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformApplication, PlatformInstallationManifest } from '@void/platform';
 import { confirm, isCancel, text } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { printSuccess, note } from './output.ts';
 import type { PlatformArgs } from './platform-args.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
+  platformOperatorCredentialLabel,
   resolvePlatformCloudflareCredential,
 } from './platform-auth.ts';
 import { PlatformCloudflareClient } from './platform-cloudflare.ts';
@@ -30,7 +30,8 @@ import {
   selectAuthoritativePlatformManifest,
   verifyPlatformInstallationOwnership,
 } from './platform-management.ts';
-import { createPlatformInstallPlan, type PlatformInstallPlan } from './platform-plan.ts';
+import { createPlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformInstallPlan } from './platform-plan.ts';
 import {
   acquirePlatformLifecycleLock,
   readInstallationRecoverySecrets,
@@ -89,6 +90,8 @@ export function platformDomainTarget(
   }).application;
 }
 
+const now = () => new Date().toISOString();
+
 export async function applyPlatformDomain(
   client: PlatformCloudflareClient,
   original: PlatformInstallationManifest,
@@ -106,7 +109,6 @@ export async function applyPlatformDomain(
   },
 ): Promise<DomainResult> {
   let manifest = original;
-  const now = () => new Date().toISOString();
   const save = async (next: PlatformInstallationManifest) => {
     await dependencies.checkpoint(next);
     manifest = next;
@@ -263,6 +265,10 @@ async function probePlatformDomain(
   hostname: string,
   manifest: PlatformInstallationManifest,
 ): Promise<void> {
+  const { pendingDomain } = manifest;
+  if (!pendingDomain) {
+    throw new Error('platform: No pending application domain to probe.');
+  }
   const url = `https://${hostname}/health`;
   try {
     const response = await fetch(url, {
@@ -273,13 +279,13 @@ async function probePlatformDomain(
         ...cfAccessHeaders(process.env, url),
       },
     });
-    const body = (await response.json()) as { ok?: boolean; installationId?: string };
+    const body = await response.json<{ ok?: boolean; installationId?: string }>();
     if (!response.ok || body.ok !== true || body.installationId !== manifest.id) {
       throw new Error('Identity or health did not match.');
     }
   } catch {
     throw new Error(
-      `platform: HTTPS is not ready for *.${manifest.pendingDomain!.baseDomain}. Existing URLs remain active. Wait for DNS/certificate activation and rerun the same domain set command.`,
+      `platform: HTTPS is not ready for *.${pendingDomain.baseDomain}. Existing URLs remain active. Wait for DNS/certificate activation and rerun the same domain set command.`,
     );
   }
 }
@@ -288,7 +294,9 @@ export async function runPlatformDomainCommand(args: DomainArgs): Promise<void> 
   assertNoninteractivePlatformMutationAcknowledged(args, process.stdin.isTTY === true);
   const selected = await resolveInstalledPlatformManifest(args.selector);
   const credential = await resolvePlatformCloudflareCredential();
-  const client = new PlatformCloudflareClient(credential.token);
+  const client = new PlatformCloudflareClient(credential.token, {
+    credential: platformOperatorCredentialLabel(credential),
+  });
   const domainInput =
     args.domain || (await text({ message: 'Application domain:', placeholder: 'example.com' }));
   if (isCancel(domainInput)) {
@@ -340,6 +348,12 @@ export async function runPlatformDomainCommand(args: DomainArgs): Promise<void> 
     if (args.plan) {
       return;
     }
+    const { apiUrl } = manifest.endpoints;
+    if (!apiUrl) {
+      throw new Error(
+        'platform: The installation has no API URL. Repair the platform, then rerun this command.',
+      );
+    }
     assertPlatformOperatorCredentialCanApplyPlan(credential, plan);
     if (!args.yes) {
       const accepted = await confirm({
@@ -379,7 +393,7 @@ export async function runPlatformDomainCommand(args: DomainArgs): Promise<void> 
           },
           body: JSON.stringify({ zoneId, domain }),
         });
-        const body = (await response.json()) as { ok?: boolean; installationId?: string };
+        const body = await response.json<{ ok?: boolean; installationId?: string }>();
         if (!response.ok || body.ok !== true || body.installationId !== manifest.id) {
           throw new Error(
             `platform: The running platform could not verify cache-purge access for ${domain}. Grant its existing runtime token Cache Purge: Purge on this zone, then rerun this command.`,
@@ -403,7 +417,7 @@ export async function runPlatformDomainCommand(args: DomainArgs): Promise<void> 
     }
     savePlatformConnection({
       accountId: manifest.account.id,
-      apiUrl: manifest.endpoints.apiUrl!,
+      apiUrl,
       applicationDomain: domain,
       displayName: deployment.displayName,
       installationId: manifest.id,

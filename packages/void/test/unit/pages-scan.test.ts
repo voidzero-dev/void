@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import * as tinyglobby from 'tinyglobby';
-import { describe, expect, it, beforeEach, afterEach, vi, type MockInstance } from 'vite-plus/test';
+import { glob as tinyglobbyGlob } from 'tinyglobby';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { resolveLayoutIds } from '../../src/pages/layout-resolution.ts';
@@ -14,7 +15,7 @@ import {
   MAX_REVALIDATE,
   pageFileEnvironment,
 } from '../../src/pages/scan.ts';
-import * as sourceAnalysisCache from '../../src/shared/source-analysis-cache.ts';
+import { deriveFromSource } from '../../src/shared/source-analysis-cache.ts';
 
 vi.mock('tinyglobby', { spy: true });
 vi.mock('../../src/shared/source-analysis-cache.ts', { spy: true });
@@ -67,7 +68,7 @@ describe('scanPages', () => {
     ['const { loader, action } = handlers; export const helper = loader;', []],
   ])('detects exported page bindings in %s', async (source, methods) => {
     writeFile('index.vue', '<template><div>Home</div></template>');
-    writeFile('index.server.ts', source as string);
+    writeFile('index.server.ts', source);
     expect((await scanPages(TMP)).pages[0].methods).toEqual(methods);
   });
 
@@ -401,6 +402,7 @@ export { handler as action, type actions };`,
 
     const scan = await scanPages(TMP);
     // The server registers pages in this order, and the client matcher keeps it.
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
     const { matchRoute } = new Function(
       `${generateComponentManifest(scan, '/project/pages')}\nreturn { matchRoute };`,
     )() as { matchRoute: (path: string) => string | null };
@@ -937,7 +939,7 @@ const example = 'export const layout = "home"';
       ['a core tag that does not fit the value', 'layout: !!int missing'],
       ['a merge key that is not a mapping', '<<: value\nlayout: missing'],
       ['an empty key', ': value\nlayout: missing'],
-      ['a control character', 'layout: mis\x01sing'],
+      ['a control character', 'layout: mis\u0001sing'],
     ])('reads no layout from frontmatter with %s', async (_name, frontmatter) => {
       writeFile('post.md', `---\n${frontmatter}\n---\n# Hi`);
       const result = await scanPages(TMP);
@@ -1334,7 +1336,7 @@ const example = 'export const layout = "home"';
       expect(dev.pages[0]).toMatchObject({ serverPath: 'x.dev.server.ts', methods: ['loader'] });
 
       writeFile('x.dev.server.ts', 'export const loader = (');
-      const derive = vi.mocked(sourceAnalysisCache.deriveFromSource);
+      const derive = vi.mocked(deriveFromSource);
       derive.mockClear();
       expect((await scanPages(TMP, { environment: 'prod' })).pages).toEqual([]);
       expect(derive.mock.calls.map(([path]) => path)).toEqual([]);
@@ -1569,7 +1571,7 @@ describe('scanPages between saves', () => {
     for (const file of files) {
       writeFile(file, 'export default function Component() { return null; }');
     }
-    const glob = vi.mocked(tinyglobby.glob);
+    const glob = vi.mocked(tinyglobbyGlob);
     try {
       glob.mockResolvedValueOnce([...files]);
       const before = await scanPages(TMP);
@@ -1585,10 +1587,10 @@ describe('scanPages between saves', () => {
   it('does not expose cached markdown metadata for mutation between scans', async () => {
     writeFile('notes.md', '---\ntitle: Original\ndescription: Unchanged\n---\n# Notes');
     const first = await scanPages(TMP);
-    first.pages[0]!.metadata!.title = 'Mutated';
-    first.pages[0]!.metadata!.description = 'Also mutated';
+    first.pages[0].metadata!.title = 'Mutated';
+    first.pages[0].metadata!.description = 'Also mutated';
     const second = await scanPages(TMP);
-    expect(second.pages[0]!.metadata).toEqual({ title: 'Original', description: 'Unchanged' });
+    expect(second.pages[0].metadata).toEqual({ title: 'Original', description: 'Unchanged' });
   });
 
   it('picks up page metadata changed since the previous scan', async () => {

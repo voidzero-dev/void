@@ -103,7 +103,7 @@ describe('tail handler', () => {
     await worker.tail([fetchTrace()], {
       ANALYTICS: { writeDataPoint: (dp: AnalyticsEngineDataPoint) => writes.push(dp) },
       ...env,
-    } as never);
+    });
     return writes;
   }
 

@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { d1ImportUploadTimeoutMs, importD1SqlFile } from '../../src/cli/cf-d1-import.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { temporaryDirectory } from '../helpers/cloudflare-operation-process.ts';
 
 const sql = "INSERT INTO messages VALUES ('synthetic');\n";
@@ -28,7 +29,7 @@ it('resumes an already uploaded import without uploading or ingesting twice', as
     .mockResolvedValueOnce(response({ status: 'complete', success: true }));
   vi.stubGlobal('fetch', fetch);
   await importD1SqlFile(fixture());
-  expect(fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+  expect(fetch.mock.calls.map(([, init]): unknown => JSON.parse(String(init?.body)))).toEqual([
     { action: 'init', etag },
     { action: 'poll', current_bookmark: 'current' },
   ]);
@@ -190,7 +191,7 @@ it('keeps a stalled upload a plain failure that names its deadline', async () =>
     'fetch',
     vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(uploaded()[0]!)
+      .mockResolvedValueOnce(uploaded()[0])
       .mockRejectedValueOnce(
         new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
       ),
@@ -341,7 +342,7 @@ it('keeps an upload failure a plain failure', async () => {
     'fetch',
     vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(uploaded()[0]!)
+      .mockResolvedValueOnce(uploaded()[0])
       .mockRejectedValueOnce(new TypeError('fetch failed')),
   );
   expect((await importError()).message).toBe('fetch failed');

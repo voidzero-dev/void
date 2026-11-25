@@ -19,10 +19,8 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
-import {
-  createIsolatedPlayground,
-  type IsolatedPlayground,
-} from '../../../../test/integration-helpers.ts';
+import { createIsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import type { ProjectRole } from '../../src/cli/client.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import type { DetectedFramework } from '../../src/plugin-inference.ts';
@@ -112,7 +110,7 @@ function installPlatformMocks(role: ProjectRole = 'owner'): Captured {
   const captured: Captured = { finalizeBody: null };
 
   fetchMock.mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : (input as Request).url;
+    const url = typeof input === 'string' ? input : input.url;
     const reqInit = init ?? {};
     const method = (reqInit.method ?? 'GET').toUpperCase();
 

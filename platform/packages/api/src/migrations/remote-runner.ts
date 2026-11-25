@@ -230,10 +230,11 @@ export async function queryD1(
       body: JSON.stringify(query),
       signal: controller.signal,
     });
-    json = (await response.json()) as typeof json;
+    json = await response.json<typeof json>();
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       const preview = query.sql.length > 80 ? `${query.sql.slice(0, 80)}…` : query.sql;
+      // oxlint-disable-next-line preserve-caught-error -- Report the timeout without attaching an unsanitized provider or request error.
       throw new Error(`D1 request timed out after ${timeoutMs}ms (${preview})`);
     }
     throw err;

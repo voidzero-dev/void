@@ -13,6 +13,7 @@ function isHttpsUrl(value) {
   }
 }
 
+/** @param {string} tarball */
 export function inspectPackage(tarball) {
   const manifest = JSON.parse(
     execFileSync('tar', ['-xOf', tarball, 'package/package.json'], { encoding: 'utf8' }),
@@ -63,7 +64,7 @@ export function inspectPackage(tarball) {
         const pattern = new RegExp(
           `^${path
             .split('*')
-            .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .map((part) => part.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
             .join('.*')}$`,
         );
         assert(
@@ -90,7 +91,10 @@ export function inspectPackage(tarball) {
   };
 }
 
-/** Read-only loopback registry: local release cohort plus public npm dependencies. */
+/**
+ * Read-only loopback registry: local release cohort plus public npm dependencies.
+ * @param {Array<ReturnType<typeof inspectPackage>>} packages
+ */
 export async function startPackedRegistry(packages) {
   const byName = new Map(packages.map((pkg) => [pkg.manifest.name, pkg]));
   const byFile = new Map(packages.map((pkg, index) => [`/_void_tarball/${index}.tgz`, pkg]));

@@ -16,17 +16,20 @@ import { dirname, join, relative } from 'pathslash';
 import { analyzeApplicationSync } from '../application-analysis.ts';
 import { analyzeApplication } from '../application-routing.ts';
 import { edgeRulesNeedWorker, VOID_INTERNAL_WORKER_FIRST } from '../asset-routing.ts';
-import { convertHeadersConfig, type RoutingConfig, type VoidConfig } from '../config.ts';
+import { convertHeadersConfig } from '../config.ts';
+import type { RoutingConfig, VoidConfig } from '../config.ts';
 import { collectRevalidate, hasRevalidate } from '../isr-config.ts';
-import { detectFramework, type DetectedFramework } from '../plugin-inference.ts';
-import { type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
+import { detectFramework } from '../plugin-inference.ts';
+import type { DetectedFramework } from '../plugin-inference.ts';
+import type { CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { hasEmailHandlers } from '../router/email.ts';
 import { selectNativeVersionMetadataBinding } from '../shared/version-metadata.ts';
 import { validateSsrEntry } from '../ssr/entry.ts';
 import { prepareCfStaticBuildOutput } from './cf-build-output.ts';
-import { type CloudflareCandidateReceipt } from './cloudflare-candidate.ts';
+import type { CloudflareCandidateReceipt } from './cloudflare-candidate.ts';
 import type { CloudflareChildReporter } from './cloudflare-child-report.ts';
-import { readCloudflareLink, type CloudflareLink } from './cloudflare-link.ts';
+import { readCloudflareLink } from './cloudflare-link.ts';
+import type { CloudflareLink } from './cloudflare-link.ts';
 import { deduplicateGeneratedCompatibilityFlags } from './deploy-artifact-validation.ts';
 import { deployPointerPath } from './deploy-binding-snapshot.ts';
 import { prepareExistingCloudflareDeployWithAuth } from './deploy-cloudflare-auth.ts';
@@ -59,12 +62,13 @@ import {
   scrubWranglerAuthCredentials,
   deployChildEnv,
 } from './deploy-transport.ts';
-import { type RunDeployOptions, type CloudflareDeployDeps } from './deploy-types.ts';
+import type { RunDeployOptions, CloudflareDeployDeps } from './deploy-types.ts';
 import { readGeneratedAssetHeadersFile } from './headers.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { getErrorMessage, note } from './output.ts';
 import { buildStaticManifest, readWranglerHtmlHandling } from './package.ts';
-import { detectPreset, type StaticPreset, type FrameworkPreset } from './preset.ts';
+import { detectPreset } from './preset.ts';
+import type { StaticPreset, FrameworkPreset } from './preset.ts';
 import { deleteEnvVarCaseAware } from './provision.ts';
 import type { AssetConfig, DeployManifest } from './types.ts';
 import { readWranglerManagedQueueCleanupCandidates } from './wrangler.ts';
@@ -119,12 +123,13 @@ export async function prepareCloudflareFrameworkArtifact(options: {
     migrationDialect: analysis.dialect,
     readiness: true,
     versionMetadataBinding,
-    ...(hasRevalidate(revalidate) && {
-      isr: {
-        revalidate: revalidate!,
-        queryAllowlist: voidConfig.routing?.revalidateQueryAllowlist,
-      },
-    }),
+    ...(revalidate !== undefined &&
+      hasRevalidate(revalidate) && {
+        isr: {
+          revalidate,
+          queryAllowlist: voidConfig.routing?.revalidateQueryAllowlist,
+        },
+      }),
   });
   if (preset.cloudflareArtifact === 'vite-plugin') {
     return;
@@ -191,7 +196,8 @@ export function resolveCloudflareStaticPreset(
       ),
     };
   }
-  if (detectFramework(root)) {
+  // `static` and `spa` returned above, so a configured app type here means a Worker deploy.
+  if (detectFramework(root) || voidConfig.inference?.appType) {
     return null;
   }
   const detected = detectPreset(root, { spa: options.spa, strictBackend: true });
@@ -375,7 +381,7 @@ export async function runCloudflareStaticDeploy(
   const rootConfig = parseRootWranglerConfig(configPath);
   const workerName = readWranglerTopLevelString(rootConfig, 'name') ?? deriveWorkerName(root);
   printDeployContext(workerName, 'Cloudflare');
-  const rootConfigBeforeBuild = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
+  const rootConfigBeforeBuild = existsSync(configPath) ? readFileSync(configPath, 'utf8') : null;
   if (preset.buildCommand && !options.skipBuild) {
     log.step('Building...');
     const buildChildEnv = scrubManagedDeployBuildMarkers(
@@ -403,7 +409,7 @@ export async function runCloudflareStaticDeploy(
   if (!assertUploaderStillPinned()) {
     return exit(1);
   }
-  const rootConfigAfterBuild = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
+  const rootConfigAfterBuild = existsSync(configPath) ? readFileSync(configPath, 'utf8') : null;
   if (rootConfigAfterBuild !== rootConfigBeforeBuild) {
     log.error(
       [

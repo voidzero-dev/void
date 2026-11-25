@@ -1,3 +1,5 @@
+import { isRecord } from '@void/deploy-core';
+
 /** Shared between the SDK, edge admission and Pages clients. */
 export type UsageLimitData = {
   code: 'usage_limit';
@@ -8,28 +10,31 @@ export type UsageLimitData = {
 };
 
 export function readUsageLimit(value: unknown): UsageLimitData | null {
-  if (!value || typeof value !== 'object') {
+  if (!isRecord(value)) {
     return null;
   }
-  const v = value as Record<string, unknown>;
+  const { code, message, resource, reason, retryAt } = value;
   if (
-    v.code !== 'usage_limit' ||
-    typeof v.message !== 'string' ||
-    !['ai', 'sandbox', 'requests', 'execution'].includes(String(v.resource)) ||
-    !['monthly_quota', 'rate_limit', 'concurrency', 'runtime_budget', 'cpu'].includes(
-      String(v.reason),
-    )
+    code !== 'usage_limit' ||
+    typeof message !== 'string' ||
+    (resource !== 'ai' &&
+      resource !== 'sandbox' &&
+      resource !== 'requests' &&
+      resource !== 'execution') ||
+    (reason !== 'monthly_quota' &&
+      reason !== 'rate_limit' &&
+      reason !== 'concurrency' &&
+      reason !== 'runtime_budget' &&
+      reason !== 'cpu')
   ) {
     return null;
   }
   return {
-    code: 'usage_limit',
-    resource: v.resource as UsageLimitData['resource'],
-    reason: v.reason as UsageLimitData['reason'],
-    message: v.message,
-    ...(typeof v.retryAt === 'string' && Number.isFinite(Date.parse(v.retryAt))
-      ? { retryAt: v.retryAt }
-      : {}),
+    code,
+    resource,
+    reason,
+    message,
+    ...(typeof retryAt === 'string' && Number.isFinite(Date.parse(retryAt)) ? { retryAt } : {}),
   };
 }
 

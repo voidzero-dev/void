@@ -5,7 +5,7 @@ import type { Env } from './types.ts';
 
 export type EmailDomainLease = { kind: 'api_token'; token: string; accountId: string };
 
-const LEASE_DEADLINE_MS = 5_000;
+const LEASE_DEADLINE_MS = 5000;
 const MAX_LEASE_RESPONSE_BYTES = 4 * 1024;
 
 /** The bearer value for the send_raw Authorization header. */
@@ -85,7 +85,7 @@ export async function leaseEmailDomainCredential(
     void res.body?.cancel().catch(() => {});
     return null;
   }
-  const reader = res.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = res.body?.getReader();
   if (!reader) {
     return null;
   }

@@ -1,5 +1,6 @@
 import { PLATFORM_AUTH_SETUP_PROOF_PREFIX } from '@void/platform';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   initializeInstalledPlatformAuthentication,
   resumeInstalledPlatformAuthentication,

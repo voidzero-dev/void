@@ -1,13 +1,17 @@
-import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join, relative, resolve } from 'pathslash';
-import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, relative, resolve } from 'pathslash';
+import type { Framework } from '../plugin-inference.ts';
+import { readProjectPaths } from '../project-paths.ts';
+import type { ProjectPaths } from '../project-paths.ts';
 import {
   getPackageDependencies,
   hasPackageDependency,
   readPackageJson,
 } from '../shared/package-json.ts';
 import { getSsrServerEntryPath, hasSsrEntry } from '../ssr/entry.ts';
+import { viteConfigImportsVoidPlugin } from './vite-config-patch.ts';
+import { findWorkspaceMemberRoot, parsePackageManagerField } from './workspace.ts';
+import type { PackageManager } from './workspace.ts';
 
 /** Build output conventions for a known SSG (static site generator). */
 export type SsgPreset = {
@@ -27,7 +31,7 @@ export type SsgPreset = {
  * Known output conventions for SSGs.
  * Keyed by the SSG name — detection iterates in insertion order.
  */
-export const SSG_PRESETS: Record<string, SsgPreset> = {
+export const SSG_PRESETS: Record<'vitepress' | 'docusaurus', SsgPreset> = {
   vitepress: {
     dep: 'vitepress',
     buildCommand: 'vitepress build',
@@ -81,7 +85,10 @@ export type FrameworkPreset = {
  * Class B/C frameworks (sveltekit, nuxt, analog, astro) use their own build CLI
  * and have framework-specific output conventions.
  */
-export const FRAMEWORK_PRESETS: Record<string, FrameworkPreset> = {
+export const FRAMEWORK_PRESETS: Record<
+  Framework | 'sveltekit' | 'nuxt' | 'analog' | 'astro',
+  FrameworkPreset
+> = {
   // Class A
   'tanstack-start': {
     cloudflareArtifact: 'vite-plugin',
@@ -163,7 +170,10 @@ export type StaticPreset = {
  */
 export function resolveProjectCommand(root: string, command: string): string {
   const [bin, ...args] = command.trim().split(/\s+/);
-  const resolvedBin = shellQuoteExecutable(localBin(root, resolveCommandBin(root, bin)));
+  const vitePlusRoot = bin === 'vite' ? findVitePlusRoot(root) : undefined;
+  const resolvedBin = shellQuoteExecutable(
+    vitePlusRoot === undefined ? localBin(root, bin) : localBin(vitePlusRoot, 'vp'),
+  );
   return args.length > 0 ? `${resolvedBin} ${args.join(' ')}` : resolvedBin;
 }
 
@@ -190,12 +200,12 @@ function shellQuoteExecutable(value: string): string {
   if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) {
     return value;
   }
-  return `'${value.replace(/'/g, "'\\''")}'`;
+  return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 /** Resolve the bundled cf transport without consulting project dependencies. */
 export function resolveCloudflareOperationArgv(): Array<string> {
-  const directory = dirname(fileURLToPath(import.meta.url));
+  const directory = import.meta.dirname;
   const entry = [
     join(directory, 'cloudflare-operation-process.ts'),
     join(directory, 'cloudflare-operation-process.mjs'),
@@ -215,7 +225,7 @@ export function resolveCloudflareOperationArgv(): Array<string> {
  */
 export function formatProjectCommand(root: string, command: string): string {
   const [bin, ...args] = command.trim().split(/\s+/);
-  const formattedBin = resolveCommandBin(root, bin);
+  const formattedBin = bin === 'vite' && findVitePlusRoot(root) !== undefined ? 'vp' : bin;
   return args.length > 0 ? `${formattedBin} ${args.join(' ')}` : formattedBin;
 }
 
@@ -274,14 +284,24 @@ export function detectPreset(
     return null;
   }
 
-  // 4. Vite/Vite+ in deps → static SPA
-  if (pkg && hasViteLike(pkg)) {
-    const buildCommand = resolveProjectScriptCommand(root, 'build');
-    return {
-      buildCommand: buildCommand ?? resolveProjectCommand(root, 'vite build'),
-      outputDir: resolve(root, 'dist'),
-      appType: 'spa',
-    };
+  // 4. Vite/Vite+ in deps → static SPA. A workspace can contain prebuilt
+  // sites too, so an inherited toolchain only builds when the app has inputs.
+  if (pkg) {
+    const vitePlusRoot = findVitePlusRoot(root, pkg);
+    const hasLocalVite = vitePlusRoot === root || hasViteDependency(pkg);
+    if (hasLocalVite || vitePlusRoot !== undefined) {
+      const buildCommand = resolveProjectScriptCommand(root, 'build');
+      const viteConfig = VITE_CONFIG_FILES.map((name) => join(root, name)).find((path) =>
+        existsSync(path),
+      );
+      if (hasLocalVite || buildCommand || viteConfig || existsSync(join(root, 'index.html'))) {
+        return {
+          buildCommand: buildCommand ?? resolveProjectCommand(root, 'vite build'),
+          outputDir: resolve(root, viteSpaOutputDir(viteConfig)),
+          appType: 'spa',
+        };
+      }
+    }
   }
 
   // 5. No build tool — look for pre-built output
@@ -333,15 +353,8 @@ function localBin(root: string, name: string): string {
   return existsSync(bin) ? bin : name;
 }
 
-function resolveCommandBin(root: string, name: string): string {
-  if (name === 'vite') {
-    return detectViteBinary(root);
-  }
-  return name;
-}
-
-function detectPackageManager(root: string): 'pnpm' | 'yarn' | 'bun' | 'npm' {
-  if (existsSync(join(root, 'pnpm-lock.yaml'))) {
+function readProjectPackageManager(root: string): PackageManager | undefined {
+  if (existsSync(join(root, 'pnpm-lock.yaml')) || existsSync(join(root, 'pnpm-workspace.yaml'))) {
     return 'pnpm';
   }
   if (existsSync(join(root, 'yarn.lock'))) {
@@ -350,7 +363,21 @@ function detectPackageManager(root: string): 'pnpm' | 'yarn' | 'bun' | 'npm' {
   if (existsSync(join(root, 'bun.lock')) || existsSync(join(root, 'bun.lockb'))) {
     return 'bun';
   }
-  return 'npm';
+  if (existsSync(join(root, 'package-lock.json'))) {
+    return 'npm';
+  }
+  return parsePackageManagerField(readPackageJson(root));
+}
+
+function detectPackageManager(root: string): PackageManager {
+  const local = readProjectPackageManager(root);
+  if (local !== undefined) {
+    return local;
+  }
+  const workspaceRoot = findWorkspaceMemberRoot(root);
+  return (
+    (workspaceRoot === undefined ? undefined : readProjectPackageManager(workspaceRoot)) ?? 'npm'
+  );
 }
 
 function resolveProjectScriptCommand(root: string, scriptName: string): string | null {
@@ -375,16 +402,54 @@ function resolveProjectScriptCommand(root: string, scriptName: string): string |
   }
 }
 
-function hasViteLike(pkg: Record<string, unknown>): boolean {
-  return hasPackageDependency(pkg, 'vite') || hasPackageDependency(pkg, 'vite-plus');
+const VITE_CONFIG_FILES = [
+  'vite.config.ts',
+  'vite.config.mts',
+  'vite.config.js',
+  'vite.config.mjs',
+  'vite.config.cts',
+  'vite.config.cjs',
+];
+
+/**
+ * Where a Vite SPA build puts its browser files. A Vite config that uses
+ * `voidPlugin()` (`void init` adds it) splits the output into `dist/client`
+ * (browser files) and `dist/ssr` (the server bundle, its source map and
+ * `wrangler.json`). Only `dist/client` may be uploaded: uploading `dist`
+ * publishes the server files and leaves `/` without an `index.html`. A
+ * project that installs `void` only for its CLI keeps Vite's plain `dist`.
+ */
+function viteSpaOutputDir(config: string | undefined): string {
+  return config && viteConfigImportsVoidPlugin(config, readFileSync(config, 'utf8'))
+    ? 'dist/client'
+    : 'dist';
 }
 
-function detectViteBinary(root: string): 'vite' | 'vp' {
-  const pkg = readPackageJson(root);
-  if (pkg && hasPackageDependency(pkg, 'vite-plus')) {
-    return 'vp';
+function hasViteDependency(pkg: Record<string, unknown>): boolean {
+  return hasPackageDependency(pkg, 'vite', [
+    'dependencies',
+    'devDependencies',
+    'optionalDependencies',
+  ]);
+}
+
+function findVitePlusRoot(root: string, pkg = readPackageJson(root)): string | undefined {
+  if (pkg === null) {
+    return undefined;
   }
-  return 'vite';
+  if (hasPackageDependency(pkg, 'vite-plus')) {
+    return root;
+  }
+  if (hasViteDependency(pkg)) {
+    return undefined;
+  }
+  const workspaceRoot = findWorkspaceMemberRoot(root);
+  if (workspaceRoot !== undefined) {
+    const workspace = readPackageJson(workspaceRoot);
+    if (workspace && hasPackageDependency(workspace, 'vite-plus')) {
+      return workspaceRoot;
+    }
+  }
 }
 
 /**

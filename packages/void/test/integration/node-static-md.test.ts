@@ -2,10 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import {
-  createIsolatedPlayground,
-  type IsolatedPlayground,
-} from '../../../../test/integration-helpers.ts';
+import { createIsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 // A Markdown-only pages app still needs a client build: its closeBundle
 // prerenders. Markdown pages are implicit islands, so the client input comes
@@ -36,7 +34,7 @@ describe('playground/node-static-md build (Markdown-only, target: node, output: 
     expect(existsSync(index)).toBe(true);
     expect(existsSync(post)).toBe(true);
 
-    const postHtml = readFileSync(post, 'utf-8');
+    const postHtml = readFileSync(post, 'utf8');
     expect(postHtml).toContain('<!doctype html>');
     // The Markdown body and its syntax-highlighted code block were rendered.
     expect(postHtml).toContain('Hello');
@@ -44,7 +42,7 @@ describe('playground/node-static-md build (Markdown-only, target: node, output: 
   });
 
   it('keeps prerendered Markdown pages free of client JS bundles', () => {
-    const postHtml = readFileSync(join(DIST, 'client/posts/hello.html'), 'utf-8');
+    const postHtml = readFileSync(join(DIST, 'client/posts/hello.html'), 'utf8');
     // No framework hydration/entry bundle is referenced by a zero-JS page.
     expect(postHtml).not.toContain('type="module"');
     expect(postHtml).not.toContain('src="/assets/');

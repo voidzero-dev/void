@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { compileRouteTable, type AuthCompileOptions } from '../../src/router/compile.ts';
+import { compileRouteTable } from '../../src/router/compile.ts';
+import type { AuthCompileOptions } from '../../src/router/compile.ts';
 import type { ScanResult } from '../../src/router/scan.ts';
 
 const emptyScan: ScanResult = {

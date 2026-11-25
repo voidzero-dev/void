@@ -1,6 +1,7 @@
 import {
-  VoidActionError,
+  changedFormErrorKeys,
   cloneFormValue,
+  formErrorKeysWithin,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
@@ -8,10 +9,13 @@ import {
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
-  type FormResetOptions,
-  type FormState,
-  type FormSubmitOptions,
-  type VoidRouter,
+} from 'void/pages-client';
+import type {
+  FormResetOptions,
+  FormState,
+  FormSubmitOptions,
+  VoidRouter,
+  VoidActionError,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { computed, reactive, ref, shallowRef, inject, watch } from 'vue';
@@ -37,7 +41,7 @@ export function useForm(
 ): FormReturn<Record<string, unknown>> {
   const initialDefaults = cloneFormValue(defaults);
   const router = inject<VoidRouter | null>('__void_router', null);
-  const data = reactive(cloneFormValue(initialDefaults)) as Record<string, unknown>;
+  const data = reactive<Record<string, unknown>>(cloneFormValue(initialDefaults));
   const errors = reactive<Record<string, string>>({});
   const error = ref<VoidActionError | null>(null);
   const pending = ref(false);
@@ -52,10 +56,8 @@ export function useForm(
   watch(
     () => cloneFormValue(data),
     (val) => {
-      for (const key of new Set([...Object.keys(dataSnapshot), ...Object.keys(val)])) {
-        if (!isEqualFormValue(val[key], dataSnapshot[key])) {
-          delete errors[key];
-        }
+      for (const key of changedFormErrorKeys(errors, dataSnapshot, val)) {
+        delete errors[key];
       }
       dataSnapshot = val;
     },
@@ -80,14 +82,10 @@ export function useForm(
   }
 
   function clearErrors(...fields: ReadonlyArray<string>) {
-    if (fields.length === 0) {
-      for (const key of Object.keys(errors)) {
-        delete errors[key];
-      }
-    } else {
-      for (const field of fields) {
-        delete errors[field];
-      }
+    const keys =
+      fields.length === 0 ? Object.keys(errors) : formErrorKeysWithin(errors, fields, data);
+    for (const key of keys) {
+      delete errors[key];
     }
   }
 

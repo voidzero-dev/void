@@ -1,13 +1,12 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { createServer, type IncomingHttpHeaders } from 'node:http';
+import { createServer } from 'node:http';
+import type { IncomingHttpHeaders } from 'node:http';
 import { join } from 'node:path';
-import {
-  VOID_SECRET_DRAFT_MESSAGE,
-  VOID_SECRET_DRAFT_SOURCE,
-  type CloudflareOperation,
-} from '@void/deploy-cloudflare';
+import { VOID_SECRET_DRAFT_MESSAGE, VOID_SECRET_DRAFT_SOURCE } from '@void/deploy-cloudflare';
+import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { expect, it } from 'vite-plus/test';
 import { decodeCloudflareOperationResult } from '../../src/cli/cloudflare-process.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   listen,
   runOperation,
@@ -116,7 +115,7 @@ const undeployed: CfReply = { status: 1, stderr: '[code: 10013] An unknown error
 const success: ApiReply = { status: 200, body: { success: true, result: { id: 'v1' } } };
 const exists: ApiReply = {
   status: 409,
-  body: { success: false, errors: [{ code: 10040, message: 'This Worker name is in use.' }] },
+  body: { success: false, errors: [{ code: 10_040, message: 'This Worker name is in use.' }] },
 };
 
 /** Workers API replies keyed by request: create and version upload. */
@@ -140,10 +139,10 @@ it('wraps Workers secrets bulk payload in a secrets object', async () => {
   });
   expect(result.status, result.stderr).toBe(0);
   expect(cfCalls).toHaveLength(1);
-  expect(cfCalls[0]!.label).toMatch(
+  expect(cfCalls[0].label).toMatch(
     /^workers secrets bulk --worker my-worker --file \S+body\.json$/,
   );
-  expect(JSON.parse(cfCalls[0]!.file!)).toEqual({
+  expect(JSON.parse(cfCalls[0].file!)).toEqual({
     secrets: {
       ONE: { type: 'secret_text', text: 'first' },
       TWO: { type: 'secret_text', text: 'second' },
@@ -252,7 +251,7 @@ it.each([
     {
       create: {
         status: 403,
-        body: { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
+        body: { success: false, errors: [{ code: 10_000, message: 'Authentication error' }] },
       },
     },
   ],
@@ -287,7 +286,7 @@ it('returns a non-zero status when the placeholder deploy fails after Worker 100
         status: 400,
         body: {
           success: false,
-          errors: [{ code: 10021, message: 'Invalid compatibility_date "2025-13-01".' }],
+          errors: [{ code: 10_021, message: 'Invalid compatibility_date "2025-13-01".' }],
         },
       },
     }),

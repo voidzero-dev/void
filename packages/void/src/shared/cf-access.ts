@@ -1,4 +1,6 @@
-/**
+interface AccessHeaders {
+  [key: string]: string;
+} /**
  * Resolve Cloudflare Access headers from an env-like object.
  *
  * Priority:
@@ -6,7 +8,7 @@
  *   2. User JWT (`CF_ACCESS_TOKEN`) — dev path, typically populated via `cloudflared access token`
  *   3. No headers — prod, or unprotected hostnames
  */
-function accessHeaders(env: Record<string, unknown>): Record<string, string> {
+function accessHeaders(env: Record<string, unknown>): AccessHeaders {
   const id = env.CF_ACCESS_CLIENT_ID;
   const secret = env.CF_ACCESS_CLIENT_SECRET;
   if (typeof id === 'string' && typeof secret === 'string' && id.length > 0 && secret.length > 0) {

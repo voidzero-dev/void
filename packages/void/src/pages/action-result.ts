@@ -1,4 +1,5 @@
-import { readUsageLimit, type UsageLimitData } from '@void/edge';
+import { readUsageLimit } from '@void/edge';
+import type { UsageLimitData } from '@void/edge';
 import type { PageObject } from './protocol.ts';
 
 export type ActionErrorHandlingScope = 'callSite' | 'boundary';

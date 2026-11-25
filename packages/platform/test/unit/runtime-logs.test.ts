@@ -3,8 +3,8 @@ import { parsePlatformRuntimeManifest, platformDatabaseSchemaDigest } from '../.
 import {
   createPlatformDeploymentManifest,
   parsePlatformDeploymentManifest,
-  type PlatformDeploymentManifestInput,
 } from '../../src/manifest.ts';
+import type { PlatformDeploymentManifestInput } from '../../src/manifest.ts';
 import { deploymentInput, workerConfigs } from '../worker-config-fixture.ts';
 
 const workersDevInput: PlatformDeploymentManifestInput = {
@@ -38,6 +38,7 @@ function roundTrip(input: PlatformDeploymentManifestInput) {
   const manifest = createPlatformDeploymentManifest(input);
   return {
     manifest,
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     parsed: parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(manifest))),
   };
 }

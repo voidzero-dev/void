@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 
-import { Table, pixel, proportional, type TableColumn } from '@astryxdesign/core/Table';
+import { Table, pixel, proportional } from '@astryxdesign/core/Table';
+import type { TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
 import { Link } from '@void/react';
 import type { CSSProperties } from 'react';

@@ -2,7 +2,10 @@ import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
-import { ensureProjectTsconfig } from '../../src/codegen/project-tsconfig.ts';
+import {
+  ensureProjectTsconfig,
+  syncAuthTypesInProjectTsconfig,
+} from '../../src/codegen/project-tsconfig.ts';
 
 describe('ensureProjectTsconfig', () => {
   let root: string;
@@ -20,7 +23,10 @@ describe('ensureProjectTsconfig', () => {
   });
 
   function readTsconfig() {
-    return JSON.parse(readFileSync(join(root, '.void', 'tsconfig.json'), 'utf-8'));
+    return JSON.parse(readFileSync(join(root, '.void', 'tsconfig.json'), 'utf8')) as {
+      files: Array<string>;
+      compilerOptions: { paths: Record<string, Array<string>> };
+    };
   }
 
   it('uses sourceDir conventions for route, queue, and schema paths', () => {
@@ -90,6 +96,33 @@ describe('ensureProjectTsconfig', () => {
     rmSync(join(root, '.void', 'auth.d.ts'));
     ensureProjectTsconfig(root);
     expect(readTsconfig().files).not.toContain('auth.d.ts');
+  });
+
+  it('maps @auth-schema only while the generated auth schema exists', () => {
+    const authSchema = join(root, '.void', 'better-auth-schema.ts');
+    ensureProjectTsconfig(root);
+    expect(readTsconfig().compilerOptions?.paths?.['@auth-schema']).toBeUndefined();
+
+    writeFileSync(authSchema, 'export const userTable = {};\n');
+    ensureProjectTsconfig(root);
+    expect(readTsconfig().compilerOptions.paths['@auth-schema']).toEqual([
+      './better-auth-schema.ts',
+    ]);
+
+    rmSync(authSchema);
+    ensureProjectTsconfig(root);
+    expect(readTsconfig().compilerOptions?.paths?.['@auth-schema']).toBeUndefined();
+  });
+
+  it('adds @auth-schema to an existing tsconfig once the auth schema is written', () => {
+    ensureProjectTsconfig(root, true, true, false);
+    writeFileSync(join(root, '.void', 'better-auth-schema.ts'), 'export const userTable = {};\n');
+    syncAuthTypesInProjectTsconfig(root);
+    expect(readTsconfig().compilerOptions.paths).toEqual({
+      'void/db': ['./db.d.ts'],
+      'void/routes': ['./routes.d.ts'],
+      '@auth-schema': ['./better-auth-schema.ts'],
+    });
   });
 
   it('combines routes, queues, and md when all present', () => {

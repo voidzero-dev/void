@@ -4,9 +4,9 @@ import {
   parsePlatformAdmissionPolicy,
   parsePlatformLoginConfiguration,
   validatePlatformAdmissionPolicy,
-  type PlatformAuthenticationRecovery,
-  type PlatformLoginConfiguration,
 } from '@void/platform';
+import type { PlatformAuthenticationRecovery, PlatformLoginConfiguration } from '@void/platform';
+import { Buffer } from './node-buffer.ts';
 import type { QueryConnection } from './platform-zero-trust-uninstall.ts';
 
 type Credential = { ciphertext: string; iv: string; keyVersion: string };

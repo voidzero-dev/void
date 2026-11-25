@@ -10,8 +10,8 @@ import {
   isRecord,
   optionsFromRecord,
   toOutputValue,
-  type UnknownRecord,
 } from './converter-helpers.ts';
+import type { UnknownRecord } from './converter-helpers.ts';
 import {
   CONFIGURATION_DOCS_URL,
   ENVIRONMENTS_DOCS_URL,
@@ -455,7 +455,7 @@ export function convertWranglerConfig(
   bundler: MigrationBundler,
   secretFiles: Array<string>,
 ): ConvertedWranglerConfig {
-  const source = rawConfig as UnknownRecord;
+  const source = rawConfig;
   const imports = new Set<string>();
   const followUps: Array<MigrationFollowUp> = [];
   addUnknownFieldFollowUps(source, '', followUps);

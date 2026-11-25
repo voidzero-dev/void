@@ -298,7 +298,7 @@ renderPage.preambleScript = ${JSON.stringify(preambleScript)};`;
       const protocol = await runtime.dispatchFetch('https://app.test/', {
         headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       });
-      expect((decodePageData(await protocol.json()) as { props: unknown }).props).toEqual({
+      expect(decodePageData<{ props: unknown }>(await protocol.json()).props).toEqual({
         title: 'real page loader',
       });
       expect(

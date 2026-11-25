@@ -1,4 +1,4 @@
-import { extname } from 'node:path';
+import { extname } from 'node:path/posix';
 import { createHasher } from 'blake3-jit';
 import mime from 'mime';
 import { retryWithBackoff } from './cf-api.ts';
@@ -93,9 +93,7 @@ const MAX_GATEWAY_ERRORS = 5; // start counting attempts after this many 524s (4
  *
  * Always returns a fresh object (no shared references with the input).
  */
-export function normalizeForCfAssetSession(
-  entries: Record<string, AssetManifestEntry>,
-): Record<string, AssetManifestEntry> {
+export function normalizeForCfAssetSession(entries: Record<string, AssetManifestEntry>) {
   const out: Record<string, AssetManifestEntry> = {};
   for (const [path, entry] of Object.entries(entries)) {
     out[path] = { hash: entry.hash, size: entry.size };
@@ -233,7 +231,9 @@ export async function uploadAssetBuckets(
 
   async function acquireSlot(): Promise<void> {
     while (activeCount >= concurrency) {
-      await new Promise<void>((resolve) => waiters.push(resolve));
+      await new Promise<void>((resolve) => {
+        waiters.push(resolve);
+      });
     }
     activeCount++;
   }
@@ -289,18 +289,20 @@ export async function uploadAssetBuckets(
         lastErr instanceof Error ? lastErr.message : lastErr,
       );
 
-      await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempts) * retryDelayMs));
+      await new Promise((resolve) => {
+        setTimeout(resolve, Math.pow(2, attempts) * retryDelayMs);
+      });
 
       if (lastErr instanceof AssetUploadError && lastErr.status === 524) {
         // Gateway error — throttle concurrency + additional backoff
         concurrency = 1;
         while (waiters.length > 0) {
-          waiters.shift()!();
+          waiters.shift()?.();
         }
 
-        await new Promise((resolve) =>
-          setTimeout(resolve, Math.pow(2, bucketGatewayErrors) * gatewayDelayMs),
-        );
+        await new Promise((resolve) => {
+          setTimeout(resolve, Math.pow(2, bucketGatewayErrors) * gatewayDelayMs);
+        });
         bucketGatewayErrors++;
         console.warn(
           `[assets] bucket ${bucketIndex + 1} gateway error (524), ` +
@@ -386,8 +388,8 @@ async function postAssetUpload(
 function isJwtExpired(jwt: string): boolean {
   try {
     // CF JWTs use base64url encoding — normalize to standard base64 before decoding
-    const raw = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const payload = JSON.parse(atob(raw));
+    const raw = jwt.split('.')[1].replaceAll('-', '+').replaceAll('_', '/');
+    const payload = JSON.parse(atob(raw)) as { exp?: unknown };
     return typeof payload.exp === 'number' && payload.exp < Date.now() / 1000;
   } catch {
     return false;
@@ -396,7 +398,7 @@ function isJwtExpired(jwt: string): boolean {
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
-  const chunkSize = 0x8000;
+  const chunkSize = 0x80_00;
   for (let i = 0; i < bytes.length; i += chunkSize) {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
@@ -428,10 +430,12 @@ function resolveAssetUploadParts(
   });
 }
 
-function createBase64MultipartBody(parts: ReadonlyArray<AssetUploadPart>): {
+type AssetUploadBody = {
   body: ReadableStream<Uint8Array>;
   contentType: string;
-} {
+};
+
+function createBase64MultipartBody(parts: ReadonlyArray<AssetUploadPart>): AssetUploadBody {
   const boundary = `----void-assets-${Math.random().toString(36).slice(2)}`;
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
@@ -497,7 +501,7 @@ export function computeAssetHash(content: ArrayBuffer, filePath: string): string
   for (const chunk of base64Chunks(bytes)) {
     hasher.update(chunk);
   }
-  hasher.update(textEncoder.encode(extname(filePath).substring(1)));
+  hasher.update(textEncoder.encode(extname(filePath).slice(1)));
   return digestToAssetHash(hasher.finalize());
 }
 
@@ -508,7 +512,7 @@ export async function computeAssetStreamHashes(
   maxBytes: number,
 ): Promise<{ size: number; hashes: ReadonlyArray<string> }> {
   const hashers = new Map(
-    [...new Set(paths.map((path) => extname(path).substring(1)))].map((extension) => [
+    [...new Set(paths.map((path) => extname(path).slice(1)))].map((extension) => [
       extension,
       createHasher(),
     ]),
@@ -516,7 +520,7 @@ export async function computeAssetStreamHashes(
   const reader = body.getReader();
   let tail = new Uint8Array(0);
   let size = 0;
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject(new Error('Asset verification exceeded its two-minute deadline.'));
@@ -566,7 +570,7 @@ export async function computeAssetStreamHashes(
     void reader.cancel().catch(() => {});
     throw error;
   } finally {
-    clearTimeout(timer!);
+    clearTimeout(timer);
     reader.releaseLock();
   }
   return {
@@ -602,13 +606,12 @@ export function getContentType(path: string): string {
   return contentType ?? 'application/null';
 }
 
+type AssetUploadMetadata = { jwt: string; config?: AssetConfig };
+
 /**
  * Build the worker metadata with assets JWT and config attached.
  */
-export function buildAssetMetadata(
-  jwt: string,
-  config?: AssetConfig,
-): { jwt: string; config?: AssetConfig } {
+export function buildAssetMetadata(jwt: string, config?: AssetConfig): AssetUploadMetadata {
   return {
     jwt,
     ...(config ? { config } : {}),
@@ -664,7 +667,7 @@ export async function deleteUnreferencedAssets(
  */
 async function runUntilFirstError<T>(
   items: ReadonlyArray<T>,
-  fn: (item: T) => Promise<unknown>,
+  fn: (item: T) => Promise<void>,
 ): Promise<void> {
   let index = 0;
   let failed = false;

@@ -1,19 +1,24 @@
 import MagicString from 'magic-string';
 import { parseSync } from 'vite';
-import { isIdentifier, isLiteral, type AstNode, type AstProgram } from '../shared/ast.ts';
+import { asAstProgram, isIdentifier, isLiteral } from '../shared/ast.ts';
+import type { AstNode } from '../shared/ast.ts';
 
 type Edit = { start: number; end: number; replacement: string };
 
 function nodes(root: AstNode): Array<AstNode> {
   const found: Array<AstNode> = [];
   const pending: Array<AstNode> = [root];
-  while (pending.length > 0) {
-    const node = pending.pop()!;
+  for (let node = pending.pop(); node; node = pending.pop()) {
     found.push(node);
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) {
-        for (const child of value) {
-          if (child && typeof child === 'object' && typeof child.type === 'string') {
+        for (const child of value as Array<unknown>) {
+          if (
+            child &&
+            typeof child === 'object' &&
+            'type' in child &&
+            typeof child.type === 'string'
+          ) {
             pending.push(child as AstNode);
           }
         }
@@ -44,8 +49,14 @@ export function transformWorkerRequireBundle(
   if (!code.includes('createRequire') && !code.includes('pgpass')) {
     return code;
   }
-  const program = parseSync(filename, code).program as unknown as AstProgram;
+  const program = asAstProgram(parseSync(filename, code).program);
   const edits: Array<Edit> = [];
+  const replaceNode = (node: AstNode, replacement: string) => {
+    if (node.start === undefined || node.end === undefined) {
+      throw new Error(`deploy: Missing source offsets in ${database} bundle ${filename}.`);
+    }
+    edits.push({ start: node.start, end: node.end, replacement });
+  };
   let hasRequireBinding = false;
   let pgpassCalls = 0;
   for (const statement of program.body ?? []) {
@@ -57,13 +68,13 @@ export function transformWorkerRequireBundle(
       if (
         specifiers?.length !== 1 ||
         !isIdentifier(specifiers[0]?.imported as AstNode | undefined) ||
-        (specifiers[0]!.imported as { name: string }).name !== 'createRequire'
+        (specifiers[0].imported as { name: string }).name !== 'createRequire'
       ) {
         throw new Error(
           `deploy: Unsupported node:module import in ${database} bundle ${filename}.`,
         );
       }
-      edits.push({ start: statement.start!, end: statement.end!, replacement: '' });
+      replaceNode(statement, '');
     }
     if (statement.type === 'VariableDeclaration') {
       const declarations = statement.declarations as Array<AstNode> | undefined;
@@ -78,7 +89,7 @@ export function transformWorkerRequireBundle(
           throw new Error(`deploy: Unsupported require binding in ${database} bundle ${filename}.`);
         }
         hasRequireBinding = true;
-        edits.push({ start: statement.start!, end: statement.end!, replacement: requireShim });
+        replaceNode(statement, requireShim);
       }
     }
   }
@@ -95,7 +106,7 @@ export function transformWorkerRequireBundle(
       continue;
     }
     pgpassCalls++;
-    edits.push({ start: node.start!, end: node.end!, replacement: '__voidPgpassNoop' });
+    replaceNode(node, '__voidPgpassNoop');
   }
   if (code.includes('createRequire') && !hasRequireBinding) {
     throw new Error(

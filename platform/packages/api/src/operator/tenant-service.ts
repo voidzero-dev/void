@@ -18,11 +18,10 @@ import {
   publishProjectsAiLogging,
   runUserAiLoggingPublishPage,
   startUserAiLoggingPublish,
-  type UserAiLoggingPublishProgress,
 } from '../ai-logging-plans.ts';
+import type { UserAiLoggingPublishProgress } from '../ai-logging-plans.ts';
 import { readProjectAiLoggingStatus } from '../ai-logging.ts';
 import {
-  type Db,
   ACTIVE_BUILD_STATUSES,
   countUserDeploymentsToday,
   deleteUser,
@@ -41,6 +40,7 @@ import {
   unsuspendUser,
   updateUserPlan,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { cancelContainerBuildDos } from '../github/cancel-builds.ts';
 import { generateId } from '../id.ts';
@@ -92,7 +92,7 @@ function assertOwnershipTransferRolloutComplete(env: ApiEnv['Bindings']): void {
       503,
       'Project ownership transfers are temporarily unavailable while the usage consumer rollout completes.',
       'ownership_transfer_rollout_pending',
-      remainingMs > 0 ? { retryAfterSeconds: Math.ceil(remainingMs / 1_000) } : undefined,
+      remainingMs > 0 ? { retryAfterSeconds: Math.ceil(remainingMs / 1000) } : undefined,
     );
   }
 }
@@ -543,7 +543,7 @@ async function commitOwnershipTransfer(
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1);
-    const transferBoundary = clock!.transferredAt;
+    const transferBoundary = clock.transferredAt;
     if (openPeriod) {
       await tx
         .update(projectOwnershipPeriods)
@@ -568,7 +568,7 @@ async function commitOwnershipTransfer(
         changed_by_user_id: operatorUserId,
       })
       .returning({ startsAt: projectOwnershipPeriods.starts_at });
-    const transferredAt = newPeriod!.startsAt;
+    const transferredAt = newPeriod.startsAt;
     await tx
       .update(projectDeployCredentials)
       .set({ revoked_at: transferBoundary })
@@ -596,7 +596,7 @@ async function commitOwnershipTransfer(
         set: { role: 'admin', updated_at: sql`now()` },
       });
     return {
-      project: updatedProject!,
+      project: updatedProject,
       previousOwner: currentOwner,
       previousOwnerId: currentOwner.id,
       previousOwnerBillingCycleStart: currentOwner.billing_cycle_start,
@@ -837,10 +837,14 @@ export async function transferOperatorProjectOwner(
     console.error('[admin] project owner convergence failed', {
       projectId,
       targetUserId,
-      counterError: counterResult.status === 'rejected' ? counterResult.reason : undefined,
+      counterError:
+        counterResult.status === 'rejected' ? (counterResult.reason as unknown) : undefined,
       routingError:
-        finalRoutingResult.status === 'rejected' ? finalRoutingResult.reason : undefined,
-      aiLoggingError: aiLoggingResult.status === 'rejected' ? aiLoggingResult.reason : undefined,
+        finalRoutingResult.status === 'rejected'
+          ? (finalRoutingResult.reason as unknown)
+          : undefined,
+      aiLoggingError:
+        aiLoggingResult.status === 'rejected' ? (aiLoggingResult.reason as unknown) : undefined,
     });
     throw new OperatorError(
       500,

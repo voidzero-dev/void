@@ -29,20 +29,12 @@
  *   expect(result.params).toEqual({ ticket: "abc-1" });
  */
 
-import {
-  compareEmailRoutes,
-  compileEmailPattern,
-  type CompiledEmailPattern,
-} from '../../shared/email-pattern.ts';
-import { registerEmailSink, type CapturedMessage } from './dev-inbox.ts';
-import {
-  createMessageProxy,
-  type EmailAction,
-  type EmailHandler,
-  type EmailHandlerInfo,
-  MAX_INBOUND_BYTES,
-  MAX_INBOUND_HEADERS,
-} from './inbound.ts';
+import { compareEmailRoutes, compileEmailPattern } from '../../shared/email-pattern.ts';
+import type { CompiledEmailPattern } from '../../shared/email-pattern.ts';
+import { registerEmailSink } from './dev-inbox.ts';
+import type { CapturedMessage } from './dev-inbox.ts';
+import { createMessageProxy, MAX_INBOUND_BYTES, MAX_INBOUND_HEADERS } from './inbound.ts';
+import type { EmailAction, EmailHandler, EmailHandlerInfo } from './inbound.ts';
 import { buildMime, normalizeEmail } from './mime.ts';
 
 export interface EmailTestHarness {
@@ -150,10 +142,7 @@ interface CompiledRoute {
   handler: EmailHandler;
 }
 
-function compileRoutes(routes: Record<string, EmailHandler>): {
-  compiled: Array<CompiledRoute>;
-  defaultHandler?: EmailHandler;
-} {
+function compileRoutes(routes: Record<string, EmailHandler>) {
   const compiled: Array<CompiledRoute> = [];
   let defaultHandler: EmailHandler | undefined;
   for (const [key, handler] of Object.entries(routes)) {
@@ -332,6 +321,7 @@ export function createInboundTestHarness(opts: InboundTestHarnessOptions): Inbou
       { slug },
     );
 
+    // oxlint-disable-next-line quality/no-chained-type-assertions -- This test harness implements only the context hooks used during email dispatch.
     const ctx = {
       waitUntil() {
         // no-op

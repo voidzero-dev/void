@@ -41,7 +41,7 @@ describe('internal email action request bounds', () => {
         duplex: 'half',
       } as RequestInit);
       const result = emailActions.request(request);
-      await vi.advanceTimersByTimeAsync(5_001);
+      await vi.advanceTimersByTimeAsync(5001);
       const response = await result;
       expect(response.status).toBe(408);
       expect(await response.json()).toEqual({ error: 'action request timed out' });

@@ -67,6 +67,7 @@ export async function withProjectZeroTrustLock<T>(
         return await step();
       } catch (error) {
         await markProjectError(tx, projectId, error);
+        // oxlint-disable-next-line typescript/only-throw-error -- This private sentinel carries the already-recorded rejection through the transaction.
         throw new RecordedProjectError(error);
       }
     };

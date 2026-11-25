@@ -22,8 +22,8 @@ import {
   createTestProject,
   createTestDeployment,
   mockCfApi,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -568,7 +568,7 @@ describe('POST /projects/:id/revalidate', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { purged: number };
+    const body = await res.json<{ purged: number }>();
     expect(body.purged).toBe(2);
 
     const home = await env.ISR_CACHE.get(
@@ -638,7 +638,7 @@ describe('POST /projects/:id/revalidate', () => {
     expect(res.status).toBe(200);
     // `purged` reflects the caller's unique path entries, not the raw count of
     // KV keys deleted across drift-hedge namespaces.
-    const driftBody = (await res.json()) as { purged: number };
+    const driftBody = await res.json<{ purged: number }>();
     expect(driftBody.purged).toBe(1);
     expect(
       await env.ISR_CACHE.get(
@@ -704,7 +704,7 @@ describe('POST /projects/:id/revalidate', () => {
     );
 
     expect(res.status).toBe(200);
-    const driftBody = (await res.json()) as { purged: number };
+    const driftBody = await res.json<{ purged: number }>();
     expect(driftBody.purged).toBe(1);
     expect(
       await env.ISR_CACHE.get(
@@ -760,7 +760,7 @@ describe('POST /projects/:id/revalidate', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { purged: number };
+    const body = await res.json<{ purged: number }>();
     expect(body.purged).toBe(2);
 
     const home = await env.ISR_CACHE.get(
@@ -815,7 +815,7 @@ describe('POST /projects/:id/revalidate', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { purged: number };
+    const body = await res.json<{ purged: number }>();
     expect(body.purged).toBe(1);
 
     // The legacy KV key must be deleted.
@@ -863,7 +863,7 @@ describe('POST /projects/:id/revalidate', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { purged: number };
+    const body = await res.json<{ purged: number }>();
     expect(body.purged).toBe(1);
 
     expect(await env.ISR_CACHE.get(key)).toBeNull();
@@ -912,7 +912,7 @@ describe('POST /projects/:id/revalidate', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { purged: number };
+    const body = await res.json<{ purged: number }>();
     expect(body.purged).toBe(1);
 
     expect(
@@ -963,7 +963,7 @@ describe('POST /projects/:id/revalidate', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { purged: number };
+    const body = await res.json<{ purged: number }>();
     expect(body.purged).toBe(1);
     // The orphaned legacy variant key must be deleted.
     expect(await env.ISR_CACHE.get(legacyVariantKey)).toBeNull();
@@ -1022,7 +1022,7 @@ describe('POST /projects/:id/revalidate', () => {
     expect(res.status).toBe(200);
     // Two DISTINCT pathnames counted independently: /about (from the v3 key) and
     // /example.com/about (from the v2 key).
-    const body = (await res.json()) as { purged: number };
+    const body = await res.json<{ purged: number }>();
     expect(body.purged).toBe(2);
 
     // Each key is deleted by its own version's scan (disjoint prefixes).
@@ -1228,7 +1228,7 @@ describe('POST /projects/:id/revalidate', () => {
     );
 
     expect(res.status).toBe(200);
-    const driftBody = (await res.json()) as { purged: number };
+    const driftBody = await res.json<{ purged: number }>();
     expect(driftBody.purged).toBe(1);
 
     // Both deployment namespaces are scanned and deleted in KV
@@ -1410,7 +1410,7 @@ describe('POST /projects/:id/revalidate', () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { purged: number };
+    const body = await res.json<{ purged: number }>();
     expect(body.purged).toBe(1);
     // The empty-deployment-id key must be deleted — this is the key dispatch
     // actually wrote, so the resolver + prefix logic must target it exactly.
@@ -1470,7 +1470,7 @@ describe('POST /internal/revalidate/:id', () => {
     );
 
     expect(res.status).toBe(200);
-    const hmacBody = (await res.json()) as { purged: number };
+    const hmacBody = await res.json<{ purged: number }>();
     expect(hmacBody.purged).toBe(1);
     expect(
       await env.ISR_CACHE.get(

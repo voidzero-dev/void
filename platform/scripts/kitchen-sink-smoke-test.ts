@@ -14,7 +14,8 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { describe, it, before, after } from 'node:test';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser, BrowserContext, Page } from 'playwright';
 import {
   resetKitchenSink,
   waitForChangedRender,
@@ -101,7 +102,7 @@ async function pollForText(page: Page, path: string, text: string, timeoutMs = 3
     if (body?.includes(text)) {
       return;
     }
-    await page.waitForTimeout(2_000);
+    await page.waitForTimeout(2000);
   }
   throw new Error(`Timed out after ${timeoutMs}ms waiting for "${text}" on ${path}`);
 }
@@ -133,6 +134,13 @@ async function deleteRowContaining(page: Page, needle: string) {
   }, needle);
 }
 
+/** Create an isolated browser context + page. Caller must close ctx when done. */
+async function freshPage(): Promise<{ ctx: BrowserContext; page: Page }> {
+  const ctx = await browser.newContext({ extraHTTPHeaders: CF_ACCESS });
+  const page = await ctx.newPage();
+  return { ctx, page };
+}
+
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
@@ -146,13 +154,6 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
   after(async () => {
     await browser?.close();
   });
-
-  /** Create an isolated browser context + page. Caller must close ctx when done. */
-  async function freshPage(): Promise<{ ctx: BrowserContext; page: Page }> {
-    const ctx = await browser.newContext({ extraHTTPHeaders: CF_ACCESS });
-    const page = await ctx.newPage();
-    return { ctx, page };
-  }
 
   void it('1 — home SSR + asset caching', async () => {
     const { ctx, page } = await freshPage();
@@ -168,7 +169,7 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
       const assetMatch = html.match(/\/(assets\/[^"']+[-._][A-Za-z0-9_-]{6,}\.(js|css))/);
       assert.ok(assetMatch, 'found hashed asset URL in HTML');
 
-      const assetUrl = `${BASE}/${assetMatch![1]}?smoke=${uid}`;
+      const assetUrl = `${BASE}/${assetMatch[1]}?smoke=${uid}`;
 
       // A unique URL forces a fresh network GET without sending cache-bypass
       // directives to the origin. Omit application/Access session cookies too.
@@ -244,7 +245,7 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
       await goto(page, '/');
 
       await page.evaluate(() => {
-        const nav = document.querySelector('nav') as StampedNav | null;
+        const nav = document.querySelector<StampedNav>('nav');
         if (nav) {
           nav.__stamp = 1;
         }
@@ -257,7 +258,7 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
 
       // Nav stamp must survive (layout DOM not recreated)
       const stamp = await page.evaluate(() => {
-        const nav = document.querySelector('nav') as StampedNav | null;
+        const nav = document.querySelector<StampedNav>('nav');
         return nav?.__stamp;
       });
       assert.strictEqual(stamp, 1, 'nav stamp survived navigation');
@@ -342,7 +343,7 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
       await fileChooser.setFiles({
         name: 'smoke-test.txt',
         mimeType: 'text/plain',
-        buffer: Buffer.from('hello world'),
+        buffer: (Buffer as BufferConstructor).from('hello world'),
       });
 
       await page.click('button:has-text("Upload")');
@@ -547,7 +548,13 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
         await page.click('button:has-text("Run in Sandbox")');
         const response = await completed;
         assert.equal(response.status(), 200, `Sandbox request succeeds (got ${response.status()})`);
-        const body = await response.json();
+        const body = (await response.json()) as {
+          ok: boolean;
+          exitCode: number;
+          output: { value: { marker: string; count: number } };
+          stdout: string;
+          stderr: string;
+        };
         assert.equal(body.ok, true, JSON.stringify(body));
         assert.equal(body.exitCode, 0);
         assert.equal(body.output.value.marker, uid);
@@ -561,9 +568,10 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
     });
 
     void it('13 — Sandbox runtime acceptance', { skip: !acceptanceToken }, async () => {
+      assert.ok(acceptanceToken);
       const response = await fetch(`${BASE}/api/acceptance/sandbox`, {
         method: 'POST',
-        headers: { ...CF_ACCESS, 'x-void-e2e-token': acceptanceToken! },
+        headers: { ...CF_ACCESS, 'x-void-e2e-token': acceptanceToken },
         signal: AbortSignal.timeout(180_000),
       });
       const body = await response.json();

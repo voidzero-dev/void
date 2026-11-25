@@ -1,6 +1,8 @@
-import { and, asc, eq, gt, lt, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, lt, notInArray, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
-import { TERMINAL_DEPLOYMENT_STATUSES, type Db } from '../db.ts';
+import { TERMINAL_DEPLOYMENT_STATUSES } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getProjectDeploymentWorkerName } from '../naming.ts';
 import { CloudflareApiError } from '../provisioning/cloudflare-api.ts';
@@ -10,17 +12,16 @@ import {
   findDurableObjectNamespaceId,
   getContainerApplication,
   perDeployContainerApplicationName,
-  type ContainerApplicationInfo,
 } from '../provisioning/containers.ts';
+import type { ContainerApplicationInfo } from '../provisioning/containers.ts';
 import { settleDeploymentForSandboxDrain } from '../routes/deploy.ts';
 import {
   acquireSandboxDrainLease,
   checkpointSandboxDrain,
   completeSandboxDrain,
   readSandboxDrainCheckpoint,
-  type SandboxDrainCursor,
-  type SandboxDrainPhase,
 } from '../sandbox-drain.ts';
+import type { SandboxDrainCursor, SandboxDrainPhase } from '../sandbox-drain.ts';
 import { deployments, projects, resources } from '../schema.ts';
 import { OperatorError, preview } from './common.ts';
 
@@ -442,10 +443,12 @@ async function resourcePage(
   return result;
 }
 
-function parsePreviewCursor(raw: string | undefined): {
+type SandboxPreviewPosition = {
   phase: SandboxDrainPhase;
   cursor: SandboxDrainCursor;
-} {
+};
+
+function parsePreviewCursor(raw: string | undefined): SandboxPreviewPosition {
   if (!raw) {
     return { phase: 'deployments', cursor: { pass: '1' } };
   }
@@ -465,11 +468,17 @@ function parsePreviewCursor(raw: string | undefined): {
   throw new OperatorError(400, 'Sandbox drain preview cursor is invalid.', 'invalid_cursor');
 }
 
+type SandboxPreviewProgress = {
+  phase: SandboxDrainPhase;
+  cursor: SandboxDrainCursor;
+  complete: boolean;
+};
+
 function nextPosition(
   phase: SandboxDrainPhase,
   cursor: SandboxDrainCursor,
   page: PageResult,
-): { phase: SandboxDrainPhase; cursor: SandboxDrainCursor; complete: boolean } {
+): SandboxPreviewProgress {
   if (page.truncated && page.nextCursor) {
     return { phase, cursor: page.nextCursor, complete: false };
   }

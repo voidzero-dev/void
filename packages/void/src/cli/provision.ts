@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   closeSync,
@@ -17,8 +18,10 @@ import { createRequire } from 'node:module';
 import { resolve as resolvePosixPath } from 'node:path/posix';
 import { resolve as resolveWindowsPath } from 'node:path/win32';
 import type { CloudflareOperation } from '@void/deploy-cloudflare';
-import { isRecord, type R2LocationHint } from '@void/deploy-core';
-import { parse, type ParseError } from 'jsonc-parser';
+import { isRecord } from '@void/deploy-core';
+import type { R2LocationHint } from '@void/deploy-core';
+import { parse } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import lockfile from 'proper-lockfile';
 import { voidLog, voidWarn } from '../log.ts';
@@ -34,8 +37,8 @@ import {
   persistMaterializedWranglerConfig,
   readProvisionedBindingEntry,
   writeProvisionedWranglerConfig,
-  type WriteProvisionedWranglerResult,
 } from './wrangler.ts';
+import type { WriteProvisionedWranglerResult } from './wrangler.ts';
 
 /** The Cloudflare resources an app needs, computed by the deploy orchestrator. */
 export interface DesiredResourceSet {
@@ -536,11 +539,11 @@ const COMMAND_TIMEOUT_MS = 120_000;
  * After a SIGKILL, how long to wait for both `close` and the whole process group to be gone.
  * If that cannot be confirmed, the runner rejects with {@link WranglerQuarantineError}.
  */
-const CONFIRM_KILL_GRACE_MS = 5_000;
+const CONFIRM_KILL_GRACE_MS = 5000;
 /** The pid-poll interval while confirming post-SIGKILL termination. */
 const CONFIRM_KILL_POLL_MS = 20;
 /** Extra time a signal teardown allows beyond a runner's confirmation window. */
-const SIGNAL_TEARDOWN_DEADLINE_MARGIN_MS = 5_000;
+const SIGNAL_TEARDOWN_DEADLINE_MARGIN_MS = 5000;
 
 /** ESRCH means the group already exited; any other kill error is a real failure. */
 export function isAlreadyGoneKillError(error: unknown): boolean {
@@ -876,7 +879,7 @@ function finishCoordinatorTeardown(teardown: CoordinatorTeardown): void {
   reRaisedOnce = true;
   process.kill(process.pid, teardown.signal);
   // Signals arrive asynchronously; keep the loop alive so the process cannot exit 0 first.
-  setTimeout(() => {}, 2_000);
+  setTimeout(() => {}, 2000);
 }
 
 // Retention watchdog for a quarantine that could not be persisted. The lock stays tracked,
@@ -884,7 +887,7 @@ function finishCoordinatorTeardown(teardown: CoordinatorTeardown): void {
 // alive. Each tick releases normally if the group is gone, else retries persisting the sidecar.
 
 const RETENTION_RETRY_MIN_MS = 250;
-const RETENTION_RETRY_MAX_MS = 5_000;
+const RETENTION_RETRY_MAX_MS = 5000;
 
 interface RetentionWatchdogState {
   lock: ProvisionLock;
@@ -1063,8 +1066,8 @@ export function createDefaultRunWrangler(
       child.once('spawn', () => {
         spawned = true;
       });
-      child.stdout?.setEncoding('utf-8');
-      child.stderr?.setEncoding('utf-8');
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
       child.stdout?.on('data', (chunk: string) => {
         stdout += chunk;
       });
@@ -1375,17 +1378,20 @@ export function normalizeRunWranglerResult(result: {
 }): RunWranglerResult {
   const stdout = result.stdout ?? '';
   const notes: Array<string> = [];
-  if (result.signal != null) {
+  if (result.signal !== null && result.signal !== undefined) {
     notes.push(
       `provision: the Cloudflare operation process was terminated by signal ${result.signal}`,
     );
   }
-  if (result.error != null) {
+  if (result.error !== null && result.error !== undefined) {
     notes.push(
       `provision: the Cloudflare operation process could not be spawned: ${result.error.message}`,
     );
   }
-  const failed = typeof result.status !== 'number' || result.signal != null || result.error != null;
+  const failed =
+    typeof result.status !== 'number' ||
+    (result.signal !== null && result.signal !== undefined) ||
+    (result.error !== null && result.error !== undefined);
   // A failure must be non-zero. Keep a genuine non-zero exit code when present;
   // otherwise synthesize `1` (a null/absent status under a signal/spawn error).
   const status = failed
@@ -1401,13 +1407,16 @@ export function normalizeRunWranglerResult(result: {
     stderr,
     status,
     signal: result.signal ?? null,
-    error: result.error != null ? result.error.message : null,
+    error: result.error !== null && result.error !== undefined ? result.error.message : null,
   };
 }
 
 /** A signal-killed or unspawned child: its output is never read as success or absence. */
 function isHardFailure(result: RunWranglerResult): boolean {
-  return result.signal != null || result.error != null;
+  return (
+    (result.signal !== null && result.signal !== undefined) ||
+    (result.error !== null && result.error !== undefined)
+  );
 }
 
 /** The child ran to completion and reported SUCCESS (a clean numeric exit 0). */
@@ -1441,7 +1450,7 @@ function withListerDeadline<T>(start: (signal: AbortSignal) => Promise<T>, ms: n
           clearTimeout(timer);
           resolve(value);
         },
-        (error) => {
+        (error: unknown) => {
           clearTimeout(timer);
           reject(error);
         },
@@ -1484,7 +1493,7 @@ function createDefaultListHyperdriveConfigs(apiToken?: string): ListHyperdriveCo
       if (!res.ok) {
         throw new Error(`Cloudflare API returned HTTP ${res.status} listing Hyperdrive configs`);
       }
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = await res.json<Record<string, unknown>>();
       if (!isRecord(body) || body.success !== true || !Array.isArray(body.result)) {
         throw new Error(
           'Cloudflare API returned an unsuccessful or malformed Hyperdrive configs payload',
@@ -1690,7 +1699,7 @@ function writeQuarantineSidecar(
     // Platform-unsupported directory fsync — the read-back below is still required.
   }
   // VERIFY: the durable marker must be present and carry the recorded owner.
-  const readBack: unknown = JSON.parse(readFileSync(sidecarPath, 'utf-8'));
+  const readBack: unknown = JSON.parse(readFileSync(sidecarPath, 'utf8'));
   if (
     !isRecord(readBack) ||
     readBack.pid !== (info.pid ?? null) ||
@@ -1718,7 +1727,7 @@ function assertQuarantineClearedOrClear(lockTarget: string, onBeforeClear?: () =
   }
   let recorded: Record<string, unknown> | undefined;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(sidecarPath, 'utf-8'));
+    const parsed: unknown = JSON.parse(readFileSync(sidecarPath, 'utf8'));
     recorded = isRecord(parsed) ? parsed : undefined;
   } catch {
     recorded = undefined;
@@ -1764,7 +1773,7 @@ function assertQuarantineClearedOrClear(lockTarget: string, onBeforeClear?: () =
   onBeforeClear?.();
   let current: Record<string, unknown> | undefined;
   try {
-    const reread: unknown = JSON.parse(readFileSync(sidecarPath, 'utf-8'));
+    const reread: unknown = JSON.parse(readFileSync(sidecarPath, 'utf8'));
     current = isRecord(reread) ? reread : undefined;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -1883,18 +1892,13 @@ const LOCK_STALE_MS = 120_000;
 /** Refresh interval keeping a live owner's lock fresh (must be < {@link LOCK_STALE_MS}). */
 const LOCK_UPDATE_MS = 20_000;
 /** Backoff while waiting for a held lock (about a minute). */
-const LOCK_RETRIES = { retries: 100, factor: 1.5, minTimeout: 200, maxTimeout: 2_000 } as const;
+const LOCK_RETRIES = { retries: 100, factor: 1.5, minTimeout: 200, maxTimeout: 2000 } as const;
 
 /** Stale window of the short-lived recovery mutex. */
-const RECOVERY_LOCK_STALE_MS = 6_000;
+const RECOVERY_LOCK_STALE_MS = 6000;
 
 /** Backoff schedule for our own retry loop (proper-lockfile runs with `retries: 0`). */
-function normalizeLockRetries(retries: ProvisionLockOptions['retries']): {
-  retries: number;
-  factor: number;
-  minTimeout: number;
-  maxTimeout: number;
-} {
+function normalizeLockRetries(retries: ProvisionLockOptions['retries']) {
   if (typeof retries === 'number') {
     return { ...LOCK_RETRIES, retries };
   }
@@ -1914,6 +1918,9 @@ export function resolveProperLockfileKey(
   return platform === 'win32' ? resolveWindowsPath(file) : resolvePosixPath(file);
 }
 
+const isElocked = (error: unknown): boolean =>
+  (error as { code?: string } | null)?.code === 'ELOCKED';
+
 /**
  * Acquire the provision lock (`<configPath>.void-provision.lock.lock`). The lock targets are
  * synthetic paths, so `realpath: false` avoids creating marker files; the config path is
@@ -1931,15 +1938,13 @@ export async function acquireProvisionLock(
   const recoveryTarget = `${lockTarget}.recovery`;
   const staleMs = lockOptions?.stale ?? LOCK_STALE_MS;
   const retryCfg = normalizeLockRetries(lockOptions?.retries);
-  const isElocked = (error: unknown): boolean =>
-    (error as { code?: string } | null)?.code === 'ELOCKED';
   const backoffDelay = (attempt: number): Promise<void> =>
-    new Promise((resolveSleep) =>
+    new Promise((resolveSleep) => {
       setTimeout(
         resolveSleep,
         Math.min(retryCfg.minTimeout * retryCfg.factor ** attempt, retryCfg.maxTimeout),
-      ),
-    );
+      );
+    });
   const acquireOnce = (): ReturnType<typeof lockfile.lock> =>
     lockfile.lock(lockTarget, {
       stale: staleMs,
@@ -1988,7 +1993,7 @@ export async function acquireProvisionLock(
           throw error;
         }
       }
-      if (!mainHeldByOther) {
+      if (release) {
         // (3) Revalidate under ownership: the previous holder may have quarantined after
         // the gate ran.
         try {
@@ -1996,7 +2001,7 @@ export async function acquireProvisionLock(
         } catch (gateError) {
           let revalidateReleaseError: unknown;
           try {
-            await release!();
+            await release();
           } catch (error) {
             revalidateReleaseError = error;
           }
@@ -2028,7 +2033,10 @@ export async function acquireProvisionLock(
   }
   // One shared release promise. A real unlock failure is surfaced, because the mutex
   // directory may remain; ERELEASED means it was already dropped and counts as success.
-  const acquiredRelease = release!;
+  const acquiredRelease = release;
+  if (!acquiredRelease) {
+    throw new Error('provision: failed to acquire the provision lock.');
+  }
   let releasePromise: Promise<void> | undefined;
   const doRelease = async (): Promise<void> => {
     try {
@@ -2042,6 +2050,7 @@ export async function acquireProvisionLock(
           `(${(error as Error).message}). The mutex directory may still exist and will block ` +
           `future provisions until it goes stale (~${Math.round(staleMs / 1000)}s). Remove it ` +
           `manually if it persists, then retry.`,
+        { cause: error },
       );
     }
   };
@@ -2070,6 +2079,7 @@ export async function acquireProvisionLock(
             `${info.pid !== undefined ? ` (e.g. \`kill -0 ${info.pid}\`)` : ''} and terminate ` +
             `it if not; the lock is freed when this process exits — remove the ` +
             `"${lockTarget}.lock" directory if it persists, then re-run.`,
+          { cause: error },
         );
       }
       releasePromise = Promise.resolve(); // any later release() is a settled no-op
@@ -2111,10 +2121,10 @@ function readRootConfig(configPath: string): Record<string, unknown> {
   if (!existsSync(configPath)) {
     return {};
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const content = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
   const errors: Array<ParseError> = [];
-  const parsed = parse(content, errors, { allowTrailingComma: true });
+  const parsed: unknown = parse(content, errors, { allowTrailingComma: true });
   if (errors.length > 0) {
     throw new Error(
       `provision: cannot read "${configPath}" — it is not valid JSON/JSONC. Fix the file and retry.`,
@@ -2256,7 +2266,7 @@ function isAlreadyExistsError(result: RunWranglerResult): boolean {
 function isConfirmedAbsent(result: RunWranglerResult, kind: 'r2' | 'queue'): boolean {
   return (
     isCleanFailure(result) &&
-    (kind === 'r2' ? result.errorCode === 10006 : result.failure === 'not-found')
+    (kind === 'r2' ? result.errorCode === 10_006 : result.failure === 'not-found')
   );
 }
 
@@ -2413,7 +2423,7 @@ function createSecretRedactor(connectionString?: string): (text: string) => stri
     if (typeof connectionString === 'string' && connectionString.length > 0) {
       out = out.split(connectionString).join('[REDACTED]');
     }
-    out = out.replace(/(\w[\w+.-]*:\/\/[^\s/@:]+:)[^\s@/]+(@)/g, '$1[REDACTED]$2');
+    out = out.replaceAll(/(\w[\w+.-]*:\/\/[^\s/@:]+:)[^\s@/]+(@)/g, '$1[REDACTED]$2');
     return out;
   };
 }
@@ -2490,6 +2500,7 @@ async function provisionWithProcessSlot(
         });
       } catch (quarantineError) {
         // Not persisted: the watchdog keeps the lock held. Surface both errors.
+        // oxlint-disable-next-line preserve-caught-error -- The original failure is already preserved in AggregateError.errors.
         throw new AggregateError(
           [bodyError, quarantineError],
           `provision failed with an unconfirmed Cloudflare operation process AND its quarantine metadata ` +
@@ -2659,7 +2670,7 @@ async function reconcileD1(
         assertD1MigrationsDirApplied(res, binding, configPath);
         resources.push({ kind: 'd1', binding, name, action: 'adopted', id: existing.id });
       } else {
-        const created = await runWrangler({ type: 'd1.create', name: name, binding, configPath });
+        const created = await runWrangler({ type: 'd1.create', name, binding, configPath });
         if (isCleanSuccess(created)) {
           // Verify the id landed, then set migrations_dir.
           assertCreateWroteRealId(
@@ -2681,7 +2692,7 @@ async function reconcileD1(
           resources.push({ kind: 'd1', binding, name, action: 'created' });
         } else if (isCleanFailure(created) && isAlreadyExistsError(created)) {
           // Created between list and create (code 7502): adopt only an exact `d1 info` match.
-          const infoResult = await runWrangler({ type: 'd1.info', name: name, configPath }, {});
+          const infoResult = await runWrangler({ type: 'd1.info', name, configPath }, {});
           assertDiscoverySucceeded(infoResult, `Cloudflare d1 info ${name}`);
           const info = normalizeD1(isRecord(infoResult.data) ? infoResult.data : undefined, name);
           if (info.kind !== 'match') {
@@ -3008,7 +3019,7 @@ async function reconcileHyperdrive(
         );
       } else {
         const created = await runWrangler(
-          { type: 'hyperdrive.create', name: name, binding, configPath },
+          { type: 'hyperdrive.create', name, binding, configPath },
           { input: connectionString },
         );
         if (!isCleanSuccess(created)) {
@@ -3043,7 +3054,7 @@ async function reconcileQueues(
 ): Promise<void> {
   // Only ensures each queue exists; the deploy orchestrator writes the queue bindings.
   for (const name of desired.queues) {
-    const info = await runWrangler({ type: 'queues.info', name: name, configPath });
+    const info = await runWrangler({ type: 'queues.info', name, configPath });
     // Reuse only when the probe names this queue; a bare exit 0 is not trusted.
     if (queueInfoConfirmsExists(info, name)) {
       resources.push({ kind: 'queue', name, action: 'reused' });
@@ -3056,14 +3067,14 @@ async function reconcileQueues(
           `${info.stderr || info.stdout || 'no output'}`,
       );
     }
-    const created = await runWrangler({ type: 'queues.create', name: name, configPath });
+    const created = await runWrangler({ type: 'queues.create', name, configPath });
     if (!isCleanSuccess(created)) {
       throw new Error(
         `provision: Cloudflare queues create ${name} failed: ${created.stderr || created.stdout}`,
       );
     }
     // Queue creates write no config, so re-probe to confirm.
-    const verify = await runWrangler({ type: 'queues.info', name: name, configPath });
+    const verify = await runWrangler({ type: 'queues.info', name, configPath });
     if (!queueInfoConfirmsExists(verify, name)) {
       throw new Error(
         `provision: Cloudflare queues create ${name} reported success but Cloudflare queues info ` +
@@ -3084,7 +3095,7 @@ async function provisionCloudflareResourcesLocked(
 ): Promise<ProvisionResult> {
   // jsonc-parser accepts duplicate members, so reject them before any remote work.
   if (existsSync(configPath)) {
-    const raw = readFileSync(configPath, 'utf-8');
+    const raw = readFileSync(configPath, 'utf8');
     const content = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
     assertNoDuplicateMembers(content, configPath);
   }
@@ -3215,8 +3226,11 @@ async function provisionCloudflareResourcesLocked(
     accountIdWritten = true;
   }
 
-  // The account fence above guarantees a value whenever a runner is called.
-  const transportAccountId = effectiveAccountId!;
+  // With no pinned account the fence above allowed only a local config update.
+  if (!effectiveAccountId) {
+    return { resources, configPath, accountIdWritten };
+  }
+  const transportAccountId = effectiveAccountId;
   // One API base for the runner and the Hyperdrive REST lister.
   const transportApiBaseUrl = resolvePinnedApiBaseUrl(process.env, configComplianceRegion);
 
@@ -3228,7 +3242,10 @@ async function provisionCloudflareResourcesLocked(
     ...result,
     stdout: redactSecrets(result.stdout),
     stderr: redactSecrets(result.stderr),
-    error: result.error != null ? redactSecrets(result.error) : result.error,
+    error:
+      result.error !== null && result.error !== undefined
+        ? redactSecrets(result.error)
+        : result.error,
   });
   // Every call gets the pinned account and API base.
   const runWrangler = (

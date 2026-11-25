@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
   inspectPlatformAccess,
   provisionPlatformAccess,
-  type PlatformAccessCheckpoint,
-  type PlatformAccessProvisionInput,
+} from '../../src/cli/platform-access-provision.ts';
+import type {
+  PlatformAccessCheckpoint,
+  PlatformAccessProvisionInput,
 } from '../../src/cli/platform-access-provision.ts';
 import { platformAccessFixture as fixture } from '../fixtures/platform-access.ts';
 
@@ -127,7 +129,7 @@ describe('Cloudflare Access provisioning', () => {
       base.proxyUrl,
     ]);
     expect(Object.keys(result.credentials!)).toEqual([base.apiUrl, base.proxyUrl]);
-    const app = [...env.apps.values()][0]!;
+    const app = [...env.apps.values()][0];
     expect(app.policies).toEqual([
       { id: 'employees', precedence: 1 },
       {

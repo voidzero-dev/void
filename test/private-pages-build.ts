@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { chromium, type Browser } from 'playwright';
-import { preview, type PreviewServer } from 'vite';
+import { chromium } from 'playwright';
+import type { Browser } from 'playwright';
+import { preview } from 'vite';
+import type { PreviewServer } from 'vite';
 import { expect, it } from 'vite-plus/test';
 import { waitForIslandsHydrated } from './browser-helpers.ts';
 import { buildIslandApp } from './island-css-build.ts';
@@ -45,7 +47,7 @@ export default function Home() { return <Frame><Counter /></Frame>; }`,
     try {
       const manifest = JSON.parse(
         readFileSync(join(build.root, 'dist/client/.vite/manifest.json'), 'utf8'),
-      );
+      ) as Record<string, unknown>;
       expect(Object.values(manifest)).not.toContainEqual(
         expect.objectContaining({ name: 'pages-client', isEntry: true }),
       );

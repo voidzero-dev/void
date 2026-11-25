@@ -108,13 +108,18 @@ function isContainerRecord(value: unknown): value is Record<string, unknown> {
   );
 }
 
+const read = (parent: Record<string, unknown> | Array<unknown>, segment: string): unknown => {
+  if (Array.isArray(parent)) {
+    return segment === '' ? undefined : parent[Number(segment)];
+  }
+  return Object.hasOwn(parent, segment) ? parent[segment] : undefined;
+};
+
 /**
  * Rebuild the object `objectToFormData` flattened. Numeric segments and `[]`
  * become arrays. Scalars are left as the client encoded them.
  */
-function formRecordToObject(
-  record: Record<string, FormEntry | Array<FormEntry>>,
-): Record<string, unknown> {
+function formRecordToObject(record: Record<string, FormEntry | Array<FormEntry>>) {
   const root: Record<string, unknown> = {};
   let nodes = 0;
 
@@ -128,13 +133,6 @@ function formRecordToObject(
   const createContainer = (asArray: boolean): Record<string, unknown> | Array<unknown> => {
     reserveNodes(1);
     return asArray ? [] : {};
-  };
-
-  const read = (parent: Record<string, unknown> | Array<unknown>, segment: string): unknown => {
-    if (Array.isArray(parent)) {
-      return segment === '' ? undefined : parent[Number(segment)];
-    }
-    return Object.hasOwn(parent, segment) ? parent[segment] : undefined;
   };
 
   const write = (
@@ -164,8 +162,8 @@ function formRecordToObject(
   const assign = (segments: Array<string>, value: FormEntry): void => {
     let parent: Record<string, unknown> | Array<unknown> = root;
     for (let i = 0; i < segments.length - 1; i++) {
-      const segment = segments[i] as string;
-      const next = segments[i + 1] as string;
+      const segment = segments[i];
+      const next = segments[i + 1];
       const nextIsArray = next === '' || arrayIndex(next) !== null;
       const child = read(parent, segment);
       const childIsContainer = nextIsArray ? Array.isArray(child) : isContainerRecord(child);
@@ -177,7 +175,7 @@ function formRecordToObject(
       }
       parent = container;
     }
-    write(parent, segments[segments.length - 1] as string, value);
+    write(parent, segments.at(-1) as string, value);
   };
 
   for (const [key, raw] of Object.entries(record)) {

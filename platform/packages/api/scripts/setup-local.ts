@@ -1,13 +1,20 @@
 import { execSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import * as p from '@voidzero-dev/vite-plus-prompts';
+import { resolve } from 'node:path';
+import {
+  cancel,
+  intro,
+  isCancel,
+  log,
+  note,
+  outro,
+  spinner,
+  text,
+} from '@voidzero-dev/vite-plus-prompts';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const platformDir = resolve(__dirname, '..');
-const seedSql = resolve(__dirname, 'seed.sql');
-const drizzleDir = resolve(__dirname, '../drizzle');
+const platformDir = resolve(import.meta.dirname, '..');
+const seedSql = resolve(import.meta.dirname, 'seed.sql');
+const drizzleDir = resolve(import.meta.dirname, '../drizzle');
 const localDbUrl = 'postgresql://void_dev:void_dev@localhost:5432/void_api_dev';
 
 // ---------------------------------------------------------------------------
@@ -78,21 +85,21 @@ async function resolveAdminEmail(): Promise<string> {
   if (adminEmailArg !== undefined) {
     const error = validateEmail(adminEmailArg);
     if (error) {
-      p.log.error(`Invalid --admin-email value: ${error}`);
+      log.error(`Invalid --admin-email value: ${error}`);
       process.exit(1);
     }
     return adminEmailArg;
   }
 
-  const answer = await p.text({
+  const answer = await text({
     message: 'Local admin email',
     placeholder: 'you@example.com',
     defaultValue: existingEmail,
     validate: (value) => validateEmail(value ?? ''),
   });
 
-  if (p.isCancel(answer)) {
-    p.cancel('Aborting.');
+  if (isCancel(answer)) {
+    cancel('Aborting.');
     process.exit(0);
   }
 
@@ -156,7 +163,7 @@ function ensureLocalDevVars(): void {
   const apiDevVarsPath = resolve(platformDir, '.dev.vars');
   const apiDevVarsExisted = existsSync(apiDevVarsPath);
   upsertLocalEnvFile(apiDevVarsPath, apiDevVars);
-  p.log.success(`${apiDevVarsExisted ? 'Updated' : 'Created'} ${apiDevVarsPath}`);
+  log.success(`${apiDevVarsExisted ? 'Updated' : 'Created'} ${apiDevVarsPath}`);
 
   const dashboardDir = resolve(platformDir, '../dashboard');
   const dashboardEnvPath = resolve(dashboardDir, '.env');
@@ -168,7 +175,7 @@ function ensureLocalDevVars(): void {
       );
     }
     renameSync(legacyDashboardDevVarsPath, dashboardEnvPath);
-    p.log.info(`Moved ${legacyDashboardDevVarsPath} to ${dashboardEnvPath}`);
+    log.info(`Moved ${legacyDashboardDevVarsPath} to ${dashboardEnvPath}`);
   }
   const dashboardEnvExisted = existsSync(dashboardEnvPath);
   upsertLocalEnvFile(
@@ -180,11 +187,11 @@ function ensureLocalDevVars(): void {
     Object.keys(apiDevVars),
   );
   chmodSync(dashboardEnvPath, 0o600);
-  p.log.success(`${dashboardEnvExisted ? 'Updated' : 'Created'} ${dashboardEnvPath}`);
+  log.success(`${dashboardEnvExisted ? 'Updated' : 'Created'} ${dashboardEnvPath}`);
 }
 
 function showNextSteps(): void {
-  p.note(
+  note(
     [
       'From the repository root:',
       '  1. vp run --filter @voidcloud/api dev:admin',
@@ -200,14 +207,14 @@ function showNextSteps(): void {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  p.intro('Platform local dev setup');
+  intro('Platform local dev setup');
 
   if (!pgReady()) {
-    p.log.error('PostgreSQL is not running. Start it first:');
-    p.log.info('  brew services start postgresql@17   # macOS (Homebrew)');
-    p.log.info('  sudo systemctl start postgresql     # Linux');
-    p.log.info('  docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:17');
-    p.outro('Aborting.');
+    log.error('PostgreSQL is not running. Start it first:');
+    log.info('  brew services start postgresql@17   # macOS (Homebrew)');
+    log.info('  sudo systemctl start postgresql     # Linux');
+    log.info('  docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:17');
+    outro('Aborting.');
     return;
   }
 
@@ -216,14 +223,14 @@ async function main(): Promise<void> {
 
   if (!force && adminUserExists()) {
     upsertLocalAdmin(adminEmail);
-    p.log.success(`Configured local admin user: ${adminEmail}`);
-    p.log.info('Local dev already set up (admin user exists). Use --force to re-setup.');
+    log.success(`Configured local admin user: ${adminEmail}`);
+    log.info('Local dev already set up (admin user exists). Use --force to re-setup.');
     showNextSteps();
-    p.outro('Nothing to do.');
+    outro('Nothing to do.');
     return;
   }
 
-  const s = p.spinner();
+  const s = spinner();
 
   // 1. Create void_dev role and database (idempotent)
   s.start('Creating local database void_api_dev');
@@ -257,7 +264,9 @@ async function main(): Promise<void> {
   // 2. Apply Drizzle migrations
   s.start('Applying migrations');
   const journalPath = resolve(drizzleDir, 'meta/_journal.json');
-  const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
+  const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
+    entries: Array<{ tag: string }>;
+  };
   for (const entry of journal.entries) {
     const sqlFile = resolve(drizzleDir, `${entry.tag}.sql`);
     const sql = readFileSync(sqlFile, 'utf8');
@@ -289,12 +298,12 @@ async function main(): Promise<void> {
   upsertLocalAdmin(adminEmail);
   s.stop('Created local admin user');
 
-  p.log.success(`Configured local admin user: ${adminEmail}`);
+  log.success(`Configured local admin user: ${adminEmail}`);
 
   // 5. Next steps
   showNextSteps();
 
-  p.outro('Done!');
+  outro('Done!');
 }
 
-void main();
+await main();

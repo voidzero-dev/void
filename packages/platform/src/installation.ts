@@ -1,8 +1,9 @@
 import {
   createPlatformDeploymentManifest,
   parsePlatformDeploymentManifest,
-  type PlatformDeploymentManifest,
+  readPlatformApplicationInput,
 } from './manifest.ts';
+import type { PlatformDeploymentManifest } from './manifest.ts';
 import {
   assertRecord,
   isSandboxDrainProtocol,
@@ -261,7 +262,7 @@ function assertTimestamp(value: string, label: string): string {
   return value;
 }
 
-export function createPlatformResourceOwnershipMarker(input: {
+type ResourceOwnershipMarkerInput = {
   accountId: string;
   installationId: string;
   ownershipNonce: string;
@@ -269,6 +270,16 @@ export function createPlatformResourceOwnershipMarker(input: {
   resourceKey: string;
   resourceKind: InstallationResourceKind;
   resourceName: string;
+};
+
+export function createPlatformResourceOwnershipMarker(
+  input: ResourceOwnershipMarkerInput,
+): PlatformResourceOwnershipMarker {
+  return validateResourceOwnershipMarker(input);
+}
+
+function validateResourceOwnershipMarker(input: {
+  [Key in keyof ResourceOwnershipMarkerInput]?: unknown;
 }): PlatformResourceOwnershipMarker {
   if (!isResourceKind(input.resourceKind)) {
     throw new Error('Invalid ownership marker resource kind.');
@@ -294,10 +305,7 @@ export function parsePlatformResourceOwnershipMarker(
       `Unsupported platform resource ownership schema version: ${String(value.schemaVersion)}.`,
     );
   }
-  // The constructor validates every field.
-  return createPlatformResourceOwnershipMarker(
-    value as Parameters<typeof createPlatformResourceOwnershipMarker>[0],
-  );
+  return validateResourceOwnershipMarker(value);
 }
 
 export function createPlatformInstallationManifest(input: {
@@ -327,6 +335,7 @@ export function createPlatformInstallationManifest(input: {
     databaseSchemaDigest: null,
     ...(input.deploymentExecution === 1 ? { deploymentExecution: 1 as const } : {}),
     deployment: parsePlatformDeploymentManifest(
+      // oxlint-disable-next-line unicorn/prefer-structured-clone -- Normalize the deployment manifest to its persisted JSON representation.
       JSON.parse(JSON.stringify(input.deployment)) as unknown,
     ),
     desiredState: 'enabled',
@@ -475,10 +484,9 @@ export function parsePlatformInstallationManifest(value: unknown): PlatformInsta
   const runtime = parsePlatformRuntimeProvenance(value.runtime);
   let pendingDomain: PlatformDeploymentManifest['application'] | undefined;
   if (value.pendingDomain !== undefined) {
-    assertRecord(value.pendingDomain, 'pendingDomain');
     pendingDomain = createPlatformDeploymentManifest({
       ...manifest.deployment,
-      application: value.pendingDomain as PlatformDeploymentManifest['application'],
+      application: readPlatformApplicationInput(value.pendingDomain, 'pendingDomain'),
     }).application;
     if (
       !manifest.deployment.application.workersDev ||

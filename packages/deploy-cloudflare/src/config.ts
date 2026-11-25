@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { applyEdits, modify, parse as parseJsoncConfig, type ParseError } from 'jsonc-parser';
+import { isRecord } from '@void/deploy-core';
+import { applyEdits, modify, parse as parseJsoncConfig } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 
 /** Parse a root Wrangler JSON/JSONC config without accepting a partial parse. */
 export function parseRootWranglerConfig(configPath: string): Record<string, unknown> {
@@ -8,17 +10,17 @@ export function parseRootWranglerConfig(configPath: string): Record<string, unkn
   }
   let raw: string;
   try {
-    raw = readFileSync(configPath, 'utf-8');
+    raw = readFileSync(configPath, 'utf8');
   } catch {
     return {};
   }
   const content = raw.startsWith('﻿') ? raw.slice(1) : raw;
   const errors: Array<ParseError> = [];
-  const parsed = parseJsoncConfig(content, errors, { allowTrailingComma: true });
-  if (errors.length > 0 || typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+  const parsed: unknown = parseJsoncConfig(content, errors, { allowTrailingComma: true });
+  if (errors.length > 0 || !isRecord(parsed)) {
     return {};
   }
-  return parsed as Record<string, unknown>;
+  return parsed;
 }
 
 /** Set one value in JSONC text, keeping comments and formatting elsewhere. */
@@ -47,8 +49,11 @@ function findBindingEntry(
     return undefined;
   }
   return list.find(
-    (entry): entry is Record<string, unknown> =>
-      entry && typeof entry === 'object' && (entry as { binding?: unknown }).binding === binding,
+    (entry: unknown): entry is Record<string, unknown> =>
+      typeof entry === 'object' &&
+      entry !== null &&
+      'binding' in entry &&
+      entry.binding === binding,
   );
 }
 
@@ -74,10 +79,7 @@ export function readBindingFieldPresence(
 }
 
 export function readConfigEntryString(entry: unknown, field: string): string | undefined {
-  if (!entry || typeof entry !== 'object') {
-    return undefined;
-  }
-  const value = (entry as Record<string, unknown>)[field];
+  const value = isRecord(entry) ? entry[field] : undefined;
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
@@ -95,10 +97,10 @@ export function resolveD1MigrateTarget(
   if (validatedIndex === -1) {
     return { ok: false, reason: `no d1_databases entry has binding ${JSON.stringify(binding)}` };
   }
-  const validated = list[validatedIndex];
+  const validated: unknown = list[validatedIndex];
   const token = readConfigEntryString(validated, 'database_name') ?? binding;
   for (let i = 0; i < validatedIndex; i++) {
-    const earlier = list[i];
+    const earlier: unknown = list[i];
     if (
       readConfigEntryString(earlier, 'database_name') === token ||
       readConfigEntryString(earlier, 'binding') === token

@@ -1,17 +1,10 @@
 import type { BetterAuthOptions } from 'better-auth';
-import {
-  getAuthTables,
-  getSchema as getBetterAuthSchema,
-  type BetterAuthDBSchema,
-  type DBFieldAttribute,
-} from 'better-auth/db';
+import { getAuthTables, getSchema as getBetterAuthSchema } from 'better-auth/db';
+import type { BetterAuthDBSchema, DBFieldAttribute } from 'better-auth/db';
 import type { VoidAuthRuntimeOptions } from '../runtime/auth/better-auth-shared.ts';
 import type { VoidAuthConfig } from '../runtime/auth/index.ts';
-import {
-  VOID_EMAIL_AUTH_PROVIDER,
-  isVoidSocialAuthProvider,
-  type VoidAuthProvider,
-} from './providers.ts';
+import { VOID_EMAIL_AUTH_PROVIDER, isVoidSocialAuthProvider } from './providers.ts';
+import type { VoidAuthProvider } from './providers.ts';
 
 type AuthIdStrategy = 'serial' | 'text' | 'uuid';
 const DEFAULT_TABLE_ORDER = Number.MAX_SAFE_INTEGER;
@@ -127,6 +120,7 @@ function resolveSchemaOptions(
     baseURL: origin,
     basePath: '/api/auth',
     secret: 'void-build-better-auth-secret',
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- Better Auth's database options are resolved by the package typecheck.
     database: {} as NonNullable<BetterAuthOptions['database']>,
     trustedOrigins: [origin],
     ...(emailAndPassword ? { emailAndPassword } : {}),
@@ -148,7 +142,7 @@ function resolveIdStrategy(options: BetterAuthOptions): AuthIdStrategy {
 }
 
 function sanitizeIdentifier(name: string): string {
-  const value = name.replace(/[^A-Za-z0-9_$]/g, '_');
+  const value = name.replaceAll(/[^A-Za-z0-9_$]/g, '_');
   return /^[A-Za-z_$]/.test(value) ? value : `_${value}`;
 }
 
@@ -506,7 +500,10 @@ export function generateVoidAuthDrizzleSchema(
   ];
 
   for (const [defaultModelName, table] of entries) {
-    const variableName = defaultToVariable.get(defaultModelName)!;
+    const variableName = defaultToVariable.get(defaultModelName);
+    if (variableName === undefined) {
+      throw new Error(`No schema variable for auth model '${defaultModelName}'.`);
+    }
     const fieldEntries = Object.entries(table.fields);
     const renderedFields = [
       `  "id": ${createColumnDefinition(
@@ -564,11 +561,11 @@ export function generateVoidAuthDrizzleSchema(
       `  ${JSON.stringify(defaultModelName)}: ${defaultToVariable.get(defaultModelName)},`,
     );
   }
-  lines.push('} as const;');
   lines.push(
+    '} as const;',
     `export const migrationSchema = ${JSON.stringify(migrationSchema, null, 2)} as const;`,
+    '',
   );
-  lines.push('');
 
   return lines.join('\n') + '\n';
 }

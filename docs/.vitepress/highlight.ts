@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { codeToTokens, isSupportedLanguage } from '@pierre/highlights';
-import type { Lang, ThemedToken } from '@pierre/highlights';
+import type { ThemedToken } from '@pierre/highlights';
 import dark from '@pierre/highlights/themes/github-dark';
 import light from '@pierre/highlights/themes/github-light';
 
@@ -60,7 +60,7 @@ const NOTATIONS: Record<string, Readonly<{ line: ReadonlyArray<string>; pre: str
 
 const NOTATION_RE = new RegExp(
   `\\s*\\[!code (${Object.keys(NOTATIONS)
-    .map((name) => name.replace(/\+/g, '\\+'))
+    .map((name) => name.replaceAll('+', String.raw`\+`))
     .join('|')})(?::(\\d+))?\\]`,
   'g',
 );
@@ -68,11 +68,11 @@ const NOTATION_RE = new RegExp(
 const EMPTY_COMMENT_RE = /^\s*(?:\/\/|\/\*|\*\/|<!--|-->|--|[#;%"'*]|\s)*\s*$/;
 
 function escapeHtml(text: string): string {
-  return /[&<]/.test(text) ? text.replace(/&/g, '&#x26;').replace(/</g, '&#x3C;') : text;
+  return /[&<]/.test(text) ? text.replaceAll('&', '&#x26;').replaceAll('<', '&#x3C;') : text;
 }
 
 function escapeAttribute(text: string): string {
-  return escapeHtml(text).replace(/"/g, '&#x22;');
+  return escapeHtml(text).replaceAll('"', '&#x22;');
 }
 
 type LineRange = Readonly<{ from: number; to: number }>;
@@ -85,7 +85,7 @@ function metaHighlightedRanges(meta: string): ReadonlyArray<LineRange> | null {
   }
   const ranges: Array<LineRange> = [];
   for (const part of match[1].split(',')) {
-    const [from, to] = part.split('-').map((value) => parseInt(value, 10));
+    const [from, to] = part.split('-').map((value) => Number.parseInt(value, 10));
     if (!Number.isNaN(from)) {
       ranges.push({ from, to: to === undefined || Number.isNaN(to) ? from : to });
     }
@@ -112,10 +112,13 @@ function takeNotations(
       kept.push(token);
       continue;
     }
-    const content = token.content.replace(
+    const content = token.content.replaceAll(
       NOTATION_RE,
       (_match, name: string, count: string | undefined) => {
-        notations.push({ ...NOTATIONS[name], count: count ? Math.max(1, parseInt(count, 10)) : 1 });
+        notations.push({
+          ...NOTATIONS[name],
+          count: count ? Math.max(1, Number.parseInt(count, 10)) : 1,
+        });
         return '';
       },
     );
@@ -263,7 +266,7 @@ export function createCodeHighlighter(): CodeHighlighter {
     // an interpolation across spans in the compiled template.
     const mustaches = new Map<string, string>();
     const input = vueInterpolation
-      ? code.replace(/\{\{.*?\}\}/g, (match) => {
+      ? code.replaceAll(/\{\{.*?\}\}/g, (match) => {
           let marker = mustaches.get(match);
           if (!marker) {
             marker = `vpvue${randomUUID().replaceAll('-', '')}`;
@@ -278,7 +281,7 @@ export function createCodeHighlighter(): CodeHighlighter {
       }
       return html;
     };
-    const tokensByLine = codeToTokens(input.trimEnd(), { lang: lang as Lang, ...OPTIONS }).tokens;
+    const tokensByLine = codeToTokens(input.trimEnd(), { lang, ...OPTIONS }).tokens;
     const shell = ['shellscript', 'shell', 'bash', 'sh', 'zsh'].includes(lang);
     const highlighted = metaHighlightedRanges(attrs);
     const preClasses = new Set<string>();

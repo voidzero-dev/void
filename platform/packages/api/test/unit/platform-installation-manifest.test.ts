@@ -47,12 +47,14 @@ describe('platform installation manifest', () => {
       { completedAt: now, key: 'create-routing-kv', resultHash: 'namespace-id' },
       now,
     );
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     expect(parsePlatformInstallationManifest(JSON.parse(JSON.stringify(manifest)))).toEqual(
       manifest,
     );
   });
 
   it('infers disabled intent when reading a legacy disabled manifest', () => {
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     const legacy = JSON.parse(JSON.stringify(installation())) as Record<string, unknown>;
     delete legacy.desiredState;
     legacy.status = 'disabled';
@@ -79,6 +81,7 @@ describe('platform installation manifest', () => {
   });
 
   it('treats manifests before authenticated usage as protocol zero', () => {
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
     const legacy = JSON.parse(JSON.stringify(installation())) as Record<string, unknown>;
     delete legacy.usageProtocolVersion;
     expect(parsePlatformInstallationManifest(legacy).usageProtocolVersion).toBe(0);

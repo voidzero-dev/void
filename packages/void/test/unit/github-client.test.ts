@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { PlatformClient, type GithubInstallation } from '../../src/cli/client.ts';
+import { PlatformClient } from '../../src/cli/client.ts';
+import type { GithubInstallation } from '../../src/cli/client.ts';
 import { makeConnection, projectId } from '../helpers/github-cli.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 

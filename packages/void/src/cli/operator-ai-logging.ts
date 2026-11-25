@@ -1,5 +1,6 @@
 import { AI_LOGGING_SETTLE_MS } from '@void/platform/ai-logging';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { ensurePlatformAccessToken } from './cf-access.ts';
 import { OperatorClientError } from './operator-client.ts';
 import { sanitizeTerminalText } from './output.ts';
@@ -88,16 +89,16 @@ export function aiLoggingPreviewLines(projectId: string, preview: Fields): Array
   ];
 }
 
-const STATES: Record<string, (fields: Fields) => string> = {
-  applied: () => 'applied',
+const STATES = {
+  applied: (_fields: Fields) => 'applied',
   pending: (fields) => {
     const by = utcTime(fields.publishedAt, AI_LOGGING_SETTLE_MS);
     return by ? `pending (expected by ${by})` : 'pending (normally within 2 minutes)';
   },
-  pending_plan_publish: () => 'pending (the plan default is still being published)',
+  pending_plan_publish: (_fields: Fields) => 'pending (the plan default is still being published)',
   drift: (fields) => `drift (published: ${text(fields.published) || 'unknown value'})`,
-  unknown: () => 'state unknown (the published setting could not be read)',
-};
+  unknown: (_fields: Fields) => 'state unknown (the published setting could not be read)',
+} satisfies Record<string, (fields: Fields) => string>;
 
 /**
  * `project show` line, such as `metadata (from plan "pro") — applied`, or null
@@ -109,7 +110,7 @@ export function aiLoggingStatusLine(value: unknown): string | null {
     return null;
   }
   const state =
-    typeof fields.state === 'string' && Object.hasOwn(STATES, fields.state)
+    typeof fields.state === 'string' && hasOwnKey(STATES, fields.state)
       ? STATES[fields.state]
       : undefined;
   const summary = withSource(effective(fields), fields);

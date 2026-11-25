@@ -5,7 +5,10 @@ import type { Build } from '../../src/types.ts';
 const { effects, states, fate } = vi.hoisted(() => ({
   effects: [] as Array<() => (() => void) | void>,
   states: [] as Array<{ value: unknown }>,
-  fate: { request: vi.fn(), readView: vi.fn() },
+  fate: {
+    request: vi.fn<(request: { id: string; since: number }) => Promise<unknown>>(),
+    readView: vi.fn(),
+  },
 }));
 
 // Drive the component's actual effect and timers without mounting a browser.
@@ -19,6 +22,7 @@ vi.mock('react', async (importOriginal) => ({
     return [
       initial,
       (update: unknown) => {
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Run the updater passed to the test implementation of useState.
         state.value = typeof update === 'function' ? update(state.value) : update;
       },
     ];
@@ -46,7 +50,7 @@ afterEach(() => {
 
 async function mount() {
   BuildLogs({ build: { id: 'build', status: 'complete' } as Build });
-  cleanup = effects[0]!();
+  cleanup = effects[0]();
   await vi.advanceTimersByTimeAsync(0);
 }
 
@@ -63,12 +67,12 @@ it('follows an initially terminal build until its delayed final tail is captured
     });
 
   await mount();
-  await vi.advanceTimersByTimeAsync(2_000);
+  await vi.advanceTimersByTimeAsync(2000);
 
   expect(fate.request.mock.calls.map(([request]) => request.since)).toEqual([0, 2]);
   expect(states[0]?.value).toEqual([{ seq: 3, line: 'final tail', stream: 'stdout' }]);
   expect(states[1]?.value).toBeNull();
-  await vi.advanceTimersByTimeAsync(6_000);
+  await vi.advanceTimersByTimeAsync(6000);
   expect(fate.request).toHaveBeenCalledTimes(2);
 });
 
@@ -83,7 +87,7 @@ it('retains historical rows and stops with an upgrade message when completion is
   });
 
   await mount();
-  await vi.advanceTimersByTimeAsync(6_000);
+  await vi.advanceTimersByTimeAsync(6000);
 
   expect(states[0]?.value).toEqual([{ seq: 3, line: 'historical tail', stream: 'stdout' }]);
   expect(states[1]?.value).toContain('Upgrade the platform runtime');
@@ -103,7 +107,7 @@ it('stops incomplete terminal log polling after two minutes', async () => {
   await mount();
   await vi.advanceTimersByTimeAsync(120_000);
   const calls = fate.request.mock.calls.length;
-  await vi.advanceTimersByTimeAsync(6_000);
+  await vi.advanceTimersByTimeAsync(6000);
 
   expect(calls).toBe(61);
   expect(fate.request).toHaveBeenCalledTimes(calls);

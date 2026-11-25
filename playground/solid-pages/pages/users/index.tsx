@@ -29,20 +29,14 @@ export default function UsersPage(props: Props) {
       <Form form={form}>
         <div>
           <label>Name:</label>
-          <input
-            value={form.data.name as string}
-            onInput={(e) => form.setData('name', e.target.value)}
-          />
+          <input value={form.data.name} onInput={(e) => form.setData('name', e.target.value)} />
           <Show when={form.errors.name}>
             <span style={{ color: 'red' }}>{form.errors.name}</span>
           </Show>
         </div>
         <div>
           <label>Email:</label>
-          <input
-            value={form.data.email as string}
-            onInput={(e) => form.setData('email', e.target.value)}
-          />
+          <input value={form.data.email} onInput={(e) => form.setData('email', e.target.value)} />
           <Show when={form.errors.email}>
             <span style={{ color: 'red' }}>{form.errors.email}</span>
           </Show>

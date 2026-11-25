@@ -3,8 +3,12 @@ import { describe, expect, it } from 'vite-plus/test';
 import { compile } from '../../src/compile.ts';
 import { CODE_COPY_SCRIPT, preWrapperPlugin } from '../../src/plugins/pre-wrapper.ts';
 
+interface ClipboardWrite {
+  then(onFulfilled: () => void, onRejected: () => void): void;
+}
+
 /** Runs the copy script, then clicks a copy button whose code block has these lines. */
-function clickCopy(lines: Array<string>, writeText: (text: string) => unknown): void {
+function clickCopy(lines: Array<string>, writeText: (text: string) => ClipboardWrite): void {
   class FakeElement {}
   const button = Object.assign(new FakeElement(), {
     closest: () => button,
@@ -17,6 +21,7 @@ function clickCopy(lines: Array<string>, writeText: (text: string) => unknown): 
   });
   let onClick: ((event: { target: unknown }) => void) | undefined;
   const body = CODE_COPY_SCRIPT.slice('<script>'.length, -'</script>'.length);
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   new Function('window', 'document', 'navigator', 'Element', 'setTimeout', body)(
     {},
     {

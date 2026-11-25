@@ -10,8 +10,8 @@ import {
   killChild,
   spawnFixtureServer,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { decodePageData } from '../../src/pages/serialize.ts';
 
@@ -41,10 +41,7 @@ describe('playground/pg-test', () => {
     await pglite.waitReady;
 
     // Run migrations
-    const migrationSql = readFileSync(
-      join(fixture.root, 'db/migrations/0000_initial.sql'),
-      'utf-8',
-    );
+    const migrationSql = readFileSync(join(fixture.root, 'db/migrations/0000_initial.sql'), 'utf8');
     await pglite.exec(migrationSql);
 
     pgServer = createServer(pglite);
@@ -229,19 +226,19 @@ describe('playground/pg-test', () => {
       body: JSON.stringify({ name: 'Bob', email: 'bob@test.com' }),
     });
     expect(createRes.status).toBe(201);
-    const created = (await createRes.json()) as User;
+    const created = await createRes.json<User>();
     expect(created.name).toBe('Bob');
 
     const listRes = await fetch(BASE + '/api/users');
     expect(listRes.status).toBe(200);
-    const users = (await listRes.json()) as Array<User>;
+    const users = await listRes.json<Array<User>>();
     expect(users).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'Bob', email: 'bob@test.com' })]),
     );
 
     const getRes = await fetch(BASE + `/api/users/${created.id}`);
     expect(getRes.status).toBe(200);
-    const user = (await getRes.json()) as User;
+    const user = await getRes.json<User>();
     expect(user.name).toBe('Bob');
   });
 });

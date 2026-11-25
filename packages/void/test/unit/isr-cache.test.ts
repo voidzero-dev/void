@@ -16,10 +16,8 @@ import {
   readIsrCache,
   SHARED_CACHE_POLICY_VERSION,
   writeIsrCache,
-  type IsrCacheEnv,
-  type IsrCacheMetadata,
-  type RenderFn,
 } from '@void/isr/runtime';
+import type { IsrCacheEnv, IsrCacheMetadata, RenderFn } from '@void/isr/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 
@@ -77,7 +75,7 @@ function makeEnv(kv: KVNamespace): IsrCacheEnv {
 }
 
 function packEntry(headers: Record<string, string>, body: string): ArrayBuffer {
-  return packIsrValue(headers, new TextEncoder().encode(body).buffer as ArrayBuffer);
+  return packIsrValue(headers, new TextEncoder().encode(body).buffer);
 }
 
 function seedEntry(
@@ -112,17 +110,17 @@ function seedEntry(
 function createEdgeMock() {
   const store = new Map<string, Response>();
   const match = vi.fn(async (key: string | Request) => {
-    const k = typeof key === 'string' ? key : (key as Request).url;
+    const k = typeof key === 'string' ? key : key.url;
     const res = store.get(k);
     // Real Cache.match hands back a fresh Response each call.
     return res ? res.clone() : undefined;
   });
   const put = vi.fn(async (key: string | Request, response: Response) => {
-    const k = typeof key === 'string' ? key : (key as Request).url;
+    const k = typeof key === 'string' ? key : key.url;
     store.set(k, response);
   });
   const del = vi.fn(async (key: string | Request) => {
-    const k = typeof key === 'string' ? key : (key as Request).url;
+    const k = typeof key === 'string' ? key : key.url;
     return store.delete(k);
   });
   const cache = { match, put, delete: del } as unknown as Cache;
@@ -202,7 +200,7 @@ const corruptCases: Array<{ name: string; seed: () => KvRecord }> = [
     name: 'createdAt NaN',
     seed: () => ({
       value: packEntry({}, 'x'),
-      metadata: { s: 200, c: NaN, t: 60, p: SHARED_CACHE_POLICY_VERSION },
+      metadata: { s: 200, c: Number.NaN, t: 60, p: SHARED_CACHE_POLICY_VERSION },
     }),
   },
   {
@@ -223,7 +221,7 @@ const corruptCases: Array<{ name: string; seed: () => KvRecord }> = [
     name: 'ttl NaN',
     seed: () => ({
       value: packEntry({}, 'x'),
-      metadata: { s: 200, c: BASE, t: NaN, p: SHARED_CACHE_POLICY_VERSION },
+      metadata: { s: 200, c: BASE, t: Number.NaN, p: SHARED_CACHE_POLICY_VERSION },
     }),
   },
   {
@@ -599,8 +597,8 @@ describe('handleIsr', () => {
     await flush();
 
     expect(requests).toHaveLength(1);
-    expect(requests[0]!.url).toBe(`https://${HOST}/blog/post`);
-    expect(requests[0]!.headers.get('X-Test-Marker')).toBe('keep');
+    expect(requests[0].url).toBe(`https://${HOST}/blog/post`);
+    expect(requests[0].headers.get('X-Test-Marker')).toBe('keep');
     const entry = await readIsrCache(env, HOST, '/blog/post');
     expect(isStale(entry!)).toBe(false);
     expect(await new Response(entry!.body).text()).toBe('<html>clean</html>');
@@ -773,7 +771,7 @@ describe('handleIsr', () => {
     await flush();
 
     expect(spy).toHaveBeenCalledTimes(1);
-    const rerender = requests[0]!;
+    const rerender = requests[0];
     expect(rerender.headers.get('X-Test-Marker')).toBe('keep');
     expect(rerender.method).toBe('GET');
     expect(rerender.url).toBe(`https://${HOST}/blog/post`);
@@ -878,7 +876,7 @@ describe('handleIsr', () => {
 
     expect(res!.status).toBe(200);
     expect(await res!.text()).toBe('{"component":"Blog"}');
-    expect(requests[0]!.headers.has('X-VoidPages')).toBe(true);
+    expect(requests[0].headers.has('X-VoidPages')).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(tasks).toHaveLength(0);
     expect(edge.store.size).toBe(0);
@@ -932,7 +930,7 @@ describe('handleIsr', () => {
     ['the KV entry is from an older cache policy', false],
   ])('fails open to a LIVE render (not a 500) when %s', async (_, throwOnGet) => {
     const { store, kv } = createKvMock({ throwOnGet });
-    store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0]!.seed());
+    store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0].seed());
     const env = makeEnv(kv);
     const { render, spy } = createRender(
       () => new Response('<html>live</html>', { headers: { 'content-type': 'text/html' } }),

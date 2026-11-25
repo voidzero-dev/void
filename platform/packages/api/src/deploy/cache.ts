@@ -58,7 +58,7 @@ export function packIsrValue(headers: Record<string, string>, body: ArrayBuffer)
 /**
  * Extract response headers as a plain object, skipping ISR-managed headers.
  */
-export function serializePrerenderHeaders(response: Response): Record<string, string> {
+export function serializePrerenderHeaders(response: Response) {
   const result: Record<string, string> = {};
   const skip = new Set(['cache-control', 'x-isr-cache', 'x-void-page-data', 'set-cookie']);
 

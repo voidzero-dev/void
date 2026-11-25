@@ -19,7 +19,11 @@ const jobs = [
   { name: 'other', filePath: 'other.mjs', crons: ['0 1 * * *'] },
 ];
 type JobEnv = { calls: Array<string>; fail: boolean };
-type Scheduled = (controller: { cron: string }, env: JobEnv, ctx: object) => Promise<void>;
+type Scheduled = (
+  controller: { cron: string },
+  env: JobEnv,
+  ctx: Record<string, never>,
+) => Promise<void>;
 type LoadJob = (
   path: string,
 ) => Promise<{ default: (controller: unknown, env: JobEnv) => Promise<void> }>;
@@ -50,11 +54,12 @@ function compileNativeScheduled(jobsDir: string, load: LoadJob): Scheduled {
     code.indexOf('const job0Crons'),
     code.indexOf('const __scheduledHandler'),
   );
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(
     'load',
     source.replace('export async function', 'async function').replaceAll('import(', 'load(') +
       '\nreturn scheduled;',
-  )(load);
+  )(load) as Scheduled;
 }
 
 it('authenticates framework cron HTTP requests while leaving native events usable', async () => {
@@ -73,7 +78,20 @@ it('authenticates framework cron HTTP requests while leaving native events usabl
     queues: [],
     crons: [{ name: 'job', filePath: 'job.mjs', crons: ['* * * * *'] }],
   });
-  const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+  const { default: worker } = (await import(pathToFileURL(join(root, 'index.mjs')).href)) as {
+    default: {
+      fetch(
+        request: Request,
+        env: { calls: Array<string>; CRON_SECRET?: string; __VOID_PROXY_TOKEN?: string },
+        context: Record<string, never>,
+      ): Promise<Response>;
+      scheduled(
+        controller: { cron: string; scheduledTime: number },
+        env: { calls: Array<string> },
+        context: Record<string, never>,
+      ): Promise<void>;
+    };
+  };
   const request = (token?: string) =>
     new Request('https://public.example/__void/scheduled', {
       method: 'POST',
@@ -115,7 +133,9 @@ it.each(['native', 'framework'])(
         default: async (_controller: unknown, env: JobEnv) => {
           const name = path.split('/').pop()!.replace('.mjs', '');
           if (name === 'second') {
-            await new Promise((resolve) => setTimeout(resolve, 2));
+            await new Promise((resolve) => {
+              setTimeout(resolve, 2);
+            });
           }
           env.calls.push(name);
           if (name === 'first' && env.fail) {
@@ -169,10 +189,13 @@ it.each([
         return;
       }
       if (path.endsWith('/first.mjs')) {
-        await new Promise((resolve) => setTimeout(resolve, 2));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 2);
+        });
         throw failure;
       }
       if (path.endsWith('/second.mjs')) {
+        // oxlint-disable-next-line typescript/only-throw-error -- Exercise dispatch with a non-Error rejection.
         throw 'second failed';
       }
     },
@@ -211,7 +234,9 @@ it('names a job whose module fails to load and waits for the other jobs', async 
     }
     return {
       default: async (_controller: unknown, env: JobEnv) => {
-        await new Promise((resolve) => setTimeout(resolve, 2));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 2);
+        });
         env.calls.push(path.split('/').pop()!.replace('.mjs', ''));
       },
     };

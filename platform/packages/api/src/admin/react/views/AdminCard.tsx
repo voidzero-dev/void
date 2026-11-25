@@ -55,10 +55,11 @@ export function AdminCard({
         </LayoutHeader>
       }
       content={
-        (description != null || children != null) && (
+        ((description !== null && description !== undefined) ||
+          (children !== null && children !== undefined)) && (
           <LayoutContent>
             <SectionStack as="div" className="void-admin-card-content">
-              {description != null && (
+              {description !== null && description !== undefined && (
                 <Text as="p" type="body">
                   {description}
                 </Text>
@@ -69,7 +70,8 @@ export function AdminCard({
         )
       }
       footer={
-        footer != null && (
+        footer !== null &&
+        footer !== undefined && (
           <LayoutFooter hasDivider className="void-admin-card-footer">
             {footer}
           </LayoutFooter>

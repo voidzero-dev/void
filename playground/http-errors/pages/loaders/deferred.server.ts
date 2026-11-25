@@ -1,4 +1,5 @@
-import { defineHandler, defer, type InferProps } from 'void/handler';
+import { defineHandler, defer } from 'void/handler';
+import type { InferProps } from 'void/handler';
 import { statusMessages } from '../../src/utils.ts';
 
 export const loader = defineHandler((c) => {
@@ -6,7 +7,9 @@ export const loader = defineHandler((c) => {
   c.header('Retry-After', '120');
   return {
     details: defer(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1000);
+      });
       return statusMessages[429];
     }),
   };
