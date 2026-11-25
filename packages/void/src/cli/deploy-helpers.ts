@@ -288,6 +288,8 @@ export function resolveStaticBuildCommand(
   return buildOverride ?? preset.buildCommand;
 }
 
+type ResolvedBuildCommand = { label: string; command: string };
+
 /**
  * Resolve the build command for a FULL (Class A / Void app) deploy.
  *
@@ -307,7 +309,7 @@ export function resolveFullDeployBuildCommand(
   root: string,
   buildOverride?: string,
   fallbackBuildCommand = 'vite build',
-): { label: string; command: string } {
+): ResolvedBuildCommand {
   if (buildOverride) {
     return { label: buildOverride, command: buildOverride };
   }
@@ -514,11 +516,13 @@ export async function ensureManagedHyperdrive(
   log.step('Hyperdrive provisioned.');
 }
 
+type ManifestSchedulesAndQueues = { schedules: Array<ScheduleMeta>; queues: Array<QueueMeta> };
+
 /** Convert scanned cron jobs and queues into deploy-manifest entries. */
 export function toManifestSchedulesAndQueues(
   jobs: Array<JobDefinition>,
   queues: Array<QueueDefinition>,
-): { schedules: Array<ScheduleMeta>; queues: Array<QueueMeta> } {
+): ManifestSchedulesAndQueues {
   return {
     schedules: jobs.flatMap((job) => job.crons.map((cron) => ({ name: job.name, cron }))),
     queues: queues.map((q) => ({

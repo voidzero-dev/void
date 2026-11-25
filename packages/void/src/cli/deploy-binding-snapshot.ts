@@ -20,7 +20,7 @@ import {
   SANDBOX_MIGRATION_TAG,
   hasSandboxSqliteMigration,
 } from '../sandbox/config.ts';
-import type { BindingIdentitySnapshot } from './deploy-types.ts';
+import type { BindingIdentitySnapshot, DeployVerification } from './deploy-types.ts';
 import { resolveCloudflareOperationArgv } from './preset.ts';
 import type { DesiredResourceSet, ProvisionDriftEntry } from './provision.ts';
 import {
@@ -262,18 +262,20 @@ export function normalizeContainerImagePaths(container: unknown, base: string): 
   if (!value.images || typeof value.images !== 'object' || Array.isArray(value.images)) {
     return container;
   }
+  // oxlint-disable-next-line quality/no-known-value-widening -- The comparison must include all opaque config fields, even when their schema is unknown.
   return {
     ...value,
     images: Object.fromEntries(
-      Object.entries(value.images).map(([name, source]) => {
+      Object.entries(value.images).map(([name, source]: [string, unknown]) => {
         if (!source || typeof source !== 'object' || Array.isArray(source)) {
           return [name, source];
         }
-        const image = { ...source } as Record<string, unknown>;
-        for (const key of ['dockerfile', 'build_context']) {
-          if (typeof image[key] === 'string') {
-            image[key] = resolve(base, image[key]);
-          }
+        const image = { ...source };
+        if ('dockerfile' in image && typeof image.dockerfile === 'string') {
+          image.dockerfile = resolve(base, image.dockerfile);
+        }
+        if ('build_context' in image && typeof image.build_context === 'string') {
+          image.build_context = resolve(base, image.build_context);
         }
         return [name, image];
       }),
@@ -281,16 +283,18 @@ export function normalizeContainerImagePaths(container: unknown, base: string): 
   };
 }
 
+type DurableObjectSnapshot = {
+  bindings: Array<Record<string, unknown>>;
+  migrations: Array<Record<string, unknown>>;
+};
+
 /** Reconstruct the Durable Object state emitted after the pre-build root config is synced. */
 export function reconstructExpectedDurableObjectState(
   config: VoidConfig,
   root: string,
   rootConfig: Record<string, unknown>,
   options: { needsSandbox: boolean; needsLive: boolean; analysis?: ApplicationAnalysis },
-): {
-  bindings: Array<Record<string, unknown>>;
-  migrations: Array<Record<string, unknown>>;
-} {
+): DurableObjectSnapshot {
   // classifyCloudflareDeployApp syncs WebSocket and authored Durable Object
   // modules into the root config before this snapshot. The build starts with
   // that same config, then may append its sandbox and live bindings.
@@ -461,7 +465,7 @@ function hashDirectoryContents(dir: string): string | undefined {
 export function assertWranglerUploaderUnchanged(
   before: string | undefined,
   after: string | undefined,
-): { ok: boolean; reason?: string } {
+): DeployVerification {
   if (before === undefined || after === undefined) {
     return {
       ok: false,
@@ -508,7 +512,7 @@ export function isEmptyPassthroughValue(value: unknown): boolean {
 export function verifyNoInjectedExternalDurableObject(
   emitted: unknown,
   root: unknown,
-): { ok: boolean; reason?: string } {
+): DeployVerification {
   let emittedEntries: Array<{ name: string; entry: Record<string, unknown> }>;
   try {
     emittedEntries = bindingEntriesForField('durable_objects', emitted);
@@ -549,7 +553,7 @@ export function verifyNoInjectedExternalDurableObject(
 export function verifyNoInjectedDestructiveMigration(
   emitted: unknown,
   root: unknown,
-): { ok: boolean; reason?: string } {
+): DeployVerification {
   if (!Array.isArray(emitted)) {
     return { ok: true };
   }

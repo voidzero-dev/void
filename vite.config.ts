@@ -424,6 +424,7 @@ const config = defineConfig({
       {
         files: [
           'packages/void/src/{codegen,pages,router,runtime,shared}/**/*',
+          'packages/void/src/cli/deploy-{artifact-validation,binding-snapshot,helpers}.ts',
           'platform/packages/api/src/**/*',
         ],
         rules: { 'quality/no-known-value-widening': 'error' },
