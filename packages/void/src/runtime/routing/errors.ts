@@ -34,6 +34,7 @@ const ERROR_PAGE_FONT_STACK =
   'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const errorStack = Error as {
   captureStackTrace?: (error: Error, stackStart: (error: Error) => Array<StackFrame>) => void;
+  // oxlint-disable-next-line quality/no-unknown-returns -- V8 lets the application return any value from its formatter.
   prepareStackTrace?: (error: Error, sites: Array<NodeJS.CallSite>) => unknown;
 };
 

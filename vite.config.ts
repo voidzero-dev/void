@@ -316,13 +316,8 @@ const config = defineConfig({
         },
       },
       {
-        // Guard explicit any in TypeScript tests as well as production.
-        files: ['**/*.{ts,tsx,mts,cts}'],
-        rules: { 'typescript/no-explicit-any': 'error' },
-      },
-      {
         files: typeScriptTestFiles,
-        rules: { 'typescript/only-throw-error': 'error' },
+        rules: { 'typescript/no-explicit-any': 'error', 'typescript/only-throw-error': 'error' },
       },
       {
         files: typeScriptTestFiles,
@@ -330,56 +325,13 @@ const config = defineConfig({
         rules: { 'typescript/no-unsafe-argument': 'error' },
       },
       {
-        // These adapters accept objects as weak keys or opaque identities.
-        files: [
-          'packages/void/src/{plugin-cloudflare-config,runtime/env/runtime,runtime/env/public}.ts',
-        ],
-        rules: { 'quality/no-object-parameters': 'off' },
-      },
-      {
-        // Proxy traps use Reflect.get to preserve the receiver.
-        files: [
-          'packages/void/src/runtime/{db/index,db/session,env/runtime,routing/worker,storage/index}.ts',
-        ],
-        rules: { 'quality/no-reflect-get': 'off' },
-      },
-      {
-        // Code generation augments these interfaces with app-specific types.
-        files: [
-          'packages/void/src/routes-stub.ts',
-          'packages/void/src/runtime/{auth,queues}/index.ts',
-        ],
-        rules: {
-          'typescript/no-empty-object-type': [
-            'error',
-            {
-              allowWithName:
-                '^(RoutePathMap|PagePathMap|EncodedRoutePathMap|RouteTypesConfig|RouteMap|WebSocketRouteMap|PageActionMap|VoidAuthTypes|QueueMap)$',
-            },
-          ],
-        },
-      },
-      {
         // Fate emits imports and empty route shapes. Keep checking the generated client.
-        files: ['platform/packages/api/src/admin/fate/client.generated.ts'],
+        files: ['platform/packages/api/src/admin/fate/*.generated.ts'],
         rules: {
           'import/consistent-type-specifier-style': 'off',
           'no-unused-vars': 'off',
           'typescript/no-empty-object-type': 'off',
         },
-      },
-      {
-        // The import resolver cannot follow these dependency re-exports.
-        files: [
-          'packages/void/src/runtime/db/{schema/{d1,mysql,postgres},validators/drizzle-{arktype,valibot,zod}}.ts',
-          'packages/void/src/runtime/sandbox/index.ts',
-        ],
-        rules: { 'import/export': 'off' },
-      },
-      {
-        // Workers types give DOM append a different signature in these modules.
-        files: ['packages/void/src/pages/{boundary-client,navigation-engine}.ts'],
-        rules: { 'unicorn/prefer-dom-node-append': 'off' },
       },
       {
         files: ['**/*.{svelte,vue}'],
@@ -400,10 +352,8 @@ const config = defineConfig({
         },
       },
       {
-        files: [
-          'packages/react/**/*',
-          'playground/{named-layouts,node-app,node-static,pg-test,react-pages,react-router,spa,ssr,tanstack-start,vinext-app,vinext-pages,websockets}/**/*',
-        ],
+        files: ['packages/react/**/*', 'playground/**/*'],
+        excludeFiles: ['playground/solid-pages/**/*'],
         rules: {
           'react-hooks-js/component-hook-factories': 'error',
           'react-hooks-js/config': 'error',
@@ -427,10 +377,7 @@ const config = defineConfig({
         rules: { 'typescript/no-unsafe-return': 'error' },
       },
       {
-        files: [
-          'packages/void/src/runtime/routing/error-pages/script.js',
-          'platform/packages/api/container/build-agent.mjs',
-        ],
+        files: ['packages/void/src/**/*.js', 'platform/packages/api/container/**/*.mjs'],
         rules: {
           'typescript/no-unsafe-argument': 'error',
           'typescript/no-unsafe-assignment': 'error',
@@ -438,35 +385,30 @@ const config = defineConfig({
           'typescript/no-unsafe-member-access': 'error',
         },
       },
-      // Enforce the staged type rules where the SDK and platform have typed contracts.
       {
-        files: ['packages/**/*', 'platform/packages/{dashboard,email-gateway,tail}/**/*'],
-        excludeFiles: ['packages/void/**/*'],
-        rules: {
-          'quality/no-known-value-widening': 'error',
-          'quality/no-unknown-returns': 'error',
-        },
+        files: [
+          'packages/**/*',
+          'platform/packages/{dashboard,email-gateway,tail}/**/*',
+          'platform/packages/*/src/**/*',
+        ],
+        excludeFiles: ['packages/void/test/**/*'],
+        rules: { 'quality/no-known-value-widening': 'error' },
       },
       {
         files: [
-          'packages/void/src/**/*',
-          'platform/packages/dispatch/**/*',
-          'platform/packages/proxy/src/**/*',
-          'platform/packages/api/src/**/*',
+          'packages/**/*',
+          'platform/packages/{dashboard,dispatch,email-gateway,tail}/**/*',
+          'platform/packages/*/src/**/*',
         ],
-        excludeFiles: ['packages/void/src/{pages,runtime}/**/*'],
+        excludeFiles: ['packages/void/{src/{pages,runtime},test}/**/*'],
         rules: { 'quality/no-unknown-returns': 'error' },
       },
       {
         files: [
           'packages/void/src/pages/{dev-css-assets,scan}.ts',
-          'packages/void/src/runtime/routing/assets.ts',
+          'packages/void/src/runtime/routing/**/*',
         ],
         rules: { 'quality/no-unknown-returns': 'error' },
-      },
-      {
-        files: ['packages/void/src/**/*', 'platform/packages/*/src/**/*'],
-        rules: { 'quality/no-known-value-widening': 'error' },
       },
       {
         files: [
@@ -480,7 +422,7 @@ const config = defineConfig({
           'packages/{create-void,deploy-cloudflare,deploy-core,edge,isr,platform,react,svelte}/src/**/*',
           'packages/void/src/{client-asset-manifest,runtime/routing/assets,shared/client-manifest}.ts',
           'packages/void/src/runtime/db/migrations/mysql-lock.ts',
-          'platform/packages/{dispatch,email-gateway,proxy}/src/**/*',
+          'platform/packages/{dispatch,email-gateway,proxy,tail}/src/**/*',
           'platform/packages/api/src/deploy/{persisted-manifest,serving-assets}.ts',
           'platform/packages/api/src/email/ingress-resolution.ts',
           'platform/packages/api/src/routing-records.ts',
@@ -490,6 +432,14 @@ const config = defineConfig({
       },
     ],
     rules: {
+      // Code generation augments these interfaces with app-specific types.
+      'typescript/no-empty-object-type': [
+        'error',
+        {
+          allowWithName:
+            '^(RoutePathMap|PagePathMap|EncodedRoutePathMap|RouteTypesConfig|RouteMap|WebSocketRouteMap|PageActionMap|VoidAuthTypes|QueueMap)$',
+        },
+      ],
       // Framework callback and JSX types use void for handlers that may be async.
       'typescript/no-misused-promises': [
         'error',
@@ -504,13 +454,10 @@ const config = defineConfig({
       'no-console': 'off',
       // Conditional spreads are used to omit optional config and manifest keys. Preserve omission and property order in follow-up refactors.
       'quality/no-conditional-empty-object-spread': 'off',
-      // Validation helpers deliberately accept unknown, including when tests pass values whose concrete types are known.
+      // Apply the stricter type rules in the package and source overrides above.
       'quality/no-known-value-widening': 'off',
-      // Decoders and dynamic adapters expose unknown until the caller validates it against the relevant schema.
       'quality/no-unknown-returns': 'off',
-      // Environment dictionaries, manifest parsers, and schema inputs carry unknown values until each entry has been validated.
       'quality/no-unsafe-dictionary-type': 'off',
-      // Adapter, provider, and fixture assertions need separate schema and contract work across the SDK and platform.
       'typescript/no-unsafe-type-assertion': 'off',
       // Existing catch names distinguish nested provider and cleanup failures. The bulk rename also changed shorthand payload keys.
       'unicorn/catch-error-name': 'off',

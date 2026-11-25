@@ -25,6 +25,7 @@ export type AuxiliaryWorkerConfig = (
 };
 
 /** Match the old plugin's patch semantics, including its array concatenation. */
+// oxlint-disable-next-line quality/no-object-parameters -- The merge preserves the provider's enumerable configuration fields.
 export function mergeCloudflareConfig(patch: object, fallback: object): WorkerConfigFields {
   // oxlint-disable-next-line quality/no-known-value-widening -- The merge preserves arbitrary fallback keys and adds arbitrary patch keys.
   const result: WorkerConfigFields = { ...fallback };

@@ -161,6 +161,7 @@ export function filterInternalBindings<E extends Record<string, unknown>>(
     (prefixes.some((prefix) => key.startsWith(prefix)) || exactNames.includes(key));
   return new Proxy(env, {
     get: (target, prop, receiver) =>
+      // oxlint-disable-next-line quality/no-reflect-get -- Forward the receiver for user binding getters.
       hidden(prop) ? undefined : Reflect.get(target, prop, receiver),
     has: (target, prop) => !hidden(prop) && Reflect.has(target, prop),
     ownKeys: (target) => Reflect.ownKeys(target).filter((key) => !hidden(key)),

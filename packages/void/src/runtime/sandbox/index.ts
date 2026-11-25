@@ -10,6 +10,7 @@ import type {
   SandboxProcessWire,
 } from './container.ts';
 
+// oxlint-disable-next-line import/export -- The resolver misses the sandbox package's conditional exports.
 export * from '@cloudflare/sandbox';
 export type { SandboxOptions, SandboxExecOptions };
 export const DEFAULT_SANDBOX_ID = 'default';

@@ -134,6 +134,7 @@ export const db: DrizzleD1Database = new Proxy({} as DrizzleD1Database, {
       // Outside Void's request scope, create an uncached client.
       d1Init,
     );
+    // oxlint-disable-next-line quality/no-reflect-get -- Forward arbitrary proxy keys to the request's Drizzle client.
     return Reflect.get(instance, prop);
   },
 });
