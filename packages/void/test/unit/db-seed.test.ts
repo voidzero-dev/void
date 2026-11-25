@@ -749,6 +749,60 @@ export default async ({ db, schema }) => {
     expect(await readMessages(root)).toEqual([{ id: 1, text: 'legacy,package,tsx' }]);
   });
 
+  it('keeps CommonJS interop for TypeScript seeds', async () => {
+    const root = createProjectRoot({
+      seedFile: {
+        name: 'seed.ts',
+        content: `import { text } from './fixture.json';
+import { value } from 'dynamic-cjs';
+import { label } from './helper';
+import { join } from 'node:path';
+export default async ({ db, schema }) => {
+  const helper = await import(join(import.meta.dirname, 'helper'));
+  await db.insert(schema.messages).values({ text: [text, value, label, helper.label].join(',') });
+};`,
+      },
+      schema: messagesSchema,
+    });
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { paths: { '@schema': ['./db/schema.ts'] } } }),
+    );
+    writeFileSync(join(root, 'db/fixture.json'), '{"text":"json"}');
+    writeFileSync(join(root, 'db/helper.ts'), "export const label = 'helper';");
+    mkdirSync(join(root, 'node_modules/dynamic-cjs'), { recursive: true });
+    writeFileSync(join(root, 'node_modules/dynamic-cjs/package.json'), '{"name":"dynamic-cjs"}');
+    // Node's CommonJS export detection cannot see these names.
+    writeFileSync(
+      join(root, 'node_modules/dynamic-cjs/index.js'),
+      "Object.assign(module.exports, Object.fromEntries([['value', 'cjs']]));",
+    );
+    runSeedInNode(root);
+    expect(await readMessages(root)).toEqual([{ id: 1, text: 'json,cjs,helper,helper' }]);
+  });
+
+  it('keeps require and __dirname in ESM-syntax JavaScript seeds of a CommonJS app', async () => {
+    const root = createProjectRoot({
+      seedFile: {
+        name: 'seed.js',
+        content: `import { basename } from 'node:path';
+export default async ({ db, schema }) => {
+  const { text } = require('./fixture.json');
+  await db.insert(schema.messages).values({ text: [text, basename(__dirname)].join(',') });
+};`,
+      },
+      schema: messagesSchema,
+    });
+    writeFileSync(join(root, 'package.json'), '{"type":"commonjs"}');
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { paths: { '@schema': ['./db/schema.ts'] } } }),
+    );
+    writeFileSync(join(root, 'db/fixture.json'), '{"text":"json"}');
+    runSeedInNode(root);
+    expect(await readMessages(root)).toEqual([{ id: 1, text: 'json,db' }]);
+  });
+
   it('checks the seed file before it resets the database', async () => {
     const root = createProjectRoot({
       seedFile: {

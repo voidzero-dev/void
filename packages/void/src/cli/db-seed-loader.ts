@@ -113,6 +113,62 @@ function seedScope(root: string, seed: string) {
   return (url: string) => url.startsWith('file:') && ownsDirectory(dirname(fileURLToPath(url)));
 }
 
+/** Compile an app module to ESM that still has `require`, `__filename`, and `__dirname`. */
+function compileToEsm(sourcefile: string, loader: 'js' | 'ts' | 'tsx'): string {
+  return transformSync(readFileSync(sourcefile, 'utf8'), {
+    sourcefile,
+    loader,
+    target: 'node24',
+    platform: 'node',
+    format: 'esm',
+    sourcemap: 'inline',
+    define: {
+      require: 'import.meta.require',
+      __filename: 'import.meta.filename',
+      __dirname: 'import.meta.dirname',
+    },
+    banner:
+      "import.meta.require = globalThis.process.getBuiltinModule('node:module').createRequire(import.meta.url);",
+  }).code;
+}
+
+/** ESM that re-exports every named value, which Node's static CommonJS and JSON imports lack. */
+function namedExports(value: unknown): string {
+  const names =
+    value !== null && (typeof value === 'object' || typeof value === 'function')
+      ? Object.keys(value).filter((name) => name !== 'default' && name !== '__esModule')
+      : [];
+  return names
+    .map((name, index) => {
+      const key = JSON.stringify(name);
+      return `const __voidExport${index} = __voidValue[${key}];\nexport { __voidExport${index} as ${key} };`;
+    })
+    .join('\n');
+}
+
+/** A JSON module that also has a named export for each top-level key, as jiti gave seeds. */
+function jsonModule(url: string): string {
+  const value: unknown = JSON.parse(readFileSync(fileURLToPath(url), 'utf8'));
+  return `const __voidValue = ${JSON.stringify(value)};
+export default __voidValue;
+${namedExports(value)}`;
+}
+
+/**
+ * A CommonJS module whose named exports are read from its `module.exports`, as jiti gave seeds.
+ * Node only finds the names it can detect in the source, so `import { range } from 'lodash'`
+ * would fail to link. The module runs here, and the wrapper gets the cached instance.
+ */
+function commonjsModule(url: string): string {
+  const filename = JSON.stringify(fileURLToPath(url));
+  const value: unknown = nodeModule.createRequire(url)(fileURLToPath(url));
+  return `import { createRequire } from 'node:module';
+const __voidValue = createRequire(import.meta.url)(${filename});
+export default __voidValue && __voidValue.__esModule ? __voidValue.default : __voidValue;
+export { __voidValue as 'module.exports' };
+${namedExports(value)}`;
+}
+
 export function createSeedModuleLoader(root: string, seed: string): SeedModuleLoader {
   const match = seedPaths(root);
   const jiti = createJiti(import.meta.url, {
@@ -128,6 +184,8 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
   }
   const owns = seedScope(root, seed);
   const modules = new Set<string>();
+  // Modules that an app module imports with `import`, which get jiti's named-export interop.
+  const imported = new Set<string>();
 
   const resolveImport = (
     specifier: string,
@@ -135,10 +193,16 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
     context: Parameters<ResolveHookSync>[1],
     nextResolve: Parameters<ResolveHookSync>[2],
   ): ReturnType<ResolveHookSync> => {
-    if (specifier.startsWith('./') || specifier.startsWith('../')) {
+    const file =
+      specifier.startsWith('./') ||
+      specifier.startsWith('../') ||
+      specifier.startsWith('/') ||
+      specifier.startsWith('file:');
+    if (file) {
       try {
         return nextResolve(specifier, context);
       } catch (error) {
+        // Add the extension that jiti added for an extensionless path, such as `./users`.
         if (isMissingModule(error)) {
           const target = new URL(specifier, parent);
           const resolved = jiti.esmResolve(fileURLToPath(target), { try: true });
@@ -184,12 +248,8 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
         : nextResolve(specifier, context);
       if (result.url.startsWith('file:')) {
         modules.add(result.url);
-        if (
-          local &&
-          extname(fileURLToPath(result.url)) === '.json' &&
-          !context.importAttributes?.type
-        ) {
-          return { ...result, importAttributes: { ...context.importAttributes, type: 'json' } };
+        if (local && !context.conditions.includes('require')) {
+          imported.add(result.url);
         }
       }
       return result;
@@ -209,33 +269,32 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
           target: 'node24',
         });
         if (Object.values(metafile.inputs)[0]?.format === 'esm') {
-          return { format: 'module', source, shortCircuit: true };
+          return { format: 'module', source: compileToEsm(sourcefile, 'js'), shortCircuit: true };
         }
       }
-      if (!isTypeScriptFile(sourcefile)) {
-        return nextLoad(url, context);
+      const interop = imported.has(url) && !context.conditions.includes('require');
+      if (interop && extname(sourcefile) === '.json' && !context.importAttributes.type) {
+        return { format: 'module', source: jsonModule(url), shortCircuit: true };
       }
-      const commonjs = sourcefile.endsWith('.cts');
-      const { code } = transformSync(readFileSync(sourcefile, 'utf8'), {
-        sourcefile,
-        loader: sourcefile.endsWith('.tsx') ? 'tsx' : 'ts',
-        target: 'node24',
-        platform: 'node',
-        format: commonjs ? 'cjs' : 'esm',
-        sourcemap: 'inline',
-        ...(commonjs
-          ? {}
-          : {
-              define: {
-                require: 'import.meta.require',
-                __filename: 'import.meta.filename',
-                __dirname: 'import.meta.dirname',
-              },
-              banner:
-                "import.meta.require = globalThis.process.getBuiltinModule('node:module').createRequire(import.meta.url);",
-            }),
-      });
-      return { format: commonjs ? 'commonjs' : 'module', source: code, shortCircuit: true };
+      if (!isTypeScriptFile(sourcefile)) {
+        const result = nextLoad(url, context);
+        return interop && result.format === 'commonjs'
+          ? { format: 'module', source: commonjsModule(url), shortCircuit: true }
+          : result;
+      }
+      if (sourcefile.endsWith('.cts')) {
+        const { code } = transformSync(readFileSync(sourcefile, 'utf8'), {
+          sourcefile,
+          loader: 'ts',
+          target: 'node24',
+          platform: 'node',
+          format: 'cjs',
+          sourcemap: 'inline',
+        });
+        return { format: 'commonjs', source: code, shortCircuit: true };
+      }
+      const loader = sourcefile.endsWith('.tsx') ? 'tsx' : 'ts';
+      return { format: 'module', source: compileToEsm(sourcefile, loader), shortCircuit: true };
     },
   });
   return {
