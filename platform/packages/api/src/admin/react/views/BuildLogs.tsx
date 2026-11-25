@@ -18,6 +18,7 @@ export function BuildLogs({ build }: { build: Build }) {
     let cursor = 0;
     let polling = false;
     let terminalSince: number | null = null;
+    // oxlint-disable-next-line react/set-state-in-effect -- Reset the visible log when replacing the external polling session.
     setLines(null);
     setError(null);
 

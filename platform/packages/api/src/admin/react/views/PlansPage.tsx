@@ -601,6 +601,7 @@ export function PlanProgressPage({
   const [counts, setCounts] = useState({ accounts: initial.accounts, projects: initial.projects });
   const [running, setRunning] = useState(false);
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- Reset the visible progress when restarting the server sync session.
     setState(initial);
     setCounts({ accounts: initial.accounts, projects: initial.projects });
     setRunning(!initial.complete && !initial.error);

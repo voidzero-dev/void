@@ -382,11 +382,6 @@ const config = defineConfig({
         },
       },
       {
-        // Hosted admin views synchronize streamed logs and external data in effects.
-        files: ['platform/packages/api/src/admin/react/views/**/*'],
-        rules: { 'react/set-state-in-effect': 'off' },
-      },
-      {
         files: [
           'packages/react/**/*',
           'playground/{named-layouts,node-app,node-static,pg-test,react-pages,react-router,spa,ssr,tanstack-start,vinext-app,vinext-pages,websockets}/**/*',
