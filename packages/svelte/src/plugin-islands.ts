@@ -81,7 +81,7 @@ export function islandsPlugin(
       },
 
       configureServer(server) {
-        islandManifest.configureServer(server);
+        islandManifest.configureServer(server, pagesDir);
         watchPagesForRescan(server, pagesDir, root, (scan: PageScanResult) => {
           pageScan = scan;
         });
@@ -346,13 +346,9 @@ export async function renderIslandPage(pageObj, assetTags) {
     },
   });
 
-  // The rendered islands also count: in dev, the page may have gained its
-  // first island after this module computed __pagesNeedingClientJS.
-  const __hasIslands = html.includes("data-island=");
-  const __needsJS = __hasIslands || __pagesNeedingClientJS.has(pageObj.component);
   // Islands hydrate as separate roots. Send the page frontmatter so their
   // useFrontmatter() returns the same value in the browser.
-  const __frontmatterScript = __hasIslands
+  const __frontmatterScript = __pagesNeedingClientJS.has(pageObj.component) && html.includes("data-island=")
     ? islandFrontmatterScript(__pageModule.frontmatter)
     : "";
   const __mdScriptAttr = __mdClientScriptIds.has(pageObj.component) ? \` data-md-script="\${escapeAttr(pageObj.component)}"\` : "";
@@ -362,10 +358,10 @@ export async function renderIslandPage(pageObj, assetTags) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${head}\${assetTags.css}\${__needsJS ? assetTags.preloads : ""}</head>
+<head>\${headHtml}\${head}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
-  \${__frontmatterScript}\${__needsJS ? assetTags.body : ""}
+  \${__frontmatterScript}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
 </body>
 </html>\`;
 }
