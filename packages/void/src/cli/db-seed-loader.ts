@@ -151,14 +151,12 @@ function isWellFormed(value: string): boolean {
 
 /**
  * A JSON module that also has a named export for each top-level key, as jiti gave seeds, so
- * `import { rows } from './fixtures.json'` keeps working. The default export matches Node's.
+ * `import { rows } from './fixtures.json'` keeps working. The value is the one `require()` caches,
+ * so an import and a require of the file share one object, as they did with jiti.
  */
 function jsonModule(url: string): string {
-  let text = readFileSync(fileURLToPath(url), 'utf8');
-  if (text.startsWith('\uFEFF')) {
-    text = text.slice(1);
-  }
-  const value: unknown = JSON.parse(text);
+  const filename = fileURLToPath(url);
+  const value: unknown = nodeModule.createRequire(url)(filename);
   const names =
     value !== null && typeof value === 'object' && !Array.isArray(value)
       ? Object.keys(value).filter(
@@ -166,7 +164,8 @@ function jsonModule(url: string): string {
         )
       : [];
   return [
-    `const __voidValue = JSON.parse(${JSON.stringify(text)});`,
+    "import { createRequire } from 'node:module';",
+    `const __voidValue = createRequire(import.meta.url)(${JSON.stringify(filename)});`,
     'export default __voidValue;',
     ...names.map((name, index) => {
       const key = JSON.stringify(name);
@@ -196,6 +195,7 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
   const resolveImport = (
     specifier: string,
     parent: string,
+    local: boolean,
     context: Parameters<ResolveHookSync>[1],
     nextResolve: Parameters<ResolveHookSync>[2],
   ): ReturnType<ResolveHookSync> => {
@@ -235,7 +235,7 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
       return nextResolve(specifier, context);
     } catch (error) {
       // Allow extensionless subpaths into packages without `exports`, such as `lodash/range`.
-      if (bare && isMissingModule(error)) {
+      if (bare && local && isMissingModule(error)) {
         const resolved = jiti.esmResolve(specifier, { parentURL: parent, try: true });
         if (resolved) {
           return { shortCircuit: true, url: resolved };
@@ -250,10 +250,9 @@ export function createSeedModuleLoader(root: string, seed: string): SeedModuleLo
       if (!parent || !modules.has(parent) || nodeModule.isBuiltin(specifier)) {
         return nextResolve(specifier, context);
       }
+      // Aliases apply only to app modules; every module in the seed graph gets jiti's extensions.
       const local = owns(parent) || isTypeScriptFile(fileURLToPath(parent));
-      const result = local
-        ? resolveImport(specifier, parent, context, nextResolve)
-        : nextResolve(specifier, context);
+      const result = resolveImport(specifier, parent, local, context, nextResolve);
       if (result.url.startsWith('file:')) {
         modules.add(result.url);
         if (local && !context.conditions.includes('require')) {

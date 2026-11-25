@@ -749,17 +749,18 @@ export default async ({ db, schema }) => {
     expect(await readMessages(root)).toEqual([{ id: 1, text: 'legacy,package,tsx' }]);
   });
 
-  it('keeps named JSON imports and extensionless absolute imports in TypeScript seeds', async () => {
+  it('keeps JSON and extensionless imports in TypeScript seeds', async () => {
     const root = createProjectRoot({
       seedFile: {
         name: 'seed.ts',
-        content: `import { text } from './fixture.json';
+        content: `import fixture, { text } from './fixture.json';
+import { value as pkg } from 'extensionless-esm';
 import { label } from './helper';
 import data from './data.cjs';
 import { join } from 'node:path';
 export default async ({ db, schema }) => {
   const helper = await import(join(import.meta.dirname, 'helper'));
-  await db.insert(schema.messages).values({ text: [text, label, data.label, helper.label].join(',') });
+  await db.insert(schema.messages).values({ text: [text, label, data.label, helper.label, pkg, data.fixture === fixture].join(',') });
 };`,
       },
       schema: messagesSchema,
@@ -774,10 +775,26 @@ export default async ({ db, schema }) => {
     // CommonJS that requires a module the seed has already imported.
     writeFileSync(
       join(root, 'db/data.cjs'),
-      "module.exports = { label: require('./helper.ts').label };",
+      "module.exports = { label: require('./helper.ts').label, fixture: require('./fixture.json') };",
+    );
+    // A package whose ESM omits the extension of its own files, which jiti accepted.
+    mkdirSync(join(root, 'node_modules/extensionless-esm'), { recursive: true });
+    writeFileSync(
+      join(root, 'node_modules/extensionless-esm/package.json'),
+      '{"name":"extensionless-esm","type":"module","exports":"./index.js"}',
+    );
+    writeFileSync(
+      join(root, 'node_modules/extensionless-esm/index.js'),
+      "export { value } from './value';",
+    );
+    writeFileSync(
+      join(root, 'node_modules/extensionless-esm/value.js'),
+      "export const value = 'package';",
     );
     runSeedInNode(root);
-    expect(await readMessages(root)).toEqual([{ id: 1, text: 'json,helper,helper,helper' }]);
+    expect(await readMessages(root)).toEqual([
+      { id: 1, text: 'json,helper,helper,helper,package,true' },
+    ]);
   });
 
   it('keeps require and __dirname in ESM-syntax JavaScript seeds of a CommonJS app', async () => {
