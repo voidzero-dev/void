@@ -25,6 +25,12 @@ import type { IslandFormReturn } from '../../src/runtime/use-island-form.ts';
 declare module 'void/routes' {
   interface PageActionMap {
     '/__form-callbacks/notes': { actions: { create: { body: { title: string } } } };
+    '/__form-nested/contacts': {
+      body: {
+        profile: { name: string; email: string };
+        contacts: Array<{ email: string }>;
+      };
+    };
   }
 }
 
@@ -252,6 +258,60 @@ describe('useForm callbacks', () => {
     await submitPost(formRef.current!);
     expect(onError).toHaveBeenCalledExactlyOnceWith(actionError);
     expect(formRef.current!.error).toBe(actionError);
+  });
+
+  it('clears only the errors of the fields a change touched', async () => {
+    type NestedForm = ReturnType<typeof useForm<'/__form-nested/contacts'>>;
+    const formRef: FormRef<NestedForm> = { current: null };
+    function App() {
+      formRef.current = useForm('/__form-nested/contacts', {
+        profile: { name: '', email: '' },
+        contacts: [{ email: '' }, { email: '' }],
+      });
+      return null;
+    }
+    const router = routerWithVisit(
+      vi.fn(async () => ({
+        errors: {
+          'profile.name': 'Required name',
+          'profile.email': 'Required email',
+          'contacts.0.email': 'First email',
+          'contacts.1.email': 'Second email',
+          title: 'Unrelated',
+        },
+      })),
+    );
+    await mountApp(createElement(RouterContext.Provider, { value: router }, createElement(App)));
+    const form = () => formRef.current!;
+    const submit = () =>
+      act(async () => {
+        startTransition(() => {
+          form().post(new FormData());
+        });
+      });
+
+    await submit();
+    await act(async () => {
+      form().setData('profile', { name: 'Alex', email: '' });
+    });
+    expect(form().errors['profile.name']).toBeUndefined();
+    expect(form().errors['profile.email']).toBe('Required email');
+
+    await act(async () => {
+      form().setData('contacts', [{ email: '' }, { email: 'alex@example.com' }]);
+    });
+    expect(form().errors['contacts.0.email']).toBe('First email');
+    expect(form().errors['contacts.1.email']).toBeUndefined();
+
+    await act(async () => {
+      form().clearErrors('profile');
+    });
+    expect(form().errors).toEqual({ 'contacts.0.email': 'First email', title: 'Unrelated' });
+
+    await act(async () => {
+      form().clearErrors('contacts');
+    });
+    expect(form().errors).toEqual({ title: 'Unrelated' });
   });
 
   it('fires onSuccess on each successful submit', async () => {
@@ -808,5 +868,56 @@ describe('useForm state derivation and error management', () => {
         configurable: true,
       });
     }
+  });
+});
+
+declare module 'void/routes' {
+  interface PageActionMap {
+    '/__form-optional/contacts': {
+      body: { contacts: Array<{ email: string } | undefined> };
+    };
+  }
+}
+
+describe('error isolation', () => {
+  it.each([
+    {
+      name: 'changes one row while an array-level and two row-level errors exist',
+      initial: [{ email: '' }, { email: '' }],
+      updated: [{ email: 'fixed@example.com' }, { email: '' }],
+      initialErrors: {
+        contacts: 'At least one valid email required',
+        'contacts.0.email': 'First email required',
+        'contacts.1.email': 'Second email required',
+      },
+      expectedErrors: { 'contacts.1.email': 'Second email required' },
+    },
+    {
+      name: 'clears the array-level count error after adding an undefined slot',
+      initial: [undefined],
+      updated: [undefined, undefined],
+      initialErrors: { contacts: 'Add a second row' },
+      expectedErrors: {},
+    },
+  ])('$name', async ({ initial, updated, initialErrors, expectedErrors }) => {
+    type OptionalForm = ReturnType<typeof useForm<'/__form-optional/contacts'>>;
+    const formRef: FormRef<OptionalForm> = { current: null };
+    function App() {
+      formRef.current = useForm('/__form-optional/contacts', { contacts: initial });
+      return null;
+    }
+    const router = routerWithVisit(async () => ({ errors: initialErrors }));
+    await mountApp(createElement(RouterContext.Provider, { value: router }, createElement(App)));
+    await act(async () => {
+      startTransition(() => {
+        formRef.current!.post(new FormData());
+      });
+    });
+    expect(formRef.current!.errors).toEqual(initialErrors);
+    await act(async () => {
+      formRef.current!.setData('contacts', updated);
+    });
+    expect(formRef.current!.data.contacts).toEqual(updated);
+    expect(formRef.current!.errors).toEqual(expectedErrors);
   });
 });

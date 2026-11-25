@@ -8,12 +8,15 @@ import {
   useState,
 } from 'react';
 import {
+  changedFormErrorKeys,
   cloneFormValue,
+  formErrorKeysWithin,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
   isCallSiteActionError,
   isEqualFormValue,
+  omitFormErrors,
   parseFormResetArgs,
   submitAction,
 } from 'void/pages-client';
@@ -189,23 +192,20 @@ export function useForm(
 
   const setData = useCallback(
     (field: string, value: unknown) => {
-      const previousValue = dataRef.current[field];
-      dataRef.current = { ...dataRef.current, [field]: value };
-      setDataState(dataRef.current);
-      if (isEqualFormValue(previousValue, value)) {
-        return;
-      }
+      const previous = dataRef.current;
+      const next = { ...previous, [field]: value };
+      dataRef.current = next;
+      setDataState(next);
       const target = callbackOutcomeRef.current ?? outcome;
       setErrorEdits((prev) => {
         const current = resolveOutcomeErrors(target, prev);
-        if (!(field in current)) {
+        const affected = changedFormErrorKeys(current, previous, next);
+        if (affected.length === 0) {
           return prev;
         }
-        const next = { ...current };
-        delete next[field];
         return {
           ...(prev?.source === target ? prev : { source: target }),
-          errors: next,
+          errors: omitFormErrors(current, affected),
         };
       });
     },
@@ -234,15 +234,14 @@ export function useForm(
   const clearErrors = useCallback(
     (...fields: ReadonlyArray<string>) => {
       const target = callbackOutcomeRef.current ?? outcome;
+      const data = dataRef.current;
       setErrorEdits((prev) => {
         const base = prev?.source === target ? prev : { source: target };
         if (fields.length === 0) {
           return { ...base, errors: EMPTY_ERRORS };
         }
-        const next = { ...resolveOutcomeErrors(target, prev) };
-        for (const field of fields) {
-          delete next[field];
-        }
+        const current = resolveOutcomeErrors(target, prev);
+        const next = omitFormErrors(current, formErrorKeysWithin(current, fields, data));
         return { ...base, errors: next };
       });
     },

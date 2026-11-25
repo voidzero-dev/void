@@ -126,7 +126,11 @@ export function checkCloudflareProvisionDrift(
 export type RunWranglerResult = {
   data?: unknown;
   errorCode?: number;
-  failure?: 'not-found' | 'durable-migration' | 'containers-unavailable';
+  failure?:
+    | 'not-found'
+    | 'durable-migration'
+    | 'containers-unavailable'
+    | 'version-history-changed';
   stdout: string;
   stderr: string;
   status: number;

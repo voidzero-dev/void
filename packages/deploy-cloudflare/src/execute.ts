@@ -3,7 +3,11 @@ export type CloudflareCommandResult = {
   /** Structured provider response. stdout is diagnostics only. */
   data?: unknown;
   errorCode?: number;
-  failure?: 'not-found' | 'durable-migration' | 'containers-unavailable';
+  failure?:
+    | 'not-found'
+    | 'durable-migration'
+    | 'containers-unavailable'
+    | 'version-history-changed';
   errors?: Array<CloudflareProviderError>;
   stdout: string;
   stderr: string;
@@ -54,6 +58,11 @@ export function isCompletedCommand(result: CloudflareCommandResult): boolean {
 
 export function isCleanCommandExit(result: CloudflareCommandResult): boolean {
   return result.status === 0 && isCompletedCommand(result);
+}
+
+/** The version list's pages disagreed because a write landed while they were being read. */
+export function isVersionHistoryChanged(result: CloudflareCommandResult): boolean {
+  return isCompletedCommand(result) && result.failure === 'version-history-changed';
 }
 
 /** Cloudflare reported that the Worker or its deployment does not exist (code 10007). */

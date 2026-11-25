@@ -1,5 +1,7 @@
 import {
+  changedFormErrorKeys,
   cloneFormValue,
+  formErrorKeysWithin,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
@@ -54,10 +56,8 @@ export function useForm(
   watch(
     () => cloneFormValue(data),
     (val) => {
-      for (const key of new Set([...Object.keys(dataSnapshot), ...Object.keys(val)])) {
-        if (!isEqualFormValue(val[key], dataSnapshot[key])) {
-          delete errors[key];
-        }
+      for (const key of changedFormErrorKeys(errors, dataSnapshot, val)) {
+        delete errors[key];
       }
       dataSnapshot = val;
     },
@@ -82,14 +82,10 @@ export function useForm(
   }
 
   function clearErrors(...fields: ReadonlyArray<string>) {
-    if (fields.length === 0) {
-      for (const key of Object.keys(errors)) {
-        delete errors[key];
-      }
-    } else {
-      for (const field of fields) {
-        delete errors[field];
-      }
+    const keys =
+      fields.length === 0 ? Object.keys(errors) : formErrorKeysWithin(errors, fields, data);
+    for (const key of keys) {
+      delete errors[key];
     }
   }
 

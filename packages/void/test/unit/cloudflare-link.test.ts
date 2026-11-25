@@ -255,6 +255,21 @@ describe('verified existing Worker link', () => {
       },
     });
   });
+  it('starts a new handoff receipt when the inspected live version has changed', async () => {
+    const deps = options();
+    await prepareExistingCloudflareDeploy(deps);
+    recordCloudflareCandidate(root, readCloudflareLink(root)!, 'original', 'candidate-1');
+    deps.readExistingWorker.mockResolvedValue({ ...worker, versionId: 'new-live' });
+
+    await prepareExistingCloudflareDeploy({ ...deps, reuse: false });
+    const retryLink = readCloudflareLink(root)!;
+    expect(retryLink.candidateReceipt).toBeUndefined();
+    recordCloudflareCandidate(root, retryLink, 'new-live', 'candidate-2');
+    expect(readCloudflareLink(root)?.candidateReceipt).toEqual({
+      parentVersionId: 'new-live',
+      versionIds: ['candidate-2'],
+    });
+  });
   it('rejects candidate receipts for a different target or active parent', async () => {
     const deps = options();
     await prepareExistingCloudflareDeploy(deps);
