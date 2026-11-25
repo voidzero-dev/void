@@ -37,6 +37,13 @@ import {
   writePlanCatalog,
 } from '../plans.ts';
 import { users } from '../schema.ts';
+import {
+  freshSecurityPlanCaps,
+  planSecurityCapInput,
+  proposePlanSecurityCaps,
+  readSecurityPlanCaps,
+  writeSecurityPlanCaps,
+} from '../security/plan-caps.ts';
 import { getCurrentBillingPeriodStart } from '../tiers.ts';
 import { dryRun, OperatorError } from './common.ts';
 import { reconcileOperatorUserPlan } from './tenant-service.ts';
@@ -115,6 +122,14 @@ function planAiLoggingInput(body: Record<string, unknown>) {
   }
 }
 
+function securityCapInput(body: Record<string, unknown>) {
+  try {
+    return planSecurityCapInput(body);
+  } catch (error) {
+    throw new OperatorError(400, (error as Error).message, 'invalid_argument');
+  }
+}
+
 function applyPatch(
   plan: PlatformPlanDefinition,
   body: Record<string, unknown>,
@@ -125,6 +140,8 @@ function applyPatch(
   // The AI logging default lives in its own setting (see `proposePlanAiLogging`);
   // here it is only checked, so a bad value fails before anything is saved.
   planAiLoggingInput(body);
+  // Same for the security scan cap (`plans:security-caps`, see `proposePlanSecurityCaps`).
+  securityCapInput(body);
   return {
     ...plan,
     ...(body.allowShortSlugs === undefined ? {} : { allowShortSlugs: body.allowShortSlugs }),
@@ -219,11 +236,12 @@ export function proposePlanCatalog(
         body.limits === undefined &&
         body.buildInstanceType === undefined &&
         body.allowShortSlugs === undefined &&
-        body.aiLogging === undefined
+        body.aiLogging === undefined &&
+        body.securityCap === undefined
       ) {
         throw new OperatorError(
           400,
-          'Set a name, limits, buildInstanceType, allowShortSlugs, or aiLogging.',
+          'Set a name, limits, buildInstanceType, allowShortSlugs, aiLogging, or securityCap.',
           'invalid_argument',
         );
       }
@@ -351,11 +369,12 @@ async function accountCount(db: DbOrTx, planIds: Array<string>): Promise<number>
 
 export async function getOperatorPlanCatalog(context: Context<ApiEnv>) {
   const db = context.get('db');
-  const [listing, aiLogging] = await Promise.all([
+  const [listing, aiLogging, securityCaps] = await Promise.all([
     readPlanCatalogWithAccounts(db, initialPlanDefault(context)),
     readPlanAiLoggingProgress(db, initialPlanDefault(context)),
+    readSecurityPlanCaps(db),
   ]);
-  return { ...listing, aiLogging };
+  return { ...listing, aiLogging, securityCaps };
 }
 
 export async function mutateOperatorPlanCatalog(
@@ -401,6 +420,19 @@ export async function mutateOperatorPlanCatalog(
       body,
       proposal.removedPlanId,
     );
+    const savedSecurityCaps = await freshSecurityPlanCaps(tx);
+    let securityCaps;
+    try {
+      securityCaps = proposePlanSecurityCaps(
+        savedSecurityCaps,
+        action,
+        id,
+        body,
+        proposal.removedPlanId,
+      );
+    } catch (error) {
+      throw new OperatorError(400, (error as Error).message, 'invalid_argument');
+    }
     const moved =
       proposal.removedPlanId && proposal.replacementPlanId
         ? { from: proposal.removedPlanId, to: proposal.replacementPlanId }
@@ -462,6 +494,7 @@ export async function mutateOperatorPlanCatalog(
       loweredLimits: proposal.loweredLimits,
       warnings,
       aiLogging: { modes: aiLoggingModes, modesBefore: savedAiLogging.modes, ...aiLoggingChange },
+      securityCaps: { caps: securityCaps, capsBefore: savedSecurityCaps },
       ...(proposal.removedPlanId
         ? {
             removedPlanId: proposal.removedPlanId,
@@ -495,6 +528,10 @@ export async function mutateOperatorPlanCatalog(
     };
     if (JSON.stringify(aiLoggingSettings) !== JSON.stringify(savedAiLogging)) {
       await writePlanAiLoggingSettings(tx, aiLoggingSettings);
+    }
+    if (JSON.stringify(securityCaps) !== JSON.stringify(savedSecurityCaps)) {
+      // Read when a scan starts and on each model call: nothing to publish.
+      await writeSecurityPlanCaps(tx, securityCaps);
     }
     return outcome;
   });

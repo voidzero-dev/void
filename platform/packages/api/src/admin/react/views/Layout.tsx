@@ -1,10 +1,13 @@
 /** @jsxImportSource react */
 
 import { AppShell } from '@astryxdesign/core/AppShell';
+import { Badge } from '@astryxdesign/core/Badge';
+import { Banner } from '@astryxdesign/core/Banner';
+import { Button } from '@astryxdesign/core/Button';
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { SideNav, SideNavItem, SideNavSection } from '@astryxdesign/core/SideNav';
 import { TopNav, TopNavHeading } from '@astryxdesign/core/TopNav';
-import { useNavigation, useRouter } from '@void/react';
+import { SharedContext, useNavigation, useRouter } from '@void/react';
 import {
   FolderKanban,
   Activity,
@@ -15,17 +18,25 @@ import {
   Rocket,
   SlidersHorizontal,
   ShieldCheck,
+  ShieldAlert,
   ShieldLock,
   Terminal,
   Users,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { formatPlatformPageTitle } from '../../../platform-identity.ts';
+import type { SecurityChrome } from '../../security-data.ts';
 import { PageStack } from './PageStack.tsx';
 import { VoidLogo } from './VoidLogo.tsx';
 
 let isSideNavCollapsed = false;
+
+/** The navigation fallback renders the shell outside a Void page, where there is no shared data. */
+function useSecurityChrome(): SecurityChrome | undefined {
+  const shared = useContext(SharedContext) as { securityChrome?: SecurityChrome } | null;
+  return shared?.securityChrome;
+}
 
 export function Layout({
   title,
@@ -39,6 +50,7 @@ export function Layout({
   children: ReactNode;
 }) {
   const routerPath = useRouter().path;
+  const securityChrome = useSecurityChrome();
   const path = useNavigation().location?.pathname ?? routerPath;
   const [collapsed, setCollapsed] = useState(isSideNavCollapsed);
   useEffect(() => {
@@ -171,6 +183,19 @@ export function Layout({
               href="/admin/email"
               isSelected={path.startsWith('/admin/email')}
             />
+            {securityChrome && (
+              <SideNavItem
+                label="Security"
+                icon={ShieldAlert}
+                href="/admin/security"
+                isSelected={path.startsWith('/admin/security')}
+                endContent={
+                  securityChrome.unseenBypasses > 0 ? (
+                    <Badge label={String(securityChrome.unseenBypasses)} variant="warning" />
+                  ) : undefined
+                }
+              />
+            )}
             <SideNavItem
               label="Zero Trust"
               icon={ShieldLock}
@@ -187,7 +212,20 @@ export function Layout({
         </SideNav>
       }
     >
-      <PageStack className="void-admin-content">{children}</PageStack>
+      <PageStack className="void-admin-content">
+        {securityChrome?.banners.map((banner) => (
+          <Banner
+            key={banner.text}
+            role="alert"
+            status={banner.status}
+            title={banner.text}
+            endContent={
+              <Button href={banner.href} label="Open Security" variant="secondary" size="sm" />
+            }
+          />
+        ))}
+        {children}
+      </PageStack>
     </AppShell>
   );
 }

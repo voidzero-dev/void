@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import type { SecurityPackageClaims } from '@void/platform/security-lockfile';
 import { join } from 'pathslash';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { getPackageDir } from './agents.ts';
@@ -14,6 +15,23 @@ import {
 } from './platform-errors.ts';
 import type { ProjectPermission } from './platform-errors.ts';
 import { normalizePlatformApiUrl } from './platform-registry.ts';
+import type {
+  ProjectSecurityStatus,
+  SecurityPublicRequest,
+  SecurityBudgetChange,
+  SecurityCheckCreated,
+  SecurityCheckPreview,
+  SecurityCheckView,
+  SecurityFindingChange,
+  SecurityFindingDetail,
+  SecurityFindingList,
+  SecurityFindingQuery,
+  SecurityModelChange,
+  SecurityRescanPreview,
+  SecurityRescanQueued,
+  SecurityScanList,
+  SecuritySeverityChange,
+} from './security-api-types.ts';
 import type {
   DeployAssetUploadRequest,
   DeployEvent,
@@ -159,6 +177,25 @@ async function throwPlatformApiError(
   );
 }
 
+/**
+ * Turns a refused security route into the sentence the user should read. A 404 with no JSON body
+ * is the router of a platform that has no security routes; a 404 with JSON is a real miss (unknown
+ * project or finding). The platform's own message is the copy for the other refusals.
+ */
+function securityApiError(error: PlatformApiError): Error {
+  const parsed = parsePlatformErrorBody(error.body);
+  if (error.status === 404 && parsed === null) {
+    return new Error(
+      'project: This Void platform does not support security audits. Ask its administrator to upgrade with `void platform upgrade`.',
+    );
+  }
+  const message = platformErrorMessage(parsed);
+  if (message && [400, 409, 413, 422, 501, 503].includes(error.status)) {
+    error.message = message;
+  }
+  return error;
+}
+
 export function isExpiredTokenError(error: unknown): boolean {
   if (error instanceof PlatformApiError) {
     return error.status === 401 && error.code === 'invalid or expired token';
@@ -283,6 +320,11 @@ export type ProjectZeroTrustResponse = {
     | 'disabling'
     | 'error';
   protectNewProjects: boolean;
+  /** Present on platforms with security audits (the gate and the open public request). */
+  publicGate?: boolean;
+  publicRequest?: SecurityPublicRequest | null;
+  /** The newest bypass; `reason` only for callers with `deploy` and up. */
+  lastBypass?: { id: string; at: string; byRole: string | null; reason?: string } | null;
   project: ProjectZeroTrustState | null;
 };
 
@@ -290,6 +332,15 @@ export type ProjectZeroTrustResponse = {
 export type ProjectZeroTrustUpdateResponse = {
   ok: true;
   project: ProjectZeroTrustState;
+  /** Set when a public gate request exists for the project (a held request answers 202). */
+  publicRequest?: SecurityPublicRequest | null;
+  /** The platform's copy for a held request. */
+  message?: string;
+};
+
+/** `POST /projects/:id/zero-trust/public-request/bypass`. */
+export type ProjectPublicRequestBypassResponse = ProjectZeroTrustUpdateResponse & {
+  skipped: string | null;
 };
 
 export type IssuedProjectDeployCredentialResponse = ProjectDeployCredentialResponse & {
@@ -577,7 +628,16 @@ export type GithubConnection = {
   updated_at: string;
 };
 
-export type ManifestOnlyDeployPayload = DeployUploadPayload;
+type SecurityCheckTree = { files: number; bytes: number; size: number; md5: string };
+
+/**
+ * `securityPackages`: what the project lockfile says about the packages the Worker
+ * bundle names, for security scans (`deploy-security-packages.ts`). Older platforms
+ * ignore it.
+ */
+export type ManifestOnlyDeployPayload = DeployUploadPayload & {
+  securityPackages?: SecurityPackageClaims;
+};
 
 // Only fetch rejections (TypeError, including a headers timeout) are retried; any
 // HTTP response is final. Every attempt sends the same idempotency key, so the
@@ -843,11 +903,17 @@ export class PlatformClient {
   private async call(
     url: string | URL,
     action: string,
-    options: { method?: string; body?: unknown; permission?: ProjectPermission } = {},
+    options: {
+      method?: string;
+      body?: unknown;
+      permission?: ProjectPermission;
+      signal?: AbortSignal;
+    } = {},
   ): Promise<Response> {
-    const { method, body, permission } = options;
+    const { method, body, permission, signal } = options;
     const res = await this.request(url, {
       ...(method !== undefined && { method }),
+      ...(signal !== undefined && { signal }),
       headers:
         body === undefined
           ? { ...this.authHeaders }
@@ -863,7 +929,12 @@ export class PlatformClient {
   private async json<T>(
     url: string | URL,
     action: string,
-    options?: { method?: string; body?: unknown; permission?: ProjectPermission },
+    options?: {
+      method?: string;
+      body?: unknown;
+      permission?: ProjectPermission;
+      signal?: AbortSignal;
+    },
   ): Promise<T> {
     return (await this.call(url, action, options)).json<Promise<T>>();
   }
@@ -950,6 +1021,260 @@ export class PlatformClient {
       `${this.baseUrl}/projects/${projectId}/zero-trust`,
       'Failed to update project Zero Trust',
       { method: 'PUT', body: { protected: protectedProject }, permission: 'settings' },
+    );
+  }
+
+  /** `tooOld`: what a platform without this route cannot do, for a 404 with no JSON body. */
+  private async security<T>(
+    path: string,
+    action: string,
+    options: {
+      method?: string;
+      body?: unknown;
+      permission: ProjectPermission;
+      signal?: AbortSignal;
+      tooOld?: string;
+    },
+  ): Promise<T> {
+    const { tooOld, ...request } = options;
+    try {
+      return await this.json<T>(`${this.baseUrl}/projects/${path}`, action, request);
+    } catch (error) {
+      if (!(error instanceof PlatformApiError)) {
+        throw error;
+      }
+      if (tooOld && error.status === 404 && parsePlatformErrorBody(error.body) === null) {
+        throw new Error(
+          `project: This Void platform ${tooOld} yet. Ask its administrator to upgrade with \`void platform upgrade\`.`,
+          { cause: error },
+        );
+      }
+      throw securityApiError(error);
+    }
+  }
+
+  async getProjectSecurity(
+    projectId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ProjectSecurityStatus> {
+    return this.security(`${projectId}/security`, 'Failed to read project security', {
+      permission: 'read',
+      ...(options.signal !== undefined && { signal: options.signal }),
+    });
+  }
+
+  async listProjectSecurityFindings(
+    projectId: string,
+    query: SecurityFindingQuery,
+  ): Promise<SecurityFindingList> {
+    const params = new URLSearchParams({
+      state: query.state,
+      limit: String(query.limit),
+      ...(query.urgent ? { urgent: '1' } : {}),
+      ...(query.severity ? { severity: query.severity } : {}),
+      ...(query.cursor ? { cursor: query.cursor } : {}),
+    });
+    return this.security(
+      `${projectId}/security/findings?${params}`,
+      'Failed to list security findings',
+      { permission: 'read' },
+    );
+  }
+
+  async getProjectSecurityFinding(
+    projectId: string,
+    findingId: string,
+  ): Promise<SecurityFindingDetail> {
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}`,
+      'Failed to read security finding',
+      { permission: 'read' },
+    );
+  }
+
+  async commentOnProjectSecurityFinding(
+    projectId: string,
+    findingId: string,
+    text: string,
+  ): Promise<{ ok: true; id: string }> {
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}/comments`,
+      'Failed to comment on security finding',
+      { method: 'POST', body: { text }, permission: 'configure' },
+    );
+  }
+
+  async resolveProjectSecurityFinding(
+    projectId: string,
+    findingId: string,
+    body: { reason: string; comment: string; expectedRevision: number },
+  ): Promise<SecurityFindingChange> {
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}/resolve`,
+      'Failed to resolve security finding',
+      { method: 'POST', body, permission: 'settings' },
+    );
+  }
+
+  async reopenProjectSecurityFinding(
+    projectId: string,
+    findingId: string,
+    body: { comment: string; expectedRevision: number },
+  ): Promise<SecurityFindingChange> {
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}/reopen`,
+      'Failed to reopen security finding',
+      { method: 'POST', body, permission: 'settings' },
+    );
+  }
+
+  /** Sets a finding's severity (`null`: back to the scan value). */
+  async editProjectSecurityFindingSeverity(
+    projectId: string,
+    findingId: string,
+    body: { severity: string | null; comment: string; expectedRevision: number },
+  ): Promise<SecuritySeverityChange> {
+    // The finding was read just before, so a plain 404 is a platform without this route.
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}/severity`,
+      'Failed to change the severity of the security finding',
+      { method: 'POST', body, permission: 'settings', tooOld: 'cannot change finding severity' },
+    );
+  }
+
+  async listProjectSecurityScans(projectId: string, limit: number): Promise<SecurityScanList> {
+    return this.security(
+      `${projectId}/security/scans?${new URLSearchParams({ limit: String(limit) })}`,
+      'Failed to list security scans',
+      { permission: 'deploy' },
+    );
+  }
+
+  /** The rescan cost check: what a project rescan would run, queuing nothing. */
+  async previewProjectSecurityScan(
+    projectId: string,
+    options: { clientAssets?: boolean } = {},
+  ): Promise<SecurityRescanPreview> {
+    return this.security(`${projectId}/security/scans`, 'Failed to preview the security scan', {
+      method: 'POST',
+      body: { dryRun: true, ...(options.clientAssets ? { clientAssets: true } : {}) },
+      permission: 'settings',
+    });
+  }
+
+  async startProjectSecurityScan(
+    projectId: string,
+    options: { clientAssets?: boolean } = {},
+  ): Promise<SecurityRescanQueued> {
+    return this.security(`${projectId}/security/scans`, 'Failed to start the security scan', {
+      method: 'POST',
+      body: options.clientAssets ? { clientAssets: true } : {},
+      permission: 'settings',
+    });
+  }
+
+  /** M32 local check: a platform without the check routes is named as too old. */
+  private async securityCheck<T>(
+    path: string,
+    action: string,
+    options: { method?: string; body?: unknown },
+  ): Promise<T> {
+    return this.security(path, action, {
+      ...options,
+      permission: 'deploy',
+      tooOld: 'cannot run local security checks',
+    });
+  }
+
+  /** What a local check would run (model, provider notice, most it can cost). Sends no code. */
+  async previewProjectSecurityCheck(
+    projectId: string,
+    tree: SecurityCheckTree,
+  ): Promise<SecurityCheckPreview> {
+    const body = { dryRun: true, ...tree };
+    return this.securityCheck(
+      `${projectId}/security/checks`,
+      'Failed to prepare the security check',
+      { method: 'POST', body },
+    );
+  }
+
+  /** Stores the check and returns the one presigned upload for its archive. */
+  async createProjectSecurityCheck(
+    projectId: string,
+    tree: SecurityCheckTree,
+  ): Promise<SecurityCheckCreated> {
+    return this.securityCheck(
+      `${projectId}/security/checks`,
+      'Failed to start the security check',
+      { method: 'POST', body: tree },
+    );
+  }
+
+  async startProjectSecurityCheck(
+    projectId: string,
+    checkId: string,
+  ): Promise<{ checkId: string; status: string }> {
+    return this.securityCheck(
+      `${projectId}/security/checks/${encodeURIComponent(checkId)}/start`,
+      'Failed to start the security check',
+      { method: 'POST', body: {} },
+    );
+  }
+
+  async getProjectSecurityCheck(projectId: string, checkId: string): Promise<SecurityCheckView> {
+    return this.securityCheck(
+      `${projectId}/security/checks/${encodeURIComponent(checkId)}`,
+      'Failed to read the security check',
+      {},
+    );
+  }
+
+  async setProjectSecurityModel(
+    projectId: string,
+    body: { model: string | null; acceptProviderNoticeVersion?: number },
+  ): Promise<SecurityModelChange> {
+    return this.security(`${projectId}/security/model`, 'Failed to set security model', {
+      method: 'PUT',
+      body,
+      permission: 'settings',
+    });
+  }
+
+  async setProjectSecurityBudget(
+    projectId: string,
+    monthlyUsd: number | null,
+  ): Promise<SecurityBudgetChange> {
+    return this.security(`${projectId}/security/budget`, 'Failed to set security budget', {
+      method: 'PUT',
+      body: { monthlyUsd },
+      permission: 'settings',
+    });
+  }
+
+  async createProjectSecurityPageLink(
+    projectId: string,
+  ): Promise<{ url: string; expiresAt: string }> {
+    return this.security(`${projectId}/security/page-link`, 'Failed to create security page link', {
+      method: 'POST',
+      permission: 'read',
+    });
+  }
+
+  /** `requestId`: the open request the caller saw; one closed meanwhile is a 409. */
+  async bypassProjectPublicRequest(
+    projectId: string,
+    reason: string,
+    requestId?: string,
+  ): Promise<ProjectPublicRequestBypassResponse> {
+    return this.security(
+      `${projectId}/zero-trust/public-request/bypass`,
+      'Failed to bypass the security scan',
+      {
+        method: 'POST',
+        body: requestId === undefined ? { reason } : { reason, requestId },
+        permission: 'settings',
+      },
     );
   }
 

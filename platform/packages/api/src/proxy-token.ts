@@ -102,6 +102,7 @@ const legacyKeys = new Map<string, Promise<CryptoKey>>();
 const proxyTokenKeys = new Map<string, Promise<CryptoKey>>();
 const proxyInternalKeys = new Map<string, Promise<CryptoKey>>();
 const aiUsageKeys = new Map<string, Promise<CryptoKey>>();
+const securityScanKeys = new Map<string, Promise<CryptoKey>>();
 
 function cachedKey(
   cache: Map<string, Promise<CryptoKey>>,
@@ -161,6 +162,12 @@ function proxyInternalKey(secret: string): Promise<CryptoKey> {
 
 function aiUsageKey(secret: string): Promise<CryptoKey> {
   return cachedKey(aiUsageKeys, secret, () => hkdfHmacKey(secret, 'void-ai-usage', 'ai-usage'));
+}
+
+function securityScanKey(secret: string): Promise<CryptoKey> {
+  return cachedKey(securityScanKeys, secret, () =>
+    hkdfHmacKey(secret, 'void-security-scan', 'security-scan'),
+  );
 }
 
 // --- Encoding ---
@@ -387,4 +394,18 @@ export async function verifyProxyInternalAuth(
 export async function deriveAiUsageTag(jwtSecret: string, projectId: string): Promise<string> {
   const mac = await sign(aiUsageKey(jwtSecret), `void-ai-usage\n${projectId}`);
   return `${projectId}.${mac.slice(0, 22)}`;
+}
+
+// --- Security scan tag ---
+
+/**
+ * The value the security scan model proxy writes into AI Gateway metadata as
+ * `{"securityScan": tag}`: `<scanId>.<22 base64url MAC characters>` under its own
+ * HKDF key. Scan calls never carry `projectId`, so they do not count toward a
+ * project's AI allowance, and only the platform can make a tag the scan cost query
+ * trusts. Platform only, like `deriveAiUsageTag`. The scan id is not validated here.
+ */
+export async function deriveSecurityScanTag(jwtSecret: string, scanId: string): Promise<string> {
+  const mac = await sign(securityScanKey(jwtSecret), `void-security-scan\n${scanId}`);
+  return `${scanId}.${mac.slice(0, 22)}`;
 }

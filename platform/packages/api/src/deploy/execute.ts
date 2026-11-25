@@ -50,6 +50,9 @@ import { assertManagedSandboxEntitlement } from '../provisioning/sandbox-control
 import { requestRotationIfReplacingUntrustedCode } from '../proxy-token-rotation.ts';
 import { requireProjectRouteCapability } from '../routes/project-access.ts';
 import { deploymentOperations } from '../schema.ts';
+import { enqueueSecurityScanInTx, finishSecurityScanEnqueue } from '../security/enqueue.ts';
+import type { SecurityScanEnqueued } from '../security/enqueue.ts';
+import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
 import { SUPPORTED_MANIFEST_VERSIONS } from '../types.ts';
 import type { DeployManifest, Deployment, Project } from '../types.ts';
 import { blobWorkerModule } from '../worker-upload.ts';
@@ -759,8 +762,11 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     | { canceling: string }
     | { recoveryFailed: string }
     | { cpuLimit: Readonly<{ requested: number; maximum: number }> };
+  // Set only inside the admission transaction; read only after it commits.
+  let recoveredSecurityScan: SecurityScanEnqueued | null = null;
   try {
     precheckResult = await context.get('db').transaction(async (tx) => {
+      recoveredSecurityScan = null;
       if (
         durable &&
         (await installationDeploymentAdmissionClosed(tx, context.env.PLATFORM_INSTALLATION_ID))
@@ -887,6 +893,12 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
           await requestRotationIfReplacingUntrustedCode(tx, projectId, protectedDeployment.id);
           await setActiveDeployment(tx, projectId, protectedDeployment.id);
           await markDeploymentRetained(tx, protectedDeployment.id, true);
+          // New code went live inside this admission: it is scanned (spec §6.1, edge #41).
+          recoveredSecurityScan = await enqueueSecurityScanInTx(tx, context.env, {
+            projectId,
+            deploymentId: protectedDeployment.id,
+            trigger: 'recovery',
+          });
           recoveredCutover = { ...protectedDeployment, status: 'live', retained: true };
         };
         const [intentRaw, readyRaw, compensated] = await Promise.all([
@@ -1160,6 +1172,9 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     }
     throw err;
   }
+  // The admission committed: finish a scan of a cutover it promoted to live.
+  await finishSecurityScanEnqueue(context.env, context.get('db'), recoveredSecurityScan);
+  await recheckPublicRequestBestEffort(context.env, context.get('db'), projectId, 'a deploy');
   // Delete only input this request staged itself. A CLI upload's prefix can
   // belong to the operation a retried request matched; its operation or the
   // stale-input sweep removes it.

@@ -76,6 +76,7 @@ async function retirePendingDisabledProjectZeroTrust(
   db: Db,
   configuration: ZeroTrustConfiguration,
   limit: number,
+  routingBudget: RoutingBudget,
 ): Promise<void> {
   const rows = await candidateQuery(db)
     .where(
@@ -98,7 +99,6 @@ async function retirePendingDisabledProjectZeroTrust(
     return;
   }
   const client = await clientForConfiguration(env, configuration);
-  const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
   for (const row of rows) {
     if (routingBudget.exhausted || routingBudget.remaining < 1) {
       break;
@@ -117,6 +117,8 @@ export async function reconcilePendingProjectZeroTrust(
   env: ApiEnv['Bindings'],
   db: Db,
   limit = 20,
+  /** The cron run's routing budget; the public gate backstop spends the rest of it. */
+  routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN },
 ): Promise<void> {
   const configuration = await readZeroTrustConfigurationStrict(db);
   if (!configuration) {
@@ -129,7 +131,7 @@ export async function reconcilePendingProjectZeroTrust(
   }
   if (!configuration.enabled) {
     // Projects skipped by a completed disable operation still hold protection.
-    await retirePendingDisabledProjectZeroTrust(env, db, configuration, limit);
+    await retirePendingDisabledProjectZeroTrust(env, db, configuration, limit, routingBudget);
     return;
   }
   if (zeroTrustConfigurationStatus(configuration) !== 'ready') {
@@ -150,7 +152,6 @@ export async function reconcilePendingProjectZeroTrust(
     return;
   }
   const client = await clientForConfiguration(env, configuration);
-  const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
   for (const row of rows) {
     if (
       routingBudget.exhausted ||

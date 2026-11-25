@@ -499,7 +499,7 @@ describe('Zero Trust routing read retries', () => {
     await configurePlatformZeroTrust(platform, env.db, configurationInput());
     await expect(
       setProjectZeroTrustProtection(platform, env.db, project.id, false),
-    ).resolves.toMatchObject({ status: 'ready', desired_protected: false });
+    ).resolves.toMatchObject({ row: { status: 'ready', desired_protected: false } });
     await expect(disablePlatformZeroTrust(platform, env.db)).resolves.toMatchObject({
       enabled: false,
       status: 'ready',

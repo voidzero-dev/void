@@ -70,6 +70,12 @@ Installation administrators can do the same from the project page in the adminis
 
 Deploys and rollbacks wait until a project's protection change is finished. If one is refused, run `void project zero-trust status` to see why; the owner or a project administrator can run `void project zero-trust reconcile` before you try again. A protected project can have up to 100 custom domains.
 
+## Scan Before Public
+
+If you turn on [scan before a project goes public](./security-audits.md#scan-before-public), making a protected project public no longer takes effect at once. The project stays protected until a scan of its live deployment finds no urgent finding, or until an allowed person bypasses the scan with a reason. Deploys keep working while the request waits.
+
+While it is on, `void platform zero-trust disable` and public-only configuration are refused. Turn the gate off first with `void platform security public-gate off`. In the administrator UI, **Disable** and the public-only option are unavailable, and **Make project public** says that the project stays protected until the scan passes.
+
 ## Disable Zero Trust
 
 ```sh

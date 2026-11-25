@@ -1155,6 +1155,7 @@ export async function runDeploymentPipeline(input: {
           sandboxControllerAttempted,
           project,
           owner,
+          securityScanModules: workerFiles,
         });
       }
     } catch (err) {

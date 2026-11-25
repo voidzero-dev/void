@@ -4,11 +4,14 @@ import type { PageObject } from 'void/pages-protocol';
 import type { ApiEnv } from '../../env.ts';
 import { formatPlatformPageTitle } from '../../platform-identity.ts';
 import type { createAdminFateClient } from '../fate/client.ts';
+import { loadSecurityChrome } from '../security-data.ts';
 import { adminComponents, adminLayoutTree } from './pages.ts';
 import type { AdminPageId } from './pages.ts';
 
 export async function renderAdminPage(
-  context: Pick<Context<ApiEnv>, 'get'> & { req: Pick<Context<ApiEnv>['req'], 'url' | 'header'> },
+  context: Pick<Context<ApiEnv>, 'env' | 'get'> & {
+    req: Pick<Context<ApiEnv>['req'], 'url' | 'header'>;
+  },
   component: AdminPageId,
   title: string,
   props: Record<string, unknown>,
@@ -18,6 +21,8 @@ export async function renderAdminPage(
   } = {},
 ): Promise<Response> {
   const platformName = String(props.platformName ?? 'Void');
+  // Banners and the nav badge for security audits; `null` while the capability is off.
+  const securityChrome = context.get('user') ? await loadSecurityChrome(context) : null;
   const { pathname, search } = new URL(context.req.url);
   const pageObj: PageObject = {
     component,
@@ -26,6 +31,7 @@ export async function renderAdminPage(
     shared: {
       platformName,
       adminPageUrl: pathname + search,
+      ...(securityChrome ? { securityChrome } : {}),
       adminFateSession: `${context.get('user')?.id ?? 'guest'}:${context.get('humanSession')?.id ?? 'none'}`,
       ...(options.fateSnapshot ? { adminFateSnapshot: options.fateSnapshot } : {}),
     },

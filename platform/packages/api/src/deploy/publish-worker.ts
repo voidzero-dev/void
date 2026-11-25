@@ -39,6 +39,8 @@ import type { provisionBindings } from '../provisioning/provision.ts';
 import { deleteSandboxController, isManagedSandbox } from '../provisioning/sandbox-controller.ts';
 import { projectRouteKey } from '../routing.ts';
 import { buildRoutingJson, computeDispatchLimits } from '../routing.ts';
+import { finishSecurityScanEnqueue } from '../security/enqueue.ts';
+import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
 import { REASON_REQUESTS_EXCEEDED } from '../suspension.ts';
 import type { PlanLimits } from '../tiers.ts';
 import type {
@@ -439,13 +441,14 @@ export async function publishWorkerDeployment(input: {
     to: 'live',
     reason: 'wfp_deploy',
   });
-  await commitCutoverLive(context.get('db'), context.env.ROUTING, {
+  const securityScan = await commitCutoverLive(context.get('db'), context.env.ROUTING, {
     projectId,
     actorId: actor.id,
     deploymentId: deployment.id,
     cutoverOwnerId,
     deployBuild,
     projectType: manifest.type ?? (manifest.framework ? 'framework' : 'void'),
+    env: context.env,
   });
   input.cutoverCommitted = true;
   input.currentStatus = 'live';
@@ -677,5 +680,9 @@ export async function publishWorkerDeployment(input: {
     workers: workerFiles.length,
     ...(migrationsApplied > 0 && { migrations: migrationsApplied }),
   });
+  // After `done`, so the copy of inline modules (≤ 30 s) never delays the deploy
+  // result. Before the pipeline releases a CLI upload, which these modules read.
+  await finishSecurityScanEnqueue(context.env, context.get('db'), securityScan, workerFiles);
+  await recheckPublicRequestBestEffort(context.env, context.get('db'), project.id, 'a deploy');
   await finishOrphanSweep();
 }

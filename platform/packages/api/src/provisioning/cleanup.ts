@@ -49,6 +49,7 @@ import {
   projectOwnershipPeriods,
   projects as projectsTable,
 } from '../schema.ts';
+import { cancelProjectSecurityScans } from '../security/scheduler.ts';
 import { getCurrentBillingPeriodStart } from '../tiers.ts';
 import type { Build, DeployManifest, Project, ProjectOwnershipPeriod, Resource } from '../types.ts';
 import { cleanupProjectZeroTrust } from '../zero-trust/project.ts';
@@ -894,6 +895,12 @@ export async function teardownProject(
   // begins (post-commit, never under the row lock — it's a DO round-trip), so
   // their tokens are dead and their containers stopped before we touch CF.
   await cancelContainerBuildDos(context.env, deletion.cancelledBuilds, 'project deleted');
+  // Security scans (edge #26): with the project `deleting`, the fence already refuses
+  // every write of a running scan. Canceling gives its budget reserve back to the
+  // platform month (which outlives the project) and stops the container now. A failed
+  // cancel throws so the teardown is retried before the cascade drops the rows and,
+  // with them, the reserve the platform month still counts.
+  await cancelProjectSecurityScans(context.env, context.get('db'), projectId);
 
   // Detach after the durable status change and before cleanup so a failed DO
   // call leaves the project row available for retry.

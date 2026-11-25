@@ -4,8 +4,35 @@ import {
   getPlatformDisplayName,
   platformConnectCommand,
 } from './platform-identity.ts';
+import {
+  composeSecurityBypassEmail,
+  composeSecurityDigestEmail,
+  composeSecurityFindingsEmail,
+  composeSecurityInstallationStreakEmail,
+  composeSecurityNowPublicEmail,
+  composeSecurityPlatformCapEmail,
+  composeSecurityProjectCapEmail,
+  composeSecurityProjectStreakEmail,
+  composeSecurityPublicCanceledEmail,
+  composeSecurityPublicHeldEmail,
+  composeSecurityReopenEmail,
+} from './security/notification-copy.ts';
+import type {
+  SecurityBypassEmailData,
+  SecurityDigestEmailData,
+  SecurityEmailContent,
+  SecurityEmailReason,
+  SecurityFindingsEmailData,
+  SecurityInstallationStreakEmailData,
+  SecurityPlatformCapEmailData,
+  SecurityProjectCapEmailData,
+  SecurityProjectStreakEmailData,
+  SecurityPublicEmailData,
+  SecurityPublicHeldState,
+  SecurityReopenEmailData,
+} from './security/notification-copy.ts';
 
-type PlatformEmailEnv = Pick<
+export type PlatformEmailEnv = Pick<
   ApiEnv['Bindings'],
   | 'EMAIL'
   | 'EMAIL_FROM'
@@ -262,6 +289,177 @@ ${projectUrl ? `<p>${button(projectUrl, 'View Project')}</p>` : ''}`,
     ),
     text: `5xx errors detected: ${projectSlug}\n\nYour project ${projectSlug} on ${name} returned ${count} server error responses ${when}.\n\nConnect to this platform and inspect them from the CLI:\n  ${command}\n  ${requestsHint}\n  ${logsHint}\n\n${hintNote}\n${projectUrl ? `\nView project: ${projectUrl}\n` : ''}\nYou will not receive another alert for this project for 24 hours. You received this email because you own this project on ${name}.`,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Security audits (design doc 0095, spec §12). Content only: titles, severity and file
+// path, never code or a trace. The wording is in `security/notification-copy.ts`.
+// ---------------------------------------------------------------------------
+
+type WithoutPlatform<T> = Omit<T, 'platform'>;
+
+function securityPageUrl(apiUrl: string, slug: string): string {
+  // The sign-in-free landing page (spec §13.2), never a dashboard route.
+  return new URL(`/security/projects/${encodeURIComponent(slug)}`, apiUrl).href;
+}
+
+async function sendSecurityContent(
+  env: PlatformEmailEnv,
+  to: string,
+  build: (platform: string) => SecurityEmailContent,
+): Promise<void> {
+  const { apiUrl, name } = emailConfig(env);
+  const content = build(name);
+  const pageUrl = content.pageSlug === null ? null : securityPageUrl(apiUrl, content.pageSlug);
+  const block = (lines: ReadonlyArray<string>) =>
+    lines.length === 0
+      ? ''
+      : `<pre style="background:#f4f4f5;padding:12px 16px;border-radius:4px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8rem;overflow-x:auto;margin:0 0 12px"><code>${escapeHtml(lines.join('\n'))}</code></pre>`;
+  const html = emailHtml(
+    `<h2 style="margin-bottom:8px">${escapeHtml(content.subject)}</h2>
+<p>${escapeHtml(content.intro)}</p>
+${block(content.details)}${content.notes.map((note) => `<p>${escapeHtml(note)}</p>`).join('\n')}
+${block(content.actions)}${pageUrl ? `<p>${button(pageUrl, 'Open project page')}</p>` : ''}`,
+    content.footer,
+  );
+  const text = [
+    content.subject,
+    '',
+    content.intro,
+    ...(content.details.length > 0 ? ['', ...content.details] : []),
+    ...content.notes.flatMap((note) => ['', note]),
+    ...(content.actions.length > 0 ? ['', ...content.actions.map((line) => `  ${line}`)] : []),
+    ...(pageUrl ? ['', `Project page: ${pageUrl}`] : []),
+    '',
+    content.footer,
+  ].join('\n');
+  await sendEmail(env, { to, subject: content.subject, html, text });
+}
+
+export function sendSecurityFindingsEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityFindingsEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityFindingsEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityReopenEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityReopenEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityReopenEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityProjectCapEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityProjectCapEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityProjectCapEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityPlatformCapEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityPlatformCapEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityPlatformCapEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityPublicHeldEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityPublicEmailData> &
+    Readonly<{
+      state: SecurityPublicHeldState;
+      noResultReason: string | null;
+      unreadFiles?: boolean;
+    }>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityPublicHeldEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityNowPublicEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: Readonly<{ slug: string; how: 'passed' | 'bypassed' }>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityNowPublicEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityPublicCanceledEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: Readonly<{ slug: string; cause: 'gate_off' | 'policy_off' }>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityPublicCanceledEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityBypassEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityBypassEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityBypassEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityProjectStreakEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityProjectStreakEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityProjectStreakEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityInstallationStreakEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityInstallationStreakEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityInstallationStreakEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityDigestEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityDigestEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityDigestEmail({ ...data, platform }, reason),
+  );
 }
 
 export function escapeHtml(s: string): string {

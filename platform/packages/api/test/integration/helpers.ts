@@ -35,6 +35,7 @@ import {
   githubInstallationRevocations,
   githubWebhookRedeliveries,
 } from '../../src/schema.ts';
+import type { SecurityScanScheduler } from '../../src/security/scheduler.ts';
 import type { PlanId } from '../../src/tiers.ts';
 import type { Build, GitHubInstallationMember } from '../../src/types.ts';
 import { loadPGliteTemplateBundle } from './db-template.ts';
@@ -113,6 +114,7 @@ export type TestEnv = {
   CRON_SCHEDULER: DurableObjectNamespace;
   ERROR_ALERT_MONITOR: DurableObjectNamespace;
   SANDBOX_CONCURRENCY_COUNTER: DurableObjectNamespace<SandboxConcurrencyCounter>;
+  SECURITY_SCAN_SCHEDULER: DurableObjectNamespace<SecurityScanScheduler>;
   BUILD_SCHEDULER: DurableObjectNamespace;
   BUILD_MANAGER: DurableObjectNamespace;
   BUILD_MANAGER_LARGE: DurableObjectNamespace;
@@ -601,6 +603,8 @@ export async function setupEnv(options: SetupEnvOptions = {}): Promise<TestEnv> 
     ERROR_ALERT_MONITOR: createMockDoNamespace(),
     SANDBOX_CONCURRENCY_COUNTER:
       createMockDoNamespace() as unknown as DurableObjectNamespace<SandboxConcurrencyCounter>,
+    SECURITY_SCAN_SCHEDULER:
+      createMockDoNamespace() as unknown as DurableObjectNamespace<SecurityScanScheduler>,
     BUILD_SCHEDULER: createMockDoNamespace(),
     BUILD_MANAGER: createMockDoNamespace(),
     BUILD_MANAGER_LARGE: createMockDoNamespace(),
@@ -638,6 +642,9 @@ export async function clearTables(db: Db): Promise<void> {
     schema.emailReceipts,
     schema.emailProjectControls,
     schema.emailMonthlyUsage,
+    // Not removed by the project cascade: platform cap emails and the month total.
+    schema.securityNotifications,
+    schema.securityPlatformSpend,
     sandboxDrainCheckpoints,
     domains,
     resources,

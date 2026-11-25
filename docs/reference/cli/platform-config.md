@@ -13,8 +13,8 @@ Use your administrator session for these commands. See [Platform Management](./p
 
 ```sh
 void platform config plans show [plan-id]
-void platform config plans add <plan-id> --copy <existing-id> --name "Team"
-void platform config plans set <plan-id> [--name "Team"] [--file plan.json]
+void platform config plans add <plan-id> --copy <existing-id> --name "Team" [--security-cap <usd|none|inherit>]
+void platform config plans set <plan-id> [--name "Team"] [--file plan.json] [--security-cap <usd|none|inherit>]
 void platform config plans reset <builtin-plan-id>
 void platform config plans archive <plan-id>
 void platform config plans restore <plan-id>
@@ -27,7 +27,8 @@ Use `--plan` to preview changes and affected accounts, then `--yes` to apply the
 
 ### Inspect and Manage Plans
 
-- `show` reports limits, the signup default, assignments, and pending updates. `show <plan-id>` includes the plan's AI logging default.
+- `show` reports limits, the signup default, assignments, and pending updates. `show <plan-id>` includes the plan's AI logging default and security scan cap.
+- `--security-cap` on `add` or `set` sets the most each project on the plan may spend on [security scans](./platform-security.md#models-limits-budget) in a month: a USD amount, `none` for no cap, or `inherit` for the default project cap. A limit set for one project comes first. `add` copies the source plan's cap.
 - `reset` restores a built-in plan's original limits and build size.
 - `archive` stops new assignments while keeping existing accounts. Choose another signup default before archiving the current one.
 - `remove` requires a replacement if the plan has accounts or is the signup default.
@@ -44,6 +45,7 @@ For `add` and `set`, `--file` reads a JSON object. All fields are optional; omit
 | `buildInstanceType` | `standard-3` or `standard-4`                                                                    |
 | `allowShortSlugs`   | `true` permits future project slugs of five characters or fewer; `false` requires longer names  |
 | `aiLogging`         | `off`, `metadata`, or `full`; `inherit` clears the plan's override                              |
+| `securityCap`       | Monthly security scan cap per project: a USD amount, `"none"`, or `"inherit"`                   |
 
 Build timeouts have a platform maximum of 60 minutes; `0` uses that maximum. Storage quotas are not editable. Changing `allowShortSlugs` preserves existing URLs. See [Plans and Limits](../../guide/platform/administration/plans.md) for the supported limits and file examples, and [AI Gateway logging](./platform-users.md#ai-gateway-logging) for logging modes.
 

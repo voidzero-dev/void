@@ -23,6 +23,7 @@ import {
   streamDirectR2Deploy,
   warnUnpublishedRouting,
 } from './deploy-managed-events.ts';
+import { printDeploySecurityNotice } from './deploy-security-notice.ts';
 import { formatDeploySummary, printDeploySuccess } from './deploy-summary.ts';
 import { MANAGED_DEPLOY_BUILD_ENV } from './deploy-transport.ts';
 import type { GitDeployMetadata } from './git-metadata.ts';
@@ -247,6 +248,7 @@ export async function runFrameworkDeploy(
     gitMetadata,
     preflightUsed: skipped > 0,
     workerFiles,
+    root,
     spinner: s,
     cliLog,
   });
@@ -271,4 +273,5 @@ export async function runFrameworkDeploy(
 
   warnUnpublishedRouting(result);
   printDeploySuccess(result.published !== false);
+  await printDeploySecurityNotice({ client, ...config, deploymentId: result.deployment, cliLog });
 }

@@ -1,6 +1,6 @@
 import type { ApiRoutes } from '@voidcloud/api/api';
 import type { Context } from 'hono';
-import type { hc } from 'hono/client';
+import { hc } from 'hono/client';
 import type { InferResponseType } from 'hono/client';
 import { getCookie } from 'hono/cookie';
 import { dashboardRequestOrigin, isLocalDashboardHost } from './origin.ts';
@@ -225,6 +225,27 @@ export async function readApiJson<T>(res: ApiResponse): Promise<T | null> {
     return null;
   }
 }
+
+/**
+ * The typed API client for server code: every call goes through `fetchApi`, so it carries
+ * the session token, the Access headers, the timeout and the service binding.
+ */
+export function apiClient(context: Context): Client {
+  return hc<ApiRoutes>(getPublicApiUrl(context), {
+    fetch: ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      return fetchApi(context, `${url.pathname}${url.search}`, init);
+    }) as typeof fetch,
+  });
+}
+
+/** `GET /projects` items. */
+export type ProjectListItem = InferResponseType<Client['projects']['$get'], 200>[number];
+export type {
+  ProjectSecurityBody,
+  ProjectSecurityFindingsBody,
+  ProjectSecurityScansBody,
+} from '@voidcloud/api/api';
 
 export async function getCurrentUser(context: Context): Promise<API<'me'> | null> {
   let res: Response;

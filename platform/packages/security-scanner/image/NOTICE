@@ -1,0 +1,15 @@
+Void security scanner images
+
+The Engine C image (Dockerfile.codex) contains the Codex CLI and the Codex SDK
+(@openai/codex, @openai/codex-sdk), which are licensed under the Apache License 2.0.
+The Apache-2.0 license text (LICENSE) is next to this notice in /opt/void-scanner. Only
+the `codex` binary of the CLI package is kept; its helper binaries and voice libraries
+are removed. The Codex CLI credits further third-party software (for example Ratatui,
+MIT); see https://github.com/openai/codex for its notices.
+
+This image is not made, endorsed or supported by OpenAI. "Codex" and "GPT" are marks of
+their owners; no right to use them is granted.
+
+The Engine A image (Dockerfile.claude) contains the Claude Agent SDK
+(@anthropic-ai/claude-agent-sdk), used under Anthropic's Commercial Terms. It is not made,
+endorsed or supported by Anthropic.

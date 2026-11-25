@@ -64,6 +64,9 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | Install or maintain a company platform     | `docs/guide/self-hosted-platform.md`, `docs/reference/cli/platform-installation.md`       |
 | Develop or deploy a platform fork          | `docs/guide/platform-development.md`, `docs/guide/self-hosted-platform.md`                |
 | Platform administration                    | `docs/guide/platform-administration.md`, `docs/reference/cli/platform.md`                 |
+| Security audits, scan before public        | `docs/guide/platform/administration/security-audits.md`                                   |
+| Security audit admin commands              | `docs/reference/cli/platform-security.md`                                                 |
+| Security findings, check before deploy     | `docs/reference/cli/project.md`                                                           |
 | Platform plans and account limits          | `docs/guide/platform/administration/plans.md`, `docs/reference/cli/platform-config.md`    |
 | Self-host deploy to own Cloudflare account | `docs/integrations/cloudflare.md`, `docs/reference/cli/deploy.md`                         |
 | Project status, deployment history         | `docs/reference/cli/project.md`                                                           |
@@ -101,6 +104,10 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
   `docs/guide/self-hosted-platform.md`. Use `void platform list` to find the
   installation slug for maintenance. For recovery, use its documented resume
   or repair workflow and preserve the installation's credentials and resources.
+- Findings from security audits are advice from an AI review. Resolve them or change their severity
+  only with a reason the user gave, and never bypass a scan before public without the user's explicit
+  request. Scans and `void project security check` cost money and send code to a model; run them only
+  when the user asks.
 - Use `--plan` to review platform changes. If an operation has an uncertain
   outcome, inspect its status and events before retrying.
 

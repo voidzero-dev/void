@@ -114,6 +114,13 @@ export function platformManagementSetupPage(
   const appAccessLevel = appAccess ? 'edit' : accessLevel;
   const permissions = [
     ...platformAccountTokenPermissions(true),
+    // Uninstall deletes the security scanner's container application.
+    ...(plan.deployment.capabilities.securityAudits
+      ? [
+          { key: 'containers', type: 'edit' },
+          { key: 'cloudchamber', type: 'edit' },
+        ]
+      : []),
     ...(zoneName || apiHostname || createsZone
       ? [
           { key: 'zone', type: createsZone ? 'edit' : 'read' },
@@ -173,7 +180,8 @@ export function platformSetupPages(plan: PlatformInstallPlan): PlatformSetupPage
     ...(plan.deployment.capabilities.customDomains
       ? [{ key: 'ssl_and_certificates', type: 'edit' }]
       : []),
-    ...(plan.deployment.capabilities.sandbox
+    // Security audits run the scanner on Containers, as Sandbox does.
+    ...(plan.deployment.capabilities.sandbox || plan.deployment.capabilities.securityAudits
       ? [
           { key: 'containers', type: 'edit' },
           { key: 'cloudchamber', type: 'edit' },
@@ -308,6 +316,7 @@ export type PlatformInstallCommandOptions = {
   controlPlaneDomain: string;
   dashboardUrl?: string;
   customDomains?: boolean;
+  securityAudits?: boolean;
   dedicatedZone: boolean;
   workersDev: boolean;
   authConfig?: string;
@@ -368,6 +377,9 @@ export function platformInstallCommandArguments(
     );
   }
   flag('--dashboard-url', options.dashboardUrl ?? '');
+  if (options.securityAudits) {
+    parts.push('--security-audits');
+  }
   flag('--runtime', options.runtime);
   flag('--runtime-logs', options.runtimeLogs ?? '');
   flag('--storage-location', options.storageLocation ?? '');

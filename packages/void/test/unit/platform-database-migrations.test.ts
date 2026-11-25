@@ -18,7 +18,9 @@ afterEach(async () => {
   database = undefined;
 });
 
-describe('platform database migrations', () => {
+// Each case applies the whole packaged schema in PGlite (under a second alone). Under a
+// full `vp run test`, with every PGlite worker busy, the first case passed 5 seconds.
+describe('platform database migrations', { timeout: 20_000 }, () => {
   it.each(['1.6.0', '1.7.0'])(
     'upgrades a released %s database before applying project AI logging policies',
     async (version) => {

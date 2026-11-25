@@ -9,6 +9,7 @@ import { getProject } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { setPlatformSetting } from '../platform-settings.ts';
 import { projectZeroTrust } from '../schema.ts';
+import { assertPublicGateOff } from '../security/public-gate.ts';
 import {
   PLATFORM_APPLICATION_SETTING,
   resolveZeroTrustApplicationEnvironment,
@@ -105,12 +106,23 @@ export async function claimConfiguration(
     owner: string,
     startedAt: string,
   ) => ZeroTrustConfiguration | Promise<ZeroTrustConfiguration>,
+  options?: Readonly<{
+    /**
+     * A new disable or public-only operation is refused while "Scan before a project
+     * goes public" is on (spec §5.5). The policy is read under the exclusive lock, so
+     * this claim and a gate turn-on, which holds the lock shared, run one at a time.
+     */
+    refuseWhileGateOn?: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>;
+  }>,
 ): Promise<ZeroTrustConfiguration> {
   return db.transaction(async (tx) => {
     await lockZeroTrustConfiguration(tx, 'exclusive');
     const current = await readZeroTrustConfigurationStrict(tx);
     if (current?.operation && leaseActive(current.operation)) {
       throw new ZeroTrustUnavailableError('Another Zero Trust operation is already running.');
+    }
+    if (options?.refuseWhileGateOn && current?.operation?.kind !== 'disable') {
+      await assertPublicGateOff(tx, options.refuseWhileGateOn);
     }
     const configuration = await claim(current, crypto.randomUUID(), await operationStartedAt(tx));
     await writeZeroTrustConfiguration(tx, configuration);

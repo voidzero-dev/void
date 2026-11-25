@@ -203,11 +203,70 @@ describe('platform usage queue bindings', () => {
   });
 
   it('creates core Durable Objects with SQLite while preserving migration tags', () => {
-    expect(workerConfigs().api.migrations).toEqual([
+    const core = [
       { tag: 'v1', new_sqlite_classes: ['UsageCounter'] },
       { tag: 'v2', new_sqlite_classes: ['CronScheduler'] },
       { tag: 'v3', new_sqlite_classes: ['ErrorAlertMonitor'] },
       { tag: 'v4', new_sqlite_classes: ['SandboxConcurrencyCounter'] },
+    ];
+    // A runtime released before security audits has no scheduler class to migrate.
+    expect(workerConfigs().api.migrations).toEqual(core);
+    expect(workerConfigs({ securityScanScheduler: true }).api.migrations).toEqual([
+      ...core,
+      { tag: 'security-audits-v1', new_sqlite_classes: ['SecurityScanScheduler'] },
     ]);
+  });
+});
+
+describe('security audits Worker configs', () => {
+  const workers = ['api', 'dispatch', 'emailGateway', 'proxy', 'tail'] as const;
+  const off = () => workerConfigs({ securityScanScheduler: true });
+  const readVars = (value: unknown) => {
+    const { PLATFORM_CAPABILITIES: capabilities, ...other } = (value ?? {}) as Record<
+      string,
+      string
+    >;
+    return { capabilities: capabilities ? JSON.parse(capabilities) : undefined, other };
+  };
+
+  it('adds only the scheduler binding and its migration when the capability is off', () => {
+    const configs = off();
+    const older = workerConfigs();
+    const { durable_objects: bindings, migrations: _, ...rest } = configs.api;
+    const { durable_objects: olderBindings, migrations: __, ...olderRest } = older.api;
+    expect(rest).toEqual(olderRest);
+    expect((bindings as { bindings: Array<unknown> }).bindings).toEqual([
+      ...(olderBindings as { bindings: Array<unknown> }).bindings,
+      { name: 'SECURITY_SCAN_SCHEDULER', class_name: 'SecurityScanScheduler' },
+    ]);
+    const { api: _api, ...others } = configs;
+    const { api: _olderApi, ...olderOthers } = older;
+    expect(others).toEqual(olderOthers);
+    expect(Object.keys(configs).sort()).toEqual([...workers]);
+    expect(JSON.stringify(configs)).not.toContain('securityAudits');
+  });
+
+  it('adds only the AI binding on the API Worker when the capability is on', () => {
+    const on = workerConfigs({
+      securityScanScheduler: true,
+      deployment: createPlatformDeploymentManifest({
+        ...deploymentInput,
+        capabilities: { securityAudits: true },
+      }),
+    });
+    const before = off();
+    expect(Object.keys(on).sort()).toEqual([...workers]);
+    for (const worker of workers) {
+      const { ai, vars, ...rest } = on[worker];
+      const { ai: offAi, vars: offVars, ...offRest } = before[worker];
+      expect(rest).toEqual(offRest);
+      expect(ai).toEqual(worker === 'api' ? { binding: 'AI' } : offAi);
+      const now = readVars(vars);
+      const was = readVars(offVars);
+      expect(now.other).toEqual(was.other);
+      expect(now.capabilities).toEqual(
+        was.capabilities && { ...was.capabilities, securityAudits: true },
+      );
+    }
   });
 });

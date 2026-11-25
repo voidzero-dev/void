@@ -50,3 +50,30 @@ describe('configurable authentication deployment manifests', () => {
     ).toThrow('schema version 3');
   });
 });
+
+describe('security audits deployment manifests', () => {
+  const input = {
+    application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
+    displayName: 'Team',
+    installationSlug: 'team',
+  };
+  const roundTrip = (manifest: unknown) =>
+    // oxlint-disable-next-line unicorn/prefer-structured-clone -- Exercise the JSON representation read by the parser.
+    parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(manifest)));
+
+  it('reads a missing capability as off and needs schema version 7 to turn it on', () => {
+    const off = createPlatformDeploymentManifest(input);
+    expect(off.schemaVersion).toBe(1);
+    const { securityAudits: _, ...olderCapabilities } = off.capabilities;
+    expect(roundTrip({ ...off, capabilities: olderCapabilities })).toEqual(off);
+
+    const on = createPlatformDeploymentManifest({
+      ...input,
+      capabilities: { securityAudits: true },
+    });
+    expect(on.schemaVersion).toBe(7);
+    expect(roundTrip(on)).toEqual(on);
+    expect(() => roundTrip({ ...on, schemaVersion: 1 })).toThrow('schema version 7');
+    expect(() => roundTrip({ ...off, schemaVersion: 7 })).toThrow('schema version 7');
+  });
+});

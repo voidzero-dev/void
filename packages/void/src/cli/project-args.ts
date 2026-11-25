@@ -1,3 +1,5 @@
+import { parseSecurityArgs } from './project-security-args.ts';
+import type { ProjectSecurityArgs } from './project-security-args.ts';
 import type { SubcommandDef } from './subcommand-prompt.ts';
 
 const LOG_LEVELS = new Set(['error', 'warn', 'info', 'log', 'debug', 'all']);
@@ -25,8 +27,13 @@ export const projectSubcommands: Array<SubcommandDef> = [
   },
   {
     name: 'zero-trust',
-    hint: 'status | protect | public | reconcile',
+    hint: 'status | protect | public | bypass | reconcile',
     description: 'Inspect or override Cloudflare Zero Trust protection',
+  },
+  {
+    name: 'security',
+    hint: 'status | list | show | comment | resolve | reopen | scans | model | budget | open',
+    description: 'Review security audit findings and settings',
   },
   { name: 'logs', description: 'Show runtime logs from the deployed project' },
   { name: 'requests', description: 'Show request-level traffic (status, method, timing)' },
@@ -51,15 +58,94 @@ export const projectSubcommands: Array<SubcommandDef> = [
   { name: 'purge-cache', description: 'Purge all cached pages (Void platform)' },
 ];
 
+export type ProjectZeroTrustArgs = {
+  subcommand: 'zero-trust';
+  projectSlug: string;
+  json: boolean;
+} & (
+  | { action: '' | 'status' | 'protect' | 'public' | 'reconcile' }
+  | { action: 'bypass'; reason: string; yes: boolean }
+);
+
+const ZERO_TRUST_ACTIONS = new Set(['status', 'protect', 'public', 'bypass', 'reconcile']);
+const BYPASS_REASON_MAX_CHARS = 4000;
+
+function parseZeroTrustArgs(rest: Array<string>): ProjectZeroTrustArgs {
+  const [action = '', ...args] = rest;
+  if (action && !ZERO_TRUST_ACTIONS.has(action)) {
+    throw new Error(
+      'project: Usage: void project zero-trust <status|protect|public|bypass|reconcile> [--project <slug>] [--json].',
+    );
+  }
+  let projectSlug = '';
+  let reason: string | undefined;
+  const flags = new Set<string>();
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if ((arg === '--reason' || arg === '--yes') && action !== 'bypass') {
+      throw new Error(`project: ${arg} is not used with zero-trust ${action || '<command>'}.`);
+    }
+    if (arg === '--project') {
+      const value = args[++index];
+      if (!value || value.startsWith('-')) {
+        throw new Error('project: --project requires a value.');
+      }
+      if (projectSlug) {
+        throw new Error("project: Duplicate flag '--project'.");
+      }
+      projectSlug = value;
+    } else if (arg === '--reason') {
+      if (reason !== undefined) {
+        throw new Error("project: Duplicate flag '--reason'.");
+      }
+      // A reason is free text and may start with a dash.
+      reason = args[++index];
+      if (reason === undefined) {
+        throw new Error('project: --reason requires a value.');
+      }
+    } else if (arg === '--json' || arg === '--yes') {
+      if (flags.has(arg)) {
+        throw new Error(`project: Duplicate flag '${arg}'.`);
+      }
+      flags.add(arg);
+    } else {
+      throw new Error(`project: Unexpected argument '${arg}'.`);
+    }
+  }
+  const json = flags.has('--json');
+  if (action === 'bypass') {
+    const text = reason?.trim() ?? '';
+    if (text === '') {
+      throw new Error(
+        'project: A reason is required. Say why, for example: --reason "Launch today; scanner is down. Will re-check."',
+      );
+    }
+    if (Array.from(text).length > BYPASS_REASON_MAX_CHARS) {
+      throw new Error(`project: A reason can be at most ${BYPASS_REASON_MAX_CHARS} characters.`);
+    }
+    return {
+      subcommand: 'zero-trust',
+      projectSlug,
+      json,
+      action,
+      reason: text,
+      yes: flags.has('--yes'),
+    };
+  }
+  return {
+    subcommand: 'zero-trust',
+    projectSlug,
+    json,
+    action: action as '' | 'status' | 'protect' | 'public' | 'reconcile',
+  };
+}
+
 export type ProjectArgs =
   | { subcommand: 'status'; name: string }
   | { subcommand: 'link'; name: string }
   | { subcommand: 'list' }
-  | {
-      subcommand: 'zero-trust';
-      action: '' | 'status' | 'protect' | 'public' | 'reconcile';
-      projectSlug: string;
-    }
+  | ProjectZeroTrustArgs
+  | ProjectSecurityArgs
   | { subcommand: 'team'; action: '' }
   | {
       subcommand: 'team';
@@ -194,33 +280,11 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
   }
 
   if (subcommand === 'zero-trust') {
-    const [action = '', ...args] = rest;
-    if (action && !['status', 'protect', 'public', 'reconcile'].includes(action)) {
-      throw new Error(
-        'project: Usage: void project zero-trust <status|protect|public|reconcile> [--project <slug>].',
-      );
-    }
-    let projectSlug = '';
-    for (let index = 0; index < args.length; index++) {
-      const arg = args[index];
-      if (arg === '--project') {
-        const value = args[++index];
-        if (!value || value.startsWith('-')) {
-          throw new Error('project: --project requires a value.');
-        }
-        if (projectSlug) {
-          throw new Error("project: Duplicate flag '--project'.");
-        }
-        projectSlug = value;
-      } else {
-        throw new Error(`project: Unexpected argument '${arg}'.`);
-      }
-    }
-    return {
-      subcommand,
-      action: action as '' | 'status' | 'protect' | 'public' | 'reconcile',
-      projectSlug,
-    };
+    return parseZeroTrustArgs(rest);
+  }
+
+  if (subcommand === 'security') {
+    return parseSecurityArgs(rest);
   }
 
   if (subcommand === 'logs') {
@@ -329,7 +393,7 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
   }
 
   throw new Error(
-    'project: Usage: void project <status|link|list|team|token|zero-trust|logs|requests|rollback|cancel|delete|purge-cache>.',
+    'project: Usage: void project <status|link|list|team|token|zero-trust|security|logs|requests|rollback|cancel|delete|purge-cache>.',
   );
 }
 

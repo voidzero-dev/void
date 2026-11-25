@@ -26,6 +26,7 @@ import {
   invitationsRequest,
   projectDetailRequest,
   projectsPageRequest,
+  securityRequest,
   signupRequest,
   userDetailRequest,
   usersPageRequest,
@@ -73,6 +74,7 @@ export async function renderFateListPage(
     | 'authNew'
     | 'authEdit'
     | 'email'
+    | 'security'
     | 'zeroTrust',
 ): Promise<Response> {
   const title = {
@@ -88,6 +90,7 @@ export async function renderFateListPage(
     authNew: 'Add login method',
     authEdit: 'Edit login method',
     email: 'Email',
+    security: 'Security',
     zeroTrust: 'Zero Trust',
   }[page];
   const { pathname, search } = new URL(context.req.url);
@@ -123,6 +126,8 @@ export async function renderFateListPage(
       await client.request(authNewRequest(path));
     } else if (page === 'authEdit') {
       await client.request(authEditRequest(path));
+    } else if (page === 'security') {
+      await client.request(securityRequest(path));
     } else if (page === 'zeroTrust') {
       await client.request(zeroTrustRequest(path));
     } else {

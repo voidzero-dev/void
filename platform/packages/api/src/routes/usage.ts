@@ -552,7 +552,7 @@ type AiGatewayResponse = Readonly<{
 
 const COST_PER_NEURON = 0.000011;
 
-function aiUsageGraphqlErrors(errors: ReadonlyArray<unknown>, apiToken: string): string {
+export function aiUsageGraphqlErrors(errors: ReadonlyArray<unknown>, apiToken: string): string {
   return errors
     .slice(0, 3)
     .map((error) => {

@@ -142,13 +142,45 @@ describe('operator mutation completion output', () => {
   });
 });
 
+/** Arguments after `security <action>` that each security command accepts. */
+const SECURITY_SAMPLES: Record<string, Array<string>> = {
+  status: [],
+  probe: [],
+  policy: ['public'],
+  models: ['--default', '@cf/zai-org/glm-5.3'],
+  limits: ['--concurrency', '3'],
+  budget: [],
+  findings: [],
+  show: ['p1', 'F-1'],
+  resolve: ['p1', 'F-1', '--reason', 'fixed', '--comment', 'done'],
+  reopen: ['p1', 'F-1', '--comment', 'again'],
+  comment: ['p1', 'F-1', 'note'],
+  model: ['p1', '--default'],
+  scans: [],
+  rescan: ['p1'],
+  backfill: [],
+  sweeps: ['on'],
+  fallback: ['on'],
+  digest: ['off'],
+  webhook: ['https://hooks.example.com/void'],
+  cancel: ['scan-1'],
+  'public-gate': ['on'],
+  'public-requests': [],
+  bypass: ['p1', '--reason', 'launch'],
+  bypasses: [],
+};
+
 describe('operator argument and help coverage', () => {
   it('has nested help and routable arguments for every operation', () => {
     for (const command of operatorCommands) {
       expect(hasHelpPage(['platform', command.group, command.action])).toBe(true);
-      const parameters = (command.positional ?? []).map((name) =>
-        name === 'type' ? 'email' : `${name}-value`,
-      );
+      // Security commands check their own words and flags; each has a sample.
+      const security = command.group === 'security' ? SECURITY_SAMPLES[command.action] : [];
+      expect(command.group !== 'security' || security !== undefined).toBe(true);
+      const parameters =
+        command.group === 'security'
+          ? security
+          : (command.positional ?? []).map((name) => (name === 'type' ? 'email' : `${name}-value`));
       const configureFlags =
         command.group === 'zero-trust' && command.action === 'configure'
           ? [
@@ -1970,4 +2002,100 @@ describe('project AI logging commands', () => {
       expect(output).not.toContain('Ai logging');
     },
   );
+});
+
+describe('platform security commands', () => {
+  type Call = { method: string; path: string; body: Record<string, unknown> | null };
+
+  /** Serves operator replies in order and records each request. */
+  function serve(replies: Array<Record<string, unknown> | Response>) {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    const queue = [...replies];
+    const calls: Array<Call> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+        calls.push({
+          method: init?.method ?? 'GET',
+          path: new URL(String(input)).pathname.replace('/operator/v1', ''),
+          body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null,
+        });
+        const reply = queue.shift() ?? { error: 'unexpected_request' };
+        return reply instanceof Response ? reply : Response.json(reply);
+      }),
+    );
+    return calls;
+  }
+
+  function quiet() {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    return () =>
+      [...log.mock.calls, ...stderr.mock.calls, ...stdout.mock.calls]
+        .map(([chunk]) => String(chunk))
+        .join('\n');
+  }
+
+  const run = (...args: Array<string>) =>
+    runOperatorCommand(parseOperatorArgs(['security', ...args]));
+
+  it('previews a mode change, then applies it at the previewed revision; refuses a bad mode', async () => {
+    const out = quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.policy', target: 'platform', expectedRevision: 7 },
+      { ok: true, policy: { mode: 'public' } },
+    ]);
+    await run('policy', 'public', '--yes');
+    expect(calls.map((call) => [call.path, call.body])).toEqual([
+      ['/security/policy', { mode: 'public', dryRun: true }],
+      ['/security/policy', { mode: 'public', expectedRevision: 7 }],
+    ]);
+    expect(stripVTControlCharacters(out())).toContain('Platform security policy completed.');
+    expect(() => parseOperatorArgs(['security', 'policy', 'everything'])).toThrow(
+      'disabled|public|all',
+    );
+  });
+
+  it('reads a provider key from stdin once and never prints it', async () => {
+    const out = quiet();
+    vi.spyOn(process.stdin, Symbol.asyncIterator).mockImplementation(async function* () {
+      yield 'sk-ant-secret-value-123\n';
+      return undefined;
+    });
+    const calls = serve([
+      { dryRun: true, action: 'security.provider-key', target: 'anthropic' },
+      { ok: true, host: 'anthropic', message: 'Saved your own Anthropic key.' },
+    ]);
+    await run('models', '--provider', 'anthropic', '--key-stdin', '--yes');
+    expect(calls[1]).toMatchObject({
+      path: '/security/provider-keys',
+      body: { host: 'anthropic', key: 'sk-ant-secret-value-123' },
+    });
+    expect(out()).toContain('Saved your own Anthropic key.');
+    expect(out()).not.toContain('sk-ant-secret-value-123');
+  });
+
+  it('bypasses a public request with a preview first', async () => {
+    quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.public-request-bypass', target: 'p1' },
+      { ok: true, project: { state: 'ready' } },
+    ]);
+    await run('bypass', 'p1', '--reason', 'launch today', '--yes');
+    expect(calls[1]).toMatchObject({
+      path: '/projects/p1/security/public-request/bypass',
+      body: { reason: 'launch today' },
+    });
+  });
+
+  it('names the upgrade command when security audits are not installed', async () => {
+    quiet();
+    const body = { error: 'platform capability unavailable', capability: 'securityAudits' };
+    serve([Response.json(body, { status: 501 })]);
+    await expect(run('probe')).rejects.toThrow(
+      'Security audits are not installed. Run: void platform upgrade --security-audits',
+    );
+  });
 });

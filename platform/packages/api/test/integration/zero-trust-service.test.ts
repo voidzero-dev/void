@@ -708,12 +708,10 @@ describe('project Zero Trust reconciliation', () => {
     releaseBypassCreation();
 
     await expect(publicTransition).resolves.toMatchObject({
-      status: 'ready',
-      desired_protected: false,
+      row: { status: 'ready', desired_protected: false },
     });
     await expect(protectedTransition).resolves.toMatchObject({
-      status: 'ready',
-      desired_protected: true,
+      row: { status: 'ready', desired_protected: true },
     });
     expect(await getProjectZeroTrustState(env.db, project.id)).toMatchObject({
       desired_protected: true,

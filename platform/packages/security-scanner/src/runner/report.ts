@@ -1,0 +1,168 @@
+// The findings report every engine hands back (`submit_findings` arguments, and
+// `/scan/out/findings.json` with `schema_version`). `validate-findings.ts` checks it
+// in the container, and the API reuses its `validateFindingsValue` at ingest (M12).
+
+export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'informational'] as const;
+export type Severity = (typeof SEVERITIES)[number];
+
+export const VERDICTS = ['confirmed', 'needs_validation', 'rejected'] as const;
+export type Verdict = (typeof VERDICTS)[number];
+
+export const CONFIDENCES = ['high', 'medium', 'low'] as const;
+export type Confidence = (typeof CONFIDENCES)[number];
+
+export const RUN_STATUSES = ['complete', 'incomplete'] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+export const FINDINGS_SCHEMA_VERSION = 1;
+
+export type TraceStep = {
+  file: string;
+  line: number | null;
+  note: string;
+};
+
+/** M30: how a confirmation was reached. `runtime`: a request to the scan's copy proved it. */
+export const VERDICT_SOURCES = ['static', 'runtime'] as const;
+export type VerdictSource = (typeof VERDICT_SOURCES)[number];
+
+export const RUNTIME_PROOF_METHODS = [
+  'GET',
+  'HEAD',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'OPTIONS',
+] as const;
+
+/** The copy request a runtime confirmation rests on, as the runner recorded it. */
+export type RuntimeProof = {
+  request: string;
+  method: (typeof RUNTIME_PROOF_METHODS)[number];
+  path: string;
+  status: number;
+};
+
+export type FindingRecord = {
+  fingerprint: string;
+  verdict: Verdict;
+  severity: Severity | null;
+  confidence: Confidence | null;
+  title: string;
+  category: string;
+  cwe: string | null;
+  file: string;
+  line_start: number | null;
+  line_end: number | null;
+  sink_path: string | null;
+  outside_diff: boolean;
+  trace: Array<TraceStep>;
+  evidence: string;
+  conditions: string;
+  fix: string;
+  reason: string;
+  /**
+   * Verify sessions with the copy tool: the id of the `copy_request` call that proves a
+   * confirmed record (for example "r2"). The runner checks it and turns it into
+   * `verdict_source` / `runtime_proof`; it never reaches the findings file.
+   */
+  proof_request?: string | null;
+  /** Set by the runner only. Absent means `static`. */
+  verdict_source?: VerdictSource;
+  runtime_proof?: RuntimeProof | null;
+};
+
+export type ScanReport = {
+  run_status: RunStatus;
+  findings: Array<FindingRecord>;
+  notes: string;
+};
+
+export type FindingsFile = ScanReport & { schema_version: typeof FINDINGS_SCHEMA_VERSION };
+
+/** Limits shared by the validator, the prompts and the API copy. */
+export const REPORT_LIMITS = {
+  maxBytes: 5 * 1024 * 1024,
+  maxRecords: 1000,
+  fingerprint: 200,
+  title: 200,
+  category: 100,
+  path: 1024,
+  traceSteps: 30,
+  traceNote: 500,
+  evidence: 8000,
+  conditions: 4000,
+  fix: 4000,
+  reason: 1000,
+  notes: 2000,
+  proofRequest: 16,
+  maxLine: 10_000_000,
+} as const;
+
+/** A JSON Schema object, as a tool definition carries it. */
+export interface ToolParametersSchema {
+  [keyword: string]: unknown;
+}
+
+/** JSON Schema for the `submit_findings` tool, kept in step with the validator. */
+export function submitFindingsParameters(): ToolParametersSchema {
+  const path = { type: 'string', maxLength: REPORT_LIMITS.path };
+  const line = { type: ['integer', 'null'], minimum: 1, maximum: REPORT_LIMITS.maxLine };
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['run_status', 'findings'],
+    properties: {
+      run_status: { type: 'string', enum: [...RUN_STATUSES] },
+      notes: { type: 'string', maxLength: REPORT_LIMITS.notes },
+      findings: {
+        type: 'array',
+        maxItems: REPORT_LIMITS.maxRecords,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['fingerprint', 'verdict', 'title', 'category', 'file'],
+          properties: {
+            fingerprint: { type: 'string', minLength: 1, maxLength: REPORT_LIMITS.fingerprint },
+            verdict: { type: 'string', enum: [...VERDICTS] },
+            severity: { type: ['string', 'null'], enum: [...SEVERITIES, null] },
+            confidence: { type: ['string', 'null'], enum: [...CONFIDENCES, null] },
+            title: { type: 'string', minLength: 1, maxLength: REPORT_LIMITS.title },
+            category: { type: 'string', minLength: 1, maxLength: REPORT_LIMITS.category },
+            cwe: { type: ['string', 'null'], description: 'CWE-<number> or null' },
+            file: path,
+            line_start: line,
+            line_end: line,
+            sink_path: { type: ['string', 'null'], maxLength: REPORT_LIMITS.path },
+            outside_diff: { type: 'boolean' },
+            trace: {
+              type: 'array',
+              maxItems: REPORT_LIMITS.traceSteps,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['file', 'note'],
+                properties: {
+                  file: path,
+                  line,
+                  note: { type: 'string', maxLength: REPORT_LIMITS.traceNote },
+                },
+              },
+            },
+            evidence: { type: 'string', maxLength: REPORT_LIMITS.evidence },
+            conditions: { type: 'string', maxLength: REPORT_LIMITS.conditions },
+            fix: { type: 'string', maxLength: REPORT_LIMITS.fix },
+            reason: { type: 'string', maxLength: REPORT_LIMITS.reason },
+            proof_request: {
+              type: ['string', 'null'],
+              maxLength: REPORT_LIMITS.proofRequest,
+              description:
+                'Only with the copy_request tool: the id of the request that proves a confirmed finding (for example "r2"), else null.',
+            },
+          },
+        },
+      },
+    },
+  };
+}

@@ -17,7 +17,8 @@ export default function AuthenticatedPage({ user }: Props) {
             </p>
           </VStack>
           <HStack gap={2} wrap="wrap">
-            <Button href="/account" label="Manage login methods" />
+            <Button href="/projects" label="Projects" />
+            <Button href="/account" label="Manage login methods" variant="secondary" />
             <Button href="/logout" label="Sign out" variant="secondary" />
           </HStack>
         </VStack>

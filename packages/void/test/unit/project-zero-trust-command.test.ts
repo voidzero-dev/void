@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { runProjectCommand } from '../../src/cli/project-cmd.ts';
+import { runProjectZeroTrustCommand } from '../../src/cli/project-zero-trust.ts';
+import { captureOutput } from '../helpers/cli-command.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 
 const roots: Array<string> = [];
@@ -71,7 +73,12 @@ describe('project Zero Trust command', () => {
       output.push(String(chunk));
       return true;
     });
-    await runProjectCommand(root, { subcommand: 'zero-trust', action: 'public', projectSlug: '' });
+    await runProjectCommand(root, {
+      subcommand: 'zero-trust',
+      action: 'public',
+      projectSlug: '',
+      json: false,
+    });
     expect(output.join('')).toContain('still in progress');
     expect(output.join('')).toContain('void project zero-trust reconcile');
     expect(output.join('')).not.toContain('linked-app is public');
@@ -102,7 +109,12 @@ describe('project Zero Trust command', () => {
       output += String(chunk);
       return true;
     });
-    await runProjectCommand(root, { subcommand: 'zero-trust', action: 'protect', projectSlug: '' });
+    await runProjectCommand(root, {
+      subcommand: 'zero-trust',
+      action: 'protect',
+      projectSlug: '',
+      json: false,
+    });
     expect(output).toContain('needs attention');
     expect(output).not.toContain('✓');
     expect(output).not.toContain('is protected');
@@ -145,6 +157,7 @@ describe('project Zero Trust command', () => {
       subcommand: 'zero-trust',
       action: 'status',
       projectSlug: '',
+      json: false,
     });
 
     expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
@@ -193,6 +206,7 @@ describe('project Zero Trust command', () => {
       subcommand: 'zero-trust',
       action: 'status',
       projectSlug: '',
+      json: false,
     });
 
     const rendered = output.join('');
@@ -230,16 +244,19 @@ describe('project Zero Trust command', () => {
       subcommand: 'zero-trust',
       action: 'protect',
       projectSlug: '',
+      json: false,
     });
     await runProjectCommand(root, {
       subcommand: 'zero-trust',
       action: 'public',
       projectSlug: '',
+      json: false,
     });
     await runProjectCommand(root, {
       subcommand: 'zero-trust',
       action: 'reconcile',
       projectSlug: '',
+      json: false,
     });
 
     expect(fetchMock.mock.calls).toEqual([
@@ -291,11 +308,85 @@ describe('project Zero Trust command', () => {
       subcommand: 'zero-trust',
       action: 'status',
       projectSlug: '',
+      json: false,
     });
 
     const rendered = output.join('');
     expect(rendered).toContain('before 31mafter title');
     expect(rendered).not.toContain('\u009b');
     expect(rendered).not.toContain('\u009d');
+  });
+});
+
+describe('project Zero Trust with a public request', () => {
+  const project = { project_id: 'project_1', desired_protected: true, state: 'protected' };
+  const request = (state: string) => ({
+    id: 'spr_1',
+    state,
+    heldReason: 'timed_out',
+    targetDeploymentId: 'dpl_9a1d',
+    blockers: { count: 0, ids: [] },
+  });
+  function setup(fetchMock: unknown) {
+    const root = linkedProject();
+    vi.stubEnv('VOID_TOKEN', 'test-token');
+    vi.stubEnv('VOID_API_URL', 'https://api.example.test');
+    vi.stubGlobal('fetch', withPlatformDiscovery(fetchMock));
+    return root;
+  }
+  const base = { projectSlug: '', json: false } as const;
+  const bypass = { ...base, subcommand: 'zero-trust', action: 'bypass' } as const;
+  const args = { ...bypass, reason: 'Scanner down', yes: true };
+
+  it('prints a held public as protected, never as public', async () => {
+    const reply = { ok: true, project, publicRequest: request('waiting_scan') };
+    const root = setup(vi.fn(async () => Response.json(reply, { status: 202 })));
+    const out = captureOutput();
+    await runProjectCommand(root, { ...bypass, action: 'public' });
+    expect(out.output()).toContain('Waiting for a security scan of dpl_9a1d');
+    expect(out.output()).not.toContain('is public');
+  });
+
+  it('bypasses with the reason and the request it saw, and refuses while urgent findings are open', async () => {
+    let post = () => Response.json({ ok: true, project, publicRequest: request('bypassed') });
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? post()
+        : Response.json({
+            available: true,
+            platformStatus: 'ready',
+            project,
+            publicRequest: request('held_no_result'),
+          }),
+    );
+    const root = setup(fetchMock);
+    const out = captureOutput();
+    await runProjectZeroTrustCommand(root, args, { interactive: false });
+    const sent = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')?.[1]?.body;
+    expect(JSON.parse(String(sent))).toEqual({ reason: 'Scanner down', requestId: 'spr_1' });
+    expect(out.output()).toContain('Scan bypassed.');
+    const blockers = { count: 1, ids: ['F-12'] };
+    post = () =>
+      Response.json(
+        { error: 'security public request has urgent findings', blockers },
+        { status: 409 },
+      );
+    await expect(runProjectZeroTrustCommand(root, args, { interactive: false })).rejects.toThrow(
+      'A bypass skips only the scan, not open findings.',
+    );
+  });
+
+  it('refuses security and bypass on a direct Cloudflare target before any request', async () => {
+    const root = linkedProject();
+    writeFileSync(join(root, '.void', 'project.json'), JSON.stringify({ platform: 'cloudflare' }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(runProjectCommand(root, args)).rejects.toThrow(
+      'only for projects hosted on a Void platform',
+    );
+    await expect(
+      runProjectCommand(root, { ...base, subcommand: 'security', action: 'status' }),
+    ).rejects.toThrow('Security audits are available only for projects hosted on a Void platform');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

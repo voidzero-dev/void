@@ -3,7 +3,11 @@ import type { PlatformApplication } from './application.ts';
 import { parsePlatformLoginDescriptor, parsePlatformLoginId } from './authentication.ts';
 import type { PlatformLoginDescriptor } from './authentication.ts';
 import { parseUsageProtocolVersion } from './installation.ts';
-import { normalizeApplicationDomain, normalizePlatformDashboardUrl } from './manifest.ts';
+import {
+  normalizeApplicationDomain,
+  normalizePlatformDashboardUrl,
+  readPlatformCapability,
+} from './manifest.ts';
 import type { PlatformCapabilities } from './manifest.ts';
 import { assertRecord, record } from './validate.ts';
 
@@ -163,7 +167,7 @@ export function parsePlatformDiscoveryDocument(value: unknown): PlatformDiscover
   }
   assertRecord(capabilities, 'capabilities');
   const readCapability = (name: keyof PlatformCapabilities): boolean => {
-    const enabled = capabilities[name];
+    const enabled = readPlatformCapability(capabilities, name);
     if (typeof enabled !== 'boolean') {
       throw new Error(`capabilities.${name} must be a boolean.`);
     }
@@ -178,6 +182,7 @@ export function parsePlatformDiscoveryDocument(value: unknown): PlatformDiscover
     googleOAuth: readCapability('googleOAuth'),
     managedBuilds: readCapability('managedBuilds'),
     sandbox: readCapability('sandbox'),
+    securityAudits: readCapability('securityAudits'),
   };
   const providers = document.authenticationProviders;
   if (

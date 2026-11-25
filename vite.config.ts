@@ -23,6 +23,7 @@ const pgliteUnitTests = [
   'platform/packages/api/test/unit/email-shared-recipient-migration.test.ts',
   'platform/packages/api/test/unit/github-authority-constraints-migration.test.ts',
   'platform/packages/api/test/unit/github-authority-migration.test.ts',
+  'platform/packages/api/test/unit/security-migration.test.ts',
 ];
 const cliUnitTests = [
   'packages/void/test/unit/cf-*.test.ts',
@@ -66,6 +67,18 @@ const platformAlias = {
   ),
   'void:sandbox-controller-source': fileURLToPath(
     new URL('platform/packages/api/test/__mocks__/sandbox-controller-source.ts', import.meta.url),
+  ),
+  'void:security-scanner-controller-source': fileURLToPath(
+    new URL(
+      'platform/packages/api/test/__mocks__/security-scanner-controller-source.ts',
+      import.meta.url,
+    ),
+  ),
+  'void:security-scanner-runner-source': fileURLToPath(
+    new URL(
+      'platform/packages/api/test/__mocks__/security-scanner-runner-source.ts',
+      import.meta.url,
+    ),
   ),
   // cloudflare:workers is only available in the Workers runtime.
   'cloudflare:workers': fileURLToPath(

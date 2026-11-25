@@ -19,6 +19,7 @@ import adminInvitations from './admin/routes/invitations.tsx';
 import adminLogin from './admin/routes/login.ts';
 import adminPlans from './admin/routes/plans.ts';
 import adminProjects from './admin/routes/projects.tsx';
+import adminSecurity, { adminProjectSecurity } from './admin/routes/security.ts';
 import adminSignupControl from './admin/routes/signup-control.tsx';
 import { dashboardHandler, adminSystem } from './admin/routes/system.tsx';
 import adminUsers from './admin/routes/users.tsx';
@@ -125,6 +126,7 @@ import internalVerifyPrerenderBuild from './routes/internal-verify-prerender-bui
 import me from './routes/me.ts';
 import oauth, { oauthMetadata } from './routes/oauth.ts';
 import platformBootstrapRoutes from './routes/platform-bootstrap.ts';
+import projectSecurityRoutes from './routes/project-security.ts';
 import {
   myProjectInvitationRoutes,
   projectInvitationResponseRoutes,
@@ -135,6 +137,7 @@ import projectZeroTrustRoutes from './routes/project-zero-trust.ts';
 import projects from './routes/projects.ts';
 import revalidate from './routes/revalidate.ts';
 import secrets from './routes/secrets.ts';
+import securityPageRoutes from './routes/security-page.ts';
 import { projectUsage, accountUsage } from './routes/usage.ts';
 import { webhookRoutes } from './routes/webhooks.ts';
 import { setProjectsRoutingSuspension } from './routing.ts';
@@ -146,6 +149,10 @@ import {
   platformLoginTests,
   platformHumanSessions,
 } from './schema.ts';
+import { SecurityScanControl } from './security/control.ts';
+import { runSecurityMaintenance } from './security/maintenance.ts';
+import { reconcilePendingPublicRequests } from './security/public-gate-flow.ts';
+import { SecurityScanScheduler } from './security/scheduler.ts';
 import { isAdminSuspended, REASON_REQUESTS_EXCEEDED } from './suspension.ts';
 import { getCurrentBillingPeriodStart } from './tiers.ts';
 import type { Domain } from './types.ts';
@@ -157,9 +164,11 @@ import { lockZeroTrustConfiguration } from './zero-trust/lock.ts';
 import { reconcilePendingProjectZeroTrust } from './zero-trust/maintenance.ts';
 import { reconcileProjectZeroTrustDomains } from './zero-trust/project.ts';
 import {
+  MAX_ROUTING_KEYS_PER_RUN,
   resolveProjectZeroTrustRoutingForPublication,
   withProjectZeroTrustRouting,
 } from './zero-trust/routing.ts';
+import type { RoutingBudget } from './zero-trust/routing.ts';
 import { markProjectCustomDomainsChanged } from './zero-trust/state.ts';
 
 function sharedEmailBootstrapFailureDetail(
@@ -602,6 +611,8 @@ const app = new Hono<ApiEnv>()
   // capability response.
   .use('/email/*', capabilityMiddleware('email'))
   .route('/email', emailConfirm)
+  // The signed link from `void project security open` is the credential (spec §13.2).
+  .route('/security/projects', securityPageRoutes)
   .use('/me', authMiddleware)
   .use('/me/*', authMiddleware)
   .route('/me', me)
@@ -613,6 +624,7 @@ const app = new Hono<ApiEnv>()
   .route('/projects', projectTokens)
   .route('/projects', projectTeamRoutes)
   .route('/projects', projectZeroTrustRoutes)
+  .route('/projects', projectSecurityRoutes)
   .route('/projects', deploy)
   .route('/projects', deleteRoute)
   .route('/projects', revalidate)
@@ -635,7 +647,9 @@ app.use('/admin/*', adminCsrfMiddleware);
 app.post('/admin/fate', adminFateHandler);
 app.get('/admin/', dashboardHandler);
 app.route('/admin/users', adminUsers);
+app.route('/admin/projects', adminProjectSecurity);
 app.route('/admin/projects', adminProjects);
+app.route('/admin/security', adminSecurity);
 app.route('/admin/email', adminEmail);
 app.route('/admin/zero-trust', adminZeroTrust);
 app.route('/admin/builds', adminBuilds);
@@ -823,14 +837,28 @@ async function runScheduledMaintenance(
 
   // Hourly tier (every :00): full maintenance.
 
+  // Security audits: reaper, re-poke, backlog skip, sweeps, retention, daily probe.
+  if (capabilities.securityAudits) {
+    await runSecurityMaintenance(env, db, Date.now()).catch((error: unknown) =>
+      console.error('[scheduled] security audit maintenance failed:', error),
+    );
+  }
+
   if (capabilities.sandbox) {
     await retrySandboxControllerCleanup(db, env).catch((error: unknown) =>
       console.error('[scheduled] Sandbox controller cleanup failed:', error),
     );
   }
 
-  await reconcilePendingProjectZeroTrust(env, db).catch((error: unknown) =>
-    console.error('[scheduled] Zero Trust reconciliation failed:', error),
+  const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
+  await reconcilePendingProjectZeroTrust(env, db, undefined, routingBudget).catch(
+    (error: unknown) => console.error('[scheduled] Zero Trust reconciliation failed:', error),
+  );
+
+  // Public gate backstop: judge open public requests again (for example after an
+  // installation operation ends). Flips only when the full reconcile fits its budget.
+  await reconcilePendingPublicRequests(env, db, undefined, routingBudget).catch((error: unknown) =>
+    console.error('[scheduled] public request re-check failed:', error),
   );
 
   // Repair published AI logging settings that drifted from Postgres, and advance
@@ -1366,6 +1394,8 @@ export {
   ErrorAlertMonitor,
   SandboxConcurrencyCounter,
   SandboxControl,
+  SecurityScanControl,
+  SecurityScanScheduler,
   BuildScheduler,
   BuildManager,
   BuildManagerLarge,

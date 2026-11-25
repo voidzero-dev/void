@@ -12,6 +12,8 @@ import {
 import { useToast } from '@astryxdesign/core/Toast';
 import { PLAN_EDITABLE_LIMIT_KEYS, PLAN_LIMITS } from '@void/platform/plans';
 import type { EditablePlanLimit, PlatformPlanDefinition } from '@void/platform/plans';
+import { formatPlanSecurityCap, planSecurityCap } from '@void/platform/security-policy';
+import type { SecurityPlanCap } from '@void/platform/security-policy';
 import { Link } from '@void/react';
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
@@ -70,6 +72,17 @@ const aiLoggingLabels: Record<AiLoggingMode, string> = {
 };
 function aiLoggingMode(modes: PlanAiLoggingSettings['modes'], planId: string): AiLoggingMode {
   return Object.hasOwn(modes, planId) ? modes[planId] : 'inherit';
+}
+/** The form value of a cap: `inherit`, `none` or cents, compared on submit (`securityCapInitial`). */
+function securityCapFormValue(cap: SecurityPlanCap): string {
+  return typeof cap === 'number' ? String(cap) : cap;
+}
+function securityCapLabel(cap: SecurityPlanCap): string {
+  return cap === 'inherit'
+    ? 'Policy default'
+    : cap === 'none'
+      ? 'No cap'
+      : formatPlanSecurityCap(cap);
 }
 function usePlans(path: string) {
   const { plans: ref } = useRequest(plansRequest(path), { mode: 'stale-while-revalidate' });
@@ -131,7 +144,7 @@ function PlanAction({
 
 export function PlansPage({ path, platformName, username }: AdminPageProps) {
   usePlanConfirmation(path);
-  const { catalog, accounts, aiLogging } = usePlans(path);
+  const { catalog, accounts, aiLogging, securityCaps, securityAudits } = usePlans(path);
   const pending = catalog.reconciliation && !catalog.reconciliation.complete;
   const publishPending = aiLogging.publish && !aiLogging.publish.complete;
   return (
@@ -186,6 +199,7 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
             <TableHeaderCell>Monthly requests</TableHeaderCell>
             <TableHeaderCell>Build size</TableHeaderCell>
             <TableHeaderCell>AI Gateway logging</TableHeaderCell>
+            {securityAudits && <TableHeaderCell>Security scan cap</TableHeaderCell>}
             <TableHeaderCell>Actions</TableHeaderCell>
           </TableRow>
         </TableHeader>
@@ -213,6 +227,9 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
                 {plan.buildInstanceType === 'standard-3' ? 'Standard' : 'Large'}
               </TableCell>
               <TableCell>{aiLoggingLabels[aiLoggingMode(aiLogging.modes, plan.id)]}</TableCell>
+              {securityAudits && (
+                <TableCell>{securityCapLabel(planSecurityCap(securityCaps, plan.id))}</TableCell>
+              )}
               <TableCell>
                 <Button
                   href={`${HOME}/${plan.id}/edit`}
@@ -231,8 +248,10 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
 
 export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
   usePlanConfirmation(path);
-  const { catalog, accounts, aiLogging, selectedPlanId } = usePlans(path);
+  const { catalog, accounts, aiLogging, securityCaps, securityAudits, selectedPlanId } =
+    usePlans(path);
   const plan = catalog.plans.find((p) => p.id === selectedPlanId);
+  const securityCap = plan ? planSecurityCap(securityCaps, plan.id) : 'inherit';
   const pending = catalog.reconciliation && !catalog.reconciliation.complete;
   const count = accounts.find((a) => a.planId === plan?.id)?.count ?? 0;
   return (
@@ -345,6 +364,40 @@ export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
                     Applies to projects on this plan that have no project setting. Accounts on a
                     plan missing from the catalog follow the signup default plan.
                   </p>
+                  {securityAudits && (
+                    <>
+                      {/* Like the AI logging selector, only a changed value is sent. */}
+                      <input
+                        type="hidden"
+                        name="securityCapInitial"
+                        defaultValue={securityCapFormValue(securityCap)}
+                      />
+                      <FormSelector
+                        label="Security scan cap"
+                        name="securityCapMode"
+                        initialValue={typeof securityCap === 'number' ? 'amount' : securityCap}
+                        options={[
+                          { value: 'inherit', label: 'Policy default' },
+                          { value: 'amount', label: 'Monthly amount' },
+                          { value: 'none', label: 'No cap' },
+                        ]}
+                      />
+                      <FormTextInput
+                        label="Monthly amount per project (USD)"
+                        name="securityCapUsd"
+                        initialValue={
+                          typeof securityCap === 'number' ? String(securityCap / 100) : ''
+                        }
+                        maxLength={16}
+                        width={220}
+                      />
+                      <p>
+                        The most each project on this plan may spend on security scans in a month. A
+                        limit set for one project in Security still comes first. Policy default uses
+                        the default project cap while project caps are on.
+                      </p>
+                    </>
+                  )}
                   <p>
                     Existing URLs remain available. Storage figures are informational; static
                     deployment retention is unchanged.
@@ -436,6 +489,8 @@ function differences(
   before: PlatformPlanDefinition | undefined,
   after: PlatformPlanDefinition | undefined,
   aiLogging: Readonly<{ before: AiLoggingMode | undefined; after: AiLoggingMode }>,
+  /** `null` leaves the scan cap row out (security audits off). */
+  securityCap: Readonly<{ before: SecurityPlanCap | undefined; after: SecurityPlanCap }> | null,
 ) {
   if (!after) {
     return [{ label: 'Plan', before: before?.name ?? '—', after: 'Removed' }];
@@ -462,6 +517,15 @@ function differences(
       before: aiLogging.before ? aiLoggingLabels[aiLogging.before] : '—',
       after: aiLoggingLabels[aiLogging.after],
     },
+    ...(securityCap
+      ? [
+          {
+            label: 'Security scan cap',
+            before: securityCap.before === undefined ? '—' : securityCapLabel(securityCap.before),
+            after: securityCapLabel(securityCap.after),
+          },
+        ]
+      : []),
     ...PLAN_EDITABLE_LIMIT_KEYS.map((key) => ({
       label: labels[key],
       before: before ? limit(before.limits[key], key) : '—',
@@ -488,6 +552,12 @@ export function PlanPreviewPage({
       before: beforePlan ? aiLoggingMode(preview.aiLoggingBefore, target) : undefined,
       after: aiLoggingMode(preview.aiLoggingAfter, target),
     },
+    preview.securityAudits
+      ? {
+          before: beforePlan ? planSecurityCap(preview.securityCapsBefore, target) : undefined,
+          after: planSecurityCap(preview.securityCapsAfter, target),
+        }
+      : null,
   );
   if (before.defaultPlanId !== after.defaultPlanId) {
     changes.push({
@@ -505,10 +575,20 @@ export function PlanPreviewPage({
     const replacement = after.plans.find((p) => p.id === preview.body.replacementPlanId);
     if (replacement) {
       changes.push(
-        ...differences(beforePlan, replacement, {
-          before: aiLoggingMode(preview.aiLoggingBefore, target),
-          after: aiLoggingMode(preview.aiLoggingAfter, replacement.id),
-        }).filter((row) => row.label !== 'Display name'),
+        ...differences(
+          beforePlan,
+          replacement,
+          {
+            before: aiLoggingMode(preview.aiLoggingBefore, target),
+            after: aiLoggingMode(preview.aiLoggingAfter, replacement.id),
+          },
+          preview.securityAudits
+            ? {
+                before: planSecurityCap(preview.securityCapsBefore, target),
+                after: planSecurityCap(preview.securityCapsAfter, replacement.id),
+              }
+            : null,
+        ).filter((row) => row.label !== 'Display name'),
       );
     }
   }

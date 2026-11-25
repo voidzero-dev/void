@@ -1,6 +1,7 @@
 import type { Env } from 'hono';
 import type { Db } from './db.ts';
 import type { SandboxConcurrencyCounter } from './sandbox-concurrency-counter.ts';
+import type { SecurityScanScheduler } from './security/scheduler.ts';
 import type { User } from './types.ts';
 
 /**
@@ -121,6 +122,13 @@ export type ApiEnv = Env & {
     CRON_SCHEDULER: DurableObjectNamespace;
     ERROR_ALERT_MONITOR: DurableObjectNamespace;
     SANDBOX_CONCURRENCY_COUNTER: DurableObjectNamespace<SandboxConcurrencyCounter>;
+    /**
+     * Singleton DO (`idFromName('global')`) for the security scan queue. Bound on
+     * every install; it stays idle unless the `securityAudits` capability is on.
+     */
+    SECURITY_SCAN_SCHEDULER: DurableObjectNamespace<SecurityScanScheduler>;
+    /** Workers AI, bound only when the `securityAudits` capability is on. */
+    AI?: Ai;
     /**
      * Singleton DO that queues `executor='container'` builds and enforces
      * per-user tier concurrency before handing each build to a BuildManager.

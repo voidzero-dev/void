@@ -1286,13 +1286,28 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
     // (measured: +170 MB on this input, past the 128 MB isolate ceiling).
     const requestId = `\na`.repeat((5 * 1024 * 1024) / 2);
     const forged = `req_1\n[email-log] proj_victim x@example.com sent forged @0`;
-    const sender = createSender();
-    const env = createMockEnv(happyPathKv(), { SEND_EMAIL: sender.binding });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    // Both call through; `mock.contexts` keeps the string each one ran on.
+    const replaceSpy = vi.spyOn(String.prototype, 'replace');
+    const replaceAllSpy = vi.spyOn(String.prototype, 'replaceAll');
     try {
-      const t0 = performance.now();
-      const res = await postSend(env, await sendBody({ requestId }));
-      const elapsed = performance.now() - t0;
+      const sender = createSender();
+      const env = createMockEnv(happyPathKv(), { SEND_EMAIL: sender.binding });
+      const body = await sendBody({ requestId });
+      replaceSpy.mockClear();
+      replaceAllSpy.mockClear();
+      const res = await postSend(env, body);
+      // Slice first, then strip: no part of the id longer than the 128 cap may
+      // reach a replace. Timing could not tell the two orders apart under load.
+      const replacedIdLengths = [
+        ...replaceSpy.mock.contexts,
+        ...replaceAllSpy.mock.contexts,
+      ].flatMap((context) => {
+        const value = String(context);
+        return value.startsWith('\na\na') ? [value.length] : [];
+      });
+      expect(replacedIdLengths.length).toBeGreaterThan(0);
+      expect(Math.max(...replacedIdLengths)).toBeLessThanOrEqual(128);
       expect(res.status).toBe(200);
       expect((await readSend(res)).ok).toBe(true);
       expect(sender.calls).toHaveLength(1);
@@ -1307,8 +1322,6 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
       expect(lines[0].length).toBeLessThanOrEqual(fixed + 128);
       expect(lines[0]).not.toMatch(CONTROL);
       expect(lines[0].split(' ')[1]).toBe('proj_000000000001');
-      // Generous: the slice-first path is ~0 ms; the JSON body is ~5 MB.
-      expect(elapsed).toBeLessThan(500);
 
       // And a newline can no longer forge a second `[email-log]` line.
       logSpy.mockClear();
@@ -1322,6 +1335,8 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
       expect(lines2[0]).not.toContain('\n[email-log]');
       expect(lines2[0].split(' ')[1]).toBe('proj_000000000001');
     } finally {
+      replaceAllSpy.mockRestore();
+      replaceSpy.mockRestore();
       logSpy.mockRestore();
     }
   });

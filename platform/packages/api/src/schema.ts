@@ -1628,3 +1628,5 @@ export const invitations = pgTable(
 export * from './email/connection-schema.ts';
 
 export * from './email/admission-schema.ts';
+
+export * from './security/schema.ts';

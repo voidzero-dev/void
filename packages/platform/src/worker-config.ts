@@ -1,5 +1,9 @@
 import { createPlatformResourceOwnershipMarker } from './installation.ts';
-import { createApplicationRoutes, platformDashboardUrl } from './manifest.ts';
+import {
+  createApplicationRoutes,
+  platformDashboardUrl,
+  serializePlatformCapabilities,
+} from './manifest.ts';
 import type { PlatformDeploymentManifest } from './manifest.ts';
 
 export type PlatformProvisionedResourceIds = Readonly<{
@@ -30,6 +34,11 @@ export function createPlatformWorkerConfigs(input: {
   proxyUrl: string;
   emailGatewayUrl: string;
   resources: PlatformProvisionedResourceIds;
+  /**
+   * The runtime exports `SecurityScanScheduler` (runtime manifest `securityAudits: 1`).
+   * The class and its migration then ship whatever the capability says.
+   */
+  securityScanScheduler?: boolean;
   runtimeEntrypoints: Readonly<
     Record<'api' | 'dispatch' | 'proxy' | 'tail' | 'emailGateway', string>
   >;
@@ -76,6 +85,7 @@ export function createPlatformWorkerConfigs(input: {
       }),
     ),
   });
+  const capabilitiesVar = serializePlatformCapabilities(deployment.capabilities);
   // Sent only in minimal mode, so default Worker configs stay unchanged.
   const runtimeLogs = deployment.runtimeLogs
     ? { PLATFORM_RUNTIME_LOGS: deployment.runtimeLogs }
@@ -144,6 +154,8 @@ export function createPlatformWorkerConfigs(input: {
     hyperdrive: [{ binding: 'HYPERDRIVE', id: resources.hyperdrive }],
     kv_namespaces: kv,
     ...(deployment.capabilities.email ? { send_email: [{ name: 'EMAIL' }] } : {}),
+    // Security scans call the default Workers AI model through this binding.
+    ...(deployment.capabilities.securityAudits ? { ai: { binding: 'AI' } } : {}),
     r2_buckets: r2,
     dispatch_namespaces: dispatchNamespace,
     durable_objects: {
@@ -152,6 +164,11 @@ export function createPlatformWorkerConfigs(input: {
         { name: 'CRON_SCHEDULER', class_name: 'CronScheduler' },
         { name: 'ERROR_ALERT_MONITOR', class_name: 'ErrorAlertMonitor' },
         { name: 'SANDBOX_CONCURRENCY_COUNTER', class_name: 'SandboxConcurrencyCounter' },
+        // Bound whatever the capability says: an idle SQLite DO works on Workers
+        // Free, and dropping the class later would need a delete migration.
+        ...(input.securityScanScheduler
+          ? [{ name: 'SECURITY_SCAN_SCHEDULER', class_name: 'SecurityScanScheduler' }]
+          : []),
       ],
     },
     migrations: [
@@ -159,6 +176,10 @@ export function createPlatformWorkerConfigs(input: {
       { tag: 'v2', new_sqlite_classes: ['CronScheduler'] },
       { tag: 'v3', new_sqlite_classes: ['ErrorAlertMonitor'] },
       { tag: 'v4', new_sqlite_classes: ['SandboxConcurrencyCounter'] },
+      // Named tag so it never clashes with the hosted Worker's v5/v6.
+      ...(input.securityScanScheduler
+        ? [{ tag: 'security-audits-v1', new_sqlite_classes: ['SecurityScanScheduler'] }]
+        : []),
     ],
     queues: {
       producers: [
@@ -196,7 +217,7 @@ export function createPlatformWorkerConfigs(input: {
       DISPATCH_NAMESPACE: names.dispatchNamespace,
       DISPATCH_WORKER_NAME: names.dispatchWorker,
       LOGS_DATASET: names.logsDataset,
-      PLATFORM_CAPABILITIES: JSON.stringify(deployment.capabilities),
+      PLATFORM_CAPABILITIES: capabilitiesVar,
       ...(input.authenticationDatabaseUncached ? { PLATFORM_AUTH_DATABASE_UNCACHED: 'true' } : {}),
       PLATFORM_DISPLAY_NAME: deployment.displayName,
       PLATFORM_ENV: 'production',
@@ -246,7 +267,7 @@ export function createPlatformWorkerConfigs(input: {
     ...(deployment.capabilities.email ? { send_email: [{ name: 'SEND_EMAIL' }] } : {}),
     vars: {
       AI_GATEWAY_ID: names.aiGateway,
-      PLATFORM_CAPABILITIES: JSON.stringify(deployment.capabilities),
+      PLATFORM_CAPABILITIES: capabilitiesVar,
       PLATFORM_HEALTH_PROBE_TOKEN: healthProbeToken,
       PLATFORM_INSTALLATION_ID: installationId,
       PLATFORM_TRAFFIC_STATE: trafficState,
@@ -273,7 +294,7 @@ export function createPlatformWorkerConfigs(input: {
       dispatch_namespaces: dispatchNamespace,
       ...(deployment.capabilities.email ? { send_email: [{ name: 'SEND_EMAIL' }] } : {}),
       vars: {
-        PLATFORM_CAPABILITIES: JSON.stringify(deployment.capabilities),
+        PLATFORM_CAPABILITIES: capabilitiesVar,
         PLATFORM_INSTALLATION_ID: installationId,
         PLATFORM_VERSION: platformVersion,
         PLATFORM_TRAFFIC_STATE: trafficState,

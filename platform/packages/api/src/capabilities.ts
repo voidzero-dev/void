@@ -1,5 +1,6 @@
+import { readPlatformCapability } from '@void/platform';
 import type { PlatformCapabilities } from '@void/platform';
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import type { ApiEnv } from './env.ts';
 
 const HOSTED_CAPABILITIES: PlatformCapabilities = {
@@ -11,6 +12,8 @@ const HOSTED_CAPABILITIES: PlatformCapabilities = {
   googleOAuth: true,
   managedBuilds: true,
   sandbox: true,
+  // Off until hosted turns it on in wrangler.jsonc (AI binding) and here.
+  securityAudits: false,
 };
 
 const CAPABILITY_NAMES = Object.keys(HOSTED_CAPABILITIES) as Array<keyof PlatformCapabilities>;
@@ -31,14 +34,40 @@ export function getPlatformCapabilities(
     throw new Error('PLATFORM_CAPABILITIES must be an object.');
   }
   const record = parsed as Record<string, unknown>;
+  const capabilities: Partial<Record<keyof PlatformCapabilities, boolean>> = {};
   for (const name of CAPABILITY_NAMES) {
-    if (typeof record[name] !== 'boolean') {
+    // Older installers leave optional capabilities out; missing means off.
+    const value = readPlatformCapability(record, name);
+    if (typeof value !== 'boolean') {
       throw new Error(`PLATFORM_CAPABILITIES.${name} must be a boolean.`);
     }
+    capabilities[name] = value;
   }
-  return Object.fromEntries(
-    CAPABILITY_NAMES.map((name) => [name, record[name]]),
-  ) as PlatformCapabilities;
+  return capabilities as PlatformCapabilities;
+}
+
+/** The `securityAudits` capability; unreadable capabilities count as off. */
+export function securityAuditsEnabled(env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>) {
+  try {
+    return getPlatformCapabilities(env).securityAudits;
+  } catch {
+    return false;
+  }
+}
+
+/** The standard 501 body of a route whose capability is off. */
+export function capabilityUnavailable(
+  context: Context<ApiEnv>,
+  capability: keyof PlatformCapabilities,
+) {
+  return context.json(
+    {
+      error: 'platform capability unavailable',
+      capability,
+      message: `This Void platform does not enable ${capability}.`,
+    },
+    501,
+  );
 }
 
 export function capabilityMiddleware(
@@ -46,14 +75,7 @@ export function capabilityMiddleware(
 ): MiddlewareHandler<ApiEnv> {
   return async (context, next) => {
     if (!getPlatformCapabilities(context.env)[capability]) {
-      return context.json(
-        {
-          error: 'platform capability unavailable',
-          capability,
-          message: `This Void platform does not enable ${capability}.`,
-        },
-        501,
-      );
+      return capabilityUnavailable(context, capability);
     }
     await next();
   };

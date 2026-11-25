@@ -30,6 +30,7 @@ import { isAdminSuspended } from '../suspension.ts';
  *   - `GET  /projects/:id/deployments`         listDeployments (live-binding restore)
  *   - `GET  /projects/:id/deployments/:d/events` deployment event stream
  *   - `GET  /projects/:id/secrets`             listSecrets (env.ts schema validation)
+ *   - `GET  /projects/:id/security`            deploy notice (counts and F-ids only, spec §11.1)
  *   - `POST /projects/:id/deploy/preflight`    asset preflight
  *   - `POST /projects/:id/deploy/upload-urls`  presigned R2 PUT URLs
  *   - `POST /projects/:id/deploy/worker-upload-urls` presigned Worker module PUTs
@@ -49,6 +50,7 @@ const DEPLOY_TOKEN_ALLOWLIST: ReadonlyArray<DeployAllowEntry> = [
   { method: 'GET', segments: ['projects', null, 'deployments'] },
   { method: 'GET', segments: ['projects', null, 'deployments', ':deploymentId', 'events'] },
   { method: 'GET', segments: ['projects', null, 'secrets'] },
+  { method: 'GET', segments: ['projects', null, 'security'] },
   { method: 'POST', segments: ['projects', null, 'deploy', 'preflight'] },
   { method: 'POST', segments: ['projects', null, 'deploy', 'upload-urls'] },
   { method: 'POST', segments: ['projects', null, 'deploy', 'worker-upload-urls'] },
