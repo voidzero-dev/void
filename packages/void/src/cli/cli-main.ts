@@ -105,7 +105,8 @@ async function runSubcommandGroup<T>(
           : platformMessage,
       );
     } else {
-      log.error(message);
+      // A command printing JSON keeps stdout for its result.
+      log.error(message, args.includes('--json') ? { output: process.stderr } : undefined);
     }
     process.exit(1);
   }

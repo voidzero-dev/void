@@ -16,6 +16,7 @@ import type { CloudflareVersionMetadata } from '@void/deploy-cloudflare';
 import { join } from 'pathslash';
 import { materializeCloudflareConfig, persistCloudflareConfig } from '../cloudflare-config.ts';
 import { createCloudflareProcessRunner } from './cloudflare-process.ts';
+import type { StatementResult } from './db-execute-results.ts';
 import { findAmbientConfigOverride, findWranglerCiOverrideDotenvFile } from './deploy-transport.ts';
 import { Buffer } from './node-buffer.ts';
 import { getErrorMessage } from './output.ts';
@@ -239,10 +240,19 @@ export async function importCloudflareD1Sql(
   );
 }
 
+/** Every row the SQL returned, with the rows of all its statements in one list. */
 export async function executeCloudflareD1Sql(
   context: CloudflareD1Context,
   sql: string,
 ): Promise<Array<Record<string, unknown>>> {
+  return (await executeCloudflareD1Statements(context, sql)).flatMap((result) => result.results);
+}
+
+/** D1's result for each statement in the SQL, in order. */
+export async function executeCloudflareD1Statements(
+  context: CloudflareD1Context,
+  sql: string,
+): Promise<Array<StatementResult>> {
   const execute = (source: { sql: string } | { file: string }) =>
     run(context.operation, {
       type: 'd1.execute',
@@ -259,22 +269,22 @@ export async function executeCloudflareD1Sql(
   if (!Array.isArray(parsed)) {
     throw new Error('Cloudflare D1 execute returned an unexpected response.');
   }
-  const rows: Array<Record<string, unknown>> = [];
-  for (const item of parsed) {
+  return parsed.map((item) => {
     if (typeof item !== 'object' || item === null) {
       throw new Error('Cloudflare D1 execute returned a malformed result.');
     }
-    const resultRows = (item as Record<string, unknown>).results;
-    if (!Array.isArray(resultRows)) {
-      continue;
-    }
-    for (const row of resultRows) {
-      if (typeof row === 'object' && row !== null && !Array.isArray(row)) {
-        rows.push(row as Record<string, unknown>);
-      }
-    }
-  }
-  return rows;
+    const { results, success, meta } = item as Record<string, unknown>;
+    return {
+      results: Array.isArray(results)
+        ? results.filter(
+            (row): row is Record<string, unknown> =>
+              typeof row === 'object' && row !== null && !Array.isArray(row),
+          )
+        : [],
+      success: success !== false,
+      meta: typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>) : {},
+    };
+  });
 }
 
 export async function readCloudflareD1Migrations(

@@ -8,6 +8,7 @@ import {
   changeCloudflareDomain,
   deleteCloudflareSecret,
   executeCloudflareD1Sql,
+  executeCloudflareD1Statements,
   importCloudflareD1Sql,
   applyCloudflareD1Migrations,
   listCloudflareDomains,
@@ -576,6 +577,33 @@ describe('Cloudflare D1 operations', () => {
       sql: 'select * from users',
       configPath: join(root, 'wrangler.jsonc').replaceAll('\\', '/'),
     });
+  });
+
+  it("keeps each D1 statement's result apart", async () => {
+    const root = project(`{
+  "name": "my-worker",
+  "account_id": "account-1",
+  "d1_databases": [{ "binding": "DB", "database_name": "my-data", "database_id": "11111111-2222-3333-4444-555555555555" }]
+}\n`);
+    const runner = vi.fn<CloudflareOperationRunner>().mockReturnValue(
+      ok([
+        { success: true, results: [{ a: 1 }], meta: { changes: 0, duration: 0.1 } },
+        { success: true, results: [{ b: 2 }], meta: { changes: 0, duration: 0.2 } },
+        { success: true, meta: { changes: 3 } },
+      ]),
+    );
+    const ctx = resolveCloudflareD1Context(root, 'DB', runner);
+    await expect(
+      executeCloudflareD1Statements(ctx, 'select 1 as a; select 2 as b'),
+    ).resolves.toEqual([
+      { results: [{ a: 1 }], success: true, meta: { changes: 0, duration: 0.1 } },
+      { results: [{ b: 2 }], success: true, meta: { changes: 0, duration: 0.2 } },
+      { results: [], success: true, meta: { changes: 3 } },
+    ]);
+    await expect(executeCloudflareD1Sql(ctx, 'select 1 as a; select 2 as b')).resolves.toEqual([
+      { a: 1 },
+      { b: 2 },
+    ]);
   });
 
   it.each([

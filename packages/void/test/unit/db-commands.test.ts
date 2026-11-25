@@ -827,6 +827,154 @@ describe('void db execute', () => {
       db.close();
     }
   });
+
+  describe('SQLite --json', () => {
+    // With --json, console.log writes the results and nothing else, not even a blank line.
+    function jsonOutput(): Array<{
+      results: Array<Record<string, unknown>>;
+      success: boolean;
+      meta: Record<string, unknown>;
+    }> {
+      const calls = vi.mocked(console.log).mock.calls;
+      expect(calls).toHaveLength(1);
+      return JSON.parse(String(calls[0][0])) as ReturnType<typeof jsonOutput>;
+    }
+
+    async function readItems(root: string): Promise<Array<unknown>> {
+      const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+      const db = await openSqliteDatabase(join(root, '.void', 'local.sqlite'));
+      try {
+        return db.prepare('SELECT name FROM items ORDER BY id').all();
+      } finally {
+        db.close();
+      }
+    }
+
+    it('prints each statement of a script with its rows and changes', async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, {
+        action: 'execute',
+        command:
+          "INSERT INTO items (name) VALUES ('a'), ('b'); SELECT name FROM items ORDER BY id; " +
+          'SELECT 2 AS two; CREATE TABLE extra (id INTEGER); -- trailing comment',
+        json: true,
+      });
+
+      const results = jsonOutput();
+      expect(results.map((result) => result.results)).toEqual([
+        [],
+        [{ name: 'a' }, { name: 'b' }],
+        [{ two: 2 }],
+        [],
+      ]);
+      expect(results.map((result) => result.success)).toEqual([true, true, true, true]);
+      expect(results.map((result) => result.meta.changes)).toEqual([2, 0, 0, 0]);
+      expect(results[0].meta.last_row_id).toBe(2);
+      expect(results[0].meta.duration).toEqual(expect.any(Number));
+      expect(mockLog.info).not.toHaveBeenCalled();
+      const { outro } = await import('@voidzero-dev/vite-plus-prompts');
+      expect(outro).not.toHaveBeenCalled();
+    });
+
+    it('keeps NULL, text, numbers, newlines and blobs apart', async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, {
+        action: 'execute',
+        command:
+          "SELECT NULL AS a, 'NULL' AS b, 1 AS c, '1' AS d, 'x' || char(10) || 'y' AS e, x'00ff' AS f",
+        json: true,
+      });
+
+      expect(jsonOutput()[0].results).toEqual([
+        { a: null, b: 'NULL', c: 1, d: '1', e: 'x\ny', f: [0, 255] },
+      ]);
+    });
+
+    it('counts the rows a RETURNING statement wrote', async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, {
+        action: 'execute',
+        command: "INSERT INTO items (name) VALUES ('r') RETURNING id, name",
+        json: true,
+      });
+
+      const [result] = jsonOutput();
+      expect(result.results).toEqual([{ id: 1, name: 'r' }]);
+      expect(result.meta).toMatchObject({ changes: 1, last_row_id: 1 });
+    });
+
+    it('splits only between statements, not inside literals, comments or a trigger body', async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, {
+        action: 'execute',
+        command: [
+          'CREATE TABLE log (entry TEXT);',
+          'CREATE TRIGGER items_log AFTER INSERT ON items BEGIN',
+          "  INSERT INTO log VALUES ('a;b');",
+          '  INSERT INTO log VALUES (new.name);',
+          'END;',
+          "/* ; */ INSERT INTO items (name) VALUES ('c;d'); -- ;",
+          'SELECT entry AS "x;y" FROM log ORDER BY rowid;',
+        ].join('\n'),
+        json: true,
+      });
+
+      const results = jsonOutput();
+      expect(results).toHaveLength(4);
+      expect(results[3].results).toEqual([{ 'x;y': 'a;b' }, { 'x;y': 'c;d' }]);
+      // A trigger's writes do not count toward the statement's own changes.
+      expect(results[2].meta.changes).toBe(1);
+    });
+
+    it('stops at a failing statement after the ones before it took effect', async () => {
+      const root = await createLocalSqliteProject();
+
+      await expect(
+        runDbCommand(root, {
+          action: 'execute',
+          command: "INSERT INTO items (name) VALUES ('kept'); SELECT * FROM missing; SELECT 1",
+          json: true,
+        }),
+      ).rejects.toThrow('no such table: missing');
+
+      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+      expect(await readItems(root)).toEqual([{ name: 'kept' }]);
+    });
+
+    it('reports SQL that ends inside a statement', async () => {
+      const root = await createLocalSqliteProject();
+
+      await expect(
+        runDbCommand(root, { action: 'execute', command: 'SELECT 1; SELECT (2', json: true }),
+      ).rejects.toThrow('incomplete input');
+      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+    });
+
+    it('prints an empty array for SQL without a statement', async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, { action: 'execute', command: '-- nothing to run', json: true });
+
+      expect(jsonOutput()).toEqual([]);
+    });
+
+    it('runs a script that opens and commits its own transaction', async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, {
+        action: 'execute',
+        command: "BEGIN; INSERT INTO items (name) VALUES ('tx'); COMMIT;",
+        json: true,
+      });
+
+      expect(jsonOutput()).toHaveLength(3);
+      expect(await readItems(root)).toEqual([{ name: 'tx' }]);
+    });
+  });
 });
 
 describe('void db status', () => {

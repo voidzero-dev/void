@@ -9,9 +9,13 @@ const mockExecuteD1 =
   vi.fn<typeof import('../../src/cli/cloudflare-operations.ts').executeCloudflareD1Sql>();
 const mockImportD1 =
   vi.fn<typeof import('../../src/cli/cloudflare-operations.ts').importCloudflareD1Sql>();
+const mockExecuteD1Statements =
+  vi.fn<typeof import('../../src/cli/cloudflare-operations.ts').executeCloudflareD1Statements>();
 const mockD1Context = { binding: 'DB' };
 vi.mock('../../src/cli/cloudflare-operations.ts', () => ({
   executeCloudflareD1Sql: (...args: Parameters<typeof mockExecuteD1>) => mockExecuteD1(...args),
+  executeCloudflareD1Statements: (...args: Parameters<typeof mockExecuteD1Statements>) =>
+    mockExecuteD1Statements(...args),
   importCloudflareD1Sql: (...args: Parameters<typeof mockImportD1>) => mockImportD1(...args),
   resolveCloudflareD1Context: () => mockD1Context,
 }));
@@ -580,6 +584,116 @@ describe('void db execute --remote (D1)', () => {
     expect(mockImportD1).toHaveBeenCalledWith(mockD1Context, sql);
   });
 
+  describe('--json', () => {
+    // With --json, console.log writes the results and nothing else.
+    const jsonOutput = () => {
+      const calls = vi.mocked(console.log).mock.calls;
+      expect(calls).toHaveLength(1);
+      return JSON.parse(String(calls[0][0])) as unknown;
+    };
+
+    it('prints each direct D1 statement result as JSON without the success line', async () => {
+      mockReadDeploymentPlatform.mockReturnValue('cloudflare');
+      const results = [
+        { results: [{ a: 1 }], success: true, meta: { changes: 0 } },
+        { results: [{ b: 'x' }], success: true, meta: { changes: 0 } },
+      ];
+      mockExecuteD1Statements.mockResolvedValue(results);
+      const sql = 'select 1 as a; select 2 as b';
+
+      await runDbCommand(createProjectRoot(), {
+        action: 'execute',
+        command: sql,
+        remote: true,
+        json: true,
+      });
+
+      expect(mockExecuteD1Statements).toHaveBeenCalledWith(mockD1Context, sql);
+      expect(mockExecuteD1).not.toHaveBeenCalled();
+      expect(jsonOutput()).toEqual(results);
+      const { outro } = await import('@voidzero-dev/vite-plus-prompts');
+      expect(outro).not.toHaveBeenCalled();
+    });
+
+    it('asks on stderr before a destructive direct D1 statement in a TTY', async () => {
+      mockReadDeploymentPlatform.mockReturnValue('cloudflare');
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      mockExecuteD1Statements.mockResolvedValue([{ results: [], success: true, meta: {} }]);
+
+      await runDbCommand(createProjectRoot(), {
+        action: 'execute',
+        command: 'DELETE FROM users',
+        remote: true,
+        json: true,
+      });
+
+      expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ output: process.stderr }));
+      expect(jsonOutput()).toEqual([{ results: [], success: true, meta: {} }]);
+    });
+
+    it('refuses a direct D1 import, which returns no results, before asking or importing', async () => {
+      const root = directD1File(selectOfSize(D1_STATEMENT_LIMIT + 1), true);
+
+      await expect(
+        runDbCommand(root, { action: 'execute', file: 'input.sql', remote: true, json: true }),
+      ).rejects.toThrow('Run it without --json.');
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockImportD1).not.toHaveBeenCalled();
+      expect(mockExecuteD1Statements).not.toHaveBeenCalled();
+      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+    });
+
+    it("prints the platform proxy's D1 result as a one-statement array", async () => {
+      const meta = { changes: 0, duration: 0.2, rows_read: 1 };
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ results: [{ id: 1, name: null }], success: true, meta }),
+      );
+
+      await runDbCommand(createProjectRoot(), {
+        action: 'execute',
+        command: 'SELECT id, name FROM users',
+        remote: true,
+        json: true,
+      });
+
+      expect(jsonOutput()).toEqual([{ results: [{ id: 1, name: null }], success: true, meta }]);
+    });
+
+    it('refuses several statements through the platform proxy before sending them', async () => {
+      await expect(
+        runDbCommand(createProjectRoot(), {
+          action: 'execute',
+          command: 'SELECT 1; SELECT 2',
+          remote: true,
+          json: true,
+        }),
+      ).rejects.toThrow('Run each statement separately.');
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it('writes errors to stderr and leaves stdout empty', async () => {
+      mockGetToken.mockReturnValue(null);
+
+      await expect(
+        runDbCommand(createProjectRoot(), {
+          action: 'execute',
+          command: 'SELECT 1',
+          remote: true,
+          json: true,
+        }),
+      ).rejects.toThrow('process.exit:1');
+
+      const { log: clackLog } = await import('@voidzero-dev/vite-plus-prompts');
+      expect(clackLog.error).toHaveBeenCalledWith(expect.stringContaining('Not logged in'), {
+        output: process.stderr,
+      });
+      expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+    });
+  });
+
   it('runs execute without --remote against the local database, not the proxy', async () => {
     const root = createProjectRoot();
     // No local database exists, so the local path exits.
@@ -696,5 +810,33 @@ describe('void db execute --remote (PostgreSQL)', () => {
         remote: true,
       }),
     ).rejects.toThrow(PlatformApiError);
+  });
+
+  it('prints every statement of a multi-statement query with --json', async () => {
+    const root = createProjectRoot({ database: 'pg' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'postgres://host/db' });
+    // node-postgres resolves to an array of results for several statements.
+    mockPgQuery.mockResolvedValue([
+      { command: 'UPDATE', rowCount: 2, rows: [] },
+      { command: 'SELECT', rowCount: 1, rows: [{ id: 1, name: null }] },
+    ] as never);
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command: 'UPDATE users SET name = NULL; SELECT id, name FROM users WHERE id = 1',
+      remote: true,
+      json: true,
+    });
+
+    const calls = vi.mocked(console.log).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String(calls[0][0]))).toEqual([
+      { results: [], success: true, meta: { command: 'UPDATE', rowCount: 2 } },
+      {
+        results: [{ id: 1, name: null }],
+        success: true,
+        meta: { command: 'SELECT', rowCount: 1 },
+      },
+    ]);
   });
 });

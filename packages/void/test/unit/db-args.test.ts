@@ -63,6 +63,22 @@ describe('parseDbArgs', () => {
     });
   });
 
+  it('parses execute with --json', () => {
+    expect(parseDbArgs(['execute', '--json', 'SELECT 1'])).toEqual({
+      action: 'execute',
+      command: 'SELECT 1',
+      file: undefined,
+      remote: undefined,
+      json: true,
+    });
+  });
+
+  it('rejects --json outside execute', () => {
+    expect(() => parseDbArgs(['migrate', '--json'])).toThrow(
+      'db: `void db migrate` does not support --json.',
+    );
+  });
+
   it('errors on execute with no SQL and no --file', () => {
     expect(() => parseDbArgs(['execute'])).toThrow(
       'db: Usage: void db execute <sql> or void db execute --file <path>.',

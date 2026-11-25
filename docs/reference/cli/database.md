@@ -50,13 +50,13 @@ Programmatic seed modules must export either a default function or a named `seed
 ## `void db execute` {#void-db-execute}
 
 ```
-void db execute <sql>
-void db execute --file <path>
-void db execute --remote <sql> [--yes]
-void db execute --remote --file <path> [--yes]
+void db execute <sql> [--json]
+void db execute --file <path> [--json]
+void db execute --remote <sql> [--yes] [--json]
+void db execute --remote --file <path> [--yes] [--json]
 ```
 
-Run ad-hoc SQL against the database. Provide SQL inline or from a file. A statement that returns rows prints them as a formatted table, and statements that change data print nothing. SQL with several statements runs as a script without printed results.
+Run ad-hoc SQL against the database. Provide SQL inline or from a file. A statement that returns rows prints them as a formatted table, and statements that change data print nothing. SQL with several statements runs as a script without printed results. Pass `--json` to get every statement's rows.
 
 By default, targets the local database. Pass `--remote` to run against the deployed database selected in `.void/project.json`:
 
@@ -68,6 +68,39 @@ By default, targets the local database. Pass `--remote` to run against the deplo
 On direct Cloudflare D1 deployments, a `--file` larger than 100 KB runs as a D1 import: Void waits for it to finish, the database cannot serve queries until then, and query rows are not printed. Smaller files print rows like inline SQL.
 
 For destructive statements (`DELETE`, `UPDATE`, `DROP`, etc.) when running in a TTY, you will be prompted to confirm before the query is sent to the deployed database. A TTY also asks before a D1 import, whatever the file contains. Pass `--yes` to skip the prompt. Non-TTY environments (CI) never prompt, so `--yes` is optional there.
+
+### JSON output {#void-db-execute-json}
+
+Pass `--json` to read results from a script. stdout receives only a JSON array with one entry per statement, including statements in SQL with several statements. Prompts, warnings and errors go to stderr, and a failure exits with a non-zero status.
+
+```sh
+void db execute --json "select count(*) as total from users; select id from users limit 1"
+```
+
+```json
+[
+  {
+    "results": [{ "total": 2 }],
+    "success": true,
+    "meta": { "changes": 0, "last_row_id": 0, "duration": 0.04 }
+  },
+  {
+    "results": [{ "id": 1 }],
+    "success": true,
+    "meta": { "changes": 0, "last_row_id": 0, "duration": 0.02 }
+  }
+]
+```
+
+Each entry has the same shape as a D1 result and as an entry of `wrangler d1 execute --json`:
+
+- `results`: the rows the statement returned, or `[]`. `NULL` prints as `null`, numbers and text keep their types, and binary values print as arrays of bytes.
+- `success`: `true` for a statement that ran.
+- `meta`: what the database reports about the statement. D1 databases report D1's metadata, such as `changes` and `last_row_id` (locally `changes`, `last_row_id` and `duration`). PostgreSQL reports `command` and `rowCount`, and MySQL reports `affectedRows` and `insertId` for a statement that changes data.
+
+If a statement fails, stdout stays empty.
+
+`--json` is not available for a direct Cloudflare D1 import of a file larger than 100 KB, which returns no rows. On a Void platform D1 database, `--remote --json` runs one statement per command.
 
 ## `void db migrate` {#void-db-migrate}
 
