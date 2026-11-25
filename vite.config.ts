@@ -446,8 +446,12 @@ const config = defineConfig({
         rules: { 'quality/no-unknown-returns': 'error' },
       },
       {
+        files: ['packages/void/src/**/*'],
+        excludeFiles: ['packages/void/src/cli/**/*'],
+        rules: { 'quality/no-known-value-widening': 'error' },
+      },
+      {
         files: [
-          'packages/void/src/{codegen,pages,router,runtime,shared}/**/*',
           'packages/void/src/cli/{cf-*,deploy-*}.ts',
           'packages/void/src/cli/cf-config-convert/triggers.ts',
           'platform/packages/api/src/**/*',

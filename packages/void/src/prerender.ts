@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { PAGES_PROTOCOL_VERSION } from '@void/edge';
+import type { V4WorkerOptionsShape } from 'miniflare';
 import { dirname, join, relative } from 'pathslash';
 import pc from 'picocolors';
 import { getApiUrl, getProxyUrl, getToken } from './cli/auth.ts';
@@ -115,6 +116,16 @@ export function collectPrerenderWorkerModules(
   return modules.map(({ relativePath: _relativePath, ...module }) => module);
 }
 
+type PrerenderPlatformBindings = {
+  __VOID_TOKEN?: string;
+  __VOID_PROJECT_ID?: string;
+  __VOID_PROXY_URL?: string;
+  __VOID_ACCESS_CREDENTIALS?: string;
+  __VOID_REMOTE?: '1';
+};
+
+type PrerenderBindings = Record<string, unknown> & PrerenderPlatformBindings;
+
 export type PrerenderBindingsInput = {
   wranglerVars: Record<string, unknown> | undefined;
   voidToken: string | null | undefined;
@@ -124,7 +135,7 @@ export type PrerenderBindingsInput = {
   remoteMode: boolean | undefined;
 };
 
-export function buildPrerenderBindings(input: PrerenderBindingsInput): Record<string, unknown> {
+export function buildPrerenderBindings(input: PrerenderBindingsInput): PrerenderBindings {
   const { sanitized: wranglerVars, stripped } = stripInternalEnvKeys(input.wranglerVars);
   if (stripped.length > 0) {
     voidWarn(
@@ -132,7 +143,7 @@ export function buildPrerenderBindings(input: PrerenderBindingsInput): Record<st
     );
   }
 
-  const voidBindings: Record<string, string> = {};
+  const voidBindings: PrerenderPlatformBindings = {};
   if (input.voidToken && input.voidProjectId) {
     voidBindings.__VOID_TOKEN = input.voidToken;
     voidBindings.__VOID_PROJECT_ID = input.voidProjectId;
@@ -152,6 +163,19 @@ export function buildPrerenderBindings(input: PrerenderBindingsInput): Record<st
   }
   return { ...wranglerVars, ...voidBindings };
 }
+
+type PrerenderMiniflareOptions = Pick<
+  V4WorkerOptionsShape,
+  'd1Databases' | 'kvNamespaces' | 'r2Buckets'
+> & {
+  modules: Array<PrerenderWorkerModule>;
+  modulesRoot: string;
+  compatibilityDate: string;
+  compatibilityFlags: Array<string>;
+  bindings: PrerenderBindings;
+  serviceBindings?: Record<string, (request: Request) => Response>;
+  resourcePersistencePath?: string;
+};
 
 async function createCloudflarePrerenderRunner(options: {
   root: string;
@@ -227,10 +251,10 @@ async function createCloudflarePrerenderRunner(options: {
       dispatchFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
       dispose(): Promise<void>;
     };
-    convertV4MiniflareOptions: (options: Record<string, unknown>) => Record<string, unknown>;
+    convertV4MiniflareOptions: (options: PrerenderMiniflareOptions) => Record<string, unknown>;
   };
 
-  const mfOptions: Record<string, unknown> = {
+  const mfOptions: PrerenderMiniflareOptions = {
     modules: collectPrerenderWorkerModules(workerDir, workerMain),
     modulesRoot: workerDir,
     compatibilityDate: wranglerCompat.compatibilityDate,

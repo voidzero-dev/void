@@ -119,7 +119,7 @@ function buildOffsetIndex(code: string): OffsetIndex {
   return { lineStarts };
 }
 
-function offsetToLineCol(index: OffsetIndex, offset: number): { line: number; column: number } {
+function offsetToLineCol(index: OffsetIndex, offset: number) {
   // Binary search for the largest lineStarts[i] <= offset.
   const lineStarts = index.lineStarts;
   let lowerBound = 0;

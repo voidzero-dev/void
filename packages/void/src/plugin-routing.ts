@@ -389,7 +389,7 @@ export function routingPlugin(
       userConfig: await loadAuthConfig(compileOptions.auth.authConfigPath),
     };
     const local = resolvedConfig?.command === 'serve' ? loadLocalEnv(root) : {};
-    const env = { ...local, ...process.env } as Record<string, unknown>;
+    const env = { ...local, ...process.env };
     const { authSchemaPath, authDatabasePath } = compileOptions.auth;
 
     writeFileIfChanged(authSchemaPath, generateVoidAuthDrizzleSchema(authRuntime, env));

@@ -404,7 +404,7 @@ function validateRewriteMap(value: unknown, kind: 'Rewrite' | 'Fallback'): void 
 }
 
 /** Old flat keys that have moved into namespaces. */
-const MIGRATION_ERRORS: Record<string, string> = {
+const MIGRATION_ERRORS = {
   bindings: '"bindings" has moved to "inference.bindings"',
   build: '"build" has moved to "inference.build"',
   scanDirs: '"scanDirs" has moved to "inference.scanDirs"',
@@ -417,7 +417,7 @@ const MIGRATION_ERRORS: Record<string, string> = {
   wrangler: '"wrangler" has been renamed to "worker"',
   mode: '"mode" has been renamed to "inference.appType"',
   revalidate: '"revalidate" has moved to "routing.revalidate"',
-};
+} satisfies Record<string, string>;
 
 /** Read and validate the project's typed config, with legacy JSON compatibility. */
 export function readConfig(root: string): VoidConfig {
@@ -1080,17 +1080,19 @@ export function isNodeTarget(target: VoidConfig['target']): boolean {
   return target === 'node' || target === 'bun' || target === 'deno';
 }
 
+type BindingNames = { d1?: string; kv?: string; r2?: string; ai?: string };
+
 /**
  * Extract custom binding names from config. Returns only entries where
  * a string name was explicitly provided (not `true`).
  */
 export function resolveBindingNames(
   bindings: InferenceConfig['bindings'],
-): { d1?: string; kv?: string; r2?: string; ai?: string } | undefined {
+): BindingNames | undefined {
   if (!bindings) {
     return undefined;
   }
-  const names: { d1?: string; kv?: string; r2?: string; ai?: string } = {};
+  const names: BindingNames = {};
   let hasCustom = false;
   if (typeof bindings.db === 'string') {
     names.d1 = bindings.db;

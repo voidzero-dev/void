@@ -67,7 +67,7 @@ export const DEFAULT_SCAN_DIRS = [
  * For example, `react-router` alone is a client-side router — only
  * `@react-router/dev` signals the framework (Vite plugin) mode.
  */
-const FRAMEWORK_PACKAGES: Record<string, DetectedFramework> = {
+const FRAMEWORK_PACKAGES = {
   '@tanstack/react-start': { name: 'tanstack-start', class: 'a' },
   '@react-router/dev': { name: 'react-router', class: 'a' },
   vinext: { name: 'vinext-pages', class: 'a' },
@@ -75,7 +75,7 @@ const FRAMEWORK_PACKAGES: Record<string, DetectedFramework> = {
   nuxt: { name: 'nuxt', class: 'c' },
   '@analogjs/platform': { name: 'analog', class: 'c' },
   astro: { name: 'astro', class: 'c' },
-};
+} satisfies Record<string, DetectedFramework>;
 
 /**
  * Detect a meta-framework by checking package.json dependencies.

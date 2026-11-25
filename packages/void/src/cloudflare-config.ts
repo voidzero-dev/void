@@ -47,6 +47,7 @@ function mergeConfig(previous: unknown, resolved: unknown, authored: unknown): u
     const previousByIdentity = new Map(previous.map((item) => [arrayIdentity(item), item]));
     const resolvedByIdentity = new Map(resolved.map((item) => [arrayIdentity(item), item]));
     const authoredIdentities = new Set(authored.map(arrayIdentity));
+    // oxlint-disable-next-line quality/no-known-value-widening -- The recursive merge also returns arbitrary authored and resolved values.
     return [
       ...authored.map((item: unknown) => {
         const identity = arrayIdentity(item);
@@ -86,6 +87,7 @@ function mergeConfig(previous: unknown, resolved: unknown, authored: unknown): u
         configurable: true,
       });
     }
+    // oxlint-disable-next-line quality/no-known-value-widening -- The recursive merge also returns arbitrary authored and resolved values.
     return result;
   }
   return authored;

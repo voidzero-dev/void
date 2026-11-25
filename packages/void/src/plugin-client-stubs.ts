@@ -2,7 +2,7 @@ import type { Plugin } from 'vite';
 
 export function createClientStubsPlugin(): Plugin {
   const STUB_PREFIX = '\0void-client-stub:';
-  const SERVER_ONLY_STUBS: Record<string, string> = {
+  const SERVER_ONLY_STUBS = {
     'void/db': 'export const db = {}; export const createDb = () => ({});',
     'void/kv': 'export const kv = {}; export const createKV = () => ({});',
     'void/ai': 'export const ai = {};',
@@ -60,8 +60,9 @@ export function createClientStubsPlugin(): Plugin {
     'void/live': '',
     'void/durable': '',
   };
+  const stubSources = new Map(Object.entries(SERVER_ONLY_STUBS));
   const STUB_RESOLVE_FILTER = new RegExp(
-    `^(${Object.keys(SERVER_ONLY_STUBS)
+    `^(${Array.from(stubSources.keys())
       .join('|')
       .replaceAll('/', String.raw`\/`)})$`,
   );
@@ -89,7 +90,7 @@ export function createClientStubsPlugin(): Plugin {
     load: {
       filter: { id: STUB_LOAD_FILTER },
       handler(id) {
-        return SERVER_ONLY_STUBS[id.slice(STUB_PREFIX.length)] ?? 'export default {};';
+        return stubSources.get(id.slice(STUB_PREFIX.length)) ?? 'export default {};';
       },
     },
   };

@@ -8,6 +8,7 @@ import { readGeneratedWranglerConfigFile } from './cli/generated-wrangler-config
 
 /** Void keeps its Wrangler-shaped public options independently of the upstream plugin. */
 export type WorkerConfig = ReturnType<typeof convertToWranglerConfig>;
+export type WorkerConfigFields = Record<string, unknown>;
 
 type AuxiliaryConfig =
   | Partial<WorkerConfig>
@@ -24,8 +25,9 @@ export type AuxiliaryWorkerConfig = (
 };
 
 /** Match the old plugin's patch semantics, including its array concatenation. */
-export function mergeCloudflareConfig(patch: object, fallback: object): Record<string, unknown> {
-  const result: Record<string, unknown> = { ...fallback };
+export function mergeCloudflareConfig(patch: object, fallback: object): WorkerConfigFields {
+  // oxlint-disable-next-line quality/no-known-value-widening -- The merge preserves arbitrary fallback keys and adds arbitrary patch keys.
+  const result: WorkerConfigFields = { ...fallback };
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) {
       continue;
@@ -43,6 +45,7 @@ export function mergeCloudflareConfig(patch: object, fallback: object): Record<s
           ? mergeCloudflareConfig(value as Record<string, unknown>, previous)
           : value;
   }
+  // oxlint-disable-next-line quality/no-known-value-widening -- The merged fields are interpreted by the Cloudflare config adapter.
   return result;
 }
 

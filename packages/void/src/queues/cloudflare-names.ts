@@ -28,6 +28,8 @@ export function scopedCloudflareQueueName(workerPrefix: string, queueName: strin
 const consumedBy = (state: CloudflareQueueState, workerName: string): boolean =>
   state?.consumers.includes(workerName) ?? false;
 
+type CloudflareQueueChoice = { name: string; kept: boolean };
+
 /**
  * Pick the Cloudflare name for one queue: its scoped name, or its plain name
  * when this Worker already consumes that queue. `plain` may be `undefined`
@@ -40,7 +42,7 @@ export function chooseCloudflareQueueName(input: {
   scopedName: string;
   scoped: CloudflareQueueState;
   plain: CloudflareQueueState | undefined;
-}): { name: string; kept: boolean } {
+}): CloudflareQueueChoice {
   if (
     !consumedBy(input.scoped, input.workerName) &&
     consumedBy(input.plain ?? null, input.workerName)

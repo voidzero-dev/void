@@ -3,11 +3,14 @@ import { join } from 'pathslash';
 import { readResourceDefinition } from '../shared/resource-definition.ts';
 import { resourceNameWords } from '../shared/resource-name.ts';
 
-export type DurableObjectModule = {
-  filePath: string;
+type DurableResourceIdentity = {
   bindingName: string;
   className: string;
   migrationTag: string;
+};
+
+export type DurableObjectModule = DurableResourceIdentity & {
+  filePath: string;
   name?: string;
 };
 
@@ -19,11 +22,7 @@ export function inferDurableResourceName(filePath: string): string {
 
 const DURABLE_HELPERS = new Set(['defineDurableState', 'defineDurableObject']);
 
-export function deriveDurableResourceIdentity(name: string): {
-  bindingName: string;
-  className: string;
-  migrationTag: string;
-} {
+export function deriveDurableResourceIdentity(name: string): DurableResourceIdentity {
   const parts = resourceNameWords(name);
   const classBase = parts.map((part) => part[0].toUpperCase() + part.slice(1)).join('');
   return {

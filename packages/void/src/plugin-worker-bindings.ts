@@ -16,7 +16,7 @@ import {
   readVoidDevCredentials,
 } from './plugin-ai-setup.ts';
 import { hasBinding, shouldInjectEmailDevInboxVar } from './plugin-binding-utils.ts';
-import type { WorkerConfig } from './plugin-cloudflare-config.ts';
+import type { WorkerConfig, WorkerConfigFields } from './plugin-cloudflare-config.ts';
 import type { EnvSchemaFacts } from './plugin-env-schema.ts';
 import { cloudflareQueueName, readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
 import { isRouteEnabledForEnvironment } from './router/parse-filename.ts';
@@ -63,12 +63,17 @@ function currentMigrations(
   return Array.isArray(current) ? (current as Array<DurableObjectMigration>) : [];
 }
 
+type WorkerBindingPatch = {
+  patch: Partial<WorkerConfig>;
+  versionMetadataBinding: string | undefined;
+};
+
 export function mergeWorkerBindings(
   resolved: WorkerConfig,
   input: {
     readonly websocketRoutes: ApplicationAnalysis['allWebsockets'];
     readonly routeEnvironment: RouteEnvironment;
-    readonly workerConfig: Record<string, unknown>;
+    readonly workerConfig: WorkerConfigFields;
     readonly envSchemaFacts: EnvSchemaFacts | undefined;
     readonly authEnabled: boolean;
     readonly viteCommand: 'serve' | 'build';
@@ -87,7 +92,7 @@ export function mergeWorkerBindings(
     readonly root: string;
     readonly remoteMode: boolean;
   },
-): { patch: Partial<WorkerConfig>; versionMetadataBinding: string | undefined } {
+): WorkerBindingPatch {
   const {
     websocketRoutes,
     routeEnvironment,
@@ -114,7 +119,7 @@ export function mergeWorkerBindings(
   const environmentWebsocketRoutes = websocketRoutes.filter((route) =>
     isRouteEnabledForEnvironment(route, routeEnvironment),
   );
-  const result: Record<string, unknown> = { ...workerConfig };
+  const result: WorkerConfigFields = { ...workerConfig };
 
   // The Cloudflare plugin defu-merges this patch over resolved, concatenating arrays.
   // Flags read from the root config therefore occur in both inputs. Emit their union
