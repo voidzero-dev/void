@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
   formatStatementResults,
   mySqlCallStatements,
+  mySqlServerMode,
   mySqlStatementResults,
   pgJsonTypes,
+  needsMySqlServerMode,
   pgStatementResults,
   splitSqliteStatements,
 } from '../../src/cli/db-execute-results.ts';
@@ -135,6 +137,10 @@ describe('db execute --json results', () => {
     expect(splitSqliteStatements('SELECT 1;\v')).toEqual(['SELECT 1;', '\v']);
     expect(splitSqliteStatements('SELECT 1; /* open')).toEqual(['SELECT 1;']);
     expect(splitSqliteStatements('SELECT 1;\t\n\f\r ')).toEqual(['SELECT 1;']);
+    // A byte-order mark where a token starts is whitespace to SQLite, so it hides no keyword.
+    const bomTrigger = '\uFEFFCREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 1; END;';
+    expect(splitSqliteStatements(`${bomTrigger} SELECT 2;`)).toEqual([bomTrigger, ' SELECT 2;']);
+    expect(splitSqliteStatements('SELECT 1;\uFEFF')).toEqual(['SELECT 1;']);
     // A trigger missing its END stays open for SQLite to report.
     expect(
       splitSqliteStatements('CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 1;'),
@@ -215,9 +221,51 @@ describe('db execute --json results', () => {
       false,
       true,
     ]);
+    // A control character after `--` starts a comment too.
+    expect(mySqlCallStatements('SELECT 1; --\u0001 x;\nCALL p()')).toEqual([false, true]);
+    expect(mySqlCallStatements('SELECT 1; --')).toEqual([false]);
+    // An optimizer hint outside a statement is an ordinary comment.
+    expect(mySqlCallStatements('/*+ BKA(t) */ CALL p()')).toEqual([true]);
     expect(
       mySqlStatementResults([[{ a: 1 }], header], [[field], undefined], '# note\nCALL report()'),
     ).toEqual([{ results: [{ a: 1 }], success: true, meta: { affectedRows: 2, insertId: 5 } }]);
+  });
+
+  it('reads MySQL SQL the way the server it runs on does', () => {
+    const mysql84 = mySqlServerMode([{ sql_mode: 'STRICT_TRANS_TABLES', version: '8.4.3' }]);
+    expect(mysql84).toEqual({ version: 80_403, backslashEscapes: true });
+    const noEscapes = mySqlServerMode([
+      { sql_mode: 'STRICT_TRANS_TABLES,NO_BACKSLASH_ESCAPES', version: '10.11.6-MariaDB' },
+    ]);
+    expect(noEscapes).toEqual({ version: 101_106, backslashEscapes: false });
+    // With NO_BACKSLASH_ESCAPES, a backslash before a quote is an ordinary character.
+    const backslash = String.raw`SELECT '\'; CALL p()`;
+    expect(mySqlCallStatements(backslash, noEscapes)).toEqual([false, true]);
+    expect(mySqlCallStatements(backslash, mysql84)).toEqual([false]);
+    expect(
+      mySqlStatementResults(
+        [[{ a: 1 }], [{ b: 2 }], header],
+        [[field], [field], undefined],
+        backslash,
+        noEscapes,
+      ),
+    ).toEqual([
+      { results: [{ a: 1 }], success: true, meta: {} },
+      { results: [{ b: 2 }], success: true, meta: { affectedRows: 2, insertId: 5 } },
+    ]);
+    // The server skips a version comment for a later version and runs one for its own.
+    expect(mySqlCallStatements('/*!99999 SET @n = 1 */ CALL p()', mysql84)).toEqual([true]);
+    expect(mySqlCallStatements('/*!80403 SET @n = 1 */ CALL p()', mysql84)).toEqual([false]);
+    expect(mySqlCallStatements('/*! CALL p() */', mysql84)).toEqual([true]);
+    expect(mySqlCallStatements('/*!40101 CALL p() */; SELECT 1', mysql84)).toEqual([true, false]);
+    // Six digits are a version when whitespace follows them; otherwise five are.
+    expect(mySqlCallStatements('/*!100000 SET @n = 1 */ CALL p()', mysql84)).toEqual([true]);
+    expect(mySqlCallStatements('/*!800001 CALL p() */ SELECT 1', mysql84)).toEqual([false]);
+    expect(mySqlCallStatements('/*!800001; CALL p() */', mysql84)).toEqual([false, true]);
+    expect(mySqlCallStatements('/*!80000CALL p() */', mysql84)).toEqual([true]);
+    expect(needsMySqlServerMode('SELECT 1; CALL p()')).toBe(false);
+    expect(needsMySqlServerMode(backslash)).toBe(true);
+    expect(needsMySqlServerMode('/*!80000 SET @n = 1 */')).toBe(true);
   });
 
   it('finds MySQL statements around stored program bodies', () => {

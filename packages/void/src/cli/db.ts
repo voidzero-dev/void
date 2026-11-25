@@ -49,7 +49,10 @@ import { PlatformApiError, PlatformClient } from './client.ts';
 import type { DbArgs } from './db-args.ts';
 import {
   formatStatementResults,
+  MYSQL_SERVER_MODE_QUERY,
+  mySqlServerMode,
   mySqlStatementResults,
+  needsMySqlServerMode,
   pgJsonTypes,
   pgStatementResults,
   runSqliteStatements,
@@ -949,9 +952,16 @@ async function executeExternalSql(
     ...(json ? { supportBigNumbers: true, bigNumberStrings: false } : {}),
   });
   try {
+    // Grouping a CALL's results reads the SQL the way this server does: its sql_mode decides
+    // what a backslash means, and its version which `/*!` comments run. A SET of sql_mode in
+    // the SQL itself is not followed.
+    const mode =
+      json && needsMySqlServerMode(sql)
+        ? mySqlServerMode((await mySqlClient.query(MYSQL_SERVER_MODE_QUERY))[0])
+        : undefined;
     const [rows, fields] = await mySqlClient.query(sql);
     if (json) {
-      printStatementResults(mySqlStatementResults(rows, fields, sql));
+      printStatementResults(mySqlStatementResults(rows, fields, sql, mode));
     } else if (Array.isArray(rows) && rows.length > 0) {
       printTable(rows as Array<Record<string, unknown>>);
     }

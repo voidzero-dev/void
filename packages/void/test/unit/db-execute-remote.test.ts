@@ -878,6 +878,41 @@ describe('void db execute --remote (PostgreSQL)', () => {
     );
   });
 
+  it("groups a MySQL CALL's results by the server's sql_mode", async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'mysql://host/db' });
+    const header = { fieldCount: 0, affectedRows: 0, insertId: 0 };
+    mockMySqlQuery.mockImplementation((sql) =>
+      Promise.resolve(
+        sql.startsWith('SELECT @@SESSION.sql_mode')
+          ? [[{ sql_mode: 'NO_BACKSLASH_ESCAPES', version: '8.4.3' }], [{ name: 'sql_mode' }]]
+          : [
+              [[{ a: '\\' }], [{ b: 2 }], header],
+              [[{ name: 'a' }], [{ name: 'b' }], undefined],
+            ],
+      ),
+    );
+    const command = String.raw`SELECT '\'; CALL p()`;
+
+    await runDbCommand(root, { action: 'execute', command, remote: true, json: true });
+
+    expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual([
+      'SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS version',
+      command,
+    ]);
+    expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0][0]))).toEqual([
+      { results: [{ a: '\\' }], success: true, meta: {} },
+      { results: [{ b: 2 }], success: true, meta: { affectedRows: 0, insertId: 0 } },
+    ]);
+
+    // SQL without a backslash or a version comment, and the table, need no extra query.
+    mockMySqlQuery.mockClear();
+    await runDbCommand(root, { action: 'execute', command: 'CALL p()', remote: true, json: true });
+    await runDbCommand(root, { action: 'execute', command, remote: true });
+    expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual(['CALL p()', command]);
+    mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
+  });
+
   it('keeps PostgreSQL numeric arrays and JSON numbers exact with --json only', async () => {
     const root = createProjectRoot({ database: 'pg' });
     mockGetDatabaseUrl.mockResolvedValue({ url: 'postgres://host/db' });

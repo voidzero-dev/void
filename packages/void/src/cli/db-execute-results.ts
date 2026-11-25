@@ -115,13 +115,14 @@ export function sqliteStatementRanges(sql: string): Array<StatementRange> {
       continue;
     }
     const text = sql.slice(segment.start, segment.end);
-    // SQLite's whitespace is these five characters; anything else, such as a nonbreaking
-    // space, is part of a statement and fails there.
-    for (const match of text.matchAll(/;|[ \t\n\f\r]+|[\w$\u0080-￿]+|./gu)) {
+    // SQLite's whitespace is these five characters, and a byte-order mark where a token would
+    // start; anything else, such as a nonbreaking space, is part of a statement and fails there.
+    // A byte-order mark inside a word is part of the word, as it is for SQLite.
+    for (const match of text.matchAll(/;|[ \t\n\f\r\uFEFF]+|[\w$\u0080-￿]+|./gu)) {
       const [token] = match;
       if (token === ';') {
         advance(0, segment.start + match.index);
-      } else if (!/^[ \t\n\f\r]/u.test(token)) {
+      } else if (!/^[ \t\n\f\r\uFEFF]/u.test(token)) {
         advance(keywords.get(token.toLowerCase()) ?? 1, segment.start + match.index);
       }
     }
@@ -300,34 +301,88 @@ function mySqlStatementResult(value: unknown): StatementResult {
 }
 
 /**
- * The words, semicolons and other characters of MySQL SQL, lowercased, outside comments. A
- * quoted string or name, and a comment that opens with `/*!` or `/*+`, which MySQL reads as SQL,
- * each count as one empty word.
+ * How the server reads SQL. `version` is its version as MySQL writes it in a `/*!` comment
+ * (80403 for 8.4.3), and `backslashEscapes` is false in `NO_BACKSLASH_ESCAPES` mode.
  */
-function* mySqlWords(sql: string): Generator<string> {
+export type MySqlServerMode = { version: number; backslashEscapes: boolean };
+
+/** Reads what `mySqlServerMode()` needs. It only matters for SQL that `needsMySqlServerMode` finds. */
+export const MYSQL_SERVER_MODE_QUERY =
+  'SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS version';
+
+/** Whether the SQL holds a backslash or a version comment, which read differently per server. */
+export function needsMySqlServerMode(sql: string): boolean {
+  return sql.includes('\\') || sql.includes('/*!');
+}
+
+/** Read the row `MYSQL_SERVER_MODE_QUERY` returns. */
+export function mySqlServerMode(rows: unknown): MySqlServerMode {
+  const row: unknown = Array.isArray(rows) ? rows[0] : undefined;
+  const fields = (typeof row === 'object' && row !== null ? row : {}) as Record<string, unknown>;
+  const modes = typeof fields.sql_mode === 'string' ? fields.sql_mode.split(',') : [];
+  const version = /^(\d+)\.(\d+)\.(\d+)/.exec(String(fields.version ?? ''));
+  return {
+    // A server whose version does not read as one runs every version comment.
+    version: version
+      ? Number(version[1]) * 10_000 + Number(version[2]) * 100 + Number(version[3])
+      : Number.POSITIVE_INFINITY,
+    backslashEscapes: !modes.includes('NO_BACKSLASH_ESCAPES'),
+  };
+}
+
+/** Whether the character after `--` (`NaN` at the end of the input) makes it a comment. */
+function startsMySqlDashComment(code: number): boolean {
+  // Whitespace or a control character, as MySQL's lexer checks.
+  return Number.isNaN(code) || code <= 0x20 || code === 0x7f;
+}
+
+const MYSQL_DEFAULT_MODE: MySqlServerMode = {
+  version: Number.POSITIVE_INFINITY,
+  backslashEscapes: true,
+};
+
+/**
+ * The words, semicolons and other characters of MySQL SQL, lowercased, outside comments, with
+ * a quoted string or name as one empty word. The SQL in a `/*!` comment counts when the server
+ * runs it: always without a version, else when the server is at least that version (six digits
+ * when whitespace follows them, otherwise five).
+ */
+function* mySqlWords(sql: string, mode: MySqlServerMode): Generator<string> {
   const word = /[\w$\u0080-￿]+/uy;
+  const versionDigits = /!(?:(\d{6})(?=\s)|(\d{5}))?/y;
   let index = 0;
+  // Inside a `/*!` comment whose SQL the server runs, so its `*/` is skipped.
+  let inVersionComment = false;
   while (index < sql.length) {
     const character = sql[index];
     const next = sql[index + 1];
     if (character === "'" || character === '"' || character === '`') {
-      index = skipMySqlQuoted(sql, index, character);
+      index = skipMySqlQuoted(sql, index, character, mode.backslashEscapes);
       yield '';
     } else if (
       character === '#' ||
-      // MySQL reads `--` as a comment only when whitespace or a control character follows it.
-      (character === '-' && next === '-' && !/\S/u.test(sql[index + 2] ?? ' '))
+      // MySQL reads `--` as a comment only when whitespace or a control character, or the end of
+      // the input, follows it.
+      (character === '-' && next === '-' && startsMySqlDashComment(sql.charCodeAt(index + 2)))
     ) {
       const newline = sql.indexOf('\n', index);
       index = newline === -1 ? sql.length : newline;
+    } else if (inVersionComment && character === '*' && next === '/') {
+      inVersionComment = false;
+      index += 2;
     } else if (character === '/' && next === '*') {
-      const close = sql.indexOf('*/', index + 2);
-      const executable = sql[index + 2] === '!' || sql[index + 2] === '+';
-      index = close === -1 ? sql.length : close + 2;
-      if (executable) {
-        yield '';
+      versionDigits.lastIndex = index + 2;
+      const version = sql[index + 2] === '!' ? versionDigits.exec(sql) : null;
+      const required = version?.[1] ?? version?.[2];
+      if (version && (required === undefined || Number(required) <= mode.version)) {
+        inVersionComment = true;
+        index = versionDigits.lastIndex;
+      } else {
+        // Any other comment, an optimizer hint (`/*+`) too, holds no statement.
+        const close = sql.indexOf('*/', index + 2);
+        index = close === -1 ? sql.length : close + 2;
       }
-    } else if (/\s/u.test(character)) {
+    } else if (/[ \t\n\v\f\r]/u.test(character)) {
       index++;
     } else {
       word.lastIndex = index;
@@ -346,7 +401,10 @@ function* mySqlWords(sql: string): Generator<string> {
  * a `BEGIN`, so they do not change the depth. A `BEGIN` that opens a top-level statement starts
  * a transaction, not a block.
  */
-export function mySqlCallStatements(sql: string): Array<boolean> {
+export function mySqlCallStatements(
+  sql: string,
+  mode: MySqlServerMode = MYSQL_DEFAULT_MODE,
+): Array<boolean> {
   const calls: Array<boolean> = [];
   let depth = 0;
   let firstWord: string | undefined;
@@ -360,7 +418,7 @@ export function mySqlCallStatements(sql: string): Array<boolean> {
     firstWord = undefined;
     afterEnd = false;
   };
-  for (const word of mySqlWords(sql)) {
+  for (const word of mySqlWords(sql, mode)) {
     if (word === ';') {
       afterEnd = false;
       if (depth === 0) {
@@ -397,6 +455,7 @@ export function mySqlStatementResults(
   rows: unknown,
   fields: unknown,
   sql: string,
+  mode: MySqlServerMode = MYSQL_DEFAULT_MODE,
 ): Array<StatementResult> {
   const severalResults =
     Array.isArray(rows) &&
@@ -409,7 +468,7 @@ export function mySqlStatementResults(
   const grouped: Array<StatementResult> = [];
   let index = 0;
   let matched = true;
-  for (const isCall of mySqlCallStatements(sql)) {
+  for (const isCall of mySqlCallStatements(sql, mode)) {
     if (!isCall) {
       matched &&= index < entries.length;
       grouped.push(mySqlStatementResult(entries[index++]));

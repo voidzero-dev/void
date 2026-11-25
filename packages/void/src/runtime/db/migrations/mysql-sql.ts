@@ -126,13 +126,21 @@ function splitMySqlStatements(sql: string): Array<MySqlMigrationStatement> {
   return statements;
 }
 
-/** The index after the quoted string or name that opens at `open`. */
-export function skipMySqlQuoted(sql: string, open: number, quote: string): number {
+/**
+ * The index after the quoted string or name that opens at `open`. Pass `backslashEscapes: false`
+ * for a server in `NO_BACKSLASH_ESCAPES` mode, where a backslash is an ordinary character.
+ */
+export function skipMySqlQuoted(
+  sql: string,
+  open: number,
+  quote: string,
+  backslashEscapes = true,
+): number {
   let index = open + 1;
   while (index < sql.length) {
     const character = sql[index];
     // Backslash escapes apply in strings, not in backtick-quoted names.
-    if (character === '\\' && quote !== '`') {
+    if (character === '\\' && quote !== '`' && backslashEscapes) {
       index += 2;
       continue;
     }
