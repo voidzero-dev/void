@@ -1,5 +1,9 @@
 import type { DevCssAsset } from '../../pages/types.ts';
+import { isClientManifest } from '../../shared/client-manifest.ts';
+import type { ClientManifest } from '../../shared/client-manifest.ts';
 import type { RuntimeEnvironment } from './worker.ts';
+
+export type { ClientManifest } from '../../shared/client-manifest.ts';
 
 // `c.rewrite()` cannot reach files the asset layer serves. `.html` is excluded: routes may use it.
 export const ASSET_EXTENSIONS: Array<string> = [
@@ -38,16 +42,6 @@ export type ClientAssetTags = {
   body: string;
   devCss?: Array<DevCssAsset>;
 };
-export type ClientManifest = Record<
-  string,
-  {
-    file?: string;
-    imports?: Array<string>;
-    css?: Array<string>;
-    /** Build-proven fingerprinted outputs; absent in older/third-party manifests. */
-    immutableFiles?: Array<string>;
-  }
->;
 export type ManifestLoader = (
   request: Request,
   env: RuntimeEnvironment,
@@ -58,10 +52,10 @@ export function createManifestLoader(): ManifestLoader {
     if (cached) {
       return cached;
     }
-    const injected = (globalThis as typeof globalThis & { __VITE_MANIFEST__?: unknown })
-      .__VITE_MANIFEST__;
-    if (typeof injected === 'object' && injected) {
-      cached = injected as ClientManifest;
+    const globals: object = globalThis;
+    const injected = '__VITE_MANIFEST__' in globals ? globals.__VITE_MANIFEST__ : undefined;
+    if (isClientManifest(injected)) {
+      cached = injected;
       return cached;
     }
     const assets = env?.ASSETS;
@@ -77,7 +71,16 @@ export function createManifestLoader(): ManifestLoader {
     if (!response.ok) {
       return null;
     }
-    cached = await response.json<ClientManifest>();
+    try {
+      const manifest = await response.json<unknown>();
+      if (isClientManifest(manifest)) {
+        cached ??= manifest;
+      }
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) {
+        throw error;
+      }
+    }
     return cached;
   };
 }
