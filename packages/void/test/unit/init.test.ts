@@ -1,3 +1,4 @@
+import type { SpawnSyncOptions } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -13,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import { isRecord } from '@void/deploy-core';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { InitReport } from '../../src/cli/init-report.ts';
@@ -35,27 +37,51 @@ import { LATEST_KNOWN_COMPAT_DATE } from '../../src/cli/wrangler.ts';
 import { buildDrizzleKitSpawnEnv } from '../../src/cli/yarn-pnp.ts';
 import { readConfig } from '../../src/config.ts';
 
-const mockSpawnSync = vi.fn();
+type Prompts = typeof import('@voidzero-dev/vite-plus-prompts');
+type PromptAnswer<T> = T | symbol | undefined | Promise<T | symbol | undefined>;
+
+interface SpawnResult {
+  status?: number | null;
+  stdout?: string;
+  stderr?: string;
+  error?: Error;
+  hang?: boolean;
+}
+
+const mockSpawnSync =
+  vi.fn<
+    (command: string, args: Array<string>, options: SpawnSyncOptions) => SpawnResult | undefined
+  >();
 /** Ends each mocked `spawn` whose result sets `hang`. */
 const hangingCommands: Array<() => void> = [];
 const HANGING_COMMAND_PID = 0x7f_ff_ff_ff;
-const mockSelect = vi.fn();
-const mockConfirm = vi.fn();
-const mockText = vi.fn();
-const mockNote = vi.fn();
-const mockOutro = vi.fn();
-const mockLogWarn = vi.fn();
-const mockLogError = vi.fn();
-const mockLogInfo = vi.fn();
-const mockLogStep = vi.fn();
-const mockLogMessage = vi.fn();
-const mockGetToken = vi.fn();
-const mockGetApiUrl = vi.fn();
-const mockRunLogin = vi.fn();
-const mockSaveToken = vi.fn();
-const mockListProjects = vi.fn();
-const mockCreateProject = vi.fn();
-const mockDiscoverPlatform = vi.fn();
+const mockSelect = vi.fn<(options: Parameters<Prompts['select']>[0]) => PromptAnswer<string>>();
+const mockConfirm = vi.fn<(options: Parameters<Prompts['confirm']>[0]) => PromptAnswer<boolean>>();
+const mockText =
+  vi.fn<
+    (options: {
+      message: string;
+      validate?: (value: string) => string | undefined;
+    }) => PromptAnswer<string>
+  >();
+const mockNote = vi.fn<(...args: Array<unknown>) => void>();
+const mockOutro = vi.fn<(...args: Array<unknown>) => void>();
+const mockLogWarn = vi.fn<(...args: Array<unknown>) => void>();
+const mockLogError = vi.fn<(...args: Array<unknown>) => void>();
+const mockLogInfo = vi.fn<(...args: Array<unknown>) => void>();
+const mockLogStep = vi.fn<(...args: Array<unknown>) => void>();
+const mockLogMessage =
+  vi.fn<(message: string | Array<string>, options?: { symbol?: string }) => void>();
+const mockGetToken = vi.fn<typeof import('../../src/cli/auth.ts').getToken>();
+const mockGetApiUrl = vi.fn<typeof import('../../src/cli/auth.ts').getApiUrl>();
+const mockRunLogin = vi.fn<typeof import('../../src/cli/auth.ts').runPlatformLogin>();
+const mockSaveToken = vi.fn<typeof import('../../src/cli/auth.ts').savePlatformToken>();
+const mockListProjects =
+  vi.fn<() => Promise<Array<Omit<import('../../src/cli/client.ts').ProjectResponse, 'role'>>>>();
+const mockCreateProject =
+  vi.fn<import('../../src/cli/client.ts').PlatformClient['createProject']>();
+const mockDiscoverPlatform =
+  vi.fn<typeof import('../../src/cli/platform-cmd.ts').discoverPlatform>();
 let platformRegistryDirectory: string;
 
 it('pins compatibility date in the lock without rewriting authored TypeScript', () => {
@@ -232,7 +258,7 @@ describe('init scaffold arguments', () => {
 
 describe('init question order', () => {
   const DEPLOY_PROMPT = 'Where should this project deploy?';
-  const answers: Record<string, unknown> = {
+  const answers: Record<string, string | undefined> = {
     'Choose a Pages scaffold toolchain:': 'vite',
     'Choose a Pages framework to scaffold:': 'react',
     'Choose a Pages starter:': 'static',
@@ -1106,19 +1132,19 @@ function expectPnpmAllowBuilds(root: string): void {
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   settings: { accessible: false },
   intro: vi.fn(),
-  outro: (...args: Array<unknown>) => mockOutro(...args),
-  note: (...args: Array<unknown>) => mockNote(...args),
+  outro: (...args: Parameters<typeof mockOutro>) => mockOutro(...args),
+  note: (...args: Parameters<typeof mockNote>) => mockNote(...args),
   log: {
     success: vi.fn(),
-    warn: (...args: Array<unknown>) => mockLogWarn(...args),
-    error: (...args: Array<unknown>) => mockLogError(...args),
-    info: (...args: Array<unknown>) => mockLogInfo(...args),
-    step: (...args: Array<unknown>) => mockLogStep(...args),
-    message: (...args: Array<unknown>) => mockLogMessage(...args),
+    warn: (...args: Parameters<typeof mockLogWarn>) => mockLogWarn(...args),
+    error: (...args: Parameters<typeof mockLogError>) => mockLogError(...args),
+    info: (...args: Parameters<typeof mockLogInfo>) => mockLogInfo(...args),
+    step: (...args: Parameters<typeof mockLogStep>) => mockLogStep(...args),
+    message: (...args: Parameters<typeof mockLogMessage>) => mockLogMessage(...args),
   },
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
-  select: (...args: Array<unknown>) => mockSelect(...args),
-  text: (...args: Array<unknown>) => mockText(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
+  select: (...args: Parameters<typeof mockSelect>) => mockSelect(...args),
+  text: (...args: Parameters<typeof mockText>) => mockText(...args),
   spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
   isCI: () => false,
   isCancel: (value: unknown) => value === Symbol.for('cancel'),
@@ -1126,16 +1152,17 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
 }));
 
 vi.mock('../../src/cli/auth', () => ({
-  getApiUrl: (...args: Array<unknown>) => mockGetApiUrl(...args),
-  getToken: (...args: Array<unknown>) => mockGetToken(...args),
-  runPlatformLogin: (...args: Array<unknown>) => mockRunLogin(...args),
-  savePlatformToken: (...args: Array<unknown>) => mockSaveToken(...args),
+  getApiUrl: (...args: Parameters<typeof mockGetApiUrl>) => mockGetApiUrl(...args),
+  getToken: (...args: Parameters<typeof mockGetToken>) => mockGetToken(...args),
+  runPlatformLogin: (...args: Parameters<typeof mockRunLogin>) => mockRunLogin(...args),
+  savePlatformToken: (...args: Parameters<typeof mockSaveToken>) => mockSaveToken(...args),
   getSiteDomain: () => 'void.app',
 }));
 
 vi.mock('../../src/cli/platform-cmd', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/cli/platform-cmd.ts')>()),
-  discoverPlatform: (...args: Array<unknown>) => mockDiscoverPlatform(...args),
+  discoverPlatform: (...args: Parameters<typeof mockDiscoverPlatform>) =>
+    mockDiscoverPlatform(...args),
 }));
 
 vi.mock('../../src/cli/client', () => ({
@@ -1154,11 +1181,11 @@ vi.mock('../../src/cli/client', () => ({
         'https://api.example.com';
     }
 
-    listProjects(...args: Array<unknown>) {
+    listProjects(...args: Parameters<typeof mockListProjects>) {
       return mockListProjects(...args);
     }
 
-    createProject(...args: Array<unknown>) {
+    createProject(...args: Parameters<typeof mockCreateProject>) {
       return mockCreateProject(...args);
     }
   },
@@ -1167,19 +1194,11 @@ vi.mock('../../src/cli/client', () => ({
 vi.mock('node:child_process', async () => {
   const { EventEmitter } = await import('node:events');
   return {
-    spawnSync: (...args: Array<unknown>) => mockSpawnSync(...args),
+    spawnSync: (...args: Parameters<typeof mockSpawnSync>) => mockSpawnSync(...args),
     // Init runs installs and drizzle-kit with `spawn`, behind a spinner. Answer
     // them from the same mock, so a test sets one result for both kinds of call.
-    spawn: (...args: Array<unknown>) => {
-      const result = mockSpawnSync(...args) as
-        | {
-            status?: number | null;
-            stdout?: string;
-            stderr?: string;
-            error?: Error;
-            hang?: boolean;
-          }
-        | undefined;
+    spawn: (...args: Parameters<typeof mockSpawnSync>) => {
+      const result = mockSpawnSync(...args);
       const child = Object.assign(new EventEmitter(), {
         // No process has this id, so a signal to it reaches nothing.
         pid: result?.hang ? HANGING_COMMAND_PID : undefined,
@@ -1425,8 +1444,13 @@ function cloudflareOperationType(args: unknown): string | undefined {
   if (!Array.isArray(args)) {
     return undefined;
   }
+  const input: unknown = args.at(-1);
+  if (typeof input !== 'string') {
+    return undefined;
+  }
   try {
-    return JSON.parse(args.at(-1)).type;
+    const operation: unknown = JSON.parse(input);
+    return isRecord(operation) && typeof operation.type === 'string' ? operation.type : undefined;
   } catch {
     return undefined;
   }
@@ -1517,6 +1541,7 @@ beforeEach(() => {
     platformVersion: '0.10.14',
     proxyUrl: 'https://proxy.void.cloud',
     schemaVersion: 1,
+    usageProtocolVersion: 0,
   });
 });
 
@@ -1546,6 +1571,7 @@ describe('Void platform deployment setup', () => {
       platformVersion: '0.10.14',
       proxyUrl: 'https://proxy.example.test',
       schemaVersion: 1,
+      usageProtocolVersion: 0,
     });
 
     await ensureVoidPlatformConnection('/project');
@@ -1585,6 +1611,7 @@ describe('Void platform deployment setup', () => {
         platformVersion: '0.10.14',
         proxyUrl: 'https://proxy.example.test',
         schemaVersion: 1,
+        usageProtocolVersion: 0,
       });
 
       await expect(runInitCommand(root, { github: true, tsconfig: false })).rejects.toThrow(
@@ -2727,15 +2754,15 @@ describe('isScaffoldableEmptyProject', () => {
       );
       const folderPrompt = mockText.mock.calls[0][0];
       expect(folderPrompt).not.toHaveProperty('initialValue');
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
-      expect(folderPrompt.validate('')).toBeUndefined();
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
-      expect(folderPrompt.validate(' ')).toBe('Enter a folder name.');
+      const validate = folderPrompt.validate;
+      if (!validate) {
+        throw new Error('Expected a project folder validator');
+      }
+      expect(validate('')).toBeUndefined();
+      expect(validate(' ')).toBe('Enter a folder name.');
       mkdirSync(join(root, 'my-void-app'));
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
-      expect(folderPrompt.validate('')).toBe('That folder already exists.');
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
-      expect(folderPrompt.validate('another-app')).toBeUndefined();
+      expect(validate('')).toBe('That folder already exists.');
+      expect(validate('another-app')).toBeUndefined();
       expect(mockSpawnSync).toHaveBeenCalledWith(
         'vp',
         ['install', '--no-frozen-lockfile'],
@@ -4239,7 +4266,7 @@ export default config;
         ([options]) => options.message === 'Choose a Cloudflare account:',
       )?.[0];
       expect(accountPrompt).toMatchObject({ initialValue: 'account-1' });
-      expect(accountPrompt.options).toEqual([
+      expect(accountPrompt?.options).toEqual([
         { value: 'account-1', label: 'First account', hint: 'account-1' },
         { value: 'account-2', label: 'Second account', hint: 'account-2' },
       ]);

@@ -307,7 +307,7 @@ const config = defineConfig({
       {
         files: [
           'platform/packages/dispatch/test/**/*',
-          'packages/void/test/unit/{db-migrate,login-command}.test.ts',
+          'packages/void/test/unit/{db-commands,db-migrate,deploy-auth,domain-command,init,login-command}.test.ts',
         ],
         rules: { 'typescript/no-unsafe-return': 'error' },
       },
