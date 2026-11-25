@@ -24,8 +24,8 @@ const { emailModule, mockConfirm, mockPreflight, mockProjectLookup, mockClientCt
         fetchWithSessionBearer: vi.fn(never),
         createNodeEmailDns: vi.fn(never),
       },
-      mockConfirm: vi.fn(),
-      mockPreflight: vi.fn(),
+      mockConfirm: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').confirm>(),
+      mockPreflight: vi.fn<import('../../src/cli/client.ts').PlatformClient['preflight']>(),
       mockProjectLookup: vi.fn(),
       mockClientCtor: vi.fn(),
     };
@@ -41,7 +41,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   note: vi.fn(),
   spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
   isCI: () => false,
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
   isCancel: () => false,
   log: {
     error: vi.fn(),
@@ -77,7 +77,7 @@ vi.mock('../../src/cli/client', () => ({
       const projects = (await mockProjectLookup()) as Array<{ slug: string }>;
       return projects.find((project: { slug: string }) => project.slug === slug) ?? null;
     }
-    preflight(...args: Array<unknown>) {
+    preflight(...args: Parameters<typeof mockPreflight>) {
       return mockPreflight(...args);
     }
   },

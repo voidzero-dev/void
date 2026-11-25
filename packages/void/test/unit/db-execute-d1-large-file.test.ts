@@ -26,11 +26,11 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
-const mockConfirm = vi.fn();
+const mockConfirm = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').confirm>();
 const mockWarn = vi.fn();
 vi.mock('@voidzero-dev/vite-plus-prompts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@voidzero-dev/vite-plus-prompts')>()),
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
   log: { error: vi.fn(), info: vi.fn(), step: vi.fn(), success: vi.fn(), warn: mockWarn },
 }));
 

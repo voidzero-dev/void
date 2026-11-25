@@ -8,14 +8,14 @@ import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import * as output from '../../src/cli/output.ts';
 import { getMiniflareDatabasePath } from '../../src/migrations/runner.ts';
 
-const mockIntro = vi.fn();
-const mockOutro = vi.fn();
-const mockConfirm = vi.fn();
+const mockIntro = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').intro>();
+const mockOutro = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').outro>();
+const mockConfirm = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').confirm>();
 const mockLog = {
-  error: vi.fn(),
-  info: vi.fn(),
-  step: vi.fn(),
-  success: vi.fn(),
+  error: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.error>(),
+  info: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.info>(),
+  step: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.step>(),
+  success: vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.success>(),
 };
 const pgQueries = vi.hoisted((): Array<string> => []);
 
@@ -34,15 +34,15 @@ vi.mock('pg', async (importOriginal) => {
 });
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
   isCancel: () => false,
-  intro: (...args: Array<unknown>) => mockIntro(...args),
-  outro: (...args: Array<unknown>) => mockOutro(...args),
+  intro: (...args: Parameters<typeof mockIntro>) => mockIntro(...args),
+  outro: (...args: Parameters<typeof mockOutro>) => mockOutro(...args),
   log: {
-    error: (...args: Array<unknown>) => mockLog.error(...args),
-    info: (...args: Array<unknown>) => mockLog.info(...args),
-    step: (...args: Array<unknown>) => mockLog.step(...args),
-    success: (...args: Array<unknown>) => mockLog.success(...args),
+    error: (...args: Parameters<typeof mockLog.error>) => mockLog.error(...args),
+    info: (...args: Parameters<typeof mockLog.info>) => mockLog.info(...args),
+    step: (...args: Parameters<typeof mockLog.step>) => mockLog.step(...args),
+    success: (...args: Parameters<typeof mockLog.success>) => mockLog.success(...args),
   },
 }));
 

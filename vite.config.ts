@@ -307,7 +307,9 @@ const config = defineConfig({
       {
         files: [
           'platform/packages/dispatch/test/**/*',
-          'packages/void/test/unit/{db-commands,db-migrate,deploy-auth,domain-command,init,login-command}.test.ts',
+          'packages/void/test/unit/{auth-login,deploy-auth,domain-command,github-connect-cmd,github-install-cmd,login-command}.test.ts',
+          'packages/void/test/unit/{db-commands,db-execute-d1-large-file,db-execute-remote,db-migrate,db-seed,gen}.test.ts',
+          'packages/void/test/unit/{create-project,deploy-email-platform-path,deploy-project-setup,init,link,project-lookup-client}.test.ts',
         ],
         rules: { 'typescript/no-unsafe-return': 'error' },
       },

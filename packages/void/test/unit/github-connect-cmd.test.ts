@@ -25,10 +25,10 @@ vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
 // Partial mock of @voidzero-dev/vite-plus-prompts: only `text` is replaced (for the repo
 // prompt); everything else — including `log`, which the spies below target —
 // passes through from the actual module.
-const mockText = vi.fn();
+const mockText = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').text>();
 vi.mock('@voidzero-dev/vite-plus-prompts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@voidzero-dev/vite-plus-prompts')>();
-  return { ...actual, text: (...args: Array<unknown>) => mockText(...args) };
+  return { ...actual, text: (...args: Parameters<typeof mockText>) => mockText(...args) };
 });
 
 const installationId = '123456';
@@ -535,7 +535,12 @@ describe('runConnect — member repo prompt (redacted repository list)', () => {
       gitRef: 'release',
       repositoryUrl: `https://github.com/${repoFullName}`,
     });
-    mockText.mockImplementation(async ({ defaultValue }) => defaultValue);
+    mockText.mockImplementation(async ({ defaultValue }) => {
+      if (defaultValue === undefined) {
+        throw new Error('Expected an inferred prompt default.');
+      }
+      return defaultValue;
+    });
     const connectGithub = vi
       .fn()
       .mockResolvedValueOnce(
@@ -549,13 +554,13 @@ describe('runConnect — member repo prompt (redacted repository list)', () => {
       });
       await promise;
 
-      const repoPrompt = mockText.mock.calls[0][0];
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
-      expect(repoPrompt.validate('')).toBeUndefined();
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
-      expect(repoPrompt.validate(' ')).toBe('Enter the repository as owner/repo.');
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
-      expect(repoPrompt.validate('another/project')).toBeUndefined();
+      const validateRepo = mockText.mock.calls[0]?.[0].validate;
+      if (typeof validateRepo !== 'function') {
+        throw new Error('Expected a repository validator.');
+      }
+      expect(validateRepo('')).toBeUndefined();
+      expect(validateRepo(' ')).toBe('Enter the repository as owner/repo.');
+      expect(validateRepo('another/project')).toBeUndefined();
       for (const [index, suggestion] of [
         [0, repoFullName],
         [1, 'release'],

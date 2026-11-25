@@ -5,22 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import type { PlatformClient } from '../../src/cli/client.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 
-const mockText = vi.fn();
-const mockInfo = vi.fn();
-const mockError = vi.fn();
-const mockWarn = vi.fn();
+const mockText = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').text>();
+const mockInfo = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.info>();
+const mockError = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.error>();
+const mockWarn = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.warn>();
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   cancel: vi.fn(),
   isCancel: () => false,
   log: {
-    error: (...args: Array<unknown>) => mockError(...args),
-    info: (...args: Array<unknown>) => mockInfo(...args),
+    error: (...args: Parameters<typeof mockError>) => mockError(...args),
+    info: (...args: Parameters<typeof mockInfo>) => mockInfo(...args),
     step: vi.fn(),
     success: vi.fn(),
-    warn: (...args: Array<unknown>) => mockWarn(...args),
+    warn: (...args: Parameters<typeof mockWarn>) => mockWarn(...args),
   },
-  text: (...args: Array<unknown>) => mockText(...args),
+  text: (...args: Parameters<typeof mockText>) => mockText(...args),
 }));
 
 function createClient() {
@@ -79,7 +79,7 @@ describe('promptAndCreateProject', () => {
 
     expect(config).toEqual({ projectId: 'proj_new', slug: 'new-app' });
     expect(mockInfo).toHaveBeenCalledTimes(1);
-    const message = mockInfo.mock.calls[0]?.[0] as string;
+    const message = mockInfo.mock.calls[0][0];
     expect(message).toContain('owner@example.com');
     // True in every outcome: neither "already verified" nor "check your
     // inbox" is asserted, and the user is pointed at where the state shows.
