@@ -44,8 +44,6 @@ vi.mock('../../src/security/probe.ts', async (importOriginal) => {
   };
 });
 
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
-import { app } from '../../src/index.ts';
 import {
   operatorEvents,
   platformSettings,
@@ -56,6 +54,7 @@ import {
   securityScans,
 } from '../../src/schema.ts';
 import { readSecurityPolicyLenient, securitySpendMonth } from '../../src/security/policy.ts';
+import { operatorFetch } from './ai-logging-helpers.ts';
 import {
   clearTables,
   createOperatorToken,
@@ -65,6 +64,11 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import {
+  securityOn,
+  seedZeroTrustConfiguration,
+  storedSecurityPolicy,
+} from './security-fixtures.ts';
 
 let env: TestEnv;
 let onEnv: TestEnv;
@@ -73,13 +77,7 @@ let adminId: string;
 
 beforeAll(async () => {
   env = await setupEnv();
-  onEnv = {
-    ...env,
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
-  };
+  onEnv = securityOn(env);
 });
 afterAll(teardownEnv);
 beforeEach(async () => {
@@ -103,17 +101,7 @@ afterEach(() => {
 });
 
 function request(path: string, body?: Record<string, unknown>, bindings: TestEnv = onEnv) {
-  return app.fetch(
-    new Request(`http://localhost/operator/v1/security${path}`, {
-      method: body ? 'POST' : 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    }),
-    bindings,
-  );
+  return operatorFetch(bindings, token, `/security${path}`, body);
 }
 
 function entitlement(hoursAgo: number, overrides: Record<string, unknown> = {}) {
@@ -157,41 +145,6 @@ async function seedPolicy(overrides: Record<string, unknown> = {}) {
   return policy;
 }
 
-async function seedZeroTrust() {
-  await env.db.insert(platformSettings).values({
-    key: 'zeroTrust.configuration',
-    value: {
-      version: 1,
-      revision: 1,
-      enabled: true,
-      protectNewProjects: false,
-      accountId: env.CF_ACCOUNT_ID,
-      teamDomain: 'https://company.cloudflareaccess.com',
-      identityProviderIds: ['idp-1'],
-      policyIds: ['policy-1'],
-      credential: { ciphertext: 'unused', iv: 'unused', keyVersion: 'v1' },
-      wildcardApplicationName: 'void-test-projects',
-      wildcardApplication: {
-        id: 'access-wildcard',
-        name: 'void-test-projects',
-        audience: 'access-audience',
-        destinations: ['*.void.app'],
-      },
-      operation: null,
-      lastError: null,
-      updatedAt: new Date().toISOString(),
-    },
-  });
-}
-
-async function storedPolicy() {
-  const [row] = await env.db
-    .select()
-    .from(platformSettings)
-    .where(eq(platformSettings.key, SECURITY_POLICY_SETTINGS_KEY));
-  return row?.value as Record<string, unknown> | undefined;
-}
-
 describe('operator security policy', () => {
   test('reads the default policy without writing it, and reports the capability', async () => {
     const off = await request('/policy', undefined, env);
@@ -218,7 +171,7 @@ describe('operator security policy', () => {
       priced: false,
       pickable: false,
     });
-    expect(await storedPolicy()).toBeUndefined();
+    expect(await storedSecurityPolicy(env)).toBeUndefined();
   });
 
   test('returns 501 for writes when the capability is off and audits the failed attempt', async () => {
@@ -229,7 +182,7 @@ describe('operator security policy', () => {
       error: 'platform capability unavailable',
       capability: 'securityAudits',
     });
-    expect((await storedPolicy())?.mode).toBe('disabled');
+    expect((await storedSecurityPolicy(env))?.mode).toBe('disabled');
     expect(await env.db.select().from(operatorEvents)).toEqual([
       expect.objectContaining({ action: 'security/policy', status: 'failed', http_status: 501 }),
     ]);
@@ -279,7 +232,7 @@ describe('operator security policy', () => {
       details: { expectedRevision: 2, currentRevision: 3 },
     });
     expect((await request('/policy', { mode: 'all' })).status).toBe(400);
-    expect((await storedPolicy())?.revision).toBe(3);
+    expect((await storedSecurityPolicy(env))?.revision).toBe(3);
   });
 
   test('two writes from the same preview: only the first lands', async () => {
@@ -289,7 +242,7 @@ describe('operator security policy', () => {
       request('/policy', { expectedRevision: 3, limits: { concurrency: 5 } }),
     ]);
     expect([first.status, second.status].sort((a, b) => a - b)).toEqual([200, 409]);
-    expect((await storedPolicy())?.revision).toBe(4);
+    expect((await storedSecurityPolicy(env))?.revision).toBe(4);
   });
 
   test('turning on re-runs the probe: a pass replaces the stored result, a failure refuses', async () => {
@@ -298,7 +251,7 @@ describe('operator security policy', () => {
     const on = await request('/policy', { expectedRevision: 3, mode: 'public' });
     expect(on.status).toBe(200);
     expect(probe.runs).toBe(1);
-    expect(await storedPolicy()).toMatchObject({
+    expect(await storedSecurityPolicy(env)).toMatchObject({
       mode: 'public',
       revision: 4,
       entitlement: { ok: true, hosts: { anthropic: true } },
@@ -337,7 +290,7 @@ describe('operator security policy', () => {
     expect(failedBody.message).toContain('probe pr_test');
     expect(failedBody.message).toContain(`Egress lock: ${egressCopy}`);
     // The failing result is stored (revision + 1); the mode is not.
-    expect(await storedPolicy()).toMatchObject({
+    expect(await storedSecurityPolicy(env)).toMatchObject({
       mode: 'disabled',
       revision: 4,
       entitlement: { ok: false, missing: ['egress'] },
@@ -367,7 +320,7 @@ describe('operator security policy', () => {
       expect(response.status).not.toBe(200);
     }
     expect(probe.runs).toBe(0);
-    expect(await storedPolicy()).toMatchObject({ mode: 'disabled', revision: 3 });
+    expect(await storedSecurityPolicy(env)).toMatchObject({ mode: 'disabled', revision: 3 });
   });
 
   test('turning on with a third-party default checks its host against the fresh probe', async () => {
@@ -387,7 +340,7 @@ describe('operator security policy', () => {
     const applied = await request('/policy', change);
     expect(applied.status).toBe(200);
     expect(probe.runs).toBe(1);
-    expect(await storedPolicy()).toMatchObject({
+    expect(await storedSecurityPolicy(env)).toMatchObject({
       mode: 'public',
       defaultModel: 'anthropic/claude-opus-5.5',
     });
@@ -412,7 +365,8 @@ describe('operator security policy', () => {
     expect(probe.runs).toBe(0);
   });
 
-  test('checks the default model: blocked, unpriced, host and provider notice', async () => {
+  // The model rules (unpriced, host credits, old notice) are in unit/security-policy-store.
+  test('checks the default model: blocked and provider notice', async () => {
     await seedPolicy();
     const blockDefault = await request('/policy', {
       expectedRevision: 3,
@@ -420,21 +374,6 @@ describe('operator security policy', () => {
     });
     expect(blockDefault.status).toBe(422);
     expect(await blockDefault.json()).toMatchObject({ error: 'security model not allowed' });
-
-    const unpriced = await request('/policy', {
-      expectedRevision: 3,
-      defaultModel: 'anthropic/claude-sonnet-5.5',
-    });
-    expect(unpriced.status).toBe(422);
-    expect(await unpriced.json()).toMatchObject({ error: 'security model not allowed' });
-
-    const noCredits = await request('/policy', {
-      expectedRevision: 3,
-      defaultModel: 'openai/gpt-6.1-terra',
-      acceptProviderNoticeVersion: SECURITY_PROVIDER_NOTICE_VERSION,
-    });
-    expect(noCredits.status).toBe(422);
-    expect(await noCredits.json()).toMatchObject({ error: 'security model not allowed' });
 
     const noNotice = await request('/policy', {
       expectedRevision: 3,
@@ -445,13 +384,6 @@ describe('operator security policy', () => {
       error: 'provider notice not accepted',
       details: { version: SECURITY_PROVIDER_NOTICE_VERSION },
     });
-
-    const oldNotice = await request('/policy', {
-      expectedRevision: 3,
-      defaultModel: 'anthropic/claude-opus-5.5',
-      acceptProviderNoticeVersion: SECURITY_PROVIDER_NOTICE_VERSION + 1,
-    });
-    expect(oldNotice.status).toBe(422);
 
     const accepted = await request('/policy', {
       expectedRevision: 3,
@@ -469,7 +401,7 @@ describe('operator security policy', () => {
 
   test('previews turning the policy on with project counts and writes nothing', async () => {
     await seedPolicy();
-    await seedZeroTrust();
+    await seedZeroTrustConfiguration(env, { protectNewProjects: false });
     const owner = await createTestUser(env.db, 'security-owner');
     const fresh = await createTestProject(env.db, owner.id, 'sec-fresh');
     const scanned = await createTestProject(env.db, owner.id, 'sec-scanned');
@@ -536,13 +468,13 @@ describe('operator security policy', () => {
     expect(cappedPreview.preview).toContain(
       '  Monthly scan budgets are off: only plans with a scan cap have a money limit. Set them with: void platform security budget',
     );
-    expect((await storedPolicy())?.revision).toBe(3);
+    expect((await storedSecurityPolicy(env))?.revision).toBe(3);
     expect(await env.db.select().from(operatorEvents)).toHaveLength(0);
   });
 
   test('the preview counts follow the project rules (M34)', async () => {
     await seedPolicy();
-    await seedZeroTrust();
+    await seedZeroTrustConfiguration(env, { protectNewProjects: false });
     const owner = await createTestUser(env.db, 'security-rule-owner');
     await createTestProject(env.db, owner.id, 'sec-plain');
     const never = await createTestProject(env.db, owner.id, 'sec-never');
@@ -702,7 +634,7 @@ describe('operator security policy', () => {
     );
     const repaired = await request('/policy', { expectedRevision: 7, limits: { concurrency: 3 } });
     expect(repaired.status).toBe(200);
-    expect(await storedPolicy()).toMatchObject({ mode: 'disabled', revision: 8 });
+    expect(await storedSecurityPolicy(env)).toMatchObject({ mode: 'disabled', revision: 8 });
   });
 
   test('refuses unknown fields and the public gate while the policy is Off', async () => {

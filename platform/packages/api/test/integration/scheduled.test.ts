@@ -1,14 +1,9 @@
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
 import { eq, sql } from 'drizzle-orm';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vite-plus/test';
 import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
 import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
 import { app, FAST_CRON, scheduled } from '../../src/index.ts';
 import { transferOperatorProjectOwner } from '../../src/operator/tenant-service.ts';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
   proxyTokenRotationTarget,
   requestProxyTokenRotation,
@@ -41,6 +36,7 @@ import {
   createTestProject,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import { freshEntitlement, saveSecurityPolicy } from './security-fixtures.ts';
 
 const zeroTrust = vi.hoisted(() => ({ progressed: false }));
 vi.mock('../../src/zero-trust/installation.ts', async (importOriginal) => {
@@ -956,19 +952,10 @@ describe('scheduled() security audit maintenance', () => {
     } as unknown as Parameters<typeof scheduled>[1];
   }
 
-  async function savePolicy(mode: 'disabled' | 'all') {
-    await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-      ...defaultSecurityPolicy(),
-      mode,
-      revision: 1,
-      // Fresh: the daily probe is not due.
-      entitlement: {
-        checkedAt: new Date().toISOString(),
-        ok: true,
-        missing: [],
-        hosts: { openai: false, anthropic: false },
-      },
-    });
+  function savePolicy(mode: 'disabled' | 'all') {
+    // Fresh: the daily probe is not due.
+    const entitlement = freshEntitlement({ openai: false, anthropic: false });
+    return saveSecurityPolicy(env, { mode, entitlement });
   }
 
   const ago = (ms: number) => new Date(Date.now() - ms).toISOString();

@@ -1,6 +1,5 @@
 import { getSecurityModel, SECURITY_MODEL_IDS } from '@void/platform/security-models';
 import { SECURITY_POLICY_SETTINGS_KEY } from '@void/platform/security-policy';
-import { eq } from 'drizzle-orm';
 import {
   afterAll,
   afterEach,
@@ -26,20 +25,11 @@ vi.mock('../../src/security/scanner-images.ts', async (importOriginal) => {
         .map((pin) => ({ ...pin, digest: pinState.digests[pin.engine] ?? null })),
   };
 });
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { app } from '../../src/index.ts';
-import {
-  SecurityScannerError,
-  securityScannerNames,
-} from '../../src/provisioning/security-scanner.ts';
+import { securityScannerNames } from '../../src/provisioning/security-scanner.ts';
 import { platformSettings } from '../../src/schema.ts';
 import type { SelfTestResult } from '../../src/security-scanner-controller-runtime.ts';
-import {
-  judgeSelfTest,
-  SECURITY_CREDITS_LINK,
-  SECURITY_PROBE_COPY,
-  securityProvisionMessage,
-} from '../../src/security/probe.ts';
+import { SECURITY_CREDITS_LINK, SECURITY_PROBE_COPY } from '../../src/security/probe.ts';
 import type { SecurityProbeCheck } from '../../src/security/probe.ts';
 import { createFakeRegistry, fakeImage } from '../__mocks__/image-registry.ts';
 import type { FakeRegistry } from '../__mocks__/image-registry.ts';
@@ -52,6 +42,7 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { MockCfApiHandle, TestEnv } from './helpers.ts';
+import { securityOn, storedSecurityPolicy } from './security-fixtures.ts';
 
 // The entitlement probe, checks 1–6 (spec §5.2), against fakes: the Cloudflare API
 // (mockCfApi), the dispatch gate (the controller's self-test answer), Workers AI and
@@ -148,12 +139,8 @@ beforeEach(async () => {
   const ai = vi.fn(async () => ({ response: 'ok' }));
   fakes = { cf, selfTest, gates, ai, rest, registry, selfTestEngines };
   bindings = {
-    ...env,
+    ...securityOn(env),
     PLATFORM_INSTALLATION_ID: 'inst_probe',
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
     DISPATCH: {
       get: (name: string) => {
         gates.push(name);
@@ -213,14 +200,6 @@ async function containerNames(): Promise<Array<string>> {
   return (metadata?.containers ?? []).map((entry) => entry.name);
 }
 
-async function storedPolicy() {
-  const [row] = await env.db
-    .select()
-    .from(platformSettings)
-    .where(eq(platformSettings.key, SECURITY_POLICY_SETTINGS_KEY));
-  return row?.value as Record<string, unknown> | undefined;
-}
-
 describe('security probe', () => {
   test('reports all six checks and stores the result', async () => {
     const body = await probe();
@@ -245,7 +224,7 @@ describe('security probe', () => {
       revision: 1,
       entitlement: { ok: true, missing: [], hosts: { openai: true, anthropic: true } },
     });
-    expect(await storedPolicy()).toMatchObject({
+    expect(await storedSecurityPolicy(env)).toMatchObject({
       mode: 'disabled',
       revision: 1,
       entitlement: { ok: true, hosts: { openai: true, anthropic: true } },
@@ -313,7 +292,7 @@ describe('security probe', () => {
     expect(fakes.rest).toEqual([]);
     expect(fakes.ai).not.toHaveBeenCalled();
     expect(fakes.gates).toEqual([]);
-    expect(await storedPolicy()).toBeUndefined();
+    expect(await storedSecurityPolicy(env)).toBeUndefined();
   });
 
   test('check 2: no Containers access fails with the permission copy and skips check 3', async () => {
@@ -585,7 +564,7 @@ describe('security probe', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const body = await probe();
     expect(body).toMatchObject({ ok: true, saved: false, revision: null });
-    expect(await storedPolicy()).toEqual({ mode: 'sideways', revision: 7 });
+    expect(await storedSecurityPolicy(env)).toEqual({ mode: 'sideways', revision: 7 });
   });
 
   test('Off → on runs the probe; a failing check refuses the change', async () => {
@@ -620,7 +599,7 @@ describe('security probe', () => {
     expect(refusedBody.details.probeId).toMatch(/^pr_/);
     expect(refusedBody.message).toContain(`probe ${refusedBody.details.probeId}`);
     // Engine B and both engine images ran their self-test.
-    expect(await storedPolicy()).toMatchObject({
+    expect(await storedSecurityPolicy(env)).toMatchObject({
       mode: 'disabled',
       revision: 1,
       entitlement: { ok: false, missing: ['workers_ai'] },
@@ -629,55 +608,11 @@ describe('security probe', () => {
 
     const accepted = await policyRequest({ expectedRevision: 1, mode: 'public' });
     expect(accepted.status).toBe(200);
-    expect(await storedPolicy()).toMatchObject({
+    expect(await storedSecurityPolicy(env)).toMatchObject({
       mode: 'public',
       revision: 2,
       entitlement: { ok: true },
     });
     expect(fakes.selfTest).toHaveBeenCalledTimes(6);
-  });
-});
-
-describe('securityProvisionMessage', () => {
-  test('gives the plan and token copy only to plan and token problems', () => {
-    for (const kind of ['containers_unavailable', 'application', 'upload'] as const) {
-      expect(securityProvisionMessage(new SecurityScannerError(kind, 'x'))).toBe(
-        SECURITY_PROBE_COPY.container,
-      );
-    }
-    expect(securityProvisionMessage(new Error('network'))).toBe(SECURITY_PROBE_COPY.container);
-    for (const kind of ['ownership', 'outdated', 'missing', 'gate'] as const) {
-      const message = `the ${kind} problem`;
-      expect(securityProvisionMessage(new SecurityScannerError(kind, message))).toBe(message);
-    }
-  });
-});
-
-describe('judgeSelfTest', () => {
-  const passing = (probeId: string): SelfTestResult => ({
-    started: true,
-    coldStartMs: 1,
-    report: PASSING_REPORT(probeId),
-  });
-
-  test('passes a non-root self-test that saw this probe id and no internet', () => {
-    expect(judgeSelfTest(passing('pr_1'), 'pr_1')).toEqual({
-      container: { ok: true },
-      egress: { ok: true },
-    });
-  });
-
-  test('fails egress for another probe id, a token-like env name or no targets', () => {
-    expect(judgeSelfTest(passing('pr_other'), 'pr_1').egress.ok).toBe(false);
-    const report = PASSING_REPORT('pr_1');
-    expect(
-      judgeSelfTest(
-        { ...passing('pr_1'), report: { ...report, envSuspicious: ['CF_API_TOKEN'] } },
-        'pr_1',
-      ).egress,
-    ).toEqual({ ok: false, detail: 'credential-like env names: CF_API_TOKEN' });
-    expect(
-      judgeSelfTest({ ...passing('pr_1'), report: { ...report, egress: {} } }, 'pr_1').egress.ok,
-    ).toBe(false);
   });
 });

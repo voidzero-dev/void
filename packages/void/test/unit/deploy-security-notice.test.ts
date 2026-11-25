@@ -7,61 +7,7 @@ import {
 } from '../../src/cli/deploy-security-notice.ts';
 import type { CliLogger } from '../../src/cli/log-file.ts';
 import type { ProjectSecurityStatus } from '../../src/cli/security-api-types.ts';
-
-const scan = (overrides: Record<string, unknown> = {}) => ({
-  id: 'ss_1',
-  status: 'queued',
-  statusReason: null,
-  failureCause: null,
-  refusalCategory: null,
-  trigger: 'deploy',
-  deploymentId: 'dpl_9a1d',
-  baseDeploymentId: 'dpl_7c20',
-  coverageLabel: null,
-  backlogFiles: 0,
-  filesScanned: 0,
-  model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-  meteredUsd: null,
-  startedAt: null,
-  finishedAt: null,
-  createdAt: '2026-11-17T10:00:00.000Z',
-  ...overrides,
-});
-
-function status(overrides: Partial<ProjectSecurityStatus> = {}): ProjectSecurityStatus {
-  return {
-    policy: {
-      mode: 'all',
-      applies: true,
-      reason: 'the platform scans all projects',
-      publicGate: false,
-    },
-    urgent: {
-      count: 0,
-      counts: { critical: 0, high: 0 },
-      oldestFirstSeenAt: null,
-      findings: [],
-      more: 0,
-      detail: 'full',
-    },
-    model: {
-      id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-      requested: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-      source: 'default',
-      thirdParty: false,
-      noticeAccepted: false,
-      pendingDefault: null,
-    },
-    budget: null,
-    lastScan: scan(),
-    lastSuccessfulScan: null,
-    deploysSinceLastSuccess: null,
-    backlogFiles: 0,
-    counts: { open: {}, leads: 3, resolved: 0, urgent: 0 },
-    publicRequest: null,
-    ...overrides,
-  };
-}
+import { scanSummary as scan, securityStatus as status } from '../helpers/security-status.ts';
 
 const urgent = (
   n: number,
@@ -165,7 +111,9 @@ describe('deploy security notice', () => {
       },
     });
     const ownText = (await run(async () => own)).lines.join('\n');
-    expect(ownText).toContain('monthly scan budget is used up ($40.00 of $40.00). Resets Dec 1.');
+    // The wording of each cause is in the budgetSkipCopy table (project-security-command.test.ts).
+    expect(ownText).toContain('  Not security-scanned: ');
+    expect(ownText).toContain('Resets Dec 1.');
     expect(ownText).toContain('void project security budget --usd 100');
 
     const platform = status({
@@ -180,7 +128,7 @@ describe('deploy security notice', () => {
       },
     });
     expect((await run(async () => platform)).lines.join('\n')).toContain(
-      "the platform's monthly scan budget is used up. Resets Dec 1. Ask your platform admin.",
+      'Resets Dec 1. Ask your platform admin.',
     );
 
     const protectedText = (
@@ -262,16 +210,13 @@ describe('deploy security notice', () => {
   it('prints the budget lines, not "queued", when the cap is used up at deploy end', async () => {
     const text = (await run(async () => status({ budget: budget() }))).lines.join('\n');
     expect(text).not.toContain('Security scan queued');
-    expect(text).toContain(
-      "Not security-scanned: this project's monthly scan budget is used up ($0.38 of $0.10). Resets Dec 1.",
-    );
-    expect(text).toContain(
-      'A project admin can raise it: void project security budget --usd <amount>',
-    );
+    expect(text).toContain('Not security-scanned: ');
+    expect(text).toContain('used up ($0.38 of $0.10)');
+    expect(text).toContain('void project security budget --usd <amount>');
     // One scan's worst case does not fit in what is left either.
     const short = status({ budget: budget({ capUsd: 0.5, spentUsd: 0.3 }) });
     expect((await run(async () => short)).lines.join('\n')).toContain(
-      "one scan with @cf/deepseek-ai/deepseek-v4.1-flash-1017 can cost up to $0.25, more than is left of this project's monthly scan budget ($0.20 of $0.50)",
+      'more than is left of this project',
     );
   });
 
@@ -288,12 +233,8 @@ describe('deploy security notice', () => {
     });
     const text = (await run(async () => reply)).lines.join('\n');
     expect(text).not.toContain("the platform's monthly scan budget");
-    expect(text).toContain(
-      "this project's monthly scan budget is used up ($0.41 of $0.20). Resets Dec 1.",
-    );
-    expect(text).toContain(
-      'Your platform admin can raise it: void platform security budget --project project_1 --usd 1',
-    );
+    expect(text).toContain('used up ($0.41 of $0.20)');
+    expect(text).toContain('void platform security budget --project project_1 --usd 1');
   });
 
   it('says the next deploy is scanned when the cap was raised since the skip', async () => {
@@ -301,9 +242,10 @@ describe('deploy security notice', () => {
       lastScan: scan({ status: 'skipped', statusReason: 'budget', budgetCause: 'project_cap' }),
       budget: budget({ capUsd: 5 }),
     });
-    expect((await run(async () => reply)).lines.join('\n')).toContain(
-      "Not security-scanned: this project's monthly scan budget was used up; it was raised since ($0.38 of $5.00 used). The next deploy is scanned.",
-    );
+    const text = (await run(async () => reply)).lines.join('\n');
+    expect(text).toContain('Not security-scanned: ');
+    expect(text).toContain('it was raised since');
+    expect(text).toContain('The next deploy is scanned.');
   });
 
   it('explains a reserve above the cap instead of "used up" (project_reserve)', async () => {
@@ -313,10 +255,8 @@ describe('deploy security notice', () => {
     });
     const text = (await run(async () => reply)).lines.join('\n');
     expect(text).not.toContain('used up');
-    expect(text).toContain(
-      "one scan with @cf/deepseek-ai/deepseek-v4.1-flash-1017 can cost up to $2.04, more than is left of this project's monthly scan budget ($1.50 of $1.50)",
-    );
-    expect(text).toContain('pick a cheaper model: void project security model');
+    expect(text).toContain('can cost up to $2.04');
+    expect(text).toContain('pick a cheaper model');
   });
 
   it('lists urgent rows for a user session, critical first, with ANSI stripped', async () => {
@@ -485,10 +425,15 @@ describe('deploy security notice', () => {
 
   it('gives up on a read that never answers', async () => {
     const before = process.exitCode;
-    const started = Date.now();
-    const { lines } = await run(() => new Promise(() => {}), { timeoutMs: 20 });
-    expect(lines).toEqual([]);
-    expect(Date.now() - started).toBeLessThan(2000);
+    vi.useFakeTimers();
+    try {
+      const done = run(() => new Promise(() => {}), { timeoutMs: 20 });
+      // The hard stop is 250 ms after the abort.
+      await vi.advanceTimersByTimeAsync(270);
+      expect((await done).lines).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(process.exitCode).toBe(before);
   });
 });

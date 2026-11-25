@@ -1,16 +1,5 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-vi.mock('cloudflare:workers', () => ({
-  DurableObject: class {
-    ctx: unknown;
-    env: unknown;
-    constructor(ctx: unknown, env: unknown) {
-      this.ctx = ctx;
-      this.env = env;
-    }
-  },
-}));
-
 const { getPlatformCapabilities } = await import('../../src/capabilities.ts');
 const { SecurityScanScheduler } = await import('../../src/security/scheduler.ts');
 

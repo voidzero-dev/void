@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vite-plus/test';
-import type { SessionSpec } from '../../src/runner/engines/types.ts';
 import { createVoidLoopEngine } from '../../src/runner/engines/void-loop.ts';
 import { runScan } from '../../src/runner/run.ts';
 import type { StatusFile } from '../../src/runner/status.ts';
 import { createFsTools } from '../../src/runner/tools/fs.ts';
 import { chatText, chatToolCall, chatToolCalls, startFakeModel } from '../fake-model/server.ts';
 import type { FakeModel, FakeReply } from '../fake-model/server.ts';
+import { spec } from '../helpers/engine.ts';
 import { confirmed, lead, report } from '../helpers/findings.ts';
 import { buildTar } from '../helpers/tar.ts';
 
@@ -60,17 +60,6 @@ const SQL = confirmed({
     { file: 'src/users.ts', line: 3, note: 'concatenated into SQL' },
   ],
 });
-
-function spec(overrides: Partial<SessionSpec> = {}): SessionSpec {
-  return {
-    phase: 'hunt',
-    index: 0,
-    system: 'system text',
-    prompt: 'hunt',
-    maxTurns: 40,
-    ...overrides,
-  };
-}
 
 async function engineWith(replies: Array<FakeReply>) {
   model = await startFakeModel(replies);
@@ -698,7 +687,15 @@ describe('runner CLI', () => {
   });
 
   test('SIGTERM during a hung model call writes timed_out', async () => {
-    model = await startFakeModel([{ hold: true }]);
+    // Every model call hangs; the test goes on once the first one comes in.
+    let called!: () => void;
+    const firstCall = new Promise<void>((resolve) => {
+      called = resolve;
+    });
+    model = await startFakeModel(() => {
+      called();
+      return { hold: true };
+    });
     const scanRoot = join(dir, 'hung');
     const { child, closed } = startCli([
       '--root',
@@ -713,7 +710,7 @@ describe('runner CLI', () => {
         { name: 'input/src/users.ts', data: USERS_TS },
       ]),
     );
-    await waitFor(() => model!.requests.length === 1);
+    await firstCall;
     child.kill('SIGTERM');
     const result = await closed;
     expect(result.code).toBe(0);

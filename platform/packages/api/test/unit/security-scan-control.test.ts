@@ -11,16 +11,6 @@ const mocks = vi.hoisted(() => ({
   deleteCopy: vi.fn(),
   noteCopy: vi.fn(),
 }));
-vi.mock('cloudflare:workers', () => ({
-  WorkerEntrypoint: class {
-    ctx: unknown;
-    env: unknown;
-    constructor(ctx: unknown, env: unknown) {
-      this.ctx = ctx;
-      this.env = env;
-    }
-  },
-}));
 vi.mock('../../src/db.ts', () => ({
   createDb: () => {
     const query = {

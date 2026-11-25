@@ -101,6 +101,9 @@ const status = {
   },
 };
 
+/** The resolve form as the page posts it. */
+const resolveFields = { finding: 'F-1', reason: 'fixed', comment: 'x', expectedRevision: '1' };
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -196,11 +199,7 @@ describe('project security page', () => {
 describe('project security forms', () => {
   it('refuses a post from another origin without calling the API', async () => {
     const calls = stubApi({});
-    const response = await submit(
-      'resolve',
-      { finding: 'F-1', reason: 'fixed', comment: 'x', expectedRevision: '1' },
-      'https://evil.example',
-    );
+    const response = await submit('resolve', resolveFields, 'https://evil.example');
     expect(response.status).toBe(403);
     expect(await response.text()).toContain('This request could not be verified.');
     expect(calls).toHaveLength(0);
@@ -211,8 +210,7 @@ describe('project security forms', () => {
       'POST /projects/proj_1/security/findings/F-1/resolve': () => Response.json({ ok: true }),
     });
     const response = await submit('resolve', {
-      finding: 'F-1',
-      reason: 'fixed',
+      ...resolveFields,
       comment: 'patched',
       expectedRevision: '3',
     });
@@ -239,12 +237,7 @@ describe('project security forms', () => {
           { status: 409 },
         ),
     });
-    const response = await submit('resolve', {
-      finding: 'F-1',
-      reason: 'fixed',
-      comment: 'x',
-      expectedRevision: '1',
-    });
+    const response = await submit('resolve', resolveFields);
     expect(await response.json()).toEqual({
       rerender: true,
       notice: {
@@ -335,7 +328,11 @@ describe('project security forms', () => {
 });
 
 describe('project security page markup', () => {
-  function render(role: 'owner' | 'collaborator' | 'reader', extra: Partial<Props> = {}) {
+  function render(
+    role: 'owner' | 'collaborator' | 'reader',
+    extra: Partial<Props> = {},
+    statusOverrides: Record<string, unknown> = {},
+  ) {
     const props = {
       slug: 'acme-web',
       project: { id: 'proj_1', role },
@@ -344,6 +341,7 @@ describe('project security page markup', () => {
         counts: { open: { critical: 1, high: 0, medium: 0, low: 0, informational: 0 }, leads: 0 },
         lastScan: null,
         lastSuccessfulScan: null,
+        ...statusOverrides,
       },
       open: [
         role === 'reader'
@@ -392,42 +390,37 @@ describe('project security page markup', () => {
 
   it('selects the saved model, not the one in use, and shows the notice it asks to accept', () => {
     const select = (html: string) => html.slice(html.indexOf('<select name="model"'));
-    // The fixture's fields the page reads; the full status is cast below.
-    type ChoicesFixture = Readonly<{
-      defaultModel: string;
-      saved: string | null;
-      defaultNotice: Readonly<{ provider: string; notice: ReadonlyArray<string> }> | null;
-      noticeVersion: number;
-      choices: ReadonlyArray<
-        Readonly<{ id: string; provider: string; badges: ReadonlyArray<string>; notice: null }>
-      >;
-    }>;
-    type ModelFixture = Readonly<{ id: string; requested: string; pendingDefault: string | null }>;
-    const withChoices = (modelChoices: ChoicesFixture, model: ModelFixture = status.model) =>
-      render('owner', { status: { ...status, model, modelChoices } as never });
     const choices = {
       ...status.modelChoices,
       choices: [{ id: '@cf/zai-org/glm-5.3', provider: 'Workers AI', badges: [], notice: null }],
     };
     // Named the default model by name: that choice is kept, not shown as "Platform default".
-    const named = withChoices(
-      { ...choices, saved: choices.defaultModel },
-      { ...status.model, requested: choices.defaultModel },
+    const named = render(
+      'owner',
+      {},
+      {
+        modelChoices: { ...choices, saved: choices.defaultModel },
+        model: { ...status.model, requested: choices.defaultModel },
+      },
     );
     expect(select(named)).toContain(`<option value="${choices.defaultModel}" selected="">`);
-    const following = withChoices({ ...choices, saved: null });
+    const following = render('owner', {}, { modelChoices: { ...choices, saved: null } });
     expect(select(following)).toContain('<option value="" selected="">');
     expect(select(following)).not.toContain('name="acceptProviderNotice"');
 
     // A third-party default waiting for its notice, its host not in the choices.
-    const pending = withChoices(
+    const pending = render(
+      'owner',
+      {},
       {
-        ...choices,
-        defaultModel: 'openai/gpt-6.1-terra',
-        saved: null,
-        defaultNotice: { provider: 'OpenAI', notice: ['Code is sent to OpenAI.'] },
+        modelChoices: {
+          ...choices,
+          defaultModel: 'openai/gpt-6.1-terra',
+          saved: null,
+          defaultNotice: { provider: 'OpenAI', notice: ['Code is sent to OpenAI.'] },
+        },
+        model: { ...status.model, pendingDefault: 'openai/gpt-6.1-terra' },
       },
-      { ...status.model, pendingDefault: 'openai/gpt-6.1-terra' },
     );
     expect(pending).toContain('Provider notice: OpenAI');
     expect(pending).toContain('Code is sent to OpenAI.');
@@ -435,39 +428,37 @@ describe('project security page markup', () => {
   });
 
   it('offers a bypass only for a request held without a result and nothing urgent', () => {
-    const held = {
-      ...status,
-      urgent: { count: 0, counts: { critical: 0, high: 0 } },
-      counts: { open: { critical: 0, high: 0, medium: 0, low: 0, informational: 0 }, leads: 0 },
-      lastScan: null,
-      lastSuccessfulScan: null,
-      publicRequest: { state: 'held_no_result', blockers: { count: 0, ids: [] } },
-    };
-    const page = render('owner', { open: [], status: held as never });
-    expect(page).toContain('action="?bypass"');
-    const findings = render('owner', {
-      open: [],
-      status: {
-        ...held,
-        publicRequest: { state: 'held_findings', blockers: { count: 1, ids: ['F-1'] } },
-      } as never,
-    });
-    expect(findings).not.toContain('action="?bypass"');
+    const held = (publicRequest: Record<string, unknown>) =>
+      render(
+        'owner',
+        { open: [] },
+        {
+          urgent: { count: 0, counts: { critical: 0, high: 0 } },
+          counts: { open: { critical: 0, high: 0, medium: 0, low: 0, informational: 0 }, leads: 0 },
+          publicRequest,
+        },
+      );
+    expect(held({ state: 'held_no_result', blockers: { count: 0, ids: [] } })).toContain(
+      'action="?bypass"',
+    );
+    expect(held({ state: 'held_findings', blockers: { count: 1, ids: ['F-1'] } })).not.toContain(
+      'action="?bypass"',
+    );
   });
 
   it('says when a held request left project files unread', () => {
-    const held = {
-      ...status,
-      urgent: { count: 0, counts: { critical: 0, high: 0 } },
-      lastScan: null,
-      lastSuccessfulScan: null,
-      publicRequest: {
-        state: 'held_no_result',
-        heldReason: 'unread_files',
-        blockers: { count: 0, ids: [] },
+    const page = render(
+      'owner',
+      { open: [] },
+      {
+        urgent: { count: 0, counts: { critical: 0, high: 0 } },
+        publicRequest: {
+          state: 'held_no_result',
+          heldReason: 'unread_files',
+          blockers: { count: 0, ids: [] },
+        },
       },
-    };
-    const page = render('owner', { open: [], status: held as never });
+    );
     expect(page).toContain('held: the security scan could not read some project files');
     expect(page).not.toContain('did not finish');
   });

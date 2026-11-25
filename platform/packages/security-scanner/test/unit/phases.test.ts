@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vite-plus/test';
-import type { Engine, SessionSpec } from '../../src/runner/engines/types.ts';
+import type { SessionSpec } from '../../src/runner/engines/types.ts';
 import {
   fitsReport,
   runPhases,
@@ -8,10 +8,11 @@ import {
   verifiedRecord,
 } from '../../src/runner/phases.ts';
 import { STANDARD_HUNT_FOCUS } from '../../src/runner/prompts.ts';
-import type { FindingRecord, ScanReport } from '../../src/runner/report.ts';
+import type { FindingRecord } from '../../src/runner/report.ts';
 import type { OutcomeBody } from '../../src/runner/status.ts';
 import { parseTask } from '../../src/runner/task.ts';
 import type { ScanTask } from '../../src/runner/task.ts';
+import { reportOf, scriptedEngine, submitted, unread } from '../helpers/engine.ts';
 import { confirmed, lead, record, rejected } from '../helpers/findings.ts';
 
 const TASK: ScanTask = parseTask({
@@ -23,49 +24,6 @@ const TASK: ScanTask = parseTask({
   tier: 'built_diff',
   changed_files: ['src/users.ts'],
 });
-
-function reportOf(raws: Array<Record<string, unknown>>, runStatus = 'complete'): ScanReport {
-  return {
-    run_status: runStatus as ScanReport['run_status'],
-    findings: raws.map(record),
-    notes: '',
-  };
-}
-
-function submitted(raws: Array<Record<string, unknown>>, runStatus?: string): OutcomeBody {
-  return { kind: 'submitted', report: reportOf(raws, runStatus), repaired: false };
-}
-
-type Unread = OutcomeBody & { reads?: number };
-
-/** A session outcome from a session that read no file. */
-function unread(body: OutcomeBody): OutcomeBody {
-  return { ...body, reads: 0 } as Unread;
-}
-
-/** An engine that answers sessions from a script and records the specs it got. */
-function scriptedEngine(
-  script: Array<OutcomeBody | ((spec: SessionSpec) => OutcomeBody)>,
-): Engine & { specs: Array<SessionSpec> } {
-  const specs: Array<SessionSpec> = [];
-  return {
-    id: 'void_loop',
-    version: 'test',
-    specs,
-    async runSession(spec) {
-      specs.push(spec);
-      const next = script.shift();
-      if (next === undefined) {
-        throw new Error(`no scripted session for ${spec.phase} ${spec.index}`);
-      }
-      const { reads = 1, ...body } = (typeof next === 'function' ? next(spec) : next) as Unread;
-      return {
-        ...body,
-        stats: { turns: 2, modelCalls: 2, inputTokens: 100, outputTokens: 10, reads },
-      };
-    },
-  };
-}
 
 describe('runPhases', () => {
   test('hunt, then one verify session per candidate; confirmed needs both', async () => {

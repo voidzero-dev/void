@@ -1,14 +1,9 @@
 import { getSecurityModel, securityModelCostNanoUsd } from '@void/platform/security-models';
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
 import type { SecurityEntitlement, SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vite-plus/test';
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import type { ApiEnv } from '../../src/env.ts';
-import { app } from '../../src/index.ts';
 import { getPlatformSetting, setPlatformSetting } from '../../src/platform-settings.ts';
 import { securityScannerNames } from '../../src/provisioning/security-scanner.ts';
 import {
@@ -33,7 +28,6 @@ import {
 } from '../../src/security/probe.ts';
 import type { SecurityProbeDeps } from '../../src/security/probe.ts';
 import {
-  entitlementForSavedKeys,
   loadSecurityProviderKey,
   loadSecurityProviderKeySlots,
   NO_SECURITY_PROVIDER_KEYS,
@@ -42,6 +36,7 @@ import {
   securityProviderModelName,
 } from '../../src/security/provider-keys.ts';
 import type { SecurityProviderKeySlots } from '../../src/security/provider-keys.ts';
+import { operatorFetch } from './ai-logging-helpers.ts';
 import {
   clearTables,
   createOperatorToken,
@@ -52,6 +47,7 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import { saveSecurityPolicy, securityOn } from './security-fixtures.ts';
 
 // BYOK (design doc 0095 M33): an installation's own OpenAI / Anthropic key, stored
 // encrypted, added server-side by the model proxy, checked by probe check 5, and still
@@ -90,13 +86,9 @@ beforeEach(async () => {
   gatewayIds = [];
   gatewayRun = vi.fn(async () => Response.json({ id: 'msg', usage: {} }));
   bindings = {
-    ...env,
+    ...securityOn(env),
     PLATFORM_INSTALLATION_ID: 'inst_byok',
     AI_GATEWAY_ID: 'void-gw',
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
     AI: {
       run: vi.fn(),
       gateway: (id: string) => {
@@ -107,39 +99,17 @@ beforeEach(async () => {
   } as TestEnv;
 });
 
-async function savePolicy(changes: Partial<SecurityPolicy> = {}) {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    revision: 1,
-    entitlement: PASSED,
-    ...changes,
-  });
+function savePolicy(changes: Partial<SecurityPolicy> = {}) {
+  return saveSecurityPolicy(env, { entitlement: PASSED, ...changes });
 }
 
 async function policy(): Promise<SecurityPolicy> {
   return readSecurityPolicyLenient(env.db);
 }
 
-function post(path: string, body: Record<string, unknown>) {
-  return app.fetch(
-    new Request(`http://localhost/operator/v1${path}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
-    bindings,
-  );
-}
-
-function get(path: string) {
-  return app.fetch(
-    new Request(`http://localhost/operator/v1${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }),
-    bindings,
-  );
-}
+const post = (path: string, body: Record<string, unknown>) =>
+  operatorFetch(bindings, token, path, body);
+const get = (path: string) => operatorFetch(bindings, token, path);
 
 /** Answers read in tests. */
 async function json(response: Response) {
@@ -784,24 +754,5 @@ describe('probe check 5 on a saved key', () => {
       openai: true,
       anthropic: true,
     });
-  });
-
-  test('entitlementForSavedKeys: the probe result for an unchanged key, else the stored value', () => {
-    expect(
-      entitlementForSavedKeys(
-        PASSED,
-        { openai: null, anthropic: 'pk_old' },
-        { openai: 'pk_new', anthropic: 'pk_old' },
-        { openai: true, anthropic: false },
-      ).hosts,
-    ).toEqual({ openai: true, anthropic: true });
-    expect(
-      entitlementForSavedKeys(
-        { ...PASSED, hosts: { openai: false, anthropic: true } },
-        { openai: 'pk_a', anthropic: 'pk_old' },
-        { openai: 'pk_a', anthropic: null },
-        null,
-      ).hosts,
-    ).toEqual({ openai: false, anthropic: false });
   });
 });

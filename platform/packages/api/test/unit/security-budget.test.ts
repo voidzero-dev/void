@@ -24,8 +24,8 @@ import {
   SECURITY_CF_CALLS_PER_MINUTE,
   SECURITY_SESSION_CALL_LIMIT,
 } from '../../src/security/call-ledger.ts';
-import type { CallLedgerStorage } from '../../src/security/call-ledger.ts';
 import { SecurityApiError } from '../../src/security/errors.ts';
+import { memoryDurableStorage } from '../helpers/memory-storage.ts';
 
 function budgets(overrides: Partial<SecurityPolicyBudgets> = {}): SecurityPolicyBudgets {
   return { ...defaultSecurityBudgets(), ...overrides };
@@ -242,29 +242,9 @@ describe('alerts and reserves', () => {
   });
 });
 
-function memoryStorage(): CallLedgerStorage & { data: Map<string, unknown> } {
-  const data = new Map<string, unknown>();
-  const storage = {
-    data,
-    async get(key: string) {
-      return data.get(key);
-    },
-    async put(key: string, value: unknown) {
-      data.set(key, value);
-    },
-    async delete(keys: string | Array<string>) {
-      const list = Array.isArray(keys) ? keys : [keys];
-      let removed = 0;
-      for (const key of list) {
-        removed += data.delete(key) ? 1 : 0;
-      }
-      return Array.isArray(keys) ? removed : removed > 0;
-    },
-    async list(options?: { prefix?: string }) {
-      return new Map([...data].filter(([key]) => key.startsWith(options?.prefix ?? '')));
-    },
-  };
-  return storage as unknown as CallLedgerStorage & { data: Map<string, unknown> };
+function memoryStorage() {
+  const { storage, map } = memoryDurableStorage();
+  return Object.assign(storage, { data: map });
 }
 
 describe('model call ledger (scheduler DO storage)', () => {

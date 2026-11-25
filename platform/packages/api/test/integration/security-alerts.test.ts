@@ -1,8 +1,3 @@
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
-import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import {
   afterAll,
@@ -14,9 +9,7 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
-import { app } from '../../src/index.ts';
-import { getPlatformSetting, setPlatformSetting } from '../../src/platform-settings.ts';
+import { getPlatformSetting } from '../../src/platform-settings.ts';
 import { operatorEvents, projectMembers, users } from '../../src/schema.ts';
 import {
   queueSecurityDigest,
@@ -39,6 +32,7 @@ import {
   securityWebhookSignature,
   setSecurityWebhook,
 } from '../../src/security/webhook.ts';
+import { operatorFetch } from './ai-logging-helpers.ts';
 import {
   clearTables,
   createOperatorToken,
@@ -49,6 +43,7 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import { saveSecurityPolicy, securityOn } from './security-fixtures.ts';
 
 const OPUS = 'anthropic/claude-opus-5.5';
 const HOUR = 60 * 60_000;
@@ -105,12 +100,6 @@ async function person(name: string, role: 'user' | 'admin' = 'user') {
   return user;
 }
 
-async function savePolicy(overrides: Partial<SecurityPolicy> = {}) {
-  const policy = { ...defaultSecurityPolicy(), mode: 'all' as const, revision: 1, ...overrides };
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, policy);
-  return policy;
-}
-
 async function project(slug = `app-${crypto.randomUUID().slice(0, 6)}`) {
   const owner = await person(`owner-${slug}`);
   const row = await createTestProject(env.db, owner.id, slug);
@@ -149,7 +138,7 @@ async function rows() {
 
 describe('project failure streak email', () => {
   it('mails owner, project admins and installation admins once per streak', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project: app, deployment, owner } = await project('acme-web');
     const admin = await person('proj-admin');
     await env.db
@@ -198,7 +187,7 @@ describe('project failure streak email', () => {
   });
 
   it('starts a new streak after a success, and ignores platform failures and old streaks', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project: app, deployment } = await project();
     for (let i = 0; i < 3; i++) {
       await scan(app.id, deployment.id);
@@ -239,7 +228,7 @@ describe('project failure streak email', () => {
   });
 
   it('sends one email per streak even when its key moves (window, retention)', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project: app, deployment } = await project();
     const good = await scan(app.id, deployment.id, { status: 'succeeded', failure_cause: null });
     for (let i = 0; i < 3; i++) {
@@ -263,7 +252,7 @@ describe('project failure streak email', () => {
   });
 
   it('neither counts nor breaks a streak on a skipped scan, like the panel flag', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project: app, deployment } = await project();
     await scan(app.id, deployment.id);
     await scan(app.id, deployment.id);
@@ -283,7 +272,7 @@ describe('project failure streak email', () => {
   });
 
   it('skips the email when a scan succeeded before it went out', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     await person('root', 'admin');
     const { project: app, deployment } = await project();
     for (let i = 0; i < 3; i++) {
@@ -299,7 +288,7 @@ describe('project failure streak email', () => {
 
 describe('installation failure email', () => {
   it('mails installation admins once a day when over 20% fail for a platform reason', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     await person('root', 'admin');
     const { project: app, deployment } = await project();
     for (let i = 0; i < 5; i++) {
@@ -340,11 +329,15 @@ describe('weekly digest', () => {
   it('is queued only with the digest on, once a week, and counts the week', async () => {
     const now = Date.now();
     const week = securityDigestWeek(now);
-    expect(await queueSecurityDigest(env.db, await savePolicy(), now)).toBe(0);
+    expect(await queueSecurityDigest(env.db, await saveSecurityPolicy(env), now)).toBe(0);
     expect(
-      await queueSecurityDigest(env.db, await savePolicy({ digest: true, mode: 'disabled' }), now),
+      await queueSecurityDigest(
+        env.db,
+        await saveSecurityPolicy(env, { digest: true, mode: 'disabled' }),
+        now,
+      ),
     ).toBe(0);
-    const policy = await savePolicy({ digest: true });
+    const policy = await saveSecurityPolicy(env, { digest: true });
     expect(await queueSecurityDigest(env.db, policy, now)).toBe(1);
     expect(await queueSecurityDigest(env.db, policy, now)).toBe(0);
 
@@ -386,7 +379,7 @@ describe('weekly digest', () => {
 
   it('sends nothing for an empty week', async () => {
     await person('root', 'admin');
-    const policy = await savePolicy({ digest: true });
+    const policy = await saveSecurityPolicy(env, { digest: true });
     await queueSecurityDigest(env.db, policy, Date.now());
     const { mail, sent } = outbox();
     expect(await runSecurityNotifications(env.db, mail)).toMatchObject({ sent: 0, skipped: 1 });
@@ -418,7 +411,7 @@ describe('webhook', () => {
   }
 
   it('posts a signed copy of each event with ids and counts only, even with email off', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const secret = await webhookOn();
     expect(secret).toMatch(/^vwhsec_[0-9a-f]{64}$/);
     // The secret is stored encrypted, never as given.
@@ -494,7 +487,7 @@ describe('webhook', () => {
   });
 
   it('posts the streak and digest events too', async () => {
-    await savePolicy({ digest: true });
+    await saveSecurityPolicy(env, { digest: true });
     await webhookOn();
     const { project: app, deployment } = await project('acme-api');
     const good = await scan(app.id, deployment.id, { status: 'succeeded', failure_cause: null });
@@ -521,9 +514,13 @@ describe('webhook', () => {
       created_at: inWeek,
       finished_at: inWeek,
     });
-    expect(await queueSecurityDigest(env.db, await savePolicy({ digest: true }), Date.now())).toBe(
-      1,
-    );
+    expect(
+      await queueSecurityDigest(
+        env.db,
+        await saveSecurityPolicy(env, { digest: true }),
+        Date.now(),
+      ),
+    ).toBe(1);
 
     const hook = receiver();
     const { mail } = outbox({ email: false });
@@ -548,7 +545,7 @@ describe('webhook', () => {
   });
 
   it('holds the other webhook rows of a pass after one fails', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     await webhookOn();
     for (const percent of [80, 100] as const) {
       await enqueueSecurityNotification(env.db, {
@@ -573,7 +570,7 @@ describe('webhook', () => {
   });
 
   it('retries a failed delivery, and drops it once the webhook is turned off', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     await webhookOn();
     await enqueueSecurityNotification(env.db, { kind: 'digest', week: '2026-11-09' });
     const down = receiver(500);
@@ -608,25 +605,11 @@ describe('webhook', () => {
   });
 
   it('is set through the operator route: preview, secret once, audited by host', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const admin = await createTestUser(env.db, 'hook-admin', 'github', undefined, 'free', 'admin');
     const token = await createOperatorToken(env.db, admin);
-    const bindings = {
-      ...env,
-      PLATFORM_CAPABILITIES: JSON.stringify({
-        ...getPlatformCapabilities(env),
-        securityAudits: true,
-      }),
-    } as unknown as TestEnv;
     const post = (body: Record<string, unknown>) =>
-      app.fetch(
-        new Request('http://localhost/operator/v1/security/webhook', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        }),
-        bindings,
-      );
+      operatorFetch(securityOn(env), token, '/security/webhook', body);
     const preview = await post({ url: 'https://hooks.example.com/void?token=abc', dryRun: true });
     expect(preview.status).toBe(200);
     expect(await preview.json()).toMatchObject({
@@ -647,12 +630,7 @@ describe('webhook', () => {
     expect(result.secret).toMatch(/^vwhsec_/);
     expect(result.webhook.url).toBe('https://hooks.example.com/void?token=abc');
 
-    const status = await app.fetch(
-      new Request('http://localhost/operator/v1/security/status', {
-        headers: { Authorization: `Bearer ${token}` },
-      }),
-      bindings,
-    );
+    const status = await operatorFetch(securityOn(env), token, '/security/status');
     const text = await status.text();
     expect(JSON.parse(text).webhook).toMatchObject({
       url: 'https://hooks.example.com/void?token=abc',

@@ -1,12 +1,7 @@
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
-import type { SecurityPolicy } from '@void/platform/security-policy';
+import { defaultSecurityPolicy } from '@void/platform/security-policy';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { signDeployToken } from '../../src/auth/deploy-token.ts';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import app from '../../src/index.ts';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
 import { ProjectAccessDeniedError } from '../../src/project-access.ts';
@@ -27,13 +22,23 @@ import {
   clearTables,
   createTestBuild,
   createTestDeployment,
-  createTestProject,
   createTestUser,
   mockCfApi,
   setupEnv,
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import {
+  freshEntitlement,
+  insertCompletedScan,
+  insertSecurityFinding,
+  insertSecurityFindings,
+  PROJECT_ROLES,
+  projectWithRoles,
+  saveSecurityPolicy,
+  securityOn,
+} from './security-fixtures.ts';
+import type { ProjectRole } from './security-fixtures.ts';
 import {
   askPublic,
   setupGate,
@@ -52,52 +57,9 @@ afterAll(teardownEnv);
 beforeEach(async () => {
   await clearTables(env.db);
   vi.restoreAllMocks();
-  onEnv = {
-    ...env,
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
-  };
+  onEnv = securityOn(env);
   mockCfApi();
 });
-
-type Policy = Partial<SecurityPolicy>;
-
-async function savePolicy(policy: Policy = {}) {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    revision: 1,
-    ...policy,
-  });
-}
-
-const ROLES = ['owner', 'admin', 'collaborator', 'reader'] as const;
-type Role = (typeof ROLES)[number];
-
-async function setup(slug = 'acme-web') {
-  const owner = await createTestUser(env.db, `owner-${slug}`);
-  const project = await createTestProject(env.db, owner.id, slug);
-  const people: Record<Role, { id: string; login: string; jwt: string }> = {
-    owner,
-    admin: owner,
-    collaborator: owner,
-    reader: owner,
-  };
-  for (const role of ['admin', 'collaborator', 'reader'] as const) {
-    const user = await createTestUser(env.db, `${role}-${slug}`);
-    await env.db.insert(projectMembers).values({
-      project_id: project.id,
-      user_id: user.id,
-      role,
-      added_by_user_id: owner.id,
-    });
-    people[role] = user;
-  }
-  const outsider = await createTestUser(env.db, `outsider-${slug}`);
-  return { owner, project, people, outsider };
-}
 
 function call(
   path: string,
@@ -123,77 +85,27 @@ async function json(response: Response): Promise<any> {
   return response.json();
 }
 
-let findingCounter = 0;
-
-async function addFinding(
-  projectId: string,
-  overrides: Partial<typeof securityFindings.$inferInsert> = {},
-) {
-  const n = overrides.number ?? ++findingCounter;
-  const id = `sf_test${projectId}${n}`;
-  await env.db.insert(securityFindings).values({
-    id,
-    project_id: projectId,
-    number: n,
-    fingerprint_key: `key-${projectId}-${n}`,
-    verdict: 'confirmed',
-    severity: 'high',
-    title: `SECRET TITLE ${n}`,
-    category: 'sqli',
-    file: `src/routes/secret-${n}.ts`,
-    line_start: 41,
-    detail: { trace: ['a', 'b'], evidence: 'EVIDENCE', conditions: 'c', fix: 'FIX' },
-    sink_path: `src/routes/secret-${n}.ts`,
-    sink_content_hash: 'hash-1',
-    first_scan_id: 'scan_x',
-    last_seen_scan_id: 'scan_x',
-    first_deployment_id: 'dpl_first',
-    ...overrides,
-  });
-  return id;
-}
-
-async function addScan(
-  projectId: string,
-  deploymentId: string,
-  overrides: Partial<typeof securityScans.$inferInsert> = {},
-) {
-  const id = overrides.id ?? `scan_${projectId}_${deploymentId}`;
-  await env.db.insert(securityScans).values({
-    status: 'succeeded',
-    trigger: 'deploy',
-    model_used: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-    engine: 'void_loop',
-    tier: 'built_diff',
-    coverage: 'complete',
-    files_scanned: 12,
-    metered_nano_usd: 2_500_000_000,
-    finished_at: new Date().toISOString(),
-    ...overrides,
-    id,
-    project_id: projectId,
-    deployment_id: deploymentId,
-  });
-  return id;
-}
-
 describe('GET /projects/:id/security: who sees what', () => {
   it('gives every role the status and filters titles, files and dollars by role', async () => {
-    await savePolicy();
-    const { project, people, outsider } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people, outsider } = await projectWithRoles(env);
     const deployment = await createTestDeployment(env.db, project.id);
-    await addScan(project.id, deployment.id);
-    await addFinding(project.id, { number: 1, severity: 'critical' });
-    await addFinding(project.id, { number: 2, severity: 'high' });
-    await addFinding(project.id, { number: 3, severity: 'medium' });
-    await addFinding(project.id, { number: 4, verdict: 'needs_validation', severity: null });
+    await insertCompletedScan(env, project.id, deployment.id);
+    await insertSecurityFinding(env, project.id, { number: 1, severity: 'critical' });
+    await insertSecurityFinding(env, project.id, { number: 2, severity: 'high' });
+    await insertSecurityFinding(env, project.id, { number: 3, severity: 'medium' });
+    await insertSecurityFinding(env, project.id, {
+      number: 4,
+      verdict: 'needs_validation',
+      severity: null,
+    });
     await env.db.insert(securityProjectSpend).values({
       project_id: project.id,
       month: `${new Date().toISOString().slice(0, 7)}-01`,
       spent_nano_usd: 4_000_000_000,
     });
 
-    for (const role of ROLES) {
+    for (const role of PROJECT_ROLES) {
       const response = await call(`/projects/${project.id}/security`, people[role].jwt);
       expect(response.status, role).toBe(200);
       const body = await json(response);
@@ -244,9 +156,9 @@ describe('GET /projects/:id/security: who sees what', () => {
   });
 
   it('shows counts and F-ids only to a CI deploy token', async () => {
-    await savePolicy();
-    const { owner, project } = await setup();
-    await addFinding(project.id, { number: 7, severity: 'critical' });
+    await saveSecurityPolicy(env);
+    const { owner, project } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 7, severity: 'critical' });
     const build = await createTestBuild(env.db, {
       projectId: project.id,
       userId: owner.id,
@@ -272,9 +184,9 @@ describe('GET /projects/:id/security: who sees what', () => {
   });
 
   it('reads while the capability is off and says why scans do not apply', async () => {
-    await savePolicy({ mode: 'disabled' });
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1 });
+    await saveSecurityPolicy(env, { mode: 'disabled' });
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 1 });
     const response = await call(`/projects/${project.id}/security`, people.reader.jwt, {
       bindings: env,
     });
@@ -289,50 +201,53 @@ describe('GET /projects/:id/security: who sees what', () => {
   });
 
   it('counts deploys since the last successful scan and keeps only 5 urgent rows', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
     const first = await createTestDeployment(env.db, project.id);
-    await addScan(project.id, first.id);
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
+    await insertCompletedScan(env, project.id, first.id);
+    // The scanned deploy is the older one: the two after it count.
+    await env.db
+      .update(deployments)
+      .set({ created_at: '2026-01-01 00:00:00' })
+      .where(eq(deployments.id, first.id));
     await createTestDeployment(env.db, project.id);
     await createTestDeployment(env.db, project.id);
-    for (let n = 1; n <= 7; n++) {
-      await addFinding(project.id, { number: n, severity: n === 6 ? 'critical' : 'high' });
-    }
+    await insertSecurityFindings(
+      env,
+      project.id,
+      [1, 2, 3, 4, 5, 6, 7].map((n) => ({ number: n, severity: n === 6 ? 'critical' : 'high' })),
+    );
     const body = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
     expect(body.deploysSinceLastSuccess).toBe(2);
     expect(body.urgent.count).toBe(7);
     expect(body.urgent.findings).toHaveLength(5);
     expect(body.urgent.findings[0].id).toBe('F-6');
     expect(body.urgent.more).toBe(2);
-    await env.db.delete(deployments).where(eq(deployments.project_id, project.id));
   });
 
   it('explains the policy reason for a protected project in public mode', async () => {
-    await savePolicy({ mode: 'public' });
-    const { project, people } = await setup();
+    await saveSecurityPolicy(env, { mode: 'public' });
+    const { project, people } = await projectWithRoles(env);
     const body = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
     expect(body.policy).toMatchObject({ applies: true, reason: 'not protected by Zero Trust' });
   });
 
   it('sends the scan before the newest one, which cap skipped a scan, and one scan reserve', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
     const old = await createTestDeployment(env.db, project.id);
     const replaced = await createTestDeployment(env.db, project.id);
     const live = await createTestDeployment(env.db, project.id);
-    await addScan(project.id, old.id, {
+    await insertCompletedScan(env, project.id, old.id, {
       status: 'incomplete',
       status_reason: 'turn_cap',
       created_at: '2026-01-01T00:00:00.000Z',
     });
-    await addScan(project.id, replaced.id, {
+    await insertCompletedScan(env, project.id, replaced.id, {
       status: 'superseded',
       created_at: '2026-01-02T00:00:00.000Z',
     });
-    await addScan(project.id, live.id, {
+    await insertCompletedScan(env, project.id, live.id, {
       status: 'skipped',
       status_reason: 'budget',
       error_class: 'project_reserve',
@@ -346,7 +261,6 @@ describe('GET /projects/:id/security: who sees what', () => {
       budgetCause: null,
     });
     expect(body.budget.scanReserveUsd).toBeGreaterThan(0);
-    await env.db.delete(deployments).where(eq(deployments.project_id, project.id));
   });
 });
 
@@ -365,10 +279,10 @@ describe('GET /projects/:id/security: the open public request', () => {
   }
 
   it('shows the open request with its state, blockers and target deployment', async () => {
-    await savePolicy({ mode: 'public' });
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1, severity: 'critical' });
-    await addFinding(project.id, { number: 2, severity: 'high' });
+    await saveSecurityPolicy(env, { mode: 'public' });
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 1, severity: 'critical' });
+    await insertSecurityFinding(env, project.id, { number: 2, severity: 'high' });
     await openRequest(project.id, people.admin.id);
     const body = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
     expect(body.publicRequest).toMatchObject({
@@ -381,10 +295,10 @@ describe('GET /projects/:id/security: the open public request', () => {
   });
 
   it('gives a reader only ids, never titles or files', async () => {
-    await savePolicy({ mode: 'public' });
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1, severity: 'critical' });
-    await addFinding(project.id, { number: 2, severity: 'high' });
+    await saveSecurityPolicy(env, { mode: 'public' });
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 1, severity: 'critical' });
+    await insertSecurityFinding(env, project.id, { number: 2, severity: 'high' });
     await openRequest(project.id, people.admin.id);
     const response = await call(`/projects/${project.id}/security`, people.reader.jwt);
     const body = await json(response);
@@ -396,9 +310,9 @@ describe('GET /projects/:id/security: the open public request', () => {
   });
 
   it('still shows the request while the capability is off', async () => {
-    await savePolicy({ mode: 'public' });
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1, severity: 'critical' });
+    await saveSecurityPolicy(env, { mode: 'public' });
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 1, severity: 'critical' });
     await openRequest(project.id, people.admin.id);
     const response = await call(`/projects/${project.id}/security`, people.reader.jwt, {
       bindings: env,
@@ -412,20 +326,18 @@ describe('GET /projects/:id/security: the open public request', () => {
 
 describe('findings: list, show, scoping', () => {
   it('filters by role, pages with a cursor, and 404s a finding of another project', async () => {
-    await savePolicy();
-    const a = await setup('proj-a');
-    const b = await setup('proj-b');
-    for (let n = 1; n <= 3; n++) {
-      await addFinding(a.project.id, { number: n });
-    }
-    await addFinding(a.project.id, {
+    await saveSecurityPolicy(env);
+    const a = await projectWithRoles(env, 'proj-a');
+    const b = await projectWithRoles(env, 'proj-b');
+    await insertSecurityFindings(env, a.project.id, [{ number: 1 }, { number: 2 }, { number: 3 }]);
+    await insertSecurityFinding(env, a.project.id, {
       number: 4,
       state: 'resolved',
       resolution: 'false_positive',
       resolved_at: new Date().toISOString(),
       severity: 'medium',
     });
-    const foreign = await addFinding(b.project.id, { number: 9 });
+    const foreign = await insertSecurityFinding(env, b.project.id, { number: 9 });
 
     // Readers: open rows carry no title or file; the resolved row keeps its title.
     const reader = await json(
@@ -510,9 +422,9 @@ describe('findings: list, show, scoping', () => {
 
 describe('comment, resolve, reopen', () => {
   it('needs configure to comment and settings to resolve or reopen', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1 });
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 1 });
     const base = `/projects/${project.id}/security/findings/F-1`;
 
     const readerComment = await call(`${base}/comments`, people.reader.jwt, {
@@ -601,9 +513,9 @@ describe('comment, resolve, reopen', () => {
   });
 
   it('resolves, shows the history, reopens, and refuses a stale revision', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1, fix_checked_scan_id: 'scan_old' });
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 1, fix_checked_scan_id: 'scan_old' });
     const base = `/projects/${project.id}/security/findings/F-1`;
 
     for (const body of [
@@ -697,10 +609,10 @@ describe('comment, resolve, reopen', () => {
   });
 
   it('stays open while the capability is off, and re-checks the role inside the transaction', async () => {
-    await savePolicy({ mode: 'disabled' });
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1 });
-    await addFinding(project.id, { number: 2 });
+    await saveSecurityPolicy(env, { mode: 'disabled' });
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 1 });
+    await insertSecurityFinding(env, project.id, { number: 2 });
     const off = await call(
       `/projects/${project.id}/security/findings/F-1/resolve`,
       people.admin.jwt,
@@ -742,16 +654,9 @@ describe('severity edit (M35)', () => {
     `/projects/${projectId}/security/findings/${ref}/severity`;
 
   it('needs settings, a level or null, a comment and the revision', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1 });
-    for (const role of ['reader', 'collaborator'] as const) {
-      const denied = await call(edit(project.id), people[role].jwt, {
-        method: 'POST',
-        body: { severity: 'low', comment: 'only admins', expectedRevision: 1 },
-      });
-      expect(denied.status, role).toBe(403);
-    }
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 1 });
     for (const body of [
       { comment: 'ok', expectedRevision: 1 },
       { severity: 'urgent', comment: 'ok', expectedRevision: 1 },
@@ -776,9 +681,9 @@ describe('severity edit (M35)', () => {
   });
 
   it('lowers an urgent finding out of the urgent count, records it, and goes back to the scan value', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1, severity: 'critical' });
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, { number: 1, severity: 'critical' });
     const before = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
     expect(before.urgent.count).toBe(1);
 
@@ -885,16 +790,20 @@ describe('severity edit (M35)', () => {
   });
 
   it('refuses leads and resolved findings, and stays open while the capability is off', async () => {
-    await savePolicy({ mode: 'disabled' });
-    const { project, people } = await setup();
-    await addFinding(project.id, { number: 1, verdict: 'needs_validation', severity: null });
-    await addFinding(project.id, {
+    await saveSecurityPolicy(env, { mode: 'disabled' });
+    const { project, people } = await projectWithRoles(env);
+    await insertSecurityFinding(env, project.id, {
+      number: 1,
+      verdict: 'needs_validation',
+      severity: null,
+    });
+    await insertSecurityFinding(env, project.id, {
       number: 2,
       state: 'resolved',
       resolution: 'accepted_risk',
       resolved_at: new Date().toISOString(),
     });
-    await addFinding(project.id, { number: 3 });
+    await insertSecurityFinding(env, project.id, { number: 3 });
     const body = { severity: 'medium', comment: 'ok', expectedRevision: 1 };
     const lead = await call(edit(project.id, 'F-1'), people.admin.jwt, {
       method: 'POST',
@@ -948,12 +857,12 @@ describe('severity edit (M35)', () => {
 
 describe('scans', () => {
   it('needs deploy, pages, and shows spend only through this level', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
     const d1 = await createTestDeployment(env.db, project.id);
     const d2 = await createTestDeployment(env.db, project.id);
-    await addScan(project.id, d1.id, { created_at: '2026-01-01T00:00:00.000Z' });
-    await addScan(project.id, d2.id, {
+    await insertCompletedScan(env, project.id, d1.id, { created_at: '2026-01-01T00:00:00.000Z' });
+    await insertCompletedScan(env, project.id, d2.id, {
       created_at: '2026-01-02T00:00:00.000Z',
       status: 'failed',
       status_reason: 'timed_out',
@@ -986,11 +895,11 @@ describe('project rescan (M25)', () => {
   }
 
   it('previews the cost, queues one full scan as rescan, and refuses a second', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
     const deployment = await createTestDeployment(env.db, project.id);
     await storeSnapshot(project.id, deployment.id);
-    await addScan(project.id, deployment.id);
+    await insertCompletedScan(env, project.id, deployment.id);
     const path = `/projects/${project.id}/security/scans`;
 
     const preview = await json(
@@ -1033,8 +942,8 @@ describe('project rescan (M25)', () => {
   });
 
   it('queues a rescan with the client asset pass as a coverage note (M31)', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
     const deployment = await createTestDeployment(env.db, project.id);
     await storeSnapshot(project.id, deployment.id);
     const path = `/projects/${project.id}/security/scans`;
@@ -1062,12 +971,9 @@ describe('project rescan (M25)', () => {
   });
 
   it('needs settings, a JSON body, the capability, and a scannable live deployment', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
     const path = `/projects/${project.id}/security/scans`;
-    for (const role of ['collaborator', 'reader'] as const) {
-      expect((await call(path, people[role].jwt, { method: 'POST', body: {} })).status).toBe(403);
-    }
     const off = await call(path, people.admin.jwt, { method: 'POST', body: {}, bindings: env });
     expect(off.status).toBe(501);
     expect((await call(path, people.admin.jwt, { method: 'POST' })).status).toBe(400);
@@ -1083,7 +989,7 @@ describe('project rescan (M25)', () => {
     const gone = await call(path, people.admin.jwt, { method: 'POST', body: {} });
     expect((await json(gone)).error).toBe('security_input_unavailable');
 
-    await savePolicy({ mode: 'disabled' });
+    await saveSecurityPolicy(env, { mode: 'disabled' });
     const outOfScope = await call(path, people.admin.jwt, { method: 'POST', body: {} });
     expect((await json(outOfScope)).error).toBe('security_not_in_scope');
     expect(await env.db.select().from(securityScans)).toHaveLength(0);
@@ -1097,24 +1003,12 @@ describe('model', () => {
     acceptedAt: new Date().toISOString(),
     acceptedByUserId: 'user_admin',
   };
-  const entitled = {
-    checkedAt: new Date().toISOString(),
-    ok: true,
-    missing: [],
-    hosts: { openai: true, anthropic: false },
-  };
+  const entitled = freshEntitlement({ openai: true, anthropic: false });
 
   it('needs settings, and answers 501 while the capability is off', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
     const path = `/projects/${project.id}/security/model`;
-    for (const role of ['reader', 'collaborator'] as const) {
-      const denied = await call(path, people[role].jwt, {
-        method: 'PUT',
-        body: { model: '@cf/zai-org/glm-5.3' },
-      });
-      expect(denied.status, role).toBe(403);
-    }
     const off = await call(path, people.admin.jwt, {
       method: 'PUT',
       body: { model: '@cf/zai-org/glm-5.3' },
@@ -1129,12 +1023,12 @@ describe('model', () => {
   });
 
   it('picks, clears, and refuses unknown, blocked and unnoticed models', async () => {
-    await savePolicy({
+    await saveSecurityPolicy(env, {
       blockedModels: ['openai/gpt-6.1-sol'],
       entitlement: entitled,
       thirdPartyNotice: notice,
     });
-    const { project, people } = await setup();
+    const { project, people } = await projectWithRoles(env);
     const path = `/projects/${project.id}/security/model`;
     const put = (body: unknown) => call(path, people.admin.jwt, { method: 'PUT', body });
 
@@ -1155,19 +1049,17 @@ describe('model', () => {
       thirdParty: false,
     });
 
-    const unknown = await put({ model: 'gpt-9' });
-    expect(unknown.status).toBe(422);
-    expect((await json(unknown)).error).toBe('security model not allowed');
-    expect((await json(await put({ model: 'openai/gpt-6.1-sol' }))).error).toBe(
-      'security model not allowed',
-    );
-    expect((await json(await put({ model: 'anthropic/claude-sonnet-5.5' }))).error).toBe(
-      'security model not allowed',
-    );
-    // No credits for Anthropic on this platform.
-    expect((await json(await put({ model: 'anthropic/claude-opus-5.5' }))).error).toBe(
-      'security model not allowed',
-    );
+    // Unknown, not offered, and (the last) no credits for Anthropic on this platform.
+    for (const model of [
+      'gpt-9',
+      'openai/gpt-6.1-sol',
+      'anthropic/claude-sonnet-5.5',
+      'anthropic/claude-opus-5.5',
+    ]) {
+      const refused = await put({ model });
+      expect(refused.status, model).toBe(422);
+      expect((await json(refused)).error, model).toBe('security model not allowed');
+    }
     expect((await put({})).status).toBe(400);
     expect((await put({ model: 5 })).status).toBe(400);
 
@@ -1212,12 +1104,12 @@ describe('model', () => {
   });
 
   it('keeps a project on Cloudflare until it accepts a third-party default', async () => {
-    await savePolicy({
+    await saveSecurityPolicy(env, {
       defaultModel: FOREIGN,
       entitlement: entitled,
       thirdPartyNotice: notice,
     });
-    const { project, people } = await setup();
+    const { project, people } = await projectWithRoles(env);
     const status = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
     expect(status.model).toMatchObject({
       id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
@@ -1239,21 +1131,18 @@ describe('model', () => {
 
 describe('budget', () => {
   it('needs settings, honors the ceiling, records the change, and clears', async () => {
-    await savePolicy({
+    await saveSecurityPolicy(env, {
       budgets: {
         ...defaultSecurityPolicy().budgets,
         projectCapsOn: true,
         projectDefaultMonthlyUsd: 100,
       },
     });
-    const { project, people } = await setup('acme-web');
+    const { project, people } = await projectWithRoles(env, 'acme-web');
     const path = `/projects/${project.id}/security/budget`;
-    const put = (body: unknown, role: Role = 'admin', bindings?: TestEnv) =>
+    const put = (body: unknown, role: ProjectRole = 'admin', bindings?: TestEnv) =>
       call(path, people[role].jwt, { method: 'PUT', body, bindings });
 
-    for (const role of ['reader', 'collaborator'] as const) {
-      expect((await put({ monthlyUsd: 10 }, role)).status, role).toBe(403);
-    }
     expect((await put({ monthlyUsd: 10 }, 'admin', env)).status).toBe(501);
 
     const above = await put({ monthlyUsd: 150 });
@@ -1300,9 +1189,9 @@ describe('budget', () => {
   });
 
   it('holds a project admin to the cap of the owner plan, named in the refusal (M27)', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     await setPlatformSetting(env.db, 'plans:security-caps', { free: 5000 });
-    const { project, people } = await setup('acme-web');
+    const { project, people } = await projectWithRoles(env, 'acme-web');
     const put = (monthlyUsd: number) =>
       call(`/projects/${project.id}/security/budget`, people.admin.jwt, {
         method: 'PUT',
@@ -1319,8 +1208,8 @@ describe('budget', () => {
   });
 
   it('lets a project admin set any amount when no limit applies', async () => {
-    await savePolicy();
-    const { project, people } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env);
     const response = await call(`/projects/${project.id}/security/budget`, people.owner.jwt, {
       method: 'PUT',
       body: { monthlyUsd: 5000 },
@@ -1332,9 +1221,9 @@ describe('budget', () => {
 
 describe('page link', () => {
   it('gives every role a 15 minute link bound to the user and the project', async () => {
-    await savePolicy();
-    const { project, people } = await setup('acme-web');
-    for (const role of ROLES) {
+    await saveSecurityPolicy(env);
+    const { project, people } = await projectWithRoles(env, 'acme-web');
+    for (const role of PROJECT_ROLES) {
       const response = await call(`/projects/${project.id}/security/page-link`, people[role].jwt, {
         method: 'POST',
       });
@@ -1371,7 +1260,7 @@ describe('page link', () => {
 describe('role matrix', () => {
   type Row = Readonly<{
     name: string;
-    allowed: ReadonlyArray<Role>;
+    allowed: ReadonlyArray<ProjectRole>;
     request: (projectId: string) => Readonly<{ path: string; method: string; body?: unknown }>;
   }>;
   const finding = (id: string, rest = '') => `/projects/${id}/security/findings/F-1${rest}`;
@@ -1463,17 +1352,17 @@ describe('role matrix', () => {
   ];
 
   it.each(rows.map((row) => [row.name, row] as const))('%s', async (_name, row) => {
-    await savePolicy();
-    const { project, people, outsider } = await setup();
+    await saveSecurityPolicy(env);
+    const { project, people, outsider } = await projectWithRoles(env);
     const deployment = await createTestDeployment(env.db, project.id);
-    await addScan(project.id, deployment.id);
-    await addFinding(project.id, { number: 1 });
+    await insertCompletedScan(env, project.id, deployment.id);
+    await insertSecurityFinding(env, project.id, { number: 1 });
     // The rescan preview needs the live deployment's code in storage.
     await env.STATIC_ASSETS_R2.put(
       `security-scans/${project.id}/${deployment.id}/modules.json`,
       '[]',
     );
-    for (const role of ROLES) {
+    for (const role of PROJECT_ROLES) {
       // The reopen row needs a resolved finding at revision 2.
       await env.db
         .update(securityFindings)

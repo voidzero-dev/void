@@ -29,65 +29,18 @@ import {
   SECURITY_SCAN_RETRY_BACKOFF_MS,
   SECURITY_SCHEDULER_RESCAN_MS,
 } from '../../src/security/scheduler.ts';
-import type { SchedulerStorage, SecurityScanQueueDeps } from '../../src/security/scheduler.ts';
+import type { SecurityScanQueueDeps } from '../../src/security/scheduler.ts';
+import { memoryDurableStorage } from '../helpers/memory-storage.ts';
+import { onPolicy as securityOn } from '../helpers/security-policy.ts';
 
 const NOW = Date.parse('2026-11-18T12:00:00.000Z');
 const CF = '@cf/zai-org/glm-5.3';
 const FLASH = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
 const OPUS = 'anthropic/claude-opus-5.5';
 
-function memoryStorage() {
-  const map = new Map<string, unknown>();
-  const alarms: Array<number> = [];
-  const alarm: { at: number | null } = { at: null };
-  const storage = {
-    async get<T>(key: string) {
-      return map.get(key) as T | undefined;
-    },
-    async put(key: string, value: unknown) {
-      map.set(key, structuredClone(value));
-    },
-    async delete(keys: string | Array<string>) {
-      if (Array.isArray(keys)) {
-        let count = 0;
-        for (const key of keys) {
-          count += map.delete(key) ? 1 : 0;
-        }
-        return count;
-      }
-      return map.delete(keys);
-    },
-    async list<T>(options: { prefix?: string } = {}) {
-      return new Map(
-        [...map].filter(([key]) => key.startsWith(options.prefix ?? '')) as Array<[string, T]>,
-      );
-    },
-    async getAlarm() {
-      return alarm.at;
-    },
-    async setAlarm(time: number | Date) {
-      alarms.push(Number(time));
-      alarm.at = Number(time);
-    },
-  } as unknown as SchedulerStorage;
-  return { storage, map, alarms, alarm };
-}
-
-function onPolicy(overrides: Partial<SecurityPolicy> = {}): SecurityPolicy {
-  return {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    // These cases are written around glm; the product default is deepseek flash.
-    defaultModel: CF,
-    entitlement: {
-      checkedAt: '2026-11-18T11:00:00.000Z',
-      ok: true,
-      missing: [],
-      hosts: { openai: true, anthropic: true },
-    },
-    ...overrides,
-  };
-}
+// These cases are written around glm; the product default is deepseek flash.
+const onPolicy = (overrides: Partial<SecurityPolicy> = {}) =>
+  securityOn({ defaultModel: CF, ...overrides });
 
 function candidate(
   scanId: string,
@@ -113,7 +66,7 @@ function candidate(
 
 type Harness = {
   deps: SecurityScanQueueDeps;
-  storage: ReturnType<typeof memoryStorage>;
+  storage: ReturnType<typeof memoryDurableStorage>;
   policy: { value: SecurityPolicy };
   queue: {
     running: Array<{ scanId: string; projectId: string; modelUsed: string | null }>;
@@ -133,7 +86,7 @@ type Harness = {
 };
 
 function harness(): Harness {
-  const storage = memoryStorage();
+  const storage = memoryDurableStorage();
   const policy = { value: onPolicy() };
   const queue: Harness['queue'] = { running: [], candidates: [], queued: 0 };
   const starts: Harness['starts'] = [];
@@ -542,7 +495,7 @@ describe('runSecurityScanQueue', () => {
 
 describe('@cf rate bucket back-off', () => {
   it('puts the bucket into debt on a 429, deeper on each one, capped at a minute', async () => {
-    const { storage } = memoryStorage();
+    const { storage } = memoryDurableStorage();
     const first = await backOffModelRate(storage, CF, NOW);
     expect(first).toBe(((1 + SECURITY_CF_BACKOFF_TOKENS) * 60_000) / SECURITY_CF_CALLS_PER_MINUTE);
     const second = await backOffModelRate(storage, CF, NOW);
@@ -558,7 +511,7 @@ describe('@cf rate bucket back-off', () => {
   });
 
   it('makes the proxy wait for the refill, then admits again', async () => {
-    const { storage } = memoryStorage();
+    const { storage } = memoryDurableStorage();
     const wait = await backOffModelRate(storage, CF, NOW);
     const input = { scanId: 's1', attempt: 1, session: null, rateModel: CF };
     await expect(admitModelCall(storage, { ...input, now: NOW })).resolves.toEqual({

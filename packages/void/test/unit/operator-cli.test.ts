@@ -2017,7 +2017,6 @@ describe('platform security arguments', () => {
       path: '/security/policy',
       body: { mode: 'public' },
     });
-    expect(() => parse('policy', 'everything')).toThrow('disabled|public|all');
     // One project's own rule (M34) has its own route.
     expect(parse('policy', '--project', 'proj_1', 'never')).toMatchObject({
       method: 'POST',
@@ -2025,11 +2024,6 @@ describe('platform security arguments', () => {
       path: '/projects/proj_1/security/policy',
       body: { override: 'never' },
     });
-    expect(() => parse('policy', '--project', 'proj_1', 'public')).toThrow(
-      '--project <project-id> <inherit|always|never>',
-    );
-    expect(() => parse('policy', 'always')).toThrow('name the project');
-    expect(() => parse('policy', '--project', '..', 'always')).toThrow('dot path segment');
     expect(
       parse(
         'models',
@@ -2047,7 +2041,6 @@ describe('platform security arguments', () => {
       unblock: ['c'],
       acceptProviderNotice: true,
     });
-    expect(() => parse('models')).toThrow('Usage');
     // `--timeout` is the request deadline; the scan time limit has its own name.
     expect(
       parse('limits', '--concurrency', '4', '--scan-timeout', '30', '--timeout', '60'),
@@ -2055,18 +2048,13 @@ describe('platform security arguments', () => {
       body: { limits: { concurrency: 4, timeoutMinutes: 30 } },
       timeoutMs: 60_000,
     });
-    expect(() => parse('limits')).toThrow('Usage');
-    expect(() => parse('limits', '--concurrency', 'many')).toThrow('whole number');
     expect(parse('public-gate', 'off').body).toEqual({ publicGate: false });
-    expect(() => parse('public-gate', 'maybe')).toThrow('on|off');
     expect(parse('sweeps', 'on', '--every-days', '14')).toMatchObject({
       method: 'POST',
       path: '/security/policy',
       body: { sweeps: { on: true, everyDays: 14 } },
     });
     expect(parse('sweeps', 'off').body).toEqual({ sweeps: { on: false } });
-    expect(() => parse('sweeps', 'weekly')).toThrow('on|off');
-    expect(() => parse('sweeps', 'on', '--every-days', 'often')).toThrow('whole number');
     expect(parse('backfill')).toMatchObject({ method: 'POST', path: '/security/backfill' });
     // M26: fallback and digest are policy switches; the webhook has its own route.
     expect(parse('fallback', 'on')).toMatchObject({
@@ -2075,14 +2063,12 @@ describe('platform security arguments', () => {
       body: { fallbackToCf: true },
     });
     expect(parse('digest', 'off').body).toEqual({ digest: false });
-    expect(() => parse('fallback', 'sometimes')).toThrow('fallback <on|off>');
     expect(parse('webhook', 'https://hooks.example.com/void')).toMatchObject({
       method: 'POST',
       path: '/security/webhook',
       body: { url: 'https://hooks.example.com/void' },
     });
     expect(parse('webhook', 'off').body).toEqual({ url: null });
-    expect(() => parse('webhook', 'http://hooks.example.com/')).toThrow('https-url|off');
   });
 
   it('routes a provider key change apart from the model policy (M33)', () => {
@@ -2097,17 +2083,6 @@ describe('platform security arguments', () => {
       path: '/security/provider-keys',
       body: { host: 'openai', key: null },
     });
-    expect(() => parse('models', '--provider', 'google', '--key-stdin')).toThrow(
-      '--provider must be openai or anthropic',
-    );
-    expect(() => parse('models', '--provider', 'openai')).toThrow('--key-stdin | --remove-key');
-    expect(() => parse('models', '--provider', 'openai', '--key-stdin', '--remove-key')).toThrow(
-      '--key-stdin | --remove-key',
-    );
-    expect(() => parse('models', '--key-stdin')).toThrow('--provider must be');
-    expect(() =>
-      parse('models', '--provider', 'openai', '--key-stdin', '--default', '@cf/zai-org/glm-5.3'),
-    ).toThrow('on its own');
     // Without a provider flag, models still changes the policy.
     expect(parse('models', '--default', '@cf/zai-org/glm-5.3')).toMatchObject({
       action: 'models',
@@ -2123,8 +2098,6 @@ describe('platform security arguments', () => {
     expect(parse('model', 'p1', '@cf/zai-org/glm-5.3').body).toEqual({
       model: '@cf/zai-org/glm-5.3',
     });
-    expect(() => parse('model', 'p1')).toThrow('Usage');
-    expect(() => parse('model', 'p1', 'm', '--default')).toThrow('Usage');
     expect(parse('models', '--default', 'm').body).toEqual({ defaultModel: 'm' });
   });
 
@@ -2145,15 +2118,6 @@ describe('platform security arguments', () => {
     expect(parse('budget', '--project', 'p1', '--clear').body).toEqual({ monthlyUsd: null });
     expect(parse('budget')).toMatchObject({ method: 'GET', path: '/security/budget' });
     expect(parse('budget', '--platform-off')).toMatchObject({ method: 'POST' });
-    expect(() => parse('budget', '--platform-usd', '1', '--platform-off')).toThrow('not both');
-    expect(() => parse('budget', '--project', 'p1')).toThrow('Usage');
-    expect(() => parse('budget', '--project', 'p1', '--usd', '5', '--clear')).toThrow('Usage');
-    expect(() => parse('budget', '--project', 'p1', '--usd', '5', '--platform-usd', '5')).toThrow(
-      'do not combine',
-    );
-    expect(() => parse('budget', '--usd', '5')).toThrow('--project');
-    expect(() => parse('budget', '--platform-usd', '1.234')).toThrow('dollar amount');
-    expect(() => parse('budget', '--project-caps', 'maybe')).toThrow('on or off');
   });
 
   it('moves --urgent to the query and pages the lists', () => {
@@ -2165,16 +2129,12 @@ describe('platform security arguments', () => {
       query: { urgent: 'true', project: 'acme', limit: '50', page: '2' },
       body: {},
     });
-    expect(() => parse('findings', '--state', 'gone')).toThrow('--state');
-    expect(() => parse('findings', '--severity', 'info')).toThrow('--severity');
     for (const list of ['scans', 'public-requests', 'bypasses']) {
       expect(parse(list, '--limit', '10').query).toEqual({ limit: '10' });
     }
-    expect(() => parse('status', '--limit', '10')).toThrow("Unknown flag '--limit'");
-    expect(() => parse('scans', '--trigger', 'sweep')).toThrow('gate');
   });
 
-  it('takes comma-separated finding ids and requires the words a change needs', () => {
+  it('takes comma-separated finding ids', () => {
     const resolve = parse(
       'resolve',
       'p1',
@@ -2188,12 +2148,6 @@ describe('platform security arguments', () => {
       path: '/projects/p1/security/findings/:fid/resolve',
       body: { findingIds: ['F-1', 'F-2'], reason: 'false_positive', comment: 'Reviewed' },
     });
-    expect(() => parse('resolve', 'p1', 'F-1', '--comment', 'x')).toThrow('--reason');
-    expect(() => parse('resolve', 'p1', 'F-1', '--reason', 'meh', '--comment', 'x')).toThrow(
-      '--reason',
-    );
-    expect(() => parse('resolve', 'p1', 'F-1', '--reason', 'fixed')).toThrow('comment');
-    expect(() => parse('reopen', 'p1', 'F-1')).toThrow('comment');
     expect(parse('comment', 'p1', 'F-1,F-2', 'Looks real').body).toEqual({
       findingIds: ['F-1', 'F-2'],
       text: 'Looks real',
@@ -2202,12 +2156,7 @@ describe('platform security arguments', () => {
       method: 'GET',
       path: '/projects/p1/security/findings/:fid',
     });
-    expect(() => parse('show', 'p1', ',')).toThrow('at least one id');
-    expect(() =>
-      parse('show', 'p1', Array.from({ length: 21 }, (_, i) => `F-${i}`).join(',')),
-    ).toThrow('at most 20');
     expect(parse('bypass', 'p1', '--reason', 'launch').body).toEqual({ reason: 'launch' });
-    expect(() => parse('bypass', 'p1')).toThrow('reason');
     expect(parse('cancel', 'scan/1').path).toBe('/security/scans/scan%2F1/cancel');
   });
 
@@ -2215,11 +2164,60 @@ describe('platform security arguments', () => {
     expect(operatorGroups).toContain('security');
   });
 
-  it('makes the probe a check without --plan or --yes', () => {
+  it('makes the probe a check with its own timeout', () => {
     expect(parse('probe')).toMatchObject({ method: 'POST', path: '/security/probe' });
-    expect(() => parse('probe', '--yes')).toThrow("Unknown flag '--yes'");
-    expect(() => parse('probe', '--plan')).toThrow("Unknown flag '--plan'");
     expect(parse('probe', '--timeout', '600').timeoutMs).toBe(600_000);
+  });
+
+  // A failure names its case.
+  it.each<[Array<string>, string]>([
+    [['policy', 'everything'], 'disabled|public|all'],
+    [['policy', '--project', 'proj_1', 'public'], '--project <project-id> <inherit|always|never>'],
+    [['policy', 'always'], 'name the project'],
+    [['policy', '--project', '..', 'always'], 'dot path segment'],
+    [['models'], 'Usage'],
+    [['limits'], 'Usage'],
+    [['limits', '--concurrency', 'many'], 'whole number'],
+    [['public-gate', 'maybe'], 'on|off'],
+    [['sweeps', 'weekly'], 'on|off'],
+    [['sweeps', 'on', '--every-days', 'often'], 'whole number'],
+    [['fallback', 'sometimes'], 'fallback <on|off>'],
+    [['webhook', 'http://hooks.example.com/'], 'https-url|off'],
+    [['models', '--provider', 'google', '--key-stdin'], '--provider must be openai or anthropic'],
+    [['models', '--provider', 'openai'], '--key-stdin | --remove-key'],
+    [
+      ['models', '--provider', 'openai', '--key-stdin', '--remove-key'],
+      '--key-stdin | --remove-key',
+    ],
+    [['models', '--key-stdin'], '--provider must be'],
+    [
+      ['models', '--provider', 'openai', '--key-stdin', '--default', '@cf/zai-org/glm-5.3'],
+      'on its own',
+    ],
+    [['model', 'p1'], 'Usage'],
+    [['model', 'p1', 'm', '--default'], 'Usage'],
+    [['budget', '--platform-usd', '1', '--platform-off'], 'not both'],
+    [['budget', '--project', 'p1'], 'Usage'],
+    [['budget', '--project', 'p1', '--usd', '5', '--clear'], 'Usage'],
+    [['budget', '--project', 'p1', '--usd', '5', '--platform-usd', '5'], 'do not combine'],
+    [['budget', '--usd', '5'], '--project'],
+    [['budget', '--platform-usd', '1.234'], 'dollar amount'],
+    [['budget', '--project-caps', 'maybe'], 'on or off'],
+    [['findings', '--state', 'gone'], '--state'],
+    [['findings', '--severity', 'info'], '--severity'],
+    [['status', '--limit', '10'], "Unknown flag '--limit'"],
+    [['scans', '--trigger', 'sweep'], 'gate'],
+    [['resolve', 'p1', 'F-1', '--comment', 'x'], '--reason'],
+    [['resolve', 'p1', 'F-1', '--reason', 'meh', '--comment', 'x'], '--reason'],
+    [['resolve', 'p1', 'F-1', '--reason', 'fixed'], 'comment'],
+    [['reopen', 'p1', 'F-1'], 'comment'],
+    [['show', 'p1', ','], 'at least one id'],
+    [['show', 'p1', Array.from({ length: 21 }, (_, i) => `F-${i}`).join(',')], 'at most 20'],
+    [['bypass', 'p1'], 'reason'],
+    [['probe', '--yes'], "Unknown flag '--yes'"],
+    [['probe', '--plan'], "Unknown flag '--plan'"],
+  ])('refuses security %j', (args, message) => {
+    expect(() => parse(...args)).toThrow(message);
   });
 });
 

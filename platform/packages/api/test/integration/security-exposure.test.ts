@@ -1,10 +1,5 @@
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
 import { securityScans } from '../../src/schema.ts';
 import { securityScanInputPrefix } from '../../src/security/enqueue.ts';
 import { queueExposureCatchUpScans } from '../../src/security/exposure.ts';
@@ -18,6 +13,7 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import { saveSecurityPolicy } from './security-fixtures.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -26,11 +22,7 @@ beforeAll(async () => {
 afterAll(teardownEnv);
 beforeEach(async () => {
   await clearTables(env.db);
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode: 'public',
-    revision: 1,
-  });
+  await saveSecurityPolicy(env, { mode: 'public' });
 });
 
 async function exposedProject() {

@@ -1,49 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { runProjectCommand } from '../../src/cli/project-cmd.ts';
 import { runProjectZeroTrustCommand } from '../../src/cli/project-zero-trust.ts';
+import { captureOutput, linkedProject as linkProject } from '../helpers/cli-command.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 
-const roots: Array<string> = [];
-
-function linkedProject(): string {
-  const root = mkdtempSync(join(tmpdir(), 'void-project-zero-trust-'));
-  roots.push(root);
-  process.env.VOID_PLATFORM_REGISTRY_DIR = join(root, 'registry');
-  savePlatformConnection({
-    accountId: null,
-    apiUrl: 'https://api.example.test',
-    applicationDomain: 'apps.example.test',
-    displayName: 'Test platform',
-    installationId: null,
-    kind: 'connected',
-    proxyUrl: 'https://proxy.example.test',
-  });
-  mkdirSync(join(root, '.void'));
-  writeFileSync(
-    join(root, '.void', 'project.json'),
-    JSON.stringify({
-      platform: 'void',
-      platformUrl: 'https://api.example.test',
-      projectId: 'project_1',
-      slug: 'linked-app',
-    }),
-  );
-  return root;
-}
+const linkedProject = () => linkProject({ slug: 'linked-app' });
 
 afterEach(() => {
-  delete process.env.VOID_PLATFORM_REGISTRY_DIR;
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  for (const root of roots.splice(0)) {
-    rmSync(root, { recursive: true, force: true });
-  }
 });
 
 describe('project Zero Trust command', () => {
@@ -341,23 +308,44 @@ function request(state: string, extra: Record<string, unknown> = {}) {
   };
 }
 
-function capture() {
-  const output: Array<string> = [];
-  const logged: Array<string> = [];
-  vi.spyOn(console, 'log').mockImplementation((...parts) => {
-    logged.push(parts.join(' '));
-  });
-  vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-    output.push(String(chunk));
-    return true;
-  });
-  return { text: () => output.join(''), logged };
+/** The 202 of a held public: Zero Trust stays on while the request waits. */
+function heldReply(publicRequest: ReturnType<typeof request>, message?: string) {
+  return vi.fn(async () =>
+    Response.json(
+      {
+        ok: true,
+        project: {
+          ...project,
+          state: 'reconciling',
+          last_error: 'old CLI line that must not print',
+        },
+        publicRequest,
+        ...(message === undefined ? {} : { message }),
+      },
+      { status: 202 },
+    ),
+  );
+}
+
+/** The `GET …/zero-trust` reply of a ready platform. */
+function statusReply(extra: Record<string, unknown> = {}) {
+  return { available: true, platformStatus: 'ready', protectNewProjects: true, project, ...extra };
+}
+
+/** Output with colour, box borders and line breaks gone, so a sentence reads as one line. */
+function flat(text: string): string {
+  return stripVTControlCharacters(text)
+    .split('│')
+    .join(' ')
+    .split('\n')
+    .join(' ')
+    .split(' ')
+    .filter(Boolean)
+    .join(' ');
 }
 
 function setup(fetchMock: unknown) {
   const root = linkedProject();
-  vi.stubEnv('VOID_TOKEN', 'test-token');
-  vi.stubEnv('VOID_API_URL', 'https://api.example.test');
   vi.stubGlobal('fetch', withPlatformDiscovery(fetchMock));
   return root;
 }
@@ -366,26 +354,15 @@ const base = { subcommand: 'zero-trust', projectSlug: '', json: false } as const
 
 describe('project Zero Trust command with a public request', () => {
   it('prints a held 202 as protected, never as public', async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json(
-        {
-          ok: true,
-          project: {
-            ...project,
-            state: 'reconciling',
-            last_error: 'old CLI line that must not print',
-          },
-          publicRequest: request('waiting_scan'),
-          message:
-            'Waiting for a security scan of dpl_9a1d before linked-app goes public. It stays protected by Zero Trust until the scan passes.',
-        },
-        { status: 202 },
+    const root = setup(
+      heldReply(
+        request('waiting_scan'),
+        'Waiting for a security scan of dpl_9a1d before linked-app goes public. It stays protected by Zero Trust until the scan passes.',
       ),
     );
-    const root = setup(fetchMock);
-    const out = capture();
+    const out = captureOutput();
     await runProjectCommand(root, { ...base, action: 'public' });
-    const text = out.text();
+    const text = out.output();
     expect(text).toContain('Waiting for a security scan of dpl_9a1d');
     expect(text).toContain('stays protected');
     expect(text).not.toContain('is public');
@@ -395,144 +372,116 @@ describe('project Zero Trust command with a public request', () => {
     expect(text).toContain('Check it:  void project zero-trust status');
   });
 
-  it('prints the bypass command for a held public, which the platform message leaves out', async () => {
-    const root = setup(
-      vi.fn(async () =>
-        Response.json(
-          {
-            ok: true,
-            project: { ...project, state: 'reconciling' },
-            publicRequest: request('held_no_result', { heldReason: 'timed_out' }),
-            message: 'Stays protected: the security scan did not finish (timed out).',
-          },
-          { status: 202 },
-        ),
-      ),
-    );
-    const out = capture();
-    await runProjectCommand(root, { ...base, action: 'public' });
-    const flat = stripVTControlCharacters(out.text())
-      .split('\n')
-      .join(' ')
-      .split(' ')
-      .filter(Boolean)
-      .join(' ');
-    expect(flat).toContain('Ask again with void project zero-trust public');
-    expect(flat).toContain('void project zero-trust bypass --reason');
-  });
-
-  it('says which project files held the request, and that asking again does not help', async () => {
-    const root = setup(
-      vi.fn(async () =>
-        Response.json(
-          {
-            ok: true,
-            project: { ...project, state: 'reconciling' },
-            publicRequest: request('held_no_result', { heldReason: 'unread_files' }),
-            message: 'Stays protected.',
-          },
-          { status: 202 },
-        ),
-      ),
-    );
-    const out = capture();
-    await runProjectCommand(root, { ...base, action: 'public' });
-    const flat = stripVTControlCharacters(out.text())
-      .split('\n')
-      .join(' ')
-      .split(' ')
-      .filter(Boolean)
-      .join(' ');
-    expect(flat).toContain('the security scan could not read some project files');
-    expect(flat).toContain('void project zero-trust bypass');
-    expect(flat).not.toContain('Ask again');
-  });
+  // The platform message leaves the bypass command out; asking again does not help
+  // when the scan cannot read the files.
+  it.each([
+    {
+      heldReason: 'timed_out',
+      message: 'Stays protected: the security scan did not finish (timed out).',
+      shows: [
+        'Ask again with void project zero-trust public',
+        'void project zero-trust bypass --reason',
+      ],
+      hides: [],
+    },
+    {
+      heldReason: 'unread_files',
+      message: 'Stays protected.',
+      shows: [
+        'the security scan could not read some project files',
+        'void project zero-trust bypass',
+      ],
+      hides: ['Ask again'],
+    },
+  ])(
+    'prints the way on for a public held by $heldReason',
+    async ({ heldReason, message, shows, hides }) => {
+      const root = setup(heldReply(request('held_no_result', { heldReason }), message));
+      const out = captureOutput();
+      await runProjectCommand(root, { ...base, action: 'public' });
+      const text = flat(out.output());
+      for (const line of shows) {
+        expect(text).toContain(line);
+      }
+      for (const line of hides) {
+        expect(text).not.toContain(line);
+      }
+    },
+  );
 
   it('says protect canceled the open request (spec §11.4, edge #80)', async () => {
     const root = setup(
       vi.fn(async () => Response.json({ ok: true, project, publicRequest: request('canceled') })),
     );
-    const out = capture();
+    const out = captureOutput();
     await runProjectCommand(root, { ...base, action: 'protect' });
-    expect(out.text()).toContain('Public request canceled. linked-app stays protected.');
-    expect(out.text()).not.toContain('is protected by Zero Trust');
+    expect(out.output()).toContain('Public request canceled. linked-app stays protected.');
+    expect(out.output()).not.toContain('is protected by Zero Trust');
   });
 
-  it('shows what a waiting request waits for, and the last bypass, in status', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
-      String(input).endsWith('/security')
-        ? Response.json({ backlogFiles: 0, budget: null })
-        : Response.json({
-            available: true,
-            platformStatus: 'ready',
-            protectNewProjects: true,
-            publicGate: true,
-            publicRequest: request('waiting_scan', { heldReason: 'zero_trust_not_ready' }),
-            lastBypass: {
-              id: 'ssb_1',
-              at: '2026-11-17T14:02:00.000Z',
-              byRole: 'admin',
-              reason: 'Launch day',
-            },
-            project,
-          }),
+  it.each([
+    {
+      name: 'a held request and its bypass command',
+      extra: { publicRequest: request('held_no_result', { heldReason: 'timed_out' }) },
+      shows: [
+        'Public request: Stays protected: the security scan did not finish (timed out)',
+        'void project zero-trust bypass --reason',
+      ],
+      hides: [],
+    },
+    {
+      name: 'what a waiting request waits for, and the last bypass',
+      extra: {
+        publicRequest: request('waiting_scan', { heldReason: 'zero_trust_not_ready' }),
+        lastBypass: {
+          id: 'ssb_1',
+          at: '2026-11-17T14:02:00.000Z',
+          byRole: 'admin',
+          reason: 'Launch day',
+        },
+      },
+      shows: [
+        'Public request: Waiting for the Zero Trust protection of linked-app to be ready',
+        'Last bypass: Nov 17, by a project admin ("Launch day")',
+      ],
+      hides: ['Waiting for a security scan'],
+    },
+  ])('shows $name in status', async ({ extra, shows, hides }) => {
+    const root = setup(
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).endsWith('/security')
+          ? Response.json({ backlogFiles: 0, budget: null })
+          : Response.json(statusReply({ publicGate: true, ...extra })),
+      ),
     );
-    const root = setup(fetchMock);
-    const out = capture();
+    const out = captureOutput();
     await runProjectCommand(root, { ...base, action: 'status' });
-    const flat = stripVTControlCharacters(out.text())
-      .split('│')
-      .join(' ')
-      .split('\n')
-      .join(' ')
-      .split(' ')
-      .filter(Boolean)
-      .join(' ');
-    expect(flat).toContain(
-      'Public request: Waiting for the Zero Trust protection of linked-app to be ready',
-    );
-    expect(flat).not.toContain('Waiting for a security scan');
-    expect(flat).toContain('Last bypass: Nov 17, by a project admin ("Launch day")');
+    // CI forces colour: strip it so the box borders split cleanly.
+    const text = flat(out.output());
+    for (const line of shows) {
+      expect(text).toContain(line);
+    }
+    for (const line of hides) {
+      expect(text).not.toContain(line);
+    }
   });
 
   it('falls back to the local copy when the held reply has no message', async () => {
     const root = setup(
-      vi.fn(async () =>
-        Response.json(
-          {
-            ok: true,
-            project: { ...project, state: 'reconciling' },
-            publicRequest: request('held_findings', { blockers: { count: 1, ids: ['F-12'] } }),
-          },
-          { status: 202 },
-        ),
-      ),
+      heldReply(request('held_findings', { blockers: { count: 1, ids: ['F-12'] } })),
     );
-    const out = capture();
+    const out = captureOutput();
     await runProjectCommand(root, { ...base, action: 'public' });
-    expect(out.text()).toContain('1 urgent finding must be resolved');
-    expect(out.text()).toContain('F-12');
-    expect(out.text()).not.toContain('bypass the scan');
+    expect(out.output()).toContain('1 urgent finding must be resolved');
+    expect(out.output()).toContain('F-12');
+    expect(out.output()).not.toContain('bypass the scan');
   });
 
   it('prints the held reply as JSON with the stored state', async () => {
-    const root = setup(
-      vi.fn(async () =>
-        Response.json(
-          {
-            ok: true,
-            project: { ...project, state: 'reconciling', last_error: 'old line' },
-            publicRequest: request('waiting_scan'),
-            message: 'Waiting.',
-          },
-          { status: 202 },
-        ),
-      ),
-    );
-    const out = capture();
+    const root = setup(heldReply(request('waiting_scan'), 'Waiting.'));
+    const out = captureOutput();
     await runProjectCommand(root, { ...base, action: 'public', json: true });
-    expect(out.logged).toHaveLength(1);
-    const printed = JSON.parse(out.logged[0]);
+    const printed = JSON.parse(out.output());
     expect(printed.held).toBe(true);
     expect(printed.project).toMatchObject({ state: 'protected', last_error: null });
     expect(printed.publicRequest.state).toBe('waiting_scan');
@@ -552,54 +501,17 @@ describe('project Zero Trust command with a public request', () => {
         }),
       ),
     );
-    const out = capture();
+    const out = captureOutput();
     await runProjectCommand(root, { ...base, action: 'public' });
-    expect(out.text()).toContain('linked-app is public.');
-  });
-
-  it('shows the request block in status', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
-      String(input).endsWith('/security')
-        ? Response.json({ backlogFiles: 0, budget: null })
-        : Response.json({
-            available: true,
-            platformStatus: 'ready',
-            protectNewProjects: true,
-            publicGate: true,
-            publicRequest: request('held_no_result', { heldReason: 'timed_out' }),
-            project,
-          }),
-    );
-    const root = setup(fetchMock);
-    const out = capture();
-    await runProjectCommand(root, { ...base, action: 'status' });
-    // CI forces colour: strip it so the box borders split cleanly.
-    const flat = stripVTControlCharacters(out.text())
-      .split('│')
-      .join(' ')
-      .split('\n')
-      .join(' ')
-      .split(' ')
-      .filter(Boolean)
-      .join(' ');
-    expect(flat).toContain(
-      'Public request: Stays protected: the security scan did not finish (timed out)',
-    );
-    expect(flat).toContain('void project zero-trust bypass --reason');
+    expect(out.output()).toContain('linked-app is public.');
   });
 
   it('prints status as JSON', async () => {
-    const reply = {
-      available: true,
-      platformStatus: 'ready',
-      protectNewProjects: true,
-      publicRequest: null,
-      project,
-    };
+    const reply = statusReply({ publicRequest: null });
     const root = setup(vi.fn(async () => Response.json(reply)));
-    const out = capture();
+    const out = captureOutput();
     await runProjectCommand(root, { ...base, action: 'status', json: true });
-    expect(JSON.parse(out.logged[0])).toEqual(reply);
+    expect(JSON.parse(out.output())).toEqual(reply);
   });
 });
 
@@ -611,13 +523,7 @@ describe('project Zero Trust bypass', () => {
     return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
       String(input).endsWith('/public-request/bypass') && init?.method === 'POST'
         ? bypass()
-        : Response.json({
-            available: true,
-            platformStatus: 'ready',
-            protectNewProjects: true,
-            publicRequest: open,
-            project,
-          }),
+        : Response.json(statusReply({ publicRequest: open })),
     );
   }
   const goingPublic = () =>
@@ -632,7 +538,7 @@ describe('project Zero Trust bypass', () => {
   it('confirms what is skipped, then posts the reason', async () => {
     const fetchMock = bypassFetch(goingPublic);
     const root = setup(fetchMock);
-    const out = capture();
+    const out = captureOutput();
     const ask = vi.fn(async () => true);
     await runProjectZeroTrustCommand(root, args, { interactive: true, confirm: ask });
     expect(ask).toHaveBeenCalledWith('Bypass the scan and make linked-app public?');
@@ -642,11 +548,11 @@ describe('project Zero Trust bypass', () => {
       reason: 'Scanner down',
       requestId: 'spr_1',
     });
-    expect(out.text()).toContain(
+    expect(out.output()).toContain(
       'This skips the security scan. The scan of dpl_9a1d did not finish (timed out).',
     );
-    expect(out.text()).toContain('Your platform admins get an email with your reason');
-    expect(out.text()).toContain(
+    expect(out.output()).toContain('Your platform admins get an email with your reason');
+    expect(out.output()).toContain(
       'Scan bypassed. linked-app is going public (Zero Trust update in progress).',
     );
   });
@@ -654,16 +560,16 @@ describe('project Zero Trust bypass', () => {
   it('changes nothing when the prompt is declined', async () => {
     const fetchMock = bypassFetch(goingPublic);
     const root = setup(fetchMock);
-    const out = capture();
+    const out = captureOutput();
     await runProjectZeroTrustCommand(root, args, { interactive: true, confirm: async () => false });
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
-    expect(out.text()).toContain('Nothing was changed.');
+    expect(out.output()).toContain('Nothing was changed.');
   });
 
   it('needs --yes when it cannot prompt', async () => {
     const fetchMock = bypassFetch(goingPublic);
     const root = setup(fetchMock);
-    capture();
+    captureOutput();
     await expect(runProjectZeroTrustCommand(root, args, { interactive: false })).rejects.toThrow(
       'Add --yes',
     );
@@ -675,13 +581,13 @@ describe('project Zero Trust bypass', () => {
 
   it('skips the prompt with --yes and prints JSON', async () => {
     const root = setup(bypassFetch(goingPublic));
-    const out = capture();
+    const out = captureOutput();
     await runProjectZeroTrustCommand(
       root,
       { ...args, yes: true, json: true },
       { interactive: false },
     );
-    const printed = JSON.parse(out.logged[0]);
+    const printed = JSON.parse(out.output());
     expect(printed.publicRequest.state).toBe('bypassed');
     expect(printed.skipped).toContain('did not finish');
   });
@@ -701,7 +607,7 @@ describe('project Zero Trust bypass', () => {
         request('held_findings', { blockers: { count: 2, ids: ['F-12', 'F-15'] } }),
       ),
     );
-    capture();
+    captureOutput();
     const failure = await runProjectZeroTrustCommand(root, { ...args, yes: true }).catch(
       (error: unknown) => error,
     );
@@ -719,7 +625,7 @@ describe('project Zero Trust bypass', () => {
 
   it('says there is no request to bypass', async () => {
     const root = setup(bypassFetch(goingPublic, null as never));
-    capture();
+    captureOutput();
     await expect(runProjectZeroTrustCommand(root, { ...args, yes: true })).rejects.toThrow(
       'linked-app has no public request to bypass. Run: void project zero-trust public',
     );
@@ -736,7 +642,7 @@ describe('project Zero Trust bypass', () => {
         { status: 409 },
       );
     const root = setup(bypassFetch(closed('canceled')));
-    capture();
+    captureOutput();
     const failure = await runProjectZeroTrustCommand(root, { ...args, yes: true }).catch(
       (error: unknown) => error,
     );
@@ -760,15 +666,10 @@ describe('project Zero Trust bypass', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
       init?.method === 'POST'
         ? new Response('Not Found', { status: 404 })
-        : Response.json({
-            available: true,
-            platformStatus: 'ready',
-            protectNewProjects: true,
-            project,
-          }),
+        : Response.json(statusReply()),
     );
     const root = setup(fetchMock);
-    capture();
+    captureOutput();
     await expect(runProjectZeroTrustCommand(root, { ...args, yes: true })).rejects.toThrow(
       'does not support security audits',
     );

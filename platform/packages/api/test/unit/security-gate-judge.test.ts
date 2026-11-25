@@ -27,149 +27,125 @@ const input = (patch: Partial<GateJudgeInput> = {}): GateJudgeInput => ({
 });
 
 describe('judgeGate', () => {
-  it('passes a clean succeeded scan of the live deployment', () => {
+  const nothingLive = { targetDeploymentId: '', activeDeploymentId: null, scan: null };
+
+  it('passes a clean scan of the live deployment, or a first deploy that never went live', () => {
     expect(judgeGate(input())).toEqual({ kind: 'pass', scanId: 'ss_1' });
-  });
-
-  it('waits while the deployment moves or the live one is not the target', () => {
-    expect(judgeGate(input({ deploymentMoving: true }))).toMatchObject({
-      state: 'waiting_scan',
-      reason: 'deployment_moving',
-    });
-    expect(judgeGate(input({ activeDeploymentId: 'dpl_2' }))).toMatchObject({
-      reason: 'deployment_moving',
-    });
-  });
-
-  it('passes a request made during a first deploy that never went live', () => {
-    const nothingLive = { targetDeploymentId: '', activeDeploymentId: null, scan: null };
-    expect(judgeGate(input(nothingLive))).toEqual({ kind: 'pass', scanId: null });
-    expect(judgeGate(input({ ...nothingLive, deploymentMoving: true }))).toMatchObject({
-      reason: 'deployment_moving',
-    });
-  });
-
-  it('waits while Zero Trust is not ready', () => {
-    expect(judgeGate(input({ zeroTrustReady: false }))).toMatchObject({
-      state: 'waiting_scan',
-      reason: 'zero_trust_not_ready',
-    });
-  });
-
-  it('holds for urgent findings before anything about the scan', () => {
-    expect(
-      judgeGate(
-        input({ urgent: ['F-2'], unproven: ['F-2', 'F-3'], scan: scan({ status: 'running' }) }),
-      ),
-    ).toMatchObject({ state: 'held_findings', blockers: ['F-2', 'F-3'] });
-  });
-
-  it('waits for a scan that is queued or running', () => {
-    for (const status of ['pending_input', 'queued', 'running'] as const) {
-      expect(judgeGate(input({ scan: scan({ status }) }))).toMatchObject({
-        state: 'waiting_scan',
-        reason: 'scan_waiting',
-        queue: false,
-      });
-    }
-  });
-
-  it('queues a scan when there is none and the input is kept', () => {
-    expect(judgeGate(input({ scan: null }))).toMatchObject({
-      state: 'waiting_scan',
-      queue: true,
-    });
-    expect(judgeGate(input({ scan: null, hasInput: false }))).toMatchObject({
-      state: 'needs_deploy',
-      reason: 'no_input',
-    });
-  });
-
-  it('asks for a deploy when a fixed claim has no scan to prove it', () => {
-    expect(judgeGate(input({ scan: null, unproven: ['F-1'] }))).toMatchObject({
-      state: 'needs_deploy',
-      reason: 'unproven_fix',
-      queue: false,
-    });
-    expect(judgeGate(input({ unproven: ['F-1'] }))).toMatchObject({ state: 'needs_deploy' });
-  });
-
-  it('holds with no result when the scan did not succeed', () => {
-    expect(judgeGate(input({ scan: scan({ status: 'failed' }) }))).toMatchObject({
-      state: 'held_no_result',
-      reason: 'failed',
-    });
-    expect(
-      judgeGate(input({ scan: scan({ status: 'failed', failureCause: 'installation' }) })),
-    ).toMatchObject({ state: 'held_no_result', reason: 'failed_installation' });
-    expect(
-      judgeGate(input({ scan: scan({ status: 'skipped', statusReason: 'budget' }) })),
-    ).toMatchObject({ state: 'held_no_result', reason: 'skipped_budget' });
-    expect(
-      judgeGate(input({ scan: scan({ status: 'failed', statusReason: 'input_missing' }) })),
-    ).toMatchObject({ state: 'needs_deploy' });
-  });
-
-  it('queues the next part while a backlog is left, and holds a capped scan', () => {
-    expect(judgeGate(input({ scan: scan({ backlogFiles: 4 }) }))).toMatchObject({
-      state: 'waiting_scan',
-      reason: 'backlog',
-      queue: true,
-    });
-    // No input left to scan the next part from: only a deploy moves it on.
-    expect(judgeGate(input({ scan: scan({ backlogFiles: 4 }), hasInput: false }))).toMatchObject({
-      state: 'needs_deploy',
-      reason: 'no_input',
-      queue: false,
+    expect(judgeGate(input({ scan: scan({ unreadFiles: false }) }))).toEqual({
+      kind: 'pass',
       scanId: 'ss_1',
     });
-    expect(judgeGate(input({ scan: scan({ capped: true }) }))).toMatchObject({
-      state: 'held_no_result',
-      reason: 'findings_capped',
-    });
-    expect(judgeGate(input({ scan: scan({ capped: true }), hasInput: false }))).toMatchObject({
-      state: 'needs_deploy',
-      reason: 'no_input',
-    });
+    expect(judgeGate(input(nothingLive))).toEqual({ kind: 'pass', scanId: null });
   });
 
-  it('holds a scan that left project files unread, and never queues it again', () => {
-    expect(judgeGate(input({ scan: scan({ unreadFiles: true }) }))).toMatchObject({
-      state: 'held_no_result',
-      reason: 'unread_files',
-      queue: false,
-    });
-    expect(judgeGate(input({ scan: scan({ unreadFiles: true }), hasInput: false }))).toMatchObject({
-      state: 'needs_deploy',
-      reason: 'no_input',
-    });
-    expect(judgeGate(input({ scan: scan({ unreadFiles: false }) }))).toMatchObject({
-      kind: 'pass',
-    });
-  });
-
-  it('asks for a deploy when a scan with no result left no code to scan again (#54)', () => {
-    expect(
-      judgeGate(
-        input({ scan: scan({ status: 'skipped', statusReason: 'budget' }), hasInput: false }),
-      ),
-    ).toMatchObject({ state: 'needs_deploy', reason: 'no_input', queue: false, scanId: 'ss_1' });
-  });
-
-  it('lists unproven fixed claims as blockers of a scan with no result', () => {
-    expect(
-      judgeGate(
-        input({ scan: scan({ status: 'failed', failureCause: 'project' }), unproven: ['F-6'] }),
-      ),
-    ).toMatchObject({ state: 'held_no_result', reason: 'failed_project', blockers: ['F-6'] });
-    expect(
-      judgeGate(
-        input({
-          scan: scan({ status: 'failed', statusReason: 'input_missing' }),
-          unproven: ['F-6'],
-        }),
-      ),
-    ).toMatchObject({ state: 'needs_deploy', blockers: ['F-6'] });
+  const failed = (patch: Partial<GateScanFacts> = {}) => scan({ status: 'failed', ...patch });
+  const budget = scan({ status: 'skipped', statusReason: 'budget' });
+  const inputMissing = failed({ statusReason: 'input_missing' });
+  it.each<[string, Partial<GateJudgeInput>, Record<string, unknown>]>([
+    // Waiting on the deployment or Zero Trust.
+    [
+      'deployment moving',
+      { deploymentMoving: true },
+      { state: 'waiting_scan', reason: 'deployment_moving' },
+    ],
+    ['live is not the target', { activeDeploymentId: 'dpl_2' }, { reason: 'deployment_moving' }],
+    [
+      'first deploy still moving',
+      { ...nothingLive, deploymentMoving: true },
+      { reason: 'deployment_moving' },
+    ],
+    [
+      'Zero Trust not ready',
+      { zeroTrustReady: false },
+      { state: 'waiting_scan', reason: 'zero_trust_not_ready' },
+    ],
+    // Urgent findings win over anything about the scan.
+    [
+      'urgent findings while running',
+      { urgent: ['F-2'], unproven: ['F-2', 'F-3'], scan: scan({ status: 'running' }) },
+      { state: 'held_findings', blockers: ['F-2', 'F-3'] },
+    ],
+    // A scan in flight, or none yet.
+    ...(['pending_input', 'queued', 'running'] as const).map(
+      (status): [string, Partial<GateJudgeInput>, Record<string, unknown>] => [
+        `scan ${status}`,
+        { scan: scan({ status }) },
+        { state: 'waiting_scan', reason: 'scan_waiting', queue: false },
+      ],
+    ),
+    ['no scan, input kept', { scan: null }, { state: 'waiting_scan', queue: true }],
+    [
+      'no scan, no input',
+      { scan: null, hasInput: false },
+      { state: 'needs_deploy', reason: 'no_input' },
+    ],
+    // A fixed claim with no scan to prove it.
+    [
+      'unproven fix, no scan',
+      { scan: null, unproven: ['F-1'] },
+      { state: 'needs_deploy', reason: 'unproven_fix', queue: false },
+    ],
+    ['unproven fix, clean scan', { unproven: ['F-1'] }, { state: 'needs_deploy' }],
+    // A scan with no result.
+    ['failed', { scan: failed() }, { state: 'held_no_result', reason: 'failed' }],
+    [
+      'failed installation',
+      { scan: failed({ failureCause: 'installation' }) },
+      { state: 'held_no_result', reason: 'failed_installation' },
+    ],
+    ['skipped budget', { scan: budget }, { state: 'held_no_result', reason: 'skipped_budget' }],
+    ['failed input missing', { scan: inputMissing }, { state: 'needs_deploy' }],
+    // #54: no result and no code left to scan again.
+    [
+      'skipped budget, no input (#54)',
+      { scan: budget, hasInput: false },
+      { state: 'needs_deploy', reason: 'no_input', queue: false, scanId: 'ss_1' },
+    ],
+    // Unproven fixed claims block a scan with no result.
+    [
+      'failed project, unproven fix',
+      { scan: failed({ failureCause: 'project' }), unproven: ['F-6'] },
+      { state: 'held_no_result', reason: 'failed_project', blockers: ['F-6'] },
+    ],
+    [
+      'input missing, unproven fix',
+      { scan: inputMissing, unproven: ['F-6'] },
+      { state: 'needs_deploy', blockers: ['F-6'] },
+    ],
+    // Backlog, capped and unread scans; without input only a deploy moves them on.
+    [
+      'backlog left',
+      { scan: scan({ backlogFiles: 4 }) },
+      { state: 'waiting_scan', reason: 'backlog', queue: true },
+    ],
+    [
+      'backlog left, no input',
+      { scan: scan({ backlogFiles: 4 }), hasInput: false },
+      { state: 'needs_deploy', reason: 'no_input', queue: false, scanId: 'ss_1' },
+    ],
+    [
+      'capped',
+      { scan: scan({ capped: true }) },
+      { state: 'held_no_result', reason: 'findings_capped' },
+    ],
+    [
+      'capped, no input',
+      { scan: scan({ capped: true }), hasInput: false },
+      { state: 'needs_deploy', reason: 'no_input' },
+    ],
+    // Unread files are never queued again.
+    [
+      'unread files',
+      { scan: scan({ unreadFiles: true }) },
+      { state: 'held_no_result', reason: 'unread_files', queue: false },
+    ],
+    [
+      'unread files, no input',
+      { scan: scan({ unreadFiles: true }), hasInput: false },
+      { state: 'needs_deploy', reason: 'no_input' },
+    ],
+  ])('%s', (_name, patch, expected) => {
+    expect(judgeGate(input(patch))).toMatchObject(expected);
   });
 });
 
@@ -189,20 +165,20 @@ describe('bypassSkips and copy', () => {
     );
   });
 
-  it('writes a line for every state', () => {
-    const base = { slug: 'shop', reason: null, blockerIds: ['F-1'], deploymentId: 'dpl_1' };
-    for (const state of [
-      'waiting_scan',
-      'held_findings',
-      'needs_deploy',
-      'held_no_result',
-      'passed',
-      'bypassed',
-      'canceled',
-    ] as const) {
-      expect(publicRequestCopy({ ...base, state })).toContain('');
-      expect(publicRequestCopy({ ...base, state }).length).toBeGreaterThan(10);
-    }
+  const base = { slug: 'shop', reason: null, blockerIds: ['F-1'], deploymentId: 'dpl_1' };
+  it.each([
+    ['waiting_scan', 'Waiting for a security scan of dpl_1'],
+    ['held_findings', 'Stays protected: 1 urgent finding must be resolved'],
+    ['needs_deploy', 'Stays protected: the live deployment dpl_1 cannot be scanned'],
+    ['held_no_result', 'Stays protected: the security scan did not finish (no result)'],
+    ['passed', 'Security scan passed'],
+    ['bypassed', 'Public without a clean scan'],
+    ['canceled', 'Public request canceled'],
+  ] as const)('writes a line for %s', (state, start) => {
+    expect(publicRequestCopy({ ...base, state }).startsWith(start)).toBe(true);
+  });
+
+  it('names the blockers and the unread-files hold', () => {
     expect(publicRequestCopy({ ...base, state: 'held_findings' })).toContain('F-1');
     const unread = publicRequestCopy({ ...base, state: 'held_no_result', reason: 'unread_files' });
     expect(unread).toContain('could not read some project files');

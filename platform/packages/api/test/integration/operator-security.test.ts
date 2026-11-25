@@ -1,8 +1,3 @@
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
-import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import {
   afterAll,
@@ -14,18 +9,12 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
-import type { ApiEnv } from '../../src/env.ts';
-import { app } from '../../src/index.ts';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
   deployments,
   operatorEvents,
-  platformSettings,
   projects,
   projectZeroTrust,
   securityFindingEvents,
-  securityFindings,
   securityProjectEvents,
   securityPublicRequests,
   securityScanBypasses,
@@ -34,18 +23,24 @@ import {
 import { cancelSecurityScanRows } from '../../src/security/queue.ts';
 import { projectSecuritySettings, securityPlatformSpend } from '../../src/security/schema.ts';
 import { previewSecurityBackfill } from '../../src/security/sweeps.ts';
-import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
-import { setProjectZeroTrustProtection } from '../../src/zero-trust/project.ts';
+import { operatorFetch } from './ai-logging-helpers.ts';
 import {
   clearTables,
   createOperatorToken,
-  createTestDeployment,
-  createTestProject,
   createTestUser,
   setupEnv,
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import {
+  insertSecurityFinding,
+  insertSecurityScan,
+  liveProject,
+  saveSecurityPolicy,
+  securityBindings,
+  seedProtectedProject,
+} from './security-fixtures.ts';
+import { askPublic, setupGate } from './security-gate-fixtures.ts';
 
 let env: TestEnv;
 let onEnv: TestEnv;
@@ -59,23 +54,16 @@ afterAll(teardownEnv);
 beforeEach(async () => {
   await clearTables(env.db);
   onEnv = {
-    ...env,
-    SITE_DOMAIN: 'apps.example.com',
-    PLATFORM_INSTALLATION_ID: 'installation-test',
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
     // The scheduler Worker: cancel runs the same row update the real one does.
-    SECURITY_SCAN_SCHEDULER: {
-      idFromName: (name: string) => ({ toString: () => name }),
-      get: () => ({
-        fetch: async () => Response.json({ ok: true }),
+    ...securityBindings(env, {
+      scheduler: {
         cancelScans: async (scanIds: Array<string>, reason: string) =>
           (await cancelSecurityScanRows(env.db, { scanIds }, reason)).length,
-      }),
-    },
-  } as unknown as TestEnv;
+      },
+    }),
+    SITE_DOMAIN: 'apps.example.com',
+    PLATFORM_INSTALLATION_ID: 'installation-test',
+  };
   const admin = await createTestUser(
     env.db,
     'security-admin',
@@ -100,82 +88,14 @@ async function call(
   path: string,
   options: { body?: Record<string, unknown>; bindings?: TestEnv } = {},
 ): Promise<{ status: number; body: Json; headers: Headers }> {
-  const response = await app.fetch(
-    new Request(`http://localhost/operator/v1${path}`, {
-      method: options.body ? 'POST' : 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    }),
-    options.bindings ?? onEnv,
-  );
+  const response = await operatorFetch(options.bindings ?? onEnv, token, path, options.body);
   return { status: response.status, body: await response.json(), headers: response.headers };
-}
-
-async function savePolicy(overrides: Partial<SecurityPolicy> = {}) {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    revision: 1,
-    ...overrides,
-  });
-}
-
-async function projectWithDeployment(slug = 'acme-web') {
-  const owner = await createTestUser(env.db, `owner-${slug}`);
-  const project = await createTestProject(env.db, owner.id, slug);
-  const deployment = await createTestDeployment(env.db, project.id, 'live');
-  return { owner, project, deployment };
-}
-
-let findingCounter = 0;
-async function addFinding(
-  projectId: string,
-  overrides: Partial<typeof securityFindings.$inferInsert> = {},
-) {
-  const number = overrides.number ?? ++findingCounter;
-  await env.db.insert(securityFindings).values({
-    id: `sf_${projectId}_${number}`,
-    project_id: projectId,
-    number,
-    fingerprint_key: `fp-${projectId}-${number}`,
-    verdict: 'confirmed',
-    severity: 'high',
-    title: `Finding ${number}`,
-    category: 'sqli',
-    file: 'src/a.ts',
-    line_start: 3,
-    first_scan_id: 'ss_x',
-    last_seen_scan_id: 'ss_x',
-    ...overrides,
-  });
-  return number;
-}
-
-async function addScan(
-  projectId: string,
-  deploymentId: string | null,
-  overrides: Partial<typeof securityScans.$inferInsert> = {},
-) {
-  const id = overrides.id ?? `ss_${crypto.randomUUID().slice(0, 8)}`;
-  await env.db.insert(securityScans).values({
-    status: 'succeeded',
-    trigger: 'deploy',
-    finished_at: new Date().toISOString(),
-    ...overrides,
-    id,
-    project_id: projectId,
-    deployment_id: deploymentId,
-  });
-  return id;
 }
 
 describe('operator security budget', () => {
   it('reads the caps and spend, and writes them by revision with a preview first', async () => {
-    await savePolicy({ revision: 4 });
-    const { project } = await projectWithDeployment();
+    await saveSecurityPolicy(env, { revision: 4 });
+    const { project } = await liveProject(env);
     await env.db.insert(securityPlatformSpend).values({
       month: `${new Date().toISOString().slice(0, 7)}-01`,
       spent_nano_usd: 12_500_000_000,
@@ -242,8 +162,8 @@ describe('operator security budget', () => {
   });
 
   it('sets a project ceiling, records it, and a preview keeps nothing', async () => {
-    await savePolicy();
-    const { project } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project } = await liveProject(env);
     const path = `/projects/${project.id}/security/budget`;
     const preview = await call(path, { body: { dryRun: true, monthlyUsd: 25 } });
     expect(preview.status).toBe(200);
@@ -278,11 +198,11 @@ describe('operator security budget', () => {
   });
 
   it('answers 404 for an unknown project and 501 for writes while the capability is off', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     expect(
       (await call('/projects/proj_missing/security/budget', { body: { monthlyUsd: 1 } })).status,
     ).toBe(404);
-    const { project } = await projectWithDeployment();
+    const { project } = await liveProject(env);
     const off = await call(`/projects/${project.id}/security/budget`, {
       body: { monthlyUsd: 1 },
       bindings: env,
@@ -300,45 +220,8 @@ describe('operator security budget', () => {
 });
 
 describe('operator project scan rule (M34)', () => {
-  /** Installation Zero Trust on (not public-only), and the project settled protected. */
-  async function protect(projectId: string) {
-    await env.db
-      .insert(platformSettings)
-      .values({
-        key: 'zeroTrust.configuration',
-        value: {
-          version: 1,
-          revision: 1,
-          enabled: true,
-          protectNewProjects: true,
-          accountId: env.CF_ACCOUNT_ID,
-          teamDomain: 'https://company.cloudflareaccess.com',
-          identityProviderIds: ['idp-1'],
-          policyIds: ['policy-1'],
-          credential: { ciphertext: 'unused', iv: 'unused', keyVersion: 'v1' },
-          wildcardApplicationName: 'void-test-projects',
-          wildcardApplication: {
-            id: 'access-wildcard',
-            name: 'void-test-projects',
-            audience: 'access-audience',
-            destinations: ['*.void.app'],
-          },
-          operation: null,
-          lastError: null,
-          updatedAt: new Date().toISOString(),
-        },
-      })
-      .onConflictDoNothing();
-    await env.db.insert(projectZeroTrust).values({
-      project_id: projectId,
-      desired_protected: true,
-      effective_protected: true,
-      status: 'ready',
-    });
-  }
-
   async function storedProject(slug: string) {
-    const made = await projectWithDeployment(slug);
+    const made = await liveProject(env, slug);
     await env.db
       .update(deployments)
       .set({ bundle_stored: true })
@@ -347,8 +230,8 @@ describe('operator project scan rule (M34)', () => {
   }
 
   it('sets the rule with a preview first, audits it, and lists it in status', async () => {
-    await savePolicy({ mode: 'public', publicGate: true });
-    const { project } = await projectWithDeployment();
+    await saveSecurityPolicy(env, { mode: 'public', publicGate: true });
+    const { project } = await liveProject(env);
     const path = `/projects/${project.id}/security/policy`;
 
     const preview = await call(path, { body: { dryRun: true, override: 'never' } });
@@ -408,7 +291,7 @@ describe('operator project scan rule (M34)', () => {
   });
 
   it('never refuses a rescan and leaves the project out of a backfill', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project } = await storedProject('never-app');
     await storedProject('other-app');
     expect((await previewSecurityBackfill(env.db)).slugs).toEqual(
@@ -426,7 +309,7 @@ describe('operator project scan rule (M34)', () => {
   });
 
   it('never refuses a plain rescan while a public request is open', async () => {
-    await savePolicy({ mode: 'public', publicGate: true });
+    await saveSecurityPolicy(env, { mode: 'public', publicGate: true });
     const { project, deployment } = await storedProject('asking-app');
     await env.db.insert(securityPublicRequests).values({
       id: 'spr_asking',
@@ -453,9 +336,9 @@ describe('operator project scan rule (M34)', () => {
   });
 
   it('always puts a protected project back in scope under public', async () => {
-    await savePolicy({ mode: 'public' });
+    await saveSecurityPolicy(env, { mode: 'public' });
     const { project } = await storedProject('kept-app');
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     expect((await previewSecurityBackfill(env.db)).slugs).toEqual([]);
     const set = await call(`/projects/${project.id}/security/policy`, {
       body: { override: 'always' },
@@ -470,25 +353,25 @@ describe('operator project scan rule (M34)', () => {
 
 describe('operator security findings', () => {
   it('lists across projects, oldest first, filters and pages', async () => {
-    await savePolicy();
-    const a = await projectWithDeployment('alpha');
-    const b = await projectWithDeployment('bravo');
-    await addFinding(a.project.id, {
+    await saveSecurityPolicy(env);
+    const a = await liveProject(env, 'alpha');
+    const b = await liveProject(env, 'bravo');
+    await insertSecurityFinding(env, a.project.id, {
       number: 1,
       severity: 'critical',
       created_at: '2026-01-01T00:00:00Z',
     });
-    await addFinding(a.project.id, {
+    await insertSecurityFinding(env, a.project.id, {
       number: 2,
       severity: 'low',
       created_at: '2026-01-02T00:00:00Z',
     });
-    await addFinding(b.project.id, {
+    await insertSecurityFinding(env, b.project.id, {
       number: 1,
       severity: 'high',
       created_at: '2025-12-01T00:00:00Z',
     });
-    await addFinding(b.project.id, {
+    await insertSecurityFinding(env, b.project.id, {
       number: 2,
       severity: 'high',
       state: 'resolved',
@@ -525,9 +408,9 @@ describe('operator security findings', () => {
   });
 
   it('resolves, reopens and comments as the installation admin, with a preview first', async () => {
-    await savePolicy();
-    const { project } = await projectWithDeployment();
-    await addFinding(project.id, { number: 1 });
+    await saveSecurityPolicy(env);
+    const { project } = await liveProject(env);
+    await insertSecurityFinding(env, project.id, { number: 1 });
     const base = `/projects/${project.id}/security/findings/F-1`;
 
     const show = await call(base);
@@ -592,24 +475,27 @@ describe('operator security findings', () => {
     );
     expect(events.every((event) => event.actor_user_id === adminId)).toBe(true);
     // A finding of another project is not found.
-    const other = await projectWithDeployment('other');
+    const other = await liveProject(env, 'other');
     expect((await call(`/projects/${other.project.id}/security/findings/F-1`)).status).toBe(404);
   });
 });
 
 describe('operator security scans', () => {
   it('lists scans of every project with the month totals and filters', async () => {
-    await savePolicy();
-    const a = await projectWithDeployment('alpha');
-    await addScan(a.project.id, a.deployment.id, {
+    await saveSecurityPolicy(env);
+    const a = await liveProject(env, 'alpha');
+    await insertSecurityScan(env, a.project.id, a.deployment.id, {
       metered_nano_usd: 3_000_000_000,
       cost_nano_usd: 2_900_000_000,
       model_used: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
       tier: 'full',
       coverage: 'complete',
     });
-    await addScan(a.project.id, a.deployment.id, { status: 'refused', trigger: 'gate' });
-    await addScan(a.project.id, a.deployment.id, {
+    await insertSecurityScan(env, a.project.id, a.deployment.id, {
+      status: 'refused',
+      trigger: 'gate',
+    });
+    await insertSecurityScan(env, a.project.id, a.deployment.id, {
       status: 'skipped',
       status_reason: 'budget_project',
     });
@@ -634,13 +520,13 @@ describe('operator security scans', () => {
   });
 
   it('cancels a waiting scan, refuses a finished one, and a preview changes nothing', async () => {
-    await savePolicy();
-    const { project, deployment } = await projectWithDeployment();
-    const queued = await addScan(project.id, deployment.id, {
+    await saveSecurityPolicy(env);
+    const { project, deployment } = await liveProject(env);
+    const queued = await insertSecurityScan(env, project.id, deployment.id, {
       status: 'queued',
       finished_at: null,
     });
-    const done = await addScan(project.id, deployment.id);
+    const done = await insertSecurityScan(env, project.id, deployment.id);
 
     expect((await call('/security/scans/ss_missing/cancel', { body: {} })).status).toBe(404);
     const finished = await call(`/security/scans/${done}/cancel`, { body: {} });
@@ -674,10 +560,10 @@ describe('operator security rescan', () => {
   }
 
   it('previews the cost, queues a full scan, and refuses a second while one waits', async () => {
-    await savePolicy();
-    const { project, deployment } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project, deployment } = await liveProject(env);
     await storeSnapshot(project.id, deployment.id);
-    await addScan(project.id, deployment.id);
+    await insertSecurityScan(env, project.id, deployment.id);
     const path = `/projects/${project.id}/security/scans`;
 
     const preview = await call(path, { body: { dryRun: true } });
@@ -716,8 +602,8 @@ describe('operator security rescan', () => {
   });
 
   it('queues the client asset pass when asked (M31)', async () => {
-    await savePolicy();
-    const { project, deployment } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project, deployment } = await liveProject(env);
     await storeSnapshot(project.id, deployment.id);
     const path = `/projects/${project.id}/security/scans`;
     expect((await call(path, { body: { clientAssets: 1 } })).status).toBe(400);
@@ -733,14 +619,14 @@ describe('operator security rescan', () => {
   });
 
   it('refuses a rescan that cannot run, each with its own code', async () => {
-    const { project, deployment } = await projectWithDeployment();
+    const { project, deployment } = await liveProject(env);
     const path = `/projects/${project.id}/security/scans`;
-    await savePolicy({ mode: 'disabled' });
+    await saveSecurityPolicy(env, { mode: 'disabled' });
     const off = await call(path, { body: {} });
     expect(off.status).toBe(409);
     expect(off.body.error).toBe('security_not_in_scope');
 
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const noInput = await call(path, { body: {} });
     expect(noInput.status).toBe(409);
     expect(noInput.body.error).toBe('security_input_unavailable');
@@ -757,8 +643,8 @@ describe('operator security rescan', () => {
   });
 
   it('says a never scanned deployment is not already scanned', async () => {
-    await savePolicy();
-    const { project, deployment } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project, deployment } = await liveProject(env);
     await storeSnapshot(project.id, deployment.id);
     const preview = await call(`/projects/${project.id}/security/scans`, {
       body: { dryRun: true },
@@ -769,8 +655,8 @@ describe('operator security rescan', () => {
 
 describe('operator security model', () => {
   it('sets the project model through the project rules and previews without writing', async () => {
-    await savePolicy({ blockedModels: ['@cf/zai-org/glm-5.3'] });
-    const { project } = await projectWithDeployment();
+    await saveSecurityPolicy(env, { blockedModels: ['@cf/zai-org/glm-5.3'] });
+    const { project } = await liveProject(env);
     const path = `/projects/${project.id}/security/model`;
     const blocked = await call(path, { body: { model: '@cf/zai-org/glm-5.3' } });
     expect(blocked.status).toBe(422);
@@ -790,94 +676,11 @@ describe('operator security model', () => {
   });
 });
 
-// A trimmed copy of the Zero Trust fake the public gate suite uses.
-function accessApi() {
-  const applications = new Map<string, Record<string, unknown>>();
-  let next = 1;
-  return vi.fn(async (request: string | URL | Request, init?: RequestInit) => {
-    const url = new URL(request.toString());
-    const path = url.pathname.split('/access/')[1] ?? '';
-    if (path === 'organizations') {
-      return Response.json({
-        success: true,
-        result: { auth_domain: 'company.cloudflareaccess.com' },
-      });
-    }
-    if (path === 'identity_providers/idp-1') {
-      return Response.json({ success: true, result: { id: 'idp-1', name: 'Company SSO' } });
-    }
-    if (path === 'policies/policy-1') {
-      return Response.json({
-        success: true,
-        result: {
-          id: 'policy-1',
-          decision: 'allow',
-          include: [{ email_domain: { domain: 'example.com' } }],
-        },
-      });
-    }
-    if (path === 'apps' && init?.method === 'POST') {
-      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      const id = `app-${next++}`;
-      const application = { ...body, id, aud: `aud-${id}` };
-      applications.set(id, application);
-      return Response.json({ success: true, result: application });
-    }
-    if (path === 'apps') {
-      return Response.json({ success: true, result: [...applications.values()] });
-    }
-    const match = path.match(/^apps\/([^/]+)$/);
-    if (match && init?.method === 'PUT') {
-      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      const application = { ...body, id: match[1], aud: `aud-${match[1]}` };
-      applications.set(match[1], application);
-      return Response.json({ success: true, result: application });
-    }
-    if (match && init?.method === 'DELETE') {
-      applications.delete(match[1]);
-      return Response.json({ success: true, result: { id: match[1] } });
-    }
-    if (match) {
-      const application = applications.get(match[1]);
-      return application
-        ? Response.json({ success: true, result: application })
-        : Response.json({ success: false, errors: [{ message: 'not found' }] }, { status: 404 });
-    }
-    throw new Error(`unexpected Cloudflare request: ${url}`);
-  });
-}
-
 describe('operator public requests and bypass', () => {
   async function gateSetup() {
-    vi.stubGlobal('fetch', accessApi());
-    const platform = {
-      ...onEnv,
-      SITE_DOMAIN: 'apps.example.com',
-      PLATFORM_INSTALLATION_ID: 'installation-test',
-    } as unknown as ApiEnv['Bindings'];
-    await configurePlatformZeroTrust(platform, env.db, {
-      apiToken: 'access-management-token',
-      identityProviderIds: ['idp-1'],
-      policyIds: ['policy-1'],
-      protectNewProjects: true,
-      existingProjects: 'public',
-    });
-    await savePolicy({ publicGate: true });
-    const { owner, project, deployment } = await projectWithDeployment();
-    await env.ROUTING.put(
-      project.slug,
-      JSON.stringify({
-        projectId: project.id,
-        userId: owner.id,
-        workerName: `user-${project.slug}-${deployment.id}`,
-        version: deployment.id,
-      }),
-    );
-    await setProjectZeroTrustProtection(platform, env.db, project.id, true);
-    await setProjectZeroTrustProtection(platform, env.db, project.id, false, {
-      actorUserId: owner.id,
-    });
-    return { platform, owner, project, deployment };
+    const s = await setupGate(env);
+    await askPublic(s);
+    return { owner: s.user, project: s.project, deployment: s.deployment };
   }
 
   it('lists requests and bypasses, with the reason visible to the operator only here', async () => {
@@ -954,8 +757,8 @@ describe('operator public requests and bypass', () => {
   });
 
   it('refuses a bypass with no request, and with an urgent finding open', async () => {
-    await savePolicy({ publicGate: true });
-    const { project } = await projectWithDeployment('quiet');
+    await saveSecurityPolicy(env, { publicGate: true });
+    const { project } = await liveProject(env, 'quiet');
     const path = `/projects/${project.id}/security/public-request/bypass`;
     const none = await call(path, { body: { reason: 'why not' } });
     expect(none.status).toBe(409);
@@ -972,8 +775,8 @@ describe('operator public requests and bypass', () => {
 
   it('refuses a bypass while an urgent finding blocks the request', async () => {
     const { project, deployment } = await gateSetup();
-    await addScan(project.id, deployment.id);
-    await addFinding(project.id, { number: 7 });
+    await insertSecurityScan(env, project.id, deployment.id);
+    await insertSecurityFinding(env, project.id, { number: 7 });
     await env.db
       .update(securityPublicRequests)
       .set({ state: 'held_findings', blockers: 1, blocker_ids: ['F-7'] })

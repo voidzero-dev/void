@@ -1,5 +1,4 @@
 import { describe, expect, test, vi } from 'vite-plus/test';
-import type { Engine, SessionSpec } from '../../src/runner/engines/types.ts';
 import { createVoidLoopEngine } from '../../src/runner/engines/void-loop.ts';
 import { runPhases } from '../../src/runner/phases.ts';
 import type { ScanReport } from '../../src/runner/report.ts';
@@ -10,10 +9,10 @@ import {
   withVerdictSource,
   withoutRuntimeFields,
 } from '../../src/runner/runtime/copy.ts';
-import type { OutcomeBody } from '../../src/runner/status.ts';
 import { parseTask } from '../../src/runner/task.ts';
 import type { FsTools } from '../../src/runner/tools/fs.ts';
 import { validateFindingsValue } from '../../src/runner/validate-findings.ts';
+import { scriptedEngine, submitted } from '../helpers/engine.ts';
 import { confirmed, lead, record, report } from '../helpers/findings.ts';
 
 // M30: verify sessions send test requests to the scan's throwaway copy, and a
@@ -66,39 +65,6 @@ function fakeCopy(
     );
   });
   return { calls, fetch: fetchFn as unknown as typeof fetch };
-}
-
-function submitted(raws: Array<Record<string, unknown>>): OutcomeBody {
-  return {
-    kind: 'submitted',
-    report: { run_status: 'complete', findings: raws.map(record), notes: '' },
-    repaired: false,
-  };
-}
-
-/** A scripted engine; `sessionTools` says whether it can offer the copy tool. */
-function scriptedEngine(
-  script: Array<(spec: SessionSpec) => Promise<OutcomeBody> | OutcomeBody>,
-  sessionTools = true,
-): Engine & { specs: Array<SessionSpec> } {
-  const specs: Array<SessionSpec> = [];
-  return {
-    id: 'void_loop',
-    version: 'test',
-    sessionTools,
-    specs,
-    async runSession(spec) {
-      specs.push(spec);
-      const next = script.shift();
-      if (!next) {
-        throw new Error(`no scripted session for ${spec.phase}`);
-      }
-      return {
-        ...(await next(spec)),
-        stats: { turns: 1, modelCalls: 1, inputTokens: 1, outputTokens: 1, reads: 1 },
-      };
-    },
-  };
 }
 
 describe('CopyClient.waitReady', () => {

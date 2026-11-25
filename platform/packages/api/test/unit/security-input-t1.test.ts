@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
+// The scanner's ustar writer, for names and types the API's own writer never makes.
+import { buildTar } from '../../../security-scanner/test/helpers/tar.ts';
 import {
   buildSecurityScanInput,
   securityNotesLeftFilesUnread,
@@ -277,86 +279,72 @@ describe('mapBundleToRepo', () => {
 
 describe('claimedCommitMismatch', () => {
   const repo = repoIndex(REPO);
-  const changedRepoPaths = comparisonChangedPaths(COMPARE_FILES);
+  const compared = comparisonChangedPaths(COMPARE_FILES);
+  const users = 'apps/web/src/routes/users.ts';
 
-  it('passes a bundle that holds the commit text', () => {
-    expect(
-      claimedCommitMismatch({
-        mapping: mapped(bundle(), repo),
-        changedRepoPaths,
-        builtChanged: new Set(['src/routes/users.ts']),
-        noSourceMaps: 0,
-      }),
-    ).toBe(false);
-  });
-
-  it('fails when a changed server file differs from the commit (#38)', () => {
-    const mapping = mapped(bundle({ 'apps/web/src/routes/users.ts': 'shipped other code' }), repo);
-    // Changed in the comparison …
-    expect(
-      claimedCommitMismatch({
-        mapping,
-        changedRepoPaths,
-        builtChanged: new Set(),
-        noSourceMaps: 0,
-      }),
-    ).toBe(true);
+  it.each([
+    ['passes a bundle that holds the commit text', {}, compared, ['src/routes/users.ts'], 0, false],
+    // #38: a changed server file differs from the commit, changed in the comparison …
+    [
+      'fails when a file changed in the comparison differs (#38)',
+      { [users]: 'shipped other code' },
+      compared,
+      [],
+      0,
+      true,
+    ],
     // … or in the built output.
+    [
+      'fails when a file changed in the built output differs (#38)',
+      { [users]: 'shipped other code' },
+      new Set<string>(),
+      ['src/routes/users.ts'],
+      0,
+      true,
+    ],
+    // Its live text was scanned before.
+    [
+      'lets an unchanged file differ',
+      { 'apps/web/src/server.ts': 'older text' },
+      compared,
+      [],
+      0,
+      false,
+    ],
+    ['fails without source maps (#38)', {}, compared, [], 1, true],
+  ] as const)('%s', (_name, overrides, changedRepoPaths, builtChanged, noSourceMaps, expected) => {
     expect(
       claimedCommitMismatch({
-        mapping,
-        changedRepoPaths: new Set(),
-        builtChanged: new Set(['src/routes/users.ts']),
-        noSourceMaps: 0,
-      }),
-    ).toBe(true);
-  });
-
-  it('lets an unchanged file differ: its live text was scanned before', () => {
-    const mapping = mapped(bundle({ 'apps/web/src/server.ts': 'older text' }), repo);
-    expect(
-      claimedCommitMismatch({
-        mapping,
+        mapping: mapped(bundle(overrides), repo),
         changedRepoPaths,
-        builtChanged: new Set(),
-        noSourceMaps: 0,
+        builtChanged: new Set(builtChanged),
+        noSourceMaps,
       }),
-    ).toBe(false);
-  });
-
-  it('fails without source maps (#38)', () => {
-    expect(
-      claimedCommitMismatch({
-        mapping: mapped(bundle(), repo),
-        changedRepoPaths,
-        builtChanged: new Set(),
-        noSourceMaps: 1,
-      }),
-    ).toBe(true);
+    ).toBe(expected);
   });
 });
 
+const repo = repoIndex(REPO);
+
+/** The source diff of `modules` against REPO and the comparison. */
+function sourceDiffOf(
+  modules: Array<SecurityModuleFile>,
+  options: { builtChanged?: Set<string>; budget?: { bytes: number; files: number } } = {},
+) {
+  return planSecuritySourceDiff({
+    mapping: mapped(modules, repo),
+    repo,
+    managed: false,
+    sources: bundleSources(modules, 'index.js').files,
+    changedRepoPaths: comparisonChangedPaths(COMPARE_FILES),
+    builtChanged: options.builtChanged ?? new Set(['src/routes/users.ts']),
+    budget: options.budget ?? { bytes: 1024 * 1024, files: 1000 },
+  });
+}
+
 describe('planSecuritySourceDiff', () => {
-  const repo = repoIndex(REPO);
-  const budget = { bytes: 1024 * 1024, files: 1000 };
-
-  function plan(
-    modules: Array<SecurityModuleFile>,
-    options: { builtChanged?: Set<string>; budget?: { bytes: number; files: number } } = {},
-  ) {
-    return planSecuritySourceDiff({
-      mapping: mapped(modules, repo),
-      repo,
-      managed: false,
-      sources: bundleSources(modules, 'index.js').files,
-      changedRepoPaths: comparisonChangedPaths(COMPARE_FILES),
-      builtChanged: options.builtChanged ?? new Set(['src/routes/users.ts']),
-      budget: options.budget ?? budget,
-    });
-  }
-
   it('reads the project root plus the shared files the source maps list (#32)', () => {
-    const result = plan(bundle());
+    const result = sourceDiffOf(bundle());
     expect(result.read.map((file) => [file.inputPath, file.repoPath])).toEqual([
       // Changed first: server code in bundle order, then client code.
       ['src/routes/users.ts', 'apps/web/src/routes/users.ts'],
@@ -383,7 +371,7 @@ describe('planSecuritySourceDiff', () => {
   });
 
   it('keeps the live text of a file that differs from the commit', () => {
-    const result = plan(bundle({ 'apps/web/src/server.ts': 'older text' }), {
+    const result = sourceDiffOf(bundle({ 'apps/web/src/server.ts': 'older text' }), {
       builtChanged: new Set(),
     });
     expect(result.read.map((file) => file.inputPath)).not.toContain('src/server.ts');
@@ -392,12 +380,12 @@ describe('planSecuritySourceDiff', () => {
   });
 
   it('adds a file the built output changed even when the comparison does not list it', () => {
-    const result = plan(bundle(), { builtChanged: new Set(['src/server.ts']) });
+    const result = sourceDiffOf(bundle(), { builtChanged: new Set(['src/server.ts']) });
     expect(result.changed.has('src/server.ts')).toBe(true);
   });
 
   it('leaves unchanged files unread first when the budget runs out', () => {
-    const result = plan(bundle(), { budget: { bytes: 90, files: 1000 } });
+    const result = sourceDiffOf(bundle(), { budget: { bytes: 90, files: 1000 } });
     const read = result.read.map((file) => file.inputPath);
     expect(read).toEqual([
       'src/routes/users.ts',
@@ -416,29 +404,19 @@ describe('planSecuritySourceDiff', () => {
   });
 });
 
+type SourceDiff = NonNullable<SecurityInputPlan['sourceDiff']>;
+
+/** A source file read from the repository. */
+function sourceFile(path: string, text: string, sha256: string): SourceDiff['files'][number] {
+  return { path, text, sha256, module: '', map: null, built: false };
+}
+
 describe('buildSecurityScanInput with a source diff', () => {
   function inputPlan(): SecurityInputPlan {
     const modules = bundle();
-    const repo = repoIndex(REPO);
-    const sources = bundleSources(modules, 'index.js').files;
-    const diff = planSecuritySourceDiff({
-      mapping: mapped(modules, repo),
-      repo,
-      managed: false,
-      sources,
-      changedRepoPaths: comparisonChangedPaths(COMPARE_FILES),
-      builtChanged: new Set(['src/routes/users.ts']),
-      budget: { bytes: 1024 * 1024, files: 1000 },
-    });
+    const diff = sourceDiffOf(modules);
     const files = [
-      ...diff.read.map((file) => ({
-        path: file.inputPath,
-        text: REPO[file.repoPath],
-        sha256: file.sha256,
-        module: '',
-        map: null,
-        built: false,
-      })),
+      ...diff.read.map((file) => sourceFile(file.inputPath, REPO[file.repoPath], file.sha256)),
       ...diff.bundleOnly,
     ];
     return {
@@ -468,6 +446,15 @@ describe('buildSecurityScanInput with a source diff', () => {
       memory: { findings: [], events: [], lastSucceededAt: null, ledgerSummary: null },
     };
   }
+
+  /** inputPlan() with its source diff patched. */
+  function withDiff(patch: Partial<SourceDiff>, rest: Partial<SecurityInputPlan> = {}) {
+    const plan = inputPlan();
+    return { ...plan, ...rest, sourceDiff: { ...plan.sourceDiff!, ...patch } };
+  }
+
+  /** The changed set of inputPlan(), plus `path`. */
+  const changedWith = (path: string) => new Set([...inputPlan().sourceDiff!.changed, path]);
 
   it('sends the changed files as focus and labels the scan a source diff', () => {
     const built = buildSecurityScanInput(inputPlan());
@@ -502,14 +489,7 @@ describe('buildSecurityScanInput with a source diff', () => {
   });
 
   it('puts an unread changed file in the backlog', () => {
-    const plan = inputPlan();
-    const built = buildSecurityScanInput({
-      ...plan,
-      sourceDiff: {
-        ...plan.sourceDiff!,
-        changed: new Set([...plan.sourceDiff!.changed, 'src/big.ts']),
-      },
-    });
+    const built = buildSecurityScanInput(withDiff({ changed: changedWith('src/big.ts') }));
     expect(built.backlog).toEqual(['src/big.ts']);
     expect(built.sourceIndex.has('src/big.ts')).toBe(false);
     expect(built.coverage).toBe('partial');
@@ -517,15 +497,12 @@ describe('buildSecurityScanInput with a source diff', () => {
   });
 
   it('drops an unread changed file over 16 MB instead of backlogging it (C1)', () => {
-    const plan = inputPlan();
-    const built = buildSecurityScanInput({
-      ...plan,
-      sourceDiff: {
-        ...plan.sourceDiff!,
-        changed: new Set([...plan.sourceDiff!.changed, 'src/big.ts']),
+    const built = buildSecurityScanInput(
+      withDiff({
+        changed: changedWith('src/big.ts'),
         unread: [{ path: 'src/big.ts', bytes: 17 * 1024 * 1024, sha256: 'x' }],
-      },
-    });
+      }),
+    );
     expect(built.backlog).toEqual([]);
     expect(built.notes).toContain('dropped-oversize 1 files');
     expect(built.notes).not.toContain('input-capped 1 files');
@@ -534,61 +511,39 @@ describe('buildSecurityScanInput with a source diff', () => {
   });
 
   it('notes an unchanged file over 16 MB on every diff scan until it is gone', () => {
-    const plan = inputPlan();
     const big = { path: 'src/big.ts', bytes: 17 * 1024 * 1024, sha256: 'x' };
-    const unchanged = buildSecurityScanInput({
-      ...plan,
-      sourceDiff: { ...plan.sourceDiff!, unread: [big] },
-    });
+    const unchanged = buildSecurityScanInput(withDiff({ unread: [big] }));
     expect(unchanged.notes).toContain('dropped-oversize 1 files');
     expect(securityNotesLeftFilesUnread(unchanged.notes)).toBe(true);
     expect(unchanged.backlog).toEqual([]);
     expect(unchanged.coverage).toBe('partial');
     expect(unchanged.sourceIndex.get('src/big.ts')).toBe('x');
 
-    const removed = buildSecurityScanInput({
-      ...plan,
-      sourceDiff: { ...plan.sourceDiff!, unread: [] },
-    });
+    const removed = buildSecurityScanInput(withDiff({ unread: [] }));
     expect(securityNotesLeftFilesUnread(removed.notes)).toBe(false);
   });
 
   it('notes an unchanged file the base could not send while it stays unread', () => {
-    const plan = inputPlan();
     const sqlite = 'SQLite format 3\u0000';
-    const first = buildSecurityScanInput({
-      ...plan,
-      sourceDiff: {
-        ...plan.sourceDiff!,
-        files: [
-          ...plan.sourceDiff!.files,
-          {
-            path: 'data/app.sqlite',
-            text: sqlite,
-            sha256: 'db',
-            module: '',
-            map: null,
-            built: false,
-          },
-        ],
-        changed: new Set([...plan.sourceDiff!.changed, 'data/app.sqlite']),
+    const first = buildSecurityScanInput(
+      withDiff({
+        files: [...inputPlan().sourceDiff!.files, sourceFile('data/app.sqlite', sqlite, 'db')],
+        changed: changedWith('data/app.sqlite'),
         unread: [],
-      },
-    });
+      }),
+    );
     expect(first.notes).toContain('dropped-binary 1 files');
     expect(first.neverSent.get('data/app.sqlite')).toEqual({ sha256: 'db', kind: 'binary' });
 
     // Next scan: unchanged, and left unread as the read budget ran out.
     const base = { modules: new Map(), sources: first.sourceIndex, neverSent: first.neverSent };
     const unread = (sha256: string) =>
-      buildSecurityScanInput({
-        ...plan,
-        base,
-        sourceDiff: {
-          ...plan.sourceDiff!,
-          unread: [{ path: 'data/app.sqlite', bytes: 5 * 1024 * 1024, sha256 }],
-        },
-      });
+      buildSecurityScanInput(
+        withDiff(
+          { unread: [{ path: 'data/app.sqlite', bytes: 5 * 1024 * 1024, sha256 }] },
+          { base },
+        ),
+      );
     const second = unread('db');
     expect(second.notes).toContain('dropped-binary 1 files');
     expect(securityNotesLeftFilesUnread(second.notes)).toBe(true);
@@ -601,14 +556,9 @@ describe('buildSecurityScanInput with a source diff', () => {
   });
 
   it('does not note unchanged third-party code over 16 MB as unread', () => {
-    const plan = inputPlan();
     const vendored = { path: 'node_modules/pkg/dist/big.js', bytes: 17 * 1024 * 1024, sha256: 'v' };
     for (const lockfile of [new Map([['pkg', 'registry' as const]]), null]) {
-      const built = buildSecurityScanInput({
-        ...plan,
-        lockfile,
-        sourceDiff: { ...plan.sourceDiff!, unread: [vendored] },
-      });
+      const built = buildSecurityScanInput(withDiff({ unread: [vendored] }, { lockfile }));
       expect(securityNotesLeftFilesUnread(built.notes)).toBe(false);
       expect(built.neverSent.has(vendored.path)).toBe(false);
       expect(built.backlog).toEqual([]);
@@ -623,12 +573,8 @@ describe('buildSecurityScanInput with a source diff', () => {
   });
 
   it('caps an unread unchanged file when a gate scan turns into a full scan', () => {
-    const plan = inputPlan();
-    const built = buildSecurityScanInput({
-      ...plan,
-      scan: { ...plan.scan, trigger: 'gate' },
-      sourceDiff: { ...plan.sourceDiff!, changed: new Set() },
-    });
+    const gate = { ...inputPlan().scan, trigger: 'gate' } as const;
+    const built = buildSecurityScanInput(withDiff({ changed: new Set() }, { scan: gate }));
     expect(built.tier).toBe('full');
     expect(built.backlog).toEqual(['src/big.ts']);
     expect(built.coverage).toBe('partial');
@@ -660,39 +606,6 @@ describe('buildSecurityScanInput with a source diff', () => {
   });
 });
 
-const BLOCK = 512;
-
-/** A raw ustar header, for names and types the API's own writer never makes. */
-function rawEntry(
-  name: string,
-  data: string,
-  type: string,
-  /** The size the header claims; the body's by default. */
-  size?: number,
-): Array<Uint8Array> {
-  const body = new TextEncoder().encode(data);
-  const block = new Uint8Array(BLOCK);
-  const put = (offset: number, text: string) => block.set(new TextEncoder().encode(text), offset);
-  put(0, name);
-  put(100, '0000444\0');
-  put(108, '0000000\0');
-  put(116, '0000000\0');
-  put(124, `${(size ?? body.length).toString(8).padStart(11, '0')}\0`);
-  put(136, '00000000000\0');
-  block.fill(0x20, 148, 156);
-  put(156, type);
-  put(257, 'ustar\0');
-  put(263, '00');
-  let sum = 0;
-  for (const byte of block) {
-    sum += byte;
-  }
-  put(148, `${sum.toString(8).padStart(6, '0')}\0 `);
-  const padded = new Uint8Array(Math.ceil(body.length / BLOCK) * BLOCK);
-  padded.set(body);
-  return [block, padded];
-}
-
 function gzip(chunks: Array<Uint8Array>): ReadableStream<Uint8Array> {
   return new Blob(chunks as Array<BlobPart>)
     .stream()
@@ -722,10 +635,15 @@ describe('walkSourceTarball', () => {
   it('reads a GitHub archive with the top folder cut off, long names too', async () => {
     const long = `acme-mono-${'b'.repeat(7)}/apps/web/src/${'deep/'.repeat(30)}é.ts`;
     const chunks = [
-      ...rawEntry(
-        'pax_global_header',
-        '52 comment=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n',
-        'g',
+      buildTar(
+        [
+          {
+            name: 'pax_global_header',
+            type: 'g',
+            data: '52 comment=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n',
+          },
+        ],
+        { end: false },
       ),
       ...tarChunks([
         { path: 'acme-mono-bbbbbbb/package.json', data: '{}' },
@@ -741,11 +659,12 @@ describe('walkSourceTarball', () => {
 
   it('skips links and unsafe names', async () => {
     const chunks = [
-      ...rawEntry('top/../../etc/passwd', 'root', '0'),
-      ...rawEntry('top/link.ts', '', '2'),
-      ...rawEntry('top/src/', '', '5'),
-      ...rawEntry('top/src/ok.ts', 'ok', '0'),
-      new Uint8Array(BLOCK * 2),
+      buildTar([
+        { name: 'top/../../etc/passwd', data: 'root' },
+        { name: 'top/link.ts', type: '2' },
+        { name: 'top/src/', type: '5' },
+        { name: 'top/src/ok.ts', data: 'ok' },
+      ]),
     ];
     expect(Object.fromEntries(await walk(gzip(chunks)))).toEqual({ 'src/ok.ts': 'ok' });
   });
@@ -765,9 +684,10 @@ describe('walkSourceTarball', () => {
 
   it('counts files it skips: an unsafe name does not get past the limits', async () => {
     const control = [
-      ...rawEntry('top/a\u0001.bin', 'a'.repeat(600), '0'),
-      ...rawEntry('top/b\u0001.bin', 'b'.repeat(600), '0'),
-      new Uint8Array(BLOCK * 2),
+      buildTar([
+        { name: 'top/a\u0001.bin', data: 'a'.repeat(600) },
+        { name: 'top/b\u0001.bin', data: 'b'.repeat(600) },
+      ]),
     ];
     await expect(walk(gzip(control), { maxFiles: 100, maxBytes: 1000 })).rejects.toBeInstanceOf(
       SourceTarballTooLarge,
@@ -778,7 +698,7 @@ describe('walkSourceTarball', () => {
   });
 
   it('stops at the header of a file over the byte limit, before unpacking it', async () => {
-    const huge = [...rawEntry('top/huge.bin', '', '0', 600 * 1024 * 1024)];
+    const huge = [buildTar([{ name: 'top/huge.bin', size: 600 * 1024 * 1024 }], { end: false })];
     await expect(walk(gzip(huge))).rejects.toBeInstanceOf(SourceTarballTooLarge);
   });
 

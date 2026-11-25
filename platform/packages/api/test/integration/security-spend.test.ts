@@ -1,12 +1,7 @@
 import { securityModelCostNanoUsd } from '@void/platform/security-models';
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vite-plus/test';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
   projectSecuritySettings,
   securityPlatformSpend,
@@ -35,6 +30,7 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import { saveSecurityPolicy } from './security-fixtures.ts';
 
 const CF = '@cf/zai-org/glm-5.3';
 const NOV = '2026-11-01';
@@ -362,14 +358,7 @@ describe('model proxy on real SQL', () => {
     };
   }
 
-  async function savePolicy(changes: Partial<SecurityPolicy>) {
-    await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-      ...defaultSecurityPolicy(),
-      mode: 'all',
-      revision: 1,
-      ...changes,
-    });
-  }
+  const savePolicy = (changes: Partial<SecurityPolicy>) => saveSecurityPolicy(env, changes);
 
   function chat(): Request {
     return new Request('http://model.void.internal/v1/chat/completions', {

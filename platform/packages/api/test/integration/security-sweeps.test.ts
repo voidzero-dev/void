@@ -15,12 +15,10 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { app } from '../../src/index.ts';
-import { getPlatformSetting, setPlatformSetting } from '../../src/platform-settings.ts';
-import { deployments, operatorEvents, securityScans, users } from '../../src/schema.ts';
+import { getPlatformSetting } from '../../src/platform-settings.ts';
+import { operatorEvents, securityScans, users } from '../../src/schema.ts';
 import { securityScanInputPrefix } from '../../src/security/enqueue.ts';
-import { chooseSecurityTier, securityCoverageLabel } from '../../src/security/input/tier.ts';
 import { runSecurityMaintenance } from '../../src/security/maintenance.ts';
 import {
   previewSecurityBackfill,
@@ -32,13 +30,18 @@ import {
 import {
   clearTables,
   createOperatorToken,
-  createTestDeployment,
-  createTestProject,
   createTestUser,
   setupEnv,
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import {
+  insertSecurityScan,
+  liveProject,
+  saveSecurityPolicy,
+  securityBindings,
+  storedLiveProject,
+} from './security-fixtures.ts';
 import { setupGate } from './security-gate-fixtures.ts';
 
 let env: TestEnv;
@@ -50,17 +53,7 @@ beforeAll(async () => {
 afterAll(teardownEnv);
 beforeEach(async () => {
   await clearTables(env.db);
-  onEnv = {
-    ...env,
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
-    SECURITY_SCAN_SCHEDULER: {
-      idFromName: (name: string) => ({ toString: () => name }),
-      get: () => ({ fetch: async () => Response.json({ ok: true }) }),
-    },
-  } as unknown as TestEnv;
+  onEnv = securityBindings(env);
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -73,96 +66,28 @@ function policyWith(overrides: Partial<SecurityPolicy> = {}): SecurityPolicy {
   return { ...defaultSecurityPolicy(), mode: 'all', revision: 1, ...overrides };
 }
 
-async function savePolicy(overrides: Partial<SecurityPolicy> = {}) {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, policyWith(overrides));
+function addScan(projectId: string, deploymentId: string, overrides: ScanRow = {}) {
+  return insertSecurityScan(env, projectId, deploymentId, { tier: 'built_diff', ...overrides });
 }
 
-/**
- * A project with a live deployment whose code is stored for a scan: the stored bundle
- * (what the candidate list reads) and a snapshot in R2 (what the queued scan points at).
- */
-async function liveProject(slug: string) {
-  const { owner, project, deployment } = await codeGoneProject(slug);
-  await env.db
-    .update(deployments)
-    .set({ bundle_stored: true })
-    .where(eq(deployments.id, deployment.id));
-  await env.STATIC_ASSETS_R2.put(
-    `${securityScanInputPrefix(project.id, deployment.id)}modules.json`,
-    '[]',
-  );
-  return { owner, project, deployment };
-}
-
-/** A project live since before audits were on: no snapshot and no stored bundle. */
-async function codeGoneProject(slug: string) {
-  const owner = await createTestUser(env.db, `owner-${slug}`);
-  const project = await createTestProject(env.db, owner.id, slug);
-  const deployment = await createTestDeployment(env.db, project.id, 'live');
-  return { owner, project, deployment };
-}
-
-async function addScan(
-  projectId: string,
-  deploymentId: string,
-  overrides: Partial<typeof securityScans.$inferInsert> = {},
-) {
-  const id = overrides.id ?? `ss_${crypto.randomUUID().slice(0, 8)}`;
-  await env.db.insert(securityScans).values({
-    status: 'succeeded',
-    trigger: 'deploy',
-    tier: 'built_diff',
-    finished_at: new Date().toISOString(),
-    ...overrides,
-    id,
-    project_id: projectId,
-    deployment_id: deploymentId,
-  });
-  return id;
-}
+type ScanRow = Partial<typeof securityScans.$inferInsert>;
 
 async function scansOf(trigger: 'backfill' | 'sweep') {
   return env.db.select().from(securityScans).where(eq(securityScans.trigger, trigger));
 }
 
-describe('tier and label', () => {
-  it('runs a sweep as a full scan and a backfill by the base rule', () => {
-    const base = { baseDeploymentId: 'dpl_1', baseSnapshot: true };
-    expect(chooseSecurityTier({ ...base, trigger: 'sweep' })).toEqual({
-      tier: 'full',
-      fullReason: 'sweep',
-    });
-    expect(chooseSecurityTier({ ...base, trigger: 'backfill' })).toEqual({
-      tier: 'built_diff',
-      fullReason: null,
-    });
-    expect(
-      chooseSecurityTier({ trigger: 'backfill', baseDeploymentId: null, baseSnapshot: false }),
-    ).toEqual({ tier: 'full', fullReason: 'first_scan' });
-    expect(
-      securityCoverageLabel({
-        tier: 'full',
-        coverage: 'complete',
-        coverageNotes: ['sweep'],
-        filesScanned: 10,
-        backlogFiles: 0,
-      }),
-    ).toBe('full scan (sweep)');
-  });
-});
-
 describe('backfill', () => {
   it('previews and queues one scan per live deployment never scanned, in scope', async () => {
-    await savePolicy();
-    const fresh = await liveProject('fresh-app');
-    const scanned = await liveProject('scanned-app');
+    await saveSecurityPolicy(env);
+    const fresh = await storedLiveProject(env, 'fresh-app');
+    const scanned = await storedLiveProject(env, 'scanned-app');
     await addScan(scanned.project.id, scanned.deployment.id);
-    const busy = await liveProject('busy-app');
+    const busy = await storedLiveProject(env, 'busy-app');
     await addScan(busy.project.id, busy.deployment.id, { status: 'queued', finished_at: null });
-    const failed = await liveProject('failed-app');
+    const failed = await storedLiveProject(env, 'failed-app');
     await addScan(failed.project.id, failed.deployment.id, { status: 'refused' });
-    await liveProject('preview-x1');
-    const suspended = await liveProject('suspended-app');
+    await storedLiveProject(env, 'preview-x1');
+    const suspended = await storedLiveProject(env, 'suspended-app');
     await env.db
       .update(users)
       .set({ suspended_reason: 'abuse' })
@@ -190,13 +115,13 @@ describe('backfill', () => {
   });
 
   it('leaves out projects whose code is gone, so they never hold the batch', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     // More projects with no stored code than one call queues, all older than the one
     // that can be scanned.
     for (let index = 0; index < SECURITY_BACKFILL_MAX + 2; index++) {
-      await codeGoneProject(`gone-${index}`);
+      await liveProject(env, `gone-${index}`);
     }
-    await liveProject('stored-app');
+    await storedLiveProject(env, 'stored-app');
     const preview = await previewSecurityBackfill(env.db);
     expect(preview).toMatchObject({
       projects: 1,
@@ -211,19 +136,19 @@ describe('backfill', () => {
   });
 
   it('a refusal at queue time does not take a slot, and the policy Off refuses', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     // The row says a snapshot exists, but the R2 object is gone.
-    const lost = await codeGoneProject('lost-app');
+    const lost = await liveProject(env, 'lost-app');
     await addScan(lost.project.id, lost.deployment.id, {
       status: 'failed',
       input_r2_key: securityScanInputPrefix(lost.project.id, lost.deployment.id),
     });
-    await liveProject('next-app');
+    await storedLiveProject(env, 'next-app');
     const result = await queueSecurityBackfill(env, env.db);
     expect(result.queued.map((entry) => entry.project)).toEqual(['next-app']);
     expect(result.skipped).toEqual({ security_input_unavailable: 1 });
 
-    await savePolicy({ mode: 'disabled' });
+    await saveSecurityPolicy(env, { mode: 'disabled' });
     await expect(previewSecurityBackfill(env.db)).rejects.toMatchObject({
       status: 409,
       code: 'security_not_in_scope',
@@ -232,16 +157,16 @@ describe('backfill', () => {
 
   it('leaves protected projects out under Public projects only', async () => {
     const gate = await setupGate(env, { gateOn: false });
-    await savePolicy({ mode: 'public' });
-    await liveProject('open-app');
+    await saveSecurityPolicy(env, { mode: 'public' });
+    await storedLiveProject(env, 'open-app');
     const preview = await previewSecurityBackfill(env.db);
     expect(preview.slugs).toEqual(['open-app']);
     expect(preview.slugs).not.toContain(gate.project.slug);
   });
 
   it('runs through the operator route with a preview first, and is audited', async () => {
-    await savePolicy();
-    await liveProject('fresh-app');
+    await saveSecurityPolicy(env);
+    await storedLiveProject(env, 'fresh-app');
     const admin = await createTestUser(
       env.db,
       'backfill-admin',
@@ -285,7 +210,7 @@ describe('scheduled sweeps', () => {
   const sweepsOn = (everyDays = 30) => policyWith({ sweeps: { on: true, everyDays } });
 
   it('queues nothing while sweeps are off or the policy is Off', async () => {
-    await liveProject('acme-web');
+    await storedLiveProject(env, 'acme-web');
     expect(await queueSecuritySweeps(env, env.db, policyWith(), now)).toBe(0);
     expect(
       await queueSecuritySweeps(
@@ -299,23 +224,23 @@ describe('scheduled sweeps', () => {
   });
 
   it('sweeps projects with no full scan or sweep inside the window, once', async () => {
-    await savePolicy();
-    const due = await liveProject('due-app');
+    await saveSecurityPolicy(env);
+    const due = await storedLiveProject(env, 'due-app');
     await addScan(due.project.id, due.deployment.id, {
       tier: 'full',
       finished_at: new Date(now - 40 * DAY).toISOString(),
       created_at: new Date(now - 40 * DAY).toISOString(),
     });
-    const recent = await liveProject('recent-app');
+    const recent = await storedLiveProject(env, 'recent-app');
     await addScan(recent.project.id, recent.deployment.id, { tier: 'full' });
-    const sweptFailed = await liveProject('swept-app');
+    const sweptFailed = await storedLiveProject(env, 'swept-app');
     await addScan(sweptFailed.project.id, sweptFailed.deployment.id, {
       trigger: 'sweep',
       tier: 'full',
       status: 'failed',
       created_at: new Date(now - 2 * DAY).toISOString(),
     });
-    const diffOnly = await liveProject('diff-app');
+    const diffOnly = await storedLiveProject(env, 'diff-app');
     await addScan(diffOnly.project.id, diffOnly.deployment.id, { tier: 'built_diff' });
 
     expect(await queueSecuritySweeps(env, env.db, sweepsOn(), now)).toBe(2);
@@ -335,12 +260,12 @@ describe('scheduled sweeps', () => {
   });
 
   it('queues only what the queue can start soon', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     for (let index = 0; index < 6; index++) {
-      await liveProject(`app-${index}`);
+      await storedLiveProject(env, `app-${index}`);
     }
     // Concurrency 2: at most four waiting scans, and one already waits.
-    const waiting = await liveProject('waiting-app');
+    const waiting = await storedLiveProject(env, 'waiting-app');
     await addScan(waiting.project.id, waiting.deployment.id, {
       status: 'queued',
       finished_at: null,
@@ -351,32 +276,32 @@ describe('scheduled sweeps', () => {
   });
 
   it('projects whose code is gone never take the batch', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     // Concurrency 2: room for four, and six never-swept projects older than the rest.
     for (let index = 0; index < 6; index++) {
-      await codeGoneProject(`gone-${index}`);
+      await liveProject(env, `gone-${index}`);
     }
-    const lost = await codeGoneProject('lost-app');
+    const lost = await liveProject(env, 'lost-app');
     await addScan(lost.project.id, lost.deployment.id, {
       tier: 'built_diff',
       input_r2_key: securityScanInputPrefix(lost.project.id, lost.deployment.id),
     });
-    const stored = await liveProject('stored-app');
+    const stored = await storedLiveProject(env, 'stored-app');
     expect(await queueSecuritySweeps(env, env.db, sweepsOn(), now)).toBe(1);
     const rows = await scansOf('sweep');
     expect(rows.map((row) => row.project_id)).toEqual([stored.project.id]);
   });
 
   it('sweeps again when the sweep was replaced by a deploy or canceled by policy Off', async () => {
-    await savePolicy();
-    const replaced = await liveProject('replaced-app');
+    await saveSecurityPolicy(env);
+    const replaced = await storedLiveProject(env, 'replaced-app');
     await addScan(replaced.project.id, replaced.deployment.id, {
       trigger: 'sweep',
       tier: 'full',
       status: 'superseded',
       created_at: new Date(now - DAY).toISOString(),
     });
-    const policyOff = await liveProject('off-app');
+    const policyOff = await storedLiveProject(env, 'off-app');
     await addScan(policyOff.project.id, policyOff.deployment.id, {
       trigger: 'sweep',
       tier: 'full',
@@ -385,7 +310,7 @@ describe('scheduled sweeps', () => {
       created_at: new Date(now - DAY).toISOString(),
     });
     // An operator cancel is a decision: that project waits for the next window.
-    const operatorCanceled = await liveProject('canceled-app');
+    const operatorCanceled = await storedLiveProject(env, 'canceled-app');
     await addScan(operatorCanceled.project.id, operatorCanceled.deployment.id, {
       trigger: 'sweep',
       tier: 'full',
@@ -401,8 +326,8 @@ describe('scheduled sweeps', () => {
   });
 
   it('runs from the hourly job when the policy turns sweeps on', async () => {
-    await savePolicy({ sweeps: { on: true, everyDays: 30 } });
-    await liveProject('acme-web');
+    await saveSecurityPolicy(env, { sweeps: { on: true, everyDays: 30 } });
+    await storedLiveProject(env, 'acme-web');
     const report = await runSecurityMaintenance(onEnv as never, env.db, now, {
       controller: { cancel: async () => {} } as never,
       forget: async () => 0,
@@ -439,8 +364,8 @@ describe('sweeps policy', () => {
   }
 
   it('previews the sweeps change with the projects due, then saves it', async () => {
-    await savePolicy();
-    await liveProject('acme-web');
+    await saveSecurityPolicy(env);
+    await storedLiveProject(env, 'acme-web');
     const post = await operator();
     const preview = await post({ dryRun: true, sweeps: { on: true, everyDays: 14 } });
     expect(preview.status).toBe(200);
@@ -468,7 +393,7 @@ describe('sweeps policy', () => {
   });
 
   it('refuses a bad sweeps body', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const post = await operator();
     for (const sweeps of [{ everyDays: 3 }, { on: 'yes' }, { every: 7 }, {}, 'on']) {
       const response = await post({ dryRun: true, sweeps });

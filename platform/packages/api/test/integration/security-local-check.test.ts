@@ -1,16 +1,10 @@
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { securityLocalTreeTar } from '@void/platform/security-local-check';
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
-import type { SecurityPolicy } from '@void/platform/security-policy';
+import { defaultSecurityPolicy } from '@void/platform/security-policy';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import app from '../../src/index.ts';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
 import { deployments, projectMembers } from '../../src/schema.ts';
 import {
   enqueueSecurityScanInTx,
@@ -55,6 +49,13 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import {
+  findingRecord,
+  freshEntitlement,
+  saveSecurityPolicy,
+  scanResult,
+  securityBindings,
+} from './security-fixtures.ts';
 
 const CF = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
 const OPUS = 'anthropic/claude-opus-5.5';
@@ -71,34 +72,17 @@ beforeEach(async () => {
   await clearTables(env.db);
   vi.restoreAllMocks();
   pokes = 0;
-  onEnv = {
-    ...env,
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
-    SECURITY_SCAN_SCHEDULER: {
-      idFromName: (name: string) => ({ toString: () => name }),
-      get: () => ({
-        fetch: async () => {
-          pokes++;
-          return Response.json({ ok: true });
-        },
-        forgetModelCalls: async () => 0,
-      }),
+  onEnv = securityBindings(env, {
+    scheduler: {
+      fetch: async () => {
+        pokes++;
+        return Response.json({ ok: true });
+      },
+      forgetModelCalls: async () => 0,
     },
-  } as unknown as TestEnv;
+  });
   mockCfApi();
 });
-
-async function savePolicy(policy: Partial<SecurityPolicy> = {}) {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    revision: 1,
-    ...policy,
-  });
-}
 
 async function setup(slug = `app-${crypto.randomUUID().slice(0, 8)}`) {
   const owner = await createTestUser(env.db, `owner-${slug}`);
@@ -185,6 +169,26 @@ async function queuedCheck(projectId: string, jwt: string, files: Record<string,
   return created.checkId as string;
 }
 
+/** The runner's result of a check on the @cf default. */
+function report(
+  scanId: string,
+  records: Array<Record<string, unknown>>,
+  status: Record<string, unknown> = {},
+) {
+  return scanResult(scanId, records, { model: CF, ...status });
+}
+
+/** A confirmed SQL injection on line 1 of `APP`'s route. */
+function finding(overrides: Record<string, unknown> = {}) {
+  return findingRecord({
+    line_start: 1,
+    line_end: 1,
+    trace: [{ file: 'src/routes/users.ts', line: 1, note: 'id from the query' }],
+    evidence: 'db.prepare(`SELECT … ${id}`)',
+    ...overrides,
+  });
+}
+
 /** What the scheduler's claim does: the check is running attempt 1. */
 async function run(checkId: string) {
   await env.db
@@ -202,60 +206,9 @@ async function run(checkId: string) {
     .where(eq(securityScans.id, checkId));
 }
 
-function report(
-  scanId: string,
-  records: Array<Record<string, unknown>>,
-  status: Record<string, unknown> = {},
-) {
-  return {
-    status: {
-      schema_version: 1,
-      scan_id: scanId,
-      attempt: 1,
-      engine: 'void_loop',
-      engine_version: 'runner/1 void-loop/1',
-      model: CF,
-      status: 'succeeded',
-      reason: null,
-      error_class: null,
-      refusal_category: null,
-      ...status,
-    },
-    findings: JSON.stringify({
-      schema_version: 1,
-      run_status: 'complete',
-      findings: records,
-      notes: '',
-    }),
-  };
-}
-
-function finding(overrides: Record<string, unknown> = {}) {
-  return {
-    fingerprint: 'sqli-users',
-    verdict: 'confirmed',
-    severity: 'high',
-    confidence: 'high',
-    title: 'SQL injection in /users',
-    category: 'sql-injection',
-    cwe: 'CWE-89',
-    file: 'src/routes/users.ts',
-    line_start: 1,
-    line_end: 1,
-    sink_path: 'src/routes/users.ts',
-    outside_diff: false,
-    trace: [{ file: 'src/routes/users.ts', line: 1, note: 'id from the query' }],
-    evidence: 'db.prepare(`SELECT … ${id}`)',
-    conditions: '',
-    fix: 'bind the id',
-    reason: '',
-    ...overrides,
-  };
-}
-
 describe('local check routes', () => {
   it('previews what it would run, with the provider notice for a third-party model', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const { request } = tree(APP);
     const cf = await call(`/projects/${project.id}/security/checks`, owner.jwt, {
@@ -268,13 +221,8 @@ describe('local check routes', () => {
     expect(preview.worstCaseUsd).toBeGreaterThan(0);
     expect(preview.limits.maxFiles).toBe(10_000);
 
-    await savePolicy({
-      entitlement: {
-        checkedAt: new Date().toISOString(),
-        ok: true,
-        missing: [],
-        hosts: { openai: false, anthropic: true },
-      },
+    await saveSecurityPolicy(env, {
+      entitlement: freshEntitlement({ openai: false, anthropic: true }),
       thirdPartyNotice: {
         acceptedByUserId: 'usr_admin',
         acceptedAt: '2026-11-01T00:00:00.000Z',
@@ -302,7 +250,7 @@ describe('local check routes', () => {
   });
 
   it('needs deploy access, the capability, a policy that applies, and a tree within the limits', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project, reader } = await setup();
     const { request } = tree(APP);
     const path = `/projects/${project.id}/security/checks`;
@@ -319,13 +267,13 @@ describe('local check routes', () => {
     const bad = await call(path, owner.jwt, { method: 'POST', body: { ...request, md5: 'nope' } });
     expect(bad.status).toBe(400);
 
-    await savePolicy({ mode: 'disabled' });
+    await saveSecurityPolicy(env, { mode: 'disabled' });
     const off = await call(path, owner.jwt, { method: 'POST', body: request });
     expect(off.status).toBe(409);
     expect((await json(off)).error).toBe('security_not_in_scope');
 
     // The project rule never (M34) refuses it too.
-    await savePolicy();
+    await saveSecurityPolicy(env);
     await env.db
       .insert(projectSecuritySettings)
       .values({ project_id: project.id, policy_override: 'never' });
@@ -339,7 +287,7 @@ describe('local check routes', () => {
   });
 
   it('stores a check with no deployment and signs one upload of exactly that archive', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const { request } = tree(APP);
     const response = await call(`/projects/${project.id}/security/checks`, owner.jwt, {
@@ -397,7 +345,7 @@ describe('local check routes', () => {
   });
 
   it('reads the policy again under the shared policy lock before it stores the check', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const { result, queries } = await captureQueries(env.db, async () =>
       call(`/projects/${project.id}/security/checks`, owner.jwt, {
@@ -419,7 +367,7 @@ describe('local check routes', () => {
   });
 
   it('never joins the queue while the policy is Off', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const { archive, request } = tree(APP);
     const created = await json(
@@ -429,7 +377,7 @@ describe('local check routes', () => {
       }),
     );
     await env.STATIC_ASSETS_R2.put(securityLocalTreeKey(project.id, created.checkId), archive);
-    await savePolicy({ mode: 'disabled' });
+    await saveSecurityPolicy(env, { mode: 'disabled' });
     const started = await call(
       `/projects/${project.id}/security/checks/${created.checkId}/start`,
       owner.jwt,
@@ -444,7 +392,7 @@ describe('local check routes', () => {
   });
 
   it('starts only once the archive is there, then waits in the queue', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const { archive, request } = tree(APP);
     const created = await json(
@@ -493,7 +441,7 @@ describe('local check routes', () => {
 
 describe('local check scan', () => {
   it('reads the uploaded tree as a full scan: server code first, secrets redacted, nothing stored for the project', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     await createTestProjectSecret(env.db, env, project.id, 'API_KEY', 'Sup3r-Secret-Value');
     const checkId = await queuedCheck(project.id, owner.jwt, {
@@ -544,7 +492,7 @@ describe('local check scan', () => {
   });
 
   it('fails as input_missing when the tree is gone', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const checkId = await queuedCheck(project.id, owner.jwt);
     await env.STATIC_ASSETS_R2.delete(securityLocalTreeKey(project.id, checkId));
@@ -557,7 +505,7 @@ describe('local check scan', () => {
   });
 
   it('stores the result apart: no finding, event or email, and the tree is deleted', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const checkId = await queuedCheck(project.id, owner.jwt);
     await run(checkId);
@@ -626,7 +574,7 @@ describe('local check scan', () => {
   });
 
   it('writes the result before the row ends: a failed write leaves the check running', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const checkId = await queuedCheck(project.id, owner.jwt);
     await run(checkId);
@@ -661,7 +609,7 @@ describe('local check scan', () => {
   });
 
   it('names a secret in the tree as code not deployed yet', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     await createTestProjectSecret(env.db, env, project.id, 'API_KEY', 'Sup3r-Secret-Value');
     const checkId = await queuedCheck(project.id, owner.jwt, {
@@ -689,7 +637,7 @@ describe('local check scan', () => {
   });
 
   it('keeps no result for a refused check and queues no fallback', async () => {
-    await savePolicy({ fallbackToCf: true });
+    await saveSecurityPolicy(env, { fallbackToCf: true });
     const { owner, project } = await setup();
     const checkId = await queuedCheck(project.id, owner.jwt);
     await run(checkId);
@@ -712,7 +660,7 @@ describe('local check scan', () => {
 
 describe('local checks and the scan queue', () => {
   it('is never replaced by a deploy, and never re-poked before its upload', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const { request } = tree(APP);
     const created = await json(
@@ -738,7 +686,7 @@ describe('local checks and the scan queue', () => {
   });
 
   it('cancels a check whose upload never came and deletes trees of ended checks', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const { archive, request } = tree(APP);
     const created = await json(
@@ -816,7 +764,7 @@ describe('local checks never change deployment scan rules', () => {
   const DAY = 24 * 60 * 60_000;
 
   it('neither counts toward nor breaks a failure streak', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project } = await setup();
     const deployment = await createTestDeployment(env.db, project.id, 'live');
     for (let i = 0; i < 3; i++) {
@@ -841,7 +789,7 @@ describe('local checks never change deployment scan rules', () => {
   });
 
   it('is not a recent full scan for the scheduled sweep', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project } = await setup();
     const deployment = await createTestDeployment(env.db, project.id, 'live');
     await env.db
@@ -944,7 +892,7 @@ describe('local checks never change deployment scan rules', () => {
   });
 
   it('does not make a rescan of the live deployment wait', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { owner, project } = await setup();
     const deployment = await createTestDeployment(env.db, project.id, 'live');
     await env.db

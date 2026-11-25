@@ -3,10 +3,6 @@
  * check run with counts and the landing link at ingest, a counts-only PR comment, and
  * `check_run:rerequested` → project rescan for a sender who could ask for one.
  */
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import {
@@ -19,31 +15,26 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { createGitHubConnection, upsertGitHubInstallation } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { getInstallationToken } from '../../src/github/installation-token.ts';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
 import { requireProjectCapability } from '../../src/project-access.ts';
 import { webhookRoutes } from '../../src/routes/webhooks.ts';
 import {
   builds,
-  deployments,
   githubConnections,
   githubInstallations,
   projectMembers,
   projects,
   users,
 } from '../../src/schema.ts';
-import { securityScanInputPrefix } from '../../src/security/enqueue.ts';
 import {
   handleSecurityCheckRerequest,
   reportSecurityScanToGitHub,
-  securityGitHubCheckCopy,
-  securityPullRequestComment,
   VOID_SECURITY_AUDIT_CHECK_RUN_NAME,
 } from '../../src/security/github-check.ts';
-import { securityFindings, securityScans } from '../../src/security/schema.ts';
+import { securityScans } from '../../src/security/schema.ts';
+import type { securityFindings } from '../../src/security/schema.ts';
 import {
   clearTables,
   createTestBuild,
@@ -54,6 +45,14 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import {
+  insertSecurityFinding,
+  insertSecurityScan,
+  saveSecurityPolicy,
+  securityBindings,
+  securityOn,
+  storeDeploymentCode,
+} from './security-fixtures.ts';
 
 vi.mock('../../src/project-access.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/project-access.ts')>();
@@ -80,19 +79,10 @@ afterAll(teardownEnv);
 beforeEach(async () => {
   await clearTables(env.db);
   onEnv = {
-    ...env,
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      managedBuilds: true,
-      securityAudits: true,
-    }),
+    ...securityBindings(env, { capabilities: { managedBuilds: true } }),
     GITHUB_APP_ID: '1234',
     GITHUB_APP_PRIVATE_KEY: 'unused: the token mint is mocked',
     AUTH_REDIRECT_URI: 'https://api.example.test/auth/callback',
-    SECURITY_SCAN_SCHEDULER: {
-      idFromName: (name: string) => ({ toString: () => name }),
-      get: () => ({ fetch: async () => Response.json({ ok: true }) }),
-    },
   } as unknown as TestEnv;
 });
 afterEach(() => {
@@ -167,14 +157,6 @@ function stubGithub(
   return calls;
 }
 
-async function savePolicy() {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    revision: 1,
-  });
-}
-
 /** A project connected to `acme/web`, live on a container build of `HEAD`. */
 async function connectedProject(
   options: { executor?: 'container' | 'github_actions'; deployCommit?: string | null } = {},
@@ -211,152 +193,31 @@ async function connectedProject(
     status: 'complete',
   });
   await env.db.update(builds).set({ deployment_id: deployment.id }).where(eq(builds.id, build.id));
-  await env.db
-    .update(deployments)
-    .set({ bundle_stored: true })
-    .where(eq(deployments.id, deployment.id));
-  await env.STATIC_ASSETS_R2.put(
-    `${securityScanInputPrefix(project.id, deployment.id)}modules.json`,
-    '[]',
-  );
+  await storeDeploymentCode(env, project.id, deployment.id);
   return { owner, project, deployment };
 }
 
-async function endedScan(
-  projectId: string,
-  deploymentId: string,
-  overrides: Partial<typeof securityScans.$inferInsert> = {},
-) {
-  const id = `ss_${crypto.randomUUID().slice(0, 8)}`;
-  await env.db.insert(securityScans).values({
-    status: 'succeeded',
-    trigger: 'deploy',
-    tier: 'built_diff',
-    finished_at: new Date().toISOString(),
-    ...overrides,
-    id,
-    project_id: projectId,
-    deployment_id: deploymentId,
-  });
-  return id;
+function endedScan(projectId: string, deploymentId: string, overrides: ScanRow = {}) {
+  return insertSecurityScan(env, projectId, deploymentId, { tier: 'built_diff', ...overrides });
 }
 
-async function finding(
-  projectId: string,
-  number: number,
-  overrides: Partial<typeof securityFindings.$inferInsert> = {},
-) {
-  await env.db.insert(securityFindings).values({
-    id: `sf_${projectId}_${number}`,
-    project_id: projectId,
+type ScanRow = Partial<typeof securityScans.$inferInsert>;
+
+function finding(projectId: string, number: number, overrides: FindingRow = {}) {
+  return insertSecurityFinding(env, projectId, {
     number,
-    fingerprint_key: `fp-${number}`,
-    verdict: 'confirmed',
     severity: 'critical',
     title: 'SQL built from the request query',
-    category: 'sqli',
-    file: 'src/routes/search.ts',
-    line_start: 3,
-    first_scan_id: 'ss_x',
-    last_seen_scan_id: 'ss_x',
     ...overrides,
   });
 }
+
+type FindingRow = Partial<typeof securityFindings.$inferInsert>;
 
 /** The report needs the whole Worker env type; the test env carries what it reads. */
 function report(scanId: string, bindings: TestEnv = onEnv) {
   return reportSecurityScanToGitHub(bindings as unknown as ApiEnv['Bindings'], env.db, scanId);
 }
-
-describe('securityGitHubCheckCopy', () => {
-  const base = { slug: 'acme-web', statusReason: null, landingUrl: null } as const;
-
-  it('says the spec copy with counts only', () => {
-    expect(
-      securityGitHubCheckCopy({ ...base, status: 'succeeded', counts: { critical: 1, high: 1 } }),
-    ).toEqual({
-      title: '2 urgent security findings (1 critical, 1 high)',
-      summary:
-        '2 urgent security findings are open in acme-web (1 critical, 1 high). Deploys are not affected. Review: void project security open --project acme-web',
-    });
-    expect(
-      securityGitHubCheckCopy({ ...base, status: 'succeeded', counts: { critical: 0, high: 0 } })
-        .title,
-    ).toBe('No urgent security findings');
-    expect(
-      securityGitHubCheckCopy({ ...base, status: 'succeeded', counts: { critical: 0, high: 1 } })
-        .title,
-    ).toBe('1 urgent security finding (1 high)');
-  });
-
-  it('never calls an unfinished scan clean', () => {
-    const refused = securityGitHubCheckCopy({
-      ...base,
-      status: 'refused',
-      counts: { critical: 0, high: 0 },
-    });
-    expect(refused.title).toBe('Security scan did not finish (refused)');
-    expect(
-      refused.summary.startsWith('The security scan of this commit did not finish (refused).'),
-    ).toBe(true);
-    expect(
-      securityGitHubCheckCopy({
-        ...base,
-        status: 'failed',
-        statusReason: 'bad_output',
-        counts: { critical: 0, high: 0 },
-      }).title,
-    ).toBe('Security scan did not finish (bad output)');
-    expect(
-      securityGitHubCheckCopy({ ...base, status: 'incomplete', counts: { critical: 0, high: 0 } })
-        .summary,
-    ).toContain('did not cover everything (incomplete)');
-  });
-
-  it('keeps platform-side failure reasons out of the public check', () => {
-    for (const statusReason of ['credits', 'infrastructure', null]) {
-      const copy = securityGitHubCheckCopy({
-        ...base,
-        status: 'failed',
-        statusReason,
-        counts: { critical: 0, high: 0 },
-      });
-      expect(copy.title).toBe('Security scan did not finish');
-      expect(copy.summary.startsWith('The security scan of this commit did not finish.')).toBe(
-        true,
-      );
-    }
-    expect(
-      securityGitHubCheckCopy({
-        ...base,
-        status: 'failed',
-        statusReason: 'input_missing',
-        counts: { critical: 0, high: 0 },
-      }).title,
-    ).toBe('Security scan did not finish (input missing)');
-  });
-
-  it('puts the landing link in the summary and the PR comment', () => {
-    const url = 'https://api.example.test/security/projects/acme-web';
-    expect(
-      securityGitHubCheckCopy({
-        ...base,
-        landingUrl: url,
-        status: 'succeeded',
-        counts: { critical: 1, high: 0 },
-      }).summary.endsWith(`\n\n${url}`),
-    ).toBe(true);
-    const comment = securityPullRequestComment({
-      projectId: 'proj_1',
-      slug: 'acme-web',
-      counts: { critical: 1, high: 0 },
-      landingUrl: url,
-    });
-    expect(comment.startsWith('<!-- void-security-audit:proj_1 -->')).toBe(true);
-    expect(comment).toContain('1 urgent security finding is open in acme-web (1 critical)');
-    expect(comment).toContain(url);
-  });
-});
 
 describe('reportSecurityScanToGitHub', () => {
   it('creates the check on the build commit and completes it neutral, counts only', async () => {
@@ -419,11 +280,7 @@ describe('reportSecurityScanToGitHub', () => {
     const calls = stubGithub();
     const selfHosted = {
       ...onEnv,
-      PLATFORM_CAPABILITIES: JSON.stringify({
-        ...getPlatformCapabilities(env),
-        managedBuilds: false,
-        securityAudits: true,
-      }),
+      PLATFORM_CAPABILITIES: securityOn(env, { managedBuilds: false }).PLATFORM_CAPABILITIES,
     };
 
     expect(await report(scanId, selfHosted)).toEqual({
@@ -740,7 +597,7 @@ describe('check_run:rerequested for the security check', () => {
   }
 
   it('queues a project rescan for a project admin signed in with that GitHub account', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project, deployment } = await connectedProject();
     const scanId = await endedScan(project.id, deployment.id);
     await member(project.id, 'admin', '4242');
@@ -756,7 +613,7 @@ describe('check_run:rerequested for the security check', () => {
   });
 
   it('is a no-op for a sender who cannot rescan', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project, deployment } = await connectedProject();
     const scanId = await endedScan(project.id, deployment.id);
     await member(project.id, 'collaborator', '4243');
@@ -770,7 +627,7 @@ describe('check_run:rerequested for the security check', () => {
   });
 
   it('is a no-op when the installation or repository is not the project connection', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project, deployment } = await connectedProject();
     const scanId = await endedScan(project.id, deployment.id);
     await member(project.id, 'admin', '4247');
@@ -791,7 +648,7 @@ describe('check_run:rerequested for the security check', () => {
   });
 
   it('is a no-op for a sender an administrator suspended', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project, deployment } = await connectedProject();
     const scanId = await endedScan(project.id, deployment.id);
     const admin = await member(project.id, 'admin', '4248');
@@ -805,7 +662,7 @@ describe('check_run:rerequested for the security check', () => {
   });
 
   it('does not hide a database error as a refused sender', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project, deployment } = await connectedProject();
     const scanId = await endedScan(project.id, deployment.id);
     await member(project.id, 'admin', '4249');
@@ -823,7 +680,7 @@ describe('check_run:rerequested for the security check', () => {
   });
 
   it('is a no-op once the checked deployment is no longer live', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project, deployment } = await connectedProject();
     const scanId = await endedScan(project.id, deployment.id);
     await member(project.id, 'admin', '4244');
@@ -843,7 +700,7 @@ describe('check_run:rerequested for the security check', () => {
 
     // Policy Off: the project is not in scope.
     expect(await rerequest(scanId, 4245)).toEqual({ ok: true, ignored: 'security_not_in_scope' });
-    await savePolicy();
+    await saveSecurityPolicy(env);
     await endedScan(project.id, deployment.id, { status: 'queued', finished_at: null });
     expect(await rerequest(scanId, 4245)).toEqual({
       ok: true,
@@ -853,7 +710,7 @@ describe('check_run:rerequested for the security check', () => {
   });
 
   it('never starts a build', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const { project, deployment } = await connectedProject();
     const scanId = await endedScan(project.id, deployment.id);
     await member(project.id, 'admin', '4246');

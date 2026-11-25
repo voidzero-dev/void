@@ -373,7 +373,12 @@ async function unpack(chunks: Array<Uint8Array>): Promise<Map<string, string>> {
   return out;
 }
 
-function plan(overrides: Partial<SecurityInputPlan> = {}): SecurityInputPlan {
+type PlanOverrides = Omit<Partial<SecurityInputPlan>, 'scan'> & {
+  /** Merged into the default scan. */
+  scan?: Partial<SecurityInputPlan['scan']>;
+};
+
+function plan({ scan, ...overrides }: PlanOverrides = {}): SecurityInputPlan {
   return {
     scan: {
       id: 'scan_1',
@@ -382,6 +387,7 @@ function plan(overrides: Partial<SecurityInputPlan> = {}): SecurityInputPlan {
       model: '@cf/test/model',
       trigger: 'deploy',
       commit: 'abc',
+      ...scan,
     },
     tier: { tier: 'full', fullReason: 'first_scan' },
     head: { modules: FRAMEWORK_BUNDLES.react.modules, main: 'index.js' },
@@ -392,6 +398,73 @@ function plan(overrides: Partial<SecurityInputPlan> = {}): SecurityInputPlan {
     secrets: [],
     lockfile: null,
     memory: { findings: [], events: [], lastSucceededAt: null, ledgerSummary: null },
+    ...overrides,
+  };
+}
+
+const DIFF = { tier: 'built_diff', fullReason: null } as const;
+
+/** A React base whose module hashes match the head. */
+function reactBase(sources: ReadonlyMap<string, string> | null = null) {
+  return {
+    modules: new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256])),
+    sources,
+  };
+}
+
+type Built = ReturnType<typeof buildSecurityScanInput>;
+type Head = Readonly<{ modules: Array<SecurityModuleFile>; main: string }>;
+
+/** What the next scan reads as its base after `built` scanned `head`. */
+function asBase(head: Head, built: Built) {
+  return {
+    modules: new Map(head.modules.map((m) => [m.name, m.sha256])),
+    sources: built.sourceIndex,
+    neverSent: built.neverSent,
+  };
+}
+
+function diffScan(base: ReturnType<typeof asBase>, head: Head) {
+  return buildSecurityScanInput(plan({ tier: DIFF, base, head }));
+}
+
+function label(built: Built) {
+  return securityCoverageLabel({
+    tier: built.tier,
+    coverage: built.coverage,
+    coverageNotes: built.notes,
+    filesScanned: built.filesScanned,
+    backlogFiles: built.backlog.length,
+  });
+}
+
+/** A memory finding as the store hands it to the input builder. */
+function memoryFinding(
+  overrides: Partial<SecurityInputPlan['memory']['findings'][number]> = {},
+): SecurityInputPlan['memory']['findings'][number] {
+  return {
+    id: 'fnd_1',
+    number: 1,
+    fingerprintKey: 'k1',
+    modelFingerprint: 'm1',
+    verdict: 'confirmed',
+    severity: 'high',
+    title: 'SQL injection',
+    category: 'injection',
+    cwe: 'CWE-89',
+    file: 'src/routes/users.tsx',
+    lineStart: 1,
+    lineEnd: 2,
+    sinkPath: 'src/routes/users.tsx',
+    detail: {},
+    source: 'scanner',
+    state: 'open',
+    resolution: null,
+    resolvedAt: null,
+    resolvedSinkHash: null,
+    notSeenInLatest: false,
+    reopenCount: 0,
+    createdAt: '2026-11-01T00:00:00.000Z',
     ...overrides,
   };
 }
@@ -417,15 +490,7 @@ describe('buildSecurityScanInput', () => {
     expect(built.notes).toEqual(['first-scan', 'third-party-unverified 1 files']);
     expect(built.coverage).toBe('complete');
     expect(built.filesScanned).toBe(3);
-    expect(
-      securityCoverageLabel({
-        tier: built.tier,
-        coverage: built.coverage,
-        coverageNotes: built.notes,
-        filesScanned: built.filesScanned,
-        backlogFiles: built.backlog.length,
-      }),
-    ).toBe('full scan (first scan)');
+    expect(label(built)).toBe('full scan (first scan)');
   });
 
   it('diffs against the base, ranks client assets after server code, redacts and finds reviewer text', async () => {
@@ -445,8 +510,8 @@ describe('buildSecurityScanInput', () => {
     const baseFiles = bundleSources(FRAMEWORK_BUNDLES.react.modules, 'index.js').files;
     const built = buildSecurityScanInput(
       plan({
-        scan: { ...plan().scan, commit: null },
-        tier: { tier: 'built_diff', fullReason: null },
+        scan: { commit: null },
+        tier: DIFF,
         head: { modules, main: 'index.js' },
         base: {
           modules: new Map(
@@ -538,13 +603,10 @@ describe('buildSecurityScanInput', () => {
     expect(leakedFiles.get(`input/${SECURITY_DEPLOY_CONFIG_PATH}`)).toContain('[REDACTED:STORED]');
 
     // Same code, new vars: only the deploy config is in focus.
-    const base = {
-      modules: new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256])),
-      sources: first.sourceIndex,
-    };
+    const base = reactBase(first.sourceIndex);
     const varsOnly = buildSecurityScanInput(
       plan({
-        tier: { tier: 'built_diff', fullReason: null },
+        tier: DIFF,
         base,
         deployConfig: config('pk-plain-2'),
       }),
@@ -553,7 +615,7 @@ describe('buildSecurityScanInput', () => {
     expect(varsOnly.focus).toEqual([SECURITY_DEPLOY_CONFIG_PATH]);
     const same = buildSecurityScanInput(
       plan({
-        tier: { tier: 'built_diff', fullReason: null },
+        tier: DIFF,
         base,
         deployConfig: config('pk-plain-1'),
       }),
@@ -574,13 +636,8 @@ describe('buildSecurityScanInput', () => {
       main: 'index.js',
     });
     const baseHead = headOf('export default{fetch:()=>new Response("ok")}');
-    const first = buildSecurityScanInput(plan({ head: baseHead }));
-    const base = {
-      modules: new Map(baseHead.modules.map((m) => [m.name, m.sha256])),
-      sources: first.sourceIndex,
-    };
-    const diff = (head: ReturnType<typeof headOf>) =>
-      buildSecurityScanInput(plan({ tier: { tier: 'built_diff', fullReason: null }, base, head }));
+    const base = asBase(baseHead, buildSecurityScanInput(plan({ head: baseHead })));
+    const diff = (head: Head) => diffScan(base, head);
 
     // The executable changed next to the same map: the change is only in the built code.
     const edited = diff(
@@ -617,19 +674,9 @@ describe('buildSecurityScanInput', () => {
       main: 'index.js',
     });
     const baseHead = headOf('export const mode="a";//b');
-    const first = buildSecurityScanInput(plan({ head: baseHead }));
-    const base = {
-      modules: new Map(baseHead.modules.map((m) => [m.name, m.sha256])),
-      sources: first.sourceIndex,
-    };
+    const base = asBase(baseHead, buildSecurityScanInput(plan({ head: baseHead })));
     // Only worker-b.js inlines the new `define` value; its map sources are the same.
-    const edited = buildSecurityScanInput(
-      plan({
-        tier: { tier: 'built_diff', fullReason: null },
-        base,
-        head: headOf('export const mode="admin";//b'),
-      }),
-    );
+    const edited = diffScan(base, headOf('export const mode="admin";//b'));
     expect(edited.noChanges).toBe(false);
     expect(edited.focus).toEqual(['_worker/worker-b.js']);
   });
@@ -641,22 +688,11 @@ describe('buildSecurityScanInput', () => {
       modules: [module('index.js', index), sourceMap, ...extra],
       main: 'index.js',
     });
-    const asBase = (
-      head: ReturnType<typeof headOf>,
-      built: ReturnType<typeof buildSecurityScanInput>,
-    ) => ({
-      modules: new Map(head.modules.map((m) => [m.name, m.sha256])),
-      sources: built.sourceIndex,
-      neverSent: built.neverSent,
-    });
-    const diff = (base: ReturnType<typeof asBase>, head: ReturnType<typeof headOf>) =>
-      buildSecurityScanInput(plan({ tier: { tier: 'built_diff', fullReason: null }, base, head }));
-
     const firstHead = headOf('export default{fetch:()=>new Response("ok")}');
     const first = buildSecurityScanInput(plan({ head: firstHead }));
     // Deploy 2: the built code changed next to the same map, and it is not text.
     const binaryHead = headOf('export default{fetch:()=>new Response("�")}');
-    const second = diff(asBase(firstHead, first), binaryHead);
+    const second = diffScan(asBase(firstHead, first), binaryHead);
     expect(second.notes).toContain('dropped-binary 1 files');
     expect(securityNotesLeftFilesUnread(second.notes)).toBe(true);
 
@@ -666,7 +702,7 @@ describe('buildSecurityScanInput', () => {
       module('chunks/b.js.map', map(['src/b.ts'], ['export const b = 1;'])),
     ];
     const thirdHead = headOf(binaryHead.modules[0].text, chunk);
-    const third = diff(asBase(binaryHead, second), thirdHead);
+    const third = diffScan(asBase(binaryHead, second), thirdHead);
     expect(third.notes).toContain('dropped-binary 1 files');
     expect(securityNotesLeftFilesUnread(third.notes)).toBe(true);
     expect(third.backlog).toEqual([]);
@@ -681,27 +717,22 @@ describe('buildSecurityScanInput', () => {
       ],
       main: 'worker.js',
     };
-    const renamed = diff(asBase(binaryHead, second), renamedHead);
+    const renamed = diffScan(asBase(binaryHead, second), renamedHead);
     expect(renamed.notes).toContain('dropped-binary 1 files');
     expect(securityNotesLeftFilesUnread(renamed.notes)).toBe(true);
     expect(renamed.neverSent.get('_worker/worker.js')?.kind).toBe('binary');
 
     // Deploy 4: the module is text again, so it is read and the note goes away.
     const fixedHead = headOf('export default{fetch:()=>new Response("fixed")}', chunk);
-    const fourth = diff(asBase(thirdHead, third), fixedHead);
+    const fourth = diffScan(asBase(thirdHead, third), fixedHead);
     expect(fourth.focus).toEqual(['_worker/index.js']);
     expect(securityNotesLeftFilesUnread(fourth.notes)).toBe(false);
     expect(fourth.neverSent.size).toBe(0);
   });
 
   it('marks an unchanged redeploy as no changes (edge #14), but a gate scan re-checks (edge #85)', () => {
-    const base = {
-      modules: new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256])),
-      sources: null,
-    };
-    const unchanged = buildSecurityScanInput(
-      plan({ tier: { tier: 'built_diff', fullReason: null }, base }),
-    );
+    const base = reactBase();
+    const unchanged = buildSecurityScanInput(plan({ tier: DIFF, base }));
     expect(unchanged.noChanges).toBe(true);
     expect(unchanged.emptyFocus).toBe(true);
     expect(unchanged.notes).toContain('no-changes');
@@ -709,8 +740,8 @@ describe('buildSecurityScanInput', () => {
 
     const gate = buildSecurityScanInput(
       plan({
-        scan: { ...plan().scan, trigger: 'gate' },
-        tier: { tier: 'built_diff', fullReason: null },
+        scan: { trigger: 'gate' },
+        tier: DIFF,
         base,
         recheckFiles: ['src/routes/users.tsx', 'src/gone.ts'],
       }),
@@ -720,8 +751,8 @@ describe('buildSecurityScanInput', () => {
 
     const gateNothing = buildSecurityScanInput(
       plan({
-        scan: { ...plan().scan, trigger: 'gate' },
-        tier: { tier: 'built_diff', fullReason: null },
+        scan: { trigger: 'gate' },
+        tier: DIFF,
         base,
       }),
     );
@@ -742,8 +773,8 @@ describe('buildSecurityScanInput', () => {
     const build = (trigger: 'deploy' | 'gate') =>
       buildSecurityScanInput(
         plan({
-          scan: { ...plan().scan, trigger },
-          tier: { tier: 'built_diff', fullReason: null },
+          scan: { trigger },
+          tier: DIFF,
           base,
           head: { modules, main: 'index.js' },
           recheckFiles: ['src/routes/hello.ts', 'src/gone.ts'],
@@ -757,15 +788,12 @@ describe('buildSecurityScanInput', () => {
   });
 
   it('keeps the gate rule for a fallback of a gate scan, not for other fallbacks (M26)', () => {
-    const base = {
-      modules: new Map(FRAMEWORK_BUNDLES.react.modules.map((m) => [m.name, m.sha256])),
-      sources: null,
-    };
+    const base = reactBase();
     const fallback = (forPublicRequest: boolean, recheckFiles: Array<string>) =>
       buildSecurityScanInput(
         plan({
-          scan: { ...plan().scan, trigger: 'fallback', forPublicRequest },
-          tier: { tier: 'built_diff', fullReason: null },
+          scan: { trigger: 'fallback', forPublicRequest },
+          tier: DIFF,
           base,
           recheckFiles,
         }),
@@ -783,7 +811,7 @@ describe('buildSecurityScanInput', () => {
   it('asks the runner for the standard profile on a sweep only (M25)', () => {
     const sweep = buildSecurityScanInput(
       plan({
-        scan: { ...plan().scan, trigger: 'sweep' },
+        scan: { trigger: 'sweep' },
         tier: { tier: 'full', fullReason: 'sweep' },
       }),
     );
@@ -794,7 +822,7 @@ describe('buildSecurityScanInput', () => {
     // A fallback of a sweep (M26) is a sweep too.
     const fallback = buildSecurityScanInput(
       plan({
-        scan: { ...plan().scan, trigger: 'fallback' },
+        scan: { trigger: 'fallback' },
         tier: { tier: 'full', fullReason: 'sweep' },
       }),
     );
@@ -956,32 +984,7 @@ describe('buildSecurityScanInput', () => {
       plan({
         secrets: [{ name: 'TOKEN', value: 'tok_ABCDEFGH' }],
         memory: {
-          findings: [
-            {
-              id: 'fnd_1',
-              number: 1,
-              fingerprintKey: 'k1',
-              modelFingerprint: 'm1',
-              verdict: 'confirmed',
-              severity: 'high',
-              title: 'SQL injection',
-              category: 'injection',
-              cwe: 'CWE-89',
-              file: 'src/routes/users.tsx',
-              lineStart: 1,
-              lineEnd: 2,
-              sinkPath: 'src/routes/users.tsx',
-              detail: {},
-              source: 'scanner',
-              state: 'open',
-              resolution: null,
-              resolvedAt: null,
-              resolvedSinkHash: null,
-              notSeenInLatest: false,
-              reopenCount: 0,
-              createdAt: '2026-11-01T00:00:00.000Z',
-            },
-          ],
+          findings: [memoryFinding()],
           events: [
             {
               findingId: 'fnd_1',
@@ -1022,7 +1025,7 @@ function bundleOf(sources: Record<string, string>): Array<SecurityModuleFile> {
 /** The head's modules all changed since the base; the base has no source index. */
 function changedSince(modules: Array<SecurityModuleFile>) {
   return {
-    tier: { tier: 'built_diff' as const, fullReason: null },
+    tier: DIFF,
     base: { modules: new Map(modules.map((m) => [m.name, 'old'])), sources: null },
     head: { modules, main: 'index.js' },
   };
@@ -1037,6 +1040,9 @@ describe('buildSecurityScanInput limits', () => {
   for (let index = 0; index < 33; index++) {
     files[`src/f${String(index).padStart(2, '0')}.ts`] = chunk;
   }
+  // One byte over the runner's 16 MiB file limit, built and hashed once.
+  const huge = 'z'.repeat(16 * MIB + 1);
+  const hugeHash = sha256Hex(huge);
 
   it('cuts the read set at 32 MB and leaves a cut changed file in the backlog (#1)', () => {
     const built = buildSecurityScanInput(plan(changedSince(bundleOf(files))));
@@ -1047,22 +1053,14 @@ describe('buildSecurityScanInput limits', () => {
     expect(built.backlog).toContain('src/f32.ts');
     expect(built.sourceIndex.has('src/f32.ts')).toBe(false);
     expect(built.sourceIndex.has('src/f00.ts')).toBe(true);
-    expect(
-      securityCoverageLabel({
-        tier: built.tier,
-        coverage: built.coverage,
-        coverageNotes: built.notes,
-        filesScanned: built.filesScanned,
-        backlogFiles: built.backlog.length,
-      }),
-    ).toContain('partial (backlog');
+    expect(label(built)).toContain('partial (backlog');
   });
 
   it('keeps a backlog file that is cut again, and backlogs what a full scan cuts', () => {
     const modules = bundleOf(files);
     const again = buildSecurityScanInput(
       plan({
-        tier: { tier: 'built_diff', fullReason: null },
+        tier: DIFF,
         // Nothing changed: only the backlog asks for the file.
         base: { modules: new Map(modules.map((m) => [m.name, m.sha256])), sources: null },
         head: { modules, main: 'index.js' },
@@ -1103,12 +1101,12 @@ describe('buildSecurityScanInput limits', () => {
   });
 
   it('never backlogs a file over 16 MB, so a gate scan does not loop on it (C1)', () => {
-    const modules = bundleOf({ 'src/huge.ts': 'z'.repeat(16 * MIB + 1), 'src/ok.ts': 'ok' });
+    const modules = bundleOf({ 'src/huge.ts': huge, 'src/ok.ts': 'ok' });
     for (const scan of [
       plan({ head: { modules, main: 'index.js' } }),
       plan({
         ...changedSince(modules),
-        scan: { ...plan().scan, trigger: 'gate' },
+        scan: { trigger: 'gate' },
         backlog: ['src/huge.ts'],
       }),
     ]) {
@@ -1118,7 +1116,7 @@ describe('buildSecurityScanInput limits', () => {
       expect(built.coverage).toBe('partial');
       expect(built.droppedFiles).toBe(1);
       // Counted as seen: the next diff does not take it as changed again.
-      expect(built.sourceIndex.get('src/huge.ts')).toBe(sha256Hex('z'.repeat(16 * MIB + 1)));
+      expect(built.sourceIndex.get('src/huge.ts')).toBe(hugeHash);
       expect(built.entries.some((entry) => entry.path === 'input/src/huge.ts')).toBe(false);
     }
   });
@@ -1219,30 +1217,12 @@ describe('buildSecurityScanInput limits', () => {
         memory: {
           findings: [
             ...findings,
-            {
-              id: 'fnd_1',
-              number: 1,
-              fingerprintKey: 'k1',
-              modelFingerprint: 'm1',
-              verdict: 'confirmed',
-              severity: 'high',
-              title: 'SQL injection',
-              category: 'injection',
+            memoryFinding({
               cwe: null,
               file: 'src/m/1.ts',
-              lineStart: 1,
               lineEnd: 1,
               sinkPath: 'src/m/1.ts',
-              detail: {},
-              source: 'scanner',
-              state: 'open',
-              resolution: null,
-              resolvedAt: null,
-              resolvedSinkHash: null,
-              notSeenInLatest: false,
-              reopenCount: 0,
-              createdAt: '2026-11-01T00:00:00.000Z',
-            },
+            }),
           ],
           events: [],
           lastSucceededAt: null,

@@ -21,6 +21,7 @@ import { resolveSecurityFinding } from '../../src/security/project-findings.ts';
 import { recheckPublicRequest } from '../../src/security/public-gate-flow.ts';
 import { clearTables, createTestDeployment, setupEnv, teardownEnv } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import { insertRunningScan, scanResult, schedulerStub } from './security-fixtures.ts';
 import {
   askPublic,
   setupGate,
@@ -48,13 +49,7 @@ afterEach(() => {
 function ingestEnv(s: GateSetup) {
   return {
     ...s.platform,
-    SECURITY_SCAN_SCHEDULER: {
-      idFromName: (name: string) => ({ toString: () => name }),
-      get: () => ({
-        fetch: async () => Response.json({ ok: true }),
-        forgetModelCalls: async () => 0,
-      }),
-    },
+    SECURITY_SCAN_SCHEDULER: schedulerStub({ forgetModelCalls: async () => 0 }),
   } as unknown as Parameters<typeof ingestSecurityScanResult>[0];
 }
 
@@ -81,41 +76,18 @@ async function resolve(
 
 /** A clean scan of `deploymentId`, stored through the real ingest. */
 async function cleanScan(s: GateSetup, scanId: string, deploymentId: string) {
-  await env.db.insert(securityScans).values({
-    id: scanId,
-    project_id: s.project.id,
-    deployment_id: deploymentId,
-    status: 'running',
-    trigger: 'deploy',
-    attempt: 1,
-    lease_until: new Date(Date.now() + 60 * 60_000).toISOString(),
+  await insertRunningScan(env, scanId, s.project.id, deploymentId, {
     model_requested: CF,
     model_used: CF,
-    engine: 'void_loop',
     model_calls: 3,
-    first_queued_at: new Date().toISOString(),
-    started_at: new Date().toISOString(),
   });
-  const stored = await ingestSecurityScanResult(ingestEnv(s), env.db, scanId, 1, {
-    status: {
-      schema_version: 1,
-      scan_id: scanId,
-      attempt: 1,
-      engine: 'void_loop',
-      engine_version: 'runner/1 void-loop/1',
-      model: CF,
-      status: 'succeeded',
-      reason: null,
-      error_class: null,
-      refusal_category: null,
-    },
-    findings: JSON.stringify({
-      schema_version: 1,
-      run_status: 'complete',
-      findings: [],
-      notes: '',
-    }),
-  });
+  const stored = await ingestSecurityScanResult(
+    ingestEnv(s),
+    env.db,
+    scanId,
+    1,
+    scanResult(scanId, [], { model: CF }),
+  );
   expect(stored).toMatchObject({ ok: true });
   return recheckPublicRequest(s.platform, env.db, s.project.id);
 }

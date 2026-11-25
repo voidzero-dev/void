@@ -5,42 +5,18 @@ import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { Buffer } from '../../src/cli/node-buffer.ts';
-import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { parseProjectArgs } from '../../src/cli/project-args.ts';
 import { runProjectCommand } from '../../src/cli/project-cmd.ts';
 import { collectSecurityLocalTree } from '../../src/cli/project-security-check.ts';
 import type { SecurityCheckDeps } from '../../src/cli/project-security-check.ts';
 import { runProjectSecurityCommand } from '../../src/cli/project-security.ts';
+import { captureOutput, linkedProject } from '../helpers/cli-command.ts';
+import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
+import { scanSummary } from '../helpers/security-status.ts';
 
 const roots: Array<string> = [];
 
-function linked(): string {
-  const root = mkdtempSync(join(tmpdir(), 'void-security-check-'));
-  roots.push(root);
-  process.env.VOID_PLATFORM_REGISTRY_DIR = join(root, '.registry');
-  savePlatformConnection({
-    accountId: null,
-    apiUrl: 'https://api.example.test',
-    applicationDomain: 'apps.example.test',
-    displayName: 'Test platform',
-    installationId: null,
-    kind: 'connected',
-    proxyUrl: 'https://proxy.example.test',
-  });
-  mkdirSync(join(root, '.void'));
-  writeFileSync(
-    join(root, '.void', 'project.json'),
-    JSON.stringify({
-      platform: 'void',
-      platformUrl: 'https://api.example.test',
-      projectId: 'project_1',
-      slug: 'acme-web',
-    }),
-  );
-  vi.stubEnv('VOID_TOKEN', 'test-token');
-  vi.stubEnv('VOID_API_URL', 'https://api.example.test');
-  return root;
-}
+const linked = () => linkedProject({ slug: 'acme-web' });
 
 function write(root: string, files: Record<string, string | Uint8Array>) {
   for (const [path, data] of Object.entries(files)) {
@@ -50,7 +26,6 @@ function write(root: string, files: Record<string, string | Uint8Array>) {
 }
 
 afterEach(() => {
-  delete process.env.VOID_PLATFORM_REGISTRY_DIR;
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -58,12 +33,6 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true });
   }
 });
-
-function capture() {
-  const out: Array<string> = [];
-  vi.spyOn(console, 'log').mockImplementation((...a) => void out.push(a.join(' ')));
-  return out;
-}
 
 const CHECKS = '/projects/project_1/security/checks';
 const UPLOAD =
@@ -80,22 +49,15 @@ const preview = {
 };
 
 const check = {
-  id: 'scan_9',
-  status: 'queued',
-  statusReason: null,
-  failureCause: null,
-  refusalCategory: null,
-  trigger: 'local',
-  deploymentId: null,
-  baseDeploymentId: null,
-  coverageLabel: null,
-  backlogFiles: 0,
-  filesScanned: 0,
-  model: null,
-  meteredUsd: 0,
-  startedAt: null,
-  finishedAt: null,
-  createdAt: '2026-11-20T10:00:00.000Z',
+  ...scanSummary({
+    id: 'scan_9',
+    trigger: 'local',
+    deploymentId: null,
+    baseDeploymentId: null,
+    model: null,
+    meteredUsd: 0,
+    createdAt: '2026-11-20T10:00:00.000Z',
+  }),
   coverageNotes: [],
 };
 
@@ -150,12 +112,9 @@ type Call = { method: string; url: string; body: unknown; headers: Record<string
 /** The platform and storage: handlers by `METHOD path` (the upload by its full URL). */
 function route(handlers: Record<string, () => Response>) {
   const calls: Array<Call> = [];
-  const impl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+  const impl = withPlatformDiscovery(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
     const method = init?.method ?? 'GET';
-    if (url.pathname === '/.well-known/void-platform') {
-      return Response.json({});
-    }
     const upload = url.href === UPLOAD;
     const headers: Record<string, string> = {};
     new Headers(init?.headers).forEach((value, key) => {
@@ -171,7 +130,7 @@ function route(handlers: Record<string, () => Response>) {
     return handler ? handler() : new Response('404 Not Found', { status: 404 });
   });
   vi.stubGlobal('fetch', impl);
-  return { calls, fetch: impl as unknown as typeof fetch };
+  return { calls, fetch: impl };
 }
 
 function platform(view: () => unknown = () => ended) {
@@ -307,7 +266,8 @@ describe('collecting the local tree', () => {
     const root = mkdtempSync(join(tmpdir(), 'void-security-check-nogit-'));
     roots.push(root);
     expect(() => collectSecurityLocalTree(root)).toThrow('not in a git repository');
-    write(root, { 'big.ts': 'x'.repeat(33 * 1024 * 1024) });
+    write(root, { 'big.ts': 'x'.repeat(8192) });
+    truncateSync(join(root, 'big.ts'), 33 * 1024 * 1024);
     expect(() => collectSecurityLocalTree(root, () => ['big.ts'])).toThrow(
       'at most 32 MB of code, and this folder has 33.0 MB',
     );
@@ -336,7 +296,7 @@ describe('project security check (M32)', () => {
     const { calls, fetch } = route(
       platform(() => (++gets === 1 ? { check, ended: false, result: null } : ended)),
     );
-    const out = capture();
+    const out = captureOutput();
     await runProjectSecurityCommand(
       root,
       args(),
@@ -360,7 +320,7 @@ describe('project security check (M32)', () => {
     expect(tar).toContain('tree/src/routes/users.ts');
     expect(tar).toContain('tree/src/app.tsx');
     expect(tar).not.toContain('SECRET=1');
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).toContain('Security check of acme-web: 2 git-tracked files');
     expect(text).toContain('Not sent: 1 secret-like file (.env).');
     expect(text).toContain('It can cost up to $0.50; monthly caps apply.');
@@ -385,7 +345,7 @@ describe('project security check (M32)', () => {
       notice: ['This model is run by Anthropic, not by Cloudflare.'],
     };
     const { calls } = route({ [`POST ${CHECKS}`]: () => Response.json(third) });
-    const out = capture();
+    const out = captureOutput();
     const asked: Array<string> = [];
     await runProjectSecurityCommand(root, args({ yes: false }), {
       interactive: true,
@@ -398,8 +358,8 @@ describe('project security check (M32)', () => {
     expect(asked).toEqual([
       'Send these files for a security check with anthropic/claude-opus-5.5?',
     ]);
-    expect(out.join('\n')).toContain('This model is run by Anthropic, not by Cloudflare.');
-    expect(out.join('\n')).toContain('Nothing was sent.');
+    expect(out.output()).toContain('This model is run by Anthropic, not by Cloudflare.');
+    expect(out.output()).toContain('Nothing was sent.');
     expect(calls).toHaveLength(1);
   });
 
@@ -434,14 +394,13 @@ describe('project security check (M32)', () => {
       result: null,
     };
     const { fetch } = route(platform(() => refused));
-    const out = capture();
+    const out = captureOutput();
     await expect(
       runProjectSecurityCommand(root, args({ json: true }), deps(Object.keys(APP), { fetch })),
     ).rejects.toThrow(
       'The check was refused by anthropic/claude-opus-5.5 (category: cyber). Pick another model',
     );
-    expect(out).toHaveLength(1);
-    expect(JSON.parse(out[0])).toMatchObject({ check: { status: 'refused' }, ended: true });
+    expect(JSON.parse(out.output())).toMatchObject({ check: { status: 'refused' }, ended: true });
   });
 
   it('keeps the "See it later" hint when the wait fails, and none for a missing check', async () => {
@@ -455,11 +414,11 @@ describe('project security check (M32)', () => {
         ...platform(),
         [`GET ${CHECKS}/scan_9`]: () => Response.json(body, { status }),
       });
-      const out = capture();
+      const out = captureOutput();
       await expect(
         runProjectSecurityCommand(root, args(), deps(Object.keys(APP), { fetch })),
       ).rejects.toThrow(`HTTP ${status}`);
-      expect(out.join('\n'), String(status)).toContain(
+      expect(out.output(), String(status)).toContain(
         'The check keeps running. See it later: void project security check scan_9',
       );
     }
@@ -469,44 +428,44 @@ describe('project security check (M32)', () => {
       ...platform(),
       [`GET ${CHECKS}/scan_9`]: () => Response.json({ error: 'x' }, { status: 401 }),
     });
-    const out = capture();
+    const out = captureOutput();
     const errors: Array<string> = [];
     vi.spyOn(console, 'error').mockImplementation((...a) => void errors.push(a.join(' ')));
     await expect(
       runProjectSecurityCommand(root, args({ json: true }), deps(Object.keys(APP), { fetch })),
     ).rejects.toThrow('HTTP 401');
-    expect(out).toEqual([]);
+    expect(out.output()).toBe('');
     expect(errors.join('\n')).toContain('See it later: void project security check scan_9');
 
     const gone = route({
       ...platform(),
       [`GET ${CHECKS}/scan_9`]: () => Response.json({ error: 'not found' }, { status: 404 }),
     });
-    const missing = capture();
+    const missing = captureOutput();
     await expect(
       runProjectSecurityCommand(root, args(), deps(Object.keys(APP), { fetch: gone.fetch })),
     ).rejects.toThrow();
-    expect(missing.join('\n')).not.toContain('See it later');
+    expect(missing.output()).not.toContain('See it later');
   });
 
   it('shows an earlier check without sending anything, and returns at once with --no-wait', async () => {
     const root = linked();
     const { calls } = route(platform());
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'check', 'scan_9']);
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       `GET ${CHECKS}/scan_9`,
       `GET ${CHECKS}/scan_9`,
     ]);
-    expect(out.join('\n')).toContain('HIGH      SQL injection in /users');
+    expect(out.output()).toContain('HIGH      SQL injection in /users');
 
     const waiting = route({
       [`GET ${CHECKS}/scan_9`]: () => Response.json({ check, ended: false, result: null }),
     });
-    const later = capture();
+    const later = captureOutput();
     await run(root, ['security', 'check', 'scan_9', '--no-wait']);
     expect(waiting.calls).toHaveLength(2);
-    expect(later.join('\n')).toContain('See the result: void project security check scan_9');
+    expect(later.output()).toContain('See the result: void project security check scan_9');
   });
 
   it('goes on to start when the upload landed but its reply was lost (412 on the retry)', async () => {
@@ -523,7 +482,7 @@ describe('project security check (M32)', () => {
         return new Response('PreconditionFailed', { status: 412 });
       },
     });
-    capture();
+    captureOutput();
     vi.useFakeTimers({ toFake: ['setTimeout'] });
     try {
       const done = runProjectSecurityCommand(root, args(), deps(Object.keys(APP), { fetch }));
@@ -547,7 +506,7 @@ describe('project security check (M32)', () => {
             : ended,
         ),
     });
-    capture();
+    captureOutput();
     await run(root, ['security', 'check', 'scan_9']);
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       `GET ${CHECKS}/scan_9`,
@@ -561,18 +520,18 @@ describe('project security check (M32)', () => {
     write(root, APP);
     const missing = { ...ended, result: null };
     const { fetch } = route(platform(() => missing));
-    const out = capture();
+    const out = captureOutput();
     await expect(
       runProjectSecurityCommand(root, args(), deps(Object.keys(APP), { fetch })),
     ).rejects.toThrow('The check ended, but its result could not be read. Run it again.');
-    expect(out.join('\n')).toContain('The result is missing.');
-    expect(out.join('\n')).not.toContain('30 days).');
+    expect(out.output()).toContain('The result is missing.');
+    expect(out.output()).not.toContain('30 days).');
 
-    const later = capture();
+    const later = captureOutput();
     await expect(run(root, ['security', 'check', 'scan_9'])).rejects.toThrow(
       'The result of this check is no longer stored',
     );
-    expect(later.join('\n')).toContain('results are kept for 30 days');
+    expect(later.output()).toContain('results are kept for 30 days');
   });
 
   it('names an older platform that has no local checks', async () => {

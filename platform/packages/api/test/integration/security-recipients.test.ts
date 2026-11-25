@@ -127,6 +127,13 @@ async function scannedDeploy(
   return deployment;
 }
 
+function queueFindings(projectId: string, scanId: string) {
+  return enqueueSecurityNotification(env.db, { kind: 'findings', projectId, scanId });
+}
+
+/** A time after the queued rows are due: a row is due from the database clock at its insert. */
+const dueNow = () => Date.now() + 5000;
+
 let findingNumber = 0;
 async function newFinding(
   projectId: string,
@@ -321,21 +328,9 @@ describe('the outbox', () => {
     await scannedDeploy(project.id, 'scan_1', owner.id);
     await newFinding(project.id, 'scan_1', { severity: 'critical', title: 'SQL built from query' });
     await newFinding(project.id, 'scan_1', { severity: 'medium' });
-    expect(
-      await enqueueSecurityNotification(env.db, {
-        kind: 'findings',
-        projectId: project.id,
-        scanId: 'scan_1',
-      }),
-    ).toBe(true);
+    expect(await queueFindings(project.id, 'scan_1')).toBe(true);
     // The same scan queued twice is one row.
-    expect(
-      await enqueueSecurityNotification(env.db, {
-        kind: 'findings',
-        projectId: project.id,
-        scanId: 'scan_1',
-      }),
-    ).toBe(false);
+    expect(await queueFindings(project.id, 'scan_1')).toBe(false);
 
     const { mail, sent } = mailer();
     const run = await runSecurityNotifications(env.db, mail);
@@ -360,22 +355,13 @@ describe('the outbox', () => {
     await scannedDeploy(project.id, 'scan_2', null);
     await newFinding(project.id, 'scan_2');
     const { mail, sent } = mailer();
-    // After the rows are due: a row is due from the database clock at its insert.
-    const t0 = Date.now() + 5000;
+    const t0 = dueNow();
 
-    await enqueueSecurityNotification(env.db, {
-      kind: 'findings',
-      projectId: project.id,
-      scanId: 'scan_1',
-    });
+    await queueFindings(project.id, 'scan_1');
     await runSecurityNotifications(env.db, mail, t0);
     expect(sent).toHaveLength(1);
 
-    await enqueueSecurityNotification(env.db, {
-      kind: 'findings',
-      projectId: project.id,
-      scanId: 'scan_2',
-    });
+    await queueFindings(project.id, 'scan_2');
     const early = await runSecurityNotifications(env.db, mail, t0 + 60_000);
     expect(sent).toHaveLength(1);
     expect(early.nextAt).not.toBeNull();
@@ -401,11 +387,7 @@ describe('the outbox', () => {
     await scannedDeploy(project.id, 'scan_2', b.id);
     await newFinding(project.id, 'scan_2');
     for (const scanId of ['scan_1', 'scan_2']) {
-      await enqueueSecurityNotification(env.db, {
-        kind: 'findings',
-        projectId: project.id,
-        scanId,
-      });
+      await queueFindings(project.id, scanId);
     }
     const { mail, sent } = mailer();
     const run = await runSecurityNotifications(env.db, mail);
@@ -431,11 +413,7 @@ describe('the outbox', () => {
         resolved_at: new Date().toISOString(),
       })
       .where(eq(securityFindings.id, finding.id));
-    await enqueueSecurityNotification(env.db, {
-      kind: 'findings',
-      projectId: project.id,
-      scanId: 'scan_1',
-    });
+    await queueFindings(project.id, 'scan_1');
     const { mail, sent } = mailer();
     expect(await runSecurityNotifications(env.db, mail)).toMatchObject({ sent: 0, skipped: 1 });
     expect(sent).toEqual([]);
@@ -445,14 +423,9 @@ describe('the outbox', () => {
     const { project } = await setup();
     await scannedDeploy(project.id, 'scan_1', null);
     const finding = await newFinding(project.id, 'scan_1', { severity: 'high' });
-    await enqueueSecurityNotification(env.db, {
-      kind: 'findings',
-      projectId: project.id,
-      scanId: 'scan_1',
-    });
+    await queueFindings(project.id, 'scan_1');
     const { mail, sent } = mailer();
-    // After the rows are due: a row is due from the database clock at its insert.
-    const t0 = Date.now() + 5000;
+    const t0 = dueNow();
     await runSecurityNotifications(env.db, mail, t0);
     expect(sent).toHaveLength(1);
 
@@ -471,11 +444,7 @@ describe('the outbox', () => {
       actor_kind: 'scanner',
       action: 'severity_changed',
     });
-    await enqueueSecurityNotification(env.db, {
-      kind: 'findings',
-      projectId: project.id,
-      scanId: 'scan_2',
-    });
+    await queueFindings(project.id, 'scan_2');
     await runSecurityNotifications(env.db, mail, t0 + SECURITY_FINDINGS_COOLDOWN_MS + 1000);
     expect(sent).toHaveLength(2);
     expect(sent[1].subject).toContain('(critical)');
@@ -496,11 +465,7 @@ describe('the outbox', () => {
       actor_kind: 'scanner',
       action: 'severity_changed',
     });
-    await enqueueSecurityNotification(env.db, {
-      kind: 'findings',
-      projectId: project.id,
-      scanId: 'scan_1',
-    });
+    await queueFindings(project.id, 'scan_1');
     const { mail, sent } = mailer();
     expect(await runSecurityNotifications(env.db, mail)).toMatchObject({ sent: 0, skipped: 1 });
     expect(sent).toEqual([]);
@@ -510,11 +475,7 @@ describe('the outbox', () => {
     const { project } = await setup();
     await scannedDeploy(project.id, 'scan_1', null);
     await newFinding(project.id, 'scan_1');
-    await enqueueSecurityNotification(env.db, {
-      kind: 'findings',
-      projectId: project.id,
-      scanId: 'scan_1',
-    });
+    await queueFindings(project.id, 'scan_1');
     const run = await runSecurityNotifications(env.db, {
       EMAIL: undefined,
     });
@@ -527,14 +488,9 @@ describe('the outbox', () => {
     const { project } = await setup();
     await scannedDeploy(project.id, 'scan_1', null);
     await newFinding(project.id, 'scan_1');
-    await enqueueSecurityNotification(env.db, {
-      kind: 'findings',
-      projectId: project.id,
-      scanId: 'scan_1',
-    });
+    await queueFindings(project.id, 'scan_1');
     const { mail, sent, attempts } = mailer({ failFor: ['owner@example.com'] });
-    // After the rows are due: a row is due from the database clock at its insert.
-    const t0 = Date.now() + 5000;
+    const t0 = dueNow();
 
     const first = await runSecurityNotifications(env.db, mail, t0);
     expect(first.sent).toBe(0);
@@ -561,11 +517,7 @@ describe('the outbox', () => {
     await member(project.id, admin.id, 'admin');
     await scannedDeploy(project.id, 'scan_1', null);
     await newFinding(project.id, 'scan_1');
-    await enqueueSecurityNotification(env.db, {
-      kind: 'findings',
-      projectId: project.id,
-      scanId: 'scan_1',
-    });
+    await queueFindings(project.id, 'scan_1');
     const { mail, sent, attempts } = mailer({ failFor: ['admin@example.com'] });
     expect(await runSecurityNotifications(env.db, mail)).toMatchObject({ sent: 1 });
     expect(sent.map((message) => message.to)).toEqual(['owner@example.com']);
@@ -575,7 +527,7 @@ describe('the outbox', () => {
 
   it('emails every installation admin for a bypass and records it (exit)', async () => {
     const { owner, project } = await setup();
-    const rootA = await person('root-a', { role: 'admin' });
+    await person('root-a', { role: 'admin' });
     await person('root-b', { role: 'admin' });
     const request = await openRequest(project.id, owner.id);
     await env.db.insert(securityScanBypasses).values({
@@ -612,7 +564,6 @@ describe('the outbox', () => {
       .from(securityScanBypasses)
       .where(eq(securityScanBypasses.id, 'sbp_1'));
     expect(bypass.notified_at).not.toBeNull();
-    expect(rootA.id).toBeTruthy();
   });
 
   it('says files were left unread, not "did not finish (succeeded)", in the held and bypass emails', async () => {
@@ -745,8 +696,7 @@ describe('the outbox', () => {
       requestId: request.id,
     });
     const { mail, sent } = mailer();
-    // After the rows are due: a row is due from the database clock at its insert.
-    const t0 = Date.now() + 5000;
+    const t0 = dueNow();
     const waiting = await runSecurityNotifications(env.db, mail, t0);
     expect(sent).toEqual([]);
     expect(waiting.nextAt).not.toBeNull();

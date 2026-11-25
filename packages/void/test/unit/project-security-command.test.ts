@@ -1,73 +1,32 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { parseProjectArgs } from '../../src/cli/project-args.ts';
 import { runProjectCommand } from '../../src/cli/project-cmd.ts';
-import { runProjectSecurityCommand } from '../../src/cli/project-security.ts';
+import { budgetSkipCopy, runProjectSecurityCommand } from '../../src/cli/project-security.ts';
 import type { ProjectSecurityStatus } from '../../src/cli/security-api-types.ts';
+import { captureOutput, linkedProject } from '../helpers/cli-command.ts';
+import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
+import { scanSummary, securityStatus } from '../helpers/security-status.ts';
 
-const roots: Array<string> = [];
-
-function linked(): string {
-  const root = mkdtempSync(join(tmpdir(), 'void-project-security-'));
-  roots.push(root);
-  process.env.VOID_PLATFORM_REGISTRY_DIR = join(root, 'registry');
-  savePlatformConnection({
-    accountId: null,
-    apiUrl: 'https://api.example.test',
-    applicationDomain: 'apps.example.test',
-    displayName: 'Test platform',
-    installationId: null,
-    kind: 'connected',
-    proxyUrl: 'https://proxy.example.test',
-  });
-  mkdirSync(join(root, '.void'));
-  writeFileSync(
-    join(root, '.void', 'project.json'),
-    JSON.stringify({
-      platform: 'void',
-      platformUrl: 'https://api.example.test',
-      projectId: 'project_1',
-      slug: 'acme-web',
-    }),
-  );
-  vi.stubEnv('VOID_TOKEN', 'test-token');
-  vi.stubEnv('VOID_API_URL', 'https://api.example.test');
-  return root;
-}
+const linked = () => linkedProject({ slug: 'acme-web' });
 
 afterEach(() => {
-  delete process.env.VOID_PLATFORM_REGISTRY_DIR;
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  for (const root of roots.splice(0)) {
-    rmSync(root, { recursive: true, force: true });
-  }
 });
 
-const scan = {
-  id: 'ss_1',
+const scan = scanSummary({
   status: 'succeeded',
-  statusReason: null,
-  failureCause: null,
-  refusalCategory: null,
-  trigger: 'deploy',
   deploymentId: 'dpl_8f2c',
-  baseDeploymentId: 'dpl_7c20',
   coverageLabel: 'changes since dpl_7c20 · source diff · 14 files',
-  backlogFiles: 0,
   filesScanned: 14,
   model: '@cf/x',
   meteredUsd: 0.4,
   startedAt: '2026-11-17T10:00:00.000Z',
   finishedAt: '2026-11-17T10:09:00.000Z',
-  createdAt: '2026-11-17T10:00:00.000Z',
-};
+});
 
-const status: ProjectSecurityStatus = {
+const status = securityStatus({
   policy: {
     mode: 'public',
     applies: true,
@@ -85,14 +44,6 @@ const status: ProjectSecurityStatus = {
     more: 0,
     detail: 'full',
   },
-  model: {
-    id: '@cf/x',
-    requested: '@cf/x',
-    source: 'default',
-    thirdParty: false,
-    noticeAccepted: false,
-    pendingDefault: null,
-  },
   budget: {
     capUsd: 100,
     capSource: 'own',
@@ -105,36 +56,21 @@ const status: ProjectSecurityStatus = {
   lastScan: scan,
   lastSuccessfulScan: scan,
   deploysSinceLastSuccess: 0,
-  backlogFiles: 0,
   counts: {
     open: { critical: 1, high: 1, medium: 1, low: 0, informational: 0 },
     leads: 3,
     resolved: 0,
     urgent: 2,
   },
-  publicRequest: null,
-};
-
-function capture() {
-  const out: Array<string> = [];
-  vi.spyOn(console, 'log').mockImplementation((...a) => void out.push(a.join(' ')));
-  vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-    out.push(String(chunk));
-    return true;
-  });
-  return out;
-}
+});
 
 function route(handlers: Record<string, () => Response>) {
   const calls: Array<{ method: string; path: string; body: unknown }> = [];
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    withPlatformDiscovery(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input instanceof Request ? input.url : input));
       const method = init?.method ?? 'GET';
-      if (url.pathname === '/.well-known/void-platform') {
-        return Response.json({});
-      }
       calls.push({
         method,
         path: url.pathname + url.search,
@@ -149,13 +85,128 @@ function route(handlers: Record<string, () => Response>) {
 
 const run = (root: string, args: Array<string>) => runProjectCommand(root, parseProjectArgs(args));
 
+describe('budgetSkipCopy', () => {
+  const MODEL = '@cf/x';
+  const budget = (over: Partial<NonNullable<ProjectSecurityStatus['budget']>> = {}) => ({
+    capUsd: 0.5,
+    capSource: 'own' as const,
+    ceilingUsd: null,
+    spentUsd: 0.91,
+    month: '2026-11-01',
+    resetsAt: '2026-12-01T00:00:00.000Z',
+    scanReserveUsd: 2.04,
+    ...over,
+  });
+  const ownRaise = 'A project admin can raise it: void project security budget --usd <amount>';
+  const cheaper = 'pick a cheaper model: void project security model';
+
+  it.each([
+    [
+      'own cap used up, under the platform limit',
+      'project_cap',
+      budget({ ceilingUsd: 100 }),
+      {
+        why: "this project's monthly scan budget is used up ($0.91 of $0.50)",
+        resets: 'Resets Dec 1.',
+        next: 'A project admin can raise it (up to $100.00): void project security budget --usd 100',
+        raised: false,
+      },
+    ],
+    [
+      'own cap used up, no platform limit',
+      'project_cap',
+      budget(),
+      {
+        why: expect.stringContaining('used up'),
+        resets: 'Resets Dec 1.',
+        next: ownRaise,
+        raised: false,
+      },
+    ],
+    [
+      "the platform's per-project limit",
+      'project_cap',
+      budget({ capUsd: 0.2, capSource: 'limit', ceilingUsd: 0.2, spentUsd: 0.41 }),
+      {
+        why: "this project's monthly scan budget is used up ($0.41 of $0.20)",
+        resets: 'Resets Dec 1.',
+        next: 'Your platform admin can raise it: void platform security budget --project project_1 --usd 1',
+        raised: false,
+      },
+    ],
+    [
+      'cap raised since',
+      'project_cap',
+      budget({ capUsd: 5, spentUsd: 0.38 }),
+      {
+        why: "this project's monthly scan budget was used up; it was raised since ($0.38 of $5.00 used)",
+        resets: null,
+        next: null,
+        raised: true,
+      },
+    ],
+    [
+      'cap removed since',
+      'project_cap',
+      budget({ capUsd: null, capSource: 'none' }),
+      {
+        why: "this project's monthly scan budget was used up; the cap was removed since",
+        resets: null,
+        next: null,
+        raised: true,
+      },
+    ],
+    [
+      'one scan does not fit in what the project has left',
+      'project_reserve',
+      budget({ capUsd: 1.5, spentUsd: 0 }),
+      {
+        why: "one scan with @cf/x can cost up to $2.04, more than is left of this project's monthly scan budget ($1.50 of $1.50)",
+        resets: null,
+        next: `${ownRaise}. Or ${cheaper}`,
+        raised: false,
+      },
+    ],
+    [
+      'platform cap used up',
+      'platform_cap',
+      budget(),
+      {
+        why: "the platform's monthly scan budget is used up",
+        resets: 'Resets Dec 1.',
+        next: null,
+        raised: false,
+      },
+    ],
+    [
+      'one scan does not fit in what the platform has left',
+      'platform_reserve',
+      budget(),
+      {
+        why: "one scan with @cf/x can cost up to $2.04, more than is left of the platform's monthly scan budget",
+        resets: null,
+        next: `Ask your platform admin, or ${cheaper}`,
+        raised: false,
+      },
+    ],
+    [
+      'a reader, who sees no amounts',
+      'project_cap',
+      null,
+      { why: 'the monthly scan budget is used up', resets: null, next: null, raised: false },
+    ],
+  ] as const)('%s', (_name, cause, budgetReply, expected) => {
+    expect(budgetSkipCopy(cause, budgetReply, MODEL, 'project_1')).toEqual(expected);
+  });
+});
+
 describe('project security command', () => {
   it('prints the status in the spec layout', async () => {
     const root = linked();
     route({ 'GET /projects/project_1/security': () => Response.json(status) });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'status']);
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).toContain('acme-web · security');
     expect(text).toContain('2 open (1 critical, 1 high) · oldest Nov 10');
     expect(text).toContain('applies: not protected by Zero Trust (Public projects only)');
@@ -179,9 +230,9 @@ describe('project security command', () => {
           },
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'status']);
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).toContain(
       '@cf/deepseek-ai/deepseek-v4.1-flash-1017 (your pick @cf/zai-org/glm-5.3 is blocked by the platform admin)',
     );
@@ -199,9 +250,9 @@ describe('project security command', () => {
           lastSuccessfulScan: null,
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'status']);
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).toContain('does not apply: preview projects are not scanned');
     expect(text).not.toContain('The first scan runs after your next deploy');
   });
@@ -224,9 +275,9 @@ describe('project security command', () => {
           },
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'status']);
-    expect(out.join('\n')).toContain(
+    expect(out.output()).toContain(
       '2 urgent findings must be resolved before Zero Trust is turned off (F-12, F-15)',
     );
   });
@@ -257,25 +308,22 @@ describe('project security command', () => {
     const root = linked();
     let current = reply({ capUsd: 0.5, spentUsd: 0.91, ceilingUsd: 100 });
     route({ 'GET /projects/project_1/security': () => Response.json(current) });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'status']);
-    const held = out.join('\n');
-    expect(held).toContain(
-      "Stays protected: this project's monthly scan budget is used up ($0.91 of $0.50), so the scan could not run. Resets Dec 1. A project admin can raise it (up to $100.00): void project security budget --usd 100.",
-    );
+    // The wording of each cause is in the budgetSkipCopy table below.
+    const held = out.output();
+    expect(held).toContain('so the scan could not run. Resets Dec 1.');
+    expect(held).toContain('void project security budget --usd 100.');
     expect(held).not.toContain('Ask your platform admin');
-    expect(held).toContain(
-      "Not scanned: this project's monthly scan budget is used up ($0.91 of $0.50). Resets Dec 1. A project admin can raise it (up to $100.00)",
-    );
+    expect(held).toContain('Not scanned: ');
 
     current = reply({ capUsd: 5, spentUsd: 0.38, ceilingUsd: 100 });
-    out.length = 0;
+    out.clear();
     await run(root, ['security', 'status']);
-    const raised = out.join('\n');
+    const raised = out.output();
     expect(raised).not.toContain('used up (');
-    expect(raised).toContain(
-      "Not scanned: this project's monthly scan budget was used up; it was raised since ($0.38 of $5.00 used). The next deploy is scanned.",
-    );
+    expect(raised).toContain('it was raised since');
+    expect(raised).toContain('The next deploy is scanned.');
     expect(raised).toContain('Ask again with void project zero-trust public');
   });
 
@@ -300,13 +348,11 @@ describe('project security command', () => {
           },
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'status']);
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).not.toContain("the platform's monthly scan budget");
-    expect(text).toContain(
-      'Your platform admin can raise it: void platform security budget --project project_1 --usd 1.',
-    );
+    expect(text).toContain('void platform security budget --project project_1 --usd 1.');
   });
 
   it('strips terminal escapes from model text', async () => {
@@ -328,9 +374,9 @@ describe('project security command', () => {
           nextCursor: null,
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'list']);
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).toContain('F-1');
     expect(text).not.toContain('\u001b');
     expect(text).not.toContain('\u0007');
@@ -364,7 +410,7 @@ describe('project security command', () => {
           urgent: { ...status.urgent, count: 1, findings: [{ id: 'F-15', severity: 'high' }] },
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, [
       'security',
       'resolve',
@@ -374,7 +420,7 @@ describe('project security command', () => {
       '--comment',
       'Bound params',
     ]);
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).toContain('✓ F-12 resolved (fixed). The next scan will check that the fix holds.');
     expect(text).toContain('Still open and urgent: F-15 (high).');
     expect(calls.find((c) => c.method === 'POST')?.body).toEqual({
@@ -407,11 +453,11 @@ describe('project security command', () => {
           { status: 409 },
         ),
     });
-    const out = capture();
+    const out = captureOutput();
     await expect(
       run(root, ['security', 'resolve', 'F-12', '--reason', 'fixed', '--comment', 'x']),
     ).rejects.toThrow('1 of 1');
-    expect(out.join('\n')).toContain('F-12 changed while you were working on it');
+    expect(out.output()).toContain('F-12 changed while you were working on it');
   });
 
   it('shows the platform ceiling copy for a budget above the limit', async () => {
@@ -457,9 +503,9 @@ describe('project security command', () => {
               },
             }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'model', 'anthropic/claude-x', '--accept-provider-notice']);
-    expect(out.join('\n')).toContain('Run by Anthropic.');
+    expect(out.output()).toContain('Run by Anthropic.');
     expect(
       calls.map(
         (c) => (c.body as { acceptProviderNoticeVersion?: number }).acceptProviderNoticeVersion,
@@ -484,7 +530,7 @@ describe('project security command', () => {
           expiresAt: '2026-11-17T10:15:00.000Z',
         }),
     });
-    capture();
+    captureOutput();
     const openUrl = vi.fn();
     await runProjectSecurityCommand(root, parseProjectArgs(['security', 'open']) as never, {
       openUrl,
@@ -546,10 +592,10 @@ describe('project security scan (M25)', () => {
   it('previews, then queues with --yes and says where the result shows', async () => {
     const root = linked();
     const calls = route(handlers());
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'scan', '--yes']);
     expect(calls.map((c) => c.body)).toEqual([{ dryRun: true }, {}]);
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).toContain('✓ Full scan ss_new of dpl_9a1d queued.');
     expect(text).toContain('void project security status');
   });
@@ -557,7 +603,7 @@ describe('project security scan (M25)', () => {
   it('asks first on a terminal, names the cost, and queues nothing on no', async () => {
     const root = linked();
     const calls = route(handlers());
-    const out = capture();
+    const out = captureOutput();
     const asked: Array<string> = [];
     await runProjectSecurityCommand(
       root,
@@ -580,8 +626,8 @@ describe('project security scan (M25)', () => {
     expect(asked).toEqual([
       'Live deployment dpl_9a1d was already scanned. Run a full scan with anthropic/claude-opus-5.5? This reviews the whole app. It can cost up to $12.00.',
     ]);
-    expect(out.join('\n')).toContain('Monthly caps apply: $12.40 of $100.00 spent this month.');
-    expect(out.join('\n')).toContain('Nothing was queued.');
+    expect(out.output()).toContain('Monthly caps apply: $12.40 of $100.00 spent this month.');
+    expect(out.output()).toContain('Nothing was queued.');
     expect(calls).toHaveLength(1);
   });
 
@@ -634,13 +680,13 @@ describe('project security scan (M25)', () => {
             : Response.json({ ...queued, clientAssets: true }, { status: 202 });
       })(),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'scan', '--yes', '--client-assets']);
     expect(calls.map((c) => c.body)).toEqual([
       { dryRun: true, clientAssets: true },
       { clientAssets: true },
     ]);
-    expect(out.join('\n')).toContain(
+    expect(out.output()).toContain(
       '✓ Full scan ss_new of dpl_9a1d queued, with client bundle sources.',
     );
   });
@@ -677,15 +723,15 @@ describe('project security command paths', () => {
           nextCursor: null,
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'list']);
-    let text = out.join('\n');
+    let text = out.output();
     expect(text).toContain('F-1');
     expect(text).not.toContain('F-2 ');
     expect(text).toContain('1 lead is hidden. Show them with --leads.');
-    out.length = 0;
+    out.clear();
     await run(root, ['security', 'list', '--leads']);
-    text = out.join('\n');
+    text = out.output();
     expect(text).toContain('F-2');
     expect(text).toContain('lead');
     expect(text).not.toContain('hidden');
@@ -697,39 +743,21 @@ describe('project security command paths', () => {
       [`GET ${F}`]: () =>
         Response.json({
           findings: [
-            finding('F-1', {
-              category: 'secret-in-output',
-              cwe: 'CWE-200',
-              file: '_assets/app.js',
-              line: 2,
-              lineEnd: 2,
-              title: 'Secret STRIPE_KEY is in a public file: _assets/app.js',
-            }),
+            finding('F-1'),
             finding('F-2', { verdict: 'needs_validation', severity: null }),
           ],
           nextCursor: null,
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     const errors: Array<string> = [];
     vi.spyOn(console, 'error').mockImplementation((...a) => void errors.push(a.join(' ')));
     await run(root, ['security', 'list', '--format', 'sarif']);
-    const log = JSON.parse(out.join('\n'));
+    const log = JSON.parse(out.output());
+    // How a finding maps to a SARIF result is in security-sarif.test.ts.
     expect(log.version).toBe('2.1.0');
     expect(log.runs[0].results).toEqual([
-      expect.objectContaining({
-        ruleId: 'secret-in-output',
-        level: 'error',
-        message: { text: 'F-1: Secret STRIPE_KEY is in a public file: _assets/app.js' },
-        locations: [
-          {
-            physicalLocation: {
-              artifactLocation: { uri: '_assets/app.js', uriBaseId: '%SRCROOT%' },
-              region: { startLine: 2, endLine: 2 },
-            },
-          },
-        ],
-      }),
+      expect.objectContaining({ message: { text: 'F-1: title F-1' } }),
     ]);
     expect(errors).toEqual(['1 lead is left out. Add them with --leads.']);
     expect(() => parseProjectArgs(['security', 'list', '--format', 'csv'])).toThrow(
@@ -749,10 +777,10 @@ describe('project security command paths', () => {
           nextCursor: '100',
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'list']);
     expect(calls).toHaveLength(5);
-    expect(out.join('\n')).toContain('Showing the first 500.');
+    expect(out.output()).toContain('Showing the first 500.');
   });
 
   it('shows the full detail, and only the summary to a reader', async () => {
@@ -793,9 +821,9 @@ describe('project security command paths', () => {
       [`GET ${F}/F-2`]: () =>
         Response.json({ finding: { ...finding('F-2'), title: undefined, file: undefined } }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'show', 'F-1']);
-    let text = out.join('\n');
+    let text = out.output();
     expect(text).toContain('title F-1');
     expect(text).toContain('EVID');
     expect(text).toContain('FIXTEXT');
@@ -810,9 +838,9 @@ describe('project security command paths', () => {
     // Spec #24: a removed commenter keeps the comment, shown as a former member.
     expect(text).toContain('sa-b-collab (former member)');
     expect(text).not.toContain('(collaborator)');
-    out.length = 0;
+    out.clear();
     await run(root, ['security', 'show', 'F-2']);
-    text = out.join('\n');
+    text = out.output();
     expect(text).toContain('Readers see the id, severity and state');
     expect(text).not.toContain('Evidence');
   });
@@ -822,9 +850,9 @@ describe('project security command paths', () => {
     const calls = route({
       [`POST ${F}/F-3/comments`]: () => Response.json({ ok: true, id: 'F-3' }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'comment', 'F-3', 'checked by hand']);
-    expect(out.join('\n')).toContain('Comment added to F-3.');
+    expect(out.output()).toContain('Comment added to F-3.');
     expect(calls[0]?.body).toEqual({ text: 'checked by hand' });
   });
 
@@ -834,9 +862,9 @@ describe('project security command paths', () => {
       [`GET ${F}/F-4`]: () => Response.json({ finding: finding('F-4', { revision: 7 }) }),
       [`POST ${F}/F-4/reopen`]: () => Response.json({ ok: true, id: 'F-4' }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'reopen', 'F-4', '--comment', 'still reachable']);
-    expect(out.join('\n')).toContain('F-4 reopened.');
+    expect(out.output()).toContain('F-4 reopened.');
     expect(calls.map((c) => c.method)).toEqual(['GET', 'POST']);
     expect(calls[1]?.body).toEqual({ comment: 'still reachable', expectedRevision: 7 });
   });
@@ -847,9 +875,9 @@ describe('project security command paths', () => {
       'GET /projects/project_1/security/scans': () =>
         Response.json({ scans: [scan], nextCursor: '9' }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'scans', '--limit', '5']);
-    const text = out.join('\n');
+    const text = out.output();
     expect(calls[0]?.path).toBe('/projects/project_1/security/scans?limit=5');
     expect(text).toContain('dpl_8f2c');
     expect(text).toContain('$0.40');
@@ -863,17 +891,17 @@ describe('project security command paths', () => {
       'PUT /projects/project_1/security/model': () =>
         Response.json({ ok: true, model: { ...status.model, id: '@cf/y' } }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'model']);
     // The provider notice is only about third-party models.
-    expect(out.join('\n')).not.toContain('provider notice');
-    out.length = 0;
+    expect(out.output()).not.toContain('provider notice');
+    out.clear();
     await run(root, ['security', 'model', '@cf/y']);
-    expect(out.join('\n')).toContain('scans now use @cf/y');
+    expect(out.output()).toContain('scans now use @cf/y');
     expect(calls.at(-1)?.body).toEqual({ model: '@cf/y' });
-    out.length = 0;
+    out.clear();
     await run(root, ['security', 'model', '--default']);
-    expect(out.join('\n')).toContain('uses the platform default model (@cf/y)');
+    expect(out.output()).toContain('uses the platform default model (@cf/y)');
     expect(calls.at(-1)?.body).toEqual({ model: null });
   });
 
@@ -884,17 +912,17 @@ describe('project security command paths', () => {
       'PUT /projects/project_1/security/budget': () =>
         Response.json({ ok: true, budget: { ...status.budget, capUsd: 100 } }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'budget']);
-    expect(out.join('\n')).toContain('acme-web · scan budget (November, UTC; resets Dec 1)');
-    expect(out.join('\n')).toContain('$100.00 / month (set for this project)');
-    out.length = 0;
+    expect(out.output()).toContain('acme-web · scan budget (November, UTC; resets Dec 1)');
+    expect(out.output()).toContain('$100.00 / month (set for this project)');
+    out.clear();
     await run(root, ['security', 'budget', '--usd', '40']);
-    expect(out.join('\n')).toContain('scan budget set to $40.00 / month');
+    expect(out.output()).toContain('scan budget set to $40.00 / month');
     expect(calls.at(-1)?.body).toEqual({ monthlyUsd: 40 });
-    out.length = 0;
+    out.clear();
     await run(root, ['security', 'budget', '--off']);
-    expect(out.join('\n')).toContain('own cap cleared');
+    expect(out.output()).toContain('own cap cleared');
     expect(calls.at(-1)?.body).toEqual({ monthlyUsd: null });
   });
 
@@ -912,7 +940,7 @@ describe('project security command paths', () => {
         Response.json({ ok: true, id: 'F-3', state: 'resolved', resolution: 'accepted_risk' }),
       'GET /projects/project_1/security': () => Response.json(status),
     });
-    const out = capture();
+    const out = captureOutput();
     await expect(
       run(root, [
         'security',
@@ -924,7 +952,7 @@ describe('project security command paths', () => {
         'ok',
       ]),
     ).rejects.toThrow('1 of 3 findings were not resolved');
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).toContain('F-1 resolved (accepted risk)');
     expect(text).toContain('F-2: F-2 changed.');
     expect(text).toContain('F-3 resolved (accepted risk)');
@@ -934,14 +962,16 @@ describe('project security command paths', () => {
   it('prints one JSON document with --json', async () => {
     const root = linked();
     route({ 'GET /projects/project_1/security': () => Response.json(status) });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'status', '--json']);
-    expect(out).toHaveLength(1);
-    expect(JSON.parse(out[0])).toMatchObject({ policy: { mode: 'public' }, counts: { leads: 3 } });
+    expect(JSON.parse(out.output())).toMatchObject({
+      policy: { mode: 'public' },
+      counts: { leads: 3 },
+    });
     route({ [`GET ${F}`]: () => Response.json({ findings: [finding('F-1')], nextCursor: null }) });
-    out.length = 0;
+    out.clear();
     await run(root, ['security', 'list', '--json']);
-    expect(JSON.parse(out[0])).toMatchObject({ findings: [{ id: 'F-1' }], more: false });
+    expect(JSON.parse(out.output())).toMatchObject({ findings: [{ id: 'F-1' }], more: false });
   });
 });
 
@@ -983,9 +1013,9 @@ describe('project security severity (M35)', () => {
           changed: true,
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'severity', 'F-12', 'medium', '--comment', 'behind admin auth']);
-    expect(out.join('\n')).toContain(
+    expect(out.output()).toContain(
       '✓ F-12 severity set to medium (scans said high). Later scans keep it.',
     );
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
@@ -1015,15 +1045,15 @@ describe('project security severity (M35)', () => {
       [`GET ${F}/F-12`]: () => Response.json({ finding: finding('F-12', { revision: 5 }) }),
       [`POST ${F}/F-12/severity`]: () => Response.json(reply),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'severity', 'F-12', 'scan', '--comment', 'undo']);
-    expect(out.join('\n')).toContain('✓ F-12 uses the scan severity again: high.');
+    expect(out.output()).toContain('✓ F-12 uses the scan severity again: high.');
     expect(calls[1]?.body).toMatchObject({ severity: null });
 
-    out.length = 0;
+    out.clear();
     reply = { ...reply, severity: 'low', severityEdited: true, changed: false };
     await run(root, ['security', 'severity', 'F-12', 'low', '--comment', 'again']);
-    expect(out.join('\n')).toContain('F-12 is already low. Nothing changed.');
+    expect(out.output()).toContain('F-12 is already low. Nothing changed.');
 
     route({ [`GET ${F}/F-12`]: () => Response.json({ finding: finding('F-12') }) });
     await expect(
@@ -1052,9 +1082,9 @@ describe('project security severity (M35)', () => {
           ],
         }),
     });
-    const out = capture();
+    const out = captureOutput();
     await run(root, ['security', 'show', 'F-12']);
-    const text = out.join('\n');
+    const text = out.output();
     expect(text).toContain('Severity set by a person (scans said high).');
     expect(text).toContain('severity_edited (high → low) · ana (admin)');
   });

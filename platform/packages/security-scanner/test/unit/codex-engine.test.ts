@@ -9,8 +9,7 @@ import {
   createCodexEngine,
 } from '../../src/runner/engines/codex.ts';
 import type { CodexEvent, CodexSdk } from '../../src/runner/engines/codex.ts';
-import { LAST_FAILURE_PATH } from '../../src/runner/engines/proxy-failure.ts';
-import type { SessionSpec } from '../../src/runner/engines/types.ts';
+import { fetchOf, spec } from '../helpers/engine.ts';
 import { confirmed, report } from '../helpers/findings.ts';
 
 let dir: string;
@@ -23,17 +22,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
-
-function spec(overrides: Partial<SessionSpec> = {}): SessionSpec {
-  return {
-    phase: 'hunt',
-    index: 0,
-    system: 'system text',
-    prompt: 'hunt',
-    maxTurns: 40,
-    ...overrides,
-  };
-}
 
 type Config = Record<string, unknown> & {
   mcp_servers: Record<string, { args: Array<string> }>;
@@ -89,14 +77,6 @@ function sdkOf(
         };
       }
     },
-  };
-}
-
-function fetchOf(failures: Array<unknown>): typeof fetch {
-  let index = 0;
-  return async (input: string | URL | Request) => {
-    expect(String(input)).toBe(`http://model.test${LAST_FAILURE_PATH}`);
-    return Response.json({ failure: failures[Math.min(index++, failures.length - 1)] });
   };
 }
 

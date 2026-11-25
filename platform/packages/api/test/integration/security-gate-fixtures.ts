@@ -2,37 +2,30 @@
  * Shared set-up of the public gate race suites: a protected project with a live
  * deployment, the gate on, and a fake Cloudflare Access API.
  */
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import { vi } from 'vite-plus/test';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import type { ApiEnv } from '../../src/env.ts';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
-import { projectZeroTrust, securityFindings, securityScans } from '../../src/schema.ts';
+import { projectZeroTrust, securityFindings } from '../../src/schema.ts';
 import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
 import { setProjectZeroTrustProtection } from '../../src/zero-trust/project.ts';
 import { createTestDeployment, createTestProject, createTestUser } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import {
+  freshEntitlement,
+  insertSecurityScan,
+  saveSecurityPolicy,
+  securityBindings,
+} from './security-fixtures.ts';
+
+export { freshEntitlement };
 
 export function gateBindings(env: TestEnv): ApiEnv['Bindings'] {
   return {
-    ...env,
+    ...securityBindings(env),
     SITE_DOMAIN: 'apps.example.com',
     PLATFORM_INSTALLATION_ID: 'installation-test',
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
-    SECURITY_SCAN_SCHEDULER: {
-      idFromName: (name: string) => ({ toString: () => name }),
-      get: () => ({ fetch: async () => Response.json({ ok: true }) }),
-    },
   } as unknown as ApiEnv['Bindings'];
 }
-
 export const gateZeroTrustInput = {
   apiToken: 'access-management-token',
   identityProviderIds: ['idp-1'],
@@ -99,33 +92,25 @@ export function gateAccessApi() {
   return { applications, fetcher };
 }
 
-/** A fresh passing entitlement probe, so the gate may be turned on. */
-export const freshEntitlement = () => ({
-  checkedAt: new Date().toISOString(),
-  ok: true,
-  missing: [] as Array<string>,
-  hosts: { openai: true, anthropic: true },
-});
-
 export async function saveGatePolicy(env: TestEnv, publicGate: boolean) {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    publicGate,
-    entitlement: freshEntitlement(),
-    revision: 1,
-  });
+  await saveSecurityPolicy(env, { publicGate, entitlement: freshEntitlement() });
+}
+
+/** Zero Trust configured on the fake Access API and the gate policy saved (on by default). */
+export async function gatePlatform(env: TestEnv, options: { gateOn?: boolean } = {}) {
+  const cloudflare = gateAccessApi();
+  vi.stubGlobal('fetch', cloudflare.fetcher);
+  const platform = gateBindings(env);
+  await configurePlatformZeroTrust(platform, env.db, gateZeroTrustInput);
+  await saveGatePolicy(env, options.gateOn ?? true);
+  return { platform, cloudflare };
 }
 
 export type GateSetup = Awaited<ReturnType<typeof setupGate>>;
 
 /** A protected project with a live deployment, the gate on (or off with `gateOn: false`). */
 export async function setupGate(env: TestEnv, options: { gateOn?: boolean } = {}) {
-  const cloudflare = gateAccessApi();
-  vi.stubGlobal('fetch', cloudflare.fetcher);
-  const platform = gateBindings(env);
-  await configurePlatformZeroTrust(platform, env.db, gateZeroTrustInput);
-  await saveGatePolicy(env, options.gateOn ?? true);
+  const { platform, cloudflare } = await gatePlatform(env, options);
   const user = await createTestUser(env.db, `gate-${crypto.randomUUID()}`);
   const project = await createTestProject(env.db, user.id);
   const deployment = await createTestDeployment(env.db, project.id, 'live');
@@ -149,7 +134,7 @@ export function askPublic(s: GateSetup, protectedAfter = false) {
   });
 }
 
-export async function ztRow(s: GateSetup) {
+export async function ztRow(s: { env: TestEnv; project: { id: string } }) {
   const [row] = await s.env.db
     .select()
     .from(projectZeroTrust)
@@ -158,14 +143,7 @@ export async function ztRow(s: GateSetup) {
 }
 
 export async function succeededScan(s: GateSetup, id = 'ss_ok') {
-  await s.env.db.insert(securityScans).values({
-    id,
-    project_id: s.project.id,
-    deployment_id: s.deployment.id,
-    status: 'succeeded',
-    trigger: 'deploy',
-    finished_at: new Date().toISOString(),
-  } as typeof securityScans.$inferInsert);
+  await insertSecurityScan(s.env, s.project.id, s.deployment.id, { id });
 }
 
 export async function urgentFinding(s: GateSetup, number = 1) {
@@ -180,7 +158,7 @@ export async function urgentFinding(s: GateSetup, number = 1) {
     category: 'injection',
     first_scan_id: 'ss_ok',
     last_seen_scan_id: 'ss_ok',
-  } as typeof securityFindings.$inferInsert);
+  });
 }
 
 export const gateOwner = (s: GateSetup) => ({

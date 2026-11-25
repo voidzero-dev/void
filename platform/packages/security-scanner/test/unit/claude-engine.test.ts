@@ -13,11 +13,10 @@ import {
   structuredOutputSchema,
 } from '../../src/runner/engines/claude.ts';
 import type { ClaudeMessage, ClaudeSdk } from '../../src/runner/engines/claude.ts';
-import { LAST_FAILURE_PATH } from '../../src/runner/engines/proxy-failure.ts';
-import type { SessionSpec } from '../../src/runner/engines/types.ts';
 import { defaultEngineFactory } from '../../src/runner/run.ts';
 import { createFsTools } from '../../src/runner/tools/fs.ts';
 import { validateFindingsValue } from '../../src/runner/validate-findings.ts';
+import { fetchOf, spec } from '../helpers/engine.ts';
 import { confirmed, report } from '../helpers/findings.ts';
 
 let dir: string;
@@ -38,10 +37,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
-
-function spec(overrides: Partial<SessionSpec> = {}): SessionSpec {
-  return { phase: 'hunt', index: 0, system: 'system', prompt: 'hunt', maxTurns: 40, ...overrides };
-}
 
 type Seen = { prompt: string; options: Record<string, unknown> };
 
@@ -66,15 +61,6 @@ const RESULT_OK = {
   usage: { input_tokens: 100, cache_read_input_tokens: 50, output_tokens: 20 },
   structured_output: report([confirmed()]),
 } satisfies ClaudeMessage;
-
-function fetchOf(failures: Array<unknown>): typeof fetch {
-  let index = 0;
-  return async (input: string | URL | Request) => {
-    expect(String(input)).toBe(`http://model.test${LAST_FAILURE_PATH}`);
-    const failure = failures[Math.min(index++, failures.length - 1)];
-    return Response.json({ failure });
-  };
-}
 
 function engine(sdk: ClaudeSdk | null, failures: Array<unknown> = [null]) {
   return createClaudeEngine({

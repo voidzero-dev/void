@@ -1,22 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-vi.mock('cloudflare:workers', () => ({
-  DurableObject: class {
-    ctx: unknown;
-    env: unknown;
-    constructor(ctx: unknown, env: unknown) {
-      this.ctx = ctx;
-      this.env = env;
-    }
-  },
-  WorkerEntrypoint: class {
-    ctx: unknown;
-    env: unknown;
-    constructor(ctx: unknown, env: unknown) {
-      this.ctx = ctx;
-      this.env = env;
-    }
-  },
-}));
 import ScannerService, {
   CopyOutbound,
   DenyAll,
@@ -40,6 +22,7 @@ import { SECURITY_SELF_TEST_TIMEOUT_MS } from '../../src/security/probe.ts';
 import { COPY_HOST } from '../../src/security/runtime-copy-names.ts';
 import { createFakeContainer } from '../__mocks__/container.ts';
 import type { FakeContainer } from '../__mocks__/container.ts';
+import { memoryDurableStorage } from '../helpers/memory-storage.ts';
 
 const RUNNER = '// fake scanner runner\n';
 
@@ -48,8 +31,7 @@ function fixture(
   Controller: typeof ScannerController = ScannerController,
 ) {
   const fake: FakeContainer = createFakeContainer(options);
-  const data = new Map<string, unknown>();
-  const alarms: Array<number> = [];
+  const { storage, map: data, alarms } = memoryDurableStorage();
   const control = {
     heartbeat: vi.fn(async () => ({ ok: true as const, leaseUntil: '2099-01-01T00:00:00.000Z' })),
     input: vi.fn(async () => new Blob(['TAR-BYTES']).stream()),
@@ -63,16 +45,7 @@ function fixture(
       CopyOutbound: (init: { props: unknown }) => ({ outbound: 'copy', props: init.props }),
       DenyAll: () => ({ outbound: 'deny' }),
     },
-    storage: {
-      get: async (key: string) => structuredClone(data.get(key)),
-      put: async (key: string, value: unknown) => {
-        data.set(key, structuredClone(value));
-      },
-      setAlarm: vi.fn(async (at: number) => {
-        alarms.push(at);
-      }),
-      deleteAlarm: vi.fn(async () => {}),
-    },
+    storage,
   };
   const env = { SCANNER: { getByName: vi.fn() }, __VOID_SECURITY_SCAN_CONTROL: control };
   const controller = new Controller(ctx as never, env as never);
@@ -102,6 +75,7 @@ function patchState(data: Map<string, unknown>, patch: Partial<State>) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('ScannerController scan attempt', () => {
@@ -483,7 +457,11 @@ describe('ScannerController self-test', () => {
     // Each clock read moves a minute on, so the 90-second probe ready wait ends after one try.
     let clock = 0;
     vi.spyOn(Date, 'now').mockImplementation(() => (clock += 60_000));
-    const result = await controller.selfTest('pr_y');
+    // The 250 ms pause between ready checks runs on a fake timer.
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const pending = controller.selfTest('pr_y');
+    await vi.runAllTimersAsync();
+    const result = await pending;
     expect(result.started).toBe(false);
     expect(result.error).toContain('did not start');
     expect(fake.container.running).toBe(false);

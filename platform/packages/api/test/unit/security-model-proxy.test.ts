@@ -1,7 +1,8 @@
 import { securityModelCostNanoUsd } from '@void/platform/security-models';
 import { defaultSecurityPolicy } from '@void/platform/security-policy';
 import type { SecurityPolicy } from '@void/platform/security-policy';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 import type { SecurityCallHold, SecurityCallRefusal } from '../../src/security/budget.ts';
 import type { AdmitModelCallResult, ModelCallFailure } from '../../src/security/call-ledger.ts';
 import {
@@ -22,6 +23,7 @@ import {
   gatewayModelName,
 } from '../../src/security/model-proxy.ts';
 import type { SecurityModelProxyDeps, SecurityModelScan } from '../../src/security/model-proxy.ts';
+import { onPolicy, passingEntitlement } from '../helpers/security-policy.ts';
 
 // The runner's own mapping, so a proxy stop is checked end to end (spec §8.4). A
 // variable path keeps the runner package out of this package's type check.
@@ -65,20 +67,6 @@ function scanRow(overrides: Partial<SecurityModelScan> = {}): SecurityModelScan 
     monthlyCapCents: null,
     capCeilingCents: null,
     planCap: 'inherit',
-    ...overrides,
-  };
-}
-
-function onPolicy(overrides: Partial<SecurityPolicy> = {}): SecurityPolicy {
-  return {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    entitlement: {
-      checkedAt: '2026-11-18T11:00:00.000Z',
-      ok: true,
-      missing: [],
-      hosts: { openai: true, anthropic: true },
-    },
     ...overrides,
   };
 }
@@ -189,17 +177,48 @@ function sse(events: ReadonlyArray<unknown>): ReadableStream<Uint8Array> {
   });
 }
 
+function opusBody(overrides: Record<string, unknown> = {}) {
+  return { model: OPUS, max_tokens: 10, messages: [], ...overrides };
+}
+
+/** A gateway answer that used one token each way. */
+function fetchOk() {
+  h.fetch.mockImplementation(async () =>
+    Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }),
+  );
+}
+
+function aiOk(input = 1, output = 1) {
+  h.aiRun.mockResolvedValue({
+    response: 'ok',
+    usage: { prompt_tokens: input, completion_tokens: output },
+  });
+}
+
+/** What the nth gateway fetch sent. */
+function sent(n = 0) {
+  const [url, init] = h.fetch.mock.calls[n] as [string, RequestInit];
+  return {
+    url,
+    headers: new Headers(init.headers),
+    body: () => JSON.parse(String(init.body)) as Record<string, unknown>,
+  };
+}
+
 let h: Harness;
+let consoleError: MockInstance<typeof console.error>;
 beforeEach(() => {
   h = harness();
+  // Failure paths log; keep the output quiet.
+  consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+});
+afterEach(() => {
+  consoleError.mockRestore();
 });
 
 describe('Workers AI calls (@cf, Engine B)', () => {
   it('runs the binding with the fixed gateway options and the signed scan tag', async () => {
-    h.aiRun.mockResolvedValue({
-      response: 'ok',
-      usage: { prompt_tokens: 1000, completion_tokens: 200 },
-    });
+    aiOk(1000, 200);
     const response = await call(h, '/v1/chat/completions', chatBody());
     expect(response.status).toBe(200);
     expect(h.aiRun).toHaveBeenCalledTimes(1);
@@ -223,10 +242,7 @@ describe('Workers AI calls (@cf, Engine B)', () => {
   });
 
   it('meters tokens × list price and settles the hold to it', async () => {
-    h.aiRun.mockResolvedValue({
-      response: 'ok',
-      usage: { prompt_tokens: 1000, completion_tokens: 200 },
-    });
+    aiOk(1000, 200);
     await call(h, '/v1/chat/completions', chatBody());
     expect(h.holds).toHaveLength(1);
     expect(h.settles).toEqual([
@@ -276,10 +292,7 @@ describe('Workers AI calls (@cf, Engine B)', () => {
         }
       },
     };
-    h.aiRun.mockResolvedValue({
-      response: 'ok',
-      usage: { prompt_tokens: 1, completion_tokens: 1 },
-    });
+    aiOk();
     expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
     expect(notices).toMatchObject([
       { projectId: 'proj_1', month: '2026-11-01', settlement: settled },
@@ -325,10 +338,7 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     h.admit
       .mockResolvedValueOnce({ ok: false, reason: 'rate', waitMs: 6000 })
       .mockResolvedValueOnce({ ok: true, sessionCalls: null });
-    h.aiRun.mockResolvedValue({
-      response: 'ok',
-      usage: { prompt_tokens: 1, completion_tokens: 1 },
-    });
+    aiOk();
     expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
     expect(h.sleep).toHaveBeenCalledWith(6000);
     expect(h.holds).toHaveLength(1);
@@ -346,10 +356,7 @@ describe('Workers AI calls (@cf, Engine B)', () => {
       h.admit
         .mockResolvedValueOnce({ ok: false, reason: 'rate', waitMs: 6000 })
         .mockResolvedValueOnce({ ok: true, sessionCalls: null });
-      h.aiRun.mockResolvedValue({
-        response: 'ok',
-        usage: { prompt_tokens: 1, completion_tokens: 1 },
-      });
+      aiOk();
       h.scan.value = scanRow({ monthlyCapCents: 10_000 });
     });
 
@@ -420,7 +427,7 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     h.rateLimited.mockClear();
     h.scan.value = scanRow({ modelUsed: OPUS });
     h.fetch.mockResolvedValue(new Response('slow down', { status: 429 }));
-    await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
+    await call(h, '/v1/messages', opusBody());
     expect(h.rateLimited).not.toHaveBeenCalled();
   });
 
@@ -433,9 +440,7 @@ describe('Workers AI calls (@cf, Engine B)', () => {
 
   it('keeps the worst case charged when a binding call is lost with no status', async () => {
     h.aiRun.mockRejectedValue(new Error('Network connection lost.'));
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const response = await call(h, '/v1/chat/completions', chatBody());
-    spy.mockRestore();
     expect(response.status).toBe(502);
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
     expect(h.failures.at(-1)?.reason).toBe('upstream');
@@ -454,14 +459,17 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     expect(h.settles[2]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
   });
 
-  it('maps Workers AI error codes, also after a class name, and nothing else', () => {
-    expect(workersAiErrorStatus(new Error('3040: Capacity temporarily exceeded'))).toBe(429);
-    expect(workersAiErrorStatus(new Error('InferenceUpstreamError: 3040: busy'))).toBe(429);
-    expect(workersAiErrorStatus('3036: You have used up your daily free allocation')).toBe(429);
-    expect(workersAiErrorStatus(new Error('5007: No such model'))).toBeNull();
-    expect(workersAiErrorStatus(new Error('Too many requests'))).toBeNull();
-    expect(workersAiErrorStatus(new Error('at 12:30: 3040: late'))).toBeNull();
-    expect(workersAiErrorStatus({ status: 429 })).toBeNull();
+  // Workers AI error codes map, also after a class name, and nothing else does.
+  it.each<[unknown, number | null]>([
+    [new Error('3040: Capacity temporarily exceeded'), 429],
+    [new Error('InferenceUpstreamError: 3040: busy'), 429],
+    ['3036: You have used up your daily free allocation', 429],
+    [new Error('5007: No such model'), null],
+    [new Error('Too many requests'), null],
+    [new Error('at 12:30: 3040: late'), null],
+    [{ status: 429 }, null],
+  ])('maps the Workers AI error %s to %s', (error, status) => {
+    expect(workersAiErrorStatus(error)).toBe(status);
   });
 
   it('keeps the worst case, tokens included, when a JSON answer has no usage', async () => {
@@ -482,16 +490,14 @@ describe('Workers AI calls (@cf, Engine B)', () => {
 
   it('still answers when settle throws; the hold stays charged', async () => {
     h.settleError.value = new Error('db down');
-    h.aiRun.mockResolvedValue({
-      response: 'ok',
-      usage: { prompt_tokens: 1, completion_tokens: 1 },
-    });
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    aiOk();
     const response = await call(h, '/v1/chat/completions', chatBody());
     expect(response.status).toBe(200);
     expect(h.settles).toHaveLength(1);
-    expect(spy).toHaveBeenCalledWith('[security-model-proxy] settle failed', expect.anything());
-    spy.mockRestore();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[security-model-proxy] settle failed',
+      expect.anything(),
+    );
   });
 });
 
@@ -504,26 +510,20 @@ describe('third-party calls through AI Gateway REST', () => {
     h.fetch.mockResolvedValue(
       Response.json({ usage: { input_tokens: 100, output_tokens: 10 }, content: [] }),
     );
-    const response = await call(
-      h,
-      '/v1/messages',
-      { model: OPUS, max_tokens: 4096, messages: [] },
-      {
-        authorization: 'Bearer stolen',
-        'x-api-key': 'placeholder',
-        'anthropic-version': '2023-06-01',
-        'cf-aig-metadata': '{"projectId":"other"}',
-        'cf-aig-gateway-id': 'attacker',
-        'cf-aig-collect-log-payload': 'true',
-        'cf-aig-skip-cache': 'false',
-        'cf-aig-cache-key': 'x',
-      },
-    );
+    const response = await call(h, '/v1/messages', opusBody({ max_tokens: 4096 }), {
+      authorization: 'Bearer stolen',
+      'x-api-key': 'placeholder',
+      'anthropic-version': '2023-06-01',
+      'cf-aig-metadata': '{"projectId":"other"}',
+      'cf-aig-gateway-id': 'attacker',
+      'cf-aig-collect-log-payload': 'true',
+      'cf-aig-skip-cache': 'false',
+      'cf-aig-cache-key': 'x',
+    });
     expect(response.status).toBe(200);
-    const [url, init] = h.fetch.mock.calls[0] as [string, RequestInit];
+    const { url, headers, body } = sent();
     expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_1/ai/v1/messages');
-    const headers = Object.fromEntries(new Headers(init.headers).entries());
-    expect(headers).toEqual({
+    expect(Object.fromEntries(headers.entries())).toEqual({
       accept: 'application/json',
       authorization: 'Bearer cf-token',
       'anthropic-version': '2023-06-01',
@@ -534,7 +534,7 @@ describe('third-party calls through AI Gateway REST', () => {
       'cf-aig-collect-log-payload': 'false',
       'cf-aig-skip-cache': 'true',
     });
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(body()).toEqual({
       model: 'claude-opus-5.5',
       max_tokens: 4096,
       messages: [],
@@ -545,22 +545,22 @@ describe('third-party calls through AI Gateway REST', () => {
 
   it('adds access_programs to every openai/* body and clamps the output to what is left', async () => {
     h.scan.value = scanRow({ modelUsed: TERRA, tokensOut: 119_000 });
-    h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
+    fetchOk();
     await call(h, '/v1/responses', {
       model: TERRA,
       input: 'x',
       max_output_tokens: 50_000,
       access_programs: { cyber: 'none' },
     });
-    const [url, init] = h.fetch.mock.calls[0] as [string, RequestInit];
+    const { url, headers, body } = sent();
     expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_1/ai/v1/responses');
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(body()).toEqual({
       model: 'gpt-6.1-terra',
       input: 'x',
       max_output_tokens: 1000,
       access_programs: { cyber: 'standard' },
     });
-    expect(new Headers(init.headers).get('anthropic-version')).toBeNull();
+    expect(headers.get('anthropic-version')).toBeNull();
   });
 
   it('passes an SSE stream through and meters the usage it carries', async () => {
@@ -667,33 +667,21 @@ describe('third-party calls through AI Gateway REST', () => {
   });
 
   it('keeps only allowlisted anthropic-beta values', async () => {
-    h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
-    await call(
-      h,
-      '/v1/messages',
-      { model: OPUS, max_tokens: 10, messages: [] },
-      {
-        'anthropic-beta':
-          'context-1m-2025-08-07, interleaved-thinking-2025-05-14,web-fetch-2025-09-10,claude-code-20250219',
-      },
-    );
-    const [, init] = h.fetch.mock.calls[0] as [string, RequestInit];
-    expect(new Headers(init.headers).get('anthropic-beta')).toBe(
+    fetchOk();
+    await call(h, '/v1/messages', opusBody(), {
+      'anthropic-beta':
+        'context-1m-2025-08-07, interleaved-thinking-2025-05-14,web-fetch-2025-09-10,claude-code-20250219',
+    });
+    expect(sent(0).headers.get('anthropic-beta')).toBe(
       'interleaved-thinking-2025-05-14,claude-code-20250219',
     );
 
-    await call(
-      h,
-      '/v1/messages',
-      { model: OPUS, max_tokens: 10, messages: [] },
-      { 'anthropic-beta': 'mcp-client-2025-11-20' },
-    );
-    const [, second] = h.fetch.mock.calls[1] as [string, RequestInit];
-    expect(new Headers(second.headers).has('anthropic-beta')).toBe(false);
+    await call(h, '/v1/messages', opusBody(), { 'anthropic-beta': 'mcp-client-2025-11-20' });
+    expect(sent(1).headers.has('anthropic-beta')).toBe(false);
   });
 
   it('refuses a Messages tool the provider runs, and mcp_servers / container (T2)', async () => {
-    const base = { model: OPUS, max_tokens: 10, messages: [] };
+    const base = opusBody();
     const refused = [
       { ...base, tools: [{ type: 'web_search_20260209', name: 'web_search' }] },
       { ...base, tools: [{ type: 'web_fetch_20260209', name: 'web_fetch' }] },
@@ -711,7 +699,7 @@ describe('third-party calls through AI Gateway REST', () => {
     expect(h.hold).not.toHaveBeenCalled();
     expect(h.fetch).not.toHaveBeenCalled();
 
-    h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
+    fetchOk();
     const tools = [
       { name: 'read_file', input_schema: { type: 'object' } },
       { type: 'custom', name: 'grep', input_schema: { type: 'object' } },
@@ -740,7 +728,7 @@ describe('third-party calls through AI Gateway REST', () => {
     expect(h.hold).not.toHaveBeenCalled();
     expect(h.fetch).not.toHaveBeenCalled();
 
-    h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
+    fetchOk();
     const tools = [
       { type: 'function', name: 'submit', parameters: { type: 'object' } },
       { type: 'custom', name: 'apply' },
@@ -754,13 +742,12 @@ describe('third-party calls through AI Gateway REST', () => {
   });
 
   it('takes the gateway name of the scan model and sends that name on', async () => {
-    h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
+    fetchOk();
     expect(
       (await call(h, '/v1/messages', { model: 'claude-opus-5.5', max_tokens: 10, messages: [] }))
         .status,
     ).toBe(200);
-    const [, init] = h.fetch.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(String(init.body)).model).toBe('claude-opus-5.5');
+    expect(sent().body().model).toBe('claude-opus-5.5');
     // Another model, with or without a provider, is still refused.
     const other = await call(h, '/v1/messages', {
       model: 'claude-sonnet-5.5',
@@ -772,36 +759,47 @@ describe('third-party calls through AI Gateway REST', () => {
     expect(gatewayModelName(TERRA)).toBe('gpt-6.1-terra');
   });
 
-  it('never passes an upstream 401 on to the engine', async () => {
-    h.fetch.mockResolvedValue(new Response('{"error":"nope"}', { status: 401 }));
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
-    spy.mockRestore();
-    expect(response.status).toBe(502);
+  // None of these pass the upstream answer on as a stop. A lost or unreadable answer
+  // keeps the worst case charged; a plain upstream failure was answered, so it costs nothing.
+  it.each([
+    {
+      name: 'an upstream 401 is never passed on to the engine',
+      answer: () => h.fetch.mockResolvedValue(new Response('{"error":"nope"}', { status: 401 })),
+      status: 502,
+    },
+    {
+      name: 'a 2xx answer that is not JSON',
+      answer: () => h.fetch.mockResolvedValue(new Response('<html>', { status: 200 })),
+      status: 502,
+      settle: 'worst',
+    },
+    {
+      name: 'a call lost before an answer',
+      answer: () => h.fetch.mockRejectedValue(new Error('Network connection lost.')),
+      status: 502,
+      settle: 'worst',
+    },
+    {
+      name: 'another upstream failure, which the runner retries',
+      answer: () => h.fetch.mockResolvedValue(new Response('overloaded', { status: 529 })),
+      status: 529,
+      settle: 'zero',
+    },
+  ] as const)('$name', async (row) => {
+    row.answer();
+    const response = await call(h, '/v1/messages', opusBody());
+    expect(response.status).toBe(row.status);
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-  });
-
-  it('keeps the worst case charged when a 2xx answer is not JSON', async () => {
-    h.fetch.mockResolvedValue(new Response('<html>', { status: 200 }));
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
-    spy.mockRestore();
-    expect(response.status).toBe(502);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-    expect(h.settles[0]).toMatchObject({ actualNano: h.holds[0].worstNano, outputTokens: 10 });
+    if (!('settle' in row)) {
+      return;
+    }
     expect(h.failures.at(-1)?.reason).toBe('upstream');
-  });
-
-  it('keeps the worst case charged when the call is lost before an answer', async () => {
-    h.fetch.mockRejectedValue(new Error('Network connection lost.'));
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
-    spy.mockRestore();
-    expect(response.status).toBe(502);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-    expect(h.failures.at(-1)?.reason).toBe('upstream');
-    expect(h.settles[0]).toMatchObject({ actualNano: h.holds[0].worstNano, outputTokens: 10 });
-    expect(h.settles[0].inputTokens).toBeGreaterThan(0);
+    if (row.settle === 'worst') {
+      expect(h.settles[0]).toMatchObject({ actualNano: h.holds[0].worstNano, outputTokens: 10 });
+      expect(h.settles[0].inputTokens).toBeGreaterThan(0);
+    } else {
+      expect(h.settles[0]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
+    }
   });
 
   it('prices Anthropic cache writes at 1.25× (5 min) and 2× (1 h) input', async () => {
@@ -816,7 +814,7 @@ describe('third-party calls through AI Gateway REST', () => {
         },
       }),
     );
-    await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
+    await call(h, '/v1/messages', opusBody());
     expect(h.settles[0]).toMatchObject({
       inputTokens: 1150,
       outputTokens: 10,
@@ -836,11 +834,10 @@ describe('third-party calls through AI Gateway REST', () => {
 
   it('lowers a thinking budget with the output limit, or stops when it cannot', async () => {
     h.scan.value = scanRow({ modelUsed: OPUS, tokensOut: 118_500 });
-    h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
+    fetchOk();
     const thinking = { type: 'enabled', budget_tokens: 4000 };
     await call(h, '/v1/messages', { model: OPUS, max_tokens: 8000, thinking, messages: [] });
-    const [, init] = h.fetch.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toMatchObject({
+    expect(sent().body()).toMatchObject({
       max_tokens: 1500,
       thinking: { type: 'enabled', budget_tokens: 1499 },
     });
@@ -871,9 +868,7 @@ describe('third-party calls through AI Gateway REST', () => {
         { status: 400 },
       ),
     );
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const response = await call(h, '/v1/responses', { model: TERRA, input: 'x' });
-    spy.mockRestore();
     expect(response.status).toBe(400);
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
     const text = await response.text();
@@ -901,52 +896,37 @@ describe('third-party calls through AI Gateway REST', () => {
     ).toEqual({ kind: 'refused', category: 'cyber_policy' });
   });
 
-  it('reads a policy code only from the provider error object', () => {
-    expect(providerPolicyCode('{"error":{"code":"trusted_access_for_cyber"}}')).toBe(
-      'trusted_access_for_cyber',
-    );
-    expect(providerPolicyCode('[{"error":{"code":"cyber_policy"}}]')).toBe('cyber_policy');
-    expect(providerPolicyCode('{"error":{"code":"rate_limit_exceeded"}}')).toBeNull();
-    expect(providerPolicyCode('{"error":{"message":"cyber_policy"}}')).toBeNull();
-    expect(providerPolicyCode('overloaded')).toBeNull();
+  const nested = JSON.stringify({ error: { code: 'cyber_policy', message: 'flagged' } });
+  it.each([
+    // Only the provider error object carries a code.
+    ['{"error":{"code":"trusted_access_for_cyber"}}', 'trusted_access_for_cyber'],
+    ['[{"error":{"code":"cyber_policy"}}]', 'cyber_policy'],
+    ['{"error":{"code":"rate_limit_exceeded"}}', null],
+    ['{"error":{"message":"cyber_policy"}}', null],
+    ['overloaded', null],
+    // Other error envelopes.
+    ['{"errors":[{"code":"cyber_policy","message":"x"}]}', 'cyber_policy'],
+    ['{"error":[{"code":"cyber_policy"}]}', 'cyber_policy'],
+    ['{"error":{"type":"cyber_policy"}}', 'cyber_policy'],
+    [JSON.stringify({ errors: [{ code: 7000, message: nested }] }), 'cyber_policy'],
+    // An escaped echo of the request text is not a code.
+    [`{"error":{"message":"bad input: \\"cyber_policy\\" ${'x'.repeat(10)}`, null],
+    ['{"type":"error","error":{"type":"invalid_request_error"}}', null],
+  ])('reads the policy code of %s', (body, code) => {
+    expect(providerPolicyCode(body)).toBe(code);
   });
 
-  it('reads a policy code from other error envelopes and from a body cut short', () => {
-    expect(providerPolicyCode('{"errors":[{"code":"cyber_policy","message":"x"}]}')).toBe(
-      'cyber_policy',
-    );
-    expect(providerPolicyCode('{"error":[{"code":"cyber_policy"}]}')).toBe('cyber_policy');
-    expect(providerPolicyCode('{"error":{"type":"cyber_policy"}}')).toBe('cyber_policy');
-    const nested = JSON.stringify({ error: { code: 'cyber_policy', message: 'flagged' } });
-    expect(providerPolicyCode(JSON.stringify({ errors: [{ code: 7000, message: nested }] }))).toBe(
-      'cyber_policy',
-    );
+  it('reads a policy code from a body cut short', () => {
     const long = `{"error":{"code":"trusted_access_for_cyber","message":"${'x'.repeat(9000)}"}}`;
     expect(providerPolicyCode(long.slice(0, 8000))).toBe('trusted_access_for_cyber');
-    // An escaped echo of the request text is not a code.
-    expect(
-      providerPolicyCode(`{"error":{"message":"bad input: \\"cyber_policy\\" ${'x'.repeat(10)}`),
-    ).toBeNull();
-    expect(
-      providerPolicyCode('{"type":"error","error":{"type":"invalid_request_error"}}'),
-    ).toBeNull();
   });
 
   it('keeps a 402 with a policy code a credits stop', async () => {
     h.fetch.mockResolvedValue(new Response('{"error":{"code":"cyber_policy"}}', { status: 402 }));
-    const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
+    const response = await call(h, '/v1/messages', opusBody());
     expect(response.status).toBe(402);
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('credits');
     expect(h.failures.at(-1)?.reason).toBe('credits');
-  });
-
-  it('passes another upstream failure as a plain failure the runner retries', async () => {
-    h.fetch.mockResolvedValue(new Response('overloaded', { status: 529 }));
-    const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
-    expect(response.status).toBe(529);
-    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
-    expect(h.failures.at(-1)?.reason).toBe('upstream');
-    expect(h.settles[0]).toMatchObject({ actualNano: 0, inputTokens: 0, outputTokens: 0 });
   });
 });
 
@@ -971,21 +951,14 @@ describe('refusals before a call is sent', () => {
     expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(422);
 
     h.policy.value = onPolicy({
-      entitlement: {
-        checkedAt: '2026-11-18T11:00:00.000Z',
-        ok: true,
-        missing: [],
-        hosts: { openai: true, anthropic: false },
-      },
+      entitlement: passingEntitlement({ hosts: { openai: true, anthropic: false } }),
     });
     h.scan.value = scanRow({ modelUsed: OPUS });
-    expect(
-      (await call(h, '/v1/messages', { model: OPUS, max_tokens: 1, messages: [] })).status,
-    ).toBe(422);
+    expect((await call(h, '/v1/messages', opusBody({ max_tokens: 1 }))).status).toBe(422);
 
     h.policy.value = onPolicy();
     h.scan.value = scanRow({ modelUsed: OPUS, projectNoticeVersion: null });
-    const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 1, messages: [] });
+    const response = await call(h, '/v1/messages', opusBody({ max_tokens: 1 }));
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toMatchObject({
       error: 'provider notice not accepted',

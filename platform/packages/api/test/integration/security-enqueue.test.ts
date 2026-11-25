@@ -1,7 +1,4 @@
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq, sql } from 'drizzle-orm';
 import {
   afterAll,
@@ -14,17 +11,14 @@ import {
   vi,
 } from 'vite-plus/test';
 import { deleteProjectAssets } from '../../src/assets.ts';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { getDeploymentOperation, processDeploymentBatch } from '../../src/deployment-execution.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import app from '../../src/index.ts';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
   deploymentOperations,
   deployments,
   platformSettings,
   projects,
-  projectZeroTrust,
   securityPublicRequests,
   securityScans,
   users,
@@ -52,26 +46,12 @@ import {
   withTestTransaction,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import { saveSecurityPolicy, securityBindings, seedProtectedProject } from './security-fixtures.ts';
 import { setTestDb } from './setup.ts';
 
 let env: TestEnv;
 let onEnv: TestEnv;
 let pokes: number;
-
-function schedulerNamespace() {
-  return {
-    idFromName: (name: string) => ({ toString: () => name }),
-    get: () => ({
-      fetch: async (input: string | Request) => {
-        const url = new URL(typeof input === 'string' ? input : input.url);
-        if (url.pathname === '/poke') {
-          pokes++;
-        }
-        return Response.json({ ok: true });
-      },
-    }),
-  } as unknown as TestEnv['SECURITY_SCAN_SCHEDULER'];
-}
 
 beforeAll(async () => {
   env = await setupEnv();
@@ -80,14 +60,17 @@ afterAll(teardownEnv);
 beforeEach(async () => {
   await clearTables(env.db);
   pokes = 0;
-  onEnv = {
-    ...env,
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
-    SECURITY_SCAN_SCHEDULER: schedulerNamespace(),
-  };
+  onEnv = securityBindings(env, {
+    scheduler: {
+      fetch: async (input: string | Request) => {
+        const url = new URL(typeof input === 'string' ? input : input.url);
+        if (url.pathname === '/poke') {
+          pokes++;
+        }
+        return Response.json({ ok: true });
+      },
+    },
+  });
   mockCfApi();
 });
 afterEach(() => {
@@ -95,51 +78,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function savePolicy(mode: 'disabled' | 'public' | 'all', publicGate = false) {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode,
-    publicGate,
-    revision: 1,
-  });
+function savePolicy(mode: SecurityPolicy['mode'], publicGate = false) {
+  return saveSecurityPolicy(env, { mode, publicGate });
 }
 
-/** Installation Zero Trust on (not public-only), and the project settled protected. */
-async function protect(projectId: string, status: 'ready' | 'reconciling' = 'ready') {
-  await env.db
-    .insert(platformSettings)
-    .values({
-      key: 'zeroTrust.configuration',
-      value: {
-        version: 1,
-        revision: 1,
-        enabled: true,
-        protectNewProjects: true,
-        accountId: env.CF_ACCOUNT_ID,
-        teamDomain: 'https://company.cloudflareaccess.com',
-        identityProviderIds: ['idp-1'],
-        policyIds: ['policy-1'],
-        credential: { ciphertext: 'unused', iv: 'unused', keyVersion: 'v1' },
-        wildcardApplicationName: 'void-test-projects',
-        wildcardApplication: {
-          id: 'access-wildcard',
-          name: 'void-test-projects',
-          audience: 'access-audience',
-          destinations: ['*.void.app'],
-        },
-        operation: null,
-        lastError: null,
-        updatedAt: new Date().toISOString(),
-      },
-    })
-    .onConflictDoNothing();
-  await env.db.insert(projectZeroTrust).values({
-    project_id: projectId,
-    desired_protected: true,
-    effective_protected: true,
-    status,
-  });
-}
+/** The modules an inline deploy uploads. */
+const workerModules = () => [blobWorkerModule('index.js', new Blob(['export default {}']))];
 
 async function setup(slug?: string) {
   const user = await createTestUser(env.db, `owner-${slug ?? 'x'}-${crypto.randomUUID()}`);
@@ -272,7 +216,7 @@ describe('enqueue in the go-live transaction', () => {
   it('a protected project under public gets a skipped:protected row', async () => {
     await savePolicy('public');
     const { project } = await setup();
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     const deployment = await createTestDeployment(env.db, project.id);
     const row = await enqueue(project.id, deployment.id);
     expect(row).toMatchObject({ status: 'skipped' });
@@ -288,9 +232,7 @@ describe('enqueue in the go-live transaction', () => {
     expect((await scan(row!.scanId)).finished_at).not.toBeNull();
     // Compensation gets it back until its modules are copied.
     expect(await enqueue(project.id, deployment.id)).toEqual(row);
-    await finishSecurityScanEnqueue(onEnv, env.db, row, [
-      blobWorkerModule('index.js', new Blob(['export default {}'])),
-    ]);
+    await finishSecurityScanEnqueue(onEnv, env.db, row, workerModules());
     expect(await enqueue(project.id, deployment.id)).toBeNull();
   });
 
@@ -299,7 +241,7 @@ describe('enqueue in the go-live transaction', () => {
     const { project } = await setup();
     const old = await createTestDeployment(env.db, project.id);
     const waiting = await enqueue(project.id, old.id);
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     const deployment = await createTestDeployment(env.db, project.id);
     const skipped = await enqueue(project.id, deployment.id);
     expect(skipped).toMatchObject({ status: 'skipped' });
@@ -313,14 +255,14 @@ describe('enqueue in the go-live transaction', () => {
   it('scans a protected project under all, and a reconciling one under public (edge #16)', async () => {
     await savePolicy('all');
     const first = await setup();
-    await protect(first.project.id);
+    await seedProtectedProject(env, first.project.id);
     const one = await createTestDeployment(env.db, first.project.id);
     expect(await enqueue(first.project.id, one.id)).toMatchObject({ status: 'pending_input' });
     expect(await scans(first.project.id)).toMatchObject([{ public_at_enqueue: false }]);
 
     await savePolicy('public');
     const second = await setup();
-    await protect(second.project.id, 'reconciling');
+    await seedProtectedProject(env, second.project.id, 'reconciling');
     const two = await createTestDeployment(env.db, second.project.id);
     expect(await enqueue(second.project.id, two.id)).toMatchObject({ status: 'pending_input' });
     expect(await scans(second.project.id)).toMatchObject([{ public_at_enqueue: true }]);
@@ -329,7 +271,7 @@ describe('enqueue in the go-live transaction', () => {
   it('bad Zero Trust data reads as public', async () => {
     await savePolicy('public');
     const { project } = await setup();
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     await env.db
       .update(platformSettings)
       .set({ value: { version: 'broken' } })
@@ -341,7 +283,7 @@ describe('enqueue in the go-live transaction', () => {
   it('an open public request makes the deploy its gate scan, also under public', async () => {
     await savePolicy('public', true);
     const { project } = await setup();
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     const deployment = await createTestDeployment(env.db, project.id);
     await env.db.insert(securityPublicRequests).values({
       id: 'spr_open',
@@ -498,9 +440,7 @@ describe('project scan rule (M34)', () => {
     // Like skipped:protected: compensation gets it back until its modules are copied, so a
     // later gate scan can still read the code.
     expect(await enqueue(project.id, deployment.id)).toEqual(row);
-    await finishSecurityScanEnqueue(onEnv, env.db, row, [
-      blobWorkerModule('index.js', new Blob(['export default {}'])),
-    ]);
+    await finishSecurityScanEnqueue(onEnv, env.db, row, workerModules());
     expect((await scan(row!.scanId)).input_r2_key).toBe(
       securityScanInputPrefix(project.id, deployment.id),
     );
@@ -511,7 +451,7 @@ describe('project scan rule (M34)', () => {
   it('never still writes the gate scan of an open public request (D46)', async () => {
     await savePolicy('public', true);
     const { project } = await setup();
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     await setRule(project.id, 'never');
     const deployment = await createTestDeployment(env.db, project.id);
     await env.db.insert(securityPublicRequests).values({
@@ -533,7 +473,7 @@ describe('project scan rule (M34)', () => {
   it('always scans a protected project under public; Off still scans nothing', async () => {
     await savePolicy('public');
     const { project } = await setup();
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     await setRule(project.id, 'always');
     const deployment = await createTestDeployment(env.db, project.id);
     expect(await enqueue(project.id, deployment.id)).toMatchObject({ status: 'pending_input' });
@@ -595,7 +535,7 @@ describe('project scan rule (M34)', () => {
   it('the claim of a protected project under public runs with always', async () => {
     await savePolicy('public');
     const { project } = await setup();
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     const deployment = await createTestDeployment(env.db, project.id);
     const skipped = await queued(project.id, deployment.id, 'deploy');
     await expect(claim(skipped)).resolves.toMatchObject({ reason: 'protected' });
@@ -630,9 +570,7 @@ describe('after the commit', () => {
       { userId: admin.id, preview: false },
     );
     expect(off).toMatchObject({ ok: true, canceledScans: 1 });
-    await finishSecurityScanEnqueue(onEnv, env.db, row, [
-      blobWorkerModule('index.js', new Blob(['export default {}'])),
-    ]);
+    await finishSecurityScanEnqueue(onEnv, env.db, row, workerModules());
     expect(await scan(row!.scanId)).toMatchObject({
       status: 'canceled',
       status_reason: 'policy_off',
@@ -653,9 +591,7 @@ describe('after the commit', () => {
     const newer = await createTestDeployment(env.db, project.id);
     const row = await enqueue(project.id, deployment.id);
     await enqueue(project.id, newer.id);
-    await finishSecurityScanEnqueue(onEnv, env.db, row, [
-      blobWorkerModule('index.js', new Blob(['export default {}'])),
-    ]);
+    await finishSecurityScanEnqueue(onEnv, env.db, row, workerModules());
     expect(await scan(row!.scanId)).toMatchObject({ status: 'superseded', input_r2_key: null });
     const listed = await env.STATIC_ASSETS_R2.list({
       prefix: securityScanInputPrefix(project.id, deployment.id),
@@ -733,12 +669,10 @@ describe('after the commit', () => {
   it('a skipped:protected row keeps a copy of its modules for a later catch-up', async () => {
     await savePolicy('public');
     const { project } = await setup();
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     const deployment = await createTestDeployment(env.db, project.id);
     const row = await enqueue(project.id, deployment.id);
-    await finishSecurityScanEnqueue(onEnv, env.db, row, [
-      blobWorkerModule('index.js', new Blob(['export default {}'])),
-    ]);
+    await finishSecurityScanEnqueue(onEnv, env.db, row, workerModules());
     expect(await scan(row!.scanId)).toMatchObject({
       status: 'skipped',
       input_r2_key: securityScanInputPrefix(project.id, deployment.id),
@@ -998,7 +932,7 @@ describe('real deploys', () => {
     await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${hash}`, bytes.buffer);
     const queuedEnv = {
       ...env,
-      SECURITY_SCAN_SCHEDULER: schedulerNamespace(),
+      SECURITY_SCAN_SCHEDULER: onEnv.SECURITY_SCAN_SCHEDULER,
       DEPLOYMENTS_QUEUE: { send: vi.fn(async () => {}) },
     } as unknown as ApiEnv['Bindings'];
     const admitted = await post(queuedEnv, project.id, user.jwt, crypto.randomUUID());

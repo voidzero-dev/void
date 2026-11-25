@@ -1,16 +1,9 @@
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
-  platformSettings,
   projects,
   projectSecuritySettings,
-  projectZeroTrust,
   securityPlatformSpend,
   securityProjectSpend,
   securityScans,
@@ -41,6 +34,7 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import { saveSecurityPolicy, seedProtectedProject } from './security-fixtures.ts';
 
 const CF = '@cf/zai-org/glm-5.3';
 const FLASH = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
@@ -59,51 +53,9 @@ beforeEach(async () => {
   await clearTables(env.db);
 });
 
-async function savePolicy(overrides: Partial<SecurityPolicy> = {}) {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    revision: 1,
-    // These tests price a glm-5.3 reserve; the product default is deepseek flash.
-    defaultModel: CF,
-    ...overrides,
-  });
-}
-
-async function protect(projectId: string) {
-  await env.db
-    .insert(platformSettings)
-    .values({
-      key: 'zeroTrust.configuration',
-      value: {
-        version: 1,
-        revision: 1,
-        enabled: true,
-        protectNewProjects: true,
-        accountId: env.CF_ACCOUNT_ID,
-        teamDomain: 'https://company.cloudflareaccess.com',
-        identityProviderIds: ['idp-1'],
-        policyIds: ['policy-1'],
-        credential: { ciphertext: 'unused', iv: 'unused', keyVersion: 'v1' },
-        wildcardApplicationName: 'void-test-projects',
-        wildcardApplication: {
-          id: 'access-wildcard',
-          name: 'void-test-projects',
-          audience: 'access-audience',
-          destinations: ['*.void.app'],
-        },
-        operation: null,
-        lastError: null,
-        updatedAt: new Date().toISOString(),
-      },
-    })
-    .onConflictDoNothing();
-  await env.db.insert(projectZeroTrust).values({
-    project_id: projectId,
-    desired_protected: true,
-    effective_protected: true,
-    status: 'ready',
-  });
+function savePolicy(overrides: Partial<SecurityPolicy> = {}) {
+  // These tests price a glm-5.3 reserve; the product default is deepseek flash.
+  return saveSecurityPolicy(env, { defaultModel: CF, ...overrides });
 }
 
 async function setup(login: string) {
@@ -304,8 +256,8 @@ describe('scheduler on real SQL', () => {
     await savePolicy({ mode: 'public' });
     const { project } = await setup('owner');
     const gated = await setup('gated');
-    await protect(project.id);
-    await protect(gated.project.id);
+    await seedProtectedProject(env, project.id);
+    await seedProtectedProject(env, gated.project.id);
     await queueScan('ss_protected', project.id);
     await queueScan('ss_gate', gated.project.id, { trigger: 'gate' });
     await useFlash(gated.project.id);
@@ -325,7 +277,7 @@ describe('scheduler on real SQL', () => {
   it('under all, still runs a protected project', async () => {
     await savePolicy({ mode: 'all' });
     const { project } = await setup('owner');
-    await protect(project.id);
+    await seedProtectedProject(env, project.id);
     await queueScan('ss_all', project.id);
     const run = await runSecurityScanQueue(queueDeps(fakeController().controller));
     expect(run.started).toEqual(['ss_all']);
@@ -574,14 +526,5 @@ describe('scheduler on real SQL', () => {
     });
     expect(await platformReserved()).toBe(FLASH_RESERVE_NANO);
     await expect(releaseStrandedSecurityScanReserves(env.db)).resolves.toBe(0);
-  });
-
-  it('starts nothing while the policy is Off', async () => {
-    await savePolicy({ mode: 'disabled' });
-    const { project } = await setup('owner');
-    await queueScan('ss_off', project.id);
-    const fake = fakeController();
-    expect((await runSecurityScanQueue(queueDeps(fake.controller))).started).toEqual([]);
-    expect(await scan('ss_off')).toMatchObject({ status: 'queued' });
   });
 });

@@ -3,6 +3,7 @@ import {
   chooseSecurityTier,
   SECURITY_FULL_REASON_NOTES,
   securityCoverageLabel,
+  securityFallbackFullReason,
 } from '../../src/security/input/tier.ts';
 
 describe('chooseSecurityTier', () => {
@@ -36,6 +37,46 @@ describe('chooseSecurityTier', () => {
         sourceDiff: true,
       }).tier,
     ).toBe('source_diff');
+  });
+
+  it('runs a sweep as a full scan and a backfill by the base rule', () => {
+    const base = { baseDeploymentId: 'dpl_1', baseSnapshot: true };
+    expect(chooseSecurityTier({ ...base, trigger: 'sweep' })).toEqual({
+      tier: 'full',
+      fullReason: 'sweep',
+    });
+    expect(chooseSecurityTier({ ...base, trigger: 'backfill' })).toEqual({
+      tier: 'built_diff',
+      fullReason: null,
+    });
+    expect(
+      chooseSecurityTier({ trigger: 'backfill', baseDeploymentId: null, baseSnapshot: false }),
+    ).toEqual({ tier: 'full', fullReason: 'first_scan' });
+    expect(
+      securityCoverageLabel({
+        tier: 'full',
+        coverage: 'complete',
+        coverageNotes: ['sweep'],
+        filesScanned: 10,
+        backlogFiles: 0,
+      }),
+    ).toBe('full scan (sweep)');
+  });
+
+  it('covers the same changes: the base rule, or the full scan a rescan or sweep was', () => {
+    const base = { trigger: 'fallback', baseDeploymentId: 'dpl_1', baseSnapshot: true } as const;
+    expect(chooseSecurityTier(base)).toEqual({ tier: 'built_diff', fullReason: null });
+    expect(chooseSecurityTier({ ...base, fallbackOf: 'rescan' })).toEqual({
+      tier: 'full',
+      fullReason: 'rescan',
+    });
+    expect(chooseSecurityTier({ ...base, fallbackOf: 'sweep' })).toEqual({
+      tier: 'full',
+      fullReason: 'sweep',
+    });
+    expect(securityFallbackFullReason(['rescan'])).toBe('rescan');
+    expect(securityFallbackFullReason(['sweep'])).toBe('sweep');
+    expect(securityFallbackFullReason(['no-changes'])).toBeNull();
   });
 
   it('always runs an operator rescan in full (edge #43)', () => {

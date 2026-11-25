@@ -1,7 +1,4 @@
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
+import { defaultSecurityPolicy } from '@void/platform/security-policy';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import {
@@ -17,7 +14,7 @@ import {
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
-import { getPlatformSetting, setPlatformSetting } from '../../src/platform-settings.ts';
+import { getPlatformSetting } from '../../src/platform-settings.ts';
 import {
   operatorEvents,
   projectZeroTrust,
@@ -30,17 +27,18 @@ import {
 import { securityScanReserveNano } from '../../src/security/budget.ts';
 import { cancelSecurityScanRows } from '../../src/security/queue.ts';
 import { projectSecuritySettings, securityProjectEvents } from '../../src/security/schema.ts';
-import { configurePlatformZeroTrust } from '../../src/zero-trust/installation.ts';
 import { setProjectZeroTrustProtection } from '../../src/zero-trust/project.ts';
-import {
-  clearTables,
-  createTestDeployment,
-  createTestProject,
-  createTestUser,
-  setupEnv,
-  teardownEnv,
-} from './helpers.ts';
+import { clearTables, createTestUser, setupEnv, teardownEnv } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import {
+  freshEntitlement,
+  insertSecurityScan,
+  liveProject,
+  saveSecurityPolicy,
+  securityBindings,
+  storedSecurityPolicy,
+} from './security-fixtures.ts';
+import { askPublic, setupGate } from './security-gate-fixtures.ts';
 
 let env: TestEnv;
 let onEnv: TestEnv;
@@ -54,22 +52,15 @@ afterAll(teardownEnv);
 beforeEach(async () => {
   await clearTables(env.db);
   onEnv = {
-    ...env,
-    SITE_DOMAIN: 'apps.example.com',
-    PLATFORM_INSTALLATION_ID: 'installation-test',
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
-    SECURITY_SCAN_SCHEDULER: {
-      idFromName: (name: string) => ({ toString: () => name }),
-      get: () => ({
-        fetch: async () => Response.json({ ok: true }),
+    ...securityBindings(env, {
+      scheduler: {
         cancelScans: async (scanIds: Array<string>, reason: string) =>
           (await cancelSecurityScanRows(env.db, { scanIds }, reason)).length,
-      }),
-    },
-  } as unknown as TestEnv;
+      },
+    }),
+    SITE_DOMAIN: 'apps.example.com',
+    PLATFORM_INSTALLATION_ID: 'installation-test',
+  };
   const admin = await createTestUser(env.db, 'sec-admin', 'github', undefined, 'free', 'admin');
   adminId = admin.id;
   cookie = admin.adminJwt;
@@ -113,109 +104,22 @@ async function post(
   );
 }
 
-async function savePolicy(overrides: Partial<SecurityPolicy> = {}) {
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    revision: 1,
-    ...overrides,
-  });
-}
-
 async function readPolicy(): Promise<SecurityPolicy> {
-  return (await getPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY)) as SecurityPolicy;
-}
-
-async function projectWithDeployment(slug = 'acme-web') {
-  const owner = await createTestUser(env.db, `owner-${slug}`);
-  const project = await createTestProject(env.db, owner.id, slug);
-  const deployment = await createTestDeployment(env.db, project.id, 'live');
-  return { owner, project, deployment };
-}
-
-// A trimmed copy of the Zero Trust fake the public gate suite uses.
-function accessApi() {
-  const applications = new Map<string, Record<string, unknown>>();
-  let next = 1;
-  return vi.fn(async (request: string | URL | Request, init?: RequestInit) => {
-    const url = new URL(request.toString());
-    const path = url.pathname.split('/access/')[1] ?? '';
-    if (path === 'organizations') {
-      return Response.json({
-        success: true,
-        result: { auth_domain: 'company.cloudflareaccess.com' },
-      });
-    }
-    if (path === 'identity_providers/idp-1') {
-      return Response.json({ success: true, result: { id: 'idp-1', name: 'Company SSO' } });
-    }
-    if (path === 'policies/policy-1') {
-      return Response.json({
-        success: true,
-        result: {
-          id: 'policy-1',
-          decision: 'allow',
-          include: [{ email_domain: { domain: 'example.com' } }],
-        },
-      });
-    }
-    if (path === 'apps' && init?.method === 'POST') {
-      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      const id = `app-${next++}`;
-      const application = { ...body, id, aud: `aud-${id}` };
-      applications.set(id, application);
-      return Response.json({ success: true, result: application });
-    }
-    if (path === 'apps') {
-      return Response.json({ success: true, result: [...applications.values()] });
-    }
-    const match = path.match(/^apps\/([^/]+)$/);
-    if (match && init?.method === 'PUT') {
-      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      const application = { ...body, id: match[1], aud: `aud-${match[1]}` };
-      applications.set(match[1], application);
-      return Response.json({ success: true, result: application });
-    }
-    if (match && init?.method === 'DELETE') {
-      applications.delete(match[1]);
-      return Response.json({ success: true, result: { id: match[1] } });
-    }
-    if (match) {
-      const application = applications.get(match[1]);
-      return application
-        ? Response.json({ success: true, result: application })
-        : Response.json({ success: false, errors: [{ message: 'not found' }] }, { status: 404 });
-    }
-    throw new Error(`unexpected Cloudflare request: ${url}`);
-  });
+  return (await storedSecurityPolicy(env)) as unknown as SecurityPolicy;
 }
 
 async function gateSetup() {
-  vi.stubGlobal('fetch', accessApi());
-  await configurePlatformZeroTrust(onEnv as unknown as ApiEnv['Bindings'], env.db, {
-    apiToken: 'access-management-token',
-    identityProviderIds: ['idp-1'],
-    policyIds: ['policy-1'],
-    protectNewProjects: true,
-    existingProjects: 'public',
+  const s = await setupGate(env);
+  await askPublic(s);
+  return { owner: s.user, project: s.project, deployment: s.deployment };
+}
+
+function addScan(projectId: string, deploymentId: string, status: 'queued' | 'succeeded') {
+  return insertSecurityScan(env, projectId, deploymentId, {
+    id: `ss_${status}`,
+    status,
+    finished_at: status === 'queued' ? null : new Date().toISOString(),
   });
-  await savePolicy({ publicGate: true });
-  const { owner, project, deployment } = await projectWithDeployment();
-  await env.ROUTING.put(
-    project.slug,
-    JSON.stringify({
-      projectId: project.id,
-      userId: owner.id,
-      workerName: `user-${project.slug}-${deployment.id}`,
-      version: deployment.id,
-    }),
-  );
-  const platform = onEnv as unknown as ApiEnv['Bindings'];
-  await setProjectZeroTrustProtection(platform, env.db, project.id, true);
-  await setProjectZeroTrustProtection(platform, env.db, project.id, false, {
-    actorUserId: owner.id,
-  });
-  return { owner, project, deployment };
 }
 
 describe('admin security: capability off', () => {
@@ -237,7 +141,7 @@ describe('admin security: capability off', () => {
 
 describe('admin security: banners and badge', () => {
   it('shows the failing probe and the platform cap on any admin page', async () => {
-    await savePolicy({
+    await saveSecurityPolicy(env, {
       entitlement: {
         checkedAt: new Date().toISOString(),
         ok: false,
@@ -264,15 +168,10 @@ describe('admin security: banners and badge', () => {
 
 describe('admin security: settings', () => {
   it('previews first, applies by revision and keeps no free text in the audit row', async () => {
-    await savePolicy({
+    await saveSecurityPolicy(env, {
       mode: 'disabled',
       revision: 3,
-      entitlement: {
-        checkedAt: new Date().toISOString(),
-        ok: true,
-        missing: [],
-        hosts: { openai: false, anthropic: false },
-      },
+      entitlement: freshEntitlement({ openai: false, anthropic: false }),
     });
     const page = text(await (await get('/admin/security')).text());
     expect(page).toContain('Public projects only');
@@ -294,7 +193,7 @@ describe('admin security: settings', () => {
   });
 
   it('applies a budget change after its preview', async () => {
-    await savePolicy({ revision: 4 });
+    await saveSecurityPolicy(env, { revision: 4 });
     const fields = {
       expectedRevision: '4',
       platformCapOn: 'yes',
@@ -326,8 +225,8 @@ describe('admin security: settings', () => {
 
 describe('admin security: findings, scans and requests', () => {
   it('lists urgent findings oldest first and the scans of the month', async () => {
-    await savePolicy();
-    const { project, deployment } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project, deployment } = await liveProject(env);
     await env.db.insert(securityFindings).values([
       {
         id: 'sf_1',
@@ -422,8 +321,8 @@ describe('admin security: findings, scans and requests', () => {
 
 describe('admin security: project detail', () => {
   it('shows the Security section, sets the model and the limit', async () => {
-    await savePolicy();
-    const { project } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project } = await liveProject(env);
     const page = text(await (await get(`/admin/projects/${project.id}`)).text());
     expect(page).toContain('Security');
     expect(page).toContain('no urgent findings');
@@ -452,8 +351,8 @@ describe('admin security: project detail', () => {
   });
 
   it('sets the project scan rule (M34) and shows why scans do not apply', async () => {
-    await savePolicy();
-    const { project } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project } = await liveProject(env);
     const page = text(await (await get(`/admin/projects/${project.id}`)).text());
     expect(page).toContain('Scan rule for this project');
     const set = await post(`/admin/projects/${project.id}/security/policy`, { override: 'never' });
@@ -478,7 +377,7 @@ describe('admin security: project detail', () => {
   });
 
   it('has no Security section while the capability is off', async () => {
-    const { project } = await projectWithDeployment();
+    const { project } = await liveProject(env);
     const page = text(await (await get(`/admin/projects/${project.id}`, env)).text());
     expect(page).not.toContain('Set model');
     expect((await post(`/admin/projects/${project.id}/security/model`, {}, env)).status).toBe(501);
@@ -527,7 +426,7 @@ describe('admin security: project detail', () => {
     expect(on).toContain('first (Security → Settings)');
     expect(on).toMatch(/aria-disabled="true"[^>]*>(<[^>]+>)*Disable Zero Trust/);
 
-    await savePolicy({ publicGate: false });
+    await saveSecurityPolicy(env, { publicGate: false });
     const off = text(await (await get('/admin/zero-trust')).text());
     expect(off).not.toContain('first (Security → Settings)');
   });
@@ -551,22 +450,9 @@ function withScheduler(overrides: Record<string, unknown>): TestEnv {
   } as unknown as TestEnv;
 }
 
-async function addScan(projectId: string, deploymentId: string, status: 'queued' | 'succeeded') {
-  const id = `ss_${status}`;
-  await env.db.insert(securityScans).values({
-    id,
-    project_id: projectId,
-    deployment_id: deploymentId,
-    status,
-    trigger: 'deploy',
-    finished_at: status === 'queued' ? null : new Date().toISOString(),
-  });
-  return id;
-}
-
 describe('admin security: every write refuses while the capability is off', () => {
   it('answers 501 to each security POST and writes no audit row', async () => {
-    const { project } = await projectWithDeployment();
+    const { project } = await liveProject(env);
     const paths = [
       '/admin/security/policy',
       '/admin/security/budget',
@@ -629,7 +515,7 @@ describe('admin security: policy apply', () => {
   }
 
   it('applies a change and audits it without the form text', async () => {
-    await savePolicy({ mode: 'all', revision: 5 });
+    await saveSecurityPolicy(env, { mode: 'all', revision: 5 });
     const response = await post('/admin/security/policy', await applyFields({ mode: 'public' }));
     expect(response.status).toBe(302);
     expect(await readPolicy()).toMatchObject({ mode: 'public', revision: 6 });
@@ -637,7 +523,7 @@ describe('admin security: policy apply', () => {
   });
 
   it('runs the probe before leaving disabled and keeps the policy when it fails', async () => {
-    await savePolicy({ mode: 'disabled', revision: 2 });
+    await saveSecurityPolicy(env, { mode: 'disabled', revision: 2 });
     const response = await post('/admin/security/policy', await applyFields({ mode: 'public' }));
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(await readPolicy()).toMatchObject({ mode: 'disabled' });
@@ -648,14 +534,9 @@ describe('admin security: policy apply', () => {
 
   it('pokes the scheduler after canceling requests, and not otherwise', async () => {
     await gateSetup();
-    await savePolicy({
+    await saveSecurityPolicy(env, {
       publicGate: true,
-      entitlement: {
-        checkedAt: new Date().toISOString(),
-        ok: true,
-        missing: [],
-        hosts: { openai: false, anthropic: false },
-      },
+      entitlement: freshEntitlement({ openai: false, anthropic: false }),
     });
     const poke = vi.fn(async () => Response.json({ ok: true }));
     const bindings = withScheduler({ fetch: poke });
@@ -679,7 +560,7 @@ describe('admin security: policy apply', () => {
 
 describe('admin security: probe and scan cancel', () => {
   it('runs the probe and audits it', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const response = await post('/admin/security/probe');
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toBe('/admin/security');
@@ -688,8 +569,8 @@ describe('admin security: probe and scan cancel', () => {
   });
 
   it('cancels a waiting scan', async () => {
-    await savePolicy();
-    const { project, deployment } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project, deployment } = await liveProject(env);
     const id = await addScan(project.id, deployment.id, 'queued');
     const response = await post(`/admin/security/scans/${id}/cancel`);
     expect(response.status).toBe(302);
@@ -699,8 +580,8 @@ describe('admin security: probe and scan cancel', () => {
   });
 
   it('answers 404 for an unknown scan and 409 for a finished one', async () => {
-    await savePolicy();
-    const { project, deployment } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project, deployment } = await liveProject(env);
     const done = await addScan(project.id, deployment.id, 'succeeded');
     expect((await post('/admin/security/scans/ss_missing/cancel')).status).toBe(404);
     expect((await post(`/admin/security/scans/${done}/cancel`)).status).toBe(409);
@@ -711,9 +592,9 @@ describe('admin security: probe and scan cancel', () => {
   });
 
   it('answers 502 and leaves the scan alone when the scheduler fails', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { project, deployment } = await projectWithDeployment();
+    const { project, deployment } = await liveProject(env);
     const id = await addScan(project.id, deployment.id, 'queued');
     const bindings = withScheduler({
       cancelScans: async () => {
@@ -729,8 +610,8 @@ describe('admin security: probe and scan cancel', () => {
 
 describe('admin security: project writes', () => {
   it('queues a rescan, pokes the scheduler and audits it', async () => {
-    await savePolicy();
-    const { project, deployment } = await projectWithDeployment();
+    await saveSecurityPolicy(env);
+    const { project, deployment } = await liveProject(env);
     await env.STATIC_ASSETS_R2.put(
       `security-scans/${project.id}/${deployment.id}/modules.json`,
       '[]',
@@ -753,7 +634,7 @@ describe('admin security: project writes', () => {
   });
 
   it('answers 404 for an unknown project on every project route', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     for (const [route, fields] of [
       ['model', { model: '@cf/zai-org/glm-5.3' }],
       ['budget', { monthlyUsd: '5' }],
@@ -825,7 +706,7 @@ describe('admin security: mark bypasses seen', () => {
 
 describe('admin security: paging', () => {
   it('accepts a whole page number and refuses anything else', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     expect((await get('/admin/security/scans?page=2')).status).toBe(200);
     for (const bad of ['0', '-1', '1e3', '%202', '0x10', '1.5', '1000001']) {
       expect([bad, (await get(`/admin/security/scans?page=${bad}`)).status]).toEqual([bad, 400]);
@@ -851,11 +732,11 @@ describe('admin security: completeness review gaps', () => {
   }
 
   it('warns in Settings while few findings are confirmed (PRD §8.1)', async () => {
-    await savePolicy();
+    await saveSecurityPolicy(env);
     const copy = 'Few findings are confirmed; most results are leads that need a human look.';
     // No findings yet: the target is not met.
     expect(text(await (await get('/admin/security')).text())).toContain(copy);
-    const { project } = await projectWithDeployment();
+    const { project } = await liveProject(env);
     await env.db
       .insert(securityFindings)
       .values([
@@ -869,7 +750,7 @@ describe('admin security: completeness review gaps', () => {
   });
 
   it('shows the platform cap as used up once the next default scan no longer fits', async () => {
-    await savePolicy({
+    await saveSecurityPolicy(env, {
       budgets: { ...defaultSecurityPolicy().budgets, platformCapOn: true, platformMonthlyUsd: 100 },
     });
     const policy = await readPolicy();
@@ -908,16 +789,11 @@ describe('admin security: completeness review gaps', () => {
   });
 
   it('badges a model refused in over 30% of its recent scans as High refusal (PRD §16)', async () => {
-    await savePolicy({
-      entitlement: {
-        checkedAt: new Date().toISOString(),
-        ok: true,
-        missing: [],
-        hosts: { openai: false, anthropic: false },
-      },
+    await saveSecurityPolicy(env, {
+      entitlement: freshEntitlement({ openai: false, anthropic: false }),
     });
     const policy = await readPolicy();
-    const { project, deployment } = await projectWithDeployment();
+    const { project, deployment } = await liveProject(env);
     const finished = new Date().toISOString();
     await env.db.insert(securityScans).values(
       Array.from({ length: 10 }, (_, index) => ({

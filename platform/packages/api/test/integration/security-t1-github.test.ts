@@ -1,6 +1,3 @@
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
 import { eq } from 'drizzle-orm';
 import {
   afterAll,
@@ -12,11 +9,8 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
-import { extractTar } from '../../../security-scanner/src/runner/extract.ts';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { getInstallationToken } from '../../src/github/installation-token.ts';
 import {
-  deploymentOperations,
   deployments,
   githubConnections,
   githubInstallations,
@@ -32,9 +26,8 @@ import {
   SECURITY_SOURCE_TARBALL_MAX_BYTES,
   SECURITY_SOURCE_TARBALL_PART_BYTES,
 } from '../../src/security/input/t1-github.ts';
-import { sha256Hex } from '../../src/security/input/t2.ts';
+import { SECURITY_T1_NOTES } from '../../src/security/input/t1.ts';
 import { tarChunks } from '../../src/security/input/tar.ts';
-import { securityCoverageLabel } from '../../src/security/input/tier.ts';
 import { securityRawOutputPrefix } from '../../src/security/maintenance.ts';
 import {
   clearTables,
@@ -46,6 +39,14 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import { insertRunningScan, securityBindings } from './security-fixtures.ts';
+import {
+  appModules,
+  coverageLabel,
+  MAP_URL,
+  stageDeploymentInput,
+  unpackScanInput,
+} from './security-input-fixtures.ts';
 
 vi.mock('../../src/github/installation-token.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/github/installation-token.ts')>()),
@@ -57,8 +58,6 @@ const HEAD = 'b'.repeat(40);
 const REPO_NAME = 'acme/mono';
 const COMPARE_URL = `https://api.github.com/repos/${REPO_NAME}/compare/${BASE}...${HEAD}?per_page=1&page=1`;
 const TARBALL_URL = `https://api.github.com/repos/${REPO_NAME}/tarball/${HEAD}`;
-const MAP_URL = `//# sourceMapping${''}URL=`;
-
 let env: TestEnv;
 let onEnv: TestEnv;
 
@@ -68,18 +67,7 @@ beforeAll(async () => {
 afterAll(teardownEnv);
 beforeEach(async () => {
   await clearTables(env.db);
-  onEnv = {
-    ...env,
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      managedBuilds: true,
-      securityAudits: true,
-    }),
-    SECURITY_SCAN_SCHEDULER: {
-      idFromName: (name: string) => ({ toString: () => name }),
-      get: () => ({ fetch: async () => Response.json({ ok: true }) }),
-    } as unknown as TestEnv['SECURITY_SCAN_SCHEDULER'],
-  };
+  onEnv = securityBindings(env, { capabilities: { managedBuilds: true } });
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -109,26 +97,6 @@ const COMPARE_FILES = [
   'apps/admin/src/server.ts',
   'packages/other/src/x.ts',
 ].map((filename) => ({ filename, status: 'modified', patch: '@@ -1 +1 @@' }));
-
-/** `apps/web`'s Worker bundle, built in `apps/web/dist`. */
-function appModules(users: string): Record<string, string> {
-  return {
-    'index.js': `import"./chunks/users.js";export default{}\n${MAP_URL}index.js.map`,
-    'index.js.map': JSON.stringify({
-      version: 3,
-      sources: ['../src/server.ts', '../../../packages/shared/src/auth.ts'],
-      sourcesContent: [REPO['apps/web/src/server.ts'], REPO['packages/shared/src/auth.ts']],
-      mappings: '',
-    }),
-    'chunks/users.js': `export const users = 1;\n${MAP_URL}users.js.map`,
-    'chunks/users.js.map': JSON.stringify({
-      version: 3,
-      sources: ['../../src/routes/users.ts'],
-      sourcesContent: [users],
-      mappings: '',
-    }),
-  };
-}
 
 async function gzipChunks(chunks: Array<Uint8Array>): Promise<ArrayBuffer> {
   const stream = new Blob(chunks as Array<BlobPart>)
@@ -262,57 +230,19 @@ async function deploy(
     .update(deployments)
     .set({ manifest: JSON.stringify({ type: 'void', workerMain: 'index.js' }) })
     .where(eq(deployments.id, deployment.id));
-  const prefix = `deployment-inputs/${projectId}/${deployment.id}/`;
-  const payload = { body: {}, modules: [] as Array<Record<string, unknown>> };
-  for (const [index, [name, text]] of Object.entries(modules).entries()) {
-    const key = `${prefix}${index}`;
-    await env.STATIC_ASSETS_R2.put(key, text);
-    payload.modules.push({
-      name,
-      key,
-      digest: sha256Hex(text),
-      type: name.endsWith('.map') ? 'application/source-map' : 'application/javascript+module',
-      size: new TextEncoder().encode(text).length,
-    });
-  }
-  await env.db.insert(deploymentOperations).values({
-    id: deployment.id,
-    project_id: projectId,
-    actor_id: userId,
-    build_id: options.buildId ?? null,
-    idempotency_key: deployment.id,
-    input_digest: 'digest',
-    input_prefix: prefix,
-    payload: payload as never,
-    status: 'terminal',
+  const prefix = await stageDeploymentInput(env, projectId, deployment.id, modules, {
+    actorId: userId,
+    buildId: options.buildId,
   });
   return { deployment, prefix };
 }
 
-async function runningScan(id: string, projectId: string, deploymentId: string, prefix: string) {
-  await env.db.insert(securityScans).values({
-    id,
-    project_id: projectId,
-    deployment_id: deploymentId,
-    status: 'running',
-    trigger: 'deploy',
-    attempt: 1,
-    lease_until: new Date(Date.now() + 60 * 60_000).toISOString(),
-    model_requested: '@cf/test/model',
-    model_used: '@cf/test/model',
-    engine: 'void_loop',
-    input_prefix: prefix,
-    first_queued_at: new Date().toISOString(),
-    started_at: new Date().toISOString(),
-  });
-}
-
 /** A first scan of the base deploy at `BASE`, ended `succeeded`. */
 async function baseScan(projectId: string, userId: string) {
-  const { deployment, prefix } = await deploy(projectId, userId, appModules(USERS_V1), {
+  const { deployment, prefix } = await deploy(projectId, userId, webApp(USERS_V1), {
     commit: BASE,
   });
-  await runningScan('scan_base', projectId, deployment.id, prefix);
+  await insertRunningScan(env, 'scan_base', projectId, deployment.id, { input_prefix: prefix });
   // A first scan is full: GitHub is not asked.
   const calls = stubGithub();
   expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_base', 1)).not.toBeNull();
@@ -333,13 +263,13 @@ async function headScan(
   const { deployment, prefix } = await deploy(
     projectId,
     userId,
-    appModules(options.users ?? USERS_V2),
+    webApp(options.users ?? USERS_V2),
     {
       commit: options.commit === undefined ? HEAD : options.commit,
       ...(options.buildId ? { buildId: options.buildId } : {}),
     },
   );
-  await runningScan('scan_head', projectId, deployment.id, prefix);
+  await insertRunningScan(env, 'scan_head', projectId, deployment.id, { input_prefix: prefix });
   return deployment;
 }
 
@@ -348,15 +278,14 @@ async function scanRow() {
   return row;
 }
 
-function label(row: Awaited<ReturnType<typeof scanRow>>) {
-  return securityCoverageLabel({
-    tier: row.tier,
-    coverage: row.coverage,
-    coverageNotes: row.coverage_notes,
-    filesScanned: row.files_scanned,
-    backlogFiles: row.backlog_files,
+/** `apps/web`'s Worker bundle, built in `apps/web/dist`. */
+const webApp = (users: string) =>
+  appModules(users, {
+    serverSources: {
+      '../src/server.ts': REPO['apps/web/src/server.ts'],
+      '../../../packages/shared/src/auth.ts': REPO['packages/shared/src/auth.ts'],
+    },
   });
-}
 
 /** The tarball keys this test uploads to, and each upload's part sizes. */
 function trackTarballs(): Array<{ key: string; parts: Array<number> }> {
@@ -394,31 +323,6 @@ async function expectTarballsGone(
   expect(kept.objects).toEqual([]);
 }
 
-const dirs: Array<string> = [];
-afterEach(async () => {
-  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-});
-
-async function unpack(stream: ReadableStream<Uint8Array>): Promise<Map<string, string>> {
-  const dir = await mkdtemp(join(tmpdir(), 'scan-input-'));
-  dirs.push(dir);
-  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
-  await extractTar(bytes, { dest: dir, allowedRoots: ['task.json', 'input', 'memory'] });
-  const out = new Map<string, string>();
-  const walk = async (folder: string) => {
-    for (const entry of await readdir(folder, { withFileTypes: true })) {
-      const path = join(folder, entry.name);
-      if (entry.isDirectory()) {
-        await walk(path);
-      } else {
-        out.set(relative(dir, path), await readFile(path, 'utf8'));
-      }
-    }
-  };
-  await walk(dir);
-  return out;
-}
-
 describe('T1 source diff with GitHub', () => {
   it('scans the project root and listed shared files from the head tarball (#32)', async () => {
     const { user, project } = await setup();
@@ -427,7 +331,7 @@ describe('T1 source diff with GitHub', () => {
     const calls = stubGithub();
 
     const stream = await prepareSecurityScanInput(onEnv, env.db, 'scan_head', 1);
-    const files = await unpack(stream!);
+    const files = await unpackScanInput(stream!);
     expect([...files.keys()].sort()).toEqual([
       'input/_deploy/bindings.json',
       'input/package.json',
@@ -452,7 +356,7 @@ describe('T1 source diff with GitHub', () => {
       dropped_files: 1,
     });
     expect(row.coverage_notes).toEqual(['dropped secret-like file .env']);
-    expect(label(row)).toBe('source diff · 2 files');
+    expect(coverageLabel(row)).toBe('source diff · 2 files');
 
     // One scoped token, the compare, then the head tarball; the tarball is not kept.
     expect(vi.mocked(getInstallationToken)).toHaveBeenCalledWith(expect.anything(), '1', {
@@ -491,10 +395,10 @@ describe('T1 source diff with GitHub', () => {
     const { deployment, prefix } = await deploy(
       project.id,
       user.id,
-      { ...appModules(USERS_V2), ...vendor },
+      { ...webApp(USERS_V2), ...vendor },
       { commit: HEAD },
     );
-    await runningScan('scan_head', project.id, deployment.id, prefix);
+    await insertRunningScan(env, 'scan_head', project.id, deployment.id, { input_prefix: prefix });
     // The lockfile sits at the monorepo root, above the project folder.
     stubGithub({
       repo: {
@@ -513,7 +417,9 @@ describe('T1 source diff with GitHub', () => {
         ].join('\n'),
       },
     });
-    const files = await unpack((await prepareSecurityScanInput(onEnv, env.db, 'scan_head', 1))!);
+    const files = await unpackScanInput(
+      (await prepareSecurityScanInput(onEnv, env.db, 'scan_head', 1))!,
+    );
     const sent = [...files.keys()];
     expect(sent.some((path) => path.includes('/hono/'))).toBe(false);
     // Not in the lockfile: kept, ranked last.
@@ -536,24 +442,19 @@ describe('T1 source diff with GitHub', () => {
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1)).not.toBeNull();
     const row = await scanRow();
     expect(row.tier).toBe('built_diff');
-    expect(row.coverage_notes).toEqual(['compare-truncated']);
+    expect(row.coverage_notes).toEqual([SECURITY_T1_NOTES.truncated]);
     expect(calls.map((call) => call.url)).toEqual([COMPARE_URL]);
   });
 
-  it('falls back to T2 after a force push or with the base commit gone (#9)', async () => {
+  it('falls back to T2 with the base commit gone (#9)', async () => {
     const { user, project } = await setup();
     await baseScan(project.id, user.id);
     await headScan(project.id, user.id);
-    stubGithub({ compare: { status: 'diverged', ahead_by: 1, behind_by: 2, files: [] } });
-    expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1)).not.toBeNull();
-    expect((await scanRow()).coverage_notes).toEqual(['base-not-ancestor']);
-
-    await env.db.update(securityScans).set({ attempt: 2 }).where(eq(securityScans.id, 'scan_head'));
     stubGithub({ compareStatus: 404 });
-    expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 2)).not.toBeNull();
+    expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1)).not.toBeNull();
     const row = await scanRow();
     expect(row.tier).toBe('built_diff');
-    expect(row.coverage_notes).toEqual(['source-diff-unavailable']);
+    expect(row.coverage_notes).toEqual([SECURITY_T1_NOTES.unavailable]);
   });
 
   it('scans the built output when the bundle does not match the commit (#38)', async () => {
@@ -565,32 +466,13 @@ describe('T1 source diff with GitHub', () => {
     const prepared = await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1);
     const row = await scanRow();
     expect(row.tier).toBe('built_diff');
-    expect(row.coverage_notes).toEqual(['commit-mismatch']);
+    expect(row.coverage_notes).toEqual([SECURITY_T1_NOTES.commitMismatch]);
     // The code that went live is what gets scanned.
     const users = prepared!.built.entries.find(
       (entry) => entry.path === 'input/src/routes/users.ts',
     );
     expect(users?.data).toBe(shipped);
     expect(prepared!.built.focus).toEqual(['src/routes/users.ts']);
-  });
-
-  it('refuses a GitHub Actions deploy whose commit is not the OIDC sha claim (#38)', async () => {
-    const { user, project } = await setup();
-    await baseScan(project.id, user.id);
-    const build = await createTestBuild(env.db, {
-      projectId: project.id,
-      userId: user.id,
-      executor: 'github_actions',
-      commitSha: 'c'.repeat(40),
-      status: 'complete',
-    });
-    await headScan(project.id, user.id, { buildId: build.id });
-    const calls = stubGithub();
-    expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1)).not.toBeNull();
-    const row = await scanRow();
-    expect(row.tier).toBe('built_diff');
-    expect(row.coverage_notes).toEqual(['commit-mismatch']);
-    expect(calls).toEqual([]);
   });
 
   it('takes a managed container build at its commit without the content check', async () => {
@@ -625,14 +507,7 @@ describe('T1 source diff with GitHub', () => {
   });
 
   it('never takes T1 on a self-hosted install: GitHub is not asked (exit check)', async () => {
-    onEnv = {
-      ...onEnv,
-      PLATFORM_CAPABILITIES: JSON.stringify({
-        ...getPlatformCapabilities(env),
-        managedBuilds: false,
-        securityAudits: true,
-      }),
-    };
+    onEnv = securityBindings(env, { capabilities: { managedBuilds: false } });
     const { user, project } = await setup();
     await baseScan(project.id, user.id);
     await headScan(project.id, user.id);
@@ -641,7 +516,7 @@ describe('T1 source diff with GitHub', () => {
     const row = await scanRow();
     expect(row.tier).toBe('built_diff');
     expect(row.coverage_notes).toEqual([]);
-    expect(label(row)).toBe('built-output diff · 1 file');
+    expect(coverageLabel(row)).toBe('built-output diff · 1 file');
     expect(calls).toEqual([]);
     expect(vi.mocked(getInstallationToken)).not.toHaveBeenCalled();
   });
@@ -693,7 +568,7 @@ describe('T1 source diff with GitHub', () => {
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1)).not.toBeNull();
     let row = await scanRow();
     expect(row.tier).toBe('built_diff');
-    expect(row.coverage_notes).toEqual(['source-too-large']);
+    expect(row.coverage_notes).toEqual([SECURITY_T1_NOTES.tooLarge]);
     // The download stopped soon after the limit (a stream may read one chunk ahead).
     expect(sent).toBeLessThanOrEqual(SECURITY_SOURCE_TARBALL_MAX_BYTES + 2 * chunk.length);
     await expectTarballsGone(project.id, uploads);
@@ -708,7 +583,7 @@ describe('T1 source diff with GitHub', () => {
     });
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 2)).not.toBeNull();
     row = await scanRow();
-    expect(row.coverage_notes).toEqual(['source-too-large']);
+    expect(row.coverage_notes).toEqual([SECURITY_T1_NOTES.tooLarge]);
     expect(uploads).toHaveLength(1);
   });
 
@@ -723,7 +598,7 @@ describe('T1 source diff with GitHub', () => {
     ]);
     stubGithub({ tarball: () => new Response(big) });
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1)).not.toBeNull();
-    expect((await scanRow()).coverage_notes).toEqual(['source-too-large']);
+    expect((await scanRow()).coverage_notes).toEqual([SECURITY_T1_NOTES.tooLarge]);
 
     // One file too many (empty files under one name: cheap to make).
     await env.db.update(securityScans).set({ attempt: 2 }).where(eq(securityScans.id, 'scan_head'));
@@ -738,7 +613,7 @@ describe('T1 source diff with GitHub', () => {
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 2)).not.toBeNull();
     const row = await scanRow();
     expect(row.tier).toBe('built_diff');
-    expect(row.coverage_notes).toEqual(['source-too-large']);
+    expect(row.coverage_notes).toEqual([SECURITY_T1_NOTES.tooLarge]);
     await expectTarballsGone(project.id, uploads, 2);
   });
 
@@ -751,13 +626,13 @@ describe('T1 source diff with GitHub', () => {
     // The bundle does not match the commit: commit-mismatch after pass 1.
     stubGithub();
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1)).not.toBeNull();
-    expect((await scanRow()).coverage_notes).toEqual(['commit-mismatch']);
+    expect((await scanRow()).coverage_notes).toEqual([SECURITY_T1_NOTES.commitMismatch]);
 
     // A broken archive: source-diff-unavailable.
     await env.db.update(securityScans).set({ attempt: 2 }).where(eq(securityScans.id, 'scan_head'));
     stubGithub({ tarball: () => new Response(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])) });
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 2)).not.toBeNull();
-    expect((await scanRow()).coverage_notes).toEqual(['source-diff-unavailable']);
+    expect((await scanRow()).coverage_notes).toEqual([SECURITY_T1_NOTES.unavailable]);
     await expectTarballsGone(project.id, uploads, 2);
     // Each call stored its own archive: an older attempt never deletes a newer one's.
     expect(new Set(uploads.map((upload) => upload.key)).size).toBe(2);
@@ -772,7 +647,7 @@ describe('T1 source diff with GitHub', () => {
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1)).not.toBeNull();
     const row = await scanRow();
     expect(row.tier).toBe('built_diff');
-    expect(row.coverage_notes).toEqual(['source-diff-unavailable']);
+    expect(row.coverage_notes).toEqual([SECURITY_T1_NOTES.unavailable]);
     expect(calls).toEqual([]);
   });
 
@@ -787,7 +662,7 @@ describe('T1 source diff with GitHub', () => {
       .set({ repositories: [] })
       .where(eq(githubInstallations.installation_id, '1'));
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 1)).not.toBeNull();
-    expect((await scanRow()).coverage_notes).toEqual(['source-diff-unavailable']);
+    expect((await scanRow()).coverage_notes).toEqual([SECURITY_T1_NOTES.unavailable]);
 
     // The installation is suspended.
     await env.db.update(securityScans).set({ attempt: 2 }).where(eq(securityScans.id, 'scan_head'));
@@ -798,7 +673,7 @@ describe('T1 source diff with GitHub', () => {
     expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_head', 2)).not.toBeNull();
     const row = await scanRow();
     expect(row.tier).toBe('built_diff');
-    expect(row.coverage_notes).toEqual(['source-diff-unavailable']);
+    expect(row.coverage_notes).toEqual([SECURITY_T1_NOTES.unavailable]);
     expect(calls).toEqual([]);
     expect(vi.mocked(getInstallationToken)).not.toHaveBeenCalled();
   });

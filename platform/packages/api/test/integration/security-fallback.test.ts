@@ -1,7 +1,3 @@
-import {
-  defaultSecurityPolicy,
-  SECURITY_POLICY_SETTINGS_KEY,
-} from '@void/platform/security-policy';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq } from 'drizzle-orm';
 import {
@@ -14,24 +10,14 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
-import { getPlatformCapabilities } from '../../src/capabilities.ts';
-import { setPlatformSetting } from '../../src/platform-settings.ts';
 import { deployments, projects, securityScans } from '../../src/schema.ts';
 import { securityScanInputPrefix } from '../../src/security/enqueue.ts';
 import {
   queueSecurityFallbackScans,
   SECURITY_FALLBACK_MAX_AGE_MS,
-  securityScanWantsFallback,
 } from '../../src/security/fallback.ts';
 import { ingestSecurityScanResult } from '../../src/security/ingest.ts';
-import { chooseSecurityTier, securityFallbackFullReason } from '../../src/security/input/tier.ts';
 import { runSecurityMaintenance } from '../../src/security/maintenance.ts';
-import { resolveSecurityScanModel, securityCfDefaultModel } from '../../src/security/models.ts';
-import {
-  parseSecurityPolicyChangeRequest,
-  proposeSecurityPolicyChange,
-  securityPolicyPreviewLines,
-} from '../../src/security/policy.ts';
 import { claimSecurityScan } from '../../src/security/queue.ts';
 import { projectSecuritySettings, securityPublicRequests } from '../../src/security/schema.ts';
 import {
@@ -43,6 +29,13 @@ import {
   teardownEnv,
 } from './helpers.ts';
 import type { TestEnv } from './helpers.ts';
+import {
+  freshEntitlement,
+  insertSecurityScan,
+  saveSecurityPolicy,
+  securityBindings,
+  storedLiveProject,
+} from './security-fixtures.ts';
 import { askPublic, setupGate } from './security-gate-fixtures.ts';
 
 const CF = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
@@ -63,80 +56,32 @@ beforeAll(async () => {
 afterAll(teardownEnv);
 beforeEach(async () => {
   await clearTables(env.db);
-  onEnv = {
-    ...env,
-    PLATFORM_CAPABILITIES: JSON.stringify({
-      ...getPlatformCapabilities(env),
-      securityAudits: true,
-    }),
-    SECURITY_SCAN_SCHEDULER: {
-      idFromName: (name: string) => ({ toString: () => name }),
-      get: () => ({
-        fetch: async () => Response.json({ ok: true }),
-        forgetModelCalls: async () => 0,
-      }),
-    },
-  } as unknown as TestEnv;
+  onEnv = securityBindings(env, { scheduler: { forgetModelCalls: async () => 0 } });
 });
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
-function policyWith(overrides: Partial<SecurityPolicy> = {}): SecurityPolicy {
-  return {
-    ...defaultSecurityPolicy(),
-    mode: 'all',
-    fallbackToCf: true,
-    thirdPartyNotice: NOTICE,
-    revision: 1,
-    ...overrides,
-  };
+/** Fallback on, with the provider notice accepted. */
+function savePolicy(overrides: Partial<SecurityPolicy> = {}) {
+  return saveSecurityPolicy(env, { fallbackToCf: true, thirdPartyNotice: NOTICE, ...overrides });
 }
 
-async function savePolicy(overrides: Partial<SecurityPolicy> = {}) {
-  const policy = policyWith(overrides);
-  await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, policy);
-  return policy;
-}
-
-/** A project with a live deployment whose code is stored (a snapshot in R2). */
-async function liveProject(slug = `app-${crypto.randomUUID().slice(0, 8)}`) {
-  const owner = await createTestUser(env.db, `owner-${slug}`);
-  const project = await createTestProject(env.db, owner.id, slug);
-  const deployment = await createTestDeployment(env.db, project.id, 'live');
-  await env.db
-    .update(deployments)
-    .set({ bundle_stored: true })
-    .where(eq(deployments.id, deployment.id));
-  await env.STATIC_ASSETS_R2.put(
-    `${securityScanInputPrefix(project.id, deployment.id)}modules.json`,
-    '[]',
-  );
-  return { owner, project, deployment };
-}
-
-async function endedScan(
+function endedScan(
   projectId: string,
   deploymentId: string,
   overrides: Partial<typeof securityScans.$inferInsert> = {},
 ) {
-  const id = overrides.id ?? `ss_${crypto.randomUUID().slice(0, 8)}`;
-  await env.db.insert(securityScans).values({
+  return insertSecurityScan(env, projectId, deploymentId, {
     status: 'refused',
     failure_cause: 'project',
-    trigger: 'deploy',
     tier: 'built_diff',
     model_requested: OPUS,
     model_used: OPUS,
     engine: 'agent_sdk',
-    finished_at: new Date().toISOString(),
     ...overrides,
-    id,
-    project_id: projectId,
-    deployment_id: deploymentId,
   });
-  return id;
 }
 
 async function fallbackScans(projectId?: string) {
@@ -147,91 +92,10 @@ async function fallbackScans(projectId?: string) {
   return projectId ? rows.filter((row) => row.project_id === projectId) : rows;
 }
 
-describe('which scans get a fallback (spec §8.5)', () => {
-  const base = { trigger: 'deploy', modelUsed: OPUS, statusReason: null };
-
-  it('re-scans a refused, bad-output or timed-out third-party scan', () => {
-    expect(securityScanWantsFallback({ ...base, status: 'refused' })).toBe(true);
-    expect(securityScanWantsFallback({ ...base, status: 'timed_out' })).toBe(true);
-    expect(
-      securityScanWantsFallback({ ...base, status: 'failed', statusReason: 'bad_output' }),
-    ).toBe(true);
-    expect(securityScanWantsFallback({ ...base, status: 'refused', trigger: 'gate' })).toBe(true);
-  });
-
-  it('never for other outcomes, a @cf scan, a fallback or a local check', () => {
-    for (const status of ['succeeded', 'incomplete', 'skipped', 'canceled']) {
-      expect(securityScanWantsFallback({ ...base, status })).toBe(false);
-    }
-    expect(
-      securityScanWantsFallback({ ...base, status: 'failed', statusReason: 'infrastructure' }),
-    ).toBe(false);
-    expect(securityScanWantsFallback({ ...base, status: 'refused', modelUsed: CF })).toBe(false);
-    expect(securityScanWantsFallback({ ...base, status: 'refused', modelUsed: null })).toBe(false);
-    expect(securityScanWantsFallback({ ...base, status: 'refused', trigger: 'fallback' })).toBe(
-      false,
-    );
-    expect(securityScanWantsFallback({ ...base, status: 'refused', trigger: 'local' })).toBe(false);
-  });
-
-  it('covers the same changes: the base rule, or the full scan a rescan or sweep was', () => {
-    const base = { trigger: 'fallback', baseDeploymentId: 'dpl_1', baseSnapshot: true } as const;
-    expect(chooseSecurityTier(base)).toEqual({ tier: 'built_diff', fullReason: null });
-    expect(chooseSecurityTier({ ...base, fallbackOf: 'rescan' })).toEqual({
-      tier: 'full',
-      fullReason: 'rescan',
-    });
-    expect(chooseSecurityTier({ ...base, fallbackOf: 'sweep' })).toEqual({
-      tier: 'full',
-      fullReason: 'sweep',
-    });
-    expect(securityFallbackFullReason(['rescan'])).toBe('rescan');
-    expect(securityFallbackFullReason(['sweep'])).toBe('sweep');
-    expect(securityFallbackFullReason(['no-changes'])).toBeNull();
-  });
-});
-
-describe('the @cf default a fallback runs on', () => {
-  it('is the policy default when it is @cf, else the first usable @cf model', () => {
-    expect(securityCfDefaultModel(policyWith({ defaultModel: CF_2 }))).toBe(CF_2);
-    expect(securityCfDefaultModel(policyWith({ defaultModel: OPUS }))).toBe(CF);
-    expect(securityCfDefaultModel(policyWith({ defaultModel: OPUS, blockedModels: [CF] }))).toBe(
-      CF_2,
-    );
-  });
-
-  it('is none when every @cf model is blocked: never a third-party model', () => {
-    const policy = policyWith({ defaultModel: OPUS, blockedModels: [CF, CF_2] });
-    expect(securityCfDefaultModel(policy)).toBeNull();
-    expect(
-      resolveSecurityScanModel(policy, { model: OPUS, noticeVersion: 1, trigger: 'fallback' }),
-    ).toBeNull();
-  });
-
-  it('overrides the project model only for a fallback scan', () => {
-    const policy = policyWith({
-      defaultModel: OPUS,
-      entitlement: {
-        checkedAt: new Date().toISOString(),
-        ok: true,
-        missing: [],
-        hosts: { openai: true, anthropic: true },
-      },
-    });
-    const project = { model: OPUS, noticeVersion: 1 };
-    expect(resolveSecurityScanModel(policy, { ...project, trigger: 'deploy' })?.used).toBe(OPUS);
-    expect(resolveSecurityScanModel(policy, { ...project, trigger: 'fallback' })).toEqual({
-      requested: CF,
-      used: CF,
-      engine: 'void_loop',
-    });
-  });
-});
-
 describe('queueing a fallback scan', () => {
   it('queues one fallback of the live deployment, and only one', async () => {
     const policy = await savePolicy();
-    const { project, deployment } = await liveProject();
+    const { project, deployment } = await storedLiveProject(env);
     const failed = await endedScan(project.id, deployment.id);
 
     const queued = await queueSecurityFallbackScans(onEnv, env.db, policy, { now: Date.now() });
@@ -270,7 +134,7 @@ describe('queueing a fallback scan', () => {
 
   it('is not hidden by a newer local check (M32)', async () => {
     const policy = await savePolicy();
-    const { project, deployment } = await liveProject();
+    const { project, deployment } = await storedLiveProject(env);
     const failed = await endedScan(project.id, deployment.id, {
       created_at: new Date(Date.now() - 60_000).toISOString(),
     });
@@ -296,7 +160,7 @@ describe('queueing a fallback scan', () => {
   it('marks the fallback of a rescan or a sweep as that full scan', async () => {
     const policy = await savePolicy();
     for (const trigger of ['rescan', 'sweep'] as const) {
-      const { project, deployment } = await liveProject();
+      const { project, deployment } = await storedLiveProject(env);
       // The deployment was scanned before: the base rule alone would diff it against itself.
       await endedScan(project.id, deployment.id, {
         status: 'succeeded',
@@ -315,7 +179,7 @@ describe('queueing a fallback scan', () => {
 
   it('keeps the client asset pass of the rescan it re-runs (M31)', async () => {
     const policy = await savePolicy();
-    const { project, deployment } = await liveProject();
+    const { project, deployment } = await storedLiveProject(env);
     await endedScan(project.id, deployment.id, {
       trigger: 'rescan',
       tier: 'full',
@@ -330,7 +194,7 @@ describe('queueing a fallback scan', () => {
   });
 
   it('does nothing with the setting off, the policy Off or no @cf model left', async () => {
-    const { project, deployment } = await liveProject();
+    const { project, deployment } = await storedLiveProject(env);
     await endedScan(project.id, deployment.id);
     const settings: Array<Partial<SecurityPolicy>> = [
       { fallbackToCf: false },
@@ -348,10 +212,10 @@ describe('queueing a fallback scan', () => {
 
   it('skips a @cf failure, a deployment no longer live, an old failure and a newer scan', async () => {
     const policy = await savePolicy();
-    const cf = await liveProject();
+    const cf = await storedLiveProject(env);
     await endedScan(cf.project.id, cf.deployment.id, { model_used: CF, model_requested: CF });
 
-    const moved = await liveProject();
+    const moved = await storedLiveProject(env);
     await endedScan(moved.project.id, moved.deployment.id);
     const next = await createTestDeployment(env.db, moved.project.id, 'live');
     await env.db
@@ -359,12 +223,12 @@ describe('queueing a fallback scan', () => {
       .set({ active_deployment_id: next.id })
       .where(eq(projects.id, moved.project.id));
 
-    const old = await liveProject();
+    const old = await storedLiveProject(env);
     await endedScan(old.project.id, old.deployment.id, {
       finished_at: new Date(Date.now() - SECURITY_FALLBACK_MAX_AGE_MS - 60_000).toISOString(),
     });
 
-    const newer = await liveProject();
+    const newer = await storedLiveProject(env);
     await endedScan(newer.project.id, newer.deployment.id, {
       created_at: new Date(Date.now() - 60_000).toISOString(),
     });
@@ -396,7 +260,7 @@ describe('queueing a fallback scan', () => {
 
   it('is queued by ingest as soon as a third-party scan is refused', async () => {
     await savePolicy();
-    const { project, deployment } = await liveProject();
+    const { project, deployment } = await storedLiveProject(env);
     await env.db.insert(securityScans).values({
       id: 'scan_refused',
       project_id: project.id,
@@ -429,7 +293,7 @@ describe('queueing a fallback scan', () => {
 
   it('is queued by the hourly job for a scan the reaper timed out', async () => {
     await savePolicy();
-    const { project, deployment } = await liveProject();
+    const { project, deployment } = await storedLiveProject(env);
     await env.db.insert(securityScans).values({
       id: 'scan_stuck',
       project_id: project.id,
@@ -493,12 +357,7 @@ describe('a fallback of a gate scan', () => {
     const policy = await savePolicy({
       mode: 'public',
       publicGate: true,
-      entitlement: {
-        checkedAt: new Date().toISOString(),
-        ok: true,
-        missing: [],
-        hosts: { openai: true, anthropic: true },
-      },
+      entitlement: freshEntitlement(),
     });
     return { s, request, gate, policy };
   }
@@ -540,42 +399,5 @@ describe('a fallback of a gate scan', () => {
       .values({ project_id: gate.s.project.id, policy_override: 'never' });
     const claim = await queueAndClaim(gate);
     expect(claim.kind).toBe('claimed');
-  });
-});
-
-describe('the policy change (operator preview)', () => {
-  it('turns the fallback on and off with a preview line', () => {
-    const current = policyWith({ fallbackToCf: false, defaultModel: CF });
-    const stored = { policy: current, saved: true, unreadable: null };
-    const on = proposeSecurityPolicyChange(
-      stored,
-      parseSecurityPolicyChangeRequest({ fallbackToCf: true }),
-      { userId: 'usr_admin', now: Date.now() },
-    );
-    expect(on.changes.fallbackToCf).toBe(true);
-    expect(on.next.fallbackToCf).toBe(true);
-    const lines = securityPolicyPreviewLines(current, on.next, on.changes, {
-      scannedProjects: 0,
-      firstFullScan: 0,
-      urgentProjects: 0,
-      protectedProjects: 0,
-      queuedScans: 0,
-      runningScans: 0,
-      noOwnModel: 0,
-      noOwnModelAccepted: 0,
-      pickedBlocked: {},
-      pickedBlockedAccepted: {},
-    });
-    expect(lines[0]).toContain(`Turn on: re-scan once on the @cf default (${CF})`);
-    expect(() =>
-      proposeSecurityPolicyChange(
-        { policy: on.next, saved: true, unreadable: null },
-        parseSecurityPolicyChangeRequest({ fallbackToCf: true }),
-        { userId: 'usr_admin', now: Date.now() },
-      ),
-    ).toThrow('Nothing to change');
-    expect(() => parseSecurityPolicyChangeRequest({ fallbackToCf: 'yes' })).toThrow(
-      'fallbackToCf must be true or false',
-    );
   });
 });
