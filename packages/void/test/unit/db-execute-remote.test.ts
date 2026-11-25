@@ -968,15 +968,50 @@ describe('void db execute --remote (PostgreSQL)', () => {
           : [[], []],
       ),
     );
-    const command = String.raw`SET sql_mode = @saved; SELECT 'a\'; CALL p()`;
+    // With backslash escapes the string holds `';'`, without them it ends before the first `;`.
+    const command = String.raw`SET sql_mode = @saved; SELECT 'a\';\''; CALL p()`;
 
     await expect(
       runDbCommand(root, { action: 'execute', command, remote: true, json: true }),
-    ).rejects.toThrow('cannot group a CALL');
+    ).rejects.toThrow('cannot tell where the statements of this MySQL SQL end');
     expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual([
       'SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS version',
     ]);
+    // Nor does it run an EXECUTE of a statement it cannot see, which may be a CALL.
+    mockMySqlQuery.mockClear();
+    await expect(
+      runDbCommand(root, {
+        action: 'execute',
+        command: 'PREPARE s FROM @sql; EXECUTE s',
+        remote: true,
+        json: true,
+      }),
+    ).rejects.toThrow('cannot tell whether an EXECUTE in this MySQL SQL runs a CALL');
+    expect(mockMySqlQuery).not.toHaveBeenCalled();
     expect(console.log).not.toHaveBeenCalled();
+    mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
+  });
+
+  it('runs MySQL SQL without the comments after its last statement with --json only', async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'mysql://host/db' });
+    const header = { fieldCount: 0, affectedRows: 0, insertId: 0 };
+    mockMySqlQuery.mockImplementation(() =>
+      Promise.resolve([
+        [[{ a: 1 }], header],
+        [[{ name: 'a' }], undefined],
+      ]),
+    );
+    const command = 'CALL p(); -- end of script';
+
+    await runDbCommand(root, { action: 'execute', command, remote: true, json: true });
+    await runDbCommand(root, { action: 'execute', command, remote: true });
+
+    // MySQL answers a comment after the last statement with a result of its own.
+    expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual(['CALL p();', command]);
+    expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0][0]))).toEqual([
+      { results: [{ a: 1 }], success: true, meta: { affectedRows: 0, insertId: 0 } },
+    ]);
     mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
   });
 

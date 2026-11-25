@@ -136,6 +136,16 @@ export function skipMySqlQuoted(
   quote: string,
   backslashEscapes = true,
 ): number {
+  return closeMySqlQuoted(sql, open, quote, backslashEscapes) ?? sql.length;
+}
+
+/** Like `skipMySqlQuoted`, but `undefined` when the quote is still open at the end of the SQL. */
+export function closeMySqlQuoted(
+  sql: string,
+  open: number,
+  quote: string,
+  backslashEscapes = true,
+): number | undefined {
   let index = open + 1;
   while (index < sql.length) {
     const character = sql[index];
@@ -153,5 +163,5 @@ export function skipMySqlQuoted(
     }
     index++;
   }
-  return sql.length;
+  return undefined;
 }

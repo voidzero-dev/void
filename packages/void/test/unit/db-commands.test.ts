@@ -939,6 +939,26 @@ describe('void db execute', () => {
       expect(result.meta).toMatchObject({ changes: 1, last_row_id: 1 });
     });
 
+    it("counts the rows a view's INSTEAD OF trigger writes", async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, {
+        action: 'execute',
+        command: [
+          'CREATE VIEW item_names AS SELECT name FROM items;',
+          'CREATE TRIGGER item_names_insert INSTEAD OF INSERT ON item_names BEGIN',
+          '  INSERT INTO items (name) VALUES (new.name);',
+          'END;',
+          "INSERT INTO item_names VALUES ('v');",
+          'SELECT 1;',
+        ].join('\n'),
+        json: true,
+      });
+
+      expect(jsonOutput().map((result) => result.meta.changes)).toEqual([0, 0, 1, 0]);
+      expect(await readItems(root)).toEqual([{ name: 'v' }]);
+    });
+
     it('splits only between statements, not inside literals, comments or a trigger body', async () => {
       const root = await createLocalSqliteProject();
 
@@ -959,8 +979,8 @@ describe('void db execute', () => {
       const results = jsonOutput();
       expect(results).toHaveLength(4);
       expect(results[3].results).toEqual([{ 'x;y': 'a;b' }, { 'x;y': 'c;d' }]);
-      // A trigger's writes do not count toward the statement's own changes.
-      expect(results[2].meta.changes).toBe(1);
+      // A trigger's writes count toward the statement's changes, as D1 counts them.
+      expect(results[2].meta.changes).toBe(3);
     });
 
     it('stops at a failing statement after the ones before it took effect', async () => {

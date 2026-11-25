@@ -973,7 +973,7 @@ async function executeExternalSql(
     ...(json ? { supportBigNumbers: true, bigNumberStrings: false, dateStrings: true } : {}),
   });
   try {
-    const [rows, fields] = await mySqlClient.query(sql);
+    const [rows, fields] = await mySqlClient.query(statements?.sql ?? sql);
     if (statements) {
       printStatementResults(mySqlStatementResults(rows, fields, statements));
     } else if (Array.isArray(rows) && rows.length > 0) {
