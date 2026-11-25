@@ -10,7 +10,6 @@ import type {
   FocusEvent,
   AnchorHTMLAttributes,
   ButtonHTMLAttributes,
-  RefObject,
 } from 'react';
 import {
   handleLinkClick,
@@ -59,6 +58,9 @@ export function Link({
   const router = useContext(RouterContext);
   const navigation = useContext(NavigationContext);
   const elementRef = useRef<HTMLElement | null>(null);
+  const setElementRef = useCallback((element: HTMLElement | null) => {
+    elementRef.current = element;
+  }, []);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const link = useMemo(
     () => resolveLink({ href, method, data, prefetch, reloadDocument }),
@@ -246,7 +248,7 @@ export function Link({
   if (link.isGet) {
     return (
       <a
-        ref={elementRef as RefObject<HTMLAnchorElement>}
+        ref={setElementRef}
         href={link.href}
         style={resolvedStyle}
         {...activeAttributes}
@@ -261,7 +263,7 @@ export function Link({
 
   return (
     <button
-      ref={elementRef as RefObject<HTMLButtonElement>}
+      ref={setElementRef}
       type="button"
       style={resolvedStyle}
       {...pendingAttributes}

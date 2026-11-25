@@ -27,6 +27,7 @@ import {
 } from 'void/pages-client';
 import type {
   BoundaryManifest,
+  PageNavigationEngine,
   PageNavigationResource,
   PageNavigationResult,
   NavigationState,
@@ -50,8 +51,7 @@ import { PageErrorBoundary } from './PageErrorBoundary.tsx';
 // oxlint-disable-next-line no-explicit-any -- component props are narrowed by generated route types
 type ComponentModule = { default: ComponentType<any> };
 type ReactPageData = PageObject;
-type ReactPageComponent = ComponentType<Record<string, unknown>>;
-type ReactLayoutComponent = ComponentType<{ children?: React.ReactNode }>;
+type ReactComponent = ComponentModule['default'];
 
 export type ReactPagesConfig = Readonly<{
   boundaryManifest?: BoundaryManifest;
@@ -86,9 +86,8 @@ type DeferredResourceState =
     }
   | { status: 'resolved' | 'rejected' };
 
-type ReactPageResource = PageNavigationResource & {
-  shell: Promise<PageNavigationResult | undefined>;
-};
+type ReactPageResource = PageNavigationResource<ReactComponent>;
+type ReactNavigationResult = PageNavigationResult<ReactComponent>;
 
 type VisitSettler = {
   resolve(pageData: ReactPageData | undefined): void;
@@ -114,7 +113,7 @@ type AppAction =
   | { type: 'fail'; resource: ReactPageResource; location: string }
   | { type: 'abandon'; resource: ReactPageResource; location: string };
 
-const deferredState = new WeakMap<DeferredResource, DeferredResourceState>();
+const deferredState = new WeakMap<object, DeferredResourceState>();
 const viewTransitionWaiters = new Map<number, () => void>();
 const pendingVisitSettlers = new Map<number, VisitSettler>();
 const committedResources = new Set<number>();
@@ -143,25 +142,31 @@ function createDeferredResource(): DeferredResource {
 }
 
 function resolveDeferredResource<T>(ref: T, value: unknown): T {
-  const state = deferredState.get(ref as DeferredResource);
+  if (typeof ref !== 'object' || ref === null) {
+    return ref;
+  }
+  const state = deferredState.get(ref);
   if (state?.status === 'pending') {
     state.resolve(value);
-    deferredState.set(ref as DeferredResource, { status: 'resolved' });
+    deferredState.set(ref, { status: 'resolved' });
   }
   return ref;
 }
 
 function rejectDeferredResource<T>(ref: T, error: string): T {
-  const state = deferredState.get(ref as DeferredResource);
+  if (typeof ref !== 'object' || ref === null) {
+    return ref;
+  }
+  const state = deferredState.get(ref);
   if (state?.status === 'pending') {
     state.reject(new Error(error));
-    deferredState.set(ref as DeferredResource, { status: 'rejected' });
+    deferredState.set(ref, { status: 'rejected' });
   }
   return ref;
 }
 
 function isDeferredResourceLoading(ref: unknown): boolean {
-  return deferredState.get(ref as DeferredResource)?.status === 'pending';
+  return typeof ref === 'object' && ref !== null && deferredState.get(ref)?.status === 'pending';
 }
 
 function currentUrl(): string {
@@ -291,7 +296,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-function createRouter(engine: Awaited<ReturnType<typeof createPageNavigationEngine>>): VoidRouter {
+function createRouter(engine: PageNavigationEngine<ReactComponent>): VoidRouter {
   const router: VoidRouter = {
     _hoverDelay: engine._hoverDelay,
     _prefetchDefaultStrategy: engine._prefetchDefaultStrategy,
@@ -336,7 +341,7 @@ function RouteResource({
   onFailure,
 }: {
   resource: ReactPageResource;
-  onCommit: (resource: ReactPageResource, result: PageNavigationResult) => void;
+  onCommit: (resource: ReactPageResource, result: ReactNavigationResult) => void;
   config: ReactPagesConfig;
   onFailure: (url: string) => void;
 }): React.ReactNode {
@@ -383,7 +388,7 @@ function RouteResource({
     return null;
   }
 
-  const PageComponent = result.component as ReactPageComponent;
+  const PageComponent = result.component;
   const boundaries = pageBoundarySlots(
     config.boundaryManifest,
     pageData.component,
@@ -414,7 +419,7 @@ function RouteResource({
       );
   let element: React.ReactNode = React.createElement(PageComponent, pageData.props);
   for (let i = result.layouts.length - 1; i >= 0; i--) {
-    const Layout = result.layouts[i] as ReactLayoutComponent;
+    const Layout = result.layouts[i];
     element = React.createElement(Layout, null, wrap(element, i + 1));
   }
   element = wrap(element, 0);
@@ -463,7 +468,7 @@ function App({
   navigationFallback: NavigationFallback,
 }: {
   config: ReactPagesConfig;
-  engine: Awaited<ReturnType<typeof createPageNavigationEngine>>;
+  engine: PageNavigationEngine<ReactComponent>;
   router: VoidRouter;
   viewTransitions: boolean;
   navigationFallback?: ComponentType<{ initialPageData: PageObject }>;
@@ -537,7 +542,7 @@ function App({
   );
 
   const finishNavigation = useCallback(
-    (resource: ReactPageResource, result: PageNavigationResult) => {
+    (resource: ReactPageResource, result: ReactNavigationResult) => {
       if (committedResources.has(resource.id)) {
         return;
       }
