@@ -1250,21 +1250,25 @@ describe('existing Cloudflare site handoff', () => {
     );
   }
   async function withTerminal<T>(interactive: boolean, action: () => Promise<T>): Promise<T> {
-    const stdin = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
-    const stdout = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
-    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: interactive });
-    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: interactive });
+    const properties = [
+      [process.stdin, 'isTTY', interactive],
+      [process.stdout, 'isTTY', interactive],
+      // The prompts spinner opens raw input when it detects a terminal.
+      [process.stdin, 'setRawMode', () => process.stdin],
+    ] as const;
+    const originals = properties.map(([stream, key, value]) => {
+      const descriptor = Object.getOwnPropertyDescriptor(stream, key);
+      Object.defineProperty(stream, key, { configurable: true, value });
+      return { stream, key, descriptor };
+    });
     try {
       return await action();
     } finally {
-      for (const [stream, descriptor] of [
-        [process.stdin, stdin],
-        [process.stdout, stdout],
-      ] as const) {
+      for (const { stream, key, descriptor } of originals) {
         if (descriptor) {
-          Object.defineProperty(stream, 'isTTY', descriptor);
+          Object.defineProperty(stream, key, descriptor);
         } else {
-          Reflect.deleteProperty(stream, 'isTTY');
+          Reflect.deleteProperty(stream, key);
         }
       }
     }
