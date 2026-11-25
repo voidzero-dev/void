@@ -409,7 +409,7 @@ type EnterRace = { promise: Promise<'enter'>; stop: () => void };
  * Resolves when Enter is pressed during the clipboard watch. `stop` removes the listener so
  * a losing race cannot eat the first keystroke of a later prompt.
  */
-function createEnterRace(waitForEnter?: () => Promise<unknown>): EnterRace {
+function createEnterRace(waitForEnter?: () => Promise<void>): EnterRace {
   if (waitForEnter) {
     return { promise: waitForEnter().then((): 'enter' => 'enter'), stop: () => {} };
   }
@@ -447,7 +447,7 @@ export interface EmailDomainAddDeps {
   /** Confirms the account/zone resource restriction shown in the token form. */
   confirmScope?: (domain: string) => Promise<boolean>;
   /** The Enter keypress that switches paths (default: one stdin line). */
-  waitForEnter?: () => Promise<unknown>;
+  waitForEnter?: () => Promise<void>;
   watchIntervalMs?: number;
   /** Default 10 minutes. */
   watchTimeoutMs?: number;

@@ -746,7 +746,7 @@ export async function runInstalledPlatformCommand(
     // The platform refuses new login settings once an administrator signed in.
     // Keep the saved settings the platform still has, so later lifecycle
     // commands do not resend the refused ones.
-    const keepAcceptedLogin = async (error: unknown): Promise<unknown> => {
+    const keepAcceptedLogin = async <Failure>(error: Failure): Promise<Failure | Error> => {
       const after = replacedLogin
         ? await databaseLock?.readAdministratorSetup?.().catch(() => undefined)
         : undefined;

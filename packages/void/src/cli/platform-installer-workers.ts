@@ -31,7 +31,7 @@ import {
   PlatformWorkerCustomDomainsChangedError,
   PlatformWorkerRoutesChangedError,
 } from './platform-cloudflare.ts';
-import type { CloudflareWorkerCustomDomainOrigin } from './platform-cloudflare.ts';
+import type { CloudflareWorkerCustomDomainOrigin, ReadCloudflare } from './platform-cloudflare.ts';
 import {
   readTriggerConfigFromObject,
   recordWorkerCutoverResolution,
@@ -470,7 +470,7 @@ function snapshotPlatformWorkerUploadInputs(
 function platformWorkerApiReadRunner(
   accountId: string,
   workerName: string,
-  readCloudflare: (path: string) => Promise<unknown>,
+  readCloudflare: ReadCloudflare,
   fallback: typeof runPlatformWrangler,
 ): typeof runPlatformWrangler {
   const base = `/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}`;
@@ -1037,7 +1037,7 @@ export async function deployPlatformWorker(
 export async function uploadPlatformWorkerForReview(
   config: Record<string, unknown>,
   options: Readonly<{
-    readCloudflare: (path: string) => Promise<unknown>;
+    readCloudflare: ReadCloudflare;
     runner: typeof runPlatformWrangler;
   }>,
 ): Promise<CloudflareCommandResult> {

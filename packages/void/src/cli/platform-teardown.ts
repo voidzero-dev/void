@@ -496,7 +496,7 @@ export async function checkPurgeResourcesCredentials(
       );
     }
   }
-  const probes: Array<[string, () => Promise<unknown>]> = [];
+  const probes: Array<[string, () => Promise<object | null>]> = [];
   if (has('worker') || has('worker-custom-domain')) {
     probes.push([PERMISSIONS.workers, () => client.listWorkerNames(manifest.account.id)]);
   }
@@ -645,12 +645,12 @@ function ownershipRefusal(
   );
 }
 
-function cloudflareRefusal(
+function cloudflareRefusal<Failure>(
   manifest: PlatformInstallationManifest,
   description: string,
-  error: unknown,
+  error: Failure,
   hint: string,
-) {
+): Failure | Error {
   if (!(error instanceof PlatformCloudflareApiError)) {
     return error;
   }

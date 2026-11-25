@@ -39,6 +39,7 @@ function arrayIdentity(value: unknown): string {
 }
 
 /** Keep authored values authoritative while retaining fields produced by Void. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Merge config inputs without assuming a schema for authored values.
 function mergeConfig(previous: unknown, resolved: unknown, authored: unknown): unknown {
   if (isDeepStrictEqual(previous, authored)) {
     return resolved;

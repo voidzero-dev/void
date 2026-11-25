@@ -377,10 +377,12 @@ function containersFromWrangler(raw: JsonObject, exports: JsonObject): Array<Jso
 // oxlint-disable-next-line quality/no-chained-type-assertions, quality/no-known-value-widening -- The config converter supplies the arguments for the dynamically selected Cloudflare helper.
 const configHelpers = { bindings, exports: workerExports, triggers } as unknown as Record<
   string,
+  // oxlint-disable-next-line quality/no-unknown-returns -- The selected helper determines its output at runtime.
   Record<string, (...args: Array<unknown>) => unknown>
 >;
 
 /** Build the value that the converter describes, calling cf's config helpers where it names one. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Preserve the selected helper's output in the generated config.
 function outputValue(value: OutputValue): unknown {
   if (value === null || typeof value !== 'object') {
     return value;

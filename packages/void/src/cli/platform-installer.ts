@@ -92,8 +92,8 @@ export { PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY as REMOTE_INSTALLATION_MANIFE
 
 // Preserve the routing gate first; rollback and manifest failure checkpoints
 // follow while the database lifecycle lock is still held by the caller.
-async function recoverFailedPlatformInstallation(
-  error: unknown,
+async function recoverFailedPlatformInstallation<Failure>(
+  error: Failure,
   state: Readonly<{
     manifest: PlatformInstallationManifest;
     plan: PlatformInstallPlan;
@@ -110,7 +110,7 @@ async function recoverFailedPlatformInstallation(
     now: () => string;
     writeRemoteInstallationCheckpoint: InstallationCheckpointWriter;
   }>,
-): Promise<unknown> {
+): Promise<Failure | Error> {
   const {
     plan,
     dependencies,
@@ -126,7 +126,7 @@ async function recoverFailedPlatformInstallation(
     writeRemoteInstallationCheckpoint,
   } = state;
   let { manifest } = state;
-  let failure = error;
+  let failure: Failure | Error = error;
   const currentWorkerRecoveryIncomplete = error instanceof PlatformWorkerRecoveryIncompleteError;
   if (workerTrafficGuarded) {
     try {

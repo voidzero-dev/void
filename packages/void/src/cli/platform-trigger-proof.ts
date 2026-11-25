@@ -1,7 +1,6 @@
 import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import { isRecord } from '@void/deploy-core';
-
-type ReadCloudflare = (path: string) => Promise<unknown>;
+import type { ReadCloudflare } from './platform-cloudflare.ts';
 
 function record(value: unknown): Record<string, unknown> | null {
   return isRecord(value) ? value : null;

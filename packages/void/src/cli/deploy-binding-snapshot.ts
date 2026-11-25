@@ -254,6 +254,7 @@ export function reconstructExpectedContainers(
 }
 
 /** Normalize only the named-image path fields Vite relocates into its output config. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Preserve all opaque config fields for the snapshot comparison.
 export function normalizeContainerImagePaths(container: unknown, base: string): unknown {
   if (!container || typeof container !== 'object' || Array.isArray(container)) {
     return container;

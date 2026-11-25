@@ -15,6 +15,7 @@ export function getConfigFileName(root: string): string {
 }
 
 /** Evaluate a TypeScript config without requiring Void to be installed in the target project. */
+// oxlint-disable-next-line quality/no-unknown-returns -- Callers validate the project's default export after loading it.
 export function loadTypedVoidConfigFile(path: string): unknown {
   const sourceEntry = fileURLToPath(new URL('./config-entry.ts', import.meta.url));
   const configEntry = existsSync(sourceEntry)

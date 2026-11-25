@@ -11,6 +11,9 @@ import type {
 } from './platform-credential-label.ts';
 import { resolvePinnedApiBaseUrl } from './provision.ts';
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Endpoint-specific readers validate the fields they need.
+export type ReadCloudflare = (path: string) => Promise<unknown>;
+
 type CloudflareEnvelope<T> = Readonly<{
   errors?: ReadonlyArray<{ code?: number; message?: string }>;
   result?: T;
@@ -230,7 +233,7 @@ export async function verifyPlatformRuntimeTokenPermissions(
           `platform: ${formatPlatformCredentialDenials(credential, [...denials, ...(emailDenial?.denials ?? [])])}`,
           { cause: denials[0].error },
         );
-  const check = async (permission: string, action: () => Promise<unknown>) => {
+  const check = async <Result>(permission: string, action: () => Promise<Result>) => {
     try {
       await action();
     } catch (error) {

@@ -124,7 +124,6 @@ type SeedTarget = {
 };
 
 type PgClient = {
-  connect(): Promise<unknown>;
   end(): Promise<void>;
   query<T extends Record<string, unknown> = Record<string, unknown>>(
     sql: string,
@@ -145,7 +144,7 @@ function getLocalDatabaseUrl(root: string, dialect: 'postgresql' | 'mysql'): str
 async function withPgClient<T>(root: string, fn: (client: PgClient) => Promise<T>): Promise<T> {
   const url = getLocalDatabaseUrl(root, 'postgresql');
   const { Client } = await import('pg');
-  const client: PgClient = new Client({ connectionString: url });
+  const client = new Client({ connectionString: url });
   await client.connect();
   try {
     return await fn(client);
@@ -900,10 +899,10 @@ async function executeExternalRemoteSql(
 ): Promise<void> {
   if (dialect === 'postgresql') {
     const { Client } = await import('pg');
-    const pgClient: PgClient = new Client({ connectionString: dbUrl });
+    const pgClient = new Client({ connectionString: dbUrl });
     await pgClient.connect();
     try {
-      const result = await pgClient.query(sql);
+      const result = await pgClient.query<Record<string, unknown>>(sql);
       if (result.rows && result.rows.length > 0) {
         printTable(result.rows);
       }

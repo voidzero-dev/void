@@ -68,10 +68,10 @@ export async function verifyPlatformCloudflareCredential(
   let firstDenial: PlatformCloudflareApiError | undefined;
   const deniedError = (denial: PlatformCloudflareApiError) =>
     new Error(`platform: ${formatPlatformCredentialDenials(label, denials)}`, { cause: denial });
-  const check = async (
+  const check = async <Result>(
     what: string,
     permission: string,
-    action: () => Promise<unknown>,
+    action: () => Promise<Result>,
     allowMissing = false,
   ): Promise<boolean> => {
     try {

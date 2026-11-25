@@ -430,12 +430,12 @@ const config = defineConfig({
       },
       {
         files: [
-          'packages/void/src/{codegen,router}/**/*',
-          'packages/void/src/plugin-*.ts',
+          'packages/void/src/**/*',
           'platform/packages/dispatch/**/*',
           'platform/packages/proxy/src/**/*',
           'platform/packages/api/src/**/*',
         ],
+        excludeFiles: ['packages/void/src/{pages,runtime}/**/*'],
         rules: { 'quality/no-unknown-returns': 'error' },
       },
       {

@@ -22,6 +22,7 @@ import type { initializeInstalledPlatformAuthentication } from './platform-auth-
 import type {
   CloudflareWorkerCustomDomainOrigin,
   PlatformCloudflareClient,
+  ReadCloudflare,
 } from './platform-cloudflare.ts';
 import type {
   bootstrapPlatformSharedEmail,
@@ -369,7 +370,7 @@ export type InstallationCheckpointWriter = (
 export type PlatformWorkerDeploymentOptions = Readonly<{
   apiBaseUrl: string;
   operatorApiToken?: string;
-  readCloudflare?: (path: string) => Promise<unknown>;
+  readCloudflare?: ReadCloudflare;
   acquireUploadSlot?: () => Promise<(failure?: unknown) => void>;
   onReadyForActivation?: () => Promise<void>;
   waitForPriorWorker?: () => Promise<void>;

@@ -845,7 +845,7 @@ function assertNoOperationConfigOverride(root: string): void {
   }
 }
 
-function requireData(value: unknown, label: string): unknown {
+function requireData<Data>(value: Data, label: string) {
   if (value === undefined) {
     throw new Error(label + ' did not return structured data.');
   }

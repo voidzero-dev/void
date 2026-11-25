@@ -112,9 +112,11 @@ export class PlatformAccessClient {
   path(suffix: string): string {
     return `/accounts/${encodeURIComponent(this.accountId)}/access/${suffix}`;
   }
+  // oxlint-disable-next-line quality/no-unknown-returns -- The inventory and resource readers validate different response shapes.
   get(suffix: string): Promise<unknown> {
     return this.client.request(this.path(suffix));
   }
+  // oxlint-disable-next-line quality/no-unknown-returns -- The provisioner validates the resource-specific response.
   create(suffix: string, body: ObjectValue): Promise<unknown> {
     return this.client.request(this.path(suffix), { method: 'POST', body: JSON.stringify(body) });
   }

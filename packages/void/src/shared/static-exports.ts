@@ -1,9 +1,10 @@
 import { parseSync } from 'vite';
 import { bindingNames } from './ast-bindings.ts';
-import { asAstProgram, isIdentifier, moduleExportName } from './ast.ts';
+import { asAstProgram, isIdentifier, isLiteral, moduleExportName } from './ast.ts';
 import type {
   AstExportAllDeclaration,
   AstExportNamedDeclaration,
+  AstLiteral,
   AstNode,
   AstProgram,
   AstVariableDeclaration,
@@ -148,9 +149,9 @@ export function unwrapStaticExpression(node: AstNode | undefined): AstNode | und
   return node;
 }
 
-export function staticLiteral(node: AstNode | undefined): unknown {
+export function staticLiteral(node: AstNode | undefined): AstLiteral['value'] | undefined {
   node = unwrapStaticExpression(node);
-  if (node?.type === 'Literal') {
+  if (isLiteral(node)) {
     return node.value;
   }
   if (node?.type === 'TemplateLiteral') {

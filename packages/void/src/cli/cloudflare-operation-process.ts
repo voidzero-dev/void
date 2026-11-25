@@ -249,6 +249,7 @@ async function withBuildOutput(
   }
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Each command validates the JSON fields it reads.
 function parsedJson(value: string): unknown {
   return JSON.parse(value) as unknown;
 }
@@ -327,7 +328,7 @@ function previousD1Bookmark(stdout: string): string | undefined {
   }
 }
 
-function cleanJson(command: Array<string>, transform?: (value: unknown) => unknown): Result {
+function cleanJson<Output>(command: Array<string>, transform?: (value: unknown) => Output): Result {
   const called = runCf(command);
   if (called.status !== 0 || !transform) {
     return called;
