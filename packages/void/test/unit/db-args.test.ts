@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { parseDbArgs } from '../../src/cli/db-args.ts';
+import { dbSubcommands, parseDbArgs } from '../../src/cli/db-args.ts';
 
 describe('parseDbArgs', () => {
   it('parses status', () => {
@@ -71,6 +71,12 @@ describe('parseDbArgs', () => {
       remote: undefined,
       json: true,
     });
+  });
+
+  it('leaves --json out of the interactive menu', () => {
+    // The menu draws on stdout, which --json keeps for its result.
+    const execute = dbSubcommands.find(({ name }) => name === 'execute');
+    expect(execute?.flags?.map(({ name }) => name)).toEqual(['--remote', '--yes']);
   });
 
   it('rejects --json outside execute', () => {

@@ -2,15 +2,23 @@ import { types } from 'pg';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   formatStatementResults,
-  mySqlCallStatements,
   mySqlServerMode,
   mySqlStatementResults,
+  mySqlStatements,
   pgJsonTypes,
   needsMySqlServerMode,
   pgStatementResults,
   splitSqliteStatements,
 } from '../../src/cli/db-execute-results.ts';
+import type { MySqlServerMode } from '../../src/cli/db-execute-results.ts';
 import { Buffer } from '../../src/cli/node-buffer.ts';
+
+/** Which statements of MySQL SQL are CALLs. */
+const calls = (sql: string, mode?: MySqlServerMode) => mySqlStatements(sql, mode).calls;
+
+/** Group mysql2's results by the statements of `sql`. */
+const groupResults = (rows: unknown, fields: unknown, sql: string, mode?: MySqlServerMode) =>
+  mySqlStatementResults(rows, fields, mySqlStatements(sql, mode));
 
 describe('db execute --json results', () => {
   it('prints binary values as byte arrays', () => {
@@ -152,20 +160,20 @@ describe('db execute --json results', () => {
   const header = { fieldCount: 0, affectedRows: 2, insertId: 5, info: '', serverStatus: 2 };
 
   it('reads a single MySQL statement', () => {
-    expect(mySqlStatementResults([{ a: 1 }], [field], 'SELECT 1')).toEqual([
+    expect(groupResults([{ a: 1 }], [field], 'SELECT 1')).toEqual([
       { results: [{ a: 1 }], success: true, meta: {} },
     ]);
-    expect(mySqlStatementResults([], [field], 'SELECT 1')).toEqual([
+    expect(groupResults([], [field], 'SELECT 1')).toEqual([
       { results: [], success: true, meta: {} },
     ]);
-    expect(mySqlStatementResults(header, undefined, 'DELETE FROM a')).toEqual([
+    expect(groupResults(header, undefined, 'DELETE FROM a')).toEqual([
       { results: [], success: true, meta: { affectedRows: 2, insertId: 5 } },
     ]);
   });
 
   it('reads each MySQL statement of a multi-statement query', () => {
     expect(
-      mySqlStatementResults(
+      groupResults(
         [header, [{ a: 1 }], []],
         [undefined, [field], [field]],
         'DELETE FROM a; SELECT 1; SELECT 2',
@@ -176,7 +184,7 @@ describe('db execute --json results', () => {
       { results: [], success: true, meta: {} },
     ]);
     expect(
-      mySqlStatementResults([[{ a: 1 }], [{ a: 2 }]], [[field], [field]], 'SELECT 1; SELECT 2'),
+      groupResults([[{ a: 1 }], [{ a: 2 }]], [[field], [field]], 'SELECT 1; SELECT 2'),
     ).toEqual([
       { results: [{ a: 1 }], success: true, meta: {} },
       { results: [{ a: 2 }], success: true, meta: {} },
@@ -184,11 +192,11 @@ describe('db execute --json results', () => {
   });
 
   it("groups a CALL's result sets and header under the CALL", () => {
-    expect(mySqlStatementResults([[{ a: 1 }], header], [[field], undefined], 'CALL p()')).toEqual([
+    expect(groupResults([[{ a: 1 }], header], [[field], undefined], 'CALL p()')).toEqual([
       { results: [{ a: 1 }], success: true, meta: { affectedRows: 2, insertId: 5 } },
     ]);
     expect(
-      mySqlStatementResults(
+      groupResults(
         [[{ a: 1 }], [{ b: 2 }], [{ c: 3 }], header, header],
         [[field], [field], [field], undefined, undefined],
         'SELECT 1; CALL p(); DELETE FROM a',
@@ -201,33 +209,27 @@ describe('db execute --json results', () => {
   });
 
   it('prints one entry per MySQL result when the statements do not line up', () => {
-    expect(
-      mySqlStatementResults([[{ a: 1 }], header], [[field], undefined], 'CALL p(); CALL q()'),
-    ).toEqual([
+    expect(groupResults([[{ a: 1 }], header], [[field], undefined], 'CALL p(); CALL q()')).toEqual([
       { results: [{ a: 1 }], success: true, meta: {} },
       { results: [], success: true, meta: { affectedRows: 2, insertId: 5 } },
     ]);
   });
 
   it('reads MySQL comments and quoted text the way MySQL does', () => {
-    expect(mySqlCallStatements('# note\nCALL report()')).toEqual([true]);
-    expect(mySqlCallStatements(String.raw`SELECT 'it\'s; ok'; CALL p()`)).toEqual([false, true]);
-    expect(mySqlCallStatements(String.raw`SELECT "a\";b"; CALL p()`)).toEqual([false, true]);
+    expect(calls('# note\nCALL report()')).toEqual([true]);
+    expect(calls(String.raw`SELECT 'it\'s; ok'; CALL p()`)).toEqual([false, true]);
+    expect(calls(String.raw`SELECT "a\";b"; CALL p()`)).toEqual([false, true]);
     // `--` starts a comment only before whitespace, so `1--1` is arithmetic.
-    expect(mySqlCallStatements('SELECT 1--1; -- x;\nCALL p()')).toEqual([false, true]);
+    expect(calls('SELECT 1--1; -- x;\nCALL p()')).toEqual([false, true]);
     // MySQL runs the SQL in a `/*!` comment, and `[` quotes nothing.
-    expect(mySqlCallStatements('/*!40101 SET @a = 1 */; SELECT [1; CALL p()')).toEqual([
-      false,
-      false,
-      true,
-    ]);
+    expect(calls('/*!40101 SET @a = 1 */; SELECT [1; CALL p()')).toEqual([false, false, true]);
     // A control character after `--` starts a comment too.
-    expect(mySqlCallStatements('SELECT 1; --\u0001 x;\nCALL p()')).toEqual([false, true]);
-    expect(mySqlCallStatements('SELECT 1; --')).toEqual([false]);
+    expect(calls('SELECT 1; --\u0001 x;\nCALL p()')).toEqual([false, true]);
+    expect(calls('SELECT 1; --')).toEqual([false]);
     // An optimizer hint outside a statement is an ordinary comment.
-    expect(mySqlCallStatements('/*+ BKA(t) */ CALL p()')).toEqual([true]);
+    expect(calls('/*+ BKA(t) */ CALL p()')).toEqual([true]);
     expect(
-      mySqlStatementResults([[{ a: 1 }], header], [[field], undefined], '# note\nCALL report()'),
+      groupResults([[{ a: 1 }], header], [[field], undefined], '# note\nCALL report()'),
     ).toEqual([{ results: [{ a: 1 }], success: true, meta: { affectedRows: 2, insertId: 5 } }]);
   });
 
@@ -250,10 +252,10 @@ describe('db execute --json results', () => {
     });
     // With NO_BACKSLASH_ESCAPES, a backslash before a quote is an ordinary character.
     const backslash = String.raw`SELECT '\'; CALL p()`;
-    expect(mySqlCallStatements(backslash, noEscapes)).toEqual([false, true]);
-    expect(mySqlCallStatements(backslash, mysql84)).toEqual([false]);
+    expect(calls(backslash, noEscapes)).toEqual([false, true]);
+    expect(calls(backslash, mysql84)).toEqual([false]);
     expect(
-      mySqlStatementResults(
+      groupResults(
         [[{ a: 1 }], [{ b: 2 }], header],
         [[field], [field], undefined],
         backslash,
@@ -264,22 +266,20 @@ describe('db execute --json results', () => {
       { results: [{ b: 2 }], success: true, meta: { affectedRows: 2, insertId: 5 } },
     ]);
     // The server skips a version comment for a later version and runs one for its own.
-    expect(mySqlCallStatements('/*!99999 SET @n = 1 */ CALL p()', mysql84)).toEqual([true]);
-    expect(mySqlCallStatements('/*!80403 SET @n = 1 */ CALL p()', mysql84)).toEqual([false]);
-    expect(mySqlCallStatements('/*! CALL p() */', mysql84)).toEqual([true]);
-    expect(mySqlCallStatements('/*!40101 CALL p() */; SELECT 1', mysql84)).toEqual([true, false]);
+    expect(calls('/*!99999 SET @n = 1 */ CALL p()', mysql84)).toEqual([true]);
+    expect(calls('/*!80403 SET @n = 1 */ CALL p()', mysql84)).toEqual([false]);
+    expect(calls('/*! CALL p() */', mysql84)).toEqual([true]);
+    expect(calls('/*!40101 CALL p() */; SELECT 1', mysql84)).toEqual([true, false]);
     // Six digits are a version when whitespace follows them; otherwise five are.
-    expect(mySqlCallStatements('/*!100000 SET @n = 1 */ CALL p()', mysql84)).toEqual([true]);
-    expect(mySqlCallStatements('/*!800001 CALL p() */ SELECT 1', mysql84)).toEqual([false]);
-    expect(mySqlCallStatements('/*!800001; CALL p() */', mysql84)).toEqual([false, true]);
-    expect(mySqlCallStatements('/*!80000CALL p() */', mysql84)).toEqual([true]);
+    expect(calls('/*!100000 SET @n = 1 */ CALL p()', mysql84)).toEqual([true]);
+    expect(calls('/*!800001 CALL p() */ SELECT 1', mysql84)).toEqual([false]);
+    expect(calls('/*!800001; CALL p() */', mysql84)).toEqual([false, true]);
+    expect(calls('/*!80000CALL p() */', mysql84)).toEqual([true]);
     // A skipped version comment may hold one nested comment.
-    expect(mySqlCallStatements('/*!99999 /* note */ SELECT 1 */ CALL p()', mysql84)).toEqual([
-      true,
-    ]);
-    expect(mySqlCallStatements('/* /* note */ CALL p()', mysql84)).toEqual([true]);
+    expect(calls('/*!99999 /* note */ SELECT 1 */ CALL p()', mysql84)).toEqual([true]);
+    expect(calls('/* /* note */ CALL p()', mysql84)).toEqual([true]);
     // MySQL reads MariaDB's `/*M!` as an ordinary comment.
-    expect(mySqlCallStatements('/*M! SELECT 0; */ CALL p()', mysql84)).toEqual([true]);
+    expect(calls('/*M! SELECT 0; */ CALL p()', mysql84)).toEqual([true]);
     expect(needsMySqlServerMode('SELECT 1; CALL p()')).toBe(false);
     expect(needsMySqlServerMode(backslash)).toBe(true);
     expect(needsMySqlServerMode('/*!80000 SET @n = 1 */')).toBe(true);
@@ -296,17 +296,17 @@ describe('db execute --json results', () => {
       ansiQuotes: false,
       mariaDb: true,
     });
-    expect(mySqlCallStatements('/*M!100100 SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
-    expect(mySqlCallStatements('/*M! SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
-    expect(mySqlCallStatements('/*M!110000 SELECT 0; */ CALL p()', mariaDb)).toEqual([true]);
+    expect(calls('/*M!100100 SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    expect(calls('/*M! SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    expect(calls('/*M!110000 SELECT 0; */ CALL p()', mariaDb)).toEqual([true]);
     // MariaDB skips `/*!` comments for MySQL 5.7 and later, but not its own versions.
-    expect(mySqlCallStatements('/*!80000 SELECT 0; */ CALL p()', mariaDb)).toEqual([true]);
-    expect(mySqlCallStatements('/*!50699 SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
-    expect(mySqlCallStatements('/*!100100 SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    expect(calls('/*!80000 SELECT 0; */ CALL p()', mariaDb)).toEqual([true]);
+    expect(calls('/*!50699 SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    expect(calls('/*!100100 SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
     // A sixth digit belongs to the version without whitespace after it.
-    expect(mySqlCallStatements('/*!100100SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
+    expect(calls('/*!100100SELECT 0 */; CALL p()', mariaDb)).toEqual([false, true]);
     expect(
-      mySqlStatementResults(
+      groupResults(
         [[{ 0: 0 }], [{ a: 1 }], header],
         [[field], [field], undefined],
         '/*M!100100 SELECT 0 */; CALL p()',
@@ -327,17 +327,14 @@ describe('db execute --json results', () => {
     ]);
     expect(ansi.ansiQuotes).toBe(true);
     // A backslash escapes nothing in a quoted name.
-    expect(mySqlCallStatements(String.raw`SELECT 1 AS "a\"; CALL p()`, ansi)).toEqual([
-      false,
-      true,
-    ]);
+    expect(calls(String.raw`SELECT 1 AS "a\"; CALL p()`, ansi)).toEqual([false, true]);
     // A single-quoted string still reads its backslash escapes.
-    expect(mySqlCallStatements(String.raw`SELECT 'a\'; CALL p()'`, ansi)).toEqual([false]);
+    expect(calls(String.raw`SELECT 'a\'; CALL p()'`, ansi)).toEqual([false]);
   });
 
   it('finds MySQL statements around stored program bodies', () => {
     expect(
-      mySqlCallStatements(
+      calls(
         [
           'BEGIN',
           `CREATE PROCEDURE p() lbl: BEGIN
@@ -357,16 +354,14 @@ describe('db execute --json results', () => {
 
   it('opens a BEGIN block only in a stored program', () => {
     // BEGIN may name a column, and XA BEGIN starts a transaction.
-    expect(mySqlCallStatements('SELECT begin FROM appointments; CALL report()')).toEqual([
+    expect(calls('SELECT begin FROM appointments; CALL report()')).toEqual([false, true]);
+    expect(calls("XA BEGIN 'x'; CALL p()")).toEqual([false, true]);
+    expect(calls('CREATE TABLE event (begin INT, `end` INT); CREATE VIEW v AS SELECT 1')).toEqual([
       false,
-      true,
+      false,
     ]);
-    expect(mySqlCallStatements("XA BEGIN 'x'; CALL p()")).toEqual([false, true]);
     expect(
-      mySqlCallStatements('CREATE TABLE event (begin INT, `end` INT); CREATE VIEW v AS SELECT 1'),
-    ).toEqual([false, false]);
-    expect(
-      mySqlCallStatements(
+      calls(
         [
           `CREATE DEFINER = CURRENT_USER TRIGGER t BEFORE INSERT ON a FOR EACH ROW BEGIN
              SET NEW.begin = 1; SELECT x.begin INTO @b FROM x;
@@ -377,12 +372,9 @@ describe('db execute --json results', () => {
       ),
     ).toEqual([false, false, true]);
     // MariaDB runs BEGIN NOT ATOMIC blocks outside a stored program.
-    expect(mySqlCallStatements('BEGIN NOT ATOMIC SELECT 1; SELECT 2; END; CALL p()')).toEqual([
-      false,
-      true,
-    ]);
+    expect(calls('BEGIN NOT ATOMIC SELECT 1; SELECT 2; END; CALL p()')).toEqual([false, true]);
     expect(
-      mySqlStatementResults(
+      groupResults(
         [[{ begin: 1 }], [{ a: 1 }], header],
         [[field], [field], undefined],
         'SELECT begin FROM appointments; CALL report()',
@@ -390,6 +382,180 @@ describe('db execute --json results', () => {
     ).toEqual([
       { results: [{ begin: 1 }], success: true, meta: {} },
       { results: [{ a: 1 }], success: true, meta: { affectedRows: 2, insertId: 5 } },
+    ]);
+  });
+
+  it('reads a reserved word after a dot as a name', () => {
+    expect(calls('SELECT t.case, t.end FROM t; CALL report()')).toEqual([false, true]);
+    expect(calls('SELECT CASE WHEN t.end > 0 THEN t.case END FROM t; CALL p()')).toEqual([
+      false,
+      true,
+    ]);
+    expect(
+      calls(`CREATE PROCEDURE p() BEGIN SELECT t.case, t.end, t.begin FROM t; END; CALL p()`),
+    ).toEqual([false, true]);
+  });
+
+  it('keeps an ALTER EVENT body in one MySQL statement', () => {
+    expect(
+      calls(
+        [
+          'ALTER EVENT e DO BEGIN DELETE FROM a; SELECT 1; END',
+          `ALTER DEFINER = 'admin'@'%' EVENT e ON SCHEDULE EVERY 1 DAY DO BEGIN DELETE FROM a; END`,
+          'CALL p()',
+        ].join(';\n'),
+      ),
+    ).toEqual([false, false, true]);
+    // ALTER of other objects opens no block.
+    expect(calls('ALTER TABLE event ADD begin INT; BEGIN; CALL p()')).toEqual([false, false, true]);
+  });
+
+  it('reads MySQL SQL after a SET of sql_mode the way the new mode does', () => {
+    const noEscapes = mySqlServerMode([{ sql_mode: 'NO_BACKSLASH_ESCAPES', version: '8.4.3' }]);
+    const backslash = String.raw`SELECT '\'; CALL p()`;
+    expect(calls(`SET sql_mode = 'NO_BACKSLASH_ESCAPES'; ${backslash}`)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(calls(`SET sql_mode = ''; ${backslash}'`, noEscapes)).toEqual([false, false]);
+    for (const set of [
+      `SET SESSION sql_mode = 'no_backslash_escapes'`,
+      `SET LOCAL sql_mode := 'STRICT_TRANS_TABLES,NO_BACKSLASH_ESCAPES'`,
+      `SET @@sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET @@SESSION.sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET @@local.sql_mode = "NO_BACKSLASH_ESCAPES"`,
+      "SET `sql_mode` = 'NO_BACKSLASH_ESCAPES'",
+      `SET GLOBAL max_connections = 10, SESSION sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET GLOBAL max_connections = 10, @@sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET @old_sql_mode = @@sql_mode, sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `/*!40101 SET SQL_MODE = 'NO_BACKSLASH_ESCAPES' */`,
+      `SET STATEMENT max_statement_time = 10 FOR SET sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET NAMES utf8mb4, sql_mode = 'ANSI_QUOTES,,NO_BACKSLASH_ESCAPES'`,
+    ]) {
+      expect(calls(`${set}; ${backslash}`), set).toEqual([false, false, true]);
+    }
+    // The SET reads its own text the way the mode before it does.
+    expect(calls(String.raw`SET sql_mode = 'NO_BACKSLASH_ESCAPES', @a = '\'; CALL p()'`)).toEqual([
+      false,
+    ]);
+    // ANSI_QUOTES, and the combination modes that include it, make a double quote a name.
+    expect(calls(String.raw`SET sql_mode = 'ANSI'; SELECT 1 AS "a\"; CALL p()`)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    const ansi = mySqlServerMode([{ sql_mode: 'ANSI_QUOTES', version: '8.4.3' }]);
+    expect(calls(String.raw`SET sql_mode = ''; SELECT "a\"; CALL p()"`, ansi)).toEqual([
+      false,
+      false,
+    ]);
+    expect(
+      groupResults(
+        [header, [{ a: '\\' }], [{ b: 2 }], header],
+        [undefined, [field], [field], undefined],
+        `SET sql_mode = 'NO_BACKSLASH_ESCAPES'; ${backslash}`,
+      ),
+    ).toEqual([
+      { results: [], success: true, meta: { affectedRows: 2, insertId: 5 } },
+      { results: [{ a: '\\' }], success: true, meta: {} },
+      { results: [{ b: 2 }], success: true, meta: { affectedRows: 2, insertId: 5 } },
+    ]);
+  });
+
+  it("leaves the session's sql_mode alone for SQL that does not change it", () => {
+    const mysql84 = mySqlServerMode([{ sql_mode: '', version: '8.4.3' }]);
+    // The backslash escapes the quote, so the string holds the rest.
+    const backslash = String.raw`SELECT 'a\'; CALL p()'`;
+    for (const statement of [
+      `SET GLOBAL sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET PERSIST sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET @@GLOBAL.sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET @@persist.sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET GLOBAL max_connections = 10, sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET @sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `SET STATEMENT sql_mode = 'NO_BACKSLASH_ESCAPES' FOR SELECT 1`,
+      `SET STATEMENT sql_mode = 'ANSI' FOR SET sql_mode = 'NO_BACKSLASH_ESCAPES'`,
+      `BEGIN NOT ATOMIC SET sql_mode = 'NO_BACKSLASH_ESCAPES'; END`,
+      `BEGIN NOT ATOMIC EXECUTE IMMEDIATE 'SET sql_mode = ''NO_BACKSLASH_ESCAPES'''; END`,
+      `SELECT 'SET sql_mode = ''NO_BACKSLASH_ESCAPES'''`,
+      `CREATE PROCEDURE q() BEGIN SET sql_mode = 'NO_BACKSLASH_ESCAPES'; END`,
+      `/*!99999 SET sql_mode = 'NO_BACKSLASH_ESCAPES' */ SELECT 1`,
+    ]) {
+      expect(calls(`${statement}; ${backslash}`, mysql84), statement).toEqual([false, false]);
+    }
+  });
+
+  it('stops reading MySQL SQL where an unclear change of sql_mode matters', () => {
+    const unclear = [
+      'SET sql_mode = @saved',
+      "SET sql_mode = CONCAT(@@sql_mode, ',NO_BACKSLASH_ESCAPES')",
+      'SET sql_mode = DEFAULT',
+      "SET sql_mode = 'ANSI QUOTES'",
+      'EXECUTE set_mode',
+      "EXECUTE IMMEDIATE 'SET sql_mode = ''NO_BACKSLASH_ESCAPES'''",
+      'SET STATEMENT max_statement_time = 10 FOR EXECUTE set_mode',
+    ];
+    for (const statement of unclear) {
+      // Without a backslash after it, every mode reads the SQL the same.
+      expect(mySqlStatements(`${statement}; CALL p()`), statement).toEqual({
+        calls: [false, true],
+        uncounted: false,
+      });
+      // After a backslash, the statements cannot be counted, but none of them is a CALL.
+      expect(mySqlStatements(String.raw`${statement}; SELECT 1; SELECT 'a\'; SELECT 2`)).toEqual({
+        calls: [false, false],
+        uncounted: true,
+      });
+      // A CALL that may follow it cannot be grouped, so the SQL is refused before it runs.
+      expect(() => mySqlStatements(String.raw`${statement}; SELECT 'a\'; CALL p()`)).toThrow(
+        'cannot tell where this MySQL SQL',
+      );
+    }
+    // A backslash in a comment, or a word that only holds the letters of CALL, changes nothing.
+    expect(mySqlStatements('SET sql_mode = @saved; -- C:\\path\nCALL p()')).toEqual({
+      calls: [false, true],
+      uncounted: false,
+    });
+    expect(
+      mySqlStatements(
+        String.raw`SET sql_mode = @saved; SELECT 'a\b' AS recall; SELECT called_at FROM t`,
+      ),
+    ).toEqual({ calls: [false], uncounted: true });
+    // A version comment may run a CALL right after its digits.
+    expect(() =>
+      mySqlStatements(String.raw`SET sql_mode = @saved; SELECT 'a\b'; /*!80000CALL p() */`),
+    ).toThrow('cannot tell where this MySQL SQL');
+    // A SET of a quoted list of modes makes the mode clear again.
+    expect(
+      mySqlStatements(
+        String.raw`SET sql_mode = @saved; CALL p(); SET sql_mode = ''; SELECT 'a\'; CALL q()'`,
+      ),
+    ).toEqual({ calls: [false, true, false, false], uncounted: false });
+    // At least one statement follows, so results that end before it do not line up.
+    expect(
+      groupResults(
+        [[{ a: 1 }], header, header],
+        [[field], undefined, undefined],
+        String.raw`CALL p(); SET sql_mode = @saved; SELECT 'a\b'`,
+      ),
+    ).toEqual([
+      { results: [{ a: 1 }], success: true, meta: {} },
+      { results: [], success: true, meta: { affectedRows: 2, insertId: 5 } },
+      { results: [], success: true, meta: { affectedRows: 2, insertId: 5 } },
+    ]);
+    // Statements that are not CALLs each return one result.
+    expect(
+      groupResults(
+        [[{ a: 1 }], header, header, [{ b: 1 }], [{ c: 2 }]],
+        [[field], undefined, undefined, [field], [field]],
+        String.raw`CALL p(); SET sql_mode = @saved; SELECT 'a\'b'; SELECT 2`,
+      ),
+    ).toEqual([
+      { results: [{ a: 1 }], success: true, meta: { affectedRows: 2, insertId: 5 } },
+      { results: [], success: true, meta: { affectedRows: 2, insertId: 5 } },
+      { results: [{ b: 1 }], success: true, meta: {} },
+      { results: [{ c: 2 }], success: true, meta: {} },
     ]);
   });
 });

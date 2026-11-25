@@ -395,66 +395,69 @@ const MYSQL_DEFAULT_MODE: MySqlServerMode = {
   mariaDb: false,
 };
 
+/** Where `readMySqlWord` reads next, and whether that is in an executable comment that runs. */
+type MySqlLexer = { index: number; inVersionComment: boolean };
+
+const MYSQL_WORD = /[\w$\u0080-￿]+/uy;
+
 /**
- * The words, semicolons and other characters of MySQL SQL, lowercased, outside comments, with
- * a quoted string or name as one empty word. The SQL in an executable comment (`/*!`, and
- * `/*M!` on MariaDB) counts when the server runs it.
+ * The next word, semicolon or other character of MySQL SQL after any whitespace and comments,
+ * lowercased, or `undefined` at the end. A quoted string or name is one word, as written with
+ * its quotes. The SQL in an executable comment (`/*!`, and `/*M!` on MariaDB) counts when the
+ * server runs it.
  */
-function mySqlWords(sql: string, mode: MySqlServerMode): Array<string> {
-  const word = /[\w$\u0080-￿]+/uy;
-  const words: Array<string> = [];
-  let index = 0;
-  // Inside an executable comment whose SQL the server runs, so its `*/` is skipped.
-  let inVersionComment = false;
-  while (index < sql.length) {
+function readMySqlWord(sql: string, lexer: MySqlLexer, mode: MySqlServerMode): string | undefined {
+  while (lexer.index < sql.length) {
+    const index = lexer.index;
     const character = sql[index];
     const next = sql[index + 1];
     if (character === "'" || character === '"' || character === '`') {
       // A backslash escapes nothing in a quoted name, `ANSI_QUOTES` double quotes included.
       const name = character === '`' || (character === '"' && mode.ansiQuotes);
-      index = skipMySqlQuoted(sql, index, character, mode.backslashEscapes && !name);
-      words.push('');
-    } else if (
+      lexer.index = skipMySqlQuoted(sql, index, character, mode.backslashEscapes && !name);
+      return sql.slice(index, lexer.index);
+    }
+    if (
       character === '#' ||
       // MySQL reads `--` as a comment only when whitespace or a control character, or the end of
       // the input, follows it.
       (character === '-' && next === '-' && startsMySqlDashComment(sql.charCodeAt(index + 2)))
     ) {
       const newline = sql.indexOf('\n', index);
-      index = newline === -1 ? sql.length : newline;
-    } else if (inVersionComment && character === '*' && next === '/') {
-      inVersionComment = false;
-      index += 2;
+      lexer.index = newline === -1 ? sql.length : newline;
+    } else if (lexer.inVersionComment && character === '*' && next === '/') {
+      lexer.inVersionComment = false;
+      lexer.index += 2;
     } else if (character === '/' && next === '*') {
       const executable = /^M?!/u.test(sql.slice(index + 2, index + 4));
       const runsFrom = executable ? runsMySqlComment(sql, index + 2, mode) : undefined;
       if (runsFrom !== undefined) {
-        inVersionComment = true;
-        index = runsFrom;
+        lexer.inVersionComment = true;
+        lexer.index = runsFrom;
       } else {
         // Any other comment, an optimizer hint (`/*+`) too, holds no statement. One the server
         // skips for its version may nest a comment.
-        index = skipMySqlComment(sql, index + 2, executable ? 1 : 0);
+        lexer.index = skipMySqlComment(sql, index + 2, executable ? 1 : 0);
       }
     } else if (/[ \t\n\v\f\r]/u.test(character)) {
-      index++;
+      lexer.index++;
     } else {
-      word.lastIndex = index;
-      const match = word.exec(sql);
-      const token = match ? match[0] : character;
-      index += token.length;
-      words.push(token.toLowerCase());
+      MYSQL_WORD.lastIndex = index;
+      const token = MYSQL_WORD.exec(sql)?.[0] ?? character;
+      lexer.index += token.length;
+      return token.toLowerCase();
     }
   }
-  return words;
+  return undefined;
 }
 
-// The object a CREATE statement makes, which tells a stored program from other DDL.
+// The object a CREATE or ALTER statement names, which tells a stored program from other DDL.
 const MYSQL_STORED_PROGRAMS = new Set(['procedure', 'function', 'trigger', 'event']);
 const MYSQL_OTHER_OBJECTS = new Set([
   'database',
   'fulltext',
   'index',
+  'instance',
   'logfile',
   'resource',
   'role',
@@ -471,44 +474,233 @@ const MYSQL_OTHER_OBJECTS = new Set([
   'view',
 ]);
 
+/** How a server's quoting rules stand after a statement changes its `sql_mode`. */
+type MySqlQuoting = Pick<MySqlServerMode, 'backslashEscapes' | 'ansiQuotes'>;
+
+// The modes that turn on ANSI_QUOTES: itself, and the combination modes that include it.
+const MYSQL_ANSI_QUOTES_MODES = new Set([
+  'ANSI',
+  'ANSI_QUOTES',
+  'DB2',
+  'MAXDB',
+  'MSSQL',
+  'ORACLE',
+  'POSTGRESQL',
+]);
+const MYSQL_GLOBAL_SCOPES = new Set(['global', 'persist', 'persist_only']);
+const MYSQL_SESSION_SCOPES = new Set(['session', 'local']);
+
+/** The name a word in a SET statement gives, unquoted and lowercased. */
+function mySqlName(word: string | undefined, mode: MySqlServerMode): string | undefined {
+  const quote = word?.[0];
+  if (word !== undefined && (quote === '`' || (quote === '"' && mode.ansiQuotes))) {
+    return word.slice(1, -1).replaceAll(`${quote}${quote}`, quote).toLowerCase();
+  }
+  return word;
+}
+
+/** The quoting rules a quoted list of modes, such as `'ANSI,NO_BACKSLASH_ESCAPES'`, sets. */
+function mySqlModeList(value: Array<string>, mode: MySqlServerMode): MySqlQuoting | 'unclear' {
+  const [word] = value;
+  const quote = word?.[0];
+  const string = quote === "'" || (quote === '"' && !mode.ansiQuotes);
+  if (value.length !== 1 || !string || word.length < 2 || !word.endsWith(quote)) {
+    return 'unclear';
+  }
+  const text = word.slice(1, -1);
+  // Mode names hold only letters and underscores. Anything else (an escape, a quote, a space)
+  // is read here as unclear rather than guessed.
+  if (!/^[A-Za-z_,]*$/u.test(text)) {
+    return 'unclear';
+  }
+  const modes = text.toUpperCase().split(',');
+  return {
+    backslashEscapes: !modes.includes('NO_BACKSLASH_ESCAPES'),
+    ansiQuotes: modes.some((name) => MYSQL_ANSI_QUOTES_MODES.has(name)),
+  };
+}
+
+/** Split words at top-level commas, or at the first top-level word `at` when one is given. */
+function splitMySqlWords(words: Array<string>, at = ','): Array<Array<string>> {
+  let current: Array<string> = [];
+  const parts = [current];
+  let parentheses = 0;
+  for (const word of words) {
+    if (word === at && parentheses === 0 && (at === ',' || parts.length === 1)) {
+      current = [];
+      parts.push(current);
+      continue;
+    }
+    if (word === '(') {
+      parentheses++;
+    } else if (word === ')') {
+      parentheses--;
+    }
+    current.push(word);
+  }
+  return parts;
+}
+
 /**
- * Tell which MySQL statements are `CALL`s. Statements end at top-level semicolons. In a stored
- * program (`CREATE PROCEDURE`, `FUNCTION`, `TRIGGER` or `EVENT`), a `BEGIN ... END` body holds
- * semicolons of its own, so it nests, as does MariaDB's `BEGIN NOT ATOMIC` block. Elsewhere
- * `BEGIN` starts a transaction or is a name. A `CASE ... END` nests anywhere. `END IF`,
- * `END LOOP`, `END WHILE` and `END REPEAT` close blocks that sit inside a `BEGIN`, so they do
- * not change the depth.
+ * How a top-level statement changes the session's quoting rules: not at all (`undefined`), to
+ * the rules a quoted list of modes sets, or in a way this scan cannot read (`'unclear'`), such
+ * as `SET sql_mode = @saved` or a prepared statement's `EXECUTE`. A stored program, and a
+ * MariaDB `BEGIN NOT ATOMIC` block, run with a `sql_mode` of their own and restore the
+ * session's, and `SET GLOBAL` leaves it alone.
  */
-export function mySqlCallStatements(
+function mySqlModeChange(
+  words: Array<string>,
+  mode: MySqlServerMode,
+): MySqlQuoting | 'unclear' | undefined {
+  const [first] = words;
+  // A prepared statement, or MariaDB's EXECUTE IMMEDIATE, may set sql_mode.
+  if (first === 'execute') {
+    return 'unclear';
+  }
+  if (first !== 'set') {
+    return undefined;
+  }
+  if (words[1] === 'statement') {
+    // MariaDB's SET STATEMENT ... FOR keeps what the statement after FOR changes, unless it
+    // sets sql_mode itself, which it then restores.
+    const [settings, statement] = splitMySqlWords(words.slice(2), 'for');
+    const restores = settings.some((word) => mySqlName(word, mode) === 'sql_mode');
+    return statement === undefined || restores ? undefined : mySqlModeChange(statement, mode);
+  }
+  const assignments = splitMySqlWords(words.slice(1));
+  let change: MySqlQuoting | 'unclear' | undefined;
+  // A GLOBAL or SESSION before an assignment holds for the ones after it.
+  let global = false;
+  for (const assignment of assignments) {
+    let index = 0;
+    if (MYSQL_GLOBAL_SCOPES.has(assignment[index])) {
+      global = true;
+      index++;
+    } else if (MYSQL_SESSION_SCOPES.has(assignment[index])) {
+      global = false;
+      index++;
+    }
+    let targetsGlobal = global;
+    if (assignment[index] === '@') {
+      // `@name` is a user variable.
+      if (assignment[index + 1] !== '@') {
+        continue;
+      }
+      index += 2;
+      // `@@name` is the session's variable, and `@@scope.name` the scope's.
+      targetsGlobal = false;
+      if (assignment[index + 1] === '.') {
+        targetsGlobal = MYSQL_GLOBAL_SCOPES.has(assignment[index]);
+        index += 2;
+      }
+    }
+    if (targetsGlobal || mySqlName(assignment[index], mode) !== 'sql_mode') {
+      continue;
+    }
+    index++;
+    if (assignment[index] === ':') {
+      index++;
+    }
+    change =
+      assignment[index] === '='
+        ? mySqlModeList(assignment.slice(index + 1), mode)
+        : // Not an assignment MySQL accepts, so the statement fails.
+          'unclear';
+  }
+  return change;
+}
+
+/**
+ * The statements of MySQL SQL, in order: `calls` tells which ones are `CALL`s. When `uncounted`
+ * is true, more statements follow them, none of them a `CALL`, which this scan cannot count.
+ */
+export type MySqlStatements = { calls: Array<boolean>; uncounted: boolean };
+
+/**
+ * Find MySQL's statements and tell which are `CALL`s, reading the SQL the way a server in
+ * `mode` does. Statements end at top-level semicolons. In a stored program (`CREATE PROCEDURE`,
+ * `FUNCTION`, `TRIGGER` or `EVENT`, and `ALTER EVENT`), a `BEGIN ... END` body holds semicolons
+ * of its own, so it nests, as does MariaDB's `BEGIN NOT ATOMIC` block. Elsewhere `BEGIN` starts a
+ * transaction or is a name. A `CASE ... END` nests anywhere. `END IF`, `END LOOP`, `END WHILE`
+ * and `END REPEAT` close blocks that sit inside a `BEGIN`, so they do not change the depth. After
+ * a dot, each of these words is a name, such as the column in `t.case`.
+ *
+ * The server reads each statement with the `sql_mode` the statements before it left, so a
+ * `SET sql_mode` to a quoted list of modes changes how the SQL after it reads. After a statement
+ * that changes it in a way this scan cannot read, the SQL reads the same until a quoted string
+ * or name holds a backslash. From there on, the statements are `uncounted` when none of them can be a `CALL`,
+ * and otherwise this throws before the SQL runs, since their results could not be grouped.
+ */
+export function mySqlStatements(
   sql: string,
-  mode: MySqlServerMode = MYSQL_DEFAULT_MODE,
-): Array<boolean> {
-  const words = mySqlWords(sql, mode);
+  initialMode: MySqlServerMode = MYSQL_DEFAULT_MODE,
+): MySqlStatements {
+  let mode = initialMode;
+  const lexer: MySqlLexer = { index: 0, inVersionComment: false };
   const calls: Array<boolean> = [];
   let depth = 0;
-  let firstWord: string | undefined;
-  // Whether this statement creates a stored program, once its CREATE names the object.
+  // The current statement's words, and where it starts.
+  let words: Array<string> = [];
+  let start = 0;
+  // Whether this statement creates a stored program, once its CREATE or ALTER names the object.
   let storedProgram: boolean | undefined;
   // Set right after an END that closed a block, so a following IF, LOOP, WHILE, REPEAT or CASE
   // reads as part of that END.
   let afterEnd = false;
+  // Whether a statement changed sql_mode in a way this scan cannot read. Until a quoted string
+  // or name holds a backslash, every mode reads the SQL after it the same way.
+  let unclear = false;
   const finish = () => {
-    if (firstWord !== undefined) {
-      calls.push(firstWord === 'call');
+    if (words.length > 0) {
+      calls.push(words[0] === 'call');
+      const change = mySqlModeChange(words, mode);
+      if (change === 'unclear') {
+        unclear = true;
+      } else if (change !== undefined) {
+        mode = { ...mode, ...change };
+        unclear = false;
+      }
     }
-    firstWord = undefined;
+    words = [];
+    start = lexer.index;
     storedProgram = undefined;
     afterEnd = false;
   };
-  for (const [index, word] of words.entries()) {
+  // Whether the BEGIN just read opens MariaDB's BEGIN NOT ATOMIC block, read without moving on.
+  const opensBlock = () => {
+    const ahead = { ...lexer };
+    return (
+      readMySqlWord(sql, ahead, mode) === 'not' && readMySqlWord(sql, ahead, mode) === 'atomic'
+    );
+  };
+  for (
+    let word = readMySqlWord(sql, lexer, mode);
+    word !== undefined;
+    word = readMySqlWord(sql, lexer, mode)
+  ) {
+    if (unclear && word.includes('\\')) {
+      // `CALL` is a word of its own, so SQL without it holds none. A digit may come before it,
+      // as in `/*!80000CALL`.
+      if (/(?<![A-Za-z_$\u0080-\uFFFF])call(?![\w$\u0080-\uFFFF])/iu.test(sql.slice(start))) {
+        throw new Error(
+          "db: `void db execute --json` cannot tell where this MySQL SQL's statements end, so it cannot group a CALL's results. A statement in it may change sql_mode, which changes what a backslash in a quoted string means after it: a SET of sql_mode to something other than a quoted list of modes, such as SET sql_mode = @saved, or an EXECUTE. Set sql_mode to a quoted list, such as SET sql_mode = 'ANSI_QUOTES', or run the CALL in a separate command.",
+        );
+      }
+      return { calls, uncounted: true };
+    }
+    const previous = words.at(-1);
     if (word === ';') {
       afterEnd = false;
       if (depth === 0) {
         finish();
+      } else {
+        words.push(word);
       }
       continue;
     }
-    if (firstWord === 'create' && storedProgram === undefined) {
+    words.push(word);
+    const first = words[0];
+    if ((first === 'create' || first === 'alter') && storedProgram === undefined) {
       if (MYSQL_STORED_PROGRAMS.has(word)) {
         storedProgram = true;
       } else if (MYSQL_OTHER_OBJECTS.has(word)) {
@@ -517,38 +709,37 @@ export function mySqlCallStatements(
     }
     const closedBlock = afterEnd;
     afterEnd = false;
-    const opensBlock =
-      word === 'begin' &&
-      words[index - 1] !== '.' &&
-      (storedProgram === true || (words[index + 1] === 'not' && words[index + 2] === 'atomic'));
+    // A word after a dot names a column or other object.
+    if (previous === '.') {
+      continue;
+    }
     if (closedBlock && /^(?:if|loop|while|repeat)$/.test(word)) {
       // That END closed an IF or loop, which never opened a level, so restore it.
       depth++;
     } else if (closedBlock && word === 'case') {
       // END CASE closes the CASE that opened a level.
-    } else if (word === 'case' || opensBlock) {
+    } else if (word === 'case' || (word === 'begin' && (storedProgram === true || opensBlock()))) {
       depth++;
     } else if (word === 'end' && depth > 0) {
       depth--;
       afterEnd = true;
     }
-    firstWord ??= word;
   }
   finish();
-  return calls;
+  return { calls, uncounted: false };
 }
 
 /**
  * mysql2 returns `[rows, fields]`. With several result sets, `rows` holds one entry per result
  * (rows, or a result header for a write) and `fields` holds each one's column list, or
  * `undefined` for a header. A `CALL` returns each result set of the procedure and then its own
- * header, so those entries are grouped under the `CALL`, its rows in order.
+ * header, so those entries are grouped under the `CALL`, its rows in order. `statements` is what
+ * `mySqlStatements` found in the SQL.
  */
 export function mySqlStatementResults(
   rows: unknown,
   fields: unknown,
-  sql: string,
-  mode: MySqlServerMode = MYSQL_DEFAULT_MODE,
+  statements: MySqlStatements,
 ): Array<StatementResult> {
   const severalResults =
     Array.isArray(rows) &&
@@ -561,7 +752,7 @@ export function mySqlStatementResults(
   const grouped: Array<StatementResult> = [];
   let index = 0;
   let matched = true;
-  for (const isCall of mySqlCallStatements(sql, mode)) {
+  for (const isCall of statements.calls) {
     if (!isCall) {
       matched &&= index < entries.length;
       grouped.push(mySqlStatementResult(entries[index++]));
@@ -573,6 +764,12 @@ export function mySqlStatementResults(
     }
     matched &&= index < entries.length;
     grouped.push({ results: sets.flat(), success: true, meta: mySqlHeaderMeta(entries[index++]) });
+  }
+  if (statements.uncounted) {
+    // At least one statement follows, and statements that are not CALLs each return one result.
+    matched &&= index < entries.length;
+    grouped.push(...entries.slice(index).map(mySqlStatementResult));
+    index = entries.length;
   }
   // When the statements and results do not line up (SQL this scan reads differently from
   // MySQL), print one entry per result rather than guess.

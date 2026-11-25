@@ -919,6 +919,67 @@ describe('void db execute --remote (PostgreSQL)', () => {
     mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
   });
 
+  it('reads MySQL dates as text and drops URL options that change the output with --json only', async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    const url =
+      'mysql://user:p%40ss@host:3306/db?debug=true&ssl=%7B%22rejectUnauthorized%22%3Atrue%7D&rowsAsArray=true&bigNumberStrings=true';
+    mockGetDatabaseUrl.mockResolvedValue({ url });
+    mockMySqlQuery.mockImplementation((sql) =>
+      Promise.resolve(
+        sql.startsWith('SELECT @@SESSION.sql_mode')
+          ? [[{ sql_mode: '', version: '8.4.3' }], [{ name: 'sql_mode' }]]
+          : [[{ at: '2024-01-02 03:04:05.123456' }], [{ name: 'at' }]],
+      ),
+    );
+    // A backslash makes the command read the server's mode on a connection of its own first.
+    const command = String.raw`SELECT at FROM t WHERE note <> '\\'`;
+    mockMySqlCreateConnection.mockClear();
+
+    await runDbCommand(root, { action: 'execute', command, remote: true, json: true });
+
+    // mysql2 prints protocol traces to stdout for `debug`, and the URL's options would win over
+    // the ones --json passes as false, so neither connection gets them.
+    const withoutDebug =
+      'mysql://user:p%40ss@host:3306/db?ssl=%7B%22rejectUnauthorized%22%3Atrue%7D';
+    expect(mockMySqlCreateConnection.mock.calls.map(([options]) => options)).toEqual([
+      { uri: withoutDebug },
+      expect.objectContaining({ uri: withoutDebug, dateStrings: true }),
+    ]);
+    expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0][0]))).toEqual([
+      { results: [{ at: '2024-01-02 03:04:05.123456' }], success: true, meta: {} },
+    ]);
+
+    // The table keeps the URL and mysql2's own dates.
+    await runDbCommand(root, { action: 'execute', command, remote: true });
+    expect(mockMySqlCreateConnection).toHaveBeenLastCalledWith({
+      uri: url,
+      multipleStatements: true,
+    });
+    mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
+  });
+
+  it('refuses MySQL SQL whose CALL results it cannot group, before running it', async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'mysql://host/db' });
+    mockMySqlQuery.mockImplementation((sql) =>
+      Promise.resolve(
+        sql.startsWith('SELECT @@SESSION.sql_mode')
+          ? [[{ sql_mode: '', version: '8.4.3' }], [{ name: 'sql_mode' }]]
+          : [[], []],
+      ),
+    );
+    const command = String.raw`SET sql_mode = @saved; SELECT 'a\'; CALL p()`;
+
+    await expect(
+      runDbCommand(root, { action: 'execute', command, remote: true, json: true }),
+    ).rejects.toThrow('cannot group a CALL');
+    expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual([
+      'SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS version',
+    ]);
+    expect(console.log).not.toHaveBeenCalled();
+    mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
+  });
+
   it('keeps PostgreSQL numeric arrays and JSON numbers exact with --json only', async () => {
     const root = createProjectRoot({ database: 'pg' });
     mockGetDatabaseUrl.mockResolvedValue({ url: 'postgres://host/db' });

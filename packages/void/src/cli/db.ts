@@ -52,14 +52,14 @@ import {
   MYSQL_SERVER_MODE_QUERY,
   mySqlServerMode,
   mySqlStatementResults,
+  mySqlStatements,
   needsMySqlServerMode,
   pgJsonTypes,
   pgStatementResults,
   runSqliteStatements,
   splitSqliteStatements,
 } from './db-execute-results.ts';
-import type { MySqlServerMode } from './db-execute-results.ts';
-import type { StatementResult } from './db-execute-results.ts';
+import type { MySqlServerMode, MySqlStatements, StatementResult } from './db-execute-results.ts';
 import {
   assertPgExportableSchema,
   exportPgConstraints,
@@ -946,35 +946,78 @@ async function executeExternalSql(
     return;
   }
   const { createConnection } = await import('mysql2/promise');
+  const uri = json ? mySqlJsonUri(dbUrl) : dbUrl;
   // Grouping a CALL's results reads the SQL the way this server does: its sql_mode decides
   // what a backslash means, and its version and family which executable comments run. The
-  // query runs on a connection of its own, so the session the SQL runs in stays untouched
-  // (FOUND_ROWS(), ROW_COUNT(), warnings). A SET of sql_mode in the SQL itself is not followed.
-  let mode: MySqlServerMode | undefined;
-  if (json && needsMySqlServerMode(sql)) {
-    const modeClient = await createConnection({ uri: dbUrl });
-    try {
-      mode = mySqlServerMode((await modeClient.query(MYSQL_SERVER_MODE_QUERY))[0]);
-    } finally {
-      await modeClient.end();
+  // mode is read on a connection of its own, so the session the SQL runs in stays untouched
+  // (FOUND_ROWS(), ROW_COUNT(), warnings). The statements are found before the SQL runs, so SQL
+  // whose results cannot be grouped fails without running.
+  let statements: MySqlStatements | undefined;
+  if (json) {
+    let mode: MySqlServerMode | undefined;
+    if (needsMySqlServerMode(sql)) {
+      const modeClient = await createConnection({ uri });
+      try {
+        mode = mySqlServerMode((await modeClient.query(MYSQL_SERVER_MODE_QUERY))[0]);
+      } finally {
+        await modeClient.end();
+      }
     }
+    statements = mySqlStatements(sql, mode);
   }
   const mySqlClient = await createConnection({
-    uri: dbUrl,
+    uri,
     multipleStatements: true,
-    // BIGINT values past 2^53 arrive as strings instead of rounded numbers.
-    ...(json ? { supportBigNumbers: true, bigNumberStrings: false } : {}),
+    // BIGINT values past 2^53 arrive as strings instead of rounded numbers, and dates and times
+    // as the text MySQL returns, without a time zone conversion or rounding to milliseconds.
+    ...(json ? { supportBigNumbers: true, bigNumberStrings: false, dateStrings: true } : {}),
   });
   try {
     const [rows, fields] = await mySqlClient.query(sql);
-    if (json) {
-      printStatementResults(mySqlStatementResults(rows, fields, sql, mode));
+    if (statements) {
+      printStatementResults(mySqlStatementResults(rows, fields, statements));
     } else if (Array.isArray(rows) && rows.length > 0) {
       printTable(rows as Array<Record<string, unknown>>);
     }
   } finally {
     await mySqlClient.end();
   }
+}
+
+// URL options that would change --json output. mysql2 writes protocol traces to stdout for
+// `debug`, and the others change how rows and values arrive.
+const MYSQL_JSON_URL_OPTIONS = [
+  'debug',
+  'bigNumberStrings',
+  'dateStrings',
+  'decimalNumbers',
+  'jsonStrings',
+  'nestTables',
+  'rowsAsArray',
+  'supportBigNumbers',
+  'typeCast',
+];
+
+/**
+ * The URL without options that would change --json output. mysql2 reads options from the URL,
+ * and an option passed as false does not override one the URL sets.
+ */
+function mySqlJsonUri(dbUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(dbUrl);
+  } catch {
+    // mysql2 reads the URL the same way and reports it.
+    return dbUrl;
+  }
+  const options = MYSQL_JSON_URL_OPTIONS.filter((option) => url.searchParams.has(option));
+  if (options.length === 0) {
+    return dbUrl;
+  }
+  for (const option of options) {
+    url.searchParams.delete(option);
+  }
+  return url.toString();
 }
 
 function printStatementResults(results: Array<StatementResult>): void {

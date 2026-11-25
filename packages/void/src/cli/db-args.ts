@@ -16,10 +16,11 @@ export const dbSubcommands: Array<SubcommandDef> = [
     name: 'execute',
     arg: '<sql>',
     description: 'Run SQL against the database (use --remote for the deployed database)',
+    // No --json: this menu draws on stdout, which --json keeps for its result. Scripts pass it
+    // on the command line, which skips the menu.
     flags: [
       { name: '--remote', description: 'Run against the deployed database' },
       { name: '--yes', description: 'Skip the confirmation prompt' },
-      { name: '--json', description: "Print each statement's results as JSON" },
     ],
   },
   {
