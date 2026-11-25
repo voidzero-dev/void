@@ -63,7 +63,12 @@ async function runSubcommandGroup<T>(
     .slice(1)
     .some((arg) => subcommands.some(({ name }) => name === arg));
   try {
-    if ((!sub || (sub.startsWith('-') && !hasNamedSubcommand)) && process.stdin.isTTY) {
+    // The menu draws on stdout, which --json keeps for its result.
+    if (
+      (!sub || (sub.startsWith('-') && !hasNamedSubcommand)) &&
+      process.stdin.isTTY &&
+      !args.includes('--json')
+    ) {
       const { promptSubcommand } = await import('./subcommand-prompt.ts');
       if (command === 'platform' && !sub) {
         log.info(

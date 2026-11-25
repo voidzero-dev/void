@@ -11,7 +11,6 @@ import {
 import { createRequire } from 'node:module';
 import type { Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
-import { isSingleStatement } from '@void/deploy-core';
 import { confirm, isCancel, outro, log, text } from '@voidzero-dev/vite-plus-prompts';
 import { createJiti } from 'jiti';
 import { basename, dirname, extname, join, relative, resolve } from 'pathslash';
@@ -53,6 +52,7 @@ import {
   mySqlStatementResults,
   pgStatementResults,
   runSqliteStatements,
+  splitSqliteStatements,
 } from './db-execute-results.ts';
 import type { StatementResult } from './db-execute-results.ts';
 import {
@@ -937,11 +937,16 @@ async function executeExternalSql(
     return;
   }
   const { createConnection } = await import('mysql2/promise');
-  const mySqlClient = await createConnection({ uri: dbUrl, multipleStatements: true });
+  const mySqlClient = await createConnection({
+    uri: dbUrl,
+    multipleStatements: true,
+    // BIGINT values past 2^53 arrive as strings instead of rounded numbers.
+    ...(json ? { supportBigNumbers: true, bigNumberStrings: false } : {}),
+  });
   try {
     const [rows, fields] = await mySqlClient.query(sql);
     if (json) {
-      printStatementResults(mySqlStatementResults(rows, fields));
+      printStatementResults(mySqlStatementResults(rows, fields, sql));
     } else if (Array.isArray(rows) && rows.length > 0) {
       printTable(rows as Array<Record<string, unknown>>);
     }
@@ -1084,7 +1089,7 @@ async function runExecute(
     }
 
     // The platform proxy returns the first statement's result only.
-    if (json && dialect === 'sqlite' && !isSingleStatement(sql)) {
+    if (json && dialect === 'sqlite' && splitSqliteStatements(sql).length > 1) {
       throw new Error(
         'db: `void db execute --remote --json` runs one statement at a time on a Void platform D1 database. Run each statement separately.',
       );

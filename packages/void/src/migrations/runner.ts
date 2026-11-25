@@ -12,6 +12,8 @@ export type SqliteStatement<T = unknown> = {
   get(...params: Array<unknown>): T | undefined;
   all(...params: Array<unknown>): Array<T>;
   run(...params: Array<unknown>): void;
+  /** Read INTEGER columns as BigInt, so values past 2^53 keep every digit. */
+  safeIntegers(toggle?: boolean): SqliteStatement<T>;
 };
 
 type SqliteTransaction<T = unknown> = {

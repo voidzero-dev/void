@@ -892,6 +892,38 @@ describe('void db execute', () => {
       ]);
     });
 
+    it('keeps every digit of integers past 2^53, in rows and in last_row_id', async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, {
+        action: 'execute',
+        command:
+          "INSERT INTO items (id, name) VALUES (9007199254740993, 'big'); " +
+          'SELECT id, 9007199254740991 AS safe, -9223372036854775808 AS low FROM items',
+        json: true,
+      });
+
+      const [insert, select] = jsonOutput();
+      expect(insert.meta.last_row_id).toBe('9007199254740993');
+      expect(select.results).toEqual([
+        { id: '9007199254740993', safe: 9_007_199_254_740_991, low: '-9223372036854775808' },
+      ]);
+    });
+
+    it('tells an infinite REAL apart from NULL', async () => {
+      const root = await createLocalSqliteProject();
+
+      await runDbCommand(root, {
+        action: 'execute',
+        command: 'SELECT 1e999 AS up, -1e999 AS down, NULL AS missing',
+        json: true,
+      });
+
+      expect(jsonOutput()[0].results).toEqual([
+        { up: 'Infinity', down: '-Infinity', missing: null },
+      ]);
+    });
+
     it('counts the rows a RETURNING statement wrote', async () => {
       const root = await createLocalSqliteProject();
 

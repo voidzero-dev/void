@@ -83,6 +83,19 @@ vi.mock('pg', () => ({
   },
 }));
 
+const mockMySqlQuery = vi.fn<(sql: string) => Promise<[unknown, unknown]>>(() =>
+  Promise.resolve([[], []]),
+);
+const mockMySqlCreateConnection = vi.fn((_options: Record<string, unknown>) => ({
+  query: mockMySqlQuery,
+  end: () => Promise.resolve(),
+}));
+
+vi.mock('mysql2/promise', () => ({
+  createConnection: (options: Record<string, unknown>) =>
+    Promise.resolve(mockMySqlCreateConnection(options)),
+}));
+
 const fetchMock = vi.fn<typeof fetch>();
 let originalFetch: typeof globalThis.fetch | undefined;
 
@@ -105,11 +118,15 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
 
 const roots: Array<string> = [];
 
-function createProjectRoot(options: { database?: 'pg'; d1Binding?: string } = {}): string {
+function createProjectRoot(
+  options: { database?: 'pg' | 'mysql'; d1Binding?: string } = {},
+): string {
   const root = mkdtempSync(join(tmpdir(), 'void-db-execute-remote-'));
   roots.push(root);
 
-  const voidConfig: Record<string, unknown> = options.database === 'pg' ? { database: 'pg' } : {};
+  const voidConfig: Record<string, unknown> = options.database
+    ? { database: options.database }
+    : {};
   if (options.d1Binding) {
     voidConfig.inference = { bindings: { db: options.d1Binding } };
   }
@@ -674,6 +691,23 @@ describe('void db execute --remote (D1)', () => {
       expect(mockConfirm).not.toHaveBeenCalled();
     });
 
+    it('sends one CREATE TRIGGER, whose body holds semicolons, through the platform proxy', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ results: [], success: true, meta: {} }));
+      const sql =
+        "CREATE TRIGGER log_users AFTER INSERT ON users BEGIN INSERT INTO log VALUES ('a;b'); UPDATE users SET seen = 1; END;";
+
+      await runDbCommand(createProjectRoot(), {
+        action: 'execute',
+        command: sql,
+        remote: true,
+        json: true,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ sql });
+      expect(jsonOutput()).toEqual([{ results: [], success: true, meta: {} }]);
+    });
+
     it('writes errors to stderr and leaves stdout empty', async () => {
       mockGetToken.mockReturnValue(null);
 
@@ -810,6 +844,31 @@ describe('void db execute --remote (PostgreSQL)', () => {
         remote: true,
       }),
     ).rejects.toThrow(PlatformApiError);
+  });
+
+  it('reads MySQL BIGINT values past 2^53 as strings with --json only', async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'mysql://host/db' });
+    mockMySqlQuery.mockResolvedValue([[{ id: '9007199254740993' }], [{ name: 'id' }]]);
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command: 'SELECT id FROM users',
+      remote: true,
+      json: true,
+    });
+
+    expect(mockMySqlCreateConnection).toHaveBeenLastCalledWith(
+      expect.objectContaining({ supportBigNumbers: true, bigNumberStrings: false }),
+    );
+    expect(JSON.parse(String(vi.mocked(console.log).mock.calls[0][0]))).toEqual([
+      { results: [{ id: '9007199254740993' }], success: true, meta: {} },
+    ]);
+
+    await runDbCommand(root, { action: 'execute', command: 'SELECT id FROM users', remote: true });
+    expect(mockMySqlCreateConnection).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ supportBigNumbers: true }),
+    );
   });
 
   it('prints every statement of a multi-statement query with --json', async () => {
